@@ -716,8 +716,10 @@
 			
 			if (error) throw error;
 			offerNames = data || [];
+			console.log('✅ Loaded offer names:', offerNames.length, offerNames);
 		} catch (error) {
-			console.error('Error loading offer names:', error);
+			console.error('❌ Error loading offer names:', error);
+			offerNames = [];
 		}
 	}
 	
@@ -996,9 +998,7 @@
 									{#each templates as template (template.id)}
 										<th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50 border-l-2 border-blue-200">
 											<div class="flex flex-col items-center gap-1 min-w-[150px]">
-												<span class="font-bold text-blue-700">{template.name}</span>
-												<span class="text-xs text-gray-600">{template.startDate} to {template.endDate}</span>
-												<span class="text-xs text-green-600 font-semibold">{template.selectedProducts.size} selected</span>
+												<span class="font-bold text-blue-700">{#if template.offerNameId}{@const selectedOfferName = offerNames.find(o => o.id === template.offerNameId)}{#if selectedOfferName}{selectedOfferName.name_en}{:else}{template.name}{/if}{:else}{template.name}{/if}</span>{#if template.offerNameId}{@const so = offerNames.find(o => o.id === template.offerNameId)}{#if so}<span class="text-xs text-gray-500">{template.name}</span>{/if}{/if}<span class="text-xs text-gray-600">{template.startDate} to {template.endDate}</span><span class="text-xs text-green-600 font-semibold">{template.selectedProducts.size} selected</span>
 											</div>
 										</th>
 									{/each}
@@ -1151,13 +1151,18 @@
 							{#if template.offerNameId}
 								{@const selectedOfferName = offerNames.find(o => o.id === template.offerNameId)}
 								{#if selectedOfferName}
-									<div class="flex items-center gap-2 bg-blue-50 p-2 rounded">
+									<div class="flex items-center gap-2 bg-blue-50 p-2 rounded mb-3">
 										<svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
 										</svg>
-										<span class="text-gray-600">Offer:</span>
-										<span class="font-semibold text-blue-700">{selectedOfferName.name_en}</span>
+										<div class="flex-1">
+											<span class="text-xs text-gray-600 block">Offer Name:</span>
+											<span class="font-semibold text-blue-700">{selectedOfferName.name_en}</span>
+										</div>
 									</div>
+								{:else}
+									<!-- Debug: Show when offer name ID exists but not found -->
+									<div class="text-xs text-orange-600 mb-2">Offer ID: {template.offerNameId} (not found in {offerNames.length} names)</div>
 								{/if}
 							{/if}
 							
@@ -1214,3 +1219,4 @@
 		on:cancel={handlePriceValidationCancel}
 	/>
 {/if}
+

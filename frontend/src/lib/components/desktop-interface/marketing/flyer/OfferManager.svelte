@@ -66,7 +66,10 @@
 		try {
 			const { data, error } = await supabase
 				.from('flyer_offers')
-				.select('*')
+				.select(`
+					*,
+					offer_name:offer_names(id, name_en, name_ar)
+				`)
 				.order('created_at', { ascending: false });
 			
 			if (error) {
@@ -184,6 +187,9 @@
 								Template ID
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Offer Name
+							</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								Template Name
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -220,6 +226,15 @@
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
 									{offer.template_id}
+								</td>
+								<td class="px-6 py-4 text-sm text-gray-900">
+									{#if offer.offer_name}
+										<div class="font-semibold">{offer.offer_name.name_en}</div>
+									{:else if offer.offer_name}
+										<div class="font-semibold">{offer.offer_name}</div>
+									{:else}
+										<span class="text-gray-400 italic">—</span>
+									{/if}
 								</td>
 								<td class="px-6 py-4 text-sm font-medium text-gray-900">
 									{offer.template_name}

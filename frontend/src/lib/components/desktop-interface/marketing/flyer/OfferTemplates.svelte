@@ -30,7 +30,10 @@
 		try {
 			const { data, error } = await supabase
 				.from('flyer_offers')
-				.select('*')
+				.select(`
+					*,
+					offer_name:offer_names(id, name_en, name_ar)
+				`)
 				.eq('is_active', true)
 				.order('created_at', { ascending: false });
 
@@ -369,7 +372,12 @@
 						>
 							<div class="flex items-start justify-between mb-4">
 								<div class="flex-1">
-									<h3 class="text-lg font-bold text-gray-800 mb-1">{template.template_name}</h3>
+								{#if template.offer_name && template.offer_name.name_en}
+									<h3 class="text-lg font-bold text-gray-800 mb-1">{template.offer_name.name_en}</h3>
+										<p class="text-sm text-gray-600 mb-1">Template: {template.template_name}</p>
+									{:else}
+										<h3 class="text-lg font-bold text-gray-800 mb-1">{template.template_name}</h3>
+									{/if}
 									<p class="text-xs text-gray-500 font-mono">{template.template_id}</p>
 								</div>
 								<span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
@@ -422,8 +430,13 @@
 							Back to Templates
 						</button>
 						<div>
-							<h2 class="text-2xl font-bold text-gray-800">{selectedTemplate.template_name}</h2>
-							<p class="text-sm text-gray-600">{selectedTemplate.template_id}</p>
+						{#if selectedTemplate.offer_name && selectedTemplate.offer_name.name_en}
+							<h2 class="text-2xl font-bold text-gray-800">{selectedTemplate.offer_name.name_en}</h2>
+								<p class="text-sm text-gray-600">Template: {selectedTemplate.template_name} • {selectedTemplate.template_id}</p>
+							{:else}
+								<h2 class="text-2xl font-bold text-gray-800">{selectedTemplate.template_name}</h2>
+								<p class="text-sm text-gray-600">{selectedTemplate.template_id}</p>
+							{/if}
 						</div>
 					</div>
 					<button
