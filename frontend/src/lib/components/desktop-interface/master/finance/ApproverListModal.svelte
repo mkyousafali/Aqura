@@ -107,15 +107,15 @@
 					approval_status: 'sent_for_approval',
 					approval_requested_by: currentUserId,
 					approval_requested_at: new Date().toISOString(),
+					assigned_approver_id: selectedApprover.userId,
 					updated_at: new Date().toISOString()
 				})
 				.eq('id', paymentData.id);
 
 			if (updateError) throw updateError;
 
-			// Send notification to approvers
+			// Send notification to the selected approver only
 			try {
-				const approverUserIds = approvers.map(a => a.userId);
 				const paymentAmount = formatAmount(paymentData.final_bill_amount || paymentData.bill_amount);
 				
 				await notificationManagement.createNotification({
@@ -124,7 +124,7 @@
 					type: 'approval_request',
 					priority: 'high',
 					target_type: 'specific_users',
-					target_users: approverUserIds
+					target_users: [selectedApprover.userId]
 				}, currentUserId);
 				
 				console.log('✅ Approval notification sent to approvers:', approverUserIds);

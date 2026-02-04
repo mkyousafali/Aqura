@@ -82,12 +82,13 @@ export async function fetchApprovalCounts(): Promise<void> {
       console.error("❌ Error fetching approval permissions:", permsError);
     }
 
-    // If user can approve vendor payments, count them
+    // If user can approve vendor payments, count them (only those assigned to this user)
     if (approvalPerms && approvalPerms.can_approve_vendor_payments) {
       const { data: vendorPaymentsData, error: vpError } = await supabase
         .from("vendor_payment_schedule")
         .select("id, final_bill_amount, bill_amount")
-        .eq("approval_status", "sent_for_approval");
+        .eq("approval_status", "sent_for_approval")
+        .eq("assigned_approver_id", user.id);
 
       if (vpError) {
         console.error("❌ Error fetching vendor payment counts:", vpError);
