@@ -17,6 +17,11 @@
 	let successfullyLoadedImages: Set<string> = new Set();
 	let imageRefs: Record<string, HTMLImageElement> = {};
 	
+	// Image popup modal state
+	let showImagePopup: boolean = false;
+	let popupImageUrl: string = '';
+	let popupImageName: string = '';
+	
 	// Variation modal state
 	let showVariationModal: boolean = false;
 	let currentVariationGroup: any = null;
@@ -32,7 +37,8 @@
 	let offerNames: any[] = [];
 	
 	// Filter selections
-	let selectedParentCategory: string = '';
+	let selectedCategories: string[] = [];
+	let categorySearchQuery: string = '';
 	
 	// Filter options (unique values from products)
 	let parentCategories: string[] = [];
@@ -46,6 +52,11 @@
 	const totalSteps: number = 3;
 	
 	// Step 1: Templates with auto-generated template_id
+	interface ProductSelection {
+		page: number;
+		order: number;
+	}
+	
 	interface OfferTemplate {
 		id: string;
 		templateId: string; // Unique identifier for database
@@ -53,7 +64,7 @@
 		offerNameId?: string; // Reference to offer_names table
 		startDate: string;
 		endDate: string;
-		selectedProducts: Set<string>; // Set of barcodes
+		selectedProducts: Map<string, ProductSelection>; // Map of barcode -> {page, order}
 	}
 	
 	let templates: OfferTemplate[] = [];
@@ -95,7 +106,7 @@
 			offerNameId: '', // Selected from dropdown
 			startDate: '',
 			endDate: '',
-			selectedProducts: new Set()
+			selectedProducts: new Map<string, ProductSelection>()
 		};
 		templates = [...templates, newTemplate];
 		nextTemplateId++;
@@ -154,16 +165,74 @@
 		// Normal product selection (not a variation)
 		templates = templates.map(t => {
 			if (t.id === templateId) {
-				const newSet = new Set(t.selectedProducts);
-				if (newSet.has(barcode)) {
-					newSet.delete(barcode);
+				const newMap = new Map(t.selectedProducts);
+				if (newMap.has(barcode)) {
+					newMap.delete(barcode);
 				} else {
-					newSet.add(barcode);
+					// Default page 1, order = next available
+					const existingOnPage1 = Array.from(newMap.values()).filter(v => v.page === 1).length;
+					newMap.set(barcode, { page: 1, order: existingOnPage1 + 1 });
 				}
-				return { ...t, selectedProducts: newSet };
+				return { ...t, selectedProducts: newMap };
 			}
 			return t;
 		});
+	}
+	
+	// Get next available order number for a page in a template
+	function getNextOrderForPage(template: OfferTemplate, page: number, excludeBarcode?: string): number {
+		let maxOrder = 0;
+		template.selectedProducts.forEach((selection, barcode) => {
+			if (selection.page === page && barcode !== excludeBarcode) {
+				if (selection.order > maxOrder) {
+					maxOrder = selection.order;
+				}
+			}
+		});
+		return maxOrder + 1;
+	}
+	
+	// Update page/order for a selected product - auto-assign next order when page changes
+	function updateProductPageOrder(templateId: string, barcode: string, page: number, order: number, autoOrder: boolean = false) {
+		templates = templates.map(t => {
+			if (t.id === templateId && t.selectedProducts.has(barcode)) {
+				const newMap = new Map(t.selectedProducts);
+				const newPage = page || 1;
+				// If autoOrder is true or page changed, get next available order
+				const currentSelection = t.selectedProducts.get(barcode);
+				let newOrder = order || 1;
+				if (autoOrder || (currentSelection && currentSelection.page !== newPage)) {
+					newOrder = getNextOrderForPage({ ...t, selectedProducts: newMap }, newPage, barcode);
+				}
+				newMap.set(barcode, { page: newPage, order: newOrder });
+				return { ...t, selectedProducts: newMap };
+			}
+			return t;
+		});
+	}
+	
+	// Get page summary for a template (reactive)
+	function getPageSummary(template: OfferTemplate): Map<number, number> {
+		const summary = new Map<number, number>();
+		template.selectedProducts.forEach((selection) => {
+			const count = summary.get(selection.page) || 0;
+			summary.set(selection.page, count + 1);
+		});
+		return summary;
+	}
+	
+	// Get page-order display string
+	function getPageOrderDisplay(template: OfferTemplate, barcode: string): string {
+		const selection = template.selectedProducts.get(barcode);
+		if (selection) {
+			return `${selection.page}-${selection.order}`;
+		}
+		return '';
+	}
+	
+	// Get selection details for a product
+	function getProductSelection(template: OfferTemplate, barcode: string): ProductSelection | undefined {
+		return template.selectedProducts.get(barcode);
 	}
 	
 	// Load variation group and show modal
@@ -228,16 +297,19 @@
 		// Update template with selected variations
 		templates = templates.map(t => {
 			if (t.id === templateId) {
-				const newSet = new Set(t.selectedProducts);
+				const newMap = new Map(t.selectedProducts);
 				
 				// Remove all products from this group first
 				const groupBarcodes = [currentVariationGroup.barcode, ...currentVariations.map(v => v.barcode)];
-				groupBarcodes.forEach(barcode => newSet.delete(barcode));
+				groupBarcodes.forEach(barcode => newMap.delete(barcode));
 				
-				// Add selected products
-				selectedBarcodes.forEach(barcode => newSet.add(barcode));
+				// Add selected products with default page/order
+				selectedBarcodes.forEach((barcode: string, index: number) => {
+					const existingOnPage1 = Array.from(newMap.values()).filter(v => v.page === 1).length;
+					newMap.set(barcode, { page: 1, order: existingOnPage1 + index + 1 });
+				});
 				
-				return { ...t, selectedProducts: newSet };
+				return { ...t, selectedProducts: newMap };
 			}
 			return t;
 		});
@@ -318,11 +390,13 @@
 					continue;
 				}
 				
-				// Insert selected products for this offer
+				// Insert selected products for this offer with page/order
 				if (template.selectedProducts.size > 0) {
-					const offerProducts = Array.from(template.selectedProducts).map(barcode => ({
+					const offerProducts = Array.from(template.selectedProducts.entries()).map(([barcode, selection]) => ({
 						offer_id: offerData.id,
-						product_barcode: barcode
+						product_barcode: barcode,
+						page_number: selection.page,
+						page_order: selection.order
 					}));
 					
 					const { error: productsError } = await supabase
@@ -481,11 +555,13 @@
 					continue;
 				}
 				
-				// Insert selected products for this offer
+				// Insert selected products for this offer with page/order
 				if (template.selectedProducts.size > 0) {
-					const offerProducts = Array.from(template.selectedProducts).map(barcode => ({
+					const offerProducts = Array.from(template.selectedProducts.entries()).map(([barcode, selection]) => ({
 						offer_id: offerData.id,
-						product_barcode: barcode
+						product_barcode: barcode,
+						page_number: selection.page,
+						page_order: selection.order
 					}));
 					
 					const { error: productsError } = await supabase
@@ -687,9 +763,9 @@
 			);
 		}
 		
-		// Apply category filters
-		if (selectedParentCategory) {
-			filtered = filtered.filter(product => product.category_name === selectedParentCategory);
+		// Apply category filters (multiple categories)
+		if (selectedCategories.length > 0) {
+			filtered = filtered.filter(product => selectedCategories.includes(product.category_name));
 		}
 		
 		// Note: Parent sub category and sub category filters are disabled 
@@ -700,9 +776,19 @@
 	
 	// Clear all filters
 	function clearFilters() {
-		selectedParentCategory = '';
+		selectedCategories = [];
+		categorySearchQuery = '';
 		searchQuery = '';
 		applyFilters();
+	}
+	
+	// Toggle category selection
+	function toggleCategory(category: string) {
+		if (selectedCategories.includes(category)) {
+			selectedCategories = selectedCategories.filter(c => c !== category);
+		} else {
+			selectedCategories = [...selectedCategories, category];
+		}
 	}
 	
 	// Load offer names from database
@@ -724,7 +810,49 @@
 	}
 	
 	// Watch for filter changes
-	$: searchQuery, selectedParentCategory, applyFilters();
+	$: searchQuery, selectedCategories, applyFilters();
+	
+	// Sort products: selected ones at top, sorted by page-order (1-1, 1-2, 2-1, etc.)
+	$: sortedFilteredProducts = (() => {
+		// Build a map of barcode -> best page-order (lowest page, then lowest order)
+		const selectionMap = new Map<string, {page: number, order: number}>();
+		templates.forEach(t => {
+			t.selectedProducts.forEach((selection, barcode) => {
+				const existing = selectionMap.get(barcode);
+				if (!existing || selection.page < existing.page || 
+					(selection.page === existing.page && selection.order < existing.order)) {
+					selectionMap.set(barcode, selection);
+				}
+			});
+		});
+		
+		return [...filteredProducts].sort((a, b) => {
+			const aSelection = selectionMap.get(a.barcode);
+			const bSelection = selectionMap.get(b.barcode);
+			
+			// Selected products come first
+			if (aSelection && !bSelection) return -1;
+			if (!aSelection && bSelection) return 1;
+			
+			// Both selected: sort by page, then by order
+			if (aSelection && bSelection) {
+				if (aSelection.page !== bSelection.page) {
+					return aSelection.page - bSelection.page;
+				}
+				return aSelection.order - bSelection.order;
+			}
+			
+			// Neither selected: keep original order
+			return 0;
+		});
+	})();
+	
+	// Open image popup
+	function openImagePopup(imageUrl: string, productName: string) {
+		popupImageUrl = imageUrl;
+		popupImageName = productName;
+		showImagePopup = true;
+	}
 	
 	onMount(() => {
 		// Load offer names when component mounts
@@ -910,30 +1038,93 @@
 				</div>
 				
 				<!-- Category Filters -->
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-						<select 
-							bind:value={selectedParentCategory}
-							class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-						>
-							<option value="">All Categories</option>
-							{#each parentCategories as category}
-								<option value={category}>{category}</option>
+						<!-- Search input for category -->
+						<div class="relative">
+							<input
+								type="text"
+								bind:value={categorySearchQuery}
+								placeholder="Search categories..."
+								class="w-full px-3 py-2 pr-8 border border-gray-300 rounded-t-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+							/>
+							{#if categorySearchQuery}
+								<button
+									on:click={() => categorySearchQuery = ''}
+									class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+									title="Clear search"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							{/if}
+						</div>
+						<!-- Multi-select category list -->
+						<div class="max-h-40 overflow-y-auto border border-gray-300 border-t-0 rounded-b-lg bg-white">
+							{#each parentCategories.filter(cat => !categorySearchQuery || cat.toLowerCase().includes(categorySearchQuery.toLowerCase())) as category}
+								<label class="flex items-center px-3 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0">
+									<input
+										type="checkbox"
+										checked={selectedCategories.includes(category)}
+										on:change={() => toggleCategory(category)}
+										class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+									/>
+									<span class="ml-2 text-sm text-gray-700">{category}</span>
+								</label>
+							{:else}
+								<p class="px-3 py-2 text-sm text-gray-500 italic">No categories found</p>
 							{/each}
-						</select>
+						</div>
+						<p class="text-xs text-gray-500 mt-1">
+							{selectedCategories.length > 0 ? `${selectedCategories.length} selected` : 'All categories'} • {parentCategories.filter(cat => !categorySearchQuery || cat.toLowerCase().includes(categorySearchQuery.toLowerCase())).length} available
+						</p>
 					</div>
 					
-					<div class="flex items-end">
-						<button 
-							on:click={clearFilters}
-							class="w-full px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
-						>
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-							</svg>
-							Clear Filters
-						</button>
+					<!-- Page Summary Cards - Right Side -->
+					<div class="md:col-span-2">
+						<label class="block text-sm font-medium text-gray-700 mb-1">Page Summary</label>
+						{#if templates.length > 0 && templates.some(t => t.selectedProducts.size > 0)}
+							<div class="space-y-2 max-h-48 overflow-y-auto">
+								{#each templates as template (template.id)}
+									{@const pageSummary = getPageSummary(template)}
+									{#if template.selectedProducts.size > 0}
+										<div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-200">
+											<div class="flex items-center justify-between mb-1">
+												<h4 class="text-sm font-semibold text-blue-800">{template.name}</h4>
+												<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded">{template.selectedProducts.size} products</span>
+											</div>
+											<div class="grid grid-cols-5 gap-1">
+												{#each Array.from(pageSummary.entries()).sort((a, b) => a[0] - b[0]) as [pageNum, count]}
+													<div class="flex items-center justify-center bg-white rounded px-2 py-1.5 shadow-sm border border-blue-100">
+														<span class="text-xs font-medium text-gray-600">P{pageNum}:</span>
+														<span class="ml-1 text-sm font-bold text-blue-600">{count}</span>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								{/each}
+							</div>
+						{:else}
+							<div class="bg-gray-50 rounded-lg p-4 border border-gray-200 text-center">
+								<p class="text-sm text-gray-500">No products selected yet</p>
+								<p class="text-xs text-gray-400 mt-1">Select products to see page summary</p>
+							</div>
+						{/if}
+						
+						<div class="mt-2">
+							<button 
+								on:click={clearFilters}
+								class="w-full px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+							>
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+								Clear Filters
+							</button>
+						</div>
 					</div>
 				</div>
 				
@@ -1005,22 +1196,29 @@
 								</tr>
 							</thead>
 							<tbody class="bg-white divide-y divide-gray-200">
-								{#each filteredProducts as product, i (i)}
+								{#each sortedFilteredProducts as product (product.barcode)}
 									<tr class="hover:bg-gray-50 transition-colors">
 										<td class="px-6 py-4 whitespace-nowrap sticky left-0 bg-white z-10">
 											<div class="w-16 h-16 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden">
 												{#if product.image_url}
-													<img 
-														bind:this={imageRefs[product.barcode]}
-														src={product.image_url}
-														alt={product.product_name_en || product.barcode}
-														data-barcode={product.barcode}
-														class="w-full h-full object-contain"
-														loading="lazy"
-														decoding="async"
-														on:load={handleImageLoad}
-														on:error={handleImageError}
-													/>
+													<button
+														type="button"
+														on:click={() => openImagePopup(product.image_url, product.product_name_en || product.barcode)}
+														class="w-full h-full cursor-zoom-in hover:opacity-80 transition-opacity"
+														title="Click to enlarge"
+													>
+														<img 
+															bind:this={imageRefs[product.barcode]}
+															src={product.image_url}
+															alt={product.product_name_en || product.barcode}
+															data-barcode={product.barcode}
+															class="w-full h-full object-contain"
+															loading="lazy"
+															decoding="async"
+															on:load={handleImageLoad}
+															on:error={handleImageError}
+														/>
+													</button>
 												{:else}
 													<svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1090,15 +1288,40 @@
 											</div>
 										{/if}
 									</td>
-									<!-- Dynamic Template Checkboxes -->
+									<!-- Dynamic Template Checkboxes with Page/Order -->
 										{#each templates as template (template.id)}
-											<td class="px-4 py-4 text-center bg-blue-50 border-l-2 border-blue-200">
-												<input 
-													type="checkbox"
-													checked={isProductSelected(template.id, product.barcode)}
-													on:change={() => toggleProductSelection(template.id, product.barcode)}
-													class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-												/>
+											<td class="px-2 py-2 text-center bg-blue-50 border-l-2 border-blue-200">
+												<div class="flex flex-col items-center gap-1">
+													<input 
+														type="checkbox"
+														checked={isProductSelected(template.id, product.barcode)}
+														on:change={() => toggleProductSelection(template.id, product.barcode)}
+														class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+													/>
+													{#if isProductSelected(template.id, product.barcode)}
+														{@const selection = getProductSelection(template, product.barcode)}
+														<div class="flex items-center gap-1 mt-1">
+															<input 
+																type="number"
+																min="1"
+																value={selection?.page || 1}
+																on:change={(e) => updateProductPageOrder(template.id, product.barcode, parseInt(e.currentTarget.value) || 1, 0, true)}
+																class="w-14 h-8 text-sm text-center border border-gray-300 rounded focus:ring-blue-500 font-semibold"
+																title="Page number - order auto-assigns"
+															/>
+															<span class="text-gray-500 font-bold text-lg">-</span>
+															<input 
+																type="number"
+																min="1"
+																value={selection?.order || 1}
+																on:change={(e) => updateProductPageOrder(template.id, product.barcode, selection?.page || 1, parseInt(e.currentTarget.value) || 1, false)}
+																class="w-14 h-8 text-sm text-center border border-gray-300 rounded focus:ring-blue-500 font-semibold"
+																title="Order on page"
+															/>
+														</div>
+														<span class="text-sm font-bold text-blue-600">{getPageOrderDisplay(template, product.barcode)}</span>
+													{/if}
+												</div>
 											</td>
 										{/each}
 									</tr>
@@ -1203,7 +1426,7 @@
 		parentProduct={currentVariationGroup}
 		variations={currentVariations}
 		templateId={currentTemplateForVariation}
-		preSelectedBarcodes={templates.find(t => t.id === currentTemplateForVariation)?.selectedProducts || new Set()}
+		preSelectedBarcodes={new Set(templates.find(t => t.id === currentTemplateForVariation)?.selectedProducts.keys() || [])}
 		on:confirm={handleVariationConfirm}
 		on:cancel={handleVariationCancel}
 	/>
@@ -1218,5 +1441,44 @@
 		on:removeMismatches={handleRemovePriceMismatches}
 		on:cancel={handlePriceValidationCancel}
 	/>
+{/if}
+
+<!-- Image Popup Modal -->
+{#if showImagePopup}
+	<div 
+		class="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4"
+		on:click={() => showImagePopup = false}
+		on:keydown={(e) => e.key === 'Escape' && (showImagePopup = false)}
+		role="dialog"
+		aria-modal="true"
+		aria-label="Image preview"
+	>
+		<div class="relative max-w-4xl max-h-[90vh] bg-white rounded-lg overflow-hidden shadow-2xl" on:click|stopPropagation>
+			<!-- Close button -->
+			<button
+				on:click={() => showImagePopup = false}
+				class="absolute top-2 right-2 z-10 bg-white rounded-full p-2 shadow-lg hover:bg-gray-100 transition-colors"
+				title="Close"
+			>
+				<svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+				</svg>
+			</button>
+			
+			<!-- Image -->
+			<div class="p-4 bg-gray-100">
+				<img 
+					src={popupImageUrl}
+					alt={popupImageName}
+					class="max-w-full max-h-[70vh] mx-auto object-contain"
+				/>
+			</div>
+			
+			<!-- Product name -->
+			<div class="p-4 bg-white border-t">
+				<p class="text-center text-lg font-semibold text-gray-800">{popupImageName}</p>
+			</div>
+		</div>
+	</div>
 {/if}
 
