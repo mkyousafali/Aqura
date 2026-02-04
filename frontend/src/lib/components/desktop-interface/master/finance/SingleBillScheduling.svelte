@@ -485,7 +485,13 @@
 		try {
 			uploading = true;
 			const timestamp = Date.now();
-			const fileName = `${timestamp}_${billFile.name}`;
+			// Sanitize filename: remove Arabic characters and special characters
+			const sanitizedFileName = billFile.name
+				.replace(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g, '') // Remove Arabic
+				.replace(/[^a-zA-Z0-9._-]/g, '_') // Replace special chars with underscore
+				.replace(/_{2,}/g, '_') // Replace multiple underscores with single
+				.trim();
+			const fileName = `${timestamp}_${sanitizedFileName}`;
 			const filePath = `${selectedBranchId}/${fileName}`;
 
 			const { data, error } = await supabase.storage
