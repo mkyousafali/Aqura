@@ -28,6 +28,9 @@
 	let priceValidationIssues: any[] = [];
 	let pendingSaveData: any = null;
 	
+	// Offer names from database
+	let offerNames: any[] = [];
+	
 	// Filter selections
 	let selectedParentCategory: string = '';
 	
@@ -47,6 +50,7 @@
 		id: string;
 		templateId: string; // Unique identifier for database
 		name: string;
+		offerNameId?: string; // Reference to offer_names table
 		startDate: string;
 		endDate: string;
 		selectedProducts: Set<string>; // Set of barcodes
@@ -88,6 +92,7 @@
 			id: `temp-${nextTemplateId}`, // Temporary ID for UI
 			templateId: generateTemplateId(), // Unique database ID
 			name: `Offer ${nextTemplateId}`,
+			offerNameId: '', // Selected from dropdown
 			startDate: '',
 			endDate: '',
 			selectedProducts: new Set()
@@ -300,6 +305,7 @@
 					.insert({
 						template_id: template.templateId,
 						template_name: template.name,
+						offer_name_id: template.offerNameId || null,
 						start_date: template.startDate,
 						end_date: template.endDate
 					})
@@ -453,7 +459,7 @@
 		
 		isLoading = true;
 		
-		try {
+		try{
 			// Save each template as a separate offer
 			for (const template of templates) {
 				// Insert offer with template_id
@@ -462,6 +468,7 @@
 					.insert({
 						template_id: template.templateId,
 						template_name: template.name,
+						offer_name_id: template.offerNameId || null,
 						start_date: template.startDate,
 						end_date: template.endDate
 					})
@@ -698,10 +705,28 @@
 		applyFilters();
 	}
 	
+	// Load offer names from database
+	async function loadOfferNames() {
+		try {
+			const { data, error } = await supabase
+				.from('offer_names')
+				.select('*')
+				.eq('is_active', true)
+				.order('id', { ascending: true });
+			
+			if (error) throw error;
+			offerNames = data || [];
+		} catch (error) {
+			console.error('Error loading offer names:', error);
+		}
+	}
+	
 	// Watch for filter changes
 	$: searchQuery, selectedParentCategory, applyFilters();
 	
 	onMount(() => {
+		// Load offer names when component mounts
+		loadOfferNames();
 		// Don't load products immediately - only load when user reaches step 2
 	});
 </script>
@@ -800,6 +825,19 @@
 								</div>
 								
 								<div class="space-y-3">
+									<div>
+										<label class="block text-xs font-medium text-gray-600 mb-1">Offer Name (Optional)</label>
+										<select
+											bind:value={template.offerNameId}
+											class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+										>
+											<option value="">-- Select Offer Name --</option>
+											{#each offerNames as offerName}
+												<option value={offerName.id}>{offerName.name_en}</option>
+											{/each}
+										</select>
+									</div>
+									
 									<div>
 										<label class="block text-xs font-medium text-gray-600 mb-1">Start Date *</label>
 										<input 
@@ -1110,6 +1148,19 @@
 						<p class="text-xs text-gray-500 mb-3 font-mono">{template.templateId}</p>
 						
 						<div class="space-y-2 text-sm">
+							{#if template.offerNameId}
+								{@const selectedOfferName = offerNames.find(o => o.id === template.offerNameId)}
+								{#if selectedOfferName}
+									<div class="flex items-center gap-2 bg-blue-50 p-2 rounded">
+										<svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+										</svg>
+										<span class="text-gray-600">Offer:</span>
+										<span class="font-semibold text-blue-700">{selectedOfferName.name_en}</span>
+									</div>
+								{/if}
+							{/if}
+							
 							<div class="flex items-center gap-2">
 								<svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
