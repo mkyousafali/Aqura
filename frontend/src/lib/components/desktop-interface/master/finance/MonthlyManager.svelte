@@ -744,6 +744,18 @@
 						<option value={i + 1}>{i + 1}</option>
 					{/each}
 				</select>
+				<button 
+					class="refresh-btn"
+					on:click={loadData}
+					disabled={isLoading}
+					title="Refresh data for selected date"
+				>
+					{#if isLoading}
+						<span class="inline-spinner">↻</span>
+					{:else}
+						🔄 Refresh
+					{/if}
+				</button>
 			</div>
 		</div>
 
@@ -1299,6 +1311,38 @@
 	.month-selector select:focus {
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.refresh-btn {
+		padding: 8px 16px;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.refresh-btn:active:not(:disabled) {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.filters-section {
