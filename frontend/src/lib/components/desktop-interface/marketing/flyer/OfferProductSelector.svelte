@@ -169,9 +169,9 @@
 				if (newMap.has(barcode)) {
 					newMap.delete(barcode);
 				} else {
-					// Default page 1, order = next available
-					const existingOnPage1 = Array.from(newMap.values()).filter(v => v.page === 1).length;
-					newMap.set(barcode, { page: 1, order: existingOnPage1 + 1 });
+					// Default page 1, order = next available (using max order, not count)
+					const nextOrder = getNextOrderForPage(t, 1, barcode);
+					newMap.set(barcode, { page: 1, order: nextOrder });
 				}
 				return { ...t, selectedProducts: newMap };
 			}
@@ -211,13 +211,58 @@
 		});
 	}
 	
-	// Get page summary for a template (reactive)
+	// Check if two date ranges overlap
+	function datesOverlap(start1: string, end1: string, start2: string, end2: string): boolean {
+		if (!start1 || !end1 || !start2 || !end2) return false;
+		const s1 = new Date(start1).getTime();
+		const e1 = new Date(end1).getTime();
+		const s2 = new Date(start2).getTime();
+		const e2 = new Date(end2).getTime();
+		return s1 <= e2 && s2 <= e1;
+	}
+	
+	// Check if product is blocked in a template due to overlap with another template
+	function isProductBlockedInTemplate(templateId: string, barcode: string): { blocked: boolean, conflictTemplate: string | null } {
+		const targetTemplate = templates.find(t => t.id === templateId);
+		if (!targetTemplate || !targetTemplate.startDate || !targetTemplate.endDate) {
+			return { blocked: false, conflictTemplate: null };
+		}
+		
+		// Check if product is selected in any other template with overlapping dates
+		for (const otherTemplate of templates) {
+			if (otherTemplate.id === templateId) continue; // Skip same template
+			if (!otherTemplate.startDate || !otherTemplate.endDate) continue;
+			
+			// Check if this product is selected in the other template
+			if (otherTemplate.selectedProducts.has(barcode)) {
+				// Check if dates overlap
+				if (datesOverlap(targetTemplate.startDate, targetTemplate.endDate, otherTemplate.startDate, otherTemplate.endDate)) {
+					return { blocked: true, conflictTemplate: otherTemplate.name };
+				}
+			}
+		}
+		
+		return { blocked: false, conflictTemplate: null };
+	}
+	
+	// Get page summary for a template (reactive) - counts unique page-order slots, not individual products
 	function getPageSummary(template: OfferTemplate): Map<number, number> {
 		const summary = new Map<number, number>();
+		// Track unique page-order combinations per page
+		const uniqueOrdersPerPage = new Map<number, Set<number>>();
+		
 		template.selectedProducts.forEach((selection) => {
-			const count = summary.get(selection.page) || 0;
-			summary.set(selection.page, count + 1);
+			if (!uniqueOrdersPerPage.has(selection.page)) {
+				uniqueOrdersPerPage.set(selection.page, new Set());
+			}
+			uniqueOrdersPerPage.get(selection.page)!.add(selection.order);
 		});
+		
+		// Count unique orders per page
+		uniqueOrdersPerPage.forEach((orders, page) => {
+			summary.set(page, orders.size);
+		});
+		
 		return summary;
 	}
 	
@@ -303,11 +348,17 @@
 				const groupBarcodes = [currentVariationGroup.barcode, ...currentVariations.map(v => v.barcode)];
 				groupBarcodes.forEach(barcode => newMap.delete(barcode));
 				
-				// Add selected products with default page/order
-				selectedBarcodes.forEach((barcode: string, index: number) => {
+				// Add selected products with SAME page/order (all variants share one slot)
+				if (selectedBarcodes.length > 0) {
+					// Get the next available order on page 1
 					const existingOnPage1 = Array.from(newMap.values()).filter(v => v.page === 1).length;
-					newMap.set(barcode, { page: 1, order: existingOnPage1 + index + 1 });
-				});
+					const sharedOrder = existingOnPage1 + 1;
+					
+					// All variants get the same page and order
+					selectedBarcodes.forEach((barcode: string) => {
+						newMap.set(barcode, { page: 1, order: sharedOrder });
+					});
+				}
 				
 				return { ...t, selectedProducts: newMap };
 			}
@@ -1086,20 +1137,20 @@
 					<div class="md:col-span-2">
 						<label class="block text-sm font-medium text-gray-700 mb-1">Page Summary</label>
 						{#if templates.length > 0 && templates.some(t => t.selectedProducts.size > 0)}
-							<div class="space-y-2 max-h-48 overflow-y-auto">
+							<div class="grid grid-cols-1 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
 								{#each templates as template (template.id)}
 									{@const pageSummary = getPageSummary(template)}
 									{#if template.selectedProducts.size > 0}
 										<div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-200">
 											<div class="flex items-center justify-between mb-1">
-												<h4 class="text-sm font-semibold text-blue-800">{template.name}</h4>
-												<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded">{template.selectedProducts.size} products</span>
+												<h4 class="text-xs font-semibold text-blue-800 truncate" title={template.name}>{template.name}</h4>
+												<span class="text-xs font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded ml-1 whitespace-nowrap">{template.selectedProducts.size}</span>
 											</div>
-											<div class="grid grid-cols-5 gap-1">
+											<div class="grid grid-cols-5 gap-0.5">
 												{#each Array.from(pageSummary.entries()).sort((a, b) => a[0] - b[0]) as [pageNum, count]}
-													<div class="flex items-center justify-center bg-white rounded px-2 py-1.5 shadow-sm border border-blue-100">
+													<div class="flex items-center justify-center bg-white rounded px-1 py-1 shadow-sm border border-blue-100">
 														<span class="text-xs font-medium text-gray-600">P{pageNum}:</span>
-														<span class="ml-1 text-sm font-bold text-blue-600">{count}</span>
+														<span class="ml-0.5 text-xs font-bold text-blue-600">{count}</span>
 													</div>
 												{/each}
 											</div>
@@ -1290,14 +1341,29 @@
 									</td>
 									<!-- Dynamic Template Checkboxes with Page/Order -->
 										{#each templates as template (template.id)}
+											{@const blockInfo = isProductBlockedInTemplate(template.id, product.barcode)}
 											<td class="px-2 py-2 text-center bg-blue-50 border-l-2 border-blue-200">
 												<div class="flex flex-col items-center gap-1">
-													<input 
-														type="checkbox"
-														checked={isProductSelected(template.id, product.barcode)}
-														on:change={() => toggleProductSelection(template.id, product.barcode)}
-														class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-													/>
+													{#if blockInfo.blocked && !isProductSelected(template.id, product.barcode)}
+														<!-- Blocked - show X with tooltip -->
+														<div class="relative group">
+															<div class="w-5 h-5 flex items-center justify-center bg-red-100 rounded border-2 border-red-300 cursor-not-allowed">
+																<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+																</svg>
+															</div>
+															<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-red-700 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none">
+																Already in "{blockInfo.conflictTemplate}" (dates overlap)
+															</div>
+														</div>
+													{:else}
+														<input 
+															type="checkbox"
+															checked={isProductSelected(template.id, product.barcode)}
+															on:change={() => toggleProductSelection(template.id, product.barcode)}
+															class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+														/>
+													{/if}
 													{#if isProductSelected(template.id, product.barcode)}
 														{@const selection = getProductSelection(template, product.barcode)}
 														<div class="flex items-center gap-1 mt-1">
