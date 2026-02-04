@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import VariationSelectionModal from '$lib/components/desktop-interface/marketing/flyer/VariationSelectionModal.svelte';
 	import PriceValidationWarning from '$lib/components/desktop-interface/marketing/flyer/PriceValidationWarning.svelte';
+	import { notifications } from '$lib/stores/notifications';
 	
 	// Cache configuration (shared across all flyer components)
 	const CACHE_KEY = 'flyer_products_cache';
@@ -46,6 +47,15 @@
 	// Product loading - automatic batch loading
 	let pageSize: number = 25; // Batch size for automatic loading
 	let totalProducts: number = 0;
+	
+	// CREATE VARIANT GROUP state (for products not already in a group)
+	let productsToGroup: Set<string> = new Set();
+	let showCreateGroupModal: boolean = false;
+	let groupParentBarcode: string = '';
+	let groupNameEn: string = '';
+	let groupNameAr: string = '';
+	let isCreatingGroup: boolean = false;
+	let isGeneratingAIName: boolean = false;
 	
 	// Wizard steps
 	let currentStep: number = 1;
@@ -457,6 +467,197 @@
 		currentTemplateForVariation = '';
 	}
 	
+	// =========================================
+	// CREATE VARIANT GROUP FUNCTIONS
+	// =========================================
+	
+	// Toggle product selection for grouping
+	function toggleProductForGrouping(barcode: string) {
+		if (productsToGroup.has(barcode)) {
+			productsToGroup.delete(barcode);
+		} else {
+			productsToGroup.add(barcode);
+		}
+		productsToGroup = productsToGroup; // Trigger reactivity
+	}
+	
+	// Check if product can be grouped (not already in a variation group)
+	function canProductBeGrouped(product: any): boolean {
+		return !product.is_variation || !product.variation_group_name_en;
+	}
+	
+	// Open create group modal
+	function openCreateGroupModal() {
+		if (productsToGroup.size < 2) {
+			notifications.add({
+				message: 'Please select at least 2 products to create a group',
+				type: 'warning',
+				duration: 3000
+			});
+			return;
+		}
+		// Set default parent to first selected
+		groupParentBarcode = Array.from(productsToGroup)[0];
+		groupNameEn = '';
+		groupNameAr = '';
+		showCreateGroupModal = true;
+	}
+	
+	// Close create group modal
+	function closeCreateGroupModal() {
+		showCreateGroupModal = false;
+		groupParentBarcode = '';
+		groupNameEn = '';
+		groupNameAr = '';
+	}
+	
+	// Generate AI group name
+	async function generateAIGroupName() {
+		if (productsToGroup.size === 0) return;
+		
+		isGeneratingAIName = true;
+		try {
+			// Get product names for selected products
+			const selectedProductNames = products
+				.filter(p => productsToGroup.has(p.barcode))
+				.map(p => p.product_name_en)
+				.filter(Boolean);
+			
+			if (selectedProductNames.length === 0) {
+				notifications.add({
+					message: 'No product names available to generate group name',
+					type: 'warning',
+					duration: 3000
+				});
+				return;
+			}
+			
+			const response = await fetch('/api/generate-group-name', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ productNames: selectedProductNames })
+			});
+			
+			if (!response.ok) {
+				throw new Error('Failed to generate group name');
+			}
+			
+			const result = await response.json();
+			
+			if (result.success) {
+				groupNameEn = result.nameEn || '';
+				groupNameAr = result.nameAr || '';
+				notifications.add({
+					message: 'AI generated group names successfully!',
+					type: 'success',
+					duration: 2000
+				});
+			} else {
+				throw new Error(result.error || 'Unknown error');
+			}
+		} catch (error) {
+			console.error('Error generating AI name:', error);
+			notifications.add({
+				message: 'Failed to generate AI name. Please enter manually.',
+				type: 'error',
+				duration: 4000
+			});
+		} finally {
+			isGeneratingAIName = false;
+		}
+	}
+	
+	// Create the variant group
+	async function createVariantGroup() {
+		if (!groupParentBarcode || !groupNameEn || !groupNameAr) {
+			notifications.add({
+				message: 'Please fill in all required fields',
+				type: 'warning',
+				duration: 3000
+			});
+			return;
+		}
+		
+		isCreatingGroup = true;
+		try {
+			// Get variation barcodes (excluding parent)
+			const variationBarcodes = Array.from(productsToGroup).filter(
+				b => b !== groupParentBarcode
+			);
+			
+			// Call database function to create group
+			const { data, error } = await supabase.rpc('create_variation_group', {
+				p_parent_barcode: groupParentBarcode,
+				p_variation_barcodes: variationBarcodes,
+				p_group_name_en: groupNameEn,
+				p_group_name_ar: groupNameAr,
+				p_image_override: null,
+				p_user_id: null
+			});
+			
+			if (error) throw error;
+			
+			if (data && data.length > 0 && data[0].success) {
+				notifications.add({
+					message: `Variation group created: ${data[0].affected_count} products grouped`,
+					type: 'success',
+					duration: 3000
+				});
+				
+				// Update local products array for the grouped products
+				const allGroupBarcodes = [groupParentBarcode, ...variationBarcodes];
+				products = products.map(p => {
+					if (allGroupBarcodes.includes(p.barcode)) {
+						return {
+							...p,
+							is_variation: true,
+							parent_product_barcode: p.barcode === groupParentBarcode ? null : groupParentBarcode,
+							variation_group_name_en: groupNameEn,
+							variation_group_name_ar: groupNameAr
+						};
+					}
+					return p;
+				});
+				
+				// Also update filteredProducts
+				filteredProducts = filteredProducts.map(p => {
+					if (allGroupBarcodes.includes(p.barcode)) {
+						return {
+							...p,
+							is_variation: true,
+							parent_product_barcode: p.barcode === groupParentBarcode ? null : groupParentBarcode,
+							variation_group_name_en: groupNameEn,
+							variation_group_name_ar: groupNameAr
+						};
+					}
+					return p;
+				});
+				
+				// Clear selection and close modal
+				productsToGroup.clear();
+				productsToGroup = productsToGroup;
+				closeCreateGroupModal();
+			} else {
+				throw new Error(data?.[0]?.message || 'Failed to create group');
+			}
+		} catch (error: any) {
+			console.error('Error creating group:', error);
+			notifications.add({
+				message: `Failed to create group: ${error.message}`,
+				type: 'error',
+				duration: 5000
+			});
+		} finally {
+			isCreatingGroup = false;
+		}
+	}
+	
+	// Clear products to group selection
+	function clearGroupSelection() {
+		productsToGroup.clear();
+		productsToGroup = productsToGroup;
+	}
+
 	// Price validation modal handlers
 	function handlePriceValidationContinue() {
 		// User acknowledged and wants to continue with different prices
@@ -1265,6 +1466,31 @@
 				<p class="text-sm text-gray-600">
 					Showing {filteredProducts.length} of {products.length} products
 				</p>
+				
+				<!-- Create Variant Group Button (shown when products are selected for grouping) -->
+				{#if productsToGroup.size > 0}
+					<div class="flex items-center gap-3 mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+						<span class="text-sm font-medium text-purple-700">
+							{productsToGroup.size} product{productsToGroup.size > 1 ? 's' : ''} selected for grouping
+						</span>
+						<button
+							on:click={openCreateGroupModal}
+							disabled={productsToGroup.size < 2}
+							class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+							</svg>
+							Create Variant Group
+						</button>
+						<button
+							on:click={clearGroupSelection}
+							class="px-3 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors"
+						>
+							Clear
+						</button>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Products Table -->
@@ -1300,6 +1526,9 @@
 						<table class="min-w-full divide-y divide-gray-200">
 							<thead class="bg-gray-100 sticky top-0 z-10">
 								<tr>
+									<th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-100">
+										Group
+									</th>
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-20">
 										Image
 									</th>
@@ -1332,6 +1561,20 @@
 							<tbody class="bg-white divide-y divide-gray-200">
 								{#each sortedFilteredProducts as product (product.barcode)}
 									<tr class="hover:bg-gray-50 transition-colors">
+										<!-- Group Checkbox Column -->
+										<td class="px-2 py-4 whitespace-nowrap text-center">
+											{#if canProductBeGrouped(product)}
+												<input 
+													type="checkbox"
+													checked={productsToGroup.has(product.barcode)}
+													on:change={() => toggleProductForGrouping(product.barcode)}
+													class="w-5 h-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
+													title="Select for grouping"
+												/>
+											{:else}
+												<span class="text-xs text-green-600 font-medium">🔗</span>
+											{/if}
+										</td>
 										<td class="px-6 py-4 whitespace-nowrap sticky left-0 bg-white z-10">
 											<div class="w-16 h-16 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden">
 												{#if product.image_url}
@@ -1634,3 +1877,145 @@
 	</div>
 {/if}
 
+<!-- Create Variant Group Modal -->
+{#if showCreateGroupModal}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+			<div class="p-6 border-b border-gray-200">
+				<h2 class="text-2xl font-bold text-gray-800">Create Variation Group</h2>
+				<p class="text-sm text-gray-600 mt-1">
+					Grouping {productsToGroup.size} products together
+				</p>
+			</div>
+			
+			<div class="p-6 space-y-4">
+				<!-- Parent Selection -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">
+						Parent Product <span class="text-red-500">*</span>
+					</label>
+					<select
+						bind:value={groupParentBarcode}
+						class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+					>
+						{#each Array.from(productsToGroup) as barcode}
+							{@const product = products.find(p => p.barcode === barcode)}
+							{#if product}
+								<option value={barcode}>
+									{product.product_name_en} ({barcode})
+								</option>
+							{/if}
+						{/each}
+					</select>
+					<p class="text-xs text-gray-500 mt-1">
+						The parent product represents the main item in the group
+					</p>
+				</div>
+
+				<!-- AI Generate Button -->
+				<div class="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-2">
+							<span class="text-lg">✨</span>
+							<div>
+								<div class="text-sm font-medium text-purple-800">AI Group Name Generator</div>
+								<div class="text-xs text-purple-600">Automatically generate English & Arabic names</div>
+							</div>
+						</div>
+						<button
+							type="button"
+							on:click={generateAIGroupName}
+							disabled={isGeneratingAIName || productsToGroup.size === 0}
+							class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
+						>
+							{#if isGeneratingAIName}
+								<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Generating...
+							{:else}
+								🤖 Generate with AI
+							{/if}
+						</button>
+					</div>
+				</div>
+				
+				<!-- Group Name EN -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">
+						Group Name (English) <span class="text-red-500">*</span>
+					</label>
+					<input
+						type="text"
+						bind:value={groupNameEn}
+						placeholder="e.g., Coca Cola Bottles"
+						class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+					/>
+				</div>
+				
+				<!-- Group Name AR -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">
+						Group Name (Arabic) <span class="text-red-500">*</span>
+					</label>
+					<input
+						type="text"
+						bind:value={groupNameAr}
+						placeholder="مثال: زجاجات كوكاكولا"
+						dir="rtl"
+						class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 font-arabic"
+					/>
+				</div>
+				
+				<!-- Selected Products Preview -->
+				<div class="bg-gray-50 rounded-lg p-4">
+					<div class="text-sm font-medium text-gray-700 mb-2">Selected Products ({productsToGroup.size}):</div>
+					<div class="max-h-40 overflow-y-auto space-y-1">
+						{#each Array.from(productsToGroup) as barcode}
+							{@const product = products.find(p => p.barcode === barcode)}
+							{#if product}
+								<div class="text-sm text-gray-600 flex items-center gap-2">
+									{#if barcode === groupParentBarcode}
+										<span class="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-xs rounded font-medium">Parent</span>
+									{:else}
+										<span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">Variation</span>
+									{/if}
+									<span>{product.product_name_en}</span>
+								</div>
+							{/if}
+						{/each}
+					</div>
+				</div>
+			</div>
+			
+			<div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+				<button
+					on:click={closeCreateGroupModal}
+					disabled={isCreatingGroup}
+					class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+				>
+					Cancel
+				</button>
+				<button
+					on:click={createVariantGroup}
+					disabled={isCreatingGroup || !groupNameEn || !groupNameAr || !groupParentBarcode}
+					class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+				>
+					{#if isCreatingGroup}
+						<svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+						Creating...
+					{:else}
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+						</svg>
+						Create Group
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
