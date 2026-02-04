@@ -9,7 +9,7 @@
 	let filteredProducts: any[] = [];
 	let searchQuery: string = '';
 	let filterStatus: 'all' | 'grouped' | 'ungrouped' = 'all';
-	let sortBy: 'name' | 'price' | 'date' = 'name';
+	let sortBy: 'category' | 'price' = 'category';
 	let isLoading: boolean = false;
 	let selectedProducts: Set<string> = new Set();
 	
@@ -31,6 +31,7 @@
 	let imageOverrideType: 'parent' | 'variation' | 'custom' = 'parent';
 	let selectedImageBarcode: string = '';
 	let isCreatingGroup: boolean = false;
+	let isGeneratingAIName: boolean = false;
 	
 	// Group management
 	let variationGroups: any[] = [];
@@ -49,6 +50,12 @@
 	let totalProducts: number = 0;
 	let groupedProducts: number = 0;
 	let totalGroups: number = 0;
+
+	// Category filter
+	let categories: any[] = [];
+	let selectedCategoryId: string = '';
+	let categorySearchQuery: string = '';
+	let showCategoryDropdown: boolean = false;
 
 	// Realtime subscriptions
 	let realtimeSubscriptions: any[] = [];
@@ -82,20 +89,17 @@
 		}
 	}
 
-	// Handle variation audit log changes - trigger data refresh
+	// Handle variation audit log changes - just log, don't reload (we update locally)
 	function handleAuditLogChange(payload: any) {
 		const { eventType } = payload;
 		
-		// On any audit log change, reload groups and products to show latest state
+		// Just log the change, we handle updates locally for better UX
 		if (eventType === 'INSERT') {
 			console.log('✓ Variation group action recorded via realtime');
-			// Clear cache and reload fresh data
-			try {
-				localStorage.removeItem(CACHE_KEY);
-			} catch (err) {
-				console.warn('Cache clear error:', err);
+			// If in groups view, refresh groups list only
+			if (showGroupsView) {
+				loadVariationGroups();
 			}
-			Promise.all([loadVariationGroups(), loadProductsAndStats()]);
 		}
 	}
 
@@ -109,7 +113,7 @@
 	}
 
 	onMount(async () => {
-		await loadProductsAndStats();
+		await Promise.all([loadProductsAndStats(), loadCategories()]);
 		subscribeToRealtimeChanges();
 
 		// Cleanup on unmount
@@ -122,29 +126,11 @@
 		isLoading = true;
 		products = [];
 		
-		// Try to load from cache first
+		// Clear old cache to ensure we get fresh data with category
 		try {
-			const cached = localStorage.getItem(CACHE_KEY);
-			if (cached) {
-				const { data, timestamp } = JSON.parse(cached);
-				const age = Date.now() - timestamp;
-				
-				if (age < CACHE_DURATION) {
-					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
-					products = data;
-					
-					// Calculate stats from cached data
-					totalProducts = data.length;
-					groupedProducts = data.filter((p: any) => p.is_variation).length;
-					const parents = data.filter((p: any) => p.is_variation && !p.parent_product_barcode) || [];
-					totalGroups = parents.length;
-					
-					isLoading = false;
-					return;
-				}
-			}
+			localStorage.removeItem(CACHE_KEY);
 		} catch (err) {
-			console.warn('Cache read error:', err);
+			console.warn('Cache clear error:', err);
 		}
 		
 		try {
@@ -158,7 +144,7 @@
 			while (hasMore) {
 				const { data: productsData, error: productsError } = await supabase
 					.from('products')
-					.select('barcode, product_name_en, product_name_ar, is_variation, parent_product_barcode, created_at, image_url')
+					.select('barcode, product_name_en, product_name_ar, is_variation, parent_product_barcode, created_at, image_url, category_id, product_categories(name_en, name_ar)')
 					.order('product_name_en', { ascending: true })
 					.range(offset, offset + limit - 1);
 				
@@ -287,6 +273,31 @@
 			isLoadingGroups = false;
 		}
 	}
+
+	// Load categories for filter
+	async function loadCategories() {
+		try {
+			const { data, error } = await supabase
+				.from('product_categories')
+				.select('id, name_en, name_ar')
+				.order('name_en', { ascending: true });
+			
+			if (error) throw error;
+			categories = data || [];
+		} catch (error) {
+			console.error('Error loading categories:', error);
+		}
+	}
+
+	// Filtered categories for searchable dropdown
+	$: filteredCategories = categories.filter(cat => {
+		if (!categorySearchQuery) return true;
+		const query = categorySearchQuery.toLowerCase();
+		return cat.name_en?.toLowerCase().includes(query) || cat.name_ar?.includes(query);
+	});
+
+	// Get selected category name
+	$: selectedCategoryName = categories.find(c => c.id === selectedCategoryId)?.name_en || 'All Categories';
 	
 	// Reactive filtering - updates automatically when products, searchQuery, filterStatus, or sortBy change
 	$: filteredProducts = (() => {
@@ -302,6 +313,11 @@
 			);
 		}
 		
+		// Category filter
+		if (selectedCategoryId) {
+			filtered = filtered.filter(p => p.category_id === selectedCategoryId);
+		}
+		
 		// Status filter
 		if (filterStatus === 'grouped') {
 			filtered = filtered.filter(p => p.is_variation);
@@ -311,10 +327,10 @@
 		
 		// Sort
 		filtered.sort((a, b) => {
-			if (sortBy === 'name') {
-				return (a.product_name_en || '').localeCompare(b.product_name_en || '');
-			} else if (sortBy === 'date') {
-				return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+			if (sortBy === 'category') {
+				const catA = a.product_categories?.name_en || '';
+				const catB = b.product_categories?.name_en || '';
+				return catA.localeCompare(catB);
 			}
 			return 0;
 		});
@@ -445,6 +461,88 @@
 		imageOverrideType = 'parent';
 		selectedImageBarcode = '';
 	}
+
+	// Update products locally without full reload
+	function updateProductsLocally(barcodes: string[], updates: Partial<any>) {
+		products = products.map(p => {
+			if (barcodes.includes(p.barcode)) {
+				return { ...p, ...updates };
+			}
+			return p;
+		});
+		// Recalculate stats
+		totalProducts = products.length;
+		groupedProducts = products.filter(p => p.is_variation).length;
+		const parents = products.filter(p => p.is_variation && !p.parent_product_barcode) || [];
+		totalGroups = parents.length;
+	}
+
+	// AI Generate Group Name
+	async function generateAIGroupName() {
+		if (selectedProducts.size === 0) {
+			notifications.add({
+				message: 'No products selected',
+				type: 'warning',
+				duration: 3000
+			});
+			return;
+		}
+
+		isGeneratingAIName = true;
+		try {
+			// Get product names from selected products
+			const productNames: string[] = [];
+			selectedProducts.forEach((barcode) => {
+				const product = products.find(p => p.barcode === barcode);
+				if (product?.product_name_en) {
+					productNames.push(product.product_name_en);
+				}
+			});
+
+			if (productNames.length === 0) {
+				notifications.add({
+					message: 'Could not find product names',
+					type: 'error',
+					duration: 3000
+				});
+				return;
+			}
+
+			const response = await fetch('/api/generate-group-name', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ productNames })
+			});
+
+			const result = await response.json();
+
+			if (result.error) {
+				throw new Error(result.error);
+			}
+
+			// Auto-fill the group names
+			groupNameEn = result.nameEn || 'Assorted Products';
+			groupNameAr = result.nameAr || 'منتجات متنوعة';
+
+			notifications.add({
+				message: '✨ AI generated group name successfully!',
+				type: 'success',
+				duration: 3000
+			});
+
+		} catch (error) {
+			console.error('Error generating AI group name:', error);
+			notifications.add({
+				message: `Failed to generate name: ${error instanceof Error ? error.message : 'Unknown error'}`,
+				type: 'error',
+				duration: 4000
+			});
+		} finally {
+			isGeneratingAIName = false;
+		}
+	}
 	
 	async function createGroup() {
 		if (!groupParentBarcode || !groupNameEn || !groupNameAr) {
@@ -557,11 +655,26 @@
 					duration: 3000
 				});
 				
-				// Close modal and reset immediately for better UX
+				// Update products locally
+				const allGroupBarcodes = [groupParentBarcode, ...Array.from(selectedBarcodes)];
+				updateProductsLocally(allGroupBarcodes, {
+					is_variation: true,
+					parent_product_barcode: groupParentBarcode,
+					variation_group_name_en: groupNameEn,
+					variation_group_name_ar: groupNameAr
+				});
+				// Mark removed products as ungrouped
+				updateProductsLocally(barcodesToRemove as string[], {
+					is_variation: false,
+					parent_product_barcode: null,
+					variation_group_name_en: null,
+					variation_group_name_ar: null
+				});
+				
+				// Close modal and reset
 				deselectAll();
 				closeGroupModal();
 				isCreatingGroup = false;
-				// Realtime subscription will reload groups and products automatically
 			} else {
 				// CREATE MODE: Create new group
 			// Get selected barcodes excluding parent
@@ -597,11 +710,23 @@
 					duration: 3000
 				});
 				
-				// Close modal and reset immediately for better UX
+				// Update products locally
+				const allGroupBarcodes = [groupParentBarcode, ...variationBarcodes];
+				updateProductsLocally(allGroupBarcodes, {
+					is_variation: true,
+					parent_product_barcode: groupParentBarcode,
+					variation_group_name_en: groupNameEn,
+					variation_group_name_ar: groupNameAr
+				});
+				// Mark parent specifically
+				updateProductsLocally([groupParentBarcode], {
+					parent_product_barcode: null // Parent doesn't have parent_product_barcode
+				});
+				
+				// Close modal and reset
 				deselectAll();
 				closeGroupModal();
 				isCreatingGroup = false;
-				// Realtime subscription will reload groups and products automatically
 			} else {
 				throw new Error(data?.[0]?.message || 'Failed to create group');
 			}
@@ -665,7 +790,20 @@
 				duration: 3000
 			});
 			
-			// Realtime subscription will reload groups and products automatically
+			// Update products locally
+			updateProductsLocally(barcodes, {
+				is_variation: false,
+				parent_product_barcode: null,
+				variation_group_name_en: null,
+				variation_group_name_ar: null,
+				variation_order: 0,
+				variation_image_override: null
+			});
+			
+			// Remove from groups view if showing
+			if (showGroupsView) {
+				variationGroups = variationGroups.filter(g => g.parent.barcode !== parentBarcode);
+			}
 		} catch (error) {
 			console.error('Error deleting group:', error);
 			notifications.add({
@@ -736,6 +874,9 @@
 	}
 </script>
 
+<!-- Click outside to close category dropdown -->
+<svelte:window on:click={() => showCategoryDropdown = false} />
+
 <div class="variation-manager h-full flex flex-col bg-gray-50">
 	<!-- Header -->
 	<div class="bg-white border-b border-gray-200 px-6 py-4">
@@ -791,13 +932,57 @@
 					<option value="ungrouped">Ungrouped Only</option>
 				</select>
 				
-				<select
-					bind:value={sortBy}
-					class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-				>
-					<option value="name">Sort by Name</option>
-					<option value="date">Sort by Date</option>
-				</select>
+				<!-- Searchable Category Dropdown -->
+				<div class="relative" on:click|stopPropagation role="listbox" tabindex="0" on:keydown={() => {}}>
+					<button
+						type="button"
+						on:click={() => showCategoryDropdown = !showCategoryDropdown}
+						class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white min-w-[180px] text-left flex items-center justify-between gap-2"
+					>
+						<span class="truncate">{selectedCategoryName}</span>
+						<svg class="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+						</svg>
+					</button>
+					
+					{#if showCategoryDropdown}
+						<div class="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-80 overflow-hidden">
+							<!-- Search input -->
+							<div class="p-2 border-b">
+								<input
+									type="text"
+									bind:value={categorySearchQuery}
+									placeholder="Search categories..."
+									class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+									on:click|stopPropagation
+								/>
+							</div>
+							
+							<!-- Options list -->
+							<div class="max-h-56 overflow-y-auto">
+								<button
+									type="button"
+									class="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm {!selectedCategoryId ? 'bg-blue-50 text-blue-700 font-medium' : ''}"
+									on:click={() => { selectedCategoryId = ''; showCategoryDropdown = false; categorySearchQuery = ''; }}
+								>
+									All Categories
+								</button>
+								{#each filteredCategories as category (category.id)}
+									<button
+										type="button"
+										class="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm {selectedCategoryId === category.id ? 'bg-blue-50 text-blue-700 font-medium' : ''}"
+										on:click={() => { selectedCategoryId = category.id; showCategoryDropdown = false; categorySearchQuery = ''; }}
+									>
+										{category.name_en}
+									</button>
+								{/each}
+								{#if filteredCategories.length === 0}
+									<div class="px-4 py-3 text-sm text-gray-500 text-center">No categories found</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
 				
 				<button
 					on:click={toggleView}
@@ -1066,6 +1251,7 @@
 									<th class="px-4 py-3 text-left">Product Name (EN)</th>
 									<th class="px-4 py-3 text-left">Product Name (AR)</th>
 									<th class="px-4 py-3 text-left w-32">Barcode</th>
+									<th class="px-4 py-3 text-left">Category</th>
 									<th class="px-4 py-3 text-left w-32">Status</th>
 									<th class="px-4 py-3 text-left">Group</th>
 									<th class="px-4 py-3 text-center w-24">Image URL</th>
@@ -1118,6 +1304,15 @@
 										</td>
 										<td class="px-4 py-3 text-sm text-gray-500 font-mono">
 											{product.barcode}
+										</td>
+										<td class="px-4 py-3 text-sm text-gray-600">
+											{#if product.product_categories?.name_en}
+												<span class="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
+													{product.product_categories.name_en}
+												</span>
+											{:else}
+												<span class="text-gray-400">—</span>
+											{/if}
 										</td>
 										<td class="px-4 py-3">
 											{#if product.is_variation}
@@ -1232,6 +1427,35 @@
 					<p class="text-xs text-gray-500 mt-1">
 						The parent product represents the main item in the group
 					</p>
+				</div>
+
+				<!-- AI Generate Button -->
+				<div class="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-2">
+							<span class="text-lg">✨</span>
+							<div>
+								<div class="text-sm font-medium text-purple-800">AI Group Name Generator</div>
+								<div class="text-xs text-purple-600">Automatically generate English & Arabic names from product names</div>
+							</div>
+						</div>
+						<button
+							type="button"
+							on:click={generateAIGroupName}
+							disabled={isGeneratingAIName || selectedProducts.size === 0}
+							class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
+						>
+							{#if isGeneratingAIName}
+								<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Generating...
+							{:else}
+								🤖 Generate with AI
+							{/if}
+						</button>
+					</div>
 				</div>
 				
 				<!-- Group Name EN -->
