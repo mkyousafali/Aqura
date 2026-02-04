@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
+	import VariationSelectionModal from '$lib/components/desktop-interface/marketing/flyer/VariationSelectionModal.svelte';
 
 	// Cache configuration (shared across all flyer components)
 	const CACHE_KEY = 'flyer_products_cache';
@@ -23,6 +24,20 @@
 	let categories: any[] = [];
 	let categoryMap: Map<string, string> = new Map();
 	let unitMap: Map<string, string> = new Map();
+	
+	// Page/Order tracking for products
+	let productPageOrderMap: Map<string, {page: number, order: number}> = new Map();
+	
+	// Page selection modal state
+	let showPageSelectModal: boolean = false;
+	let pendingProductBarcode: string = '';
+	let selectedPage: number = 1;
+	
+	// Variation modal state
+	let showVariationModal: boolean = false;
+	let currentVariationGroup: any = null;
+	let currentVariations: any[] = [];
+	let pendingVariantBarcodes: string[] = []; // Barcodes pending page assignment after variant selection
 
 	// Load all active offer templates
 	async function loadOfferTemplates() {
@@ -83,10 +98,10 @@
 				supabase
 					.from('product_units')
 					.select('id, name_en'),
-				// Load selected products for this template
+				// Load selected products for this template with page/order
 				supabase
 					.from('flyer_offer_products')
-					.select('product_barcode')
+					.select('product_barcode, page_number, page_order')
 					.eq('offer_id', templateId)
 			];
 			
@@ -150,14 +165,20 @@
 				}
 			}
 
-			// Process selected products
+			// Process selected products with page/order
+			productPageOrderMap.clear();
 			if (selectedResult.error) {
 				console.error('Error loading selected products:', selectedResult.error);
 				alert('Error loading selected products. Please try again.');
 			} else if (selectedResult.data) {
 				selectedResult.data.forEach(item => {
 					selectedProducts.add(item.product_barcode);
+					productPageOrderMap.set(item.product_barcode, {
+						page: item.page_number || 1,
+						order: item.page_order || 1
+					});
 				});
+				productPageOrderMap = productPageOrderMap;
 				selectedProducts = selectedProducts; // Trigger reactivity
 			}
 
@@ -192,11 +213,30 @@
 			);
 		}
 		
-		// Sort: selected products first, then unselected
+		// Sort: selected products first (sorted by page-order), then unselected
 		filteredProducts = products.sort((a, b) => {
-			const aSelected = selectedProducts.has(a.barcode) ? 0 : 1;
-			const bSelected = selectedProducts.has(b.barcode) ? 0 : 1;
-			return aSelected - bSelected;
+			const aSelected = selectedProducts.has(a.barcode);
+			const bSelected = selectedProducts.has(b.barcode);
+			
+			// Selected products come first
+			if (aSelected && !bSelected) return -1;
+			if (!aSelected && bSelected) return 1;
+			
+			// Both selected: sort by page, then by order
+			if (aSelected && bSelected) {
+				const aPageOrder = productPageOrderMap.get(a.barcode);
+				const bPageOrder = productPageOrderMap.get(b.barcode);
+				const aPage = aPageOrder?.page || 999;
+				const bPage = bPageOrder?.page || 999;
+				const aOrder = aPageOrder?.order || 999;
+				const bOrder = bPageOrder?.order || 999;
+				
+				if (aPage !== bPage) return aPage - bPage;
+				return aOrder - bOrder;
+			}
+			
+			// Neither selected: keep original order
+			return 0;
 		});
 	}
 
@@ -233,14 +273,265 @@
 	}
 
 	// Toggle product selection
-	function toggleProduct(barcode: string) {
-		if (selectedProducts.has(barcode)) {
-			selectedProducts.delete(barcode);
-		} else {
-			selectedProducts.add(barcode);
+	async function toggleProduct(barcode: string) {
+		// Find the product
+		const product = allProducts.find(p => p.barcode === barcode);
+		if (!product) return;
+		
+		// Check if product is part of a variation group
+		if (product.is_variation && product.variation_group_name_en) {
+			// Load all variations in the group and show modal
+			await loadVariationGroup(barcode);
+			return;
 		}
-		selectedProducts = selectedProducts; // Trigger reactivity
-		filterProducts(); // Re-sort to move selected/unselected items
+		
+		// Normal product toggle
+		if (selectedProducts.has(barcode)) {
+			// Removing product - delete and reassign orders
+			selectedProducts.delete(barcode);
+			const removedPageOrder = productPageOrderMap.get(barcode);
+			productPageOrderMap.delete(barcode);
+			
+			// Reassign orders for remaining products on the same page
+			if (removedPageOrder) {
+				reassignOrdersForPage(removedPageOrder.page);
+			}
+			
+			selectedProducts = selectedProducts;
+			productPageOrderMap = productPageOrderMap;
+			filterProducts();
+		} else {
+			// Adding product - show modal to select page
+			pendingProductBarcode = barcode;
+			selectedPage = 1;
+			showPageSelectModal = true;
+		}
+	}
+	
+	// Load variation group for modal
+	async function loadVariationGroup(clickedBarcode: string) {
+		try {
+			const product = allProducts.find(p => p.barcode === clickedBarcode);
+			if (!product || !product.variation_group_name_en) return;
+			
+			// Get all products in the same variation group
+			const { data, error } = await supabase
+				.from('products')
+				.select('*')
+				.eq('variation_group_name_en', product.variation_group_name_en)
+				.eq('is_active', true);
+			
+			if (error) {
+				console.error('Error loading variations:', error);
+				alert('Error loading variation group. Please try again.');
+				return;
+			}
+			
+			// Add any missing products to allProducts so they're available for saving
+			data.forEach(p => {
+				if (!allProducts.find(ap => ap.barcode === p.barcode)) {
+					allProducts.push(p);
+				}
+			});
+			allProducts = allProducts; // Trigger reactivity
+			
+			// Separate parent from variations (use clicked barcode as fallback parent)
+			const parentProduct = data.find(p => p.parent_product_barcode === null || p.barcode === clickedBarcode);
+			const variations = data.filter(p => p.parent_product_barcode !== null && p.barcode !== (parentProduct?.barcode || clickedBarcode));
+			
+			if (!parentProduct) {
+				console.error('Parent product not found in variation group');
+				return;
+			}
+			
+			// Show variation selection modal
+			currentVariationGroup = parentProduct;
+			currentVariations = variations;
+			showVariationModal = true;
+		} catch (error) {
+			console.error('Error loading variation group:', error);
+			alert('Error loading variation group. Please try again.');
+		}
+	}
+	
+	// Handle variation selection confirmation
+	function handleVariationConfirm(event: CustomEvent) {
+		const { selectedBarcodes } = event.detail;
+		
+		// Get all barcodes in this group
+		const groupBarcodes = [currentVariationGroup.barcode, ...currentVariations.map(v => v.barcode)];
+		
+		// Check if any variant in the group already has a page/order assigned BEFORE removing
+		let existingPageOrder: { page: number, order: number } | null = null;
+		for (const bc of groupBarcodes) {
+			const po = productPageOrderMap.get(bc);
+			if (po) {
+				existingPageOrder = { page: po.page, order: po.order };
+				break;
+			}
+		}
+		
+		// Remove all products from this group (don't trigger reactivity yet)
+		groupBarcodes.forEach(bc => {
+			selectedProducts.delete(bc);
+			productPageOrderMap.delete(bc);
+		});
+		
+		// Close variation modal
+		showVariationModal = false;
+		currentVariationGroup = null;
+		currentVariations = [];
+		
+		// If variants were selected
+		if (selectedBarcodes.length > 0) {
+			if (existingPageOrder) {
+				// Use existing page/order for all selected variants (same page/order as group)
+				selectedBarcodes.forEach((barcode: string) => {
+					selectedProducts.add(barcode);
+					productPageOrderMap.set(barcode, { page: existingPageOrder!.page, order: existingPageOrder!.order });
+				});
+				// Trigger reactivity ONCE after all changes
+				selectedProducts = selectedProducts;
+				productPageOrderMap = productPageOrderMap;
+				filterProducts();
+			} else {
+				// Trigger reactivity for deletions first
+				selectedProducts = selectedProducts;
+				productPageOrderMap = productPageOrderMap;
+				// No existing page/order - show page selection modal
+				pendingVariantBarcodes = selectedBarcodes;
+				selectedPage = 1;
+				showPageSelectModal = true;
+			}
+		} else {
+			// Trigger reactivity after all deletions
+			selectedProducts = selectedProducts;
+			productPageOrderMap = productPageOrderMap;
+			filterProducts();
+		}
+	}
+	
+	// Handle variation modal cancel
+	function handleVariationCancel() {
+		showVariationModal = false;
+		currentVariationGroup = null;
+		currentVariations = [];
+	}
+	
+	// Get next order for a page
+	function getNextOrderForPage(page: number): number {
+		let maxOrder = 0;
+		productPageOrderMap.forEach((po) => {
+			if (po.page === page && po.order > maxOrder) {
+				maxOrder = po.order;
+			}
+		});
+		return maxOrder + 1;
+	}
+	
+	// Reassign orders for all products on a page sequentially
+	// Keeps variants in the same group with the same order number
+	function reassignOrdersForPage(page: number) {
+		// Get all products on this page with their variation group
+		const productsOnPage: {barcode: string, order: number, variationGroup: string | null}[] = [];
+		productPageOrderMap.forEach((po, barcode) => {
+			if (po.page === page) {
+				const product = allProducts.find(p => p.barcode === barcode);
+				const variationGroup = product?.is_variation ? product.variation_group_name_en : null;
+				productsOnPage.push({ barcode, order: po.order, variationGroup });
+			}
+		});
+		
+		// Sort by current order
+		productsOnPage.sort((a, b) => a.order - b.order);
+		
+		// Group by variation group and assign sequential orders
+		// Variants in the same group get the same order
+		let currentOrder = 0;
+		const groupOrderMap = new Map<string, number>(); // variation_group_name -> assigned order
+		
+		productsOnPage.forEach((item) => {
+			let assignedOrder: number;
+			
+			if (item.variationGroup) {
+				// This is a variant - check if its group already has an order
+				if (groupOrderMap.has(item.variationGroup)) {
+					assignedOrder = groupOrderMap.get(item.variationGroup)!;
+				} else {
+					// First variant of this group encountered
+					currentOrder++;
+					groupOrderMap.set(item.variationGroup, currentOrder);
+					assignedOrder = currentOrder;
+				}
+			} else {
+				// Normal product - gets its own order
+				currentOrder++;
+				assignedOrder = currentOrder;
+			}
+			
+			const existing = productPageOrderMap.get(item.barcode);
+			if (existing) {
+				productPageOrderMap.set(item.barcode, { page: existing.page, order: assignedOrder });
+			}
+		});
+	}
+	
+	// Confirm page selection and add product(s)
+	function confirmPageSelection() {
+		const nextOrder = getNextOrderForPage(selectedPage);
+		
+		// Check if we're adding variant group or single product
+		if (pendingVariantBarcodes.length > 0) {
+			// Add all variants with SAME page/order (they share one slot)
+			pendingVariantBarcodes.forEach((bc: string) => {
+				selectedProducts.add(bc);
+				productPageOrderMap.set(bc, { page: selectedPage, order: nextOrder });
+			});
+			pendingVariantBarcodes = [];
+		} else if (pendingProductBarcode) {
+			// Single product
+			selectedProducts.add(pendingProductBarcode);
+			productPageOrderMap.set(pendingProductBarcode, { page: selectedPage, order: nextOrder });
+			pendingProductBarcode = '';
+		}
+		
+		selectedProducts = selectedProducts;
+		productPageOrderMap = productPageOrderMap;
+		filterProducts();
+		
+		// Close modal
+		showPageSelectModal = false;
+	}
+	
+	// Cancel page selection
+	function cancelPageSelection() {
+		showPageSelectModal = false;
+		pendingProductBarcode = '';
+		pendingVariantBarcodes = [];
+	}
+	
+	// Update page/order for a product
+	function updateProductPageOrder(barcode: string, newPage: number, newOrder: number) {
+		const existing = productPageOrderMap.get(barcode);
+		if (existing) {
+			const oldPage = existing.page;
+			productPageOrderMap.set(barcode, { page: newPage, order: newOrder });
+			productPageOrderMap = productPageOrderMap;
+			
+			// If page changed, reassign orders on old page
+			if (oldPage !== newPage) {
+				reassignOrdersForPage(oldPage);
+			}
+			
+			filterProducts();
+		}
+	}
+	
+	// Get unique pages from current selections
+	function getUniquePages(): number[] {
+		const pages = new Set<number>();
+		productPageOrderMap.forEach((po) => pages.add(po.page));
+		return Array.from(pages).sort((a, b) => a - b);
 	}
 
 	// Save product selections
@@ -268,10 +559,13 @@
 				const insertData = Array.from(selectedProducts).map(barcode => {
 					// Find the product to get its cost and sales_price
 					const product = allProducts.find(p => p.barcode === barcode);
+					const pageOrder = productPageOrderMap.get(barcode);
 					
 					return {
 						offer_id: selectedTemplate.id,
 						product_barcode: barcode,
+						page_number: pageOrder?.page || 1,
+						page_order: pageOrder?.order || 1,
 						cost: product?.cost || 0,
 						sales_price: product?.sales_price || 0,
 						profit_amount: product?.cost && product?.sales_price 
@@ -549,6 +843,9 @@
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 										Variation Group
 									</th>
+									<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+										Page-Order
+									</th>
 								</tr>
 							</thead>
 							<tbody class="bg-white divide-y divide-gray-200">
@@ -652,6 +949,43 @@
 												<span class="text-gray-400">—</span>
 											{/if}
 										</td>
+										<td class="px-6 py-4 text-sm text-center">
+											{#if selectedProducts.has(product.barcode)}
+												{@const pageOrder = productPageOrderMap.get(product.barcode)}
+												{#if pageOrder}
+													<div class="flex items-center justify-center gap-1">
+														<input 
+															type="number"
+															min="1"
+															value={pageOrder.page}
+															on:change={(e) => {
+																const newPage = parseInt(e.currentTarget.value) || 1;
+																const nextOrder = getNextOrderForPage(newPage);
+																updateProductPageOrder(product.barcode, newPage, nextOrder);
+															}}
+															class="w-16 h-10 text-base text-center border border-gray-300 rounded focus:ring-blue-500 font-bold"
+															title="Page number"
+														/>
+														<span class="text-gray-500 font-bold text-lg">-</span>
+														<input 
+															type="number"
+															min="1"
+															value={pageOrder.order}
+															on:change={(e) => {
+																const newOrder = parseInt(e.currentTarget.value) || 1;
+																updateProductPageOrder(product.barcode, pageOrder.page, newOrder);
+															}}
+															class="w-16 h-10 text-base text-center border border-gray-300 rounded focus:ring-blue-500 font-bold"
+															title="Order on page"
+														/>
+													</div>
+												{:else}
+													<span class="text-gray-400">—</span>
+												{/if}
+											{:else}
+												<span class="text-gray-400">—</span>
+											{/if}
+										</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -670,3 +1004,89 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Page Selection Modal -->
+{#if showPageSelectModal}
+	{@const pendingProduct = allProducts.find(p => p.barcode === pendingProductBarcode)}
+	{@const isVariantGroup = pendingVariantBarcodes.length > 0}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+			<div class="p-6 border-b border-gray-200">
+				<h2 class="text-xl font-bold text-gray-800">Select Page</h2>
+				<p class="text-sm text-gray-600 mt-1">
+					{#if isVariantGroup}
+						Adding {pendingVariantBarcodes.length} variant product{pendingVariantBarcodes.length > 1 ? 's' : ''} (same page/order)
+					{:else}
+						Adding: {pendingProduct?.product_name_en || pendingProductBarcode}
+					{/if}
+				</p>
+			</div>
+			
+			<div class="p-6 space-y-4">
+				<div>
+					<span class="block text-sm font-medium text-gray-700 mb-2">Page Number</span>
+					<div class="flex items-center gap-2">
+						<input 
+							type="number"
+							min="1"
+							bind:value={selectedPage}
+							class="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-lg font-bold text-center"
+						/>
+						<span class="text-sm text-gray-500">
+							(Next order: {getNextOrderForPage(selectedPage)})
+						</span>
+					</div>
+				</div>
+				
+				{#if getUniquePages().length > 0}
+					<div>
+						<span class="block text-sm font-medium text-gray-700 mb-2">Existing Pages</span>
+						<div class="flex flex-wrap gap-2">
+							{#each getUniquePages() as page}
+								<button
+									type="button"
+									on:click={() => selectedPage = page}
+									class="px-3 py-1 text-sm rounded-lg transition-colors {selectedPage === page ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+								>
+									Page {page}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+			
+			<div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+				<button
+					on:click={cancelPageSelection}
+					class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+				>
+					Cancel
+				</button>
+				<button
+					on:click={confirmPageSelection}
+					class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+				>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+					</svg>
+					Add to Page {selectedPage}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Variation Selection Modal -->
+{#if showVariationModal && currentVariationGroup}
+	{@const groupBarcodes = new Set([currentVariationGroup.barcode, ...currentVariations.map(v => v.barcode)])}
+	{@const preSelected = new Set([...groupBarcodes].filter(b => selectedProducts.has(b)))}
+	<VariationSelectionModal
+		parentProduct={currentVariationGroup}
+		variations={currentVariations}
+		templateId={selectedTemplate?.id || ''}
+		preSelectedBarcodes={preSelected}
+		on:confirm={handleVariationConfirm}
+		on:cancel={handleVariationCancel}
+	/>
+{/if}
