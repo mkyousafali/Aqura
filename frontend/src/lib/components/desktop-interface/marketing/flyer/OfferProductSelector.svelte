@@ -152,8 +152,15 @@
 		const product = products.find(p => p.barcode === barcode);
 		if (!product) return;
 		
-		// Check if product is part of a variation group
-		if (product.is_variation) {
+		console.log('toggleProductSelection:', { 
+			barcode, 
+			is_variation: product.is_variation, 
+			variation_group_name_en: product.variation_group_name_en,
+			parent_product_barcode: product.parent_product_barcode
+		});
+		
+		// Check if product is part of a variation group (must have both is_variation AND variation_group_name_en)
+		if (product.is_variation && product.variation_group_name_en) {
 			// Determine parent barcode
 			const parentBarcode = product.parent_product_barcode || product.barcode;
 			
@@ -162,7 +169,7 @@
 			return;
 		}
 		
-		// Normal product selection (not a variation)
+		// Normal product selection (not a variation or no group name)
 		templates = templates.map(t => {
 			if (t.id === templateId) {
 				const newMap = new Map(t.selectedProducts);
@@ -171,6 +178,7 @@
 				} else {
 					// Default page 1, order = next available (using max order, not count)
 					const nextOrder = getNextOrderForPage(t, 1, barcode);
+					console.log('Adding regular product with order:', nextOrder);
 					newMap.set(barcode, { page: 1, order: nextOrder });
 				}
 				return { ...t, selectedProducts: newMap };
@@ -180,10 +188,29 @@
 	}
 	
 	// Get next available order number for a page in a template
-	function getNextOrderForPage(template: OfferTemplate, page: number, excludeBarcode?: string): number {
+	// Optionally exclude a barcode or all barcodes from a variation group
+	function getNextOrderForPage(template: OfferTemplate, page: number, excludeBarcode?: string, excludeGroupParent?: string): number {
+		// Build set of barcodes to exclude
+		const excludeBarcodes = new Set<string>();
+		if (excludeBarcode) {
+			excludeBarcodes.add(excludeBarcode);
+		}
+		// If excluding a group, find the group name and exclude all products with that group name
+		if (excludeGroupParent) {
+			const parentProduct = products.find(p => p.barcode === excludeGroupParent);
+			const groupName = parentProduct?.variation_group_name_en;
+			if (groupName) {
+				products.forEach(p => {
+					if (p.is_variation && p.variation_group_name_en === groupName) {
+						excludeBarcodes.add(p.barcode);
+					}
+				});
+			}
+		}
+		
 		let maxOrder = 0;
 		template.selectedProducts.forEach((selection, barcode) => {
-			if (selection.page === page && barcode !== excludeBarcode) {
+			if (selection.page === page && !excludeBarcodes.has(barcode)) {
 				if (selection.order > maxOrder) {
 					maxOrder = selection.order;
 				}
@@ -193,18 +220,61 @@
 	}
 	
 	// Update page/order for a selected product - auto-assign next order when page changes
+	// For variant products, update ALL variants in the same group together
 	function updateProductPageOrder(templateId: string, barcode: string, page: number, order: number, autoOrder: boolean = false) {
+		// Check if this product is a variant with a VALID variation group
+		const product = products.find(p => p.barcode === barcode);
+		// Only treat as variant if it has BOTH is_variation=true AND a parent_product_barcode (meaning it's part of a group)
+		const hasParent = product?.parent_product_barcode && product.parent_product_barcode !== product.barcode;
+		const isVariant = product?.is_variation && product?.variation_group_name_en && hasParent;
+		
+		console.log('updateProductPageOrder:', {
+			barcode,
+			is_variation: product?.is_variation,
+			variation_group_name_en: product?.variation_group_name_en,
+			parent_product_barcode: product?.parent_product_barcode,
+			isVariant,
+			hasParent
+		});
+		
 		templates = templates.map(t => {
 			if (t.id === templateId && t.selectedProducts.has(barcode)) {
 				const newMap = new Map(t.selectedProducts);
 				const newPage = page || 1;
-				// If autoOrder is true or page changed, get next available order
 				const currentSelection = t.selectedProducts.get(barcode);
 				let newOrder = order || 1;
+				
+				// Only auto-calculate order if autoOrder is true OR page actually changed
 				if (autoOrder || (currentSelection && currentSelection.page !== newPage)) {
-					newOrder = getNextOrderForPage({ ...t, selectedProducts: newMap }, newPage, barcode);
+					// For variants, exclude all products in the same group when calculating next order
+					if (isVariant) {
+						newOrder = getNextOrderForPage({ ...t, selectedProducts: newMap }, newPage, undefined, product.parent_product_barcode);
+					} else {
+						newOrder = getNextOrderForPage({ ...t, selectedProducts: newMap }, newPage, barcode);
+					}
 				}
-				newMap.set(barcode, { page: newPage, order: newOrder });
+				
+				// If this is a variant with a valid group, update ALL variants in the same group
+				if (isVariant) {
+					// Find all products in the same variation group by name (more reliable)
+					const groupProducts = products.filter(p => 
+						p.is_variation && 
+						p.variation_group_name_en === product.variation_group_name_en &&
+						p.parent_product_barcode // Must have a parent to be considered a variant
+					);
+					console.log('Updating variant group:', groupProducts.map(p => p.barcode));
+					// Update all variants in the group that are selected
+					groupProducts.forEach(gp => {
+						if (newMap.has(gp.barcode)) {
+							newMap.set(gp.barcode, { page: newPage, order: newOrder });
+						}
+					});
+				} else {
+					// Regular product - only update this one
+					console.log('Updating single product:', barcode, { page: newPage, order: newOrder });
+					newMap.set(barcode, { page: newPage, order: newOrder });
+				}
+				
 				return { ...t, selectedProducts: newMap };
 			}
 			return t;
@@ -350,9 +420,16 @@
 				
 				// Add selected products with SAME page/order (all variants share one slot)
 				if (selectedBarcodes.length > 0) {
-					// Get the next available order on page 1
-					const existingOnPage1 = Array.from(newMap.values()).filter(v => v.page === 1).length;
-					const sharedOrder = existingOnPage1 + 1;
+					// Get the next available order on page 1 using MAX order (not count)
+					let maxOrderOnPage1 = 0;
+					newMap.forEach((selection) => {
+						if (selection.page === 1 && selection.order > maxOrderOnPage1) {
+							maxOrderOnPage1 = selection.order;
+						}
+					});
+					const sharedOrder = maxOrderOnPage1 + 1;
+					
+					console.log('handleVariationConfirm: maxOrder=', maxOrderOnPage1, 'sharedOrder=', sharedOrder, 'selectedBarcodes=', selectedBarcodes);
 					
 					// All variants get the same page and order
 					selectedBarcodes.forEach((barcode: string) => {
@@ -1140,11 +1217,17 @@
 							<div class="grid grid-cols-1 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
 								{#each templates as template (template.id)}
 									{@const pageSummary = getPageSummary(template)}
+									{@const offerName = offerNames.find(o => o.id === template.offerNameId)}
 									{#if template.selectedProducts.size > 0}
 										<div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-200">
-											<div class="flex items-center justify-between mb-1">
-												<h4 class="text-xs font-semibold text-blue-800 truncate" title={template.name}>{template.name}</h4>
-												<span class="text-xs font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded ml-1 whitespace-nowrap">{template.selectedProducts.size}</span>
+											<div class="flex flex-col mb-1">
+												{#if offerName}
+													<span class="text-xs font-bold text-purple-700 uppercase">{offerName.name_en}</span>
+												{/if}
+												<div class="flex items-center justify-between">
+													<h4 class="text-xs font-semibold text-blue-800 truncate" title={template.name}>{template.name}</h4>
+													<span class="text-xs font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded ml-1 whitespace-nowrap">{template.selectedProducts.size}</span>
+												</div>
 											</div>
 											<div class="grid grid-cols-5 gap-0.5">
 												{#each Array.from(pageSummary.entries()).sort((a, b) => a[0] - b[0]) as [pageNum, count]}
@@ -1488,11 +1571,14 @@
 
 <!-- Variation Selection Modal -->
 {#if showVariationModal && currentVariationGroup}
+	{@const groupBarcodes = new Set([currentVariationGroup.barcode, ...currentVariations.map(v => v.barcode)])}
+	{@const templateSelection = templates.find(t => t.id === currentTemplateForVariation)?.selectedProducts}
+	{@const preSelected = new Set([...groupBarcodes].filter(b => templateSelection?.has(b)))}
 	<VariationSelectionModal
 		parentProduct={currentVariationGroup}
 		variations={currentVariations}
 		templateId={currentTemplateForVariation}
-		preSelectedBarcodes={new Set(templates.find(t => t.id === currentTemplateForVariation)?.selectedProducts.keys() || [])}
+		preSelectedBarcodes={preSelected}
 		on:confirm={handleVariationConfirm}
 		on:cancel={handleVariationCancel}
 	/>
