@@ -95,6 +95,7 @@ export const arabicLocale: LocaleData = {
       offerProductEditor: "محرر منتجات العرض",
       createNewOffer: "إنشاء عرض جديد",
       pricingManager: "مدير التسعير",
+      erpEntryManager: "مدير إدخال ERP",
       generateFlyers: "توليد النشرات",
       shelfPaperManager: "مدير ورق الرف",
       couponDashboard: "لوحة التخفيضات",

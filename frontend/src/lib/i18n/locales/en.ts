@@ -93,6 +93,7 @@ export const englishLocale: LocaleData = {
       offerProductEditor: "Offer Product Editor",
       createNewOffer: "Create New Offer",
       pricingManager: "Pricing Manager",
+      erpEntryManager: "ERP Entry Manager",
       generateFlyers: "Generate Flyers",
       shelfPaperManager: "Shelf Paper Manager",
       couponDashboard: "Coupon Dashboard",

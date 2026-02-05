@@ -7,6 +7,7 @@
 	import { cashierUser } from '$lib/stores/cashierAuth';
 	import { onMount, createEventDispatcher } from 'svelte';
 	import NotificationCenter from '$lib/components/desktop-interface/master/communication/NotificationCenter.svelte';
+	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -170,6 +171,33 @@
 		});
 	}
 
+	function openReportIncident() {
+		closeMenu();
+		const windowId = generateWindowId('report-incident');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Report Incident #${instanceNumber}`,
+			component: ReportIncident,
+			icon: '📝',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			props: {
+				violation: null,
+				employees: [],
+				branches: []
+			}
+		});
+	}
+
 	function toggleLanguage() {
 		closeMenu();
 		const newLocale = $currentLocale === 'en' ? 'ar' : 'en';
@@ -242,6 +270,10 @@
 						{#if counts.unread > 0}
 							<span class="menu-item-badge">{counts.unread}</span>
 						{/if}
+					</button>
+					<button class="menu-item" on:click={openReportIncident}>
+						<span class="menu-item-icon">📝</span>
+						<span class="menu-item-text">{$_('nav.reportIncident') || 'Report Incident'}</span>
 					</button>
 					<div class="menu-divider"></div>
 

@@ -59,6 +59,7 @@
 	import OfferProductSelector from '$lib/components/desktop-interface/marketing/flyer/OfferProductSelector.svelte';
 	import OfferManager from '$lib/components/desktop-interface/marketing/flyer/OfferManager.svelte';
 	import PricingManager from '$lib/components/desktop-interface/marketing/flyer/PricingManager.svelte';
+	import ErpEntryManager from '$lib/components/desktop-interface/marketing/flyer/ErpEntryManager.svelte';
 	import FlyerGenerator from '$lib/components/desktop-interface/marketing/flyer/FlyerGenerator.svelte';
 	import FlyerTemplates from '$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte';
 	import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
@@ -2057,6 +2058,24 @@ function openApprovalCenter() {
 		showMediaSubmenu = false;
 	}
 
+	function openErpEntryManager() {
+		const windowId = generateWindowId('erp-entry-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `ERP Entry Manager #${instanceNumber}`,
+			component: ErpEntryManager,
+			icon: '📊',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
 	function openGenerateFlyers() {
 		const windowId = generateWindowId('generate-flyers');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2947,6 +2966,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openPricingManager}>
 								<span class="menu-icon">💵</span>
 								<span class="menu-text">{t('nav.pricingManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ERP_ENTRY_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openErpEntryManager}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">{t('nav.erpEntryManager')}</span>
 							</button>
 						</div>
 					{/if}
