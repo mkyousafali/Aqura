@@ -32,6 +32,74 @@
 	let showSuccessModal: boolean = false;
 	let successMessage: string = '';
 	
+	// Edit modal state
+	let showEditModal: boolean = false;
+	let editingProduct: any = null;
+	let editData: any = {};
+	
+	// Open edit modal for product
+	function openEditModal(product: any) {
+		editingProduct = product;
+		editData = {
+			product_name_en: product.product_name_en,
+			product_name_ar: product.product_name_ar,
+			unit_name_en: product.unit_name,
+			unit_name_ar: product.unit_name_ar,
+			variation_group_name_en: product.variation_group_name_en,
+			variation_group_name_ar: product.variation_group_name_ar
+		};
+		showEditModal = true;
+	}
+	
+	// Save edited product data to database
+	async function saveEditedProduct() {
+		if (!editingProduct) return;
+		
+		try {
+			// Update product in products table
+			const { error } = await supabase
+				.from('products')
+				.update({
+					product_name_en: editData.product_name_en,
+					product_name_ar: editData.product_name_ar,
+					variation_group_name_en: editData.variation_group_name_en,
+					variation_group_name_ar: editData.variation_group_name_ar
+				})
+				.eq('barcode', editingProduct.barcode);
+			
+			if (error) {
+				console.error('Error saving product to database:', error);
+				alert('Error saving product. Please try again.');
+				return;
+			}
+			
+			// Update local product data
+			editingProduct.product_name_en = editData.product_name_en;
+			editingProduct.product_name_ar = editData.product_name_ar;
+			editingProduct.unit_name = editData.unit_name_en;
+			editingProduct.unit_name_ar = editData.unit_name_ar;
+			editingProduct.variation_group_name_en = editData.variation_group_name_en;
+			editingProduct.variation_group_name_ar = editData.variation_group_name_ar;
+			
+			// Trigger reactivity
+			selectedProducts = selectedProducts;
+			
+			alert('Product saved successfully!');
+		} catch (error) {
+			console.error('Error saving product:', error);
+			alert('Error saving product. Please try again.');
+		}
+		
+		showEditModal = false;
+		editingProduct = null;
+	}
+	
+	// Close edit modal
+	function closeEditModal() {
+		showEditModal = false;
+		editingProduct = null;
+	}
+	
 	// Check if a product has been modified
 	function isProductModified(product: any): boolean {
 		const original = originalProducts.get(product.offer_product_id);
@@ -74,6 +142,18 @@
 				const profitAfterOffer = calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty);
 				const decreaseAmount = calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty);
 				
+				// Calculate totals for this product - only if they are null or 0
+				let totalSalesPrice = product.total_sales_price;
+				let totalOfferPrice = product.total_offer_price;
+				
+				if (!totalSalesPrice || totalSalesPrice === 0) {
+					totalSalesPrice = (product.sales_price || 0) * (product.offer_qty || 1);
+				}
+				
+				if (!totalOfferPrice || totalOfferPrice === 0) {
+					totalOfferPrice = (product.offer_price || 0) * (product.offer_qty || 1);
+				}
+				
 				const { error } = await supabase
 					.from('flyer_offer_products')
 					.update({
@@ -86,7 +166,9 @@
 						free_qty: product.free_qty,
 						offer_price: product.offer_price,
 						profit_after_offer: profitAfterOffer,
-						decrease_amount: decreaseAmount
+						decrease_amount: decreaseAmount,
+						total_sales_price: totalSalesPrice,
+						total_offer_price: totalOfferPrice
 					})
 					.eq('id', product.offer_product_id);
 				
@@ -127,6 +209,67 @@
 	// Mark as changed when user edits
 	function markAsChanged() {
 		hasUnsavedChanges = true;
+	}
+	
+	// Update missing totals for all products
+	async function updateMissingTotals() {
+		if (!selectedProducts.length) {
+			alert('No products to update!');
+			return;
+		}
+		
+		// Find products with missing or 0 totals
+		const productsToUpdate = selectedProducts.filter(product => {
+			const hasMissingSalesTotal = !product.total_sales_price || product.total_sales_price === 0;
+			const hasMissingOfferTotal = !product.total_offer_price || product.total_offer_price === 0;
+			return hasMissingSalesTotal || hasMissingOfferTotal;
+		});
+		
+		if (productsToUpdate.length === 0) {
+			alert('All products already have total values!');
+			return;
+		}
+		
+		const confirmUpdate = confirm(`Found ${productsToUpdate.length} products with missing totals. Update them now?`);
+		if (!confirmUpdate) return;
+		
+		isSavingPrices = true;
+		
+		try {
+			let updatedCount = 0;
+			
+			for (const product of productsToUpdate) {
+				const totalSalesPrice = (product.sales_price || 0) * (product.offer_qty || 1);
+				const totalOfferPrice = (product.offer_price || 0) * (product.offer_qty || 1);
+				
+				const { error } = await supabase
+					.from('flyer_offer_products')
+					.update({
+						total_sales_price: totalSalesPrice,
+						total_offer_price: totalOfferPrice
+					})
+					.eq('id', product.offer_product_id);
+				
+				if (error) {
+					console.error('Error updating product totals:', error);
+				} else {
+					// Update local product
+					product.total_sales_price = totalSalesPrice;
+					product.total_offer_price = totalOfferPrice;
+					updatedCount++;
+				}
+			}
+			
+			// Trigger reactivity
+			selectedProducts = selectedProducts;
+			
+			alert(`✓ Updated totals for ${updatedCount} products!`);
+		} catch (error) {
+			console.error('Error updating missing totals:', error);
+			alert('Error updating totals. Please try again.');
+		}
+		
+		isSavingPrices = false;
 	}
 	
 	// Filter products by search query
@@ -652,8 +795,8 @@
 				: '<span class="no-image">No Image</span>';
 			
 			const offerType = getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price);
-			const priceTotal = calculateTotalSalesPrice(product.sales_price, product.offer_qty);
-			const offerPriceTotal = (product.offer_price || 0) * (product.offer_qty || 1);
+			const priceTotal = product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty);
+			const offerPriceTotal = product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1));
 			
 			printHTML += `
 				<tr>
@@ -1889,6 +2032,43 @@
 		isLoading = false;
 	}
 	
+	// Clear cache and reload products from database
+	async function clearCacheAndReload() {
+		try {
+			// Clear local data
+			selectedProducts = [];
+			activeOffers = [];
+			originalProducts.clear();
+			hasUnsavedChanges = false;
+			
+			// Reload active offers
+			isLoading = true;
+			const { data, error } = await supabase
+				.from('flyer_offers')
+				.select(`
+					*,
+					offer_name:offer_names(id, name_en, name_ar)
+				`)
+				.eq('is_active', true)
+				.order('created_at', { ascending: false });
+			
+			if (error) {
+				console.error('Error reloading offers:', error);
+				alert('Error reloading offers from database. Please try again.');
+				return;
+			}
+			
+			activeOffers = data || [];
+			isLoading = false;
+			
+			// Show success message
+			alert('Cache cleared and data reloaded from database successfully!');
+		} catch (error) {
+			console.error('Error clearing cache and reloading:', error);
+			alert('Error clearing cache. Please try again.');
+		}
+	}
+	
 	// Load products for selected offer
 	async function loadOfferProducts(offerId: string) {
 		isLoadingProducts = true;
@@ -1921,6 +2101,8 @@
 					offer_price,
 					profit_after_offer,
 					decrease_amount,
+					total_sales_price,
+					total_offer_price,
 					page_number,
 					page_order,
 					created_at,
@@ -1961,6 +2143,8 @@
 					offer_price: item.offer_price,
 					profit_after_offer: item.profit_after_offer,
 					decrease_amount: item.decrease_amount,
+					total_sales_price: item.total_sales_price,
+					total_offer_price: item.total_offer_price,
 					page_number: item.page_number || 1,
 					page_order: item.page_order || 1
 				})) || [];
@@ -1997,6 +2181,287 @@
 	function getSelectedOffer() {
 		return activeOffers.find(o => o.id === selectedOfferId);
 	}
+
+	// Sort by page + order
+	function sortByPageOrder() {
+		let sorted = [...selectedProducts];
+		sorted.sort((a, b) => {
+			const pageA = a.page_number || 1;
+			const pageB = b.page_number || 1;
+			const orderA = a.page_order || 1;
+			const orderB = b.page_order || 1;
+			
+			if (pageA !== pageB) return pageA - pageB;
+			return orderA - orderB;
+		});
+		selectedProducts = sorted;
+	}
+
+	// Sort by offer type (non-offer first, then offer)
+	function sortByOfferType() {
+		let sorted = [...selectedProducts];
+		sorted.sort((a, b) => {
+			const typeA = getOfferType(a.offer_qty, a.limit_qty, a.free_qty, a.offer_price);
+			const typeB = getOfferType(b.offer_qty, b.limit_qty, b.free_qty, b.offer_price);
+			return typeA.localeCompare(typeB);
+		});
+		selectedProducts = sorted;
+	}
+
+	// Export for Entry (sorted by offer type)
+	async function exportForEntry() {
+		if (!selectedProducts.length) {
+			alert('No products to export');
+			return;
+		}
+
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet('Export for Entry');
+
+		// Sort by offer type
+		let sorted = [...selectedProducts];
+		sorted.sort((a, b) => {
+			const typeA = getOfferType(a.offer_qty, a.limit_qty, a.free_qty, a.offer_price);
+			const typeB = getOfferType(b.offer_qty, b.limit_qty, b.free_qty, b.offer_price);
+			return typeA.localeCompare(typeB);
+		});
+
+		// Add headers
+		worksheet.addRow([
+			'Serial #',
+			'Barcode',
+			'Barcode Image',
+			'Product Name (EN)',
+			'Unit',
+			'Offer Type',
+			'Offer Qty',
+			'Free Qty',
+			'Limit',
+			'Price (Total)',
+			'Offer Price'
+		]);
+
+		// Add data rows
+		for (let index = 0; index < sorted.length; index++) {
+			const product = sorted[index];
+			const totalPrice = product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty);
+			const totalOfferPrice = product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1));
+			
+			const row = worksheet.addRow([
+				index + 1,
+				product.barcode,
+				'', // Placeholder for barcode image
+				product.product_name_en || '',
+				product.unit_name || '',
+				getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price),
+				product.offer_qty || '',
+				product.free_qty || '',
+				product.limit_qty || '',
+				totalPrice.toFixed(2),
+				totalOfferPrice.toFixed(2)
+			]);
+
+			// Generate and insert barcode image
+			try {
+				const canvas = document.createElement('canvas');
+				JsBarcode(canvas, product.barcode, {
+					format: 'CODE128',
+					width: 2,
+					height: 50,
+					displayValue: true,
+					fontSize: 12,
+					margin: 3
+				});
+				
+				// Convert canvas to base64
+				const imageBase64 = canvas.toDataURL('image/png').split(',')[1];
+				
+				// Add image to workbook
+				const imageId = workbook.addImage({
+					base64: imageBase64,
+					extension: 'png'
+				});
+				
+				// Embed image in cell (column C, current row)
+				worksheet.addImage(imageId, {
+					tl: { col: 2, row: index + 1 },
+					ext: { width: 180, height: 50 }
+				});
+				
+				// Set row height to accommodate image
+				worksheet.getRow(index + 2).height = 45;
+			} catch (error) {
+				console.error('Error generating barcode:', error);
+			}
+		}
+
+		// Format header row
+		worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+		worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
+
+		// Auto-fit columns
+		worksheet.columns.forEach((column, idx) => {
+			if (idx === 2) {
+				// Barcode image column
+				column.width = 30;
+			} else {
+				let maxLength = 0;
+				column.eachCell({ includeEmpty: true }, cell => {
+					const cellLength = cell.value ? cell.value.toString().length : 0;
+					if (cellLength > maxLength) maxLength = cellLength;
+				});
+				column.width = Math.min(Math.max(maxLength + 2, 15), 50);
+			}
+		});
+
+		// Generate and download file
+		const selectedOffer = getSelectedOffer();
+		let fileName = 'Export_Entry';
+		if (selectedOffer) {
+			const templateName = selectedOffer.template_name || '';
+			const offerName = selectedOffer.offer_name?.name_en || 'Offer';
+			fileName = `${templateName}_${offerName}_Entry`.replace(/\s+/g, '_');
+		}
+		const buffer = await workbook.xlsx.writeBuffer();
+		const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = `${fileName}.xlsx`;
+		link.click();
+		URL.revokeObjectURL(url);
+	}
+
+	// Export for Design (sorted by page + order, all columns except image)
+	async function exportForDesign() {
+		if (!selectedProducts.length) {
+			alert('No products to export');
+			return;
+		}
+
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet('Export for Design');
+
+		// Sort by page + order
+		let sorted = [...selectedProducts];
+		sorted.sort((a, b) => {
+			const pageA = a.page_number || 1;
+			const pageB = b.page_number || 1;
+			const orderA = a.page_order || 1;
+			const orderB = b.page_order || 1;
+			
+			if (pageA !== pageB) return pageA - pageB;
+			return orderA - orderB;
+		});
+
+		// Create color palettes for unique values
+		const colorPalette = [
+			'FFE8F4F8', 'FFC5E1EC', 'FFA1CEDE', 'FF7FBBD1', 'FF5D9AC4',
+			'FFFCE8D6', 'FFFBD0B3', 'FFFAB890', 'FFF9A06D', 'FFF8884A',
+			'FFE8F8E8', 'FFC5ECC5', 'FFA1E0A1', 'FF7DD47D', 'FF59C859',
+			'FFF8E8F4', 'FFECC5EC', 'FFE0A1E0', 'FFD47DD4', 'FFC859C8',
+			'FFFFF0CC', 'FFFFE099', 'FFFFD066', 'FFFFC033', 'FFFFB000'
+		];
+
+		// Get unique offer_qty and limit_qty values and create color maps
+		const uniqueOfferQties = [...new Set(sorted.map(p => p.offer_qty || '').filter(v => v))].sort((a, b) => a - b);
+		const uniqueLimitQties = [...new Set(sorted.map(p => p.limit_qty || '').filter(v => v))].sort((a, b) => a - b);
+		
+		const offerQtyColorMap = {};
+		const limitQtyColorMap = {};
+		
+		uniqueOfferQties.forEach((qty, idx) => {
+			offerQtyColorMap[qty] = colorPalette[idx % colorPalette.length];
+		});
+		
+		uniqueLimitQties.forEach((qty, idx) => {
+			limitQtyColorMap[qty] = colorPalette[idx % colorPalette.length];
+		});
+
+		// Add headers (all columns except image and image_url)
+		worksheet.addRow([
+			'Serial #',
+			'Barcode',
+			'Product Name (EN)',
+			'Product Name (AR)',
+			'Variant Name (EN)',
+			'Variant Name (AR)',
+			'Unit',
+			'Offer Type',
+			'Offer Qty',
+			'Free Qty',
+			'Limit',
+			'Price (Total)',
+			'Offer Price (Total)',
+			'Page',
+			'Order'
+		]);
+
+		// Add data rows
+		sorted.forEach((product, index) => {
+			const totalPrice = product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty);
+			const totalOfferPrice = product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1));
+			
+			const row = worksheet.addRow([
+				index + 1,
+				product.barcode,
+				product.product_name_en || '',
+				product.product_name_ar || '',
+				product.variation_group_name_en || '',
+				product.variation_group_name_ar || '',
+				product.unit_name_ar || '',
+				getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price),
+				product.offer_qty || '',
+				product.free_qty || '',
+				product.limit_qty || '',
+				totalPrice.toFixed(2),
+				totalOfferPrice.toFixed(2),
+				product.page_number || 1,
+				product.page_order || 1
+			]);
+
+			// Apply color to Offer Qty cell (column I - index 8)
+			if (product.offer_qty && offerQtyColorMap[product.offer_qty]) {
+				row.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: offerQtyColorMap[product.offer_qty] } };
+			}
+
+			// Apply color to Limit cell (column K - index 10)
+			if (product.limit_qty && limitQtyColorMap[product.limit_qty]) {
+				row.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: limitQtyColorMap[product.limit_qty] } };
+			}
+		});
+
+		// Format header row
+		worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+		worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
+
+		// Auto-fit columns
+		worksheet.columns.forEach(column => {
+			let maxLength = 0;
+			column.eachCell({ includeEmpty: true }, cell => {
+				const cellLength = cell.value ? cell.value.toString().length : 0;
+				if (cellLength > maxLength) maxLength = cellLength;
+			});
+			column.width = Math.min(Math.max(maxLength + 2, 15), 50);
+		});
+
+		// Generate and download file
+		const selectedOffer = getSelectedOffer();
+		let fileName = 'Export_Design';
+		if (selectedOffer) {
+			const templateName = selectedOffer.template_name || '';
+			const offerName = selectedOffer.offer_name?.name_en || 'Offer';
+			fileName = `${templateName}_${offerName}_Design`.replace(/\s+/g, '_');
+		}
+		const buffer = await workbook.xlsx.writeBuffer();
+		const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = `${fileName}.xlsx`;
+		link.click();
+		URL.revokeObjectURL(url);
+	}
 	
 	onMount(() => {
 		loadActiveOffers();
@@ -2008,7 +2473,7 @@
 	<div class="sticky top-0 z-20 bg-gray-50 pb-4">
 		<div class="flex items-center justify-between mb-4">
 			<div>
-				<h1 class="text-3xl font-bold text-gray-800">ERP Entry Manager</h1>
+				<h1 class="text-3xl font-bold text-gray-800">Pricing Manager</h1>
 				<p class="text-gray-600 mt-1">View active offers and their selected products</p>
 			</div>
 			
@@ -2099,37 +2564,17 @@
 						<span class="px-4 py-2 bg-green-100 text-green-800 font-semibold rounded-lg">
 							{selectedProducts.length} Products
 						</span>
-						
-						<!-- Average Profit on Offer Price -->
-						<div class="px-4 py-2 {calculateAvgProfitOnOfferPrice() >= 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'} font-semibold rounded-lg">
-							<div class="text-xs font-normal">Avg Profit (Offer)</div>
-							<div class="text-sm font-bold">{calculateAvgProfitOnOfferPrice().toFixed(2)}%</div>
-						</div>
-						
-						<!-- Average Profit on Normal Price -->
-						<div class="px-4 py-2 {calculateAvgProfitOnNormalPrice() >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} font-semibold rounded-lg">
-							<div class="text-xs font-normal">Avg Profit (Normal)</div>
-							<div class="text-sm font-bold">{calculateAvgProfitOnNormalPrice().toFixed(2)}%</div>
-						</div>
 					{/if}
 					{#if hasUnsavedChanges}
 						<span class="px-3 py-1 bg-yellow-100 text-yellow-800 text-sm font-medium rounded-lg animate-pulse">
 							Unsaved Changes
 						</span>
 					{/if}
-				</div>
+					
 				
-				<div class="flex items-center gap-2">
-					<button
-						on:click={exportToExcel}
-						disabled={!selectedProducts.length}
-						class="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
-					>
-						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-						</svg>
-						Export to Excel
-					</button>
+				<!-- Auto-Generation Buttons -->
+				<div class="flex items-center gap-2 border-l-2 border-gray-300 pl-4">
+				</div>
 				<button
 					on:click={printStockCheck}
 					disabled={!selectedProducts.length}
@@ -2149,13 +2594,11 @@
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
 					</svg>
 					Print for Offer Check
-				</button>
-				</div>
+				</button></div>
 			</div>
-
-		
-		<!-- Search Bar -->
-		{#if selectedProducts.length > 0}
+			
+			<!-- Search Bar -->
+			{#if selectedProducts.length > 0}
 				<div class="mb-4 flex items-center gap-4">
 					<div class="relative flex-1 max-w-md">
 						<svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2181,6 +2624,53 @@
 					<span class="text-sm text-gray-500">
 						{filteredProducts.length} of {selectedProducts.length} products
 					</span>
+				</div>
+				<!-- Sort Buttons -->
+				<div class="mb-4 flex gap-2 flex-wrap">
+					<button
+						on:click={sortByPageOrder}
+						class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
+						title="Sort by page + order"
+					>
+						Sort by Page & Order
+					</button>
+					<button
+						on:click={sortByOfferType}
+						class="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-lg transition-colors"
+						title="Sort by offer type"
+					>
+						Sort by Offer Type
+					</button>
+					<button
+						on:click={exportForEntry}
+						class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+						title="Export for Entry (sorted by offer type)"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0 0V8m0 4H8m0 0h4m4 0v4m0 -4v4m0-4H8" />
+						</svg>
+						Export for Entry
+					</button>
+					<button
+						on:click={exportForDesign}
+						class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+						title="Export for Design (sorted by page + order)"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0 0V8m0 4H8m0 0h4m4 0v4m0 -4v4m0-4H8" />
+						</svg>
+						Export for Design
+					</button>
+					<button
+						on:click={clearCacheAndReload}
+						class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+						title="Clear cache and reload all data from database"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+						</svg>
+						Clear Cache & Reload
+					</button>
 				</div>
 			{/if}
 
@@ -2211,10 +2701,10 @@
 								<th class="w-16 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Image URL
 								</th>
-								<th class="w-20 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-20 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Page
 								</th>
-								<th class="w-20 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-20 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Order
 								</th>
 								<th class="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
@@ -2223,13 +2713,13 @@
 								<th class="w-48 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Product Name (EN)
 								</th>
-								<th class="w-48 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-48 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Product Name (AR)
 								</th>
 								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Unit
 								</th>
-								<th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Category
 								</th>
 								<th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
@@ -2244,13 +2734,13 @@
 								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Limit
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Cost (Unit)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Cost (Total)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Price (Unit)
 								</th>
 								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
@@ -2259,17 +2749,20 @@
 								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Offer Price (Total)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Profit (Amount)
 								</th>
-								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Profit %
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Profit % After Offer
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 hidden">
+								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200" style="display: none;">
 									Decrease Amount
+								</th>
+								<th class="w-20 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+									Action
 								</th>
 							</tr>
 						</thead>
@@ -2282,7 +2775,7 @@
 									class:border-l-red-600={product.cost >= product.sales_price || product.cost <= 0}
 								>
 									<td class="w-24 px-4 py-4 align-middle">
-										<div class="relative w-20 h-20 bg-gray-100 rounded-lg border-2 border-gray-200 overflow-hidden flex items-center justify-center">
+										<div class="relative w-20 h-20 bg-gray-100 rounded-lg border-2 border-gray-200 overflow-hidden flex items-center justify-center group">
 											{#if product.image_url}
 												<img 
 													src={product.image_url}
@@ -2299,6 +2792,45 @@
 											<svg class="w-8 h-8 text-gray-400 absolute pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
 											</svg>
+											<!-- Download button -->
+											{#if product.image_url}
+												<button 
+													on:click={async () => {
+														try {
+															const response = await fetch(product.image_url);
+															const blob = await response.blob();
+															const blobUrl = URL.createObjectURL(blob);
+															const link = document.createElement('a');
+															link.href = blobUrl;
+															// Extract file extension from URL or blob type
+															let ext = 'jpg';
+															const url = new URL(product.image_url);
+															const path = url.pathname;
+															const match = path.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+															if (match) {
+																ext = match[1].toLowerCase();
+															} else if (blob.type.includes('png')) {
+																ext = 'png';
+															} else if (blob.type.includes('gif')) {
+																ext = 'gif';
+															} else if (blob.type.includes('webp')) {
+																ext = 'webp';
+															}
+															link.download = `${product.barcode}.${ext}`;
+															link.click();
+															URL.revokeObjectURL(blobUrl);
+														} catch (error) {
+															console.error('Download failed:', error);
+														}
+													}}
+													class="absolute bottom-0 right-0 bg-blue-500 hover:bg-blue-600 text-white p-1 rounded-tl opacity-0 group-hover:opacity-100 transition-opacity"
+													title="Download image"
+												>
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v4a2 2 0 002 2h12a2 2 0 002-2v-4m-4-4l-4 4m0 0l-4-4m4 4V4" />
+													</svg>
+												</button>
+											{/if}
 										</div>
 									</td>
 									<td class="w-16 px-4 py-4 align-middle text-center">
@@ -2348,19 +2880,19 @@
 											</div>
 										{/if}
 									</td>
-									<td class="w-20 px-4 py-4 align-middle text-center text-sm font-semibold text-gray-900 hidden">
+									<td class="w-20 px-4 py-4 align-middle text-center text-sm font-semibold text-gray-900">
 										{product.page_number || 1}
 									</td>
-									<td class="w-20 px-4 py-4 align-middle text-center text-sm font-semibold text-gray-900 hidden">
+									<td class="w-20 px-4 py-4 align-middle text-center text-sm font-semibold text-gray-900">
 										{product.page_order || 1}
 									</td>
-									<td class="w-32 px-4 py-4 align-middle text-xs font-medium text-gray-900">
+									<td class="w-32 px-4 py-4 align-middle text-xs font-medium text-gray-900 cursor-pointer hover:bg-blue-100 transition-colors" on:dblclick={() => navigator.clipboard.writeText(product.barcode)}>
 										{product.barcode}
 									</td>
 									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900">
 										<div class="flex flex-col gap-1">
 											<div class="flex items-center gap-2">
-												<span>{product.product_name_en || '-'}</span>
+												<span class="cursor-pointer hover:bg-blue-100 px-2 py-1 rounded transition-colors" on:dblclick={() => navigator.clipboard.writeText(product.product_name_en)}>{product.product_name_en || '-'}</span>
 												{#if product.cost >= product.sales_price || product.cost <= 0}
 													<div class="relative group inline-block">
 														<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-600 text-white shadow-md animate-pulse cursor-help">
@@ -2376,27 +2908,29 @@
 													</div>
 												{/if}
 											</div>
-											{#if product.is_variation && product.variation_group_name_en}
-												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit">
-													🔗 {product.variation_group_name_en}
-												</span>
-											{/if}
+										{#if product.is_variation && product.variation_group_name_en}
+											<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit cursor-pointer hover:bg-green-200 transition-colors" on:dblclick={() => navigator.clipboard.writeText(product.variation_group_name_en)}>
+												🔗 {product.variation_group_name_en}
+											</span>
+										{/if}
 										</div>
 									</td>
-									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900 hidden" dir="rtl">
+									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900" dir="rtl">
 										<div class="flex flex-col gap-1">
-											<div>{product.product_name_ar || '-'}</div>
+											<div class="cursor-pointer hover:bg-blue-100 px-2 py-1 rounded transition-colors" on:dblclick={() => navigator.clipboard.writeText(product.product_name_ar)}>
+												{product.product_name_ar || '-'}
+											</div>
 											{#if product.is_variation && product.variation_group_name_ar}
-												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit">
-													🔗 {product.variation_group_name_ar}
+												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit cursor-pointer hover:bg-green-200 transition-colors" on:dblclick={() => navigator.clipboard.writeText(product.variation_group_name_ar)} dir="rtl">
+													{product.variation_group_name_ar} 🔗
 												</span>
 											{/if}
 										</div>
 									</td>
-									<td class="w-24 px-4 py-4 align-middle text-xs text-gray-900">
-										{product.unit_name || '-'}
+									<td class="w-24 px-4 py-4 align-middle text-xs text-gray-900 cursor-pointer hover:bg-blue-100 transition-colors" dir="rtl" on:dblclick={() => navigator.clipboard.writeText(product.unit_name_ar)}>
+										{product.unit_name_ar || '-'}
 									</td>
-									<td class="w-40 px-4 py-4 align-middle text-xs text-gray-900 hidden">
+									<td class="w-40 px-4 py-4 align-middle text-xs text-gray-900" style="display: none;">
 										{product.parent_category || '-'}
 									</td>
 									<td class="w-40 px-4 py-4 align-middle">
@@ -2412,42 +2946,16 @@
 											{getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price)}
 										</span>
 									</td>
-									<td class="w-24 px-4 py-4 align-middle">
-										<input
-											type="number"
-											bind:value={product.offer_qty}
-											on:input={markAsChanged}
-											on:change={markAsChanged}
-											step="1"
-											min="1"
-											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-										/>
+									<td class="w-24 px-4 py-4 align-middle text-base font-bold text-gray-900">
+										{product.offer_qty || '-'}
 									</td>
-									<td class="w-24 px-4 py-4 align-middle">
-										<input
-											type="number"
-											bind:value={product.free_qty}
-											on:input={markAsChanged}
-											on:change={markAsChanged}
-											step="1"
-											min="0"
-											placeholder="0"
-											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
-										/>
+									<td class="w-24 px-4 py-4 align-middle text-base font-bold text-gray-900">
+										{product.free_qty || '-'}
 									</td>
-									<td class="w-24 px-4 py-4 align-middle">
-										<input
-											type="number"
-											bind:value={product.limit_qty}
-											on:input={markAsChanged}
-											on:change={markAsChanged}
-											step="1"
-											min="1"
-											placeholder="No limit"
-											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-										/>
+									<td class="w-24 px-4 py-4 align-middle text-base font-bold text-gray-900">
+										{product.limit_qty || 'No limit'}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle hidden">
+									<td class="w-28 px-4 py-4 align-middle" style="display: none;">
 										<input
 											type="number"
 											bind:value={product.cost}
@@ -2459,10 +2967,10 @@
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
 										/>
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50 hidden">
+									<td class="w-28 px-4 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50" style="display: none;">
 										{calculateTotalCost(product.cost, product.offer_qty).toFixed(2)}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle hidden">
+									<td class="w-28 px-4 py-4 align-middle" style="display: none;">
 										<input
 											type="number"
 											bind:value={product.sales_price}
@@ -2474,51 +2982,35 @@
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
 										/>
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
-										{calculateTotalSalesPrice(product.sales_price, product.offer_qty).toFixed(2)}
-									</td>
-									<td class="w-28 px-4 py-4 align-middle">
-										{#key `${product.barcode}-${product.offer_price}-${productsVersion}`}
-											<input
-												type="number"
-												value={(product.offer_price * product.offer_qty).toFixed(2)}
-												on:blur={(e) => {
-													const totalOfferPrice = parseFloat(e.currentTarget.value) || 0;
-													const qty = product.offer_qty || 1;
-													const perUnitPrice = totalOfferPrice / qty;
-													
-													// Update per-unit price in the product
-													const productIndex = selectedProducts.findIndex(p => p.barcode === product.barcode);
-													if (productIndex !== -1) {
-														selectedProducts = selectedProducts.map((p, idx) => 
-															idx === productIndex 
-																? { ...p, offer_price: perUnitPrice }
-																: p
-														);
-														
-														// Sync price across variation group if applicable
-														syncGroupOfferPrice(product, perUnitPrice);
-														markAsChanged();
-													}
-												}}
-												step="0.01"
-												min="0"
-												placeholder="Total offer price"
-												class="w-full px-2 py-1 text-xs border border-orange-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none bg-orange-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-											/>
+									<td class="w-28 px-4 py-4 align-middle text-lg font-bold text-blue-600 bg-blue-50 cursor-pointer hover:bg-blue-100 transition-colors" on:dblclick={() => navigator.clipboard.writeText((product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty)).toFixed(2))}>
+										{#key `${product.barcode}-${product.offer_qty}-${productsVersion}`}
+											{(product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty)).toFixed(2)}
 										{/key}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAmount(product.cost, product.sales_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'} hidden">
+									<td class="w-28 px-4 py-4 align-middle text-lg font-bold text-orange-600 bg-orange-50 cursor-pointer hover:bg-orange-100 transition-colors" on:dblclick={() => navigator.clipboard.writeText((product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1))).toFixed(2))}>
+										{#key `${product.barcode}-${product.offer_price}-${product.offer_qty}-${productsVersion}`}
+											{(product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1))).toFixed(2)}
+										{/key}
+									</td>
+									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAmount(product.cost, product.sales_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}" style="display: none;">
 										{calculateProfitAmount(product.cost, product.sales_price, product.offer_qty).toFixed(2)}
 									</td>
-									<td class="w-24 px-4 py-4 align-middle text-xs font-bold {calculateProfitPercentage(product.cost, product.sales_price) < 27.5 ? 'text-white bg-red-600' : calculateProfitPercentage(product.cost, product.sales_price) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'} hidden">
+									<td class="w-24 px-4 py-4 align-middle text-xs font-bold {calculateProfitPercentage(product.cost, product.sales_price) < 27.5 ? 'text-white bg-red-600' : calculateProfitPercentage(product.cost, product.sales_price) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}" style="display: none;">
 										{calculateProfitPercentage(product.cost, product.sales_price).toFixed(2)}%
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) < targetProfitPercent ? 'text-white bg-red-600' : calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'} hidden">
+									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) < targetProfitPercent ? 'text-white bg-red-600' : calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}" style="display: none;">
 										{calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty).toFixed(2)}%
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 3 ? 'text-green-700 bg-yellow-100' : (calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 0 ? 'text-purple-600 bg-purple-50' : 'text-orange-600 bg-orange-50')} hidden">
+									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 3 ? 'text-green-700 bg-yellow-100' : (calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 0 ? 'text-purple-600 bg-purple-50' : 'text-orange-600 bg-orange-50')}" style="display: none;">
 										{calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty).toFixed(2)}
+									</td>
+									<td class="w-20 px-4 py-4 align-middle text-center">
+										<button
+											on:click={() => openEditModal(product)}
+											class="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold rounded transition-colors"
+										>
+											Edit
+										</button>
 									</td>
 								</tr>
 							{/each}
@@ -2538,6 +3030,119 @@
 		class="hidden"
 	/>
 </div>
+
+<!-- Edit Product Modal -->
+{#if showEditModal && editingProduct}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" on:click={closeEditModal}>
+		<div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 transform transition-all" on:click|stopPropagation>
+			<!-- Header -->
+			<div class="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+					</svg>
+					<h3 class="text-xl font-bold">Edit Product</h3>
+				</div>
+				<button
+					on:click={closeEditModal}
+					class="text-white hover:text-gray-200 transition-colors"
+				>
+					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+			
+			<!-- Content -->
+			<div class="px-6 py-6 space-y-4">
+				<!-- Product Name EN -->
+				<div>
+					<label class="block text-sm font-semibold text-gray-700 mb-2">Product Name (English)</label>
+					<input
+						type="text"
+						bind:value={editData.product_name_en}
+						placeholder="Enter product name in English"
+						class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+					/>
+				</div>
+				
+				<!-- Product Name AR -->
+				<div>
+					<label class="block text-sm font-semibold text-gray-700 mb-2">Product Name (Arabic)</label>
+					<input
+						type="text"
+						bind:value={editData.product_name_ar}
+						placeholder="أدخل اسم المنتج بالعربية"
+						dir="rtl"
+						class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+					/>
+				</div>
+				
+				<!-- Unit Names -->
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">Unit Name (English)</label>
+						<input
+							type="text"
+							bind:value={editData.unit_name_en}
+							placeholder="Enter unit name"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+						/>
+					</div>
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">Unit Name (Arabic)</label>
+						<input
+							type="text"
+							bind:value={editData.unit_name_ar}
+							placeholder="اسم الوحدة"
+							dir="rtl"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+						/>
+					</div>
+				</div>
+				
+				<!-- Variant Group Names -->
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">Variant Group Name (English)</label>
+						<input
+							type="text"
+							bind:value={editData.variation_group_name_en}
+							placeholder="Enter variant group name"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+						/>
+					</div>
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">Variant Group Name (Arabic)</label>
+						<input
+							type="text"
+							bind:value={editData.variation_group_name_ar}
+							placeholder="اسم مجموعة المتغير"
+							dir="rtl"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+						/>
+					</div>
+				</div>
+			</div>
+			
+			<!-- Footer -->
+			<div class="px-6 py-4 bg-gray-50 rounded-b-2xl flex justify-end gap-3">
+				<button
+					on:click={closeEditModal}
+					class="px-6 py-2.5 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold rounded-lg transition-colors"
+				>
+					Cancel
+				</button>
+				<button
+					on:click={saveEditedProduct}
+					class="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200"
+				>
+					Save Changes
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Success Modal -->
 {#if showSuccessModal}
@@ -2605,3 +3210,7 @@
 		</div>
 	</div>
 {/if}
+
+
+
+

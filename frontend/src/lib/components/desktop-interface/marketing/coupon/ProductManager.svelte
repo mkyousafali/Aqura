@@ -298,6 +298,35 @@
 		}
 	}
 
+	// Clear cache and reload products from database
+	async function clearCacheAndReload() {
+		try {
+			// Clear local data
+			flyerProducts = [];
+			selectedProducts.clear();
+			selectedProducts = new Map(selectedProducts);
+			filteredFlyerProducts = [];
+			displayedProducts = [];
+			searchQuery = '';
+			
+			// Reload flyer products
+			loading = true;
+			await loadFlyerProducts();
+			
+			// Show success message
+			notifications.add({
+				message: 'Cache cleared and data reloaded from database successfully!',
+				type: 'success'
+			});
+		} catch (error: any) {
+			notifications.add({
+				message: 'Error clearing cache. Please try again.',
+				type: 'error'
+			});
+			console.error('Error clearing cache:', error);
+		}
+	}
+
 	// Save all selected products
 	async function saveProducts() {
 		if (!selectedCampaignId) {
@@ -523,13 +552,25 @@
 
 		<!-- Search Bar -->
 		{#if selectedCampaignId}
-			<div class="mt-4">
-				<input
-					type="text"
-					bind:value={searchQuery}
-					placeholder="Search products by name or barcode..."
-					class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-				/>
+			<div class="mt-4 flex gap-3 items-end">
+				<div class="flex-1">
+					<input
+						type="text"
+						bind:value={searchQuery}
+						placeholder="Search products by name or barcode..."
+						class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					/>
+				</div>
+				<button
+					onclick={clearCacheAndReload}
+					class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+					title="Clear cache and reload all data from database"
+				>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+					</svg>
+					Clear Cache & Reload
+				</button>
 			</div>
 		{/if}
 	</div>

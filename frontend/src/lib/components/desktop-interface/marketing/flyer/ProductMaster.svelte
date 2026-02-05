@@ -792,6 +792,25 @@
 		allProductsSearch = '';
 	}
 	
+	// Clear cache and reload all products from database
+	async function clearProductCacheAndReload() {
+		try {
+			// Clear local data
+			allProductsList = [];
+			allProductsSearch = '';
+			isLoadingAllProducts = true;
+			
+			// Reload all products
+			await loadAllProducts();
+			
+			// Show success message
+			alert('Cache cleared and all products reloaded from database successfully!');
+		} catch (error) {
+			console.error('Error clearing cache:', error);
+			alert('Error clearing cache. Please try again.');
+		}
+	}
+	
 	// Export all products to XLSX
 	function exportProductsToXLSX() {
 		try {
@@ -3706,6 +3725,16 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 							</svg>
 							Export to Excel
+						</button>
+						<button 
+							on:click={clearProductCacheAndReload}
+							class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							title="Clear cache and reload all data from database"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+							</svg>
+							Clear Cache & Reload
 						</button>
 						<button 
 							on:click={findMissingImagesInStorage}
