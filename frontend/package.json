@@ -39,6 +39,7 @@
     "postcss": "^8.4.47",
     "prettier": "^3.3.3",
     "prettier-plugin-svelte": "^3.2.7",
+    "sharp": "^0.34.5",
     "svelte": "^5.1.9",
     "svelte-check": "^4.0.4",
     "tailwindcss": "^3.4.13",
@@ -52,7 +53,6 @@
   },
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
-    "pdfjs-dist": "^4.10.38",
     "@supabase/supabase-js": "^2.45.4",
     "@sveltejs/adapter-auto": "^6.1.0",
     "aqura": "file:..",
@@ -65,6 +65,7 @@
     "mssql": "^12.1.1",
     "onnxruntime-web": "^1.23.2",
     "openai": "^5.23.2",
+    "pdfjs-dist": "^4.10.38",
     "tailwind-merge": "^2.5.3",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"

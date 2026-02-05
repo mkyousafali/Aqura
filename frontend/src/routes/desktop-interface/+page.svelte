@@ -49,10 +49,9 @@
 			<div class="welcome-card">
 				<div class="logo-section">
 					<div class="logo">
-						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+						<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 					</div>
-					<h1 class="app-title">Aqura</h1>
-					<p class="app-subtitle">{$localeData ? t('app.description') : 'Your AI management system'}</p>
+					<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
 				</div>
 			</div>
 		</div>
@@ -126,6 +125,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		overflow: hidden;
 		box-shadow: 
 			0 0 25px rgba(245, 158, 11, 0.5),
 			0 0 50px rgba(245, 158, 11, 0.3),
@@ -149,10 +149,12 @@
 	}
 
 	.logo-image {
-		width: 140px;
-		height: 80px;
+		width: 840px;
+		height: 450px;
 		border-radius: 12px;
 		object-fit: contain;
+		display: block;
+		margin: 20px auto 0;
 	}
 
 	.app-title {

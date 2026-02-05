@@ -94,9 +94,8 @@
 			<div class="welcome-screen">
 				<div class="app-branding">
 					<div class="app-logo">
-						<img src="/icons/logo.png" alt="Aqura Logo" />
+						<img src="/icons/Aqura logo.png" alt="Aqura Logo" />
 					</div>
-					<h1 class="app-name">Aqura</h1>
 					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
 				</div>
 			</div>
@@ -230,6 +229,7 @@
 			0 0 50px rgba(245, 158, 11, 0.3),
 			inset 0 0 15px rgba(245, 158, 11, 0.15);
 		animation: ledGlow 2s ease-in-out infinite alternate;
+		overflow: hidden;
 	}
 
 	@keyframes ledGlow {
@@ -248,10 +248,11 @@
 	}
 
 	.app-logo img {
-		width: 140px;
-		height: 80px;
+		width: 840px;
+		height: 450px;
 		border-radius: 12px;
 		object-fit: contain;
+		margin-top: 20px;
 	}
 
 	.app-name {
