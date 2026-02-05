@@ -24,6 +24,7 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Offer Product Editor": "OFFER_PRODUCT_EDITOR",
   "Create New Offer": "CREATE_NEW_OFFER",
   "Pricing Manager": "PRICING_MANAGER",
+  "ERP Entry Manager": "ERP_ENTRY_MANAGER",
   "Generate Flyers": "GENERATE_FLYERS",
   "Shelf Paper Manager": "SHELF_PAPER_MANAGER",
   "Coupon Dashboard": "COUPON_DASHBOARD",
