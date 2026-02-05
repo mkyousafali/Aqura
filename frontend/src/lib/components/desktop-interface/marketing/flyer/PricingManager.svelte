@@ -74,6 +74,18 @@
 				const profitAfterOffer = calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty);
 				const decreaseAmount = calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty);
 				
+				// Calculate totals for this product - only if they are null or 0
+				let totalSalesPrice = product.total_sales_price;
+				let totalOfferPrice = product.total_offer_price;
+				
+				if (!totalSalesPrice || totalSalesPrice === 0) {
+					totalSalesPrice = (product.sales_price || 0) * (product.offer_qty || 1);
+				}
+				
+				if (!totalOfferPrice || totalOfferPrice === 0) {
+					totalOfferPrice = (product.offer_price || 0) * (product.offer_qty || 1);
+				}
+				
 				const { error } = await supabase
 					.from('flyer_offer_products')
 					.update({
@@ -86,7 +98,9 @@
 						free_qty: product.free_qty,
 						offer_price: product.offer_price,
 						profit_after_offer: profitAfterOffer,
-						decrease_amount: decreaseAmount
+						decrease_amount: decreaseAmount,
+						total_sales_price: totalSalesPrice,
+						total_offer_price: totalOfferPrice
 					})
 					.eq('id', product.offer_product_id);
 				
@@ -127,6 +141,67 @@
 	// Mark as changed when user edits
 	function markAsChanged() {
 		hasUnsavedChanges = true;
+	}
+	
+	// Update missing totals for all products
+	async function updateMissingTotals() {
+		if (!selectedProducts.length) {
+			alert('No products to update!');
+			return;
+		}
+		
+		// Find products with missing or 0 totals
+		const productsToUpdate = selectedProducts.filter(product => {
+			const hasMissingSalesTotal = !product.total_sales_price || product.total_sales_price === 0;
+			const hasMissingOfferTotal = !product.total_offer_price || product.total_offer_price === 0;
+			return hasMissingSalesTotal || hasMissingOfferTotal;
+		});
+		
+		if (productsToUpdate.length === 0) {
+			alert('All products already have total values!');
+			return;
+		}
+		
+		const confirmUpdate = confirm(`Found ${productsToUpdate.length} products with missing totals. Update them now?`);
+		if (!confirmUpdate) return;
+		
+		isSavingPrices = true;
+		
+		try {
+			let updatedCount = 0;
+			
+			for (const product of productsToUpdate) {
+				const totalSalesPrice = (product.sales_price || 0) * (product.offer_qty || 1);
+				const totalOfferPrice = (product.offer_price || 0) * (product.offer_qty || 1);
+				
+				const { error } = await supabase
+					.from('flyer_offer_products')
+					.update({
+						total_sales_price: totalSalesPrice,
+						total_offer_price: totalOfferPrice
+					})
+					.eq('id', product.offer_product_id);
+				
+				if (error) {
+					console.error('Error updating product totals:', error);
+				} else {
+					// Update local product
+					product.total_sales_price = totalSalesPrice;
+					product.total_offer_price = totalOfferPrice;
+					updatedCount++;
+				}
+			}
+			
+			// Trigger reactivity
+			selectedProducts = selectedProducts;
+			
+			alert(`✓ Updated totals for ${updatedCount} products!`);
+		} catch (error) {
+			console.error('Error updating missing totals:', error);
+			alert('Error updating totals. Please try again.');
+		}
+		
+		isSavingPrices = false;
 	}
 	
 	// Filter products by search query
@@ -254,6 +329,7 @@
 		
 		// Define columns
 		worksheet.columns = [
+			{ header: 'S.No', key: 'sno', width: 8 },
 			{ header: 'Page', key: 'page', width: 10 },
 			{ header: 'Order', key: 'order', width: 10 },
 			{ header: 'Barcode', key: 'barcode', width: 15 },
@@ -280,6 +356,7 @@
 			
 			// Add row data
 			worksheet.addRow({
+				sno: i + 1,
 				page: product.page_number || 1,
 				order: product.page_order || 1,
 				barcode: barcode,
@@ -313,7 +390,7 @@
 				
 				// Embed image in cell
 				worksheet.addImage(imageId, {
-					tl: { col: 3, row: rowIndex - 1 }, // Top-left position (0-indexed for position) - col 3 for Barcode Image column
+					tl: { col: 4, row: rowIndex - 1 }, // Top-left position (0-indexed for position) - col 4 for Barcode Image column
 					ext: { width: 200, height: 60 }
 				});
 				
@@ -650,8 +727,8 @@
 				: '<span class="no-image">No Image</span>';
 			
 			const offerType = getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price);
-			const priceTotal = calculateTotalSalesPrice(product.sales_price, product.offer_qty);
-			const offerPriceTotal = (product.offer_price || 0) * (product.offer_qty || 1);
+			const priceTotal = product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty);
+			const offerPriceTotal = product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1));
 			
 			printHTML += `
 				<tr>
@@ -1919,6 +1996,8 @@
 					offer_price,
 					profit_after_offer,
 					decrease_amount,
+					total_sales_price,
+					total_offer_price,
 					page_number,
 					page_order,
 					created_at,
@@ -1959,6 +2038,8 @@
 					offer_price: item.offer_price,
 					profit_after_offer: item.profit_after_offer,
 					decrease_amount: item.decrease_amount,
+					total_sales_price: item.total_sales_price,
+					total_offer_price: item.total_offer_price,
 					page_number: item.page_number || 1,
 					page_order: item.page_order || 1
 				})) || [];
@@ -2274,6 +2355,25 @@
 							Save All Changes
 						{/if}
 					</button>
+					
+					<button
+						on:click={updateMissingTotals}
+						disabled={isSavingPrices}
+						class="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+					>
+						{#if isSavingPrices}
+							<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Updating...
+						{:else}
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+							</svg>
+							Update Missing Totals
+						{/if}
+					</button>
 				</div>
 			</div>
 			
@@ -2539,7 +2639,12 @@
 										<input
 											type="number"
 											bind:value={product.offer_qty}
-											on:input={markAsChanged}
+											on:input={(e) => {
+												// Clear saved totals so reactive calculations kick in
+												product.total_sales_price = null;
+												product.total_offer_price = null;
+												markAsChanged();
+											}}
 											on:change={markAsChanged}
 											step="1"
 											min="1"
@@ -2598,13 +2703,15 @@
 										/>
 									</td>
 									<td class="w-28 px-4 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
-										{calculateTotalSalesPrice(product.sales_price, product.offer_qty).toFixed(2)}
+										{#key `${product.barcode}-${product.offer_qty}-${productsVersion}`}
+											{(product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty)).toFixed(2)}
+										{/key}
 									</td>
 									<td class="w-28 px-4 py-4 align-middle">
-										{#key `${product.barcode}-${product.offer_price}-${productsVersion}`}
+										{#key `${product.barcode}-${product.offer_price}-${product.offer_qty}-${productsVersion}`}
 											<input
 												type="number"
-												value={(product.offer_price * product.offer_qty).toFixed(2)}
+												value={(product.total_offer_price || ((product.offer_price || 0) * (product.offer_qty || 1))).toFixed(2)}
 												on:blur={(e) => {
 													const totalOfferPrice = parseFloat(e.currentTarget.value) || 0;
 													const qty = product.offer_qty || 1;

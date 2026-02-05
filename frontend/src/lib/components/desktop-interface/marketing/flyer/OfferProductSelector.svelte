@@ -37,6 +37,11 @@
 	// Offer names from database
 	let offerNames: any[] = [];
 	
+	// Active offers from database (for viewing only)
+	let activeOffers: any[] = [];
+	let selectedActiveOfferIds: Set<string> = new Set();
+	let activeOfferProducts: Map<string, any[]> = new Map(); // Map of offer_id -> products
+	
 	// Filter selections
 	let selectedCategories: string[] = [];
 	let categorySearchQuery: string = '';
@@ -1138,6 +1143,50 @@
 		}
 	}
 	
+	// Load active offers from database (for viewing)
+	async function loadActiveOffers() {
+		try {
+			const { data, error } = await supabase
+				.from('flyer_offers')
+				.select(`
+					*,
+					offer_name:offer_names(id, name_en, name_ar)
+				`)
+				.eq('is_active', true)
+				.order('created_at', { ascending: false });
+			
+			if (error) throw error;
+			activeOffers = data || [];
+			console.log('✅ Loaded active offers:', activeOffers.length);
+			
+			// Load products for each active offer
+			for (const offer of activeOffers) {
+				const { data: productsData, error: productsError } = await supabase
+					.from('flyer_offer_products')
+					.select('product_barcode, page_number, page_order')
+					.eq('offer_id', offer.id);
+				
+				if (!productsError && productsData) {
+					activeOfferProducts.set(offer.id, productsData);
+				}
+			}
+			activeOfferProducts = activeOfferProducts; // Trigger reactivity
+		} catch (error) {
+			console.error('❌ Error loading active offers:', error);
+			activeOffers = [];
+		}
+	}
+	
+	// Toggle active offer selection
+	function toggleActiveOfferSelection(offerId: string) {
+		if (selectedActiveOfferIds.has(offerId)) {
+			selectedActiveOfferIds.delete(offerId);
+		} else {
+			selectedActiveOfferIds.add(offerId);
+		}
+		selectedActiveOfferIds = selectedActiveOfferIds; // Trigger reactivity
+	}
+	
 	// Watch for filter changes
 	$: searchQuery, selectedCategories, applyFilters();
 	
@@ -1184,8 +1233,9 @@
 	}
 	
 	onMount(() => {
-		// Load offer names when component mounts
+		// Load offer names and active offers when component mounts
 		loadOfferNames();
+		loadActiveOffers();
 		// Don't load products immediately - only load when user reaches step 2
 	});
 </script>
@@ -1244,10 +1294,76 @@
 		</div>
 		
 		<div class="bg-white rounded-lg shadow-md p-6 space-y-6">
+			<!-- Active Offers Section (View Only) -->
+			{#if activeOffers.length > 0}
+				<div class="mb-6">
+					<div class="flex items-center justify-between mb-4">
+						<h3 class="text-xl font-bold text-gray-800">Current Active Offers</h3>
+						<span class="text-sm text-gray-600">{activeOffers.length} active offer{activeOffers.length !== 1 ? 's' : ''}</span>
+					</div>
+					
+					<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+						<div class="flex items-start gap-3">
+							<svg class="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							<div class="flex-1">
+								<p class="text-sm font-medium text-blue-900">Select active offers to view their products in Step 2</p>
+								<p class="text-xs text-blue-700 mt-1">Selected offers will appear as checked (read-only) for reference only. They will not be modified.</p>
+							</div>
+						</div>
+					</div>
+					
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+						{#each activeOffers as offer (offer.id)}
+							{@const offerProducts = activeOfferProducts.get(offer.id) || []}
+							<div class="border-2 {selectedActiveOfferIds.has(offer.id) ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} rounded-lg p-4 hover:shadow-md transition-all cursor-pointer"
+								on:click={() => toggleActiveOfferSelection(offer.id)}
+								on:keydown={(e) => e.key === 'Enter' && toggleActiveOfferSelection(offer.id)}
+								role="button"
+								tabindex="0"
+							>
+								<div class="flex items-start gap-3 mb-3">
+									<input 
+										type="checkbox"
+										checked={selectedActiveOfferIds.has(offer.id)}
+										on:change={() => toggleActiveOfferSelection(offer.id)}
+										on:click={(e) => e.stopPropagation()}
+										class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer mt-1"
+									/>
+									<div class="flex-1">
+										<div class="text-lg font-semibold text-gray-800">{offer.template_name}</div>
+										{#if offer.offer_name}
+											<div class="text-sm font-medium text-purple-700">{offer.offer_name.name_en}</div>
+										{/if}
+									</div>
+									<span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-semibold">Active</span>
+								</div>
+								
+								<div class="space-y-2 text-sm text-gray-600">
+									<div class="flex items-center gap-2">
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+										</svg>
+										<span>{offer.start_date} to {offer.end_date}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+										</svg>
+										<span>{offerProducts.length} product{offerProducts.length !== 1 ? 's' : ''}</span>
+									</div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
+			
 			<!-- Templates Section -->
 			<div class="border-t pt-6">
 				<div class="flex items-center justify-between mb-4">
-					<h3 class="text-xl font-bold text-gray-800">Offer Templates</h3>
+					<h3 class="text-xl font-bold text-gray-800">New Offer Templates</h3>
 					<button 
 						on:click={addTemplate}
 						class="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
@@ -1548,6 +1664,27 @@
 										Image URL
 									</th>
 									
+									<!-- Active Offer Columns (Read-only) -->
+									{#each activeOffers.filter(offer => selectedActiveOfferIds.has(offer.id)) as activeOffer (activeOffer.id)}
+										<th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider bg-gradient-to-r from-green-600 to-emerald-600 border-l-2 border-green-300">
+											<div class="flex flex-col items-center gap-1 min-w-[150px]">
+												<div class="flex items-center gap-2">
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+													</svg>
+													<span class="font-bold text-white">ACTIVE</span>
+												</div>
+												<span class="font-bold text-white">{#if activeOffer.offer_name}{activeOffer.offer_name.name_en}{:else}{activeOffer.template_name}{/if}</span>
+												{#if activeOffer.offer_name}
+													<span class="text-xs text-green-100">{activeOffer.template_name}</span>
+												{/if}
+												<span class="text-xs text-green-100">{activeOffer.start_date} to {activeOffer.end_date}</span>
+												<span class="text-xs text-white font-semibold bg-green-700 px-2 py-0.5 rounded">{(activeOfferProducts.get(activeOffer.id) || []).length} products</span>
+											</div>
+										</th>
+									{/each}
+									
 									<!-- Dynamic Template Columns -->
 									{#each templates as template (template.id)}
 										<th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50 border-l-2 border-blue-200">
@@ -1665,6 +1802,37 @@
 											</div>
 										{/if}
 									</td>
+									
+									<!-- Active Offer Checkboxes (Read-only) -->
+									{#each activeOffers.filter(offer => selectedActiveOfferIds.has(offer.id)) as activeOffer (activeOffer.id)}
+										{@const offerProducts = activeOfferProducts.get(activeOffer.id) || []}
+										{@const productInOffer = offerProducts.find(p => p.product_barcode === product.barcode)}
+										<td class="px-2 py-2 text-center bg-gradient-to-r from-green-50 to-emerald-50 border-l-2 border-green-300">
+											<div class="flex flex-col items-center gap-1">
+												<!-- Always show checkbox as checked if product is in active offer, empty otherwise -->
+												<input 
+													type="checkbox"
+													checked={!!productInOffer}
+													disabled
+													class="w-5 h-5 text-green-600 border-gray-300 rounded cursor-not-allowed opacity-60"
+													title="Active offer (read-only)"
+												/>
+												{#if productInOffer}
+													<!-- Show page and order numbers for active offer products -->
+													<div class="flex items-center gap-1 mt-1">
+														<div class="w-14 h-8 text-sm text-center border-2 border-green-300 rounded bg-green-100 flex items-center justify-center font-bold text-green-700">
+															{productInOffer.page_number}
+														</div>
+														<span class="text-green-600 font-bold text-lg">-</span>
+														<div class="w-14 h-8 text-sm text-center border-2 border-green-300 rounded bg-green-100 flex items-center justify-center font-bold text-green-700">
+															{productInOffer.page_order}
+														</div>
+													</div>
+												{/if}
+											</div>
+										</td>
+									{/each}
+									
 									<!-- Dynamic Template Checkboxes with Page/Order -->
 										{#each templates as template (template.id)}
 											{@const blockInfo = isProductBlockedInTemplate(template.id, product.barcode)}

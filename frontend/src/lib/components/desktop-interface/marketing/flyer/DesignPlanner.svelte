@@ -73,6 +73,15 @@
   let searchQuery = '';
   let searchBy: 'barcode' | 'name_en' | 'name_ar' | 'serial' = 'barcode';
 
+  function formatDate(dateString: string): string {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
   onMount(async () => {
     await loadActiveOffers();
     await loadTemplates();
@@ -101,14 +110,14 @@
       isLoadingOffers = true;
       const { data, error } = await supabase
         .from('flyer_offers')
-        .select('*')
+        .select('*, offer_names(name_en, name_ar)')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
       offers = (data || []).map(offer => ({
         id: offer.id,
-        name: offer.name_en || offer.name_ar,
+        name: offer.offer_names?.name_en || offer.offer_names?.name_ar || offer.offer_name || offer.template_name || 'Unnamed Offer',
         start_date: offer.start_date,
         end_date: offer.end_date,
         is_active: true
@@ -143,10 +152,22 @@
       // Get barcodes
       const barcodes = offerProducts.map(p => p.product_barcode);
 
+      // Load product units for mapping
+      const { data: unitsData } = await supabase
+        .from('product_units')
+        .select('id, name_en, name_ar');
+      
+      const unitMap = new Map();
+      if (unitsData) {
+        unitsData.forEach(unit => {
+          unitMap.set(unit.id, unit.name_en);
+        });
+      }
+
       // Get product details from products (including variation fields)
       const { data: productDetails, error: productError } = await supabase
         .from('products')
-        .select('barcode, product_name_en, product_name_ar, unit_name, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override')
+        .select('barcode, product_name_en, product_name_ar, unit_id, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override')
         .in('barcode', barcodes);
 
       if (productError) throw productError;
@@ -158,11 +179,13 @@
           barcode: offerProduct.product_barcode,
           product_name_en: productDetail?.product_name_en || '',
           product_name_ar: productDetail?.product_name_ar || '',
-          unit_name: productDetail?.unit_name || '',
+          unit_name: unitMap.get(productDetail?.unit_id) || '',
           sales_price: offerProduct.sales_price || 0,
           offer_price: offerProduct.offer_price || 0,
           offer_qty: offerProduct.offer_qty || 1,
           limit_qty: offerProduct.limit_qty,
+          total_sales_price: offerProduct.total_sales_price || ((offerProduct.sales_price || 0) * (offerProduct.offer_qty || 1)),
+          total_offer_price: offerProduct.total_offer_price || ((offerProduct.offer_price || 0) * (offerProduct.offer_qty || 1)),
           image_url: productDetail?.image_url || productDetail?.variation_image_override,
           pdfSizes: [],
           offer_end_date: selectedOffer?.end_date || '',
@@ -383,17 +406,28 @@
           console.log('   - variationImages.length:', variationImages.length);
           console.log('   - variationImages:', variationImages);
           
-          // Create layered image container
-          imgHtml = '<div class="img-stack">';
+          // Create grid layout container
+          imgHtml = '<div class="img-grid" style="position:relative;width:100%;height:100%;">';
           
-          // Add up to 3 images in stack (main + 2 behind)
-          const imagesToShow = variationImages.slice(0, 3);
-          imagesToShow.forEach((imgUrl, imgIndex) => {
-            const zIndex = imagesToShow.length - imgIndex;
-            const offset = imgIndex * 5; // 5px offset for each layer (reduced from 8px)
-            const opacity = imgIndex === 0 ? '1' : '0.6'; // Main image full opacity, others semi-transparent
-            console.log('   - Adding image', imgIndex + 1, ':', imgUrl);
-            imgHtml += '<img src="' + imgUrl + '" class="pi-stacked" style="z-index:' + zIndex + ';left:' + offset + 'px;top:' + offset + 'px;opacity:' + opacity + '" alt="Variation ' + (imgIndex + 1) + '">';
+          // Calculate optimal grid layout based on variant count
+          const totalVariants = variationImages.length;
+          const cols = Math.ceil(Math.sqrt(totalVariants));
+          const rows = Math.ceil(totalVariants / cols);
+          const cellWidthPercent = 100 / cols;
+          const cellHeightPercent = 100 / rows;
+          
+          console.log('   - Grid layout:', rows, 'rows x', cols, 'cols for', totalVariants, 'variants');
+          console.log('   - Cell size:', cellWidthPercent + '%', 'x', cellHeightPercent + '%');
+          
+          variationImages.forEach((imgUrl, imgIndex) => {
+            const row = Math.floor(imgIndex / cols);
+            const col = imgIndex % cols;
+            const left = col * cellWidthPercent;
+            const top = row * cellHeightPercent;
+            
+            console.log('   - Image', imgIndex + 1, 'at grid[' + row + '][' + col + ']: left=' + left.toFixed(1) + '% top=' + top.toFixed(1) + '%');
+            
+            imgHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + left + '%;top:' + top + '%;width:' + cellWidthPercent + '%;height:' + cellHeightPercent + '%;object-fit:contain;padding:2%;" alt="Variant ' + (imgIndex + 1) + '">';
           });
           
           imgHtml += '</div>';
@@ -408,7 +442,7 @@
         const limHtml = product.limit_qty ? '<div class="lq">Limit: ' + product.limit_qty + '</div>' : '';
         const varHtml = isVariationGroup ? '<div class="vg-en sz-' + pdfSize + '">' + variationTextEn + '</div><div class="vg-ar sz-' + pdfSize + '">' + variationTextAr + '</div>' : '';
         
-        cardsHtml += '<div class="pc sz-' + pdfSize + '">' + imgHtml + '<div class="pne sz-' + pdfSize + '">' + product.product_name_en + '</div><div class="pna sz-' + pdfSize + '">' + product.product_name_ar + '</div>' + varHtml + '<div class="ps"><div class="rp sz-' + pdfSize + '">' + product.sales_price.toFixed(2) + ' SAR</div><div class="op sz-' + pdfSize + '">' + product.offer_price.toFixed(2) + ' SAR</div>' + qtyHtml + limHtml + '<div class="bc sz-' + pdfSize + '">' + product.barcode + '</div><div class="exp-en sz-' + pdfSize + '">' + expireDateEn + '</div><div class="exp-ar sz-' + pdfSize + '">' + expireDateAr + '</div></div></div>';
+        cardsHtml += '<div class="pc sz-' + pdfSize + '">' + imgHtml + '<div class="pne sz-' + pdfSize + '">' + product.product_name_en + '</div><div class="pna sz-' + pdfSize + '">' + product.product_name_ar + '</div>' + varHtml + '<div class="ps"><div class="rp sz-' + pdfSize + '">' + product.total_sales_price.toFixed(2) + ' SAR</div><div class="op sz-' + pdfSize + '">' + product.total_offer_price.toFixed(2) + ' SAR</div>' + qtyHtml + limHtml + '<div class="bc sz-' + pdfSize + '">' + product.barcode + '</div><div class="exp-en sz-' + pdfSize + '">' + expireDateEn + '</div><div class="exp-ar sz-' + pdfSize + '">' + expireDateAr + '</div></div></div>';
       }
 
       const pageBreak = pageIndex < product.pdfSizes.length - 1 ? ' style="page-break-after:always"' : '';
@@ -551,10 +585,10 @@
             value = product.unit_name;
             break;
           case 'price':
-            value = product.sales_price.toFixed(2);
+            value = product.total_sales_price.toFixed(2);
             break;
           case 'offer_price':
-            value = product.offer_price.toFixed(2);
+            value = product.total_offer_price.toFixed(2);
             break;
           case 'offer_qty':
             value = product.offer_qty ? product.offer_qty.toString() : '1';
@@ -568,12 +602,44 @@
             value = 'ينتهي: ' + dateArabic + '<br>Expires: ' + dateEnglish;
             break;
           case 'image':
-            if (product.image_url) {
-              const scaledX = Math.round(field.x * scaleX);
-              const scaledY = Math.round(field.y * scaleY);
-              const scaledWidth = Math.round(field.width * scaleX);
-              const scaledHeight = Math.round(field.height * scaleY);
-              pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+            const scaledX = Math.round(field.x * scaleX);
+            const scaledY = Math.round(field.y * scaleY);
+            const scaledWidth = Math.round(field.width * scaleX);
+            const scaledHeight = Math.round(field.height * scaleY);
+            
+            // Check if this is a variation group with multiple images
+            if (variationImages.length > 0) {
+              console.log(`🎨 Rendering ${variationImages.length} layered images`);
+              // Create layered images container (transparent, no background)
+              pageHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;">';
+              
+              if (variationImages.length === 1) {
+                // Single image
+                pageHtml += '<img src="' + variationImages[0] + '" style="position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;z-index:1;" alt="Product">';
+              } else {
+                // Grid layout for all variant counts
+                const totalVariants = variationImages.length;
+                const cols = Math.ceil(Math.sqrt(totalVariants));
+                const rows = Math.ceil(totalVariants / cols);
+                const cellWidth = scaledWidth / cols;
+                const cellHeight = scaledHeight / rows;
+                
+                for (let i = 0; i < variationImages.length; i++) {
+                  const imgUrl = variationImages[i];
+                  const row = Math.floor(i / cols);
+                  const col = i % cols;
+                  const left = col * cellWidth;
+                  const top = row * cellHeight;
+                  const padding = Math.min(cellWidth, cellHeight) * 0.05; // 5% padding
+                  
+                  pageHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + cellWidth + 'px;height:' + cellHeight + 'px;object-fit:contain;padding:' + padding + 'px;" alt="Variant ' + (i + 1) + '">';
+                }
+              }
+              
+              pageHtml += '</div>';
+            } else if (product.image_url) {
+              // Single product image (transparent background)
+              pageHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
             }
             return;
         }
@@ -614,7 +680,7 @@
       pageHtml += '</div>';
 
       const styleEl = doc.createElement('style');
-      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute}.field-text{white-space:normal;overflow:hidden;line-height:1.2}';
+      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute;background:transparent}.field-text{white-space:normal;overflow:hidden;line-height:1.2}img{background:transparent;border:none}';
       
       styleEl.textContent = cssText;
       doc.head.appendChild(styleEl);
@@ -821,10 +887,10 @@
               value = product.unit_name;
               break;
             case 'price':
-              value = product.sales_price.toFixed(2);
+              value = product.total_sales_price.toFixed(2);
               break;
             case 'offer_price':
-              value = product.offer_price.toFixed(2);
+              value = product.total_offer_price.toFixed(2);
               break;
             case 'offer_qty':
               value = product.offer_qty ? product.offer_qty.toString() : '1';
@@ -846,77 +912,41 @@
               // Check if this is a variation group with multiple images
               if (variationImages.length > 0) {
                 console.log(`🎨 Rendering ${variationImages.length} layered images`);
-                // Create layered images container
-                productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;">';
-                productFieldsHtml += '<div style="position:relative;width:100%;height:100%;overflow:hidden;">';
+                // Create layered images container (transparent, no background)
+                productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;">';
                 
-                // Support up to 12 variations - show only first 4 for best visibility
-                const maxVisibleImages = Math.min(variationImages.length, 4);
-                const imagesToShow = variationImages.slice(0, maxVisibleImages);
+                // Show ALL variation images with layered effect
+                const maxVisibleImages = variationImages.length;
+                const imagesToShow = variationImages;
                 
-                if (maxVisibleImages === 2) {
-                  // TWO IMAGES: Back image smaller and offset, front image full size but contained
-                  
-                  // BACK IMAGE - smaller (65% size) and positioned to left/top
-                  const backImgUrl = imagesToShow[1];
-                  const backWidth = scaledWidth * 0.65;
-                  const backHeight = scaledHeight * 0.65;
-                  productFieldsHtml += '<img src="' + backImgUrl + '" style="position:absolute;left:0px;top:0px;width:' + backWidth + 'px;height:' + backHeight + 'px;object-fit:contain;z-index:1;opacity:0.85;filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.3));max-width:' + backWidth + 'px;max-height:' + backHeight + 'px;" alt="Back variation">';
-                  
-                  // FRONT IMAGE - 85% size, offset to right/bottom to reveal back image
-                  const frontImgUrl = imagesToShow[0];
-                  const frontWidth = scaledWidth * 0.85;
-                  const frontHeight = scaledHeight * 0.85;
-                  const frontOffset = scaledWidth * 0.12; // 12% offset
-                  productFieldsHtml += '<img src="' + frontImgUrl + '" style="position:absolute;left:' + frontOffset + 'px;top:' + frontOffset + 'px;width:' + frontWidth + 'px;height:' + frontHeight + 'px;object-fit:contain;z-index:2;opacity:1;filter:drop-shadow(3px 3px 6px rgba(0,0,0,0.4));max-width:' + frontWidth + 'px;max-height:' + frontHeight + 'px;" alt="Front variation">';
-                  
-                } else if (maxVisibleImages === 3) {
-                  // THREE IMAGES: Optimized stacking for exactly 3 variations
-                  // Back image (60%), middle (72%), front (85%)
-                  const sizes = [0.60, 0.72, 0.85];
-                  const baseWidth = scaledWidth;
-                  const baseHeight = scaledHeight;
-                  const offsetStep = baseWidth * 0.09; // Tighter spacing to stay in bounds
-                  
-                  for (let i = 0; i < 3; i++) {
-                    const imgUrl = imagesToShow[i];
-                    const zIndex = i + 1;
-                    const imgWidth = baseWidth * sizes[i];
-                    const imgHeight = baseHeight * sizes[i];
-                    const offset = i * offsetStep;
-                    const opacity = i === 2 ? '1' : '0.88';
-                    
-                    productFieldsHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + offset + 'px;top:' + offset + 'px;width:' + imgWidth + 'px;height:' + imgHeight + 'px;object-fit:contain;z-index:' + zIndex + ';opacity:' + opacity + ';filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.3));max-width:' + imgWidth + 'px;max-height:' + imgHeight + 'px;" alt="Variation ' + (i + 1) + '">';
-                  }
+                if (maxVisibleImages === 1) {
+                  // Single image - full size
+                  productFieldsHtml += '<img src="' + imagesToShow[0] + '" style="position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;z-index:1;" alt="Product">';
                   
                 } else {
-                  // 4+ IMAGES: Stack with decreasing sizes (shows first 4)
+                  // Grid layout for all variant counts
+                  const totalVariants = maxVisibleImages;
+                  const cols = Math.ceil(Math.sqrt(totalVariants));
+                  const rows = Math.ceil(totalVariants / cols);
+                  const cellWidth = scaledWidth / cols;
+                  const cellHeight = scaledHeight / rows;
+                  
                   for (let i = 0; i < maxVisibleImages; i++) {
                     const imgUrl = imagesToShow[i];
-                    const zIndex = i + 1;
-                    // Size progression: back=55%, next=68%, next=80%, front=90%
-                    const sizeMultiplier = 0.55 + (i * (0.35 / (maxVisibleImages - 1)));
-                    const imgWidth = scaledWidth * sizeMultiplier;
-                    const imgHeight = scaledHeight * sizeMultiplier;
-                    const offset = i * (scaledWidth * 0.08); // Reduced from 0.13 to 0.08
-                    const opacity = i === maxVisibleImages - 1 ? '1' : '0.85';
+                    const row = Math.floor(i / cols);
+                    const col = i % cols;
+                    const left = col * cellWidth;
+                    const top = row * cellHeight;
+                    const padding = Math.min(cellWidth, cellHeight) * 0.05; // 5% padding
                     
-                    productFieldsHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + offset + 'px;top:' + offset + 'px;width:' + imgWidth + 'px;height:' + imgHeight + 'px;object-fit:contain;z-index:' + zIndex + ';opacity:' + opacity + ';filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.3));max-width:' + imgWidth + 'px;max-height:' + imgHeight + 'px;" alt="Variation ' + (i + 1) + '">';
-                  }
-                  
-                  // If more than 4 variations exist, show count badge
-                  if (variationImages.length > 4) {
-                    const badgeRight = 5; // Position from right edge
-                    const badgeTop = 5; // Position from top edge
-                    productFieldsHtml += '<div style="position:absolute;right:' + badgeRight + 'px;top:' + badgeTop + 'px;background:#ef4444;color:white;font-size:11px;font-weight:bold;padding:3px 6px;border-radius:10px;z-index:100;box-shadow:0 2px 4px rgba(0,0,0,0.3);">+' + (variationImages.length - 4) + '</div>';
+                    productFieldsHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + cellWidth + 'px;height:' + cellHeight + 'px;object-fit:contain;padding:' + padding + 'px;" alt="Variant ' + (i + 1) + '">';
                   }
                 }
                 
                 productFieldsHtml += '</div>';
-                productFieldsHtml += '</div>';
               } else if (product.image_url) {
-                // Single product image
-                productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+                // Single product image (transparent background)
+                productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
               }
               return;
           }
@@ -968,7 +998,7 @@
       } // End of for loop (was forEach)
 
       const styleEl = doc.createElement('style');
-      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0}.template-page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:white;display:block;margin:0 auto}.template-page:last-child{page-break-after:auto}.copy-container{position:relative}.template-bg{object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute}.field-text{white-space:normal;overflow:hidden;line-height:1.2}';
+      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0}.template-page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:white;display:block;margin:0 auto}.template-page:last-child{page-break-after:auto}.copy-container{position:relative}.template-bg{object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute;background:transparent}.field-text{white-space:normal;overflow:hidden;line-height:1.2}img{background:transparent;border:none}';
       
       styleEl.textContent = cssText;
       doc.head.appendChild(styleEl);
@@ -1014,7 +1044,7 @@
               <div class="offer-info">
                 <div class="offer-name">{offer.name}</div>
                 <div class="offer-dates">
-                  {new Date(offer.start_date).toLocaleDateString()} - {new Date(offer.end_date).toLocaleDateString()}
+                  {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
                 </div>
               </div>
               {#if selectedOfferId === offer.id}
@@ -1030,7 +1060,7 @@
     {#if selectedOfferId}
       <div class="products-section">
         <div class="products-header">
-          <h3 class="section-title">Products in Selected Offer</h3>
+          <h3 class="section-title">Products in Selected Offer: {selectedOffer?.name || ''}</h3>
           
           <!-- Template Selector -->
           <div class="template-selector">
@@ -1159,10 +1189,10 @@
                     </td>
                     <td class="unit-cell">{product.unit_name}</td>
                     <td class="price-cell">
-                      <span class="regular-price">{product.sales_price.toFixed(2)} SAR</span>
+                      <span class="regular-price">{product.total_sales_price.toFixed(2)} SAR</span>
                     </td>
                     <td class="price-cell">
-                      <span class="offer-price">{product.offer_price.toFixed(2)} SAR</span>
+                      <span class="offer-price">{product.total_offer_price.toFixed(2)} SAR</span>
                     </td>
                     <td class="qty-cell">
                       {#if product.offer_qty > 1}
@@ -1180,7 +1210,7 @@
                     </td>
                     <td class="savings-cell">
                       <span class="savings-amount">
-                        {((product.sales_price - product.offer_price) * product.offer_qty).toFixed(2)} SAR
+                        {(product.total_sales_price - product.total_offer_price).toFixed(2)} SAR
                       </span>
                     </td>
                     <td class="pdf-size-cell">

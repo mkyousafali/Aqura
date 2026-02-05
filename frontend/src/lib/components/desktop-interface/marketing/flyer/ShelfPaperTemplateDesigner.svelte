@@ -387,6 +387,43 @@
     }
   }
   
+  async function updateTemplateImage() {
+    if (!selectedTemplateId) {
+      alert('Please select a template first');
+      return;
+    }
+    
+    if (!imageFile) {
+      alert('Please select a new image first');
+      return;
+    }
+    
+    isUploading = true;
+    try {
+      // Upload the new image
+      const newImageUrl = await uploadTemplateImage();
+      if (!newImageUrl) throw new Error('Failed to upload image');
+      
+      // Update only the template_image_url field
+      const { error } = await supabase
+        .from('shelf_paper_templates')
+        .update({ template_image_url: newImageUrl })
+        .eq('id', selectedTemplateId);
+      
+      if (error) throw error;
+      
+      alert('Template image updated successfully!');
+      templateImage = newImageUrl;
+      imageFile = null;
+      await loadSavedTemplates();
+    } catch (error) {
+      console.error('Error updating template image:', error);
+      alert('Failed to update template image: ' + (error.message || 'Unknown error'));
+    } finally {
+      isUploading = false;
+    }
+  }
+  
   function newTemplate() {
     selectedTemplateId = null;
     templateName = '';
@@ -469,9 +506,17 @@
           {:else}
             <div class="uploaded-preview">
               <img src={templateImage} alt="Template" />
-              <button class="change-btn" on:click={() => { templateImage = null; fieldSelectors = []; }}>
-                Change Template
-              </button>
+              <div class="image-actions">
+                <label class="change-image-btn">
+                  <input type="file" accept="image/*" on:change={handleFileUpload} hidden />
+                  🔄 Change Image
+                </label>
+                {#if imageFile && selectedTemplateId}
+                  <button class="save-image-btn" on:click={updateTemplateImage} disabled={isUploading}>
+                    {isUploading ? 'Saving...' : '💾 Save Image'}
+                  </button>
+                {/if}
+              </div>
             </div>
           {/if}
         </div>
@@ -579,7 +624,7 @@
                 style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px; color: {field.color};"
                 on:mousedown={(e) => handleMouseDown(e, field.id)}
               >
-                <span class="field-overlay-label" style="color: {field.color};">{availableFields.find(f => f.value === field.label)?.label || field.label}</span>
+                <span class="field-overlay-label" style="color: {field.color}; font-size: {field.fontSize}px; text-align: {field.alignment}; width: 100%; display: block;">{availableFields.find(f => f.value === field.label)?.label || field.label}</span>
                 
                 {#if selectedFieldId === field.id}
                   <!-- Resize handles -->
@@ -691,17 +736,17 @@
 
   .uploaded-preview {
     position: relative;
-    max-height: 150px;
-    overflow: hidden;
     background: #f9fafb;
+    padding: 1rem;
   }
 
   .uploaded-preview img {
     width: 100%;
-    height: 100%;
+    height: auto;
     display: block;
     object-fit: contain;
     max-height: 150px;
+    border-radius: 6px;
   }
 
   .change-btn {
@@ -719,6 +764,57 @@
 
   .change-btn:hover {
     background: #f3f4f6;
+  }
+
+  .image-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .change-image-btn {
+    flex: 1;
+    display: inline-block;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+    user-select: none;
+  }
+
+  .change-image-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  }
+
+  .save-image-btn {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .save-image-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+  }
+
+  .save-image-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .add-field-btn {
