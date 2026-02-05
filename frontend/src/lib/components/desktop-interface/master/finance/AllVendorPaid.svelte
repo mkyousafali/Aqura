@@ -240,39 +240,45 @@
 			</div>
 		</div>
 
-		<div class="table-container">
-			<table class="data-table">
-				<thead>
-					<tr>
-						<th>Bill #</th>
-						<th>Vendor Name</th>
-						<th>Vendor ID</th>
-						<th>Amount</th>
-						<th>Paid Date</th>
-						<th>Branch</th>
-						<th>Payment Method</th>
-						<th>ERP Reference</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each filteredData as payment}
+		<div class="table-wrapper">
+			<div class="table-header">
+				<table class="data-table">
+					<thead>
 						<tr>
-							<td><span class="bill-badge">#{payment.bill_number || 'N/A'}</span></td>
-							<td class="vendor-name">{payment.vendor_name || 'N/A'}</td>
-							<td>{payment.vendor_id || 'N/A'}</td>
-							<td class="amount-cell">{formatCurrency(payment.final_bill_amount)}</td>
-							<td class="date-cell">{formatDate(payment.paid_date)}</td>
-							<td>{getBranchName(payment.branch_id)}</td>
-							<td><span class="method-badge">{payment.payment_method || 'N/A'}</span></td>
-							<td class="erp-ref">{payment.payment_reference || 'N/A'}</td>
+							<th>Bill #</th>
+							<th>Vendor Name</th>
+							<th>Vendor ID</th>
+							<th>Amount</th>
+							<th>Paid Date</th>
+							<th>Branch</th>
+							<th>Payment Method</th>
+							<th>ERP Reference</th>
 						</tr>
-					{:else}
-						<tr>
-							<td colspan="8" class="empty-row">No vendor paid records found</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+					</thead>
+				</table>
+			</div>
+			<div class="table-body">
+				<table class="data-table">
+					<tbody>
+						{#each filteredData as payment}
+							<tr>
+								<td><span class="bill-badge">#{payment.bill_number || 'N/A'}</span></td>
+								<td class="vendor-name">{payment.vendor_name || 'N/A'}</td>
+								<td>{payment.vendor_id || 'N/A'}</td>
+								<td class="amount-cell">{formatCurrency(payment.final_bill_amount)}</td>
+								<td class="date-cell">{formatDate(payment.paid_date)}</td>
+								<td>{getBranchName(payment.branch_id)}</td>
+								<td><span class="method-badge">{payment.payment_method || 'N/A'}</span></td>
+								<td class="erp-ref">{payment.payment_reference || 'N/A'}</td>
+							</tr>
+						{:else}
+							<tr>
+								<td colspan="8" class="empty-row">No vendor paid records found</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -281,9 +287,10 @@
 	.all-vendor-paid-container {
 		width: 100%;
 		height: 100%;
-		padding: 24px;
+		display: flex;
+		flex-direction: column;
 		background: #f8fafc;
-		overflow-y: auto;
+		overflow: hidden;
 	}
 
 	.loading-section {
@@ -339,11 +346,10 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
-		padding: 16px 20px;
+		padding: 16px 24px;
 		background: white;
-		border-radius: 12px;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		flex-shrink: 0;
 	}
 
 	.header-section h2 {
@@ -370,11 +376,10 @@
 
 	/* Search Section */
 	.search-section {
-		margin-bottom: 16px;
-		padding: 12px 16px;
+		padding: 12px 24px;
 		background: white;
-		border-radius: 10px;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		flex-shrink: 0;
 	}
 
 	.search-input-wrapper {
@@ -495,23 +500,32 @@
 		background: #cbd5e1;
 	}
 
-	.table-container {
-		background: white;
+	.table-wrapper {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		margin: 16px 24px;
 		border-radius: 12px;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		overflow: hidden;
+		background: white;
+	}
+
+	.table-header {
+		flex-shrink: 0;
+		background: #1e40af;
+	}
+
+	.table-body {
+		flex: 1;
+		overflow-y: auto;
 	}
 
 	.data-table {
 		width: 100%;
 		border-collapse: collapse;
 		font-size: 13px;
-	}
-
-	.data-table thead {
-		position: sticky;
-		top: 0;
-		z-index: 10;
+		table-layout: fixed;
 	}
 
 	.data-table th {
