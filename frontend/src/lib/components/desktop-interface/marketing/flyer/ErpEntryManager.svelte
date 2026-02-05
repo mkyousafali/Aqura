@@ -254,6 +254,7 @@
 		
 		// Define columns
 		worksheet.columns = [
+			{ header: 'S.No', key: 'sno', width: 8 },
 			{ header: 'Page', key: 'page', width: 10 },
 			{ header: 'Order', key: 'order', width: 10 },
 			{ header: 'Barcode', key: 'barcode', width: 15 },
@@ -280,6 +281,7 @@
 			
 			// Add row data
 			worksheet.addRow({
+				sno: i + 1,
 				page: product.page_number || 1,
 				order: product.page_order || 1,
 				barcode: barcode,
@@ -313,7 +315,7 @@
 				
 				// Embed image in cell
 				worksheet.addImage(imageId, {
-					tl: { col: 3, row: rowIndex - 1 }, // Top-left position (0-indexed for position) - col 3 for Barcode Image column
+					tl: { col: 4, row: rowIndex - 1 }, // Top-left position (0-indexed for position) - col 4 for Barcode Image column
 					ext: { width: 200, height: 60 }
 				});
 				
