@@ -5,9 +5,7 @@
 
 <div class="p-6">
 	<div class="mb-6 text-center">
-		<div class="w-24 h-24 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-			<span class="text-white text-3xl font-bold">A</span>
-		</div>
+		<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="w-24 h-24 mx-auto mb-4 object-contain" />
 		<h1 class="text-2xl font-bold mb-2">{t('welcome.title') || 'Welcome to Aqura!'}</h1>
 		<p class="text-gray-600">{t('welcome.subtitle') || 'Your PWA-first windowed management platform'}</p>
 	</div>

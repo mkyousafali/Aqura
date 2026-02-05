@@ -282,9 +282,8 @@
 				
 				<div class="mobile-logo">
 					<div class="logo-icon">
-						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+						<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 					</div>
-					<h1 class="app-name">{t('app.shortName')}</h1>
 					<p class="app-description">{t('app.description')}</p>
 				</div>
 			</div>
@@ -472,6 +471,7 @@
 			0 0 30px rgba(255, 255, 255, 0.3),
 			0 10px 30px rgba(0, 0, 0, 0.2);
 		animation: logoGlow 3s ease-in-out infinite alternate;
+		overflow: hidden;
 	}
 
 	@keyframes logoGlow {
@@ -488,10 +488,11 @@
 	}
 
 	.logo-image {
-		width: 120px;
-		height: 60px;
+		width: 500px;
+		height: auto;
 		border-radius: 16px;
 		object-fit: contain;
+		margin-top: 15px;
 	}
 
 	.app-name {
