@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	export let onRefresh = null;
 	export let setRefreshCallback = null;
@@ -271,6 +272,46 @@
 		showPendingModal = true;
 	}
 
+	// Open All Vendor Paid window
+	async function openAllVendorPaidWindow() {
+		const { default: AllVendorPaid } = await import('$lib/components/desktop-interface/master/finance/AllVendorPaid.svelte');
+		openWindow({
+			id: `all-vendor-paid-${Date.now()}`,
+			title: '📦 All Vendor Paid Transactions',
+			component: AllVendorPaid,
+			icon: '📦',
+			size: { width: 1100, height: 700 },
+			position: { 
+				x: 80 + (Math.random() * 50), 
+				y: 80 + (Math.random() * 50) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// Open All Expense Paid window
+	async function openAllExpensePaidWindow() {
+		const { default: AllExpensePaid } = await import('$lib/components/desktop-interface/master/finance/AllExpensePaid.svelte');
+		openWindow({
+			id: `all-expense-paid-${Date.now()}`,
+			title: '💳 All Expense Paid Transactions',
+			component: AllExpensePaid,
+			icon: '💳',
+			size: { width: 1100, height: 700 },
+			position: { 
+				x: 100 + (Math.random() * 50), 
+				y: 100 + (Math.random() * 50) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	async function loadData() {
 		isLoading = true;
 		loadingProgress = 0;
@@ -463,6 +504,12 @@
 				<span class="pending-count">
 					({paidVendorPayments.filter(p => !p.payment_reference).length + paidExpensePayments.filter(p => !p.payment_reference).length})
 				</span>
+			</button>
+			<button class="view-all-btn vendor-btn" on:click={openAllVendorPaidWindow}>
+				📦 View All Vendor Paid
+			</button>
+			<button class="view-all-btn expense-btn" on:click={openAllExpensePaidWindow}>
+				💳 View All Expense Paid
 			</button>
 		</div>
 	</div>
@@ -1479,6 +1526,43 @@
 
 	.popup-save-btn:hover {
 		box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
+		transform: translateY(-2px);
+	}
+
+	/* View All Paid Buttons */
+	.view-all-btn {
+		padding: 8px 16px;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		font-size: 14px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.2s;
+	}
+
+	.view-all-btn.vendor-btn {
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+	}
+
+	.view-all-btn.vendor-btn:hover {
+		background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+		transform: translateY(-2px);
+	}
+
+	.view-all-btn.expense-btn {
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+		box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2);
+	}
+
+	.view-all-btn.expense-btn:hover {
+		background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+		box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 		transform: translateY(-2px);
 	}
 </style>
