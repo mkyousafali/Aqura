@@ -64,6 +64,7 @@
 	import FlyerTemplates from '$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte';
 	import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
 	import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
+	import NearExpiryManager from '$lib/components/desktop-interface/marketing/flyer/NearExpiryManager.svelte';
 	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
 	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
@@ -2166,6 +2167,24 @@ function openApprovalCenter() {
 		showMediaSubmenu = false;
 	}
 
+	function openNearExpiryManager() {
+		const windowId = generateWindowId('near-expiry-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Near Expiry Manager #${instanceNumber}`,
+			component: NearExpiryManager,
+			icon: '⏰',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
 	function openCouponManagement() {
 		const windowId = generateWindowId('coupon-management');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2990,6 +3009,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openShelfPaperManager}>
 								<span class="menu-icon">🏷️</span>
 								<span class="menu-text">{t('nav.shelfPaperManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('NEAR_EXPIRY_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openNearExpiryManager}>
+								<span class="menu-icon">⏰</span>
+								<span class="menu-text">{t('nav.nearExpiryManager')}</span>
 							</button>
 						</div>
 					{/if}
