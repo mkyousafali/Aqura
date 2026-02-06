@@ -96,6 +96,7 @@ export const englishLocale: LocaleData = {
       erpEntryManager: "ERP Entry Manager",
       generateFlyers: "Generate Flyers",
       shelfPaperManager: "Shelf Paper Manager",
+      nearExpiryManager: "Near Expiry Manager",
       couponDashboard: "Coupon Dashboard",
       manageCampaigns: "Manage Campaigns",
       viewOfferManager: "View Offer Manager",

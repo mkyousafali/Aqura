@@ -98,6 +98,7 @@ export const arabicLocale: LocaleData = {
       erpEntryManager: "مدير إدخال ERP",
       generateFlyers: "توليد النشرات",
       shelfPaperManager: "مدير ورق الرف",
+      nearExpiryManager: "مدير قرب الصلاحية",
       couponDashboard: "لوحة التخفيضات",
       manageCampaigns: "إدارة الحملات",
       viewOfferManager: "عرض محرر العروض",
