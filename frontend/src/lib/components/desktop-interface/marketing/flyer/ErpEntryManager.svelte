@@ -913,6 +913,26 @@
 		return 'Unknown';
 	}
 	
+	// Format end date as DDMMYY
+	function formatEndDate(dateString: string): string {
+		const date = new Date(dateString);
+		const day = String(date.getDate()).padStart(2, '0');
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const year = String(date.getFullYear()).slice(-2);
+		return `${day}${month}${year}`;
+	}
+	
+	// Get offer type with end date for copy
+	function getOfferTypeWithDate(offerQty: number = 1, limitQty: number | null, freeQty: number = 0, offerPrice: number = 0): string {
+		const offerType = getOfferType(offerQty, limitQty, freeQty, offerPrice);
+		const selectedOffer = getSelectedOffer();
+		if (selectedOffer && selectedOffer.end_date) {
+			return `${offerType.replace(/\s+/g, '')}${formatEndDate(selectedOffer.end_date)}`;
+		}
+		return offerType;
+	}
+	
+	
 	// Calculate average profit percentage based on offer price
 	function calculateAvgProfitOnOfferPrice(): number {
 		if (!selectedProducts.length) return 0;
@@ -2472,11 +2492,6 @@
 	<!-- Header - Sticky -->
 	<div class="sticky top-0 z-20 bg-gray-50 pb-4">
 		<div class="flex items-center justify-between mb-4">
-			<div>
-				<h1 class="text-3xl font-bold text-gray-800">Pricing Manager</h1>
-				<p class="text-gray-600 mt-1">View active offers and their selected products</p>
-			</div>
-			
 			<button 
 				on:click={loadActiveOffers}
 				disabled={isLoading}
@@ -2933,7 +2948,7 @@
 									<td class="w-40 px-4 py-4 align-middle text-xs text-gray-900" style="display: none;">
 										{product.parent_category || '-'}
 									</td>
-									<td class="w-40 px-4 py-4 align-middle">
+									<td class="w-40 px-4 py-4 align-middle cursor-pointer hover:opacity-80 transition-opacity" on:dblclick={() => navigator.clipboard.writeText(getOfferTypeWithDate(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price))}>
 										<span class="px-2 py-1 text-xs font-semibold rounded-full {
 											getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price).includes('Not Applicable')
 												? 'bg-gray-100 text-gray-800'
