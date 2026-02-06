@@ -28,6 +28,8 @@
     copiesA5: number;
     copiesA6: number;
     copiesA7: number;
+    page_number?: number;
+    page_order?: number;
     // Variation group fields
     is_variation_group?: boolean;
     variation_count?: number;
@@ -193,6 +195,8 @@
           copiesA5: 1,
           copiesA6: 1,
           copiesA7: 1,
+          page_number: offerProduct.page_number,
+          page_order: offerProduct.page_order,
           is_variation: productDetail?.is_variation,
           parent_product_barcode: productDetail?.parent_product_barcode,
           variation_group_name_en: productDetail?.variation_group_name_en,
@@ -253,7 +257,12 @@
         }
       }
 
-      products = consolidatedProducts.sort((a, b) => a.product_name_en.localeCompare(b.product_name_en));
+      products = consolidatedProducts.sort((a, b) => {
+        // Sort by page_number first, then by page_order
+        const pageCompare = (a.page_number || 1) - (b.page_number || 1);
+        if (pageCompare !== 0) return pageCompare;
+        return (a.page_order || 1) - (b.page_order || 1);
+      });
 
       // Initialize filtered products
       filteredProducts = products;
@@ -268,13 +277,18 @@
 
   function filterProducts() {
     if (!searchQuery.trim()) {
-      filteredProducts = products;
+      filteredProducts = [...products].sort((a, b) => {
+        // Sort by page_number first, then by page_order
+        const pageCompare = (a.page_number || 1) - (b.page_number || 1);
+        if (pageCompare !== 0) return pageCompare;
+        return (a.page_order || 1) - (b.page_order || 1);
+      });
       return;
     }
 
     const query = searchQuery.toLowerCase().trim();
     
-    filteredProducts = products.filter(product => {
+    let filtered = products.filter(product => {
       switch(searchBy) {
         case 'barcode':
           return product.barcode.toLowerCase().includes(query);
@@ -283,12 +297,24 @@
         case 'name_ar':
           return product.product_name_ar.includes(query);
         case 'serial':
-          // Serial number search - find the product's index (serial)
-          const serialNum = (products.indexOf(product) + 1).toString();
+          // Serial number search - find the product's sorted index
+          const sortedProducts = [...products].sort((a, b) => {
+            const pageCompare = (a.page_number || 1) - (b.page_number || 1);
+            if (pageCompare !== 0) return pageCompare;
+            return (a.page_order || 1) - (b.page_order || 1);
+          });
+          const serialNum = (sortedProducts.indexOf(product) + 1).toString();
           return serialNum.includes(query);
         default:
           return true;
       }
+    });
+
+    // Sort filtered results by page_number and page_order
+    filteredProducts = filtered.sort((a, b) => {
+      const pageCompare = (a.page_number || 1) - (b.page_number || 1);
+      if (pageCompare !== 0) return pageCompare;
+      return (a.page_order || 1) - (b.page_order || 1);
     });
   }
 
@@ -310,6 +336,151 @@
       return p;
     });
     filterProducts(); // Re-filter after update
+  }
+
+  function printShelfPaper() {
+    if (filteredProducts.length === 0) {
+      alert('No products to print');
+      return;
+    }
+
+    const offerName = selectedOffer?.name || 'Shelf Paper';
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    if (!printWindow) {
+      alert('Failed to open print window. Please check your popup settings.');
+      return;
+    }
+
+    let printHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Shelf Paper - ${offerName}</title>
+        <style>
+          @media print {
+            @page { margin: 0.5cm; }
+            body { margin: 0; }
+          }
+          body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+          }
+          h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #333;
+          }
+          .info {
+            margin-bottom: 20px;
+            color: #666;
+            font-size: 14px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 11px;
+          }
+          th, td {
+            border: 1px solid #ddd;
+            padding: 6px;
+            text-align: left;
+          }
+          th {
+            background-color: #f3f4f6;
+            font-weight: bold;
+            color: #374151;
+            font-size: 11px;
+          }
+          .img-cell {
+            width: 70px;
+            text-align: center;
+          }
+          img {
+            max-width: 60px;
+            max-height: 60px;
+            object-fit: contain;
+          }
+          .no-image {
+            color: #9ca3af;
+            font-size: 10px;
+          }
+          .copies-col {
+            width: 50px;
+            text-align: center;
+            background-color: #f9fafb;
+          }
+          .blank-col {
+            width: 60px;
+            background-color: #fef3c7;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Shelf Paper - ${offerName}</h1>
+        <div class="info">
+          <div>Date: ${new Date().toLocaleDateString()}</div>
+          <div>Total Products: ${filteredProducts.length}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th class="img-cell">Image</th>
+              <th>Product Name (EN)</th>
+              <th>Unit</th>
+              <th class="copies-col">A4</th>
+              <th class="copies-col">A5</th>
+              <th class="copies-col">A6</th>
+              <th class="copies-col">A7</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    // Add product rows
+    filteredProducts.forEach((product, index) => {
+      const imageTag = product.image_url 
+        ? `<img src="${product.image_url}" alt="${product.product_name_en || ''}" />`
+        : '<span class="no-image">No Image</span>';
+      
+      const a4Copies = product.pdfSizes.includes('a4') ? product.copiesA4 : '';
+      const a5Copies = product.pdfSizes.includes('a5') ? product.copiesA5 : '';
+      const a6Copies = product.pdfSizes.includes('a6') ? product.copiesA6 : '';
+      const a7Copies = product.pdfSizes.includes('a7') ? product.copiesA7 : '';
+
+      printHTML += `
+        <tr>
+          <td style="font-weight: bold; text-align: center;">${index + 1}</td>
+          <td class="img-cell">${imageTag}</td>
+          <td>
+            <div style="font-weight: bold;">${product.product_name_en || '-'}</div>
+            <div style="font-size: 12px; color: #6b7280; margin-top: 4px; font-weight: 600;">${product.barcode || '-'}</div>
+          </td>
+          <td>${product.unit_name || '-'}</td>
+          <td class="copies-col">${a4Copies}</td>
+          <td class="copies-col">${a5Copies}</td>
+          <td class="copies-col">${a6Copies}</td>
+          <td class="copies-col">${a7Copies}</td>
+        </tr>
+      `;
+    });
+
+    printHTML += `
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(printHTML);
+    printWindow.document.close();
+    
+    // Wait for images to load before printing
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
   }
 
   async function generatePDF(product: Product) {
@@ -1134,12 +1305,18 @@
         {:else if products.length === 0}
           <div class="empty-state">No products found in this offer</div>
         {:else}
+          <div style="margin-bottom: 1rem;">
+            <button class="print-btn" on:click={printShelfPaper} title="Print shelf paper details for supervisor">
+              🖨️ Print for Paper Size
+            </button>
+          </div>
           <div class="products-table-container">
             <table class="products-table">
               <thead>
                 <tr>
                   <th>#</th>
                   <th>Image</th>
+                  <th>Page/Order</th>
                   <th>Barcode</th>
                   <th>Product Name (EN)</th>
                   <th>Product Name (AR)</th>
@@ -1156,7 +1333,7 @@
               <tbody>
                 {#each filteredProducts as product, index}
                   <tr>
-                    <td class="serial-cell">{products.indexOf(product) + 1}</td>
+                    <td class="serial-cell">{index + 1}</td>
                     <td class="image-cell">
                       <div class="product-image-small">
                         {#if product.image_url}
@@ -1165,6 +1342,9 @@
                           <div class="no-image-small">📦</div>
                         {/if}
                       </div>
+                    </td>
+                    <td class="page-order-cell">
+                      {product.page_number || 1}/{product.page_order || 1}
                     </td>
                     <td class="barcode-cell">{product.barcode}</td>
                     <td class="name-cell">
@@ -1754,11 +1934,12 @@
   }
 
   .copies-input-inline {
-    width: 50px;
-    padding: 0.25rem;
+    width: 70px;
+    padding: 0.5rem;
     border: 2px solid #e5e7eb;
     border-radius: 4px;
-    font-size: 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
     text-align: center;
     transition: all 0.2s;
   }
@@ -1771,7 +1952,18 @@
 
   .copies-input-inline::-webkit-inner-spin-button,
   .copies-input-inline::-webkit-outer-spin-button {
-    opacity: 1;
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .copies-input-inline[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  .copies-input-inline::-webkit-inner-spin-button,
+  .copies-input-inline::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 
   .copies-cell {
@@ -1802,6 +1994,32 @@
 
   .action-cell {
     padding: 0.5rem;
+  }
+
+  .print-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    padding: 0.625rem 1.25rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+  }
+
+  .print-btn:hover {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .print-btn:active {
+    transform: translateY(0);
   }
 
   .template-btn {
