@@ -231,7 +231,8 @@
 			selectedProducts = selectedProducts.map(p => {
 				// Update all products in the same variation group
 				if (p.is_variation && p.variation_group_name_en === groupName) {
-					return { ...p, offer_price: newOfferPricePerUnit };
+					const totalOfferPrice = newOfferPricePerUnit * (p.offer_qty || 1);
+					return { ...p, offer_price: newOfferPricePerUnit, total_offer_price: totalOfferPrice };
 				}
 				return p;
 			});
@@ -2694,7 +2695,12 @@
 										<input
 											type="number"
 											bind:value={product.sales_price}
-											on:input={markAsChanged}
+											on:input={(e) => {
+												// Clear saved totals so reactive calculations kick in
+												product.total_sales_price = null;
+												product.total_offer_price = null;
+												markAsChanged();
+											}}
 											on:change={markAsChanged}
 											step="0.01"
 											min="0"
@@ -2717,12 +2723,12 @@
 													const qty = product.offer_qty || 1;
 													const perUnitPrice = totalOfferPrice / qty;
 													
-													// Update per-unit price in the product
+													// Update per-unit price AND total offer price in the product
 													const productIndex = selectedProducts.findIndex(p => p.barcode === product.barcode);
 													if (productIndex !== -1) {
 														selectedProducts = selectedProducts.map((p, idx) => 
 															idx === productIndex 
-																? { ...p, offer_price: perUnitPrice }
+																? { ...p, offer_price: perUnitPrice, total_offer_price: totalOfferPrice }
 																: p
 														);
 														

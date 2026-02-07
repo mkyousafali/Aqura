@@ -59,7 +59,9 @@
     { value: 'offer_price', label: 'Offer Price' },
     { value: 'offer_qty', label: 'Offer Quantity' },
     { value: 'limit_qty', label: 'Limit Quantity' },
+    { value: 'product_expiry_date', label: 'Product Expiry Date' },
     { value: 'expire_date', label: 'Expire Date' },
+    { value: 'offer_end_date', label: 'Offer End Date' },
     { value: 'image', label: 'Product Image' }
   ];
   
