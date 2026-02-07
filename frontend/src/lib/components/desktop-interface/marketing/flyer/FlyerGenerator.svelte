@@ -208,6 +208,38 @@
     }
   }
   
+  async function saveTemplateConfiguration() {
+    if (!selectedTemplateId) {
+      errorMessage = 'No template selected';
+      return;
+    }
+    
+    const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
+    if (!selectedTemplate) {
+      errorMessage = 'Template not found';
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('flyer_templates')
+        .update({
+          first_page_configuration: selectedTemplate.first_page_configuration,
+          sub_page_configurations: selectedTemplate.sub_page_configurations
+        })
+        .eq('id', selectedTemplateId);
+      
+      if (error) throw error;
+      
+      successMessage = 'Template configuration saved successfully!';
+      setTimeout(() => successMessage = '', 3000);
+    } catch (error: any) {
+      console.error('Error saving template:', error);
+      errorMessage = `Failed to save template: ${error.message}`;
+      setTimeout(() => errorMessage = '', 3000);
+    }
+  }
+  
   async function loadOfferProducts(offerId: string) {
     if (!offerId) return;
     
@@ -1362,6 +1394,8 @@
               display: flex !important;
               width: 100% !important;
               height: 100% !important;
+              overflow: visible !important;
+              background: transparent !important;
             }
             /* Force proper Arabic text rendering */
             .field-text-preview,
@@ -1373,6 +1407,30 @@
               white-space: pre-wrap !important;
               word-break: keep-all !important;
               direction: rtl !important;
+              overflow: visible !important;
+              background: transparent !important;
+            }
+            /* Price field - override RTL for proper strikethrough */
+            .price-field,
+            .price-field * {
+              direction: ltr !important;
+              unicode-bidi: normal !important;
+            }
+            /* Ensure strikethrough line is visible in export */
+            .price-field span[style*="position: absolute"] {
+              display: block !important;
+              opacity: 1 !important;
+              visibility: visible !important;
+            }
+            /* Offer price - override RTL for proper decimal display */
+            .offer-price,
+            .offer-price * {
+              direction: ltr !important;
+              unicode-bidi: normal !important;
+            }
+            .resizable-element {
+              overflow: visible !important;
+              background: transparent !important;
             }
           `;
           clonedDocument.head.appendChild(style);
@@ -1525,9 +1583,17 @@
     {@const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId)}
     {#if selectedTemplate}
       <div class="bg-white rounded-xl shadow-lg p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">
-          📄 Template Preview: {selectedTemplate.name}
-        </h3>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold text-gray-800">
+            📄 Template Preview: {selectedTemplate.name}
+          </h3>
+          <button
+            on:click={saveTemplateConfiguration}
+            class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow-md"
+          >
+            💾 Save Configuration
+          </button>
+        </div>
         
         <!-- Tabs -->
         <div class="tabs-header">
@@ -1770,7 +1836,7 @@
                                       font-size: {configField.fontSize || 14}px;
                                       color: {configField.color || '#000000'};
                                       text-align: {configField.alignment || 'left'};
-                                      text-decoration: {configField.strikethrough ? 'line-through' : 'none'};
+                                      text-decoration: {configField.label === 'price' ? 'none' : (configField.strikethrough ? 'line-through' : 'none')};
                                       font-weight: {configField.bold ? 'bold' : 'normal'};
                                       font-style: {configField.italic ? 'italic' : 'normal'};
                                       {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
@@ -1799,9 +1865,10 @@
                                     {/if}
                                     {#if configField.label === 'offer_price'}
                                       {@const [integerPart, decimalPart] = fieldValue.split('.')}
-                                      <span style="unicode-bidi: plaintext; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1;">.{decimalPart || '00'}</span></span>
+                                      <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                     {:else if configField.label === 'price'}
-                                      <span style="text-decoration: line-through; unicode-bidi: plaintext; position: relative; z-index: 2;">
+                                      <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal;">
+                                        <span style="position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: currentColor; transform: translateY(-50%); pointer-events: none;"></span>
                                         {fieldValue}
                                       </span>
                                     {:else}
@@ -2009,7 +2076,7 @@
                                         font-size: {configField.fontSize || 14}px;
                                         color: {configField.color || '#000000'};
                                         text-align: {configField.alignment || 'left'};
-                                        text-decoration: {configField.strikethrough ? 'line-through' : 'none'};
+                                        text-decoration: {configField.label === 'price' ? 'none' : (configField.strikethrough ? 'line-through' : 'none')};
                                         font-weight: {configField.bold ? 'bold' : 'normal'};
                                         font-style: {configField.italic ? 'italic' : 'normal'};
                                         {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
@@ -2036,9 +2103,10 @@
                                       {/if}
                                       {#if configField.label === 'offer_price'}
                                         {@const [integerPart, decimalPart] = fieldValue.split('.')}
-                                        <span style="position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1;">.{decimalPart || '00'}</span></span>
+                                        <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                       {:else if configField.label === 'price'}
-                                        <span style="text-decoration: line-through; position: relative; z-index: 2;">
+                                        <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal;">
+                                          <span style="position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: currentColor; transform: translateY(-50%); pointer-events: none;"></span>
                                           {fieldValue}
                                         </span>
                                       {:else}
