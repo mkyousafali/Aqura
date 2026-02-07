@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ExcelJS from 'exceljs';
+	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 
 	// Near Expiry Manager Component
@@ -11,6 +12,25 @@
 	let fileInput: HTMLInputElement;
 	let targetPrice: number | string = 16;
 	let offerInputs: Map<number, any> = new Map();
+
+	// Print functionality
+	interface ShelfPaperTemplate {
+		id: string;
+		name: string;
+		description: string | null;
+		template_image_url: string;
+		field_configuration: any[];
+		metadata: any;
+	}
+
+	let templates: ShelfPaperTemplate[] = [];
+	let selectedTemplateId: string | null = null;
+	let isLoadingTemplates = false;
+
+	// Load templates on component mount
+	onMount(() => {
+		loadTemplates();
+	});
 
 	function scrollToInvalidRow(index: number) {
 		const tableRows = document.querySelectorAll('tbody tr');
@@ -44,6 +64,315 @@
 		fileInput.click();
 	}
 
+	// Load shelf paper templates from database
+	async function loadTemplates() {
+		isLoadingTemplates = true;
+		try {
+			const { data, error } = await supabase
+				.from('shelf_paper_templates')
+				.select('*')
+				.order('created_at', { ascending: false });
+
+			if (error) {
+				console.error('Error loading templates:', error);
+				templates = [];
+			} else {
+				templates = data || [];
+			}
+		} catch (error) {
+			console.error('Error loading templates:', error);
+			templates = [];
+		} finally {
+			isLoadingTemplates = false;
+		}
+	}
+
+	// Print shelf paper using selected template
+	function printShelfPaper() {
+		if (!selectedTemplateId) {
+			alert('Please select a template first');
+			return;
+		}
+
+		if (filteredData.length === 0) {
+			alert('No products to print');
+			return;
+		}
+
+		const template = templates.find(t => t.id === selectedTemplateId);
+		if (!template) {
+			alert('Template not found');
+			return;
+		}
+
+		const printWindow = window.open('', '_blank');
+		if (!printWindow) {
+			alert('Please allow pop-ups to print');
+			return;
+		}
+
+		// A4 dimensions in pixels at 96 DPI
+		const a4Width = 794;
+		const a4Height = 1123;
+
+		// Build HTML for printing
+		let allPagesHtml = '';
+
+		// Load template image and process each product
+		const tempImg = new Image();
+		
+		tempImg.onload = function () {
+			const fields = template.field_configuration || [];
+
+			// Calculate scale factors if metadata exists
+			let scaleX = 1;
+			let scaleY = 1;
+			if (template.metadata) {
+				scaleX = a4Width / (template.metadata.preview_width || a4Width);
+				scaleY = a4Height / (template.metadata.preview_height || a4Height);
+			}
+
+			let serialCounter = 1;
+
+			// Process each product
+			filteredData.forEach((product) => {
+				let productFieldsHtml = '';
+
+				// Render each field on the template
+				fields.forEach((field: any) => {
+					let value = '';
+
+					// Map field label to product data
+					switch (field.label) {
+						case 'product_name_en':
+							value = product.englishName || '';
+							break;
+						case 'product_name_ar':
+							value = product.arabicName || '';
+							break;
+						case 'barcode':
+							value = product.barcode || '';
+							break;
+						case 'serial_number':
+							value = serialCounter.toString();
+							break;
+						case 'unit_name':
+							value = product.unit || '';
+							break;
+						case 'price':
+							// Calculate total sales price: salesPrice * offerQty
+							const salesPrice = product.salesPrice ? parseFloat(product.salesPrice) : 0;
+							const qty = product.offerQty ? parseInt(product.offerQty) : 1;
+							const totalSalesPrice = (salesPrice * qty).toFixed(2);
+							value = totalSalesPrice;
+							break;
+						case 'offer_price':
+							// Calculate total offer price: offerPrice * offerQty, using roundTo95 logic
+							const offerPriceUnit = product.offerPrice || product.offer_price;
+							const qtyOffer = product.offerQty ? parseInt(product.offerQty) : 1;
+							if (offerPriceUnit) {
+								const totalOfferPriceRaw = parseFloat(offerPriceUnit) * qtyOffer;
+								// Apply roundTo95 logic
+								const intPart = Math.floor(totalOfferPriceRaw);
+								const candidate1 = intPart + 0.95;
+								const candidate2 = (intPart - 1) + 0.95;
+								const distance1 = Math.abs(totalOfferPriceRaw - candidate1);
+								const distance2 = Math.abs(totalOfferPriceRaw - candidate2);
+								const rounded = distance1 <= distance2 ? candidate1 : candidate2;
+								value = rounded.toFixed(2);
+							} else {
+								value = '';
+							}
+							break;
+						case 'offer_qty':
+							value = product.offerQty ? product.offerQty.toString() : '1';
+							break;
+						case 'limit_qty':
+							value = product.limitQty ? product.limitQty.toString() : '';
+							break;
+						case 'expire_date':
+							if (product.expiryDate) {
+								try {
+									const dateParts = product.expiryDate.split('-');
+									if (dateParts.length === 3) {
+										// Format is DD-MM-YYYY
+										const day = parseInt(dateParts[0]);
+										const month = parseInt(dateParts[1]) - 1;
+										const year = parseInt(dateParts[2]);
+										const dateObj = new Date(year, month, day);
+										
+										if (!isNaN(dateObj.getTime())) {
+											const dateEnglish = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+											const dateArabic = dateObj.toLocaleDateString('ar-SA', { month: 'long', day: 'numeric', year: 'numeric' });
+											value = '<div>Product expires on (' + dateEnglish + ')</div><div>ينتهي المنتج في (' + dateArabic + ')</div>';
+										} else {
+											value = product.expiryDate;
+										}
+									} else {
+										value = product.expiryDate;
+									}
+								} catch (e) {
+									value = product.expiryDate;
+									console.error('Error parsing expire date:', e);
+								}
+							} else {
+								value = '';
+							}
+							break;
+						case 'offer_end_date':
+							if (product.offerEndDate) {
+								try {
+									let dateObj: Date;
+									const offerEndStr = String(product.offerEndDate).trim();
+									
+									// Try to parse different date formats
+									if (offerEndStr.includes('-')) {
+										const dateParts = offerEndStr.split('-');
+										if (dateParts.length === 3) {
+											// Try DD-MM-YYYY format first
+											if (dateParts[0].length === 2 && dateParts[1].length === 2 && dateParts[2].length === 4) {
+												const day = parseInt(dateParts[0]);
+												const month = parseInt(dateParts[1]) - 1;
+												const year = parseInt(dateParts[2]);
+												dateObj = new Date(year, month, day);
+											} else {
+												// Try YYYY-MM-DD format
+												dateObj = new Date(offerEndStr);
+											}
+										} else {
+											dateObj = new Date(offerEndStr);
+										}
+									} else if (typeof product.offerEndDate === 'number') {
+										// Handle Excel serial date format
+										const excelDate = new Date(1900, 0, product.offerEndDate);
+										dateObj = excelDate;
+									} else {
+										dateObj = new Date(offerEndStr);
+									}
+									
+									if (!isNaN(dateObj.getTime())) {
+										const dateEnglish = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+										const dateArabic = dateObj.toLocaleDateString('ar-SA', { month: 'long', day: 'numeric', year: 'numeric' });
+										value = '<div>Offer expires on ' + dateEnglish + '</div><div>ينتهي العرض في ' + dateArabic + '</div>';
+									} else {
+										value = offerEndStr;
+									}
+								} catch (e) {
+									value = String(product.offerEndDate);
+									console.error('Error parsing offer_end_date:', e);
+								}
+							} else {
+								value = '';
+							}
+							break;
+						case 'product_expiry_date':
+							if (product.expiryDate) {
+								try {
+									let dateObj: Date;
+									const expiryVal = product.expiryDate;
+									
+									// Handle if it's already a Date object
+									if (expiryVal instanceof Date) {
+										dateObj = expiryVal;
+									} else {
+										const expiryStr = String(expiryVal).trim();
+										const dateParts = expiryStr.split('-');
+										if (dateParts.length === 3) {
+											// Format is DD-MM-YYYY
+											const day = parseInt(dateParts[0]);
+											const month = parseInt(dateParts[1]) - 1;
+											const year = parseInt(dateParts[2]);
+											dateObj = new Date(year, month, day);
+										} else {
+											// Try parsing as Date string
+											dateObj = new Date(expiryStr);
+										}
+									}
+									
+									if (!isNaN(dateObj.getTime())) {
+										const dateEnglish = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+										const dateArabic = dateObj.toLocaleDateString('ar-SA', { month: 'long', day: 'numeric', year: 'numeric' });
+										value = '<div>Product expires on ' + dateEnglish + '</div><div>ينتهي المنتج في ' + dateArabic + '</div>';
+									} else {
+										value = String(product.expiryDate);
+									}
+								} catch (e) {
+									value = String(product.expiryDate);
+									console.error('Error parsing product_expiry_date:', e);
+								}
+							} else {
+								value = '';
+								console.log('product.expiryDate is empty or undefined for product:', product);
+							}
+							break;
+					}
+
+					if (value) {
+						const scaledX = Math.round(field.x * scaleX);
+						const scaledY = Math.round(field.y * scaleY);
+						const scaledWidth = Math.round(field.width * scaleX);
+						const scaledHeight = Math.round(field.height * scaleY);
+						const scaledFontSize = Math.round(field.fontSize * scaleX);
+
+						const justifyContent = field.alignment === 'center' ? 'center' : field.alignment === 'right' ? 'flex-end' : 'flex-start';
+						const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
+						const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
+
+						let displayValue = value;
+						if ((field.label === 'price' || field.label === 'offer_price') && value.includes('.')) {
+							const parts = value.split('.');
+						const halfFontSize = Math.round(scaledFontSize * 0.5);
+						if (field.label === 'price') {
+							// Price field: same font size for integer and decimal, with strikethrough, half-size currency
+							displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;text-decoration:line-through;text-decoration-thickness:5px;">' + parts[0] + '.' + parts[1] + '</span></div>';
+						} else {
+							// Offer price field: smaller font for decimal
+							displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+						}
+					} else if (field.label === 'price' || field.label === 'offer_price') {
+						const halfFontSize = Math.round(scaledFontSize * 0.5);
+						const currencySymbol = '<img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR">';
+						if (field.label === 'price') {
+							displayValue = currencySymbol + '<span style="text-decoration:line-through;text-decoration-thickness:5px;">' + value + '</span>';
+						} else {
+							displayValue = currencySymbol + value;
+						}
+					}
+
+					// Determine if this field contains line breaks (check for <div> tags)
+					const hasLineBreaks = displayValue.includes('<div>');
+					const flexDirection = hasLineBreaks ? 'flex-direction:column;justify-content:flex-start;align-items:center;' : '';
+
+					productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + (field.color || '#000000') + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + flexDirection + fontWeight + dirAttr + '">' + displayValue + '</div></div>';
+				}
+			});
+
+			let pageHtml = '<div style="position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block;">';
+			pageHtml += '<img src="' + template.template_image_url + '" style="width:' + a4Width + 'px;height:' + a4Height + 'px;position:absolute;top:0;left:0;z-index:1;display:block;" alt="Template">';
+			pageHtml += productFieldsHtml;
+			pageHtml += '</div>';
+			allPagesHtml += pageHtml;
+
+			serialCounter++;
+		});
+
+			const htmlDoc = printWindow.document;
+			htmlDoc.open();
+			htmlDoc.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Shelf Paper</title></head><body>' + allPagesHtml + '</body></html>');
+			htmlDoc.close();
+
+			const styleEl = htmlDoc.createElement('style');
+			styleEl.textContent = '@page{size:A4;margin:0}body{margin:0;padding:0;font-family:Arial,sans-serif}div{page-break-inside:avoid}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}';
+			htmlDoc.head.appendChild(styleEl);
+
+			setTimeout(() => {
+				printWindow.print();
+			}, 1000);
+		};
+
+		tempImg.src = template.template_image_url;
+	}
+
 	async function handleFileImport(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const file = target.files?.[0];
@@ -74,7 +403,11 @@
 					salesPrice: row.getCell(4).value || '',
 					unit: row.getCell(5).value?.toString() || '',
 					cost: row.getCell(6).value || '',
-					expiryDate: row.getCell(7).value?.toString() || ''
+					expiryDate: row.getCell(7).value?.toString() || '',
+					offerPrice: row.getCell(8).value || '',
+					offerQty: row.getCell(9).value?.toString() || '',
+					limitQty: row.getCell(10).value?.toString() || '',
+					offerEndDate: row.getCell(11).value?.toString() || ''
 				};
 
 				// Only add non-empty rows
@@ -536,6 +869,12 @@
 			return dateA - dateB;
 		});
 		importedData = importedData; // Trigger reactivity
+	}
+
+	// Delete a product from the list and trigger reactivity
+	function deleteProduct(index: number) {
+		importedData.splice(index, 1);
+		importedData = importedData; // Trigger reactivity to renumber rows
 	}
 
 	// Helper: Round down to nearest .95
@@ -1965,8 +2304,9 @@
 							<div class="flex gap-4">
 							<!-- Search Bar -->
 							<div class="bg-white rounded-xl p-4 shadow-md border border-slate-200">
-								<label class="block text-xs font-semibold text-slate-700 mb-2">🔍 Search</label>
+								<label for="search-input" class="block text-xs font-semibold text-slate-700 mb-2">🔍 Search</label>
 								<input 
+									id="search-input"
 									type="text" 
 									bind:value={searchQuery}
 									placeholder="Search by name or barcode..."
@@ -1981,9 +2321,37 @@
 									</button>
 								{/if}
 							</div>
+
+							<!-- Print Shelf Paper Card -->
 							<div class="bg-white rounded-xl p-4 shadow-md border border-slate-200">
-								<label class="block text-xs font-semibold text-slate-700 mb-2">Target Profit Entry</label>
+								<label for="template-select" class="block text-xs font-semibold text-slate-700 mb-2">🖨️ Print Shelf Paper</label>
+								<select 
+									id="template-select"
+									bind:value={selectedTemplateId}
+									disabled={isLoadingTemplates}
+									class="w-64 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+								>
+									<option value="">-- Select template --</option>
+									{#each templates as template}
+										<option value={template.id}>{template.name}</option>
+									{/each}
+								</select>
+								<button 
+									on:click={printShelfPaper}
+									disabled={!selectedTemplateId || filteredData.length === 0 || isLoadingTemplates}
+									class="w-full mt-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg text-xs font-semibold transition-colors"
+								>
+									Print A4
+								</button>
+								{#if templates.length === 0 && !isLoadingTemplates}
+									<p class="text-xs text-slate-500 mt-2">No templates available</p>
+								{/if}
+							</div>
+
+							<div class="bg-white rounded-xl p-4 shadow-md border border-slate-200">
+								<label for="profit-input" class="block text-xs font-semibold text-slate-700 mb-2">Target Profit Entry</label>
 								<input 
+									id="profit-input"
 									type="number" 
 									bind:value={targetPrice}
 									placeholder="Enter target profit %"
@@ -2072,6 +2440,7 @@
 						<table class="w-full border-collapse">
 							<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
 								<tr>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Delete</th>
 									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">S.No</th>
 									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Barcode</th>
 									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Product Name</th>
@@ -2099,6 +2468,15 @@
 											? 'bg-red-300 text-red-900'
 											: ''
 									}">
+										<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
+											<button 
+												on:click={() => deleteProduct(index)}
+												class="px-1.5 py-0.5 bg-red-500 text-white rounded hover:bg-red-600 font-bold text-sm"
+												title="Delete this product"
+											>
+												✕
+											</button>
+										</td>
 										<td class="px-4 py-3 text-sm font-bold text-slate-800 whitespace-nowrap text-center">{index + 1}</td>
 										<td class="px-4 py-3 text-sm font-mono text-slate-800 whitespace-nowrap">{row.barcode}</td>
 										<td class="px-4 py-3 text-sm text-slate-700">
