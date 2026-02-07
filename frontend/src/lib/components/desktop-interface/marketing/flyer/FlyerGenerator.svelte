@@ -1044,17 +1044,17 @@
         const offerPrice = offerProduct?.total_offer_price || offerProduct?.offer_price || product.sales_price || '0.00';
         return parseFloat(offerPrice).toFixed(2);
       case 'offer_qty':
-        // Show two lines: "عرض على" on line 1, then "qty unit_name" on line 2
+        // Show only qty and unit_name
         if (offerProduct?.offer_qty && offerProduct.offer_qty > 0) {
           const unitName = product.unit_name || 'قطعة';
-          return `عرض على\n${toArabicNumerals(offerProduct.offer_qty)} ${unitName}`;
+          return `${toArabicNumerals(offerProduct.offer_qty)} ${unitName}`;
         }
         return '';
       case 'limit_qty':
-        // Show two lines: "لكل عميل" on line 1, then "qty unit_name" on line 2
+        // Show only qty and unit_name
         if (offerProduct?.limit_qty && offerProduct.limit_qty > 0) {
           const unitName = product.unit_name || 'قطعة';
-          return `لكل عميل\n${toArabicNumerals(offerProduct.limit_qty)} ${unitName}`;
+          return `${toArabicNumerals(offerProduct.limit_qty)} ${unitName}`;
         }
         return '';
       case 'free_qty':
@@ -1308,6 +1308,38 @@
       // Wait a tiny bit more for any final layout adjustments
       await new Promise(resolve => setTimeout(resolve, 200));
 
+      // Debug: Log price field information
+      const priceFields = element.querySelectorAll('.price-field');
+      priceFields.forEach((pf: Element, idx: number) => {
+        const rect = pf.getBoundingClientRect();
+        const style = window.getComputedStyle(pf);
+        console.log(`Price Field ${idx}:`, {
+          text: (pf as HTMLElement).innerText,
+          height: rect.height,
+          width: rect.width,
+          lineHeight: style.lineHeight,
+          display: style.display,
+          position: style.position,
+          top: style.top,
+          left: style.left,
+          innerHTML: (pf as HTMLElement).innerHTML
+        });
+        
+        const strikeSpan = pf.querySelector('span[style*="position: absolute"]');
+        if (strikeSpan) {
+          const strikeRect = strikeSpan.getBoundingClientRect();
+          const strikeStyle = window.getComputedStyle(strikeSpan);
+          console.log(`Strikethrough Line ${idx}:`, {
+            top: strikeStyle.top,
+            height: strikeStyle.height,
+            width: strikeStyle.width,
+            background: strikeStyle.background,
+            transform: strikeStyle.transform,
+            rect: { top: strikeRect.top, height: strikeRect.height }
+          });
+        }
+      });
+
       const canvas = await html2canvas(targetElement as HTMLElement, {
         scale: 2,
         useCORS: true,
@@ -1396,6 +1428,7 @@
               height: 100% !important;
               overflow: visible !important;
               background: transparent !important;
+              position: relative !important;
             }
             /* Force proper Arabic text rendering */
             .field-text-preview,
@@ -1415,12 +1448,36 @@
             .price-field * {
               direction: ltr !important;
               unicode-bidi: normal !important;
+              position: relative !important;
+              z-index: 2 !important;
             }
             /* Ensure strikethrough line is visible in export */
+            .price-field {
+              position: relative !important;
+              display: inline-block !important;
+              white-space: nowrap !important;
+              color: #000000 !important;
+            }
             .price-field span[style*="position: absolute"] {
               display: block !important;
               opacity: 1 !important;
               visibility: visible !important;
+              position: absolute !important;
+              left: 0 !important;
+              right: 0 !important;
+              top: 100% !important;
+              height: 1px !important;
+              background: #000000 !important;
+              transform: translateY(-50%) !important;
+              pointer-events: none !important;
+              z-index: 0 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            .price-field span[style*="z-index: 10"] {
+              position: relative !important;
+              z-index: 10 !important;
+              display: inline-block !important;
             }
             /* Offer price - override RTL for proper decimal display */
             .offer-price,
@@ -1867,9 +1924,9 @@
                                       {@const [integerPart, decimalPart] = fieldValue.split('.')}
                                       <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                     {:else if configField.label === 'price'}
-                                      <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal;">
-                                        <span style="position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: currentColor; transform: translateY(-50%); pointer-events: none;"></span>
-                                        {fieldValue}
+                                      <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal; color: {configField.color || '#000000'};">
+                                        <span style="position: absolute; left: 0; right: 0; top: 100%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
+                                        <span style="position: relative; z-index: 10; display: inline-block;">{fieldValue}</span>
                                       </span>
                                     {:else}
                                       <span style="unicode-bidi: plaintext; position: relative; z-index: 2;">
@@ -2105,9 +2162,9 @@
                                         {@const [integerPart, decimalPart] = fieldValue.split('.')}
                                         <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                       {:else if configField.label === 'price'}
-                                        <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal;">
-                                          <span style="position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: currentColor; transform: translateY(-50%); pointer-events: none;"></span>
-                                          {fieldValue}
+                                        <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal; color: {configField.color || '#000000'};">
+                                          <span style="position: absolute; left: 0; right: 0; top: 100%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
+                                          <span style="position: relative; z-index: 10; display: inline-block;">{fieldValue}</span>
                                         </span>
                                       {:else}
                                         <span style="position: relative; z-index: 2;">
