@@ -2565,7 +2565,22 @@
 												-
 											{/if}
 										</td>
-										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap bg-orange-100/50">
+										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap {
+											(() => {
+												if (Number(row.salesPrice) <= 0 || Number(row.offerPrice) <= 0 || Number(row.offerQty) <= 0) {
+													return 'bg-orange-100/50';
+												}
+												const decrease = Number(row.salesPrice) * Number(row.offerQty) - Number(row.offerPrice) * Number(row.offerQty);
+												if (decrease < 0.55) {
+													return 'bg-red-500 text-white';
+												} else if (decrease >= 0.55 && decrease < 1.05) {
+													return 'bg-orange-500 text-white';
+												} else if (decrease >= 2) {
+													return decrease >= 3 ? 'bg-green-600 text-white' : 'bg-green-400 text-white';
+												}
+												return 'bg-orange-100/50';
+											})()
+										}">
 											{#if Number(row.salesPrice) > 0 && Number(row.offerPrice) > 0 && Number(row.offerQty) > 0}
 												{(Number(row.salesPrice) * Number(row.offerQty) - Number(row.offerPrice) * Number(row.offerQty)).toFixed(2)}
 											{:else}
