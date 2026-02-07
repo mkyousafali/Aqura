@@ -43,6 +43,8 @@
     width: number;
     height: number;
     fields: FieldData[];
+    pageNumber: number;
+    pageOrder: number;
   }
   
   interface FieldData {
@@ -129,16 +131,12 @@
     }
   }
   
-  onMount(() => {
-    loadSavedTemplates();
-  });
-  
   async function loadSavedTemplates() {
     isLoading = true;
     try {
       const { data, error } = await supabase
         .from('flyer_templates')
-        .select('*')
+        .select('id, name, description, created_at')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
       
@@ -261,13 +259,21 @@
   }
   
   async function selectTemplate(templateId: string) {
-    const template = savedTemplates.find(t => t.id === templateId);
-    if (!template) return;
+    isLoading = true;
+    try {
+      const { data: template, error } = await supabase
+        .from('flyer_templates')
+        .select('*')
+        .eq('id', templateId)
+        .single();
+      
+      if (error) throw error;
+      if (!template) return;
     
-    selectedTemplateId = templateId;
-    templateName = template.name;
-    templateDescription = template.description || '';
-    firstPageImage = template.first_page_image_url;
+      selectedTemplateId = templateId;
+      templateName = template.name;
+      templateDescription = template.description || '';
+      firstPageImage = template.first_page_image_url;
     
     // Load sub-page arrays
     if (template.sub_page_image_urls && Array.isArray(template.sub_page_image_urls)) {
@@ -290,6 +296,11 @@
     const allFields = [...firstPageFields, ...subPageFieldsArray.flat()];
     const maxNumber = allFields.reduce((max, field) => Math.max(max, field.number), 0);
     nextFieldNumber = maxNumber + 1;
+    } catch (error) {
+      console.error('Error loading template:', error);
+    } finally {
+      isLoading = false;
+    }
   }
   
   function newTemplate() {
@@ -308,6 +319,10 @@
   }
   
   function addProductField() {
+    const currentFields = activeTab === 'first' ? firstPageFields : (subPageFieldsArray[activeSubPageIndex] || []);
+    const maxOrder = currentFields.reduce((max, f) => Math.max(max, f.pageOrder || 0), 0);
+    const currentPage = activeTab === 'first' ? 1 : activeSubPageIndex + 2;
+    
     const newField: ProductField = {
       id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       number: nextFieldNumber++,
@@ -315,7 +330,9 @@
       y: 50,
       width: 150,
       height: 150,
-      fields: []
+      fields: [],
+      pageNumber: currentPage,
+      pageOrder: maxOrder + 1
     };
     
     if (activeTab === 'first') {
@@ -332,6 +349,8 @@
   }
   
   function addSpecialSymbol() {
+    const currentPage = activeTab === 'first' ? 1 : activeSubPageIndex + 2;
+    
     const newField: ProductField = {
       id: `symbol-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       number: nextFieldNumber++,
@@ -343,7 +362,9 @@
         type: 'special_symbol',
         fontSize: 16,
         alignment: 'center'
-      }]
+      }],
+      pageNumber: currentPage,
+      pageOrder: 0
     };
     
     if (activeTab === 'first') {
@@ -384,6 +405,8 @@
     if (!fieldToCopy) return;
     
     // Create a copy with new ID and number, offset position slightly
+    const maxOrder = fields.reduce((max, f) => Math.max(max, f.pageOrder || 0), 0);
+    
     const newField: ProductField = {
       id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       number: nextFieldNumber++,
@@ -391,7 +414,9 @@
       y: Math.min(fieldToCopy.y + 20, 1123 - fieldToCopy.height),
       width: fieldToCopy.width,
       height: fieldToCopy.height,
-      fields: JSON.parse(JSON.stringify(fieldToCopy.fields)) // Deep copy of field configurations
+      fields: JSON.parse(JSON.stringify(fieldToCopy.fields)), // Deep copy of field configurations
+      pageNumber: fieldToCopy.pageNumber || 1,
+      pageOrder: maxOrder + 1
     };
     
     if (activeTab === 'first') {
@@ -705,7 +730,7 @@
               on:click={() => selectField(field.id)}
             >
               <div class="field-header">
-                <span class="field-number">#{field.number}</span>
+                <span class="field-number">{field.pageNumber || 1}:{field.pageOrder || 1}</span>
                 <span class="field-info">{field.width}×{field.height}px</span>
                 <div class="field-actions">
                   <button 
@@ -724,6 +749,31 @@
                   </button>
                 </div>
               </div>
+              
+              <!-- Page & Order inputs -->
+              <div class="field-page-order-inputs" on:click|stopPropagation>
+                <label class="page-order-label">
+                  📄 Page
+                  <input 
+                    type="number" 
+                    min="1" 
+                    value={field.pageNumber || 1}
+                    on:change={(e) => updateField(field.id, { pageNumber: parseInt(e.target.value) || 1 })}
+                    class="page-order-input"
+                  />
+                </label>
+                <label class="page-order-label">
+                  🔢 Order
+                  <input 
+                    type="number" 
+                    min="1" 
+                    value={field.pageOrder || 1}
+                    on:change={(e) => updateField(field.id, { pageOrder: parseInt(e.target.value) || 1 })}
+                    class="page-order-input"
+                  />
+                </label>
+              </div>
+              
               {#if field.fields.length > 0}
                 <div class="field-tags">
                   {#each field.fields.slice(0, 3) as subField}
@@ -785,7 +835,7 @@
                       on:dblclick={() => handleFieldDoubleClick(field)}
                     >
                       {#if !field.fields || field.fields.length === 0}
-                        <span class="field-number-badge">#{field.number}</span>
+                        <span class="field-number-badge">{field.pageNumber || 1}:{field.pageOrder || 1}</span>
                       {/if}
                       
                       <!-- Preview configured fields inside container -->
@@ -939,7 +989,7 @@
                       on:dblclick={() => handleFieldDoubleClick(field)}
                     >
                       {#if !field.fields || field.fields.length === 0}
-                        <span class="field-number-badge">#{field.number}</span>
+                        <span class="field-number-badge">{field.pageNumber || 1}:{field.pageOrder || 1}</span>
                       {/if}
                       
                       <!-- Preview configured fields inside container -->
@@ -1484,6 +1534,47 @@
     font-size: 0.75rem;
     color: #9ca3af;
     font-style: italic;
+  }
+
+  .field-page-order-inputs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding: 0.375rem;
+    background: #f9fafb;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+  }
+
+  .page-order-label {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #6b7280;
+    flex: 1;
+  }
+
+  .page-order-input {
+    width: 50px;
+    padding: 0.25rem 0.375rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    text-align: center;
+    background: white;
+    transition: all 0.2s;
+  }
+
+  .page-order-input:focus {
+    outline: none;
+    border-color: #7c3aed;
+    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+  }
+
+  .page-order-input:hover {
+    border-color: #7c3aed;
   }
 
   .save-btn {

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { supabase } from '$lib/utils/supabase';
   
   export let field: any;
   export let onSave: (fields: any[]) => void;
@@ -14,6 +15,7 @@
     width: number;
     height: number;
     fontSize: number;
+    fontFamily: string;
     alignment: 'left' | 'center' | 'right';
     color: string;
     iconUrl?: string;
@@ -38,6 +40,15 @@
   let resizeHandle = '';
   let previewContainer: HTMLElement | null = null;
   let iconUploadFieldId: string | null = null;
+  
+  // Auto-scale: ensure the preview is always big enough to configure
+  const MIN_PREVIEW_SIZE = 1000;
+  $: previewScale = Math.max(1, Math.min(
+    MIN_PREVIEW_SIZE / (field.width || 150),
+    MIN_PREVIEW_SIZE / (field.height || 150)
+  ));
+  $: scaledWidth = field.width * previewScale;
+  $: scaledHeight = field.height * previewScale;
   let fileInput: HTMLInputElement;
   
   let isDraggingIcon = false;
@@ -66,6 +77,94 @@
   let symbolResizeStartHeight = 0;
   let selectedSymbolFieldId: string | null = null;
   
+  // Custom Fonts
+  interface CustomFont {
+    id: string;
+    name: string;
+    font_url: string;
+    file_name: string | null;
+    file_size: number | null;
+    created_at: string;
+  }
+  
+  let customFonts: CustomFont[] = [];
+  let isUploadingFont = false;
+  let fontFileInput: HTMLInputElement;
+  
+  onMount(() => {
+    loadCustomFonts();
+  });
+  
+  async function loadCustomFonts() {
+    try {
+      const { data, error } = await supabase
+        .from('shelf_paper_fonts')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) throw error;
+      customFonts = data || [];
+      
+      for (const font of customFonts) {
+        try {
+          const fontFace = new FontFace(font.name, `url(${font.font_url})`);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+        } catch (e) {
+          console.warn(`Failed to load font: ${font.name}`, e);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading custom fonts:', error);
+    }
+  }
+  
+  async function handleFontUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    
+    isUploadingFont = true;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      for (const file of files) {
+        const fontName = file.name.replace(/\.(ttf|otf|woff|woff2)$/i, '');
+        const fileName = `${Date.now()}-${file.name}`;
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('custom-fonts')
+          .upload(fileName, file, { contentType: file.type, upsert: false });
+        
+        if (uploadError) throw uploadError;
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('custom-fonts')
+          .getPublicUrl(uploadData.path);
+        
+        await supabase.from('shelf_paper_fonts').insert({
+          name: fontName,
+          font_url: publicUrl,
+          file_name: fileName,
+          file_size: file.size,
+          created_by: user?.id
+        });
+        
+        const fontFace = new FontFace(fontName, `url(${publicUrl})`);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+      }
+      
+      await loadCustomFonts();
+    } catch (error) {
+      console.error('Error uploading font:', error);
+      alert('❌ Failed to upload font: ' + error.message);
+    } finally {
+      isUploadingFont = false;
+      target.value = '';
+    }
+  }
+  
   const availableFields = [
     { value: 'product_name_en', label: 'Product Name (EN)' },
     { value: 'product_name_ar', label: 'Product Name (AR)' },
@@ -80,14 +179,38 @@
   ];
   
   function addFieldSelector() {
+    // Calculate position to avoid overlapping with existing fields
+    let newX = 10;
+    let newY = 10;
+    const fieldWidth = Math.min(200, field.width - 20);
+    const fieldHeight = 40;
+    
+    // Ensure unique ID by checking existing field IDs
+    const existingIds = fieldSelectors.map(f => {
+      const match = f.id.match(/subfield-(\d+)/);
+      return match ? parseInt(match[1]) : 0;
+    });
+    const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+    const newId = maxId + 1;
+    
+    // Find the lowest Y position of existing fields and offset the new one
+    if (fieldSelectors.length > 0) {
+      const lowestField = fieldSelectors.reduce((lowest, f) => 
+        (f.y + f.height) > (lowest.y + lowest.height) ? f : lowest
+      );
+      newY = Math.min(lowestField.y + lowestField.height + 20, field.height - fieldHeight - 10);
+      newY = Math.max(newY, 10); // Ensure minimum padding
+    }
+    
     const newField: FieldSelector = {
-      id: `subfield-${nextFieldId++}`,
+      id: `subfield-${newId}`,
       label: 'product_name_en',
-      x: 10,
-      y: 10,
-      width: Math.min(200, field.width - 20),
-      height: 40,
+      x: newX,
+      y: newY,
+      width: fieldWidth,
+      height: fieldHeight,
       fontSize: 16,
+      fontFamily: '',
       alignment: 'left',
       color: '#000000',
       iconUrl: undefined,
@@ -204,23 +327,29 @@
   function handleMouseMove(event: MouseEvent) {
     if (!selectedFieldId) return;
     
-    const deltaX = event.clientX - dragStartX;
-    const deltaY = event.clientY - dragStartY;
+    const deltaX = (event.clientX - dragStartX) / previewScale;
+    const deltaY = (event.clientY - dragStartY) / previewScale;
     
     const fieldItem = fieldSelectors.find(f => f.id === selectedFieldId);
     if (!fieldItem) return;
     
     if (isDragging) {
-      const newX = Math.max(0, Math.min(field.width - fieldItem.width, fieldItem.x + deltaX));
-      const newY = Math.max(0, Math.min(field.height - fieldItem.height, fieldItem.y + deltaY));
+      // Allow free movement with no snapping
+      let newX = fieldItem.x + deltaX;
+      let newY = fieldItem.y + deltaY;
+      
+      // Only enforce boundary constraints, no snapping to other fields
+      newX = Math.max(0, Math.min(field.width - fieldItem.width, newX));
+      newY = Math.max(0, Math.min(field.height - fieldItem.height, newY));
+      
       updateField(selectedFieldId, {
         x: newX,
         y: newY
       });
     } else if (isResizing) {
       if (resizeHandle === 'se') {
-        const newWidth = Math.max(50, Math.min(field.width - fieldItem.x, fieldItem.width + deltaX));
-        const newHeight = Math.max(30, Math.min(field.height - fieldItem.y, fieldItem.height + deltaY));
+        const newWidth = Math.max(50, fieldItem.width + deltaX);
+        const newHeight = Math.max(30, fieldItem.height + deltaY);
         const updates: any = {
           width: newWidth,
           height: newHeight
@@ -232,7 +361,7 @@
         }
         updateField(selectedFieldId, updates);
       } else if (resizeHandle === 'e') {
-        const newWidth = Math.max(50, Math.min(field.width - fieldItem.x, fieldItem.width + deltaX));
+        const newWidth = Math.max(50, fieldItem.width + deltaX);
         const updates: any = {
           width: newWidth
         };
@@ -242,7 +371,7 @@
         }
         updateField(selectedFieldId, updates);
       } else if (resizeHandle === 's') {
-        const newHeight = Math.max(30, Math.min(field.height - fieldItem.y, fieldItem.height + deltaY));
+        const newHeight = Math.max(30, fieldItem.height + deltaY);
         const updates: any = {
           height: newHeight
         };
@@ -319,8 +448,8 @@
     if (!fieldItem) return;
     
     if (isDraggingIcon) {
-      const deltaX = event.clientX - iconDragStartX;
-      const deltaY = event.clientY - iconDragStartY;
+      const deltaX = (event.clientX - iconDragStartX) / previewScale;
+      const deltaY = (event.clientY - iconDragStartY) / previewScale;
       
       const newIconX = iconDragStartIconX + deltaX;
       const newIconY = iconDragStartIconY + deltaY;
@@ -330,8 +459,8 @@
         iconY: newIconY
       });
     } else if (isResizingIcon) {
-      const deltaX = event.clientX - iconResizeStartX;
-      const deltaY = event.clientY - iconResizeStartY;
+      const deltaX = (event.clientX - iconResizeStartX) / previewScale;
+      const deltaY = (event.clientY - iconResizeStartY) / previewScale;
       
       if (iconResizeDirection === 'se') {
         const newWidth = Math.max(20, iconResizeStartWidth + deltaX);
@@ -406,8 +535,8 @@
     if (!fieldItem) return;
     
     if (isDraggingSymbol) {
-      const deltaX = event.clientX - symbolDragStartX;
-      const deltaY = event.clientY - symbolDragStartY;
+      const deltaX = (event.clientX - symbolDragStartX) / previewScale;
+      const deltaY = (event.clientY - symbolDragStartY) / previewScale;
       
       const newSymbolX = symbolDragStartSymbolX + deltaX;
       const newSymbolY = symbolDragStartSymbolY + deltaY;
@@ -417,8 +546,8 @@
         symbolY: newSymbolY
       });
     } else if (isResizingSymbol) {
-      const deltaX = event.clientX - symbolResizeStartX;
-      const deltaY = event.clientY - symbolResizeStartY;
+      const deltaX = (event.clientX - symbolResizeStartX) / previewScale;
+      const deltaY = (event.clientY - symbolResizeStartY) / previewScale;
       
       if (symbolResizeDirection === 'se') {
         const newWidth = Math.max(20, symbolResizeStartWidth + deltaX);
@@ -521,7 +650,7 @@
         </button>
         
         <div class="fields-list">
-          {#each fieldSelectors as fieldItem}
+          {#each fieldSelectors as fieldItem (fieldItem.id)}
             <div class="field-item {selectedFieldId === fieldItem.id ? 'selected' : ''}" on:click={() => selectField(fieldItem.id)}>
               <div class="field-header">
                 <span class="field-label">{availableFields.find(f => f.value === fieldItem.label)?.label || fieldItem.label}</span>
@@ -532,7 +661,7 @@
                 <div class="field-config">
                   <label>
                     Field Type:
-                    <select bind:value={fieldItem.label} on:change={() => updateField(fieldItem.id, { label: fieldItem.label })}>
+                    <select value={fieldItem.label} on:change={(e) => updateField(fieldItem.id, { label: e.currentTarget.value })}>
                       {#each availableFields as option}
                         <option value={option.value}>{option.label}</option>
                       {/each}
@@ -541,29 +670,48 @@
                   
                   <div class="input-row">
                     <label>
-                      X: <input type="number" bind:value={fieldItem.x} on:input={() => updateField(fieldItem.id, { x: fieldItem.x })} />
+                      X: <input type="number" value={fieldItem.x} on:input={(e) => updateField(fieldItem.id, { x: parseFloat(e.currentTarget.value) })} />
                     </label>
                     <label>
-                      Y: <input type="number" bind:value={fieldItem.y} on:input={() => updateField(fieldItem.id, { y: fieldItem.y })} />
+                      Y: <input type="number" value={fieldItem.y} on:input={(e) => updateField(fieldItem.id, { y: parseFloat(e.currentTarget.value) })} />
                     </label>
                   </div>
                   
                   <div class="input-row">
                     <label>
-                      Width: <input type="number" bind:value={fieldItem.width} on:input={() => updateField(fieldItem.id, { width: fieldItem.width })} />
+                      Width: <input type="number" value={fieldItem.width} on:input={(e) => updateField(fieldItem.id, { width: parseFloat(e.currentTarget.value) })} />
                     </label>
                     <label>
-                      Height: <input type="number" bind:value={fieldItem.height} on:input={() => updateField(fieldItem.id, { height: fieldItem.height })} />
+                      Height: <input type="number" value={fieldItem.height} on:input={(e) => updateField(fieldItem.id, { height: parseFloat(e.currentTarget.value) })} />
                     </label>
                   </div>
                   
                   <label>
-                    Font Size: <input type="number" bind:value={fieldItem.fontSize} on:input={() => updateField(fieldItem.id, { fontSize: fieldItem.fontSize })} />
+                    Font Size: <input type="number" value={fieldItem.fontSize} on:input={(e) => updateField(fieldItem.id, { fontSize: parseFloat(e.currentTarget.value) })} />
                   </label>
                   
                   <label>
+                    Font Family:
+                    <select value={fieldItem.fontFamily} on:change={(e) => updateField(fieldItem.id, { fontFamily: e.currentTarget.value })}>
+                      <option value="">-- Default --</option>
+                      {#each customFonts as font}
+                        <option value={font.name}>{font.name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <div class="font-upload-row">
+                    <label class="font-upload-btn">
+                      <input type="file" accept=".ttf,.otf,.woff,.woff2" multiple on:change={handleFontUpload} bind:this={fontFileInput} hidden />
+                      {isUploadingFont ? '⏳ Uploading...' : '📤 Upload Fonts'}
+                    </label>
+                    {#if customFonts.length > 0}
+                      <span class="font-count">{customFonts.length} font(s)</span>
+                    {/if}
+                  </div>
+                  
+                  <label>
                     Alignment:
-                    <select bind:value={fieldItem.alignment} on:change={() => updateField(fieldItem.id, { alignment: fieldItem.alignment })}>
+                    <select value={fieldItem.alignment} on:change={(e) => updateField(fieldItem.id, { alignment: e.currentTarget.value as 'left' | 'center' | 'right' })}>
                       <option value="left">Left</option>
                       <option value="center">Center</option>
                       <option value="right">Right</option>
@@ -575,14 +723,14 @@
                     <div class="color-picker-container">
                       <input 
                         type="color" 
-                        bind:value={fieldItem.color} 
-                        on:input={() => updateField(fieldItem.id, { color: fieldItem.color })}
+                        value={fieldItem.color} 
+                        on:input={(e) => updateField(fieldItem.id, { color: e.currentTarget.value })}
                         class="color-picker"
                       />
                       <input 
                         type="text" 
-                        bind:value={fieldItem.color} 
-                        on:input={() => updateField(fieldItem.id, { color: fieldItem.color })}
+                        value={fieldItem.color} 
+                        on:input={(e) => updateField(fieldItem.id, { color: e.currentTarget.value })}
                         class="color-hex"
                         placeholder="#000000"
                       />
@@ -603,8 +751,8 @@
                           Icon Width:
                           <input 
                             type="number" 
-                            bind:value={fieldItem.iconWidth} 
-                            on:input={() => updateField(fieldItem.id, { iconWidth: fieldItem.iconWidth || 50 })}
+                            value={fieldItem.iconWidth} 
+                            on:input={(e) => updateField(fieldItem.id, { iconWidth: parseFloat(e.currentTarget.value) || 50 })}
                             min="10"
                           />
                         </label>
@@ -612,8 +760,8 @@
                           Icon Height:
                           <input 
                             type="number" 
-                            bind:value={fieldItem.iconHeight} 
-                            on:input={() => updateField(fieldItem.id, { iconHeight: fieldItem.iconHeight || 50 })}
+                            value={fieldItem.iconHeight} 
+                            on:input={(e) => updateField(fieldItem.id, { iconHeight: parseFloat(e.currentTarget.value) || 50 })}
                             min="10"
                           />
                         </label>
@@ -621,16 +769,16 @@
                           Icon X:
                           <input 
                             type="number" 
-                            bind:value={fieldItem.iconX} 
-                            on:input={() => updateField(fieldItem.id, { iconX: fieldItem.iconX || 0 })}
+                            value={fieldItem.iconX} 
+                            on:input={(e) => updateField(fieldItem.id, { iconX: parseFloat(e.currentTarget.value) || 0 })}
                           />
                         </label>
                         <label>
                           Icon Y:
                           <input 
                             type="number" 
-                            bind:value={fieldItem.iconY} 
-                            on:input={() => updateField(fieldItem.id, { iconY: fieldItem.iconY || 0 })}
+                            value={fieldItem.iconY} 
+                            on:input={(e) => updateField(fieldItem.id, { iconY: parseFloat(e.currentTarget.value) || 0 })}
                           />
                         </label>
                       </div>
@@ -657,8 +805,8 @@
                             Symbol Width:
                             <input 
                               type="number" 
-                              bind:value={fieldItem.symbolWidth} 
-                              on:input={() => updateField(fieldItem.id, { symbolWidth: fieldItem.symbolWidth || 50 })}
+                              value={fieldItem.symbolWidth} 
+                              on:input={(e) => updateField(fieldItem.id, { symbolWidth: parseFloat(e.currentTarget.value) || 50 })}
                               min="10"
                             />
                           </label>
@@ -666,8 +814,8 @@
                             Symbol Height:
                             <input 
                               type="number" 
-                              bind:value={fieldItem.symbolHeight} 
-                              on:input={() => updateField(fieldItem.id, { symbolHeight: fieldItem.symbolHeight || 50 })}
+                              value={fieldItem.symbolHeight} 
+                              on:input={(e) => updateField(fieldItem.id, { symbolHeight: parseFloat(e.currentTarget.value) || 50 })}
                               min="10"
                             />
                           </label>
@@ -700,21 +848,22 @@
 
     <!-- Right Panel: Preview -->
     <div class="preview-panel" bind:this={previewContainer}>
-      <h3 class="section-title">Field Preview</h3>
+      <h3 class="section-title">Field Preview <span class="scale-badge">🔍 {Math.round(previewScale * 100)}%</span></h3>
       <div class="preview-container">
-        <div class="preview-wrapper" style="width: {field.width}px; height: {field.height}px;">
+        <div class="preview-scale-wrapper" style="width: {scaledWidth}px; height: {scaledHeight}px;">
+        <div class="preview-wrapper" style="width: {field.width}px; height: {field.height}px; transform: scale({previewScale}); transform-origin: top left;">
           <div class="preview-background"></div>
           
-          {#each fieldSelectors as fieldItem}
+          {#each fieldSelectors as fieldItem (fieldItem.id)}
             <div 
               class="field-overlay {selectedFieldId === fieldItem.id ? 'selected' : ''}"
-              style="left: {fieldItem.x}px; top: {fieldItem.y}px; width: {fieldItem.width}px; height: {fieldItem.height}px; color: {fieldItem.color}; overflow: hidden;"
+              style="left: {fieldItem.x}px; top: {fieldItem.y}px; width: {fieldItem.width}px; height: {fieldItem.height}px; color: {fieldItem.color}; overflow: hidden; font-size: {fieldItem.fontSize}px; text-align: {fieldItem.alignment};"
               on:mousedown={(e) => handleMouseDown(e, fieldItem.id)}
             >
               {#if fieldItem.label === 'special_symbol'}
                 <!-- Empty for special symbol - will be rendered separately -->
               {:else}
-                <span class="field-overlay-label" style="color: {fieldItem.color};">{availableFields.find(f => f.value === fieldItem.label)?.label || fieldItem.label}</span>
+                <span class="field-overlay-label" style="color: {fieldItem.color}; font-size: {fieldItem.fontSize}px;{fieldItem.fontFamily ? ` font-family: '${fieldItem.fontFamily}', sans-serif;` : ''}">{availableFields.find(f => f.value === fieldItem.label)?.label || fieldItem.label}</span>
               {/if}
               
               {#if selectedFieldId === fieldItem.id}
@@ -726,7 +875,7 @@
           {/each}
           
           <!-- Icons rendered separately, absolute to preview-wrapper -->
-          {#each fieldSelectors as fieldItem}
+          {#each fieldSelectors as fieldItem (fieldItem.id)}
             {#if fieldItem.iconUrl}
               <div 
                 class="icon-container {selectedIconFieldId === fieldItem.id ? 'icon-selected' : ''}"
@@ -748,7 +897,7 @@
           {/each}
           
           <!-- Symbols rendered separately, absolute to preview-wrapper -->
-          {#each fieldSelectors as fieldItem}
+          {#each fieldSelectors as fieldItem (fieldItem.id)}
             {#if fieldItem.label === 'special_symbol' && fieldItem.symbolUrl}
               <div 
                 class="symbol-container {selectedSymbolFieldId === fieldItem.id ? 'symbol-selected' : ''}"
@@ -768,6 +917,7 @@
               </div>
             {/if}
           {/each}
+        </div>
         </div>
       </div>
     </div>
@@ -1048,11 +1198,26 @@
     flex: 1;
   }
   
+  .preview-scale-wrapper {
+    position: relative;
+    flex-shrink: 0;
+  }
+
   .preview-wrapper {
     position: relative;
     flex-shrink: 0;
     border: 2px dashed #9ca3af;
     background: white;
+  }
+
+  .scale-badge {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    margin-left: 0.5rem;
   }
 
   .preview-background {
@@ -1094,16 +1259,15 @@
   }
 
   .field-overlay-label {
-    font-size: 0.75rem;
     font-weight: 600;
-    color: #0f766e;
-    background: rgba(255, 255, 255, 0.95);
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
     pointer-events: none;
     position: relative;
     z-index: 25;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    text-align: inherit;
+    display: block;
   }
 
   .resize-handle {
@@ -1273,6 +1437,37 @@
   .upload-icon-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(139, 92, 246, 0.3);
+  }
+
+  .font-upload-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+  }
+
+  .font-upload-btn {
+    padding: 0.375rem 0.75rem;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .font-upload-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+  }
+
+  .font-count {
+    font-size: 0.7rem;
+    color: #6b7280;
+    font-weight: 500;
   }
 
   .field-background-icon {

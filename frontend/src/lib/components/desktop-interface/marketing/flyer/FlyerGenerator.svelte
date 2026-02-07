@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { supabase } from '$lib/utils/supabase';
+  import html2canvas from 'html2canvas';
   
   interface FlyerOffer {
     id: string;
@@ -35,6 +36,8 @@
     cost: number | null;
     sales_price: number | null;
     offer_price: number | null;
+    total_sales_price: number | null;
+    total_offer_price: number | null;
     profit_amount: number | null;
     profit_percent: number | null;
     profit_after_offer: number | null;
@@ -59,6 +62,10 @@
   let selectedTemplateId: string = '';
   let isLoadingOffers = true;
   let isLoadingTemplates = true;
+  let isLoadingSelectedTemplate = false;
+  let isExporting = false;
+  let firstPagePreviewEl: HTMLDivElement;
+  let subPagePreviewEl: HTMLDivElement;
   let errorMessage = '';
   let successMessage = '';
   let offerProducts: OfferProduct[] = [];
@@ -139,12 +146,6 @@
       if (error) throw error;
       
       activeOffers = data || [];
-      
-      // Auto-select first offer if available
-      if (activeOffers.length > 0 && !selectedOfferId) {
-        selectedOfferId = activeOffers[0].id;
-        await loadOfferProducts(selectedOfferId);
-      }
     } catch (error: any) {
       console.error('Error loading offers:', error);
       errorMessage = `Failed to load offers: ${error.message}`;
@@ -160,7 +161,7 @@
     try {
       const { data, error } = await supabase
         .from('flyer_templates')
-        .select('*')
+        .select('id, name, description, is_default, is_active, category, usage_count, created_at')
         .eq('is_active', true)
         .is('deleted_at', null)
         .order('is_default', { ascending: false })
@@ -169,17 +170,41 @@
       if (error) throw error;
       
       flyerTemplates = data || [];
-      
-      // Auto-select default template or first template
-      if (flyerTemplates.length > 0 && !selectedTemplateId) {
-        const defaultTemplate = flyerTemplates.find(t => t.is_default);
-        selectedTemplateId = defaultTemplate ? defaultTemplate.id : flyerTemplates[0].id;
-      }
     } catch (error: any) {
       console.error('Error loading templates:', error);
       errorMessage = `Failed to load templates: ${error.message}`;
     } finally {
       isLoadingTemplates = false;
+    }
+  }
+  
+  async function handleTemplateChange() {
+    if (!selectedTemplateId) return;
+    
+    isLoadingSelectedTemplate = true;
+    try {
+      const { data, error } = await supabase
+        .from('flyer_templates')
+        .select('*')
+        .eq('id', selectedTemplateId)
+        .single();
+      
+      if (error) throw error;
+      
+      if (data) {
+        // Replace the lightweight entry with the full data
+        const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
+        if (index !== -1) {
+          flyerTemplates[index] = data;
+          flyerTemplates = [...flyerTemplates];
+        }
+        autoAssignProducts();
+      }
+    } catch (error: any) {
+      console.error('Error loading template details:', error);
+      errorMessage = `Failed to load template: ${error.message}`;
+    } finally {
+      isLoadingSelectedTemplate = false;
     }
   }
   
@@ -203,10 +228,10 @@
       
       const barcodes = data.map(op => op.product_barcode);
       
-      // Get product details from products (including variation fields)
+      // Get product details from products (including variation fields and unit name)
       const { data: productDetails, error: productError } = await supabase
         .from('products')
-        .select('barcode, product_name_en, product_name_ar, unit_name, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override, variation_order')
+        .select('barcode, product_name_en, product_name_ar, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override, variation_order, product_units(name_en, name_ar)')
         .in('barcode', barcodes);
       
       if (productError) throw productError;
@@ -218,7 +243,7 @@
           ...offerProduct,
           product_name_en: productDetail?.product_name_en || '',
           product_name_ar: productDetail?.product_name_ar || '',
-          unit_name: productDetail?.unit_name || '',
+          unit_name: productDetail?.product_units?.name_ar || '',
           image_url: productDetail?.image_url || productDetail?.variation_image_override,
           is_variation: productDetail?.is_variation,
           parent_product_barcode: productDetail?.parent_product_barcode,
@@ -304,8 +329,19 @@
         variation_barcodes: op.variation_barcodes,
         variation_group_name_en: op.variation_group_name_en,
         variation_group_name_ar: op.variation_group_name_ar,
-        variation_images: op.variation_images
+        variation_images: op.variation_images,
+        page_number: op.page_number || 1,
+        page_order: op.page_order || 1
       }));
+      
+      // Sort by page_number then page_order
+      productsData.sort((a: any, b: any) => {
+        if (a.page_number !== b.page_number) return a.page_number - b.page_number;
+        return a.page_order - b.page_order;
+      });
+      
+      // Auto-assign products to template fields based on page_number/page_order
+      autoAssignProducts();
     } catch (error: any) {
       console.error('Error loading offer products:', error);
       errorMessage = `Failed to load offer products: ${error.message}`;
@@ -407,9 +443,9 @@
       isVariationGroup = assignedProduct?.is_variation_group && assignedProduct?.variation_images?.length > 0;
       selectedVariantImageIndex = 0; // Default to first image
       
-      // Position menu in bottom-right corner with some padding
-      actionMenuX = window.innerWidth - 380;
-      actionMenuY = window.innerHeight - 450;
+      // Position menu at mouse cursor
+      actionMenuX = event.clientX;
+      actionMenuY = event.clientY;
       
       showActionMenu = true;
       elementRotation = configField.rotation || 0;
@@ -457,11 +493,17 @@
     event.preventDefault();
     event.stopPropagation();
     
+    // Get the image element's current position
+    const img = event.target as HTMLImageElement;
+    const imgRect = img.getBoundingClientRect();
+    
     isDraggingVariantImage = true;
     draggedVariantImageIndex = imageIndex;
     draggedVariantFieldId = fieldId;
-    variantDragStartX = event.clientX;
-    variantDragStartY = event.clientY;
+    
+    // Store the offset from where the user clicked within the image
+    variantDragStartX = event.clientX - imgRect.left;
+    variantDragStartY = event.clientY - imgRect.top;
     
     window.addEventListener('mousemove', handleVariantImageMouseMove);
     window.addEventListener('mouseup', handleVariantImageMouseUp);
@@ -470,13 +512,20 @@
   function handleVariantImageMouseMove(event: MouseEvent) {
     if (!isDraggingVariantImage || !draggedVariantFieldId || draggedVariantImageIndex === -1) return;
     
-    const deltaX = event.clientX - variantDragStartX;
-    const deltaY = event.clientY - variantDragStartY;
+    // Find the parent resizable-element to get the container bounds
+    const field = document.querySelector(`[data-field-id="${draggedVariantFieldId}"]`);
+    if (!field) return;
     
-    updateVariantImagePosition(draggedVariantFieldId, draggedVariantImageIndex, deltaX, deltaY);
+    const container = field.querySelector('.resizable-element');
+    if (!container) return;
     
-    variantDragStartX = event.clientX;
-    variantDragStartY = event.clientY;
+    const containerRect = container.getBoundingClientRect();
+    
+    // Calculate new position relative to container
+    const newX = event.clientX - containerRect.left - variantDragStartX;
+    const newY = event.clientY - containerRect.top - variantDragStartY;
+    
+    setVariantImageAbsolutePosition(draggedVariantFieldId, draggedVariantImageIndex, newX, newY);
   }
   
   function handleVariantImageMouseUp() {
@@ -485,6 +534,34 @@
     draggedVariantFieldId = '';
     window.removeEventListener('mousemove', handleVariantImageMouseMove);
     window.removeEventListener('mouseup', handleVariantImageMouseUp);
+  }
+  
+  function setVariantImageAbsolutePosition(fieldId: string, imageIndex: number, x: number, y: number) {
+    const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
+    if (!selectedTemplate) return;
+    
+    const fields = selectedPageType === 'first' 
+      ? selectedTemplate.first_page_configuration 
+      : selectedTemplate.sub_page_configurations[selectedSubPageIndex];
+    
+    if (!fields) return;
+    
+    const fieldIndex = fields.findIndex((f: any) => f.id === fieldId);
+    if (fieldIndex === -1) return;
+    
+    const field = fields[fieldIndex];
+    const imageField = field.fields?.find((f: any) => f.label === 'image');
+    if (!imageField) return;
+    
+    // Initialize variantImagePositions if not exists
+    if (!imageField.variantImagePositions) {
+      imageField.variantImagePositions = [];
+    }
+    
+    // Set absolute position
+    imageField.variantImagePositions[imageIndex] = { x, y };
+    
+    flyerTemplates = [...flyerTemplates];
   }
   
   function updateVariantImagePosition(fieldId: string, imageIndex: number, deltaX: number, deltaY: number) {
@@ -617,16 +694,43 @@
   function handleElementResizeMove(event: MouseEvent) {
     if (!isResizingElement || !selectedElement) return;
     
-    const { configField } = selectedElement;
-    const currentWidth = configField.width || 100;
-    const currentHeight = configField.height || 100;
+    const { configField, assignedProduct } = selectedElement;
     
-    // Maintain aspect ratio
-    const newWidth = Math.max(20, currentWidth + event.movementX);
-    const aspectRatio = currentHeight / currentWidth;
-    
-    configField.width = newWidth;
-    configField.height = Math.max(20, newWidth * aspectRatio);
+    // Check if this is a variation group with selected variant
+    if (assignedProduct?.is_variation_group && assignedProduct?.variation_images?.length > 0) {
+      // Initialize variant sizes if not exists
+      if (!configField.variantImageSizes) {
+        configField.variantImageSizes = [];
+      }
+      
+      // Initialize size for selected variant if not exists
+      if (!configField.variantImageSizes[selectedVariantImageIndex]) {
+        configField.variantImageSizes[selectedVariantImageIndex] = {
+          width: 75, // Default 75% of container
+          height: 75
+        };
+      }
+      
+      const currentSize = configField.variantImageSizes[selectedVariantImageIndex];
+      const newWidth = Math.max(10, Math.min(100, currentSize.width + (event.movementX / 2)));
+      const newHeight = Math.max(10, Math.min(100, currentSize.height + (event.movementY / 2)));
+      
+      configField.variantImageSizes[selectedVariantImageIndex] = {
+        width: newWidth,
+        height: newHeight
+      };
+    } else {
+      // For single images, resize the container
+      const currentWidth = configField.width || 100;
+      const currentHeight = configField.height || 100;
+      
+      // Maintain aspect ratio
+      const newWidth = Math.max(20, currentWidth + event.movementX);
+      const aspectRatio = currentHeight / currentWidth;
+      
+      configField.width = newWidth;
+      configField.height = Math.max(20, newWidth * aspectRatio);
+    }
     
     flyerTemplates = [...flyerTemplates];
   }
@@ -832,6 +936,49 @@
     selectedFieldForProduct = null;
   }
   
+  function autoAssignProducts() {
+    const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
+    if (!selectedTemplate || productsData.length === 0) return;
+    
+    const newAssignments: { [key: string]: string } = {};
+    let productIndex = 0;
+    
+    // Helper to assign fields for a given page config
+    function assignFieldsForPage(fields: any[], pageType: 'first' | 'sub', subPageIndex: number) {
+      if (!fields) return;
+      for (const field of fields) {
+        // Use field's own pageNumber/pageOrder if set, otherwise auto-calculate based on position
+        const fieldPageNumber = field.pageNumber !== undefined ? field.pageNumber : (pageType === 'first' ? 1 : subPageIndex + 2);
+        const fieldPageOrder = field.pageOrder !== undefined ? field.pageOrder : (productIndex + 1);
+        
+        // Find product matching this page_number and page_order
+        const matchingProduct = productsData.find(
+          (p: any) => (p.page_number || 1) === fieldPageNumber && (p.page_order || 1) === fieldPageOrder
+        );
+        
+        if (matchingProduct) {
+          const fieldKey = `${pageType}-${subPageIndex}-${field.id}`;
+          newAssignments[fieldKey] = matchingProduct.barcode;
+          productIndex++;
+        }
+      }
+    }
+    
+    // Assign first page fields (Page 1)
+    if (selectedTemplate.first_page_configuration) {
+      assignFieldsForPage(selectedTemplate.first_page_configuration, 'first', 0);
+    }
+    
+    // Assign sub page fields (Page 2, 3, ...)
+    if (selectedTemplate.sub_page_configurations) {
+      selectedTemplate.sub_page_configurations.forEach((subPageFields: any[], index: number) => {
+        assignFieldsForPage(subPageFields, 'sub', index);
+      });
+    }
+    
+    fieldProductAssignments = newAssignments;
+  }
+  
   function getAssignedProduct(field: any, pageType: 'first' | 'sub', subPageIndex: number = 0) {
     const fieldKey = `${pageType}-${subPageIndex}-${field.id}`;
     const barcode = fieldProductAssignments[fieldKey];
@@ -857,12 +1004,12 @@
       case 'barcode':
         return product.barcode || '';
       case 'price':
-        // Regular sales price - return just the number, currency icon will be added separately
-        const price = offerProduct?.sales_price || product.sales_price || '0.00';
+        // Regular sales price - use total_sales_price from flyer_offer_products
+        const price = offerProduct?.total_sales_price || offerProduct?.sales_price || product.sales_price || '0.00';
         return parseFloat(price).toFixed(2);
       case 'offer_price':
-        // Offer price - return just the number, currency icon will be added separately
-        const offerPrice = offerProduct?.offer_price || product.sales_price || '0.00';
+        // Offer price - use total_offer_price from flyer_offer_products
+        const offerPrice = offerProduct?.total_offer_price || offerProduct?.offer_price || product.sales_price || '0.00';
         return parseFloat(offerPrice).toFixed(2);
       case 'offer_qty':
         // Show two lines: "عرض على" on line 1, then "qty unit_name" on line 2
@@ -917,9 +1064,384 @@
     });
   }
   
+  async function printPageAsA4(pageType: 'first' | 'sub', subPageIndex: number = 0) {
+    const element = pageType === 'first' ? firstPagePreviewEl : subPagePreviewEl;
+    if (!element) return;
+    
+    try {
+      isExporting = true;
+      
+      // Clone the preview element
+      const clonedElement = element.cloneNode(true) as HTMLElement;
+      
+      // Remove selection UI elements
+      const selectedFields = clonedElement.querySelectorAll('.product-field');
+      selectedFields.forEach((el: Element) => {
+        (el as HTMLElement).style.border = 'none';
+        (el as HTMLElement).style.background = 'none';
+      });
+      const handles = clonedElement.querySelectorAll('.resize-handle, .field-number-badge');
+      handles.forEach((el: Element) => (el as HTMLElement).style.display = 'none');
+      
+      // Get the HTML content
+      const htmlContent = clonedElement.innerHTML;
+      
+      // Create print window
+      const printWindow = window.open('', '', 'width=850,height=1100');
+      if (!printWindow) {
+        errorMessage = 'Failed to open print window. Please allow popups.';
+        isExporting = false;
+        return;
+      }
+      
+      // Write complete HTML to print window
+      const printHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Print Flyer</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 0;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            html, body {
+              width: 100%;
+              height: 100%;
+              margin: 0;
+              padding: 0;
+              background: white;
+            }
+            .preview-wrapper {
+              width: 794px;
+              height: 1123px;
+              position: relative;
+              margin: 0 auto;
+              background: white;
+            }
+            .preview-image {
+              width: 794px !important;
+              height: 1123px !important;
+              display: block !important;
+              object-fit: fill !important;
+            }
+            .product-field {
+              position: absolute;
+              border: none !important;
+              background: none !important;
+            }
+            .field-preview-content {
+              width: 100%;
+              height: 100%;
+              position: relative;
+            }
+            .element-wrapper {
+              position: relative;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+            }
+            .resizable-element {
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+            }
+            .field-image-preview {
+              max-width: 100% !important;
+              max-height: 100% !important;
+              object-fit: contain;
+              display: block;
+            }
+            .field-text-preview {
+              width: 100%;
+              height: 100%;
+            }
+            .field-number-badge {
+              display: none !important;
+            }
+            .resize-handle {
+              display: none !important;
+            }
+            img {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="preview-wrapper">
+            ${htmlContent}
+          </div>
+        </body>
+        </html>
+      `;
+      
+      printWindow.document.open();
+      printWindow.document.write(printHTML);
+      printWindow.document.close();
+      
+      // Wait for images to load
+      const loadImages = () => {
+        return new Promise<void>((resolve) => {
+          const images = Array.from(printWindow.document.querySelectorAll('img') as NodeListOf<HTMLImageElement>);
+          
+          if (images.length === 0) {
+            resolve();
+            return;
+          }
+          
+          let loadedCount = 0;
+          images.forEach((img) => {
+            const checkImage = () => {
+              loadedCount++;
+              if (loadedCount === images.length) {
+                resolve();
+              }
+            };
+            
+            if (img.complete) {
+              checkImage();
+            } else {
+              img.onload = checkImage;
+              img.onerror = checkImage;
+            }
+          });
+        });
+      };
+      
+      await loadImages();
+      
+      // Add a small delay for rendering
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Trigger print
+      printWindow.focus();
+      printWindow.print();
+      
+      // Close window after print
+      setTimeout(() => {
+        printWindow.close();
+        isExporting = false;
+      }, 1000);
+      
+      successMessage = 'Opening print dialog...';
+      setTimeout(() => successMessage = '', 3000);
+    } catch (error: any) {
+      console.error('Error printing page:', error);
+      errorMessage = `Failed to print: ${error.message}`;
+      isExporting = false;
+    }
+  }
+  
+  async function exportPageAsPng(pageType: 'first' | 'sub', subPageIndex: number = 0) {
+    const element = pageType === 'first' ? firstPagePreviewEl : subPagePreviewEl;
+    if (!element) return;
+    
+    isExporting = true;
+    try {
+      // Wait for all images to load
+      const allImages = element.querySelectorAll('img');
+      const loadPromises = Array.from(allImages).map((img: Element) => {
+        const imgEl = img as HTMLImageElement;
+        return new Promise((resolve) => {
+          if (imgEl.complete) {
+            resolve(null);
+          } else {
+            imgEl.onload = () => resolve(null);
+            imgEl.onerror = () => resolve(null);
+          }
+        });
+      });
+      await Promise.all(loadPromises);
+      
+      // Temporarily hide selection borders, resize handles, and badges for clean export
+      const selectedFields = element.querySelectorAll('.product-field');
+      selectedFields.forEach((el: Element) => {
+        (el as HTMLElement).style.border = 'none';
+        (el as HTMLElement).style.background = 'none';
+      });
+      const handles = element.querySelectorAll('.resize-handle, .field-number-badge');
+      handles.forEach((el: Element) => (el as HTMLElement).style.display = 'none');
+      
+      // Export the actual preview wrapper to get correct sizing
+      const previewWrapper = element.querySelector('.preview-wrapper');
+      const targetElement = previewWrapper || element;
+      
+      // Wait a tiny bit more for any final layout adjustments
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      const canvas = await html2canvas(targetElement as HTMLElement, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDocument) => {
+          // Add CSS to ensure images and layout render correctly
+          const style = clonedDocument.createElement('style');
+          style.textContent = `
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              box-sizing: border-box !important;
+            }
+            .preview-wrapper {
+              width: 794px !important;
+              height: 1123px !important;
+              position: relative !important;
+              background: white !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+              transform: none !important;
+              transform-origin: top left !important;
+            }
+            /* Product field container - This must have exact size and position */
+            .product-field {
+              position: absolute !important;
+              border: none !important;
+              background: none !important;
+              box-shadow: none !important;
+              display: block !important;
+            }
+            /* Reset the content wrapper */
+            .field-preview-content {
+              width: 100% !important;
+              height: 100% !important;
+              position: relative !important;
+              display: block !important;
+            }
+            .element-wrapper {
+              position: relative !important;
+              width: 100% !important;
+              height: 100% !important;
+              overflow: hidden !important;
+              display: block !important;
+            }
+            .resizable-element {
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+            }
+            /* Product images */
+            .field-image-preview {
+              max-width: 100% !important;
+              max-height: 100% !important;
+              object-fit: contain !important;
+              display: block !important;
+            }
+            /* Variation group containers */
+            .img-stack {
+              width: 100% !important;
+              height: 100% !important;
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+              display: block !important;
+            }
+            .img-stack .field-image-preview {
+              max-width: 75% !important;
+              max-height: 75% !important;
+              width: auto !important;
+              height: auto !important;
+            }
+            /* Icons and symbols should stay absolute and NOT be stretched */
+            .field-icon-preview, .field-symbol-preview {
+              position: absolute !important;
+              object-fit: contain !important;
+            }
+            .field-text-preview {
+              display: flex !important;
+              width: 100% !important;
+              height: 100% !important;
+            }
+            /* Force proper Arabic text rendering */
+            .field-text-preview,
+            .field-text-preview * {
+              text-rendering: optimizeLegibility !important;
+              -webkit-font-smoothing: antialiased !important;
+              -moz-osx-font-smoothing: grayscale !important;
+              font-feature-settings: "liga" 1, "calt" 1 !important;
+              white-space: pre-wrap !important;
+              word-break: keep-all !important;
+              direction: rtl !important;
+            }
+          `;
+          clonedDocument.head.appendChild(style);
+          
+          // Copy all loaded fonts to cloned document
+          if (document.fonts && document.fonts.size > 0) {
+            document.fonts.forEach((font) => {
+              try {
+                clonedDocument.fonts.add(font);
+              } catch (e) {
+                console.warn('Failed to add font to clone:', e);
+              }
+            });
+          }
+        }
+      });
+      
+      // Restore selection borders
+      selectedFields.forEach((el: Element) => {
+        (el as HTMLElement).style.border = '';
+        (el as HTMLElement).style.background = '';
+      });
+      handles.forEach((el: Element) => (el as HTMLElement).style.display = '');
+      
+      const link = document.createElement('a');
+      const pageName = pageType === 'first' ? 'First_Page' : `Sub_Page_${subPageIndex + 1}`;
+      const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
+      const templateName = selectedTemplate?.name?.replace(/\s+/g, '_') || 'Flyer';
+      link.download = `${templateName}_${pageName}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      
+      successMessage = `Exported ${pageName.replace(/_/g, ' ')} as PNG!`;
+      setTimeout(() => successMessage = '', 3000);
+    } catch (error: any) {
+      console.error('Error exporting page:', error);
+      errorMessage = `Failed to export: ${error.message}`;
+    } finally {
+      isExporting = false;
+    }
+  }
+  
+  async function loadCustomFonts() {
+    try {
+      const { data, error } = await supabase
+        .from('shelf_paper_fonts')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) throw error;
+      
+      for (const font of (data || [])) {
+        try {
+          const fontFace = new FontFace(font.name, `url(${font.font_url})`);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+        } catch (e) {
+          console.warn(`Failed to load font: ${font.name}`, e);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading custom fonts:', error);
+    }
+  }
+  
   onMount(() => {
     loadActiveOffers();
     loadFlyerTemplates();
+    loadCustomFonts();
   });
 </script>
 
@@ -982,9 +1504,11 @@
         {:else}
           <select
             bind:value={selectedTemplateId}
-            class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+            on:change={handleTemplateChange}
+            disabled={isLoadingSelectedTemplate}
+            class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all {isLoadingSelectedTemplate ? 'opacity-50' : ''}"
           >
-            <option value="">-- Choose a template --</option>
+            <option value="">{isLoadingSelectedTemplate ? '⏳ Loading template...' : '-- Choose a template --'}</option>
             {#each flyerTemplates as template}
               <option value={template.id}>
                 {template.name} {template.is_default ? '(Default)' : ''}
@@ -1060,7 +1584,7 @@
               </div>
             {/if}
           </div>
-          
+            
           <!-- Preview Content -->
           <div class="preview-content-main">
         
@@ -1071,13 +1595,36 @@
             <div class="preview-section">
               <div class="preview-header">
                 <span class="preview-title">First Page</span>
-                <span class="preview-badge">
-                  {selectedTemplate.first_page_configuration?.length || 0} Fields
-                </span>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span class="preview-badge">
+                    {selectedTemplate.first_page_configuration?.length || 0} Fields
+                  </span>
+                  <button
+                    class="export-page-btn"
+                    on:click={() => exportPageAsPng('first')}
+                    disabled={isExporting}
+                    title="Export as PNG"
+                  >
+                    {#if isExporting}
+                      <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    {:else}
+                      📥
+                    {/if}
+                    Export PNG
+                  </button>
+                  <button
+                    class="export-page-btn"
+                    on:click={() => printPageAsA4('first')}
+                    title="Print as A4"
+                    style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"
+                  >
+                    🖨️ Print A4
+                  </button>
+                </div>
               </div>
               
               <div class="preview-container">
-                <div class="preview-wrapper">
+                <div class="preview-wrapper" bind:this={firstPagePreviewEl}>
                   <img 
                     src={selectedTemplate.first_page_image_url} 
                     alt="First Page" 
@@ -1095,6 +1642,7 @@
                       <div
                         class="product-field {assignedProduct ? 'has-product' : ''} {selectedFieldId === field.id ? 'selected' : ''}"
                         style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px;"
+                        data-field-id="{field.id}"
                         on:click={(e) => handleFieldClick(field, 'first', 0, e)}
                         on:mousedown={(e) => handleFieldMouseDown(e, field.id)}
                       >
@@ -1116,6 +1664,9 @@
                                     height: {configField.height || 100}px;
                                     transform: rotate({configField.rotation || 0}deg);
                                     transform-origin: center center;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
                                   "
                                 >
                                   {#if assignedProduct?.is_variation_group && assignedProduct?.variation_images && assignedProduct.variation_images.length > 0}
@@ -1123,7 +1674,9 @@
                                     <div 
                                       class="img-stack"
                                       style="
-                                        position: relative;
+                                        position: absolute;
+                                        top: 0;
+                                        left: 0;
                                         width: 100%;
                                         height: 100%;
                                       "
@@ -1132,17 +1685,21 @@
                                         {@const zIndex = 3 - imgIndex}
                                         {@const defaultOffset = imgIndex * 15}
                                         {@const savedPosition = configField.variantImagePositions?.[imgIndex]}
+                                        {@const savedSize = configField.variantImageSizes?.[imgIndex]}
                                         {@const xPos = savedPosition?.x ?? defaultOffset}
                                         {@const yPos = savedPosition?.y ?? defaultOffset}
+                                        {@const imgWidth = savedSize?.width ?? 75}
+                                        {@const imgHeight = savedSize?.height ?? 75}
                                         <img 
                                           src={imgUrl} 
                                           alt="Variation {imgIndex + 1}" 
+                                          class="field-image-preview"
                                           on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex)}
                                           on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
                                           style="
                                             position: absolute;
-                                            width: 75%;
-                                            height: 75%;
+                                            max-width: {imgWidth}%;
+                                            max-height: {imgHeight}%;
                                             object-fit: contain;
                                             z-index: {zIndex};
                                             left: {xPos}px;
@@ -1161,9 +1718,11 @@
                                       alt="Product" 
                                       class="field-image-preview"
                                       on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
+                                      on:mousedown={(e) => {
+                                        e.stopPropagation();
+                                        handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                      }}
                                       style="
-                                        width: 100%;
-                                        height: 100%;
                                         object-fit: contain;
                                         pointer-events: all;
                                         cursor: pointer;
@@ -1198,6 +1757,7 @@
                                     height: {configField.height || 20}px;
                                     transform: rotate({configField.rotation || 0}deg);
                                     transform-origin: center center;
+                                    z-index: {configField.label === 'offer_price' ? '999' : 'auto'};
                                   "
                                 >
                                   <div 
@@ -1213,6 +1773,7 @@
                                       text-decoration: {configField.strikethrough ? 'line-through' : 'none'};
                                       font-weight: {configField.bold ? 'bold' : 'normal'};
                                       font-style: {configField.italic ? 'italic' : 'normal'};
+                                      {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
                                       display: flex;
                                       align-items: center;
                                       justify-content: {configField.alignment === 'center' ? 'center' : configField.alignment === 'right' ? 'flex-end' : 'flex-start'};
@@ -1232,32 +1793,19 @@
                                           top: {configField.iconY || 0}px;
                                           width: {configField.iconWidth || 20}px;
                                           height: {configField.iconHeight || 20}px;
-                                        "
-                                      />
-                                    {/if}
-                                    {#if configField.label === 'price' || configField.label === 'offer_price'}
-                                      <img 
-                                        src="/icons/saudi-currency.png" 
-                                        alt="Currency" 
-                                        style="
-                                          height: {(configField.fontSize || 14) * 0.65}px;
-                                          width: auto;
-                                          margin-right: 4px;
-                                          vertical-align: baseline;
+                                          z-index: 1;
                                         "
                                       />
                                     {/if}
                                     {#if configField.label === 'offer_price'}
                                       {@const [integerPart, decimalPart] = fieldValue.split('.')}
-                                      <span style="font-weight: 700; unicode-bidi: plaintext;">
-                                        {integerPart}<span style="font-size: 50%; vertical-align: baseline;">.{decimalPart || '00'}</span>
-                                      </span>
+                                      <span style="unicode-bidi: plaintext; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1;">.{decimalPart || '00'}</span></span>
                                     {:else if configField.label === 'price'}
-                                      <span style="font-weight: 700; text-decoration: line-through; unicode-bidi: plaintext;">
+                                      <span style="text-decoration: line-through; unicode-bidi: plaintext; position: relative; z-index: 2;">
                                         {fieldValue}
                                       </span>
                                     {:else}
-                                      <span style="font-weight: 400; unicode-bidi: plaintext;">
+                                      <span style="unicode-bidi: plaintext; position: relative; z-index: 2;">
                                         {fieldValue}
                                       </span>
                                     {/if}
@@ -1288,21 +1836,44 @@
             <div class="preview-section">
               <div class="preview-header">
                 <span class="preview-title">Sub Pages</span>
-                <div class="sub-page-tabs">
-                  {#each selectedTemplate.sub_page_image_urls as _, index}
-                    <button
-                      class="sub-page-tab-btn {activeSubPageIndex === index ? 'active' : ''}"
-                      on:click={() => activeSubPageIndex = index}
-                    >
-                      Page {index + 1}
-                    </button>
-                  {/each}
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <div class="sub-page-tabs">
+                    {#each selectedTemplate.sub_page_image_urls as _, index}
+                      <button
+                        class="sub-page-tab-btn {activeSubPageIndex === index ? 'active' : ''}"
+                        on:click={() => activeSubPageIndex = index}
+                      >
+                        Page {index + 1}
+                      </button>
+                    {/each}
+                  </div>
+                  <button
+                    class="export-page-btn"
+                    on:click={() => exportPageAsPng('sub', activeSubPageIndex)}
+                    disabled={isExporting}
+                    title="Export as PNG"
+                  >
+                    {#if isExporting}
+                      <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    {:else}
+                      📥
+                    {/if}
+                    Export PNG
+                  </button>
+                  <button
+                    class="export-page-btn"
+                    on:click={() => printPageAsA4('sub', activeSubPageIndex)}
+                    title="Print as A4"
+                    style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"
+                  >
+                    🖨️ Print A4
+                  </button>
                 </div>
               </div>
               
               <div class="preview-container">
                 {#if selectedTemplate.sub_page_image_urls[activeSubPageIndex]}
-                  <div class="preview-wrapper">
+                  <div class="preview-wrapper" bind:this={subPagePreviewEl}>
                     <img 
                       src={selectedTemplate.sub_page_image_urls[activeSubPageIndex]} 
                       alt="Sub Page {activeSubPageIndex + 1}" 
@@ -1362,6 +1933,7 @@
                                           <img 
                                             src={imgUrl} 
                                             alt="Variation {imgIndex + 1}" 
+                                            class="field-image-preview"
                                             on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex)}
                                             on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
                                             style="
@@ -1440,6 +2012,7 @@
                                         text-decoration: {configField.strikethrough ? 'line-through' : 'none'};
                                         font-weight: {configField.bold ? 'bold' : 'normal'};
                                         font-style: {configField.italic ? 'italic' : 'normal'};
+                                        {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
                                         display: flex;
                                         align-items: center;
                                         justify-content: {configField.alignment === 'center' ? 'center' : configField.alignment === 'right' ? 'flex-end' : 'flex-start'};
@@ -1457,32 +2030,19 @@
                                             top: {configField.iconY || 0}px;
                                             width: {configField.iconWidth || 20}px;
                                             height: {configField.iconHeight || 20}px;
-                                          "
-                                        />
-                                      {/if}
-                                      {#if configField.label === 'price' || configField.label === 'offer_price'}
-                                        <img 
-                                          src="/icons/saudi-currency.png" 
-                                          alt="Currency" 
-                                          style="
-                                            height: {(configField.fontSize || 14) * 0.65}px;
-                                            width: auto;
-                                            margin-right: 4px;
-                                            vertical-align: baseline;
+                                            z-index: 1;
                                           "
                                         />
                                       {/if}
                                       {#if configField.label === 'offer_price'}
                                         {@const [integerPart, decimalPart] = fieldValue.split('.')}
-                                        <span style="font-weight: 700;">
-                                          {integerPart}<span style="font-size: 50%; vertical-align: baseline;">.{decimalPart || '00'}</span>
-                                        </span>
+                                        <span style="position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1;">.{decimalPart || '00'}</span></span>
                                       {:else if configField.label === 'price'}
-                                        <span style="font-weight: 700; text-decoration: line-through;">
+                                        <span style="text-decoration: line-through; position: relative; z-index: 2;">
                                           {fieldValue}
                                         </span>
                                       {:else}
-                                        <span style="font-weight: 400;">
+                                        <span style="position: relative; z-index: 2;">
                                           {fieldValue}
                                         </span>
                                       {/if}
@@ -1589,7 +2149,7 @@
       <div class="modal-content" on:click|stopPropagation>
         <div class="modal-header">
           <h3 class="modal-title">
-            Select Product for Field #{selectedFieldForProduct.number}
+            Select Product for Field {selectedFieldForProduct.pageNumber || 1}:{selectedFieldForProduct.pageOrder || selectedFieldForProduct.number}
           </h3>
           <button class="modal-close" on:click={() => showProductSelector = false}>
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1615,6 +2175,8 @@
               <table class="products-table">
                 <thead>
                   <tr>
+                    <th>Page</th>
+                    <th>Order</th>
                     <th>Image</th>
                     <th>Barcode</th>
                     <th>Product Name (EN)</th>
@@ -1628,6 +2190,8 @@
                   {#each productsData as product}
                     {@const offerProduct = offerProducts.find(op => op.product_barcode === product.barcode)}
                     <tr>
+                      <td class="text-center font-semibold">{product.page_number || 1}</td>
+                      <td class="text-center font-semibold">{product.page_order || 1}</td>
                       <td>
                         {#if product.is_variation_group && product.variation_images && product.variation_images.length > 0}
                           <!-- Show stacked images for variation groups -->
@@ -1925,6 +2489,33 @@
     box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
   }
 
+  .export-page-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.75rem;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+  }
+
+  .export-page-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(99, 102, 241, 0.4);
+  }
+
+  .export-page-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .sub-page-tabs {
     display: flex;
     gap: 0.25rem;
@@ -2014,18 +2605,20 @@
   }
 
   .product-field.has-product {
-    border-color: #10b981;
-    background: rgba(16, 185, 129, 0.1);
+    border: none;
+    background: none;
   }
 
   .product-field.has-product:hover {
-    background: rgba(16, 185, 129, 0.2);
-    border-color: #059669;
+    background: rgba(16, 185, 129, 0.05);
+    outline: 2px dashed rgba(16, 185, 129, 0.4);
+    outline-offset: -2px;
   }
 
   .product-field.has-product.selected {
-    border-color: #047857;
-    background: rgba(4, 120, 87, 0.2);
+    outline: 2px solid #047857;
+    outline-offset: -2px;
+    background: rgba(4, 120, 87, 0.05);
     box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
   }
 
@@ -2110,13 +2703,26 @@
   }
 
   .field-image-preview {
-    position: absolute;
     pointer-events: none;
     user-select: none;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
   }
 
   .element-wrapper {
     position: relative;
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  
+  .resizable-element {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
   }
 
@@ -2514,6 +3120,115 @@
     letter-spacing: 0.5px;
   }
 
+  .unassigned-fields-section {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 2px solid #cbd5e1;
+  }
+
+  .unassigned-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #dc2626;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+    letter-spacing: 0.5px;
+  }
+
+  .no-unassigned {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    font-style: italic;
+    padding: 0.5rem;
+    text-align: center;
+  }
+
+  .unassigned-products-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+  }
+
+  .unassigned-products-list::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .unassigned-products-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .unassigned-products-list::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 2px;
+  }
+
+  .unassigned-product-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+
+  .unassigned-product-card:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 4px 6px rgba(59, 130, 246, 0.15);
+    transform: translateY(-2px);
+  }
+
+  .product-image-container {
+    width: 100%;
+    height: 80px;
+    background: #f9fafb;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .product-preview-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  .product-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .product-name {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .variation-badge {
+    font-size: 0.625rem;
+    background: #dbeafe;
+    color: #0369a1;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-align: center;
+  }
+
   .preview-content-main {
     flex: 1;
     min-width: 0;
@@ -2767,6 +3482,13 @@
     padding: 0.75rem 1rem;
     font-size: 0.875rem;
     color: #1f2937;
+  }
+
+  .products-table td.text-right {
+    text-align: right;
+    direction: rtl;
+    font-family: 'Arial', 'Segoe UI', 'Tahoma', sans-serif;
+    unicode-bidi: plaintext;
   }
 
   .product-thumb {
