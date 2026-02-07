@@ -13,6 +13,57 @@
 	let targetPrice: number | string = 16;
 	let offerInputs: Map<number, any> = new Map();
 
+	// Column visibility management
+	let visibleColumns: Record<string, boolean> = {
+		delete: true,
+		sNo: true,
+		barcode: true,
+		productName: true,
+		salesPrice: true,
+		totalSalesPrice: true,
+		unit: true,
+		cost: true,
+		totalCost: true,
+		expiryDate: true,
+		offerEndDate: true,
+		daysLeft: true,
+		remainingDays: true,
+		toDo: true,
+		offerPrice: true,
+		totalOfferPrice: true,
+		offerDecrease: true,
+		profitPercent: true,
+		offerType: true,
+		offerQty: true,
+		free: true,
+		limit: true
+	};
+
+	const columnList = [
+		{ key: 'delete', label: 'Delete' },
+		{ key: 'sNo', label: 'S.No' },
+		{ key: 'barcode', label: 'Barcode' },
+		{ key: 'productName', label: 'Product Name' },
+		{ key: 'salesPrice', label: 'Sales Price' },
+		{ key: 'totalSalesPrice', label: 'Total Sales Price' },
+		{ key: 'unit', label: 'Unit' },
+		{ key: 'cost', label: 'Cost (VAT)' },
+		{ key: 'totalCost', label: 'Total Cost' },
+		{ key: 'expiryDate', label: 'Expiry Date' },
+		{ key: 'offerEndDate', label: 'Offer End Date' },
+		{ key: 'daysLeft', label: 'Days Left' },
+		{ key: 'remainingDays', label: 'Remaining Days' },
+		{ key: 'toDo', label: 'To Do' },
+		{ key: 'offerPrice', label: 'Offer Price' },
+		{ key: 'totalOfferPrice', label: 'Total Offer Price' },
+		{ key: 'offerDecrease', label: 'Offer Decrease' },
+		{ key: 'profitPercent', label: 'Profit %' },
+		{ key: 'offerType', label: 'Offer Type' },
+		{ key: 'offerQty', label: 'Offer Qty' },
+		{ key: 'free', label: 'Free' },
+		{ key: 'limit', label: 'Limit' }
+	];
+
 	// Print functionality
 	interface ShelfPaperTemplate {
 		id: string;
@@ -644,8 +695,157 @@
 		alert(`Generated offers: ${successful} successful, ${skipped} not applicable. Total: ${importedData.length} products processed.`);
 	}
 
-	function onExportForEntry() {
-		// Function to be implemented
+	async function onExportForEntry() {
+		if (importedData.length === 0) {
+			alert('No data to export');
+			return;
+		}
+
+		try {
+			const workbook = new ExcelJS.Workbook();
+			const worksheet = workbook.addWorksheet('Export for Entry');
+
+			// Define columns to export
+			const columns = [
+				{ header: 'S.No', key: 'sNo', width: 8 },
+				{ header: 'Barcode', key: 'barcode', width: 15 },
+				{ header: 'Product Name', key: 'productName', width: 30 },
+				{ header: 'Unit', key: 'unit', width: 12 },
+				{ header: 'Expiry Date', key: 'expiryDate', width: 15 },
+				{ header: 'To-Do', key: 'toDo', width: 12 },
+				{ header: 'Total Sales Price', key: 'totalSalesPrice', width: 18 },
+				{ header: 'Total Offer Price', key: 'totalOfferPrice', width: 18 },
+				{ header: 'Offer Qty', key: 'offerQty', width: 12 },
+				{ header: 'Free', key: 'free', width: 12 },
+				{ header: 'Limit', key: 'limit', width: 12 },
+				{ header: 'Offer Type', key: 'offerType', width: 20 },
+				{ header: 'Offer End Date', key: 'offerEndDate', width: 15 }
+			];
+
+			worksheet.columns = columns;
+
+			// Style header row
+			worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+			worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+			worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+			// Sort data by Offer End Date, then by Offer Type
+			const sortedData = [...importedData].sort((a, b) => {
+				// Sort by Offer End Date
+				const dateA = a.offerEndDate || '';
+				const dateB = b.offerEndDate || '';
+				const dateCompare = dateA.localeCompare(dateB);
+				
+				if (dateCompare !== 0) return dateCompare;
+				
+				// If dates are equal, sort by Offer Type
+				const typeA = getOfferType(
+					Number(a.offerQty) || 1,
+					a.offerLimit ? Number(a.offerLimit) : null,
+					Number(a.offerFree) || 0,
+					Number(a.offerPrice) || 0
+				) || '';
+				const typeB = getOfferType(
+					Number(b.offerQty) || 1,
+					b.offerLimit ? Number(b.offerLimit) : null,
+					Number(b.offerFree) || 0,
+					Number(b.offerPrice) || 0
+				) || '';
+				
+				return typeA.localeCompare(typeB);
+			});
+
+			// Add rows with serial number
+			let serialNumber = 1;
+			sortedData.forEach((row) => {
+				const remainingDays = getRemainingDays(row.expiryDate);
+				const toDo = typeof remainingDays === 'number'
+					? remainingDays < 20
+						? '🗑️ Remove'
+						: '🏷️ Offer'
+					: '-';
+
+				const totalOfferPrice = Number(row.offerPrice) > 0 && Number(row.offerQty) > 0
+					? roundTo95(Number(row.offerPrice) * Number(row.offerQty)).toFixed(2)
+					: '-';
+
+				const offerType = getOfferType(
+					Number(row.offerQty) || 1,
+					row.offerLimit ? Number(row.offerLimit) : null,
+					Number(row.offerFree) || 0,
+					Number(row.offerPrice) || 0
+				);
+
+				worksheet.addRow({
+					sNo: serialNumber++,
+					barcode: row.barcode || '',
+					productName: row.englishName || '',
+					unit: row.unit || '',
+					expiryDate: formatExpiryDate(String(row.expiryDate)),
+					toDo: toDo,
+					totalSalesPrice: (Number(row.salesPrice) * (Number(row.offerQty) || 1)).toFixed(2),
+					totalOfferPrice: totalOfferPrice,
+					offerQty: row.offerQty || '',
+					free: row.offerFree || '',
+					limit: row.offerLimit || '',
+					offerType: offerType,
+					offerEndDate: row.offerEndDate || ''
+				});
+			});
+
+			// Apply unique colors to Offer End Date cells by unique date
+			const dateColorMap: { [key: string]: string } = {};
+			const colors = [
+				'FFFFE0', // Light Yellow
+				'FFE4E1', // Misty Rose (Light Pink)
+				'E0FFFF', // Light Cyan
+				'F0FFF0', // Honeydew (Light Green)
+				'FFF0F5', // Lavender Blush (Light Purple)
+				'F5F5DC', // Beige
+				'F0F8FF', // Alice Blue
+				'FFF8DC', // Cornsilk
+				'FFE4B5', // Moccasin
+				'F5FFFA', // Mint Cream
+				'FFEFD5', // Papaya Whip
+				'FFE4C4'  // Bisque
+			];
+			let colorIndex = 0;
+
+			// Iterate through rows to assign colors based on unique dates
+			for (let rowNum = 2; rowNum <= worksheet.rowCount; rowNum++) {
+				const dateCell = worksheet.getRow(rowNum).getCell('offerEndDate');
+				const dateValue = dateCell.value?.toString() || '';
+
+				if (dateValue && dateValue !== '') {
+					if (!dateColorMap[dateValue]) {
+						dateColorMap[dateValue] = colors[colorIndex % colors.length];
+						colorIndex++;
+					}
+
+					const color = dateColorMap[dateValue];
+					dateCell.fill = {
+						type: 'pattern',
+						pattern: 'solid',
+						fgColor: { argb: 'FF' + color }
+					};
+				}
+			}
+			const buffer = await workbook.xlsx.writeBuffer();
+			const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+			const url = window.URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `Export_for_Entry_${new Date().toISOString().split('T')[0]}.xlsx`;
+			document.body.appendChild(a);
+			a.click();
+			window.URL.revokeObjectURL(url);
+			document.body.removeChild(a);
+
+			alert(`✓ Exported ${sortedData.length} products successfully!`);
+		} catch (error) {
+			console.error('Error exporting data:', error);
+			alert('Error exporting data. Please try again.');
+		}
 	}
 
 	async function onDownloadTemplate() {
@@ -2247,7 +2447,7 @@
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
 	<!-- Header/Navigation with Action Buttons -->
-	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-center shadow-sm">
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm flex-wrap gap-4">
 		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner flex-wrap">
 			{#each buttons as button (button.id)}
 				<button 
@@ -2273,6 +2473,103 @@
 					{/if}
 				</button>
 			{/each}
+		</div>
+
+		<div class="flex gap-3 items-center flex-wrap">
+			<!-- Target Profit Entry in Header -->
+			{#if importedData.length > 0}
+				<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner">
+					<div class="bg-white rounded-xl px-4 py-2 border border-slate-200 flex items-center gap-3 whitespace-nowrap h-[42px]">
+						<label for="profit-input" class="text-xs font-semibold text-slate-700">📊 Target %</label>
+						<input 
+							id="profit-input"
+							type="number" 
+							bind:value={targetPrice}
+							placeholder="16"
+							class="w-32 px-2 py-1 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-center font-semibold"
+						/>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Print Shelf Paper in Header -->
+			{#if importedData.length > 0}
+				<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner">
+					<div class="bg-white rounded-xl px-4 py-2 border border-slate-200 flex items-center gap-3 h-[42px]">
+						<label for="template-select" class="text-xs font-semibold text-slate-700 whitespace-nowrap">🖨️ Print</label>
+						<select 
+							id="template-select"
+							bind:value={selectedTemplateId}
+							disabled={isLoadingTemplates}
+							class="px-2 py-1 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs min-w-[180px]"
+						>
+							<option value="">-- Select template --</option>
+							{#each templates as template}
+								<option value={template.id}>{template.name}</option>
+							{/each}
+						</select>
+						<button 
+							on:click={printShelfPaper}
+							disabled={!selectedTemplateId || filteredData.length === 0 || isLoadingTemplates}
+							class="px-3 py-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+						>
+							Print
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Manage Columns in Header -->
+			{#if importedData.length > 0}
+				<div class="relative group">
+					<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner">
+						<button class="bg-white rounded-xl px-4 py-2 border border-slate-200 flex items-center gap-2 whitespace-nowrap h-[42px] hover:bg-slate-50 transition-colors">
+							<span class="text-lg">⚙️</span>
+							<span class="text-xs font-semibold text-slate-700">Manage Columns</span>
+						</button>
+					</div>
+					<!-- Dropdown Menu -->
+					<div class="absolute right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-xl z-50 hidden group-hover:block min-w-[280px] max-h-[400px] overflow-y-auto">
+						<div class="p-3">
+							<div class="font-semibold text-sm text-slate-800 mb-3 pb-2 border-b border-slate-200">Show/Hide Columns</div>
+							{#each columnList as column}
+								<label class="flex items-center gap-2 p-2 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors">
+									<input 
+										type="checkbox" 
+										bind:checked={visibleColumns[column.key]}
+										class="w-4 h-4 accent-blue-600"
+									/>
+									<span class="text-sm text-slate-700">{column.label}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Search Bar in Header -->
+			{#if importedData.length > 0}
+				<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner flex-1 min-w-[300px]">
+					<div class="flex items-center gap-2 bg-white rounded-xl px-4 py-2 border border-slate-200 h-[42px]">
+						<span class="text-lg">🔍</span>
+						<input 
+							type="text" 
+							bind:value={searchQuery}
+							placeholder="Search by name or barcode..."
+							class="flex-1 px-0 py-0 border-0 focus:outline-none focus:ring-0 text-sm bg-white"
+						/>
+						{#if searchQuery}
+							<button 
+								on:click={() => searchQuery = ''}
+								class="text-xs text-slate-500 hover:text-slate-700 font-bold"
+								title="Clear search"
+							>
+								✕
+							</button>
+						{/if}
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -2301,67 +2598,10 @@
 								<h3 class="text-lg font-bold text-slate-900">Imported Products</h3>
 								<p class="text-sm text-slate-600 mt-1">{filteredData.length} / {importedData.length} product{importedData.length !== 1 ? 's' : ''} {searchQuery ? 'found' : 'loaded'}</p>
 							</div>
-							<div class="flex gap-4">
-							<!-- Search Bar -->
-							<div class="bg-white rounded-xl p-4 shadow-md border border-slate-200">
-								<label for="search-input" class="block text-xs font-semibold text-slate-700 mb-2">🔍 Search</label>
-								<input 
-									id="search-input"
-									type="text" 
-									bind:value={searchQuery}
-									placeholder="Search by name or barcode..."
-									class="w-64 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-								/>
-								{#if searchQuery}
-									<button 
-										on:click={() => searchQuery = ''}
-										class="text-xs text-slate-500 hover:text-slate-700 mt-1"
-									>
-										Clear ✕
-									</button>
-								{/if}
-							</div>
-
-							<!-- Print Shelf Paper Card -->
-							<div class="bg-white rounded-xl p-4 shadow-md border border-slate-200">
-								<label for="template-select" class="block text-xs font-semibold text-slate-700 mb-2">🖨️ Print Shelf Paper</label>
-								<select 
-									id="template-select"
-									bind:value={selectedTemplateId}
-									disabled={isLoadingTemplates}
-									class="w-64 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-								>
-									<option value="">-- Select template --</option>
-									{#each templates as template}
-										<option value={template.id}>{template.name}</option>
-									{/each}
-								</select>
-								<button 
-									on:click={printShelfPaper}
-									disabled={!selectedTemplateId || filteredData.length === 0 || isLoadingTemplates}
-									class="w-full mt-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg text-xs font-semibold transition-colors"
-								>
-									Print A4
-								</button>
-								{#if templates.length === 0 && !isLoadingTemplates}
-									<p class="text-xs text-slate-500 mt-2">No templates available</p>
-								{/if}
-							</div>
-
-							<div class="bg-white rounded-xl p-4 shadow-md border border-slate-200">
-								<label for="profit-input" class="block text-xs font-semibold text-slate-700 mb-2">Target Profit Entry</label>
-								<input 
-									id="profit-input"
-									type="number" 
-									bind:value={targetPrice}
-									placeholder="Enter target profit %"
-									class="w-48 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-								/>
-								<p class="text-xs text-slate-500 mt-2">Current: {targetPrice || 16}%</p>
-							</div>
+							<div class="flex gap-4 flex-wrap">
 								{#if importedData.filter(row => isCostZero(row.cost) || Number(row.cost) > Number(row.salesPrice)).length > 0}
 									<div class="bg-red-50 rounded-xl p-4 shadow-md border border-red-200">
-										<label class="block text-xs font-semibold text-red-700 mb-2">⚠️ Invalid Cards</label>
+										<p class="text-xs font-semibold text-red-700 mb-2">⚠️ Invalid Cards</p>
 										<div class="flex flex-wrap gap-2 mb-3">
 											{#each importedData as row, index}
 												{#if isCostZero(row.cost) || Number(row.cost) > Number(row.salesPrice)}
@@ -2392,7 +2632,7 @@
 									{@const profitPercentBefore = totalCost > 0 ? ((profitBeforeOffer / totalCost) * 100).toFixed(2) : 0}
 									{@const profitPercentAfter = totalCost > 0 ? ((profitAfterOffer / totalCost) * 100).toFixed(2) : 0}
 									<div class="bg-blue-50 rounded-xl p-4 shadow-md border border-blue-200">
-										<label class="block text-xs font-semibold text-blue-700 mb-3">💰 Pricing Summary (Target: {targetPrice}%)</label>
+										<p class="text-xs font-semibold text-blue-700 mb-3">💰 Pricing Summary (Target: {targetPrice}%)</p>
 										<div class="grid grid-cols-1 md:grid-cols-3 gap-3">
 											<div class="bg-green-100 rounded-lg p-3 border border-green-300">
 												<div class="text-xs text-green-700 font-semibold">Before Offer</div>
@@ -2406,8 +2646,8 @@
 											</div>
 											<div class="bg-purple-100 rounded-lg p-3 border border-purple-300">
 												<div class="text-xs text-purple-700 font-semibold">Average Profit</div>
-												<div class="text-lg font-bold text-purple-800">{((parseFloat(profitPercentBefore) + parseFloat(profitPercentAfter)) / 2).toFixed(2)}%</div>
-												<div class="text-xs text-purple-600">Change: {(parseFloat(profitPercentAfter) - parseFloat(profitPercentBefore)).toFixed(2)}%</div>
+												<div class="text-lg font-bold text-purple-800">{((parseFloat(String(profitPercentBefore)) + parseFloat(String(profitPercentAfter))) / 2).toFixed(2)}%</div>
+												<div class="text-xs text-purple-600">Change: {(parseFloat(String(profitPercentAfter)) - parseFloat(String(profitPercentBefore))).toFixed(2)}%</div>
 											</div>
 										</div>
 									</div>
@@ -2415,7 +2655,7 @@
 								
 								{#if importedData.filter(row => row.offerEndDate).length > 0}
 									<div class="bg-purple-50 rounded-xl p-4 shadow-md border border-purple-200">
-										<label class="block text-xs font-semibold text-purple-700 mb-2">📅 Offer End Dates Summary</label>
+										<p class="text-xs font-semibold text-purple-700 mb-2">📅 Offer End Dates Summary</p>
 										<div class="grid grid-cols-6 gap-3">
 											{#each [...new Set(importedData.filter(row => row.offerEndDate).map(row => row.offerEndDate))] as endDate}
 												{@const count = importedData.filter(row => row.offerEndDate === endDate).length}
@@ -2440,25 +2680,28 @@
 						<table class="w-full border-collapse">
 							<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
 								<tr>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Delete</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">S.No</th>
-									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Barcode</th>
-									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Product Name</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Sales Price</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Sales Price</th>
-									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Unit</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Cost (VAT)</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Cost</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Expiry Date</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer End Date</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Days Left</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Remaining Days</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">To Do</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Price</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Offer Price</th>									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Decrease</th>									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Profit %</th>									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Type</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Qty</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Free</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Limit</th>
+									{#if visibleColumns.delete}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Delete</th>{/if}
+									{#if visibleColumns.sNo}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">S.No</th>{/if}
+									{#if visibleColumns.barcode}<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Barcode</th>{/if}
+									{#if visibleColumns.productName}<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Product Name</th>{/if}
+									{#if visibleColumns.salesPrice}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Sales Price</th>{/if}
+									{#if visibleColumns.totalSalesPrice}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Sales Price</th>{/if}
+									{#if visibleColumns.unit}<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Unit</th>{/if}
+									{#if visibleColumns.cost}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Cost (VAT)</th>{/if}
+									{#if visibleColumns.totalCost}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Cost</th>{/if}
+									{#if visibleColumns.expiryDate}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Expiry Date</th>{/if}
+									{#if visibleColumns.offerEndDate}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer End Date</th>{/if}
+									{#if visibleColumns.daysLeft}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Days Left</th>{/if}
+									{#if visibleColumns.remainingDays}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Remaining Days</th>{/if}
+									{#if visibleColumns.toDo}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">To Do</th>{/if}
+									{#if visibleColumns.offerPrice}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Price</th>{/if}
+									{#if visibleColumns.totalOfferPrice}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Offer Price</th>{/if}
+									{#if visibleColumns.offerDecrease}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Decrease</th>{/if}
+									{#if visibleColumns.profitPercent}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Profit %</th>{/if}
+									{#if visibleColumns.offerType}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Type</th>{/if}
+									{#if visibleColumns.offerQty}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Qty</th>{/if}
+									{#if visibleColumns.free}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Free</th>{/if}
+									{#if visibleColumns.limit}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Limit</th>{/if}
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-slate-200">
@@ -2468,6 +2711,7 @@
 											? 'bg-red-300 text-red-900'
 											: ''
 									}">
+										{#if visibleColumns.delete}
 										<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
 											<button 
 												on:click={() => deleteProduct(index)}
@@ -2477,28 +2721,48 @@
 												✕
 											</button>
 										</td>
+										{/if}
+										{#if visibleColumns.sNo}
 										<td class="px-4 py-3 text-sm font-bold text-slate-800 whitespace-nowrap text-center">{index + 1}</td>
+										{/if}
+										{#if visibleColumns.barcode}
 										<td class="px-4 py-3 text-sm font-mono text-slate-800 whitespace-nowrap">{row.barcode}</td>
+										{/if}
+										{#if visibleColumns.productName}
 										<td class="px-4 py-3 text-sm text-slate-700">
 											<div class="font-semibold text-slate-800">{row.englishName}</div>
 											<div class="text-xs text-slate-600">{row.arabicName}</div>
 										</td>
+										{/if}
+										{#if visibleColumns.salesPrice}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap">
 											{typeof row.salesPrice === 'number' ? row.salesPrice.toFixed(2) : row.salesPrice}
 										</td>
+										{/if}
+										{#if visibleColumns.totalSalesPrice}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap bg-blue-100/50">
 											{(Number(row.salesPrice) * (Number(row.offerQty) || 1)).toFixed(2)}
 										</td>
+										{/if}
+										{#if visibleColumns.unit}
 										<td class="px-4 py-3 text-sm text-slate-700 whitespace-nowrap">{row.unit}</td>
+										{/if}
+										{#if visibleColumns.cost}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap {isCostZero(row.cost) ? 'bg-red-400 text-white font-bold' : ''}">
 											{typeof row.cost === 'number' ? row.cost.toFixed(2) : row.cost}
 										</td>
+										{/if}
+										{#if visibleColumns.totalCost}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap bg-slate-200/50">
 											{(Number(row.cost) * (Number(row.offerQty) || 1)).toFixed(2)}
 										</td>
+										{/if}
+										{#if visibleColumns.expiryDate}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-mono whitespace-nowrap {!isValidDate(row.expiryDate) ? 'bg-red-400 text-white font-bold' : ''}">
-											{formatExpiryDate(row.expiryDate)}
+											{formatExpiryDate(String(row.expiryDate))}
 										</td>
+										{/if}
+										{#if visibleColumns.offerEndDate}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-mono whitespace-nowrap bg-purple-100/50">
 											<input 
 												type="text" 
@@ -2511,40 +2775,50 @@
 												class="w-24 px-2 py-1 border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm text-center"
 											/>
 										</td>
+										{/if}
+										{#if visibleColumns.daysLeft}
 										<td class="px-4 py-3 text-sm text-center font-bold whitespace-nowrap bg-indigo-100/50">
 											{#if row.offerEndDate && row.expiryDate}
-												{@const d1 = new Date(row.offerEndDate.split('-').reverse().join('-'))}
-												{@const d2 = new Date(row.expiryDate.split('-').reverse().join('-'))}
+												{@const d1 = new Date(String(row.offerEndDate).split('-').reverse().join('-')).getTime()}
+												{@const d2 = new Date(String(row.expiryDate).split('-').reverse().join('-')).getTime()}
 												{@const days = Math.round((d2 - d1) / 86400000)}
 												<span class="{days < 0 ? 'text-red-600 font-bold' : days <= 7 ? 'text-orange-600 font-bold' : 'text-green-600'}">{days} days</span>
 											{:else}
 												-
 											{/if}
 										</td>
+										{/if}
+										{#if visibleColumns.remainingDays}
+										{@const remainingDays = getRemainingDays(row.expiryDate)}
 										<td class="px-4 py-3 text-sm text-center font-bold whitespace-nowrap {
-											typeof getRemainingDays(row.expiryDate) === 'number'
-												? getRemainingDays(row.expiryDate) <= 7
+											typeof remainingDays === 'number'
+												? remainingDays <= 7
 													? 'bg-red-500 text-white'
-													: getRemainingDays(row.expiryDate) <= 30
+													: remainingDays <= 30
 													? 'bg-orange-500 text-white'
 													: 'bg-emerald-500 text-white'
 												: 'text-slate-400'
 										}">
-											{getRemainingDays(row.expiryDate)} days
+											{remainingDays} days
 										</td>
+										{/if}
+										{#if visibleColumns.toDo}
+										{@const remainingDaysForToDo = getRemainingDays(row.expiryDate)}
 										<td class="px-4 py-3 text-sm text-center font-bold whitespace-nowrap {
-											typeof getRemainingDays(row.expiryDate) === 'number'
-												? getRemainingDays(row.expiryDate) < 20
+											typeof remainingDaysForToDo === 'number'
+												? remainingDaysForToDo < 20
 													? 'bg-red-600 text-white'
 													: 'bg-blue-600 text-white'
 												: 'bg-slate-400 text-white'
 										}">
-											{typeof getRemainingDays(row.expiryDate) === 'number'
-												? getRemainingDays(row.expiryDate) < 20
+											{typeof remainingDaysForToDo === 'number'
+												? remainingDaysForToDo < 20
 													? '🗑️ Remove'
 													: '🏷️ Offer'
 												: '-'}
 										</td>
+										{/if}
+										{#if visibleColumns.offerPrice}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap bg-emerald-100/50">
 											<input 
 												type="number" 
@@ -2558,6 +2832,8 @@
 												step="0.01"
 											/>
 										</td>
+										{/if}
+										{#if visibleColumns.totalOfferPrice}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap bg-amber-100/50">
 											{#if Number(row.offerPrice) > 0 && Number(row.offerQty) > 0}
 												{roundTo95(Number(row.offerPrice) * Number(row.offerQty)).toFixed(2)}
@@ -2565,6 +2841,8 @@
 												-
 											{/if}
 										</td>
+										{/if}
+										{#if visibleColumns.offerDecrease}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap {
 											(() => {
 												if (Number(row.salesPrice) <= 0 || Number(row.offerPrice) <= 0 || Number(row.offerQty) <= 0) {
@@ -2587,6 +2865,8 @@
 												-
 											{/if}
 										</td>
+										{/if}
+										{#if visibleColumns.profitPercent}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap bg-yellow-100/50">
 											{#if Number(row.cost) > 0 && Number(row.offerPrice) > 0}
 												{((((Number(row.offerPrice) * (Number(row.offerQty) || 1)) - (Number(row.cost) * (Number(row.offerQty) || 1))) / (Number(row.cost) * (Number(row.offerQty) || 1))) * 100).toFixed(2)}%
@@ -2594,6 +2874,8 @@
 												-
 											{/if}
 										</td>
+										{/if}
+										{#if visibleColumns.offerType}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap">
 											<div class="px-2 py-1">
 												{getOfferType(
@@ -2604,6 +2886,8 @@
 												)}
 											</div>
 										</td>
+										{/if}
+										{#if visibleColumns.offerQty}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap">
 											<input 
 												type="number" 
@@ -2617,6 +2901,8 @@
 												min="1"
 											/>
 										</td>
+										{/if}
+										{#if visibleColumns.free}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap">
 											<input 
 												type="number" 
@@ -2630,6 +2916,8 @@
 												min="0"
 											/>
 										</td>
+										{/if}
+										{#if visibleColumns.limit}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap">
 											<input 
 												type="number" 
@@ -2643,6 +2931,7 @@
 												min="1"
 											/>
 										</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>
