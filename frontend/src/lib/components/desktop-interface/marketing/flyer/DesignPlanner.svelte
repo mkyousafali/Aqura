@@ -49,7 +49,16 @@
     fontSize: number;
     alignment: 'left' | 'center' | 'right';
     color: string;
+    fontFamily?: string;
   }
+
+  interface CustomFont {
+    id: string;
+    name: string;
+    font_url: string;
+  }
+
+  let customFonts: CustomFont[] = [];
 
   interface SavedTemplate {
     id: string;
@@ -87,7 +96,25 @@
   onMount(async () => {
     await loadActiveOffers();
     await loadTemplates();
+    await loadCustomFonts();
   });
+
+  async function loadCustomFonts() {
+    try {
+      const { data, error } = await supabase
+        .from('shelf_paper_fonts')
+        .select('id, name, font_url')
+        .order('name', { ascending: true });
+      if (error) throw error;
+      customFonts = data || [];
+    } catch (e) {
+      console.error('Error loading custom fonts:', e);
+    }
+  }
+
+  function buildFontFaceCss(): string {
+    return customFonts.map(f => "@font-face{font-family:'" + f.name + "';src:url('" + f.font_url + "');font-display:swap;}").join('');
+  }
 
   async function loadTemplates() {
     try {
@@ -825,6 +852,7 @@
           const justifyContent = field.alignment === 'center' ? 'center' : field.alignment === 'right' ? 'flex-end' : 'flex-start';
           const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
           const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
+          const fontFamilyStyle = field.fontFamily ? "font-family:'" + field.fontFamily + "',sans-serif;" : '';
           
           // Add strikethrough for regular price
           const strikethrough = field.label === 'price' ? 'text-decoration:line-through;' : '';
@@ -844,14 +872,14 @@
             contentHtml = currencySymbol + value;
           }
           
-          pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + strikethrough + dirAttr + '">' + contentHtml + '</div></div>';
+          pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + strikethrough + dirAttr + fontFamilyStyle + '">' + contentHtml + '</div></div>';
         }
       });
       
       pageHtml += '</div>';
 
       const styleEl = doc.createElement('style');
-      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute;background:transparent}.field-text{white-space:normal;overflow:hidden;line-height:1.2}img{background:transparent;border:none}';
+      let cssText = buildFontFaceCss() + '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute;background:transparent}.field-text{white-space:normal;overflow:hidden;line-height:1.2}img{background:transparent;border:none}';
       
       styleEl.textContent = cssText;
       doc.head.appendChild(styleEl);
@@ -1133,6 +1161,7 @@
             const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
             const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
             const strikethrough = field.label === 'price' ? 'text-decoration:line-through;' : '';
+            const fontFamilyStyle = field.fontFamily ? "font-family:'" + field.fontFamily + "',sans-serif;" : '';
             
             let contentHtml = '';
             if (field.label === 'offer_price' && value.includes('.')) {
@@ -1146,7 +1175,7 @@
               contentHtml = currencySymbol + value;
             }
             
-            productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + strikethrough + dirAttr + '">' + contentHtml + '</div></div>';
+            productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + strikethrough + dirAttr + fontFamilyStyle + '">' + contentHtml + '</div></div>';
           }
         });
         
@@ -1169,7 +1198,7 @@
       } // End of for loop (was forEach)
 
       const styleEl = doc.createElement('style');
-      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0}.template-page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:white;display:block;margin:0 auto}.template-page:last-child{page-break-after:auto}.copy-container{position:relative}.template-bg{object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute;background:transparent}.field-text{white-space:normal;overflow:hidden;line-height:1.2}img{background:transparent;border:none}';
+      let cssText = buildFontFaceCss() + '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0}.template-page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:white;display:block;margin:0 auto}.template-page:last-child{page-break-after:auto}.copy-container{position:relative}.template-bg{object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute;background:transparent}.field-text{white-space:normal;overflow:hidden;line-height:1.2}img{background:transparent;border:none}';
       
       styleEl.textContent = cssText;
       doc.head.appendChild(styleEl);

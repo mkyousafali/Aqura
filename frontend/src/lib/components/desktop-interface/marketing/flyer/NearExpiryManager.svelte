@@ -78,10 +78,35 @@
 	let selectedTemplateId: string | null = null;
 	let isLoadingTemplates = false;
 
+	interface CustomFont {
+		id: string;
+		name: string;
+		font_url: string;
+	}
+	let customFonts: CustomFont[] = [];
+
+	function buildFontFaceCss(): string {
+		return customFonts.map(f => "@font-face{font-family:'" + f.name + "';src:url('" + f.font_url + "');font-display:swap;}").join('');
+	}
+
 	// Load templates on component mount
 	onMount(() => {
 		loadTemplates();
+		loadCustomFonts();
 	});
+
+	async function loadCustomFonts() {
+		try {
+			const { data, error } = await supabase
+				.from('shelf_paper_fonts')
+				.select('id, name, font_url')
+				.order('name', { ascending: true });
+			if (error) throw error;
+			customFonts = data || [];
+		} catch (e) {
+			console.error('Error loading custom fonts:', e);
+		}
+	}
 
 	function scrollToInvalidRow(index: number) {
 		const tableRows = document.querySelectorAll('tbody tr');
@@ -368,34 +393,35 @@
 						const justifyContent = field.alignment === 'center' ? 'center' : field.alignment === 'right' ? 'flex-end' : 'flex-start';
 						const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
 						const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
+						const fontFamilyStyle = field.fontFamily ? "font-family:'" + field.fontFamily + "',sans-serif;" : '';
 
 						let displayValue = value;
 						if ((field.label === 'price' || field.label === 'offer_price') && value.includes('.')) {
 							const parts = value.split('.');
-						const halfFontSize = Math.round(scaledFontSize * 0.5);
-						if (field.label === 'price') {
-							// Price field: same font size for integer and decimal, with strikethrough, half-size currency
-							displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;text-decoration:line-through;text-decoration-thickness:5px;">' + parts[0] + '.' + parts[1] + '</span></div>';
-						} else {
-							// Offer price field: smaller font for decimal
-							displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+							const halfFontSize = Math.round(scaledFontSize * 0.5);
+							if (field.label === 'price') {
+								// Price field: same font size for integer and decimal, with strikethrough, half-size currency
+								displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;text-decoration:line-through;text-decoration-thickness:5px;">' + parts[0] + '.' + parts[1] + '</span></div>';
+							} else {
+								// Offer price field: smaller font for decimal
+								displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+							}
+						} else if (field.label === 'price' || field.label === 'offer_price') {
+							const halfFontSize = Math.round(scaledFontSize * 0.5);
+							const currencySymbol = '<img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR">';
+							if (field.label === 'price') {
+								displayValue = currencySymbol + '<span style="text-decoration:line-through;text-decoration-thickness:5px;">' + value + '</span>';
+							} else {
+								displayValue = currencySymbol + value;
+							}
 						}
-					} else if (field.label === 'price' || field.label === 'offer_price') {
-						const halfFontSize = Math.round(scaledFontSize * 0.5);
-						const currencySymbol = '<img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR">';
-						if (field.label === 'price') {
-							displayValue = currencySymbol + '<span style="text-decoration:line-through;text-decoration-thickness:5px;">' + value + '</span>';
-						} else {
-							displayValue = currencySymbol + value;
-						}
+
+						// Determine if this field contains line breaks (check for <div> tags)
+						const hasLineBreaks = displayValue.includes('<div>');
+						const flexDirection = hasLineBreaks ? 'flex-direction:column;justify-content:flex-start;align-items:center;' : '';
+
+						productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + (field.color || '#000000') + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + flexDirection + fontWeight + dirAttr + fontFamilyStyle + '">' + displayValue + '</div></div>';
 					}
-
-					// Determine if this field contains line breaks (check for <div> tags)
-					const hasLineBreaks = displayValue.includes('<div>');
-					const flexDirection = hasLineBreaks ? 'flex-direction:column;justify-content:flex-start;align-items:center;' : '';
-
-					productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + (field.color || '#000000') + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + flexDirection + fontWeight + dirAttr + '">' + displayValue + '</div></div>';
-				}
 			});
 
 			let pageHtml = '<div style="position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block;">';
@@ -413,7 +439,7 @@
 			htmlDoc.close();
 
 			const styleEl = htmlDoc.createElement('style');
-			styleEl.textContent = '@page{size:A4;margin:0}body{margin:0;padding:0;font-family:Arial,sans-serif}div{page-break-inside:avoid}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}';
+			styleEl.textContent = buildFontFaceCss() + '@page{size:A4;margin:0}body{margin:0;padding:0;font-family:Arial,sans-serif}div{page-break-inside:avoid}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}';
 			htmlDoc.head.appendChild(styleEl);
 
 			setTimeout(() => {

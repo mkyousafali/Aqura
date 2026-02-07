@@ -32,6 +32,7 @@
     fontSize: number;
     alignment: 'left' | 'center' | 'right';
     color: string;
+    fontFamily: string;
   }
   
   interface TemplateMetadata {
@@ -39,6 +40,20 @@
     preview_height: number;
   }
   
+  interface CustomFont {
+    id: string;
+    name: string;
+    font_url: string;
+    file_name: string | null;
+    file_size: number | null;
+    created_at: string;
+  }
+  
+  let customFonts: CustomFont[] = [];
+  let isUploadingFont = false;
+  let fontUploadCurrent = 0;
+  let fontUploadTotal = 0;
+  let fontFileInput: HTMLInputElement;
   let fieldSelectors: FieldSelector[] = [];
   let selectedFieldId: string | null = null;
   let nextFieldId = 1;
@@ -88,7 +103,9 @@
       width: 200,
       height: 40,
       fontSize: 16,
-      alignment: 'left'
+      alignment: 'left',
+      color: '#000000',
+      fontFamily: ''
     };
     fieldSelectors = [...fieldSelectors, newField];
   }
@@ -215,11 +232,122 @@
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
     loadSavedTemplates();
+    loadCustomFonts();
     
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   });
+  
+  async function loadCustomFonts() {
+    try {
+      const { data, error } = await supabase
+        .from('shelf_paper_fonts')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) throw error;
+      customFonts = data || [];
+      
+      // Register all custom fonts with the browser
+      for (const font of customFonts) {
+        try {
+          const fontFace = new FontFace(font.name, `url(${font.font_url})`);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+        } catch (e) {
+          console.warn(`Failed to load font: ${font.name}`, e);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading custom fonts:', error);
+    }
+  }
+  
+  async function handleFontUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+    
+    isUploadingFont = true;
+    fontUploadCurrent = 0;
+    fontUploadTotal = files.length;
+    try {
+      const user = await getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+      
+      for (const file of Array.from(files)) {
+        fontUploadCurrent++;
+        const fontName = file.name.replace(/\.(ttf|otf|woff|woff2)$/i, '');
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}/${Date.now()}_${file.name}`;
+        
+        // Upload to storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('custom-fonts')
+          .upload(fileName, file, {
+            cacheControl: '31536000',
+            upsert: false
+          });
+        
+        if (uploadError) throw uploadError;
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('custom-fonts')
+          .getPublicUrl(uploadData.path);
+        
+        // Save to database
+        const { error: dbError } = await supabase
+          .from('shelf_paper_fonts')
+          .insert({
+            name: fontName,
+            font_url: publicUrl,
+            file_name: file.name,
+            original_file_name: file.name,
+            file_size: file.size,
+            created_by: user.id
+          });
+        
+        if (dbError) throw dbError;
+        
+        // Register font in browser immediately
+        try {
+          const fontFace = new FontFace(fontName, `url(${publicUrl})`);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+        } catch (e) {
+          console.warn(`Failed to register font: ${fontName}`, e);
+        }
+      }
+      
+      await loadCustomFonts();
+      alert(`${files.length} font(s) uploaded successfully!`);
+    } catch (error) {
+      console.error('Error uploading fonts:', error);
+      alert('Failed to upload font: ' + (error.message || 'Unknown error'));
+    } finally {
+      isUploadingFont = false;
+      fontUploadCurrent = 0;
+      fontUploadTotal = 0;
+      // Reset the file input
+      if (fontFileInput) fontFileInput.value = '';
+    }
+  }
+  
+  async function deleteFont(fontId: string) {
+    if (!confirm('Delete this font? Fields using it will fall back to default.')) return;
+    try {
+      const { error } = await supabase
+        .from('shelf_paper_fonts')
+        .delete()
+        .eq('id', fontId);
+      if (error) throw error;
+      await loadCustomFonts();
+    } catch (error) {
+      console.error('Error deleting font:', error);
+      alert('Failed to delete font');
+    }
+  }
   
   async function loadSavedTemplates() {
     isLoading = true;
@@ -438,8 +566,28 @@
 
 <div class="template-designer">
   <div class="header">
-    <h2 class="text-2xl font-bold text-gray-800">Shelf Paper Template Designer</h2>
-    <p class="text-sm text-gray-600 mt-1">Upload template image and define field positions</p>
+    <div class="header-row">
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">Shelf Paper Template Designer</h2>
+        <p class="text-sm text-gray-600 mt-1">Upload template image and define field positions</p>
+      </div>
+      <div class="header-actions">
+        <label class="font-upload-btn" class:uploading={isUploadingFont}>
+          <input 
+            type="file" 
+            accept=".ttf,.otf,.woff,.woff2" 
+            multiple 
+            on:change={handleFontUpload} 
+            bind:this={fontFileInput}
+            hidden 
+          />
+          {isUploadingFont ? `⏳ Uploading ${fontUploadCurrent}/${fontUploadTotal}...` : '📤 Upload Fonts'}
+        </label>
+        {#if customFonts.length > 0}
+          <span class="font-count">{customFonts.length} font{customFonts.length !== 1 ? 's' : ''}</span>
+        {/if}
+      </div>
+    </div>
   </div>
 
   <div class="content">
@@ -581,6 +729,16 @@
                   </label>
                   
                   <label>
+                    Font Family:
+                    <select bind:value={field.fontFamily} on:change={() => updateField(field.id, { fontFamily: field.fontFamily })}>
+                      <option value="">-- Default --</option>
+                      {#each customFonts as font}
+                        <option value={font.name}>{font.name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  
+                  <label>
                     Text Color:
                     <div class="color-picker-container">
                       <input 
@@ -626,7 +784,7 @@
                 style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px; color: {field.color};"
                 on:mousedown={(e) => handleMouseDown(e, field.id)}
               >
-                <span class="field-overlay-label" style="color: {field.color}; font-size: {field.fontSize}px; text-align: {field.alignment}; width: 100%; display: block;">{availableFields.find(f => f.value === field.label)?.label || field.label}</span>
+                <span class="field-overlay-label" style="color: {field.color}; font-size: {field.fontSize}px; text-align: {field.alignment}; width: 100%; display: block;{field.fontFamily ? ` font-family: '${field.fontFamily}', sans-serif;` : ''}">{availableFields.find(f => f.value === field.label)?.label || field.label}</span>
                 
                 {#if selectedFieldId === field.id}
                   <!-- Resize handles -->
@@ -669,6 +827,92 @@
     padding: 1.5rem;
     background: white;
     border-bottom: 1px solid #e5e7eb;
+  }
+
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .font-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .font-upload-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  }
+
+  .font-upload-btn.uploading {
+    opacity: 0.7;
+    cursor: wait;
+  }
+
+  .font-count {
+    font-size: 0.75rem;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 0.375rem 0.75rem;
+    border-radius: 9999px;
+    font-weight: 500;
+  }
+
+  .font-list-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #f3f4f6;
+  }
+
+  .font-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    background: #f5f3ff;
+    border: 1px solid #ddd6fe;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #5b21b6;
+  }
+
+  .font-tag-delete {
+    background: none;
+    border: none;
+    color: #a78bfa;
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+
+  .font-tag-delete:hover {
+    color: #dc2626;
   }
 
   .content {
@@ -1008,7 +1252,7 @@
     font-size: 0.75rem;
     font-weight: 600;
     color: #0f766e;
-    background: white;
+    background: transparent;
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
     pointer-events: none;
