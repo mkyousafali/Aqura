@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { supabase } from '$lib/utils/supabase';
   import html2canvas from 'html2canvas';
   
@@ -1239,181 +1240,8 @@
     });
   }
   
-  async function printPageAsA4(pageType: 'first' | 'sub', subPageIndex: number = 0) {
-    const element = pageType === 'first' ? firstPagePreviewEl : subPagePreviewEl;
-    if (!element) return;
-    
-    try {
-      isExporting = true;
-      
-      // Clone the preview element
-      const clonedElement = element.cloneNode(true) as HTMLElement;
-      
-      // Remove selection UI elements
-      const selectedFields = clonedElement.querySelectorAll('.product-field');
-      selectedFields.forEach((el: Element) => {
-        (el as HTMLElement).style.border = 'none';
-        (el as HTMLElement).style.background = 'none';
-      });
-      const handles = clonedElement.querySelectorAll('.resize-handle, .field-number-badge');
-      handles.forEach((el: Element) => (el as HTMLElement).style.display = 'none');
-      
-      // Get the HTML content
-      const htmlContent = clonedElement.innerHTML;
-      
-      // Create print window
-      const printWindow = window.open('', '', 'width=850,height=1100');
-      if (!printWindow) {
-        errorMessage = 'Failed to open print window. Please allow popups.';
-        isExporting = false;
-        return;
-      }
-      
-      // Write complete HTML to print window
-      const printHTML = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Print Flyer</title>
-          <style>
-            @page {
-              size: A4;
-              margin: 0;
-            }
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            html, body {
-              width: 100%;
-              height: 100%;
-              margin: 0;
-              padding: 0;
-              background: white;
-            }
-            .preview-wrapper {
-              width: 794px;
-              height: 1123px;
-              position: relative;
-              margin: 0 auto;
-              background: white;
-            }
-            .preview-image {
-              width: 794px !important;
-              height: 1123px !important;
-              display: block !important;
-              object-fit: fill !important;
-            }
-            .product-field {
-              position: absolute;
-              border: none !important;
-              background: none !important;
-            }
-            .field-preview-content {
-              width: 100%;
-              height: 100%;
-              position: relative;
-            }
-            .element-wrapper {
-              position: relative;
-              width: 100%;
-              height: 100%;
-              overflow: hidden;
-            }
-            .resizable-element {
-              display: flex !important;
-              align-items: center !important;
-              justify-content: center !important;
-            }
-            .field-image-preview {
-              max-width: 100% !important;
-              max-height: 100% !important;
-              object-fit: contain;
-              display: block;
-            }
-            .field-text-preview {
-              width: 100%;
-              height: 100%;
-            }
-            .field-number-badge {
-              display: none !important;
-            }
-            .resize-handle {
-              display: none !important;
-            }
-            img {
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="preview-wrapper">
-            ${htmlContent}
-          </div>
-        </body>
-        </html>
-      `;
-      
-      printWindow.document.open();
-      printWindow.document.write(printHTML);
-      printWindow.document.close();
-      
-      // Wait for images to load
-      const loadImages = () => {
-        return new Promise<void>((resolve) => {
-          const images = Array.from(printWindow.document.querySelectorAll('img') as NodeListOf<HTMLImageElement>);
-          
-          if (images.length === 0) {
-            resolve();
-            return;
-          }
-          
-          let loadedCount = 0;
-          images.forEach((img) => {
-            const checkImage = () => {
-              loadedCount++;
-              if (loadedCount === images.length) {
-                resolve();
-              }
-            };
-            
-            if (img.complete) {
-              checkImage();
-            } else {
-              img.onload = checkImage;
-              img.onerror = checkImage;
-            }
-          });
-        });
-      };
-      
-      await loadImages();
-      
-      // Add a small delay for rendering
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Trigger print
-      printWindow.focus();
-      printWindow.print();
-      
-      // Close window after print
-      setTimeout(() => {
-        printWindow.close();
-        isExporting = false;
-      }, 1000);
-      
-      successMessage = 'Opening print dialog...';
-      setTimeout(() => successMessage = '', 3000);
-    } catch (error: any) {
-      console.error('Error printing page:', error);
-      errorMessage = `Failed to print: ${error.message}`;
-      isExporting = false;
-    }
-  }
-  
+
+
   async function exportPageAsPng(pageType: 'first' | 'sub', subPageIndex: number = 0) {
     const element = pageType === 'first' ? firstPagePreviewEl : subPagePreviewEl;
     if (!element) return;
@@ -1607,7 +1435,7 @@
               position: absolute !important;
               left: 0 !important;
               right: 0 !important;
-              top: 120% !important;
+              top: 110% !important;
               height: 1px !important;
               background: #000000 !important;
               transform: translateY(-50%) !important;
@@ -1656,9 +1484,22 @@
       
       const link = document.createElement('a');
       const pageName = pageType === 'first' ? 'First_Page' : `Sub_Page_${subPageIndex + 1}`;
-      const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
-      const templateName = selectedTemplate?.name?.replace(/\s+/g, '_') || 'Flyer';
-      link.download = `${templateName}_${pageName}.png`;
+      
+      // Format dates for filename
+      const formatDateForFilename = (dateString: string | undefined): string => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+      
+      const startDate = formatDateForFilename(selectedOffer?.start_date);
+      const endDate = formatDateForFilename(selectedOffer?.end_date);
+      const dateRange = startDate && endDate ? `${startDate}_to_${endDate}_` : '';
+      
+      link.download = `${dateRange}${pageName}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
       
@@ -1876,14 +1717,6 @@
                       📥
                     {/if}
                     Export PNG
-                  </button>
-                  <button
-                    class="export-page-btn"
-                    on:click={() => printPageAsA4('first')}
-                    title="Print as A4"
-                    style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"
-                  >
-                    🖨️ Print A4
                   </button>
                 </div>
               </div>
@@ -2259,14 +2092,6 @@
                       📥
                     {/if}
                     Export PNG
-                  </button>
-                  <button
-                    class="export-page-btn"
-                    on:click={() => printPageAsA4('sub', activeSubPageIndex)}
-                    title="Print as A4"
-                    style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"
-                  >
-                    🖨️ Print A4
                   </button>
                 </div>
               </div>
@@ -3873,8 +3698,7 @@
     gap: 0.25rem;
   }
 
-  .field-dimension,
-  .field-position {
+  .field-dimension, .field-position {
     font-size: 0.75rem;
     color: #6b7280;
     margin: 0;
