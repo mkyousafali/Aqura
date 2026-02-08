@@ -1,6 +1,6 @@
 {
   "framework": "sveltekit",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm store prune && pnpm install",
   "buildCommand": "pnpm --filter aqura-frontend build",
   "headers": [
     {

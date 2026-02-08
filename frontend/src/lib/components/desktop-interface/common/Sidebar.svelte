@@ -65,6 +65,7 @@
 	import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
 	import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
 	import NearExpiryManager from '$lib/components/desktop-interface/marketing/flyer/NearExpiryManager.svelte';
+	import NormalPaperManager from '$lib/components/desktop-interface/marketing/flyer/NormalPaperManager.svelte';
 	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
 	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
@@ -2113,6 +2114,24 @@ function openApprovalCenter() {
 		showMediaSubmenu = false;
 	}
 
+	function openNormalPaperManager() {
+		const windowId = generateWindowId('normal-paper-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Normal Paper Manager #${instanceNumber}`,
+			component: NormalPaperManager,
+			icon: '📄',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
 	function openFlyerSettings() {
 		const windowId = generateWindowId('flyer-settings');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2928,6 +2947,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openFlyerSettings}>
 								<span class="menu-icon">⚙️</span>
 								<span class="menu-text">{t('nav.flyerSettings')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('NORMAL_PAPER_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openNormalPaperManager}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">{t('nav.normalPaperManager')}</span>
 							</button>
 						</div>
 					{/if}

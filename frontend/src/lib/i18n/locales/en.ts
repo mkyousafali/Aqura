@@ -89,6 +89,7 @@ export const englishLocale: LocaleData = {
       offerManager: "Offer Manager",
       flyerTemplates: "Flyer Templates",
       flyerSettings: "Flyer Settings",
+      normalPaperManager: "Normal Paper Manager",
       socialLinkManager: "Social Link Manager",
       offerProductEditor: "Offer Product Editor",
       createNewOffer: "Create New Offer",
