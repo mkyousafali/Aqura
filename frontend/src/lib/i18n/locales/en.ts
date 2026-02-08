@@ -184,6 +184,7 @@ export const englishLocale: LocaleData = {
       notification: "Notification",
       createNotification: "Create Notification",
       assignmentDetails: "Assignment Details",
+      cancel: "Cancel",
       // Bottom navigation
       bottomNav: {
         tasks: "Tasks",
@@ -958,6 +959,8 @@ export const englishLocale: LocaleData = {
       accessCode: "Access Code",
       continueLogin: "Continue to System",
       cashierAccessDenied: "Access denied. Cashier permission is disabled for this user.",
+      confirmLogout: "Confirm Logout",
+      confirmLogoutMessage: "Are you sure you want to logout from your account?",
     },
 
     // Admin
