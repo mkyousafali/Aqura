@@ -432,6 +432,71 @@
     selectedFieldId = newField.id;
   }
   
+  function copyFieldToSubPage(fieldId: string) {
+    // Check if there are any sub pages
+    if (subPageImages.length === 0) {
+      alert('⚠️ No sub pages available. Please add a sub page first.');
+      return;
+    }
+    
+    const fields = activeTab === 'first' ? firstPageFields : (subPageFieldsArray[activeSubPageIndex] || []);
+    const fieldToCopy = fields.find(f => f.id === fieldId);
+    if (!fieldToCopy) return;
+    
+    // Prompt for target sub page number
+    const maxSubPage = subPageImages.length;
+    let promptText = `Enter target page number:\n\n`;
+    promptText += `Page 1 = First Page\n`;
+    for (let i = 1; i <= maxSubPage; i++) {
+      promptText += `Page ${i + 1} = Sub Page ${i}\n`;
+    }
+    promptText += `\nEnter ${2}-${maxSubPage + 1}:`;
+    
+    const targetPageStr = prompt(promptText);
+    
+    if (!targetPageStr) return; // User cancelled
+    
+    const targetPage = parseInt(targetPageStr.trim());
+    if (isNaN(targetPage) || targetPage < 2 || targetPage > maxSubPage + 1) {
+      alert(`⚠️ Invalid page number. Please enter a number between 2 and ${maxSubPage + 1}.`);
+      return;
+    }
+    
+    const targetIndex = targetPage - 2; // Page 2 = index 0, Page 3 = index 1, etc.
+    
+    // Initialize sub page array if needed
+    if (!subPageFieldsArray[targetIndex]) {
+      subPageFieldsArray[targetIndex] = [];
+    }
+    
+    // Get max order for target page
+    const maxOrder = subPageFieldsArray[targetIndex].reduce((max, f) => Math.max(max, f.pageOrder || 0), 0);
+    
+    // Create a copy with new ID and number
+    const newField: ProductField = {
+      id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      number: nextFieldNumber++,
+      x: fieldToCopy.x,
+      y: fieldToCopy.y,
+      width: fieldToCopy.width,
+      height: fieldToCopy.height,
+      fields: JSON.parse(JSON.stringify(fieldToCopy.fields)), // Deep copy of field configurations
+      pageNumber: targetIndex + 2, // Sub page 1 is page 2, sub page 2 is page 3, etc.
+      pageOrder: maxOrder + 1
+    };
+    
+    // Add to target sub page
+    subPageFieldsArray[targetIndex] = [...subPageFieldsArray[targetIndex], newField];
+    subPageFieldsArray = [...subPageFieldsArray];
+    
+    // Switch to target sub page and select the new field
+    activeTab = 'sub';
+    activeSubPageIndex = targetIndex;
+    selectedFieldId = newField.id;
+    
+    alert(`✅ Field copied to Sub Page ${targetPage}`);
+  }
+  
   function updateField(fieldId: string, updates: Partial<ProductField>) {
     if (activeTab === 'first') {
       firstPageFields = firstPageFields.map(f => 
@@ -736,9 +801,16 @@
                   <button 
                     class="action-btn duplicate-btn" 
                     on:click|stopPropagation={() => duplicateField(field.id)}
-                    title="Duplicate field"
+                    title="Duplicate field on current page"
                   >
                     📋
+                  </button>
+                  <button 
+                    class="action-btn copy-to-subpage-btn" 
+                    on:click|stopPropagation={() => copyFieldToSubPage(field.id)}
+                    title="Copy field to sub page"
+                  >
+                    📋→
                   </button>
                   <button 
                     class="action-btn delete-btn" 
@@ -1504,6 +1576,10 @@
 
   .duplicate-btn:hover {
     background: rgba(59, 130, 246, 0.1);
+  }
+
+  .copy-to-subpage-btn:hover {
+    background: rgba(16, 185, 129, 0.1);
   }
 
   .delete-btn:hover {

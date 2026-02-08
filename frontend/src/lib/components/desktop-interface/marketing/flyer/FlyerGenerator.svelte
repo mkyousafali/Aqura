@@ -125,6 +125,8 @@
   let variantDragStartY = 0;
   let selectedVariantImageIndex = 0; // Which variant image is selected (0, 1, or 2)
   let isVariationGroup = false; // Whether current element is a variation group
+  let hasMultipleOfferImages = false; // Whether current element has offer_qty > 1
+  let offerImageCount = 1; // Number of images based on offer_qty
   
   // Page selector sidebar and fields popup
   let showFieldsPopup = false;
@@ -473,6 +475,12 @@
       
       // Check if this is a variation group
       isVariationGroup = assignedProduct?.is_variation_group && assignedProduct?.variation_images?.length > 0;
+      
+      // Check if this has multiple images due to offer_qty
+      const offerProduct = offerProducts.find(op => op.product_barcode === assignedProduct?.barcode);
+      hasMultipleOfferImages = !isVariationGroup && offerProduct?.offer_qty && offerProduct.offer_qty > 1;
+      offerImageCount = hasMultipleOfferImages ? Math.min(offerProduct.offer_qty, 5) : 1;
+      
       selectedVariantImageIndex = 0; // Default to first image
       
       // Position menu at mouse cursor
@@ -521,27 +529,70 @@
   }
   
   // Variant image drag handlers
-  function handleVariantImageMouseDown(event: MouseEvent, fieldId: string, imageIndex: number) {
+  function handleVariantImageMouseDown(event: MouseEvent, fieldId: string, imageIndex: number, pageType: 'first' | 'sub' = 'first', subPageIdx: number = 0) {
     event.preventDefault();
     event.stopPropagation();
     
-    // Get the image element's current position
-    const img = event.target as HTMLImageElement;
-    const imgRect = img.getBoundingClientRect();
+    // Set the page type and sub page index so setVariantImageAbsolutePosition updates the correct config
+    selectedPageType = pageType;
+    selectedSubPageIndex = subPageIdx;
     
     isDraggingVariantImage = true;
+    
+    // Always use the clicked image's index for dragging
+    // This ensures the image the user actually clicked on is the one that moves
     draggedVariantImageIndex = imageIndex;
     draggedVariantFieldId = fieldId;
     
-    // Store the offset from where the user clicked within the image
-    variantDragStartX = event.clientX - imgRect.left;
-    variantDragStartY = event.clientY - imgRect.top;
+    // Also update the selectedVariantImageIndex to match what we're dragging
+    selectedVariantImageIndex = imageIndex;
     
+    console.log('handleVariantImageMouseDown - pageType:', pageType, 'subPageIdx:', subPageIdx, 'imageIndex:', imageIndex, 'draggedVariantImageIndex:', draggedVariantImageIndex);
+    
+    // Find the actual image element that will be moved (the selected one, not necessarily the clicked one)
+    const field = document.querySelector(`[data-field-id="${fieldId}"]`);
+    console.log('Looking for field with data-field-id:', fieldId, 'found:', field);
+    if (!field) {
+      console.log('Field not found, adding listeners anyway');
+      variantDragStartX = 0;
+      variantDragStartY = 0;
+      console.log('Adding event listeners for drag (no field)');
+      window.addEventListener('mousemove', handleVariantImageMouseMove);
+      window.addEventListener('mouseup', handleVariantImageMouseUp);
+      return;
+    }
+    
+    const imgStack = field.querySelector('.img-stack');
+    console.log('Looking for img-stack, found:', imgStack);
+    if (imgStack) {
+      // Get all images in the stack
+      const images = imgStack.querySelectorAll('.field-image-preview');
+      const targetImg = images[draggedVariantImageIndex] as HTMLImageElement;
+      
+      if (targetImg) {
+        const imgRect = targetImg.getBoundingClientRect();
+        // Store the offset from where the user clicked within the selected image
+        variantDragStartX = event.clientX - imgRect.left;
+        variantDragStartY = event.clientY - imgRect.top;
+      } else {
+        variantDragStartX = 0;
+        variantDragStartY = 0;
+      }
+    } else {
+      // Single image, use clicked position
+      const img = event.target as HTMLImageElement;
+      const imgRect = img.getBoundingClientRect();
+      variantDragStartX = event.clientX - imgRect.left;
+      variantDragStartY = event.clientY - imgRect.top;
+    }
+    
+    console.log('Adding event listeners for drag');
     window.addEventListener('mousemove', handleVariantImageMouseMove);
     window.addEventListener('mouseup', handleVariantImageMouseUp);
   }
   
   function handleVariantImageMouseMove(event: MouseEvent) {
+    console.log('handleVariantImageMouseMove called, isDragging:', isDraggingVariantImage, 'fieldId:', draggedVariantFieldId, 'index:', draggedVariantImageIndex);
     if (!isDraggingVariantImage || !draggedVariantFieldId || draggedVariantImageIndex === -1) return;
     
     // Find the parent resizable-element to get the container bounds
@@ -557,10 +608,12 @@
     const newX = event.clientX - containerRect.left - variantDragStartX;
     const newY = event.clientY - containerRect.top - variantDragStartY;
     
+    console.log('Moving image index:', draggedVariantImageIndex, 'to position:', newX, newY);
     setVariantImageAbsolutePosition(draggedVariantFieldId, draggedVariantImageIndex, newX, newY);
   }
   
   function handleVariantImageMouseUp() {
+    console.log('handleVariantImageMouseUp called');
     isDraggingVariantImage = false;
     draggedVariantImageIndex = -1;
     draggedVariantFieldId = '';
@@ -569,29 +622,74 @@
   }
   
   function setVariantImageAbsolutePosition(fieldId: string, imageIndex: number, x: number, y: number) {
+    console.log('setVariantImageAbsolutePosition called:', { fieldId, imageIndex, x, y, selectedPageType, selectedSubPageIndex });
+    
     const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
-    if (!selectedTemplate) return;
+    if (!selectedTemplate) {
+      console.log('No selectedTemplate found');
+      return;
+    }
     
     const fields = selectedPageType === 'first' 
       ? selectedTemplate.first_page_configuration 
       : selectedTemplate.sub_page_configurations[selectedSubPageIndex];
     
-    if (!fields) return;
+    if (!fields) {
+      console.log('No fields found for', selectedPageType, selectedSubPageIndex);
+      return;
+    }
     
     const fieldIndex = fields.findIndex((f: any) => f.id === fieldId);
-    if (fieldIndex === -1) return;
+    if (fieldIndex === -1) {
+      console.log('Field not found:', fieldId);
+      return;
+    }
     
     const field = fields[fieldIndex];
     const imageField = field.fields?.find((f: any) => f.label === 'image');
-    if (!imageField) return;
-    
-    // Initialize variantImagePositions if not exists
-    if (!imageField.variantImagePositions) {
-      imageField.variantImagePositions = [];
+    if (!imageField) {
+      console.log('No image field found in field:', field.id);
+      return;
     }
     
-    // Set absolute position
-    imageField.variantImagePositions[imageIndex] = { x, y };
+    // Determine if this is a variation group or offer_qty images
+    const assignedProduct = getAssignedProduct(field, selectedPageType, selectedSubPageIndex);
+    const isVariant = assignedProduct?.is_variation_group && assignedProduct?.variation_images?.length > 0;
+    const offerProduct = offerProducts.find(op => op.product_barcode === assignedProduct?.barcode);
+    const imageCount = isVariant ? Math.min(assignedProduct.variation_images.length, 3) : (offerProduct?.offer_qty ? Math.min(offerProduct.offer_qty, 5) : 1);
+    
+    console.log('isVariant:', isVariant, 'imageCount:', imageCount, 'offerProduct:', offerProduct?.offer_qty);
+    
+    if (isVariant) {
+      // Initialize variantImagePositions if not exists
+      if (!imageField.variantImagePositions) {
+        imageField.variantImagePositions = [];
+      }
+      // Initialize all positions with default offsets if they don't exist
+      for (let i = 0; i < imageCount; i++) {
+        if (!imageField.variantImagePositions[i]) {
+          imageField.variantImagePositions[i] = { x: i * 15, y: i * 15 };
+        }
+      }
+      // Clone array and set absolute position for the specific variant image
+      imageField.variantImagePositions = [...imageField.variantImagePositions];
+      imageField.variantImagePositions[imageIndex] = { x, y };
+    } else {
+      // Initialize offerQtyImagePositions if not exists
+      if (!imageField.offerQtyImagePositions) {
+        imageField.offerQtyImagePositions = [];
+      }
+      // Initialize all positions with default offsets if they don't exist
+      for (let i = 0; i < imageCount; i++) {
+        if (!imageField.offerQtyImagePositions[i]) {
+          imageField.offerQtyImagePositions[i] = { x: i * 15, y: i * 15 };
+        }
+      }
+      // Clone array and set absolute position for the specific offer_qty image
+      imageField.offerQtyImagePositions = [...imageField.offerQtyImagePositions];
+      imageField.offerQtyImagePositions[imageIndex] = { x, y };
+      console.log('Set offerQtyImagePositions[' + imageIndex + '] =', { x, y }, 'All positions:', imageField.offerQtyImagePositions);
+    }
     
     flyerTemplates = [...flyerTemplates];
   }
@@ -679,27 +777,47 @@
   function handleElementDragMove(event: MouseEvent) {
     if (!isDraggingElement || !selectedElement) return;
     
-    // If it's a variation group, move the selected variant image individually
-    if (isVariationGroup) {
+    // If it's a variation group OR has multiple offer_qty images, move the selected image individually
+    if (isVariationGroup || hasMultipleOfferImages) {
       const { configField } = selectedElement;
       
-      // Initialize variantImagePositions if not exists
-      if (!configField.variantImagePositions) {
-        configField.variantImagePositions = [];
+      if (isVariationGroup) {
+        // Initialize variantImagePositions if not exists
+        if (!configField.variantImagePositions) {
+          configField.variantImagePositions = [];
+        }
+        
+        // Initialize position for this image if not exists (default stacked positions)
+        if (!configField.variantImagePositions[selectedVariantImageIndex]) {
+          const defaultOffset = selectedVariantImageIndex * 15;
+          configField.variantImagePositions[selectedVariantImageIndex] = {
+            x: defaultOffset,
+            y: defaultOffset
+          };
+        }
+        
+        // Move the selected variant image
+        configField.variantImagePositions[selectedVariantImageIndex].x += event.movementX;
+        configField.variantImagePositions[selectedVariantImageIndex].y += event.movementY;
+      } else {
+        // hasMultipleOfferImages - use offerQtyImagePositions
+        if (!configField.offerQtyImagePositions) {
+          configField.offerQtyImagePositions = [];
+        }
+        
+        // Initialize position for this image if not exists
+        if (!configField.offerQtyImagePositions[selectedVariantImageIndex]) {
+          const defaultOffset = selectedVariantImageIndex * 15;
+          configField.offerQtyImagePositions[selectedVariantImageIndex] = {
+            x: defaultOffset,
+            y: defaultOffset
+          };
+        }
+        
+        // Move the selected offer_qty image
+        configField.offerQtyImagePositions[selectedVariantImageIndex].x += event.movementX;
+        configField.offerQtyImagePositions[selectedVariantImageIndex].y += event.movementY;
       }
-      
-      // Initialize position for this image if not exists (default stacked positions)
-      if (!configField.variantImagePositions[selectedVariantImageIndex]) {
-        const defaultOffset = selectedVariantImageIndex * 15;
-        configField.variantImagePositions[selectedVariantImageIndex] = {
-          x: defaultOffset,
-          y: defaultOffset
-        };
-      }
-      
-      // Move the selected variant image
-      configField.variantImagePositions[selectedVariantImageIndex].x += event.movementX;
-      configField.variantImagePositions[selectedVariantImageIndex].y += event.movementY;
     } else {
       // For single images, move the entire element
       selectedElement.configField.x = (selectedElement.configField.x || 0) + event.movementX;
@@ -816,6 +934,12 @@
   
   // Field drag and resize handlers
   function handleFieldMouseDown(event: MouseEvent, fieldId: string, handle?: string) {
+    // Don't start field drag if we're already dragging a variant image
+    if (isDraggingVariantImage) {
+      console.log('Skipping field drag - already dragging variant image');
+      return;
+    }
+    
     event.preventDefault();
     event.stopPropagation();
     
@@ -837,6 +961,8 @@
   
   function handleFieldMouseMove(event: MouseEvent) {
     if (!selectedFieldId) return;
+    
+    console.log('handleFieldMouseMove - isDraggingField:', isDraggingField, 'isResizingField:', isResizingField);
     
     const deltaX = event.clientX - fieldDragStartX;
     const deltaY = event.clientY - fieldDragStartY;
@@ -1044,10 +1170,10 @@
         const offerPrice = offerProduct?.total_offer_price || offerProduct?.offer_price || product.sales_price || '0.00';
         return parseFloat(offerPrice).toFixed(2);
       case 'offer_qty':
-        // Show only qty and unit_name
-        if (offerProduct?.offer_qty && offerProduct.offer_qty > 0) {
+        // Show qty on first line, unit on second line (only if qty > 1)
+        if (offerProduct?.offer_qty && offerProduct.offer_qty > 1) {
           const unitName = product.unit_name || 'قطعة';
-          return `${toArabicNumerals(offerProduct.offer_qty)} ${unitName}`;
+          return `${toArabicNumerals(offerProduct.offer_qty)}\n${unitName}`;
         }
         return '';
       case 'limit_qty':
@@ -1412,8 +1538,6 @@
               display: block !important;
             }
             .img-stack .field-image-preview {
-              max-width: 75% !important;
-              max-height: 75% !important;
               width: auto !important;
               height: auto !important;
             }
@@ -1465,7 +1589,7 @@
               position: absolute !important;
               left: 0 !important;
               right: 0 !important;
-              top: 100% !important;
+              top: 120% !important;
               height: 1px !important;
               background: #000000 !important;
               transform: translateY(-50%) !important;
@@ -1817,7 +1941,7 @@
                                           src={imgUrl} 
                                           alt="Variation {imgIndex + 1}" 
                                           class="field-image-preview"
-                                          on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex)}
+                                          on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex, 'first', 0)}
                                           on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
                                           style="
                                             position: absolute;
@@ -1830,27 +1954,77 @@
                                             opacity: 1;
                                             pointer-events: all;
                                             cursor: move;
+                                            border: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '3px solid #3b82f6' : '2px solid transparent'};
+                                            box-shadow: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'};
                                           "
                                         />
                                       {/each}
                                     </div>
                                   {:else}
-                                    <!-- Single product image -->
-                                    <img 
-                                      src={fieldValue} 
-                                      alt="Product" 
-                                      class="field-image-preview"
-                                      on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
-                                      on:mousedown={(e) => {
-                                        e.stopPropagation();
-                                        handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
-                                      }}
-                                      style="
-                                        object-fit: contain;
-                                        pointer-events: all;
-                                        cursor: pointer;
-                                      "
-                                    />
+                                    <!-- Single product image (or multiple based on offer_qty) -->
+                                    {#if offerProduct?.offer_qty && offerProduct.offer_qty > 1}
+                                      <!-- Multiple images based on offer_qty -->
+                                      <div 
+                                        class="img-stack"
+                                        style="
+                                          position: absolute;
+                                          top: 0;
+                                          left: 0;
+                                          width: 100%;
+                                          height: 100%;
+                                        "
+                                      >
+                                        {#each Array(Math.min(offerProduct.offer_qty, 5)) as _, imgIndex (imgIndex)}
+                                          {@const zIndex = imgIndex + 1}
+                                          {@const defaultOffset = imgIndex * 15}
+                                          {@const savedPosition = configField.offerQtyImagePositions?.[imgIndex]}
+                                          {@const savedSize = configField.offerQtyImageSizes?.[imgIndex]}
+                                          {@const xPos = savedPosition?.x ?? defaultOffset}
+                                          {@const yPos = savedPosition?.y ?? defaultOffset}
+                                          {@const imgWidth = savedSize?.width ?? 75}
+                                          {@const imgHeight = savedSize?.height ?? 75}
+                                          <img 
+                                            src={fieldValue} 
+                                            alt="Product {imgIndex + 1}" 
+                                            class="field-image-preview offer-qty-img-{imgIndex}"
+                                            data-img-index={imgIndex}
+                                            on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex, 'first', 0)}
+                                            on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
+                                            style="
+                                              position: absolute;
+                                              max-width: {imgWidth}%;
+                                              max-height: {imgHeight}%;
+                                              object-fit: contain;
+                                              z-index: {zIndex};
+                                              left: {xPos}px;
+                                              top: {yPos}px;
+                                              opacity: 1;
+                                              pointer-events: all;
+                                              cursor: move;
+                                              border: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '3px solid #3b82f6' : '2px solid transparent'};
+                                              box-shadow: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'};
+                                            "
+                                          />
+                                        {/each}
+                                      </div>
+                                    {:else}
+                                      <!-- Single product image -->
+                                      <img 
+                                        src={fieldValue} 
+                                        alt="Product" 
+                                        class="field-image-preview"
+                                        on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
+                                        on:mousedown={(e) => {
+                                          e.stopPropagation();
+                                          handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                        }}
+                                        style="
+                                          object-fit: contain;
+                                          pointer-events: all;
+                                          cursor: pointer;
+                                        "
+                                      />
+                                    {/if}
                                   {/if}
                                 </div>
                               {:else if configField.label === 'special_symbol' && configField.symbolUrl}
@@ -1868,8 +2042,8 @@
                                     object-fit: contain;
                                   "
                                 />
-                              {:else if configField.label !== 'special_symbol'}
-                                <!-- Text Field with Icon (Resizable Container) -->
+                              {:else if configField.label !== 'special_symbol' && fieldValue}
+                                <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                 <div 
                                   class="resizable-element"
                                   style="
@@ -1925,7 +2099,7 @@
                                       <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                     {:else if configField.label === 'price'}
                                       <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal; color: {configField.color || '#000000'};">
-                                        <span style="position: absolute; left: 0; right: 0; top: 100%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
+                                        <span style="position: absolute; left: 0; right: 0; top: 110%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
                                         <span style="position: relative; z-index: 10; display: inline-block;">{fieldValue}</span>
                                       </span>
                                     {:else}
@@ -2027,7 +2201,7 @@
                                 {#if configField.label === 'image' && fieldValue}
                                   <!-- Product Image (with variation group support) -->
                                   <div 
-                                    class="element-wrapper"
+                                    class="resizable-element"
                                     style="
                                       position: absolute;
                                       left: {configField.x || 0}px; 
@@ -2036,6 +2210,9 @@
                                       height: {configField.height || 100}px;
                                       transform: rotate({configField.rotation || 0}deg);
                                       transform-origin: center center;
+                                      display: flex;
+                                      align-items: center;
+                                      justify-content: center;
                                     "
                                   >
                                     {#if assignedProduct?.is_variation_group && assignedProduct?.variation_images && assignedProduct.variation_images.length > 0}
@@ -2043,7 +2220,9 @@
                                       <div 
                                         class="img-stack"
                                         style="
-                                          position: relative;
+                                          position: absolute;
+                                          top: 0;
+                                          left: 0;
                                           width: 100%;
                                           height: 100%;
                                         "
@@ -2052,18 +2231,21 @@
                                           {@const zIndex = 3 - imgIndex}
                                           {@const defaultOffset = imgIndex * 15}
                                           {@const savedPosition = configField.variantImagePositions?.[imgIndex]}
+                                          {@const savedSize = configField.variantImageSizes?.[imgIndex]}
                                           {@const xPos = savedPosition?.x ?? defaultOffset}
                                           {@const yPos = savedPosition?.y ?? defaultOffset}
+                                          {@const imgWidth = savedSize?.width ?? 75}
+                                          {@const imgHeight = savedSize?.height ?? 75}
                                           <img 
                                             src={imgUrl} 
                                             alt="Variation {imgIndex + 1}" 
                                             class="field-image-preview"
-                                            on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex)}
+                                            on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex, 'sub', activeSubPageIndex)}
                                             on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
                                             style="
                                               position: absolute;
-                                              width: 75%;
-                                              height: 75%;
+                                              max-width: {imgWidth}%;
+                                              max-height: {imgHeight}%;
                                               object-fit: contain;
                                               z-index: {zIndex};
                                               left: {xPos}px;
@@ -2071,25 +2253,80 @@
                                               opacity: 1;
                                               pointer-events: all;
                                               cursor: move;
+                                              border: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '3px solid #3b82f6' : '2px solid transparent'};
+                                              box-shadow: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'};
                                             "
                                           />
                                         {/each}
                                       </div>
                                     {:else}
-                                      <!-- Single product image -->
-                                      <img 
-                                        src={fieldValue} 
-                                        alt="Product" 
-                                        class="field-image-preview"
-                                        on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
-                                        style="
-                                          width: 100%;
-                                          height: 100%;
-                                          object-fit: contain;
-                                          pointer-events: all;
-                                          cursor: pointer;
-                                        "
-                                      />
+                                      <!-- Single product image (or multiple based on offer_qty) -->
+                                      {#if offerProduct?.offer_qty && offerProduct.offer_qty > 1}
+                                        <!-- Multiple images based on offer_qty -->
+                                        <div 
+                                          class="img-stack"
+                                          style="
+                                            position: absolute;
+                                            top: 0;
+                                            left: 0;
+                                            width: 100%;
+                                            height: 100%;
+                                          "
+                                        >
+                                          {#each Array(Math.min(offerProduct.offer_qty, 5)) as _, imgIndex (imgIndex)}
+                                            {@const zIndex = imgIndex + 1}
+                                            {@const defaultOffset = imgIndex * 15}
+                                            {@const savedPosition = configField.offerQtyImagePositions?.[imgIndex]}
+                                            {@const savedSize = configField.offerQtyImageSizes?.[imgIndex]}
+                                            {@const xPos = savedPosition?.x ?? defaultOffset}
+                                            {@const yPos = savedPosition?.y ?? defaultOffset}
+                                            {@const imgWidth = savedSize?.width ?? 75}
+                                            {@const imgHeight = savedSize?.height ?? 75}
+                                            <!-- Debug: imgIndex={imgIndex} xPos={xPos} yPos={yPos} -->
+                                            <img 
+                                              src={fieldValue} 
+                                              alt="Product {imgIndex + 1}" 
+                                              class="field-image-preview offer-qty-img-{imgIndex}"
+                                              data-img-index={imgIndex}
+                                              data-x-pos={xPos}
+                                              data-y-pos={yPos}
+                                              on:mousedown={(e) => handleVariantImageMouseDown(e, field.id, imgIndex, 'sub', activeSubPageIndex)}
+                                              on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
+                                              style="
+                                                position: absolute;
+                                                max-width: {imgWidth}%;
+                                                max-height: {imgHeight}%;
+                                                object-fit: contain;
+                                                z-index: {zIndex};
+                                                left: {xPos}px;
+                                                top: {yPos}px;
+                                                opacity: 1;
+                                                pointer-events: all;
+                                                cursor: move;
+                                                border: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '3px solid #3b82f6' : '2px solid transparent'};
+                                                box-shadow: {isDraggingVariantImage && draggedVariantFieldId === field.id && draggedVariantImageIndex === imgIndex ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'};
+                                              "
+                                            />
+                                          {/each}
+                                        </div>
+                                      {:else}
+                                        <!-- Single product image -->
+                                        <img 
+                                          src={fieldValue} 
+                                          alt="Product" 
+                                          class="field-image-preview"
+                                          on:dblclick={(e) => handleElementDoubleClick(e, configField, field, 'image', assignedProduct)}
+                                          on:mousedown={(e) => {
+                                            e.stopPropagation();
+                                            handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                          }}
+                                          style="
+                                            object-fit: contain;
+                                            pointer-events: all;
+                                            cursor: pointer;
+                                          "
+                                        />
+                                      {/if}
                                     {/if}
                                   </div>
                                 {:else if configField.label === 'special_symbol' && configField.symbolUrl}
@@ -2107,10 +2344,10 @@
                                       object-fit: contain;
                                     "
                                   />
-                                {:else if configField.label !== 'special_symbol'}
-                                  <!-- Text Field with Icon -->
+                                {:else if configField.label !== 'special_symbol' && fieldValue}
+                                  <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                   <div 
-                                    class="element-wrapper"
+                                    class="resizable-element"
                                     style="
                                       position: absolute;
                                       left: {configField.x || 0}px; 
@@ -2119,6 +2356,7 @@
                                       height: {configField.height || 20}px;
                                       transform: rotate({configField.rotation || 0}deg);
                                       transform-origin: center center;
+                                      z-index: {configField.label === 'offer_price' ? '999' : 'auto'};
                                     "
                                   >
                                     <div 
@@ -2128,8 +2366,6 @@
                                       style="
                                         width: 100%;
                                         height: 100%;
-                                        pointer-events: all;
-                                        cursor: move;
                                         font-size: {configField.fontSize || 14}px;
                                         color: {configField.color || '#000000'};
                                         text-align: {configField.alignment || 'left'};
@@ -2141,6 +2377,8 @@
                                         align-items: center;
                                         justify-content: {configField.alignment === 'center' ? 'center' : configField.alignment === 'right' ? 'flex-end' : 'flex-start'};
                                         overflow: hidden;
+                                        pointer-events: all;
+                                        cursor: move;
                                       "
                                     >
                                       {#if configField.iconUrl}
@@ -2163,11 +2401,11 @@
                                         <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                       {:else if configField.label === 'price'}
                                         <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal; color: {configField.color || '#000000'};">
-                                          <span style="position: absolute; left: 0; right: 0; top: 100%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
+                                          <span style="position: absolute; left: 0; right: 0; top: 110%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
                                           <span style="position: relative; z-index: 10; display: inline-block;">{fieldValue}</span>
                                         </span>
                                       {:else}
-                                        <span style="position: relative; z-index: 2;">
+                                        <span style="unicode-bidi: plaintext; position: relative; z-index: 2;">
                                           {fieldValue}
                                         </span>
                                       {/if}
@@ -2403,19 +2641,32 @@
           <span class="drag-indicator">⋮⋮</span>
         </div>
         
-        {#if isVariationGroup && elementType === 'image'}
+        {#if (isVariationGroup || hasMultipleOfferImages) && elementType === 'image'}
           <div class="action-section variant-selector">
-            <p class="action-label">Select Variant Image:</p>
+            <p class="action-label">{isVariationGroup ? 'Select Variant Image:' : 'Select Image:'}</p>
             <div class="variant-buttons-row">
-              {#each selectedElement?.assignedProduct?.variation_images?.slice(0, 3) || [] as imgUrl, idx}
-                <button 
-                  class="variant-img-btn {selectedVariantImageIndex === idx ? 'active' : ''}" 
-                  on:click={() => selectedVariantImageIndex = idx}
-                >
-                  <img src={imgUrl} alt="Variant {idx + 1}" />
-                  <span class="variant-label">Image {idx + 1}</span>
-                </button>
-              {/each}
+              {#if isVariationGroup}
+                {#each selectedElement?.assignedProduct?.variation_images?.slice(0, 3) || [] as imgUrl, idx}
+                  <button 
+                    class="variant-img-btn {selectedVariantImageIndex === idx ? 'active' : ''}" 
+                    on:click={() => selectedVariantImageIndex = idx}
+                  >
+                    <img src={imgUrl} alt="Variant {idx + 1}" />
+                    <span class="variant-label">Image {idx + 1}</span>
+                  </button>
+                {/each}
+              {:else if hasMultipleOfferImages}
+                {#each Array(offerImageCount) as _, idx}
+                  {@const imgUrl = getFieldValue(selectedElement?.assignedProduct, offerProducts.find(op => op.product_barcode === selectedElement?.assignedProduct?.barcode), 'image')}
+                  <button 
+                    class="variant-img-btn {selectedVariantImageIndex === idx ? 'active' : ''}" 
+                    on:click={() => selectedVariantImageIndex = idx}
+                  >
+                    <img src={imgUrl} alt="Image {idx + 1}" />
+                    <span class="variant-label">Image {idx + 1}</span>
+                  </button>
+                {/each}
+              {/if}
             </div>
           </div>
         {/if}
@@ -2821,7 +3072,7 @@
   .field-text-preview {
     position: absolute;
     pointer-events: none;
-    line-height: 1.2;
+    line-height: 0.8;
     user-select: none;
     white-space: pre-line;
     text-align: center;
