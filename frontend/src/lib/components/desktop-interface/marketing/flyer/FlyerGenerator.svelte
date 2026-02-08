@@ -1346,6 +1346,7 @@
               background: none !important;
               box-shadow: none !important;
               display: block !important;
+              transform-origin: center center !important;
             }
             /* Reset the content wrapper */
             .field-preview-content {
@@ -1454,6 +1455,39 @@
             .offer-price * {
               direction: ltr !important;
               unicode-bidi: normal !important;
+            }
+            /* Page Number Label - ensure proper positioning and display */
+            .page-number-label {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              direction: ltr !important;
+              unicode-bidi: normal !important;
+            }
+            .page-number-label span {
+              display: inline-block !important;
+            }
+            /* Expiry Date Label - ensure proper positioning and display */
+            .expiry-date-label {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              display: flex !important;
+              flex-direction: column !important;
+              align-items: center !important;
+              justify-content: center !important;
+              gap: 5px !important;
+              direction: rtl !important;
+            }
+            .expiry-date-label span {
+              display: block !important;
             }
             .resizable-element {
               overflow: visible !important;
@@ -1739,12 +1773,12 @@
                       {@const offerProduct = assignedProduct ? offerProducts.find(op => op.product_barcode === assignedProduct.barcode) : null}
                       <div
                         class="product-field {assignedProduct ? 'has-product' : ''} {selectedFieldId === field.id ? 'selected' : ''}"
-                        style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px;"
+                        style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px; transform: rotate({field.rotation || 0}deg); transform-origin: center center;"
                         data-field-id="{field.id}"
                         on:click={(e) => handleFieldClick(field, 'first', 0, e)}
                         on:mousedown={(e) => handleFieldMouseDown(e, field.id)}
                       >
-                        {#if (assignedProduct || field.fields?.some(f => f.label === 'expiry_date_label' || f.label === 'special_symbol')) && field.fields && field.fields.length > 0}
+                        {#if (assignedProduct || field.fields?.some(f => f.label === 'expiry_date_label' || f.label === 'special_symbol' || f.label === 'page_number')) && field.fields && field.fields.length > 0}
                           <!-- Render configured fields -->
                           <div class="field-preview-content">
                             {#each field.fields as configField}
@@ -1976,7 +2010,30 @@
                                   <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)}</span>
                                   <span>أو حتى نفاد الكمية</span>
                                 </div>
-                              {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && fieldValue}
+                              {:else if configField.label === 'page_number'}
+                                <!-- Page Number -->
+                                <div 
+                                  class="page-number-label"
+                                  style="
+                                    position: absolute;
+                                    left: 0;
+                                    top: 0;
+                                    width: 100%;
+                                    height: 100%;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-size: {configField.fontSize || 20}px;
+                                    color: {configField.color || '#000000'};
+                                    text-align: {configField.alignment || 'center'};
+                                    font-family: {configField.fontFamily || 'Arial'}, sans-serif;
+                                    font-weight: {configField.bold ? 'bold' : 'normal'};
+                                    font-style: {configField.italic ? 'italic' : 'normal'};
+                                  "
+                                >
+                                  <span>1</span>
+                                </div>
+                              {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && configField.label !== 'page_number' && fieldValue}
                                 <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                 <div 
                                   class="resizable-element"
@@ -2115,11 +2172,11 @@
                         {@const offerProduct = assignedProduct ? offerProducts.find(op => op.product_barcode === assignedProduct.barcode) : null}
                         <div
                           class="product-field {assignedProduct ? 'has-product' : ''} {selectedFieldId === field.id ? 'selected' : ''}"
-                          style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px;"
+                          style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px; transform: rotate({field.rotation || 0}deg); transform-origin: center center;"
                           on:click={(e) => handleFieldClick(field, 'sub', activeSubPageIndex, e)}
                           on:mousedown={(e) => handleFieldMouseDown(e, field.id)}
                         >
-                          {#if (assignedProduct || field.fields?.some(f => f.label === 'expiry_date_label' || f.label === 'special_symbol')) && field.fields && field.fields.length > 0}
+                          {#if (assignedProduct || field.fields?.some(f => f.label === 'expiry_date_label' || f.label === 'special_symbol' || f.label === 'page_number')) && field.fields && field.fields.length > 0}
                             <!-- Render configured fields -->
                             <div class="field-preview-content">
                               {#each field.fields as configField}
@@ -2336,7 +2393,30 @@
                                     <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)}</span>
                                     <span>أو حتى نفاد الكمية</span>
                                   </div>
-                                {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && fieldValue}
+                                {:else if configField.label === 'page_number'}
+                                  <!-- Page Number -->
+                                  <div 
+                                    class="page-number-label"
+                                    style="
+                                      position: absolute;
+                                      left: 0;
+                                      top: 0;
+                                      width: 100%;
+                                      height: 100%;
+                                      display: flex;
+                                      align-items: center;
+                                      justify-content: center;
+                                      font-size: {configField.fontSize || 20}px;
+                                      color: {configField.color || '#000000'};
+                                      text-align: {configField.alignment || 'center'};
+                                      font-family: {configField.fontFamily || 'Arial'}, sans-serif;
+                                      font-weight: {configField.bold ? 'bold' : 'normal'};
+                                      font-style: {configField.italic ? 'italic' : 'normal'};
+                                    "
+                                  >
+                                    <span>{activeSubPageIndex + 2}</span>
+                                  </div>
+                                {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && configField.label !== 'page_number' && fieldValue}
                                   <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                   <div 
                                     class="resizable-element"
