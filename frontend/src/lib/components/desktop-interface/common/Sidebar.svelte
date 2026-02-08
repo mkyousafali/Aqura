@@ -2680,7 +2680,7 @@ function openApprovalCenter() {
 
 </script>
 
-<div class="sidebar">
+<div class="sidebar" class:favorites-mode={sidebarViewMode === 'favorites'}>
 	<div class="sidebar-content">
 	<!-- Online/Offline Indicator -->
 	<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
@@ -4685,6 +4685,16 @@ function openApprovalCenter() {
 		box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
 		z-index: 1200;
 		border-right: 1px solid #1f2937;
+		transition: all 0.3s ease;
+	}
+
+	.sidebar.favorites-mode {
+		background: #1d2c5e;
+		border-right-color: #1d2c5e;
+	}
+
+	.sidebar.favorites-mode .sidebar-content {
+		color: #fcd34d;
 	}
 
 	.sidebar-content {
