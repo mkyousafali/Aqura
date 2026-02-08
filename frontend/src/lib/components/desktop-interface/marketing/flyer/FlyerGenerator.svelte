@@ -1521,8 +1521,8 @@
               align-items: center !important;
               justify-content: center !important;
             }
-            /* Product images */
-            .field-image-preview {
+            /* Product images - single images */
+            .resizable-element > .field-image-preview {
               max-width: 100% !important;
               max-height: 100% !important;
               object-fit: contain !important;
@@ -1535,11 +1535,11 @@
               position: absolute !important;
               top: 0 !important;
               left: 0 !important;
-              display: block !important;
             }
+            /* Stacked images - preserve inline styles for position/size */
             .img-stack .field-image-preview {
-              width: auto !important;
-              height: auto !important;
+              position: absolute !important;
+              object-fit: contain !important;
             }
             /* Icons and symbols should stay absolute and NOT be stretched */
             .field-icon-preview, .field-symbol-preview {
@@ -1981,8 +1981,8 @@
                                           {@const savedSize = configField.offerQtyImageSizes?.[imgIndex]}
                                           {@const xPos = savedPosition?.x ?? defaultOffset}
                                           {@const yPos = savedPosition?.y ?? defaultOffset}
-                                          {@const imgWidth = savedSize?.width ?? 75}
-                                          {@const imgHeight = savedSize?.height ?? 75}
+                                          {@const imgWidth = savedSize?.width ?? 55}
+                                          {@const imgHeight = savedSize?.height ?? 55}
                                           <img 
                                             src={fieldValue} 
                                             alt="Product {imgIndex + 1}" 
@@ -2280,8 +2280,8 @@
                                             {@const savedSize = configField.offerQtyImageSizes?.[imgIndex]}
                                             {@const xPos = savedPosition?.x ?? defaultOffset}
                                             {@const yPos = savedPosition?.y ?? defaultOffset}
-                                            {@const imgWidth = savedSize?.width ?? 75}
-                                            {@const imgHeight = savedSize?.height ?? 75}
+                                            {@const imgWidth = savedSize?.width ?? 55}
+                                            {@const imgHeight = savedSize?.height ?? 55}
                                             <!-- Debug: imgIndex={imgIndex} xPos={xPos} yPos={yPos} -->
                                             <img 
                                               src={fieldValue} 
