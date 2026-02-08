@@ -191,6 +191,7 @@ export const arabicLocale: LocaleData = {
       notification: "إشعار",
       createNotification: "إنشاء إشعار",
       assignmentDetails: "تفاصيل التكليف",
+      cancel: "إلغاء",
       // Bottom navigation
       bottomNav: {
         tasks: "المهام",
@@ -966,6 +967,8 @@ export const arabicLocale: LocaleData = {
       accessCode: "رمز الوصول",
       continueLogin: "المتابعة إلى النظام",
       cashierAccessDenied: "تم رفض الوصول. صلاحية الكاشير معطلة لهذا المستخدم.",
+      confirmLogout: "تأكيد تسجيل الخروج",
+      confirmLogoutMessage: "هل تريد بالتأكيد تسجيل الخروج من الحساب؟",
     },
 
     reports: {

@@ -514,10 +514,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	<div class="logout-overlay">
 		<div class="logout-confirm-dialog">
 			<div class="dialog-header">
-				<h3>Confirm Logout</h3>
+				<h3>{t('auth.confirmLogout')}</h3>
 			</div>
 			<div class="dialog-body">
-				<p>Are you sure you want to logout from your account?</p>
+				<p>{t('auth.confirmLogoutMessage')}</p>
 				<div class="current-user-info">
 					<div class="user-avatar-dialog">
 						<span>{($currentUser?.employeeName || $currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
@@ -529,8 +529,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				</div>
 			</div>
 			<div class="dialog-actions">
-				<button class="cancel-button" on:click={cancelLogout}>Cancel</button>
-				<button class="confirm-button" on:click={confirmLogout}>Logout</button>
+				<button class="cancel-button" on:click={cancelLogout}>{t('nav.cancel')}</button>
+				<button class="confirm-button" on:click={confirmLogout}>{t('auth.logout')}</button>
 			</div>
 		</div>
 	</div>
