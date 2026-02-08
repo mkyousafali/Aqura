@@ -4,6 +4,9 @@
 	
 	let offers: any[] = [];
 	let isLoading: boolean = true;
+	let showEditModal: boolean = false;
+	let editingOffer: any = null;
+	let isSaving: boolean = false;
 	
 	// Helper function to check if an offer is expired
 	function isOfferExpired(endDate: string): boolean {
@@ -12,6 +15,15 @@
 		const offerEndDate = new Date(endDate);
 		offerEndDate.setHours(0, 0, 0, 0);
 		return offerEndDate < today;
+	}
+	
+	// Helper function to format date as DD-MM-YYYY
+	function formatDateDDMMYYYY(dateString: string): string {
+		const date = new Date(dateString);
+		const day = String(date.getDate()).padStart(2, '0');
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const year = date.getFullYear();
+		return `${day}-${month}-${year}`;
 	}
 	
 	// Automatically deactivate offers that have passed their end date
@@ -132,6 +144,65 @@
 		}
 	}
 	
+	// Open edit modal
+	function openEditModal(offer: any) {
+		editingOffer = {
+			id: offer.id,
+			template_name: offer.template_name,
+			start_date: offer.start_date.split('T')[0], // Get date part only
+			end_date: offer.end_date.split('T')[0],
+			offer_name_id: offer.offer_name_id
+		};
+		showEditModal = true;
+	}
+	
+	// Close edit modal
+	function closeEditModal() {
+		showEditModal = false;
+		editingOffer = null;
+	}
+	
+	// Save edited offer
+	async function saveEditedOffer() {
+		if (!editingOffer || !editingOffer.id) return;
+		
+		isSaving = true;
+		try {
+			// Convert dates from YYYY-MM-DD format to ISO format with time
+			const startDate = new Date(editingOffer.start_date);
+			const endDate = new Date(editingOffer.end_date);
+			
+			const updateData: any = {
+				start_date: startDate.toISOString(),
+				end_date: endDate.toISOString()
+			};
+			
+			// Add template_name if it was changed
+			if (editingOffer.template_name) {
+				updateData.template_name = editingOffer.template_name;
+			}
+			
+			const { error } = await supabase
+				.from('flyer_offers')
+				.update(updateData)
+				.eq('id', editingOffer.id);
+			
+			if (error) {
+				console.error('Error saving offer:', error);
+				alert('Error saving offer. Please try again.');
+			} else {
+				alert('Offer updated successfully!');
+				closeEditModal();
+				await loadOffers();
+			}
+		} catch (error) {
+			console.error('Error saving offer:', error);
+			alert('Error saving offer. Please try again.');
+		} finally {
+			isSaving = false;
+		}
+	}
+	
 	onMount(() => {
 		loadOffers();
 	});
@@ -240,16 +311,16 @@
 									{offer.template_name}
 								</td>
 							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-								{new Date(offer.start_date).toLocaleDateString()}
+							{formatDateDDMMYYYY(offer.start_date)}
 							</td>
 							<td class="px-6 py-4 whitespace-nowrap text-sm {isOfferExpired(offer.end_date) ? 'text-red-600 font-semibold' : 'text-gray-900'}">
-								{new Date(offer.end_date).toLocaleDateString()}
+							{formatDateDDMMYYYY(offer.end_date)}
 								{#if isOfferExpired(offer.end_date)}
 									<span class="ml-1 text-xs">(Expired)</span>
 								{/if}
 							</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-									{new Date(offer.created_at).toLocaleString()}
+								{formatDateDDMMYYYY(offer.created_at)}
 								</td>
 							<td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
 								<div class="flex items-center justify-center gap-2">
@@ -268,6 +339,16 @@
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
 												</svg>
 											{/if}
+										</button>
+										
+										<button
+											on:click={() => openEditModal(offer)}
+											class="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+											title="Edit"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+											</svg>
 										</button>
 										
 										<button
@@ -334,3 +415,85 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Edit Modal -->
+{#if showEditModal && editingOffer}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+		<div class="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4">
+			<div class="flex items-center justify-between p-6 border-b border-gray-200">
+				<h2 class="text-xl font-bold text-gray-800">Edit Offer</h2>
+				<button
+					on:click={closeEditModal}
+					class="text-gray-400 hover:text-gray-600 transition-colors"
+				>
+					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+			
+			<div class="p-6 space-y-4">
+				<!-- Template Name -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">
+						Template Name
+					</label>
+					<input
+						type="text"
+						bind:value={editingOffer.template_name}
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+						placeholder="Enter template name"
+					/>
+				</div>
+				
+				<!-- Start Date -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">
+						Start Date
+					</label>
+					<input
+						type="date"
+						bind:value={editingOffer.start_date}
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					/>
+				</div>
+				
+				<!-- End Date -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">
+						End Date
+					</label>
+					<input
+						type="date"
+						bind:value={editingOffer.end_date}
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					/>
+				</div>
+			</div>
+			
+			<div class="flex gap-3 p-6 border-t border-gray-200">
+				<button
+					on:click={closeEditModal}
+					class="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+				>
+					Cancel
+				</button>
+				<button
+					on:click={saveEditedOffer}
+					disabled={isSaving}
+					class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+				>
+					{#if isSaving}
+						<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+						Saving...
+					{:else}
+						Save Changes
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
