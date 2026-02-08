@@ -91,6 +91,7 @@ export const arabicLocale: LocaleData = {
       offerManager: "مدير العروض",
       flyerTemplates: "قوالب النشرات",
       flyerSettings: "إعدادات النشرات",
+      normalPaperManager: "مدير الورق العادي",
       socialLinkManager: "مدير روابط التواصل",
       offerProductEditor: "محرر منتجات العرض",
       createNewOffer: "إنشاء عرض جديد",
