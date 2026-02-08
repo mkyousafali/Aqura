@@ -153,6 +153,18 @@ export const arabicLocale: LocaleData = {
       whatsNew: "انقر لمعرفة الجديد",
       online: "متصل",
       offline: "غير متصل",
+      favorites: "المفضلة",
+      manageFavorites: "إدارة المفضلة",
+      sidebar: "القائمة الجانبية",
+      noFavoritesYet: "لا توجد مفضلات بعد",
+      noFavoritesHint: "استخدم \"إدارة المفضلة\" على سطح المكتب لإضافة أزرار هنا.",
+      loadingFavorites: "جاري تحميل المفضلة...",
+      savingFavorites: "جاري الحفظ...",
+      noPermittedButtons: "لم يتم العثور على أزرار مسموح بها.",
+      loadingButtons: "جاري تحميل الأزرار...",
+      warningMaster: "سجل التحذيرات",
+      createUserRoles: "إنشاء أدوار المستخدمين",
+      assignRoles: "تعيين الأدوار",
     },
 
     // Mobile page titles

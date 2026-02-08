@@ -9,6 +9,7 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { sidebar } from '$lib/stores/sidebar';
 	import { currentLocale, t } from '$lib/i18n';
+	import { favoritesStore, favoritesPanelOpen } from '$lib/stores/favorites';
 	import {
 		showInstallPrompt,
 		isInstalled,
@@ -177,6 +178,83 @@
 
 	// Online/Offline state
 	let isOnline = true;
+
+	// Sidebar view mode: 'standard' or 'favorites'
+	let sidebarViewMode: 'standard' | 'favorites' = 'standard';
+
+	// Subscribe to favorites store
+	$: userFavorites = $favoritesStore;
+
+	// Map button_code to translation key for multilingual support
+	const buttonCodeTranslationMap: Record<string, string> = {
+		'CUSTOMER_MASTER': 'admin.customerMaster', 'AD_MANAGER': 'admin.adManager',
+		'PRODUCTS_MANAGER': 'admin.productsManager', 'DELIVERY_SETTINGS': 'admin.deliverySettings',
+		'ORDERS_MANAGER': 'admin.ordersManager', 'OFFER_MANAGEMENT': 'admin.offerManagement',
+		'RECEIVING': 'nav.receiving', 'UPLOAD_VENDOR': 'admin.uploadVendor',
+		'CREATE_VENDOR': 'admin.createVendor', 'MANAGE_VENDOR': 'admin.manageVendor',
+		'START_RECEIVING': 'nav.startReceiving', 'RECEIVING_RECORDS': 'nav.receivingRecords',
+		'VENDOR_RECORDS': 'reports.vendorRecords', 'FLYER_MASTER': 'nav.flyerMaster',
+		'PRODUCT_MASTER': 'nav.productMaster', 'VARIATION_MANAGER': 'nav.variationManager',
+		'OFFER_MANAGER': 'nav.offerManager', 'FLYER_TEMPLATES': 'nav.flyerTemplates',
+		'FLYER_SETTINGS': 'nav.flyerSettings', 'NORMAL_PAPER_MANAGER': 'nav.normalPaperManager',
+		'SOCIAL_LINK_MANAGER': 'nav.socialLinkManager', 'OFFER_PRODUCT_EDITOR': 'nav.offerProductEditor',
+		'CREATE_NEW_OFFER': 'nav.createNewOffer', 'PRICING_MANAGER': 'nav.pricingManager',
+		'ERP_ENTRY_MANAGER': 'nav.erpEntryManager', 'GENERATE_FLYERS': 'nav.generateFlyers',
+		'SHELF_PAPER_MANAGER': 'nav.shelfPaperManager', 'NEAR_EXPIRY_MANAGER': 'nav.nearExpiryManager',
+		'COUPON_DASHBOARD_PROMO': 'nav.couponDashboard', 'CAMPAIGN_MANAGER': 'nav.manageCampaigns',
+		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
+		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
+		'APPROVAL_CENTER': 'nav.approvalCenter', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
+		'BANK_RECONCILIATION': 'nav.bankReconciliation', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
+		'DAY_BUDGET_PLANNER': 'nav.dayBudgetPlanner', 'MONTHLY_MANAGER': 'nav.monthlyManager',
+		'EXPENSE_MANAGER': 'nav.expenseManager', 'PAID_MANAGER': 'nav.paidManager',
+		'DENOMINATION': 'nav.denomination', 'PETTY_CASH': 'nav.pettyCash',
+		'EXPENSE_TRACKER': 'reports.expenseTracker', 'SALES_REPORT': 'reports.salesReport',
+		'MONTHLY_BREAKDOWN': 'nav.monthlyBreakdown', 'OVERDUES_REPORT': 'nav.overdues',
+		'VENDOR_PAYMENTS': 'reports.vendorPayments', 'POS_REPORT': 'nav.pos',
+		'CREATE_DEPARTMENT': 'nav.createDepartment', 'CREATE_LEVEL': 'nav.createLevel',
+		'CREATE_POSITION': 'nav.createPosition', 'REPORTING_MAP': 'nav.reportingMap',
+		'ASSIGN_POSITIONS': 'nav.assignPositions', 'LINK_ID': 'nav.linkID',
+		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
+		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
+		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
+		'REPORT_INCIDENT': 'nav.reportIncident', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
+		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
+		'CREATE_TASK': 'nav.createTaskTemplate', 'VIEW_TASKS': 'nav.viewTaskTemplates',
+		'ASSIGN_TASKS': 'nav.assignTasks', 'VIEW_MY_TASKS': 'nav.viewMyTasks',
+		'VIEW_MY_ASSIGNMENTS': 'nav.viewMyAssignments', 'TASK_STATUS': 'nav.taskStatus',
+		'BRANCH_PERFORMANCE': 'nav.branchPerformance', 'COMMUNICATION_CENTER': 'admin.communicationCenter',
+		'CREATE_NOTIFICATION': 'mobile.createNotification', 'USER_MANAGEMENT': 'nav.usersList',
+		'CREATE_USER': 'nav.createUser', 'MANAGE_ADMIN_USERS': 'nav.manageAdminUsers',
+		'MANAGE_MASTER_ADMIN': 'nav.manageMasterAdmin', 'INTERFACE_ACCESS_MANAGER': 'nav.interfaceAccess',
+		'APPROVAL_PERMISSIONS': 'nav.approvalPermissions', 'BRANCHES': 'admin.branchesMaster',
+		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
+		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
+		'BUTTON_GENERATOR': 'nav.buttonGenerator',
+		// Additional DB button codes (aliases / alternate codes)
+		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees', 'WARNING_MASTER': 'nav.warningMaster',
+		'SALARY_WAGE_MANAGEMENT': 'hr.masterSalaryManagement', 'CONTACT_MANAGEMENT': 'hr.masterContactManagement',
+		'DOCUMENT_MANAGEMENT': 'hr.masterDocumentManagement', 'BIOMETRIC_DATA': 'hr.biometricData',
+		'BRANCH_MASTER': 'admin.branchesMaster', 'SOUND_SETTINGS': 'nav.soundSettings',
+		'CATEGORY_MANAGER': 'nav.categoryManager', 'REPORTS_STATS': 'nav.reportsAndStats',
+		'COUPON_DASHBOARD': 'nav.couponDashboard', 'MANAGE_CAMPAIGNS': 'nav.manageCampaigns',
+		'IMPORT_CUSTOMERS': 'nav.importCustomers', 'MANAGE_PRODUCTS': 'nav.manageProducts',
+		'OVER_DUES': 'nav.overdues', 'USER_PERMISSIONS': 'nav.userPermissions',
+		'USERS': 'nav.users', 'CREATE_USER_ROLES': 'nav.createUserRoles',
+		'ASSIGN_ROLES': 'nav.assignRoles', 'ERP_CONNECTIONS': 'nav.erpConnections',
+		'INTERFACE_ACCESS': 'nav.interfaceAccess', 'CREATE_TASK_TEMPLATE': 'nav.createTaskTemplate',
+		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates',
+	};
+
+	/** Get translated button name from button_code */
+	function getButtonLabel(buttonCode: string, fallback: string): string {
+		const key = buttonCodeTranslationMap[buttonCode];
+		if (key) {
+			const translated = t(key);
+			if (translated && translated !== key) return translated;
+		}
+		return fallback;
+	}
 	
 	// Force reactivity when locale changes
 	$: locale = $currentLocale;
@@ -185,6 +263,11 @@
 	onMount(async () => {
 		initPWAInstall();
 		await checkApprovalPermission();
+		
+		// Load user favorites
+		if ($currentUser) {
+			await favoritesStore.load($currentUser.id, $currentUser.employee_id || null);
+		}
 		
 		// Monitor online/offline status
 		isOnline = navigator.onLine;
@@ -201,6 +284,11 @@
 			window.removeEventListener('offline', handleOffline);
 		};
 	});
+
+	// Reload favorites when user changes
+	$: if ($currentUser) {
+		favoritesStore.load($currentUser.id, $currentUser.employee_id || null);
+	}
 
 	// Check if current user has approval permissions
 	async function checkApprovalPermission() {
@@ -1447,6 +1535,107 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Map button_code to open function for favorites sidebar
+	function openFavoriteButton(buttonCode: string) {
+		const actionMap: Record<string, () => void> = {
+			'CUSTOMER_MASTER': openCustomerMaster,
+			'AD_MANAGER': openAdManager,
+			'PRODUCTS_MANAGER': openProductsManager,
+			'DELIVERY_SETTINGS': openDeliverySettings,
+			'ORDERS_MANAGER': openOrdersManager,
+			'OFFER_MANAGEMENT': openOfferManagement,
+			'UPLOAD_VENDOR': openUploadVendor,
+			'CREATE_VENDOR': openCreateVendor,
+			'MANAGE_VENDOR': openManageVendor,
+			'RECEIVING': openReceiving,
+			'START_RECEIVING': openStartReceiving,
+			'RECEIVING_RECORDS': openReceivingRecords,
+			'VENDOR_RECORDS': openVendorRecords,
+			'FLYER_MASTER': openFlyerMaster,
+			'PRODUCT_MASTER': openProductMaster,
+			'VARIATION_MANAGER': openVariationManager,
+			'OFFER_MANAGER': openOfferManager,
+			'FLYER_TEMPLATES': openFlyerTemplates,
+			'FLYER_SETTINGS': openFlyerSettings,
+			'NORMAL_PAPER_MANAGER': openNormalPaperManager,
+			'SOCIAL_LINK_MANAGER': openSocialLinkManager,
+			'OFFER_PRODUCT_EDITOR': openOfferProductEditor,
+			'CREATE_NEW_OFFER': openCreateNewOffer,
+			'PRICING_MANAGER': openPricingManager,
+			'ERP_ENTRY_MANAGER': openErpEntryManager,
+			'GENERATE_FLYERS': openGenerateFlyers,
+			'SHELF_PAPER_MANAGER': openShelfPaperManager,
+			'NEAR_EXPIRY_MANAGER': openNearExpiryManager,
+			'COUPON_DASHBOARD_PROMO': openCouponDashboardPromo,
+			'CAMPAIGN_MANAGER': openCampaignManager,
+			'VIEW_OFFER_MANAGER': openViewOfferManager,
+			'CUSTOMER_IMPORTER': openCustomerImporter,
+			'PRODUCT_MANAGER_PROMO': openProductManagerPromo,
+			'COUPON_REPORTS': openCouponReports,
+			'APPROVAL_CENTER': openApprovalCenter,
+			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
+			'BANK_RECONCILIATION': openBankReconciliation,
+			'MANUAL_SCHEDULING': openManualScheduling,
+			'DAY_BUDGET_PLANNER': openDayBudgetPlanner,
+			'MONTHLY_MANAGER': openMonthlyManager,
+			'EXPENSE_MANAGER': openExpenseManager,
+			'PAID_MANAGER': openPaidManager,
+			'DENOMINATION': openDenomination,
+			'PETTY_CASH': openPettyCash,
+			'EXPENSE_TRACKER': openExpenseTracker,
+			'SALES_REPORT': openSalesReport,
+			'MONTHLY_BREAKDOWN': openMonthlyBreakdown,
+			'OVERDUES_REPORT': openOverduesReport,
+			'VENDOR_PAYMENTS': openVendorPendingPayments,
+			'POS_REPORT': openPOSReport,
+			'CREATE_DEPARTMENT': openCreateDepartment,
+			'CREATE_LEVEL': openCreateLevel,
+			'CREATE_POSITION': openCreatePosition,
+			'REPORTING_MAP': openReportingMap,
+			'ASSIGN_POSITIONS': openAssignPositions,
+			'LINK_ID': openLinkID,
+			'EMPLOYEE_FILES': openEmployeeFiles,
+			'PROCESS_FINGERPRINT': openProcessFingerprint,
+			'SALARY_AND_WAGE': openSalaryAndWage,
+			'SHIFT_AND_DAY_OFF': openShiftAndDayOff,
+			'DISCIPLINE': openDiscipline,
+			'INCIDENT_MANAGER': openIncidentManager,
+			'REPORT_INCIDENT': openReportIncident,
+			'FINGERPRINT_TRANSACTIONS': openFingerprintTransactions,
+			'EXPORT_BIOMETRIC_DATA': openExportBiometricData,
+			'TASK_MASTER': openTaskMaster,
+			'CREATE_TASK': openCreateTask,
+			'VIEW_TASKS': openViewTasks,
+			'ASSIGN_TASKS': openAssignTasks,
+			'VIEW_MY_TASKS': openMyTasks,
+			'VIEW_MY_ASSIGNMENTS': openMyAssignments,
+			'TASK_STATUS': openTaskStatus,
+			'BRANCH_PERFORMANCE': openBranchPerformanceWindow,
+			'COMMUNICATION_CENTER': openCommunicationCenter,
+			'CREATE_NOTIFICATION': openCreateNotification,
+			'USER_MANAGEMENT': openUserManagement,
+			'CREATE_USER': openCreateUser,
+			'MANAGE_ADMIN_USERS': openManageAdminUsers,
+			'MANAGE_MASTER_ADMIN': openManageMasterAdmin,
+			'INTERFACE_ACCESS_MANAGER': openInterfaceAccessManager,
+			'APPROVAL_PERMISSIONS': openApprovalPermissions,
+			'BRANCHES': openBranches,
+			'SETTINGS': openSettings,
+			'E_R_P_CONNECTIONS': openERPConnections,
+			'CLEAR_TABLES': openClearTables,
+			'BUTTON_ACCESS_CONTROL': openButtonAccessControl,
+			'BUTTON_GENERATOR': openButtonGenerator,
+			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
+		};
+
+		const action = actionMap[buttonCode];
+		if (action) {
+			action();
+		} else {
+			console.warn('⚠️ No action mapped for button code:', buttonCode);
+		}
+	}
+
 	// Open Receiving window
 	function collapseAllSubsections() {
 		showDeliveryDashboardSubmenu = false;
@@ -2499,9 +2688,33 @@ function openApprovalCenter() {
 		<span class="status-text">{isOnline ? t('nav.online') : t('nav.offline')}</span>
 	</div>
 	
+	<!-- Standard / Favorites Toggle -->
+	<div class="view-mode-toggle">
+		<div
+			class="electric-switch"
+			class:on={sidebarViewMode === 'favorites'}
+			on:click={() => sidebarViewMode = sidebarViewMode === 'standard' ? 'favorites' : 'standard'}
+			on:keydown={(e) => e.key === 'Enter' && (sidebarViewMode = sidebarViewMode === 'standard' ? 'favorites' : 'standard')}
+			role="switch"
+			aria-checked={sidebarViewMode === 'favorites'}
+			tabindex="0"
+		>
+			<div class="switch-track">
+				<div class="switch-knob">
+					<span class="knob-icon" class:off={sidebarViewMode === 'standard'}>⭐</span>
+				</div>
+			</div>
+		</div>
+		<button class="link-button" title="Link" on:click={() => favoritesPanelOpen.set(!$favoritesPanelOpen)}>
+			⭐
+		</button>
+	</div>
+
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
 
+	{#if sidebarViewMode === 'standard'}
+	<!-- ============ STANDARD SIDEBAR ============ -->
 	<!-- Delivery Section -->
 	<div class="menu-section">
 		<button 
@@ -4371,6 +4584,35 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
+	{:else}
+	<!-- ============ FAVORITES SIDEBAR ============ -->
+	<div class="favorites-sidebar-view">
+		{#if userFavorites.loading}
+			<div class="fav-loading">
+				<span class="fav-spinner"></span>
+				<span>{t('nav.loadingFavorites') || 'Loading favorites...'}</span>
+			</div>
+		{:else if userFavorites.favorites.length === 0}
+			<div class="fav-empty">
+				<span class="fav-empty-icon">⭐</span>
+				<p>{t('nav.noFavoritesYet') || 'No favorites yet'}</p>
+				<p class="fav-empty-hint">{t('nav.noFavoritesHint') || 'Use "Manage Favorites" on the desktop to add buttons here.'}</p>
+			</div>
+		{:else}
+			{#each userFavorites.favorites as fav}
+				<button
+					class="favorite-sidebar-btn"
+					on:click={() => openFavoriteButton(fav.button_code)}
+					title={getButtonLabel(fav.button_code, fav.button_name_en)}
+				>
+					<span class="fav-btn-icon">{fav.icon || '📌'}</span>
+					<span class="fav-btn-text">{getButtonLabel(fav.button_code, fav.button_name_en)}</span>
+				</button>
+			{/each}
+		{/if}
+	</div>
+	{/if}
+
 	</div>
 	<!-- Sidebar Footer -->
 	<div class="sidebar-footer">
@@ -4965,6 +5207,113 @@ function openApprovalCenter() {
 		transition: all 0.3s ease;
 	}
 
+	/* View Mode Toggle - Electric Switch */
+	.view-mode-toggle {
+		padding: 0;
+		margin-top: -8px;
+		margin-bottom: -16px;
+		margin-left: -8px;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.electric-switch {
+		position: relative;
+		width: 56px;
+		height: 28px;
+		cursor: pointer;
+		outline: none;
+	}
+
+	.switch-track {
+		width: 100%;
+		height: 100%;
+		background: #4a4a4a;
+		border-radius: 14px;
+		position: relative;
+		border: 2px solid #333;
+		box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+		transition: all 0.3s ease;
+	}
+
+	.electric-switch.on .switch-track {
+		background: #3d3520;
+		border-color: #8B6914;
+		box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 8px rgba(245, 158, 11, 0.3);
+	}
+
+	.switch-knob {
+		position: absolute;
+		top: 1px;
+		left: 1px;
+		width: 22px;
+		height: 22px;
+		background: linear-gradient(145deg, #888, #666);
+		border-radius: 50%;
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.electric-switch.on .switch-knob {
+		left: 29px;
+		background: linear-gradient(145deg, #F59E0B, #D97706);
+		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+	}
+
+	.knob-icon {
+		font-size: 0.65rem;
+		line-height: 1;
+		filter: saturate(1);
+		transition: filter 0.3s ease;
+	}
+
+	.knob-icon.off {
+		filter: saturate(0) brightness(0.6) sepia(1) hue-rotate(-30deg) saturate(5) brightness(0.7);
+	}
+
+	.electric-switch:hover .switch-track {
+		border-color: #555;
+	}
+
+	.electric-switch.on:hover .switch-track {
+		border-color: #B8860B;
+	}
+
+	.electric-switch:focus-visible .switch-track {
+		border-color: #F59E0B;
+	}
+
+	.link-button {
+		width: 32px;
+		height: 32px;
+		border-radius: 8px;
+		background: rgba(34, 197, 94, 0.1);
+		border: 1px solid rgba(34, 197, 94, 0.3);
+		font-size: 1rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		color: #22c55e;
+		filter: hue-rotate(90deg);
+	}
+
+	.link-button:hover {
+		background: rgba(34, 197, 94, 0.2);
+		border-color: rgba(34, 197, 94, 0.5);
+		transform: scale(1.05);
+	}
+
+	.link-button:active {
+		transform: scale(0.95);
+	}
+
 	.connection-indicator.online {
 		background: rgba(16, 185, 129, 0.1);
 		border: 1px solid rgba(16, 185, 129, 0.3);
@@ -5036,6 +5385,107 @@ function openApprovalCenter() {
 		background: linear-gradient(90deg, transparent, rgba(156, 163, 175, 0.5), transparent);
 		margin: 12px 0;
 		border-top: 1px solid rgba(107, 114, 128, 0.3);
+	}
+
+	/* ============ Favorites Sidebar View Styles ============ */
+	.favorites-sidebar-view {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 4px 0;
+	}
+
+	.favorite-sidebar-btn {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 9px 8px;
+		background: rgba(21, 163, 74, 0.08);
+		border: 1px solid rgba(21, 163, 74, 0.15);
+		border-radius: 8px;
+		color: #e5e7eb;
+		cursor: pointer;
+		font-size: 11px;
+		font-weight: 500;
+		text-align: left;
+		width: 100%;
+		transition: all 0.15s ease;
+		line-height: 1.3;
+	}
+
+	.favorite-sidebar-btn:hover {
+		background: rgba(21, 163, 74, 0.2);
+		border-color: rgba(21, 163, 74, 0.4);
+		transform: translateX(2px);
+		color: #34d399;
+	}
+
+	.favorite-sidebar-btn:active {
+		transform: translateX(2px) scale(0.98);
+	}
+
+	.fav-btn-icon {
+		font-size: 14px;
+		flex-shrink: 0;
+		width: 18px;
+		text-align: center;
+	}
+
+	.fav-btn-text {
+		flex: 1;
+		white-space: normal;
+		word-wrap: break-word;
+		word-break: break-word;
+	}
+
+	.fav-loading {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 2rem 1rem;
+		color: #9ca3af;
+		font-size: 0.8rem;
+	}
+
+	.fav-spinner {
+		width: 24px;
+		height: 24px;
+		border: 3px solid rgba(21, 163, 74, 0.2);
+		border-top-color: #15A34A;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.fav-empty {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		padding: 2rem 0.5rem;
+		color: #9ca3af;
+	}
+
+	.fav-empty-icon {
+		font-size: 2rem;
+		margin-bottom: 8px;
+		opacity: 0.5;
+	}
+
+	.fav-empty p {
+		margin: 0;
+		font-size: 0.8rem;
+		line-height: 1.4;
+	}
+
+	.fav-empty-hint {
+		margin-top: 6px !important;
+		font-size: 0.7rem !important;
+		opacity: 0.7;
 	}
 </style>
 
