@@ -1959,6 +1959,24 @@
                                           "
                                         />
                                       {/each}
+                                      <!-- Variant Icon -->
+                                      {#if configField.variantIconUrl}
+                                        <img 
+                                          src={configField.variantIconUrl} 
+                                          alt="Variant Icon" 
+                                          class="field-variant-icon"
+                                          style="
+                                            position: absolute;
+                                            width: {configField.variantIconWidth || 50}px;
+                                            height: {configField.variantIconHeight || 50}px;
+                                            left: {configField.variantIconX || 0}px;
+                                            top: {configField.variantIconY || 0}px;
+                                            object-fit: contain;
+                                            z-index: 10;
+                                            pointer-events: none;
+                                          "
+                                        />
+                                      {/if}
                                     </div>
                                   {:else}
                                     <!-- Single product image (or multiple based on offer_qty) -->
@@ -2042,7 +2060,23 @@
                                     object-fit: contain;
                                   "
                                 />
-                              {:else if configField.label !== 'special_symbol' && fieldValue}
+                              {:else if configField.label === 'variant_icon' && configField.variantIconUrl && assignedProduct?.is_variation_group}
+                                <!-- Variant Icon - only shows for variant products -->
+                                <img 
+                                  src={configField.variantIconUrl} 
+                                  alt="Variant Icon" 
+                                  class="field-variant-icon"
+                                  style="
+                                    position: absolute;
+                                    left: {configField.x || 0}px;
+                                    top: {configField.y || 0}px;
+                                    width: {configField.width || 50}px;
+                                    height: {configField.height || 50}px;
+                                    object-fit: contain;
+                                    z-index: 10;
+                                  "
+                                />
+                              {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && fieldValue}
                                 <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                 <div 
                                   class="resizable-element"
@@ -2344,7 +2378,23 @@
                                       object-fit: contain;
                                     "
                                   />
-                                {:else if configField.label !== 'special_symbol' && fieldValue}
+                                {:else if configField.label === 'variant_icon' && configField.variantIconUrl && assignedProduct?.is_variation_group}
+                                  <!-- Variant Icon - only shows for variant products -->
+                                  <img 
+                                    src={configField.variantIconUrl} 
+                                    alt="Variant Icon" 
+                                    class="field-variant-icon"
+                                    style="
+                                      position: absolute;
+                                      left: {configField.x || 0}px;
+                                      top: {configField.y || 0}px;
+                                      width: {configField.width || 50}px;
+                                      height: {configField.height || 50}px;
+                                      object-fit: contain;
+                                      z-index: 10;
+                                    "
+                                  />
+                                {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && fieldValue}
                                   <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                   <div 
                                     class="resizable-element"

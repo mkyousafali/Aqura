@@ -28,6 +28,11 @@
     symbolHeight?: number;
     symbolX?: number;
     symbolY?: number;
+    variantIconUrl?: string;
+    variantIconWidth?: number;
+    variantIconHeight?: number;
+    variantIconX?: number;
+    variantIconY?: number;
   }
   
   let fieldSelectors: FieldSelector[] = field.fields || [];
@@ -76,6 +81,21 @@
   let symbolResizeStartWidth = 0;
   let symbolResizeStartHeight = 0;
   let selectedSymbolFieldId: string | null = null;
+  
+  let isDraggingVariantIcon = false;
+  let isResizingVariantIcon = false;
+  let variantIconResizeDirection = '';
+  let variantIconDragStartX = 0;
+  let variantIconDragStartY = 0;
+  let variantIconDragStartIconX = 0;
+  let variantIconDragStartIconY = 0;
+  let variantIconResizeStartX = 0;
+  let variantIconResizeStartY = 0;
+  let variantIconResizeStartWidth = 0;
+  let variantIconResizeStartHeight = 0;
+  let selectedVariantIconFieldId: string | null = null;
+  let variantIconUploadFieldId: string | null = null;
+  let variantIconFileInput: HTMLInputElement;
   
   // Custom Fonts
   interface CustomFont {
@@ -175,6 +195,7 @@
     { value: 'limit_qty', label: 'Limit Quantity' },
     { value: 'free_qty', label: 'Free Quantity' },
     { value: 'image', label: 'Product Image' },
+    { value: 'variant_icon', label: '🏷️ Variant Icon (shows for variant products)' },
     { value: 'special_symbol', label: '🎨 Special Symbol (Image)' }
   ];
   
@@ -288,6 +309,41 @@
     });
   }
   
+  function triggerVariantIconUpload(fieldId: string) {
+    variantIconUploadFieldId = fieldId;
+    variantIconFileInput.click();
+  }
+  
+  function handleVariantIconUpload(event: Event, fieldId: string) {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const variantIconUrl = e.target?.result as string;
+        updateField(fieldId, { 
+          variantIconUrl,
+          variantIconWidth: 50,
+          variantIconHeight: 50,
+          variantIconX: 0,
+          variantIconY: 0
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+  
+  function removeVariantIcon(fieldId: string) {
+    updateField(fieldId, { 
+      variantIconUrl: undefined,
+      variantIconWidth: undefined,
+      variantIconHeight: undefined,
+      variantIconX: undefined,
+      variantIconY: undefined
+    });
+  }
+  
   function selectField(fieldId: string) {
     selectedFieldId = fieldId;
   }
@@ -397,12 +453,17 @@
     isDraggingSymbol = false;
     isResizingSymbol = false;
     symbolResizeDirection = '';
+    isDraggingVariantIcon = false;
+    isResizingVariantIcon = false;
+    variantIconResizeDirection = '';
     window.removeEventListener('mousemove', handleMouseMove);
     window.removeEventListener('mouseup', handleMouseUp);
     window.removeEventListener('mousemove', handleIconMouseMove);
     window.removeEventListener('mouseup', handleIconMouseUp);
     window.removeEventListener('mousemove', handleSymbolMouseMove);
     window.removeEventListener('mouseup', handleSymbolMouseUp);
+    window.removeEventListener('mousemove', handleVariantIconMouseMove);
+    window.removeEventListener('mouseup', handleVariantIconMouseUp);
   }
 
   function handleIconMouseDown(event: MouseEvent, fieldId: string) {
@@ -578,6 +639,94 @@
     window.removeEventListener('mouseup', handleSymbolMouseUp);
   }
 
+  function handleVariantIconMouseDown(event: MouseEvent, fieldId: string) {
+    event.stopPropagation();
+    selectedVariantIconFieldId = fieldId;
+    selectedFieldId = null;
+    selectedIconFieldId = null;
+    selectedSymbolFieldId = null;
+    isDraggingVariantIcon = true;
+    variantIconDragStartX = event.clientX;
+    variantIconDragStartY = event.clientY;
+    
+    const fieldItem = fieldSelectors.find(f => f.id === fieldId);
+    if (fieldItem) {
+      variantIconDragStartIconX = fieldItem.variantIconX || 0;
+      variantIconDragStartIconY = fieldItem.variantIconY || 0;
+    }
+    
+    window.addEventListener('mousemove', handleVariantIconMouseMove);
+    window.addEventListener('mouseup', handleVariantIconMouseUp);
+  }
+
+  function handleVariantIconResizeMouseDown(event: MouseEvent, fieldId: string, direction: string) {
+    event.stopPropagation();
+    selectedVariantIconFieldId = fieldId;
+    isResizingVariantIcon = true;
+    variantIconResizeDirection = direction;
+    variantIconResizeStartX = event.clientX;
+    variantIconResizeStartY = event.clientY;
+    
+    const fieldItem = fieldSelectors.find(f => f.id === fieldId);
+    if (fieldItem) {
+      variantIconResizeStartWidth = fieldItem.variantIconWidth || 50;
+      variantIconResizeStartHeight = fieldItem.variantIconHeight || 50;
+    }
+    
+    window.addEventListener('mousemove', handleVariantIconMouseMove);
+    window.addEventListener('mouseup', handleVariantIconMouseUp);
+  }
+
+  function handleVariantIconMouseMove(event: MouseEvent) {
+    if (!selectedVariantIconFieldId) return;
+    
+    const fieldItem = fieldSelectors.find(f => f.id === selectedVariantIconFieldId);
+    if (!fieldItem) return;
+    
+    if (isDraggingVariantIcon) {
+      const deltaX = (event.clientX - variantIconDragStartX) / previewScale;
+      const deltaY = (event.clientY - variantIconDragStartY) / previewScale;
+      
+      const newIconX = variantIconDragStartIconX + deltaX;
+      const newIconY = variantIconDragStartIconY + deltaY;
+      
+      updateField(selectedVariantIconFieldId, {
+        variantIconX: newIconX,
+        variantIconY: newIconY
+      });
+    } else if (isResizingVariantIcon) {
+      const deltaX = (event.clientX - variantIconResizeStartX) / previewScale;
+      const deltaY = (event.clientY - variantIconResizeStartY) / previewScale;
+      
+      if (variantIconResizeDirection === 'se') {
+        const newWidth = Math.max(20, variantIconResizeStartWidth + deltaX);
+        const newHeight = Math.max(20, variantIconResizeStartHeight + deltaY);
+        updateField(selectedVariantIconFieldId, {
+          variantIconWidth: newWidth,
+          variantIconHeight: newHeight
+        });
+      } else if (variantIconResizeDirection === 'e') {
+        const newWidth = Math.max(20, variantIconResizeStartWidth + deltaX);
+        updateField(selectedVariantIconFieldId, {
+          variantIconWidth: newWidth
+        });
+      } else if (variantIconResizeDirection === 's') {
+        const newHeight = Math.max(20, variantIconResizeStartHeight + deltaY);
+        updateField(selectedVariantIconFieldId, {
+          variantIconHeight: newHeight
+        });
+      }
+    }
+  }
+
+  function handleVariantIconMouseUp() {
+    isDraggingVariantIcon = false;
+    isResizingVariantIcon = false;
+    variantIconResizeDirection = '';
+    window.removeEventListener('mousemove', handleVariantIconMouseMove);
+    window.removeEventListener('mouseup', handleVariantIconMouseUp);
+  }
+
   function handleKeyDown(event: KeyboardEvent) {
     if (!selectedFieldId) return;
     
@@ -631,6 +780,14 @@
   accept="image/png,image/jpeg,image/jpg" 
   on:change={(e) => symbolUploadFieldId && handleSymbolUpload(e, symbolUploadFieldId)}
   bind:this={symbolFileInput}
+  style="display: none;"
+/>
+
+<input 
+  type="file" 
+  accept="image/png,image/jpeg,image/jpg" 
+  on:change={(e) => variantIconUploadFieldId && handleVariantIconUpload(e, variantIconUploadFieldId)}
+  bind:this={variantIconFileInput}
   style="display: none;"
 />
 
@@ -828,6 +985,80 @@
                       {/if}
                     </div>
                   {/if}
+                  
+                  <!-- Variant Icon Section - only for image fields -->
+                  {#if fieldItem.label === 'image'}
+                    <div class="icon-section variant-icon-section">
+                      <label class="icon-label">🏷️ Variant Icon (shows only for variant products):</label>
+                      {#if fieldItem.variantIconUrl}
+                        <div class="icon-preview-container">
+                          <img src={fieldItem.variantIconUrl} alt="Variant Icon" class="icon-preview" on:dblclick={() => triggerVariantIconUpload(fieldItem.id)} />
+                          <button class="remove-icon-btn" on:click={() => removeVariantIcon(fieldItem.id)}>✕</button>
+                        </div>
+                        <div class="icon-size-controls">
+                          <label>
+                            Icon Width:
+                            <input 
+                              type="number" 
+                              value={fieldItem.variantIconWidth} 
+                              on:input={(e) => updateField(fieldItem.id, { variantIconWidth: parseFloat(e.currentTarget.value) || 50 })}
+                              min="10"
+                            />
+                          </label>
+                          <label>
+                            Icon Height:
+                            <input 
+                              type="number" 
+                              value={fieldItem.variantIconHeight} 
+                              on:input={(e) => updateField(fieldItem.id, { variantIconHeight: parseFloat(e.currentTarget.value) || 50 })}
+                              min="10"
+                            />
+                          </label>
+                          <label>
+                            Icon X:
+                            <input 
+                              type="number" 
+                              value={fieldItem.variantIconX} 
+                              on:input={(e) => updateField(fieldItem.id, { variantIconX: parseFloat(e.currentTarget.value) || 0 })}
+                            />
+                          </label>
+                          <label>
+                            Icon Y:
+                            <input 
+                              type="number" 
+                              value={fieldItem.variantIconY} 
+                              on:input={(e) => updateField(fieldItem.id, { variantIconY: parseFloat(e.currentTarget.value) || 0 })}
+                            />
+                          </label>
+                        </div>
+                        <p class="icon-hint">💡 Double-click icon to change. This icon appears on variant products only.</p>
+                      {:else}
+                        <button class="upload-icon-btn variant-upload-btn" on:click={() => triggerVariantIconUpload(fieldItem.id)}>
+                          📤 Upload Variant Icon
+                        </button>
+                        <p class="icon-hint">This icon will appear for products with variants (is_variation_group = true)</p>
+                      {/if}
+                    </div>
+                  {/if}
+                  
+                  <!-- Variant Icon Field Type Section -->
+                  {#if fieldItem.label === 'variant_icon'}
+                    <div class="icon-section variant-icon-section">
+                      <label class="icon-label">🏷️ Variant Icon Image:</label>
+                      {#if fieldItem.variantIconUrl}
+                        <div class="icon-preview-container">
+                          <img src={fieldItem.variantIconUrl} alt="Variant Icon" class="icon-preview" on:dblclick={() => triggerVariantIconUpload(fieldItem.id)} />
+                          <button class="remove-icon-btn" on:click={() => removeVariantIcon(fieldItem.id)}>✕</button>
+                        </div>
+                        <p class="icon-hint">💡 Double-click icon to change. This field only appears on variant products.</p>
+                      {:else}
+                        <button class="upload-icon-btn variant-upload-btn" on:click={() => triggerVariantIconUpload(fieldItem.id)}>
+                          📤 Upload Variant Icon Image
+                        </button>
+                        <p class="icon-hint">This icon will only show for products with variants (is_variation_group = true)</p>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               {/if}
             </div>
@@ -862,6 +1093,8 @@
             >
               {#if fieldItem.label === 'special_symbol'}
                 <!-- Empty for special symbol - will be rendered separately -->
+              {:else if fieldItem.label === 'variant_icon'}
+                <!-- Empty for variant icon - will be rendered separately -->
               {:else}
                 <span class="field-overlay-label" style="color: {fieldItem.color}; font-size: {fieldItem.fontSize}px;{fieldItem.fontFamily ? ` font-family: '${fieldItem.fontFamily}', sans-serif;` : ''}">{availableFields.find(f => f.value === fieldItem.label)?.label || fieldItem.label}</span>
               {/if}
@@ -913,6 +1146,34 @@
                   <div class="icon-resize-handle icon-resize-se" on:mousedown={(e) => handleSymbolResizeMouseDown(e, fieldItem.id, 'se')}></div>
                   <div class="icon-resize-handle icon-resize-e" on:mousedown={(e) => handleSymbolResizeMouseDown(e, fieldItem.id, 'e')}></div>
                   <div class="icon-resize-handle icon-resize-s" on:mousedown={(e) => handleSymbolResizeMouseDown(e, fieldItem.id, 's')}></div>
+                {/if}
+              </div>
+            {/if}
+          {/each}
+          
+          <!-- Variant Icons rendered separately, absolute to preview-wrapper -->
+          {#each fieldSelectors as fieldItem (fieldItem.id)}
+            {#if (fieldItem.label === 'image' || fieldItem.label === 'variant_icon') && fieldItem.variantIconUrl}
+              <div 
+                class="variant-icon-container {selectedVariantIconFieldId === fieldItem.id ? 'variant-icon-selected' : ''} {fieldItem.label === 'variant_icon' && selectedFieldId === fieldItem.id ? 'selected' : ''}"
+                style="left: {fieldItem.label === 'variant_icon' ? fieldItem.x : (fieldItem.variantIconX || 0)}px; top: {fieldItem.label === 'variant_icon' ? fieldItem.y : (fieldItem.variantIconY || 0)}px; width: {fieldItem.label === 'variant_icon' ? fieldItem.width : (fieldItem.variantIconWidth || 50)}px; height: {fieldItem.label === 'variant_icon' ? fieldItem.height : (fieldItem.variantIconHeight || 50)}px;"
+                on:mousedown={(e) => fieldItem.label === 'variant_icon' ? handleMouseDown(e, fieldItem.id) : handleVariantIconMouseDown(e, fieldItem.id)}
+              >
+                <img 
+                  src={fieldItem.variantIconUrl} 
+                  alt="Variant Icon" 
+                  class="field-background-icon"
+                />
+                <span class="variant-badge">Variant</span>
+                {#if selectedVariantIconFieldId === fieldItem.id && fieldItem.label !== 'variant_icon'}
+                  <div class="icon-resize-handle icon-resize-se" on:mousedown={(e) => handleVariantIconResizeMouseDown(e, fieldItem.id, 'se')}></div>
+                  <div class="icon-resize-handle icon-resize-e" on:mousedown={(e) => handleVariantIconResizeMouseDown(e, fieldItem.id, 'e')}></div>
+                  <div class="icon-resize-handle icon-resize-s" on:mousedown={(e) => handleVariantIconResizeMouseDown(e, fieldItem.id, 's')}></div>
+                {/if}
+                {#if fieldItem.label === 'variant_icon' && selectedFieldId === fieldItem.id}
+                  <div class="resize-handle resize-se" on:mousedown={(e) => handleMouseDown(e, fieldItem.id, 'se')}></div>
+                  <div class="resize-handle resize-e" on:mousedown={(e) => handleMouseDown(e, fieldItem.id, 'e')}></div>
+                  <div class="resize-handle resize-s" on:mousedown={(e) => handleMouseDown(e, fieldItem.id, 's')}></div>
                 {/if}
               </div>
             {/if}
@@ -1541,5 +1802,46 @@
     object-fit: contain;
     pointer-events: none;
     z-index: 20;
+  }
+
+  .variant-icon-section {
+    border-top: 2px solid #f59e0b;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 10%, transparent 10%);
+  }
+
+  .variant-upload-btn {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+  }
+
+  .variant-upload-btn:hover {
+    box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3) !important;
+  }
+
+  .variant-icon-container {
+    position: absolute;
+    cursor: move;
+    border: 2px dashed transparent;
+    transition: border-color 0.2s;
+    z-index: 18;
+    pointer-events: auto;
+  }
+
+  .variant-icon-container:hover,
+  .variant-icon-container.variant-icon-selected {
+    border-color: #f59e0b;
+  }
+
+  .variant-badge {
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #f59e0b;
+    color: white;
+    font-size: 8px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
   }
 </style>
