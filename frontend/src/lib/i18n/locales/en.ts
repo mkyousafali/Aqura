@@ -146,6 +146,18 @@ export const englishLocale: LocaleData = {
       whatsNew: "Click to see what's new",
       online: "Online",
       offline: "Offline",
+      favorites: "Favorites",
+      manageFavorites: "Manage Favorites",
+      sidebar: "Sidebar",
+      noFavoritesYet: "No favorites yet",
+      noFavoritesHint: "Use \"Manage Favorites\" on the desktop to add buttons here.",
+      loadingFavorites: "Loading favorites...",
+      savingFavorites: "Saving...",
+      noPermittedButtons: "No permitted buttons found.",
+      loadingButtons: "Loading buttons...",
+      warningMaster: "Warning Master",
+      createUserRoles: "Create User Roles",
+      assignRoles: "Assign Roles",
     },
 
     // Mobile page titles
