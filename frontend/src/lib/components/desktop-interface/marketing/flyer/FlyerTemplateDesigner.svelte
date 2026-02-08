@@ -50,7 +50,7 @@
   interface FieldData {
     id?: string;
     label?: string; // Field type label from configurator
-    type?: 'product_name_en' | 'product_name_ar' | 'barcode' | 'price' | 'offer_price' | 'offer_qty' | 'limit_qty' | 'free_qty' | 'unit_name' | 'image' | 'expire_date' | 'serial_number' | 'special_symbol';
+    type?: 'product_name_en' | 'product_name_ar' | 'barcode' | 'price' | 'offer_price' | 'offer_qty' | 'limit_qty' | 'free_qty' | 'unit_name' | 'image' | 'expire_date' | 'serial_number' | 'special_symbol' | 'expiry_date_label';
     fontSize?: number;
     alignment?: 'left' | 'center' | 'right';
     color?: string;
@@ -68,6 +68,8 @@
     symbolHeight?: number;
     symbolX?: number;
     symbolY?: number;
+    startDate?: string;
+    endDate?: string;
   }
   
   let firstPageFields: ProductField[] = [];
@@ -81,6 +83,17 @@
   let dragStartX = 0;
   let dragStartY = 0;
   let resizeHandle = '';
+  
+  // Add Sub Page Modal State
+  let showAddSubPageModal = false;
+  let showPageSelectionModal = false;
+  
+  // New Template Modal State
+  let showNewTemplateModal = false;
+  let showTemplateSelectionModal = false;
+  let showTemplateNameInputModal = false;
+  let selectedTemplateToCopy: string | null = null;
+  let newTemplateNameInput: string = '';
   
   function handleFirstPageUpload(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -111,12 +124,68 @@
     }
   }
   
-  function addSubPage() {
+  function openAddSubPageModal() {
+    showAddSubPageModal = true;
+  }
+  
+  function closeAddSubPageModal() {
+    showAddSubPageModal = false;
+  }
+  
+  function addSubPageAsNew() {
     subPageImages = [...subPageImages, null];
     subPageFiles = [...subPageFiles, null];
     subPageFieldsArray = [...subPageFieldsArray, []];
     activeTab = 'sub';
     activeSubPageIndex = subPageImages.length - 1;
+    closeAddSubPageModal();
+  }
+  
+  function openPageSelectionModal() {
+    showAddSubPageModal = false;
+    showPageSelectionModal = true;
+  }
+  
+  function closePageSelectionModal() {
+    showPageSelectionModal = false;
+  }
+  
+  function copyFromPage(pageType: 'first' | 'sub', subPageIndex?: number) {
+    // Determine the new page order (sub page number)
+    const newPageOrder = subPageImages.length + 2; // +2 because first page is 1, first sub is 2, etc.
+    
+    let fieldsToCopy: ProductField[];
+    let imageToCopy: string | null;
+    
+    if (pageType === 'first') {
+      fieldsToCopy = firstPageFields;
+      imageToCopy = firstPageImage;
+    } else {
+      fieldsToCopy = subPageFieldsArray[subPageIndex!] || [];
+      imageToCopy = subPageImages[subPageIndex!] || null;
+    }
+    
+    // Deep copy the fields and update pageNumber and pageOrder
+    const copiedFields: ProductField[] = fieldsToCopy.map(field => {
+      const newFieldNumber = nextFieldNumber++;
+      return {
+        ...field,
+        id: `field-${Date.now()}-${newFieldNumber}`,
+        number: newFieldNumber,
+        pageNumber: subPageImages.length + 2, // New sub page number (1-indexed, after first page)
+        pageOrder: newPageOrder,
+        fields: field.fields.map(f => ({ ...f })) // Deep copy nested fields
+      };
+    });
+    
+    // Add the new sub page with copied configuration
+    subPageImages = [...subPageImages, imageToCopy];
+    subPageFiles = [...subPageFiles, null];
+    subPageFieldsArray = [...subPageFieldsArray, copiedFields];
+    
+    activeTab = 'sub';
+    activeSubPageIndex = subPageImages.length - 1;
+    closePageSelectionModal();
   }
   
   function removeSubPage(index: number) {
@@ -303,7 +372,15 @@
     }
   }
   
-  function newTemplate() {
+  function openNewTemplateModal() {
+    showNewTemplateModal = true;
+  }
+  
+  function closeNewTemplateModal() {
+    showNewTemplateModal = false;
+  }
+  
+  function newTemplateAsBlank() {
     selectedTemplateId = null;
     templateName = '';
     templateDescription = '';
@@ -316,6 +393,118 @@
     activeSubPageIndex = 0;
     nextFieldNumber = 1;
     selectedFieldId = null;
+    closeNewTemplateModal();
+  }
+  
+  function openTemplateSelectionModal() {
+    showNewTemplateModal = false;
+    showTemplateSelectionModal = true;
+  }
+  
+  function closeTemplateSelectionModal() {
+    showTemplateSelectionModal = false;
+  }
+  
+  async function selectTemplateForCopy(templateId: string) {
+    // Find the template to get its name for the input field
+    const template = savedTemplates.find(t => t.id === templateId);
+    if (template) {
+      selectedTemplateToCopy = templateId;
+      newTemplateNameInput = template.name + ' (Copy)';
+      showTemplateSelectionModal = false;
+      showTemplateNameInputModal = true;
+    }
+  }
+  
+  function closeTemplateNameInputModal() {
+    showTemplateNameInputModal = false;
+    selectedTemplateToCopy = null;
+    newTemplateNameInput = '';
+  }
+  
+  async function confirmCopyTemplate() {
+    if (!selectedTemplateToCopy || !newTemplateNameInput.trim()) {
+      alert('Please enter a template name');
+      return;
+    }
+    await copyFromTemplate(selectedTemplateToCopy, newTemplateNameInput.trim());
+  }
+  
+  async function copyFromTemplate(templateId: string, customName?: string) {
+    isLoading = true;
+    try {
+      const { data: template, error } = await supabase
+        .from('flyer_templates')
+        .select('*')
+        .eq('id', templateId)
+        .single();
+      
+      if (error) throw error;
+      if (!template) return;
+      
+      // Copy all configurations but clear the ID so it saves as new
+      selectedTemplateId = null;
+      templateName = customName || (template.name + ' (Copy)');
+      templateDescription = template.description || '';
+      firstPageImage = template.first_page_image_url;
+      
+      // Load sub-page arrays
+      if (template.sub_page_image_urls && Array.isArray(template.sub_page_image_urls)) {
+        subPageImages = [...template.sub_page_image_urls];
+      } else if (template.sub_page_image_url) {
+        subPageImages = [template.sub_page_image_url];
+      } else {
+        subPageImages = [];
+      }
+      
+      // Deep copy field configurations
+      if (template.first_page_configuration && Array.isArray(template.first_page_configuration)) {
+        firstPageFields = template.first_page_configuration.map((field: ProductField) => ({
+          ...field,
+          id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          fields: field.fields.map(f => ({ ...f }))
+        }));
+      } else {
+        firstPageFields = [];
+      }
+      
+      if (template.sub_page_configurations && Array.isArray(template.sub_page_configurations)) {
+        subPageFieldsArray = template.sub_page_configurations.map((pageFields: ProductField[]) => 
+          pageFields.map((field: ProductField) => ({
+            ...field,
+            id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            fields: field.fields.map(f => ({ ...f }))
+          }))
+        );
+      } else if (template.sub_page_configuration) {
+        subPageFieldsArray = [template.sub_page_configuration.map((field: ProductField) => ({
+          ...field,
+          id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          fields: field.fields.map(f => ({ ...f }))
+        }))];
+      } else {
+        subPageFieldsArray = [];
+      }
+      
+      // Reset file references (will need to re-upload or use existing URLs)
+      firstPageFile = null;
+      subPageFiles = subPageImages.map(() => null);
+      
+      // Update nextFieldNumber
+      const allFields = [...firstPageFields, ...subPageFieldsArray.flat()];
+      const maxNumber = allFields.reduce((max, field) => Math.max(max, field.number), 0);
+      nextFieldNumber = maxNumber + 1;
+      
+      activeSubPageIndex = 0;
+      selectedFieldId = null;
+      
+      closeTemplateNameInputModal();
+    } catch (error) {
+      console.error('Error copying template:', error);
+      alert('Failed to copy template');
+    } finally {
+      isLoading = false;
+    }
   }
   
   function addProductField() {
@@ -362,6 +551,57 @@
         type: 'special_symbol',
         fontSize: 16,
         alignment: 'center'
+      }],
+      pageNumber: currentPage,
+      pageOrder: 0
+    };
+    
+    if (activeTab === 'first') {
+      firstPageFields = [...firstPageFields, newField];
+    } else {
+      if (!subPageFieldsArray[activeSubPageIndex]) {
+        subPageFieldsArray[activeSubPageIndex] = [];
+      }
+      subPageFieldsArray[activeSubPageIndex] = [...subPageFieldsArray[activeSubPageIndex], newField];
+      subPageFieldsArray = [...subPageFieldsArray];
+    }
+    
+    selectedFieldId = newField.id;
+  }
+  
+  function addExpiryDateLabel() {
+    const currentPage = activeTab === 'first' ? 1 : activeSubPageIndex + 2;
+    
+    // Get today's date and 7 days later as default dates
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + 7);
+    
+    const formatDate = (date: Date) => {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
+    };
+    
+    const startDateStr = formatDate(today);
+    const endDateStr = formatDate(endDate);
+    
+    const newField: ProductField = {
+      id: `expiry-label-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      number: nextFieldNumber++,
+      x: 100,
+      y: 100,
+      width: 250,
+      height: 60,
+      fields: [{
+        type: 'expiry_date_label',
+        label: 'expiry_date_label',
+        fontSize: 14,
+        alignment: 'center',
+        color: '#000000',
+        startDate: startDateStr,
+        endDate: endDateStr
       }],
       pageNumber: currentPage,
       pageOrder: 0
@@ -664,7 +904,7 @@
               <option value={template.id}>{template.name}</option>
             {/each}
           </select>
-          <button class="new-template-btn" on:click={newTemplate} title="Create new template">
+          <button class="new-template-btn" on:click={openNewTemplateModal} title="Create new template">
             ➕ New
           </button>
         </div>
@@ -728,7 +968,7 @@
       <div class="section">
         <div class="section-header-with-button">
           <h3 class="section-title">🖼️ Template Images - Sub Pages ({subPageImages.length})</h3>
-          <button class="add-page-btn" on:click={addSubPage}>
+          <button class="add-page-btn" on:click={openAddSubPageModal}>
             ➕ Add Sub Page
           </button>
         </div>
@@ -783,6 +1023,14 @@
           disabled={activeTab === 'first' ? !firstPageImage : !subPageImages[activeSubPageIndex]}
         >
           🎨 Add Special Symbol
+        </button>
+        
+        <button 
+          class="add-expiry-btn" 
+          on:click={addExpiryDateLabel} 
+          disabled={activeTab === 'first' ? !firstPageImage : !subPageImages[activeSubPageIndex]}
+        >
+          📅 Add Expiry Date Label
         </button>
         
         <div class="fields-list">
@@ -925,6 +1173,23 @@
                               object-fit: contain;
                             "
                           />
+                        {:else if field.fields.length === 1 && field.fields[0].label === 'expiry_date_label'}
+                          <!-- Expiry Date Label -->
+                          <div class="expiry-date-label-preview" style="
+                            width: 100%;
+                            height: 100%;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: {field.fields[0].fontSize || 14}px;
+                            color: {field.fields[0].color || '#000000'};
+                            text-align: center;
+                            direction: rtl;
+                          ">
+                            <span>من {field.fields[0].startDate || '00-00-0000'} إلى {field.fields[0].endDate || '00-00-0000'}</span>
+                            <span>أو حتى نفاد الكمية</span>
+                          </div>
                         {:else}
                           <!-- Normal fields with positioning -->
                           <div class="field-preview-content">
@@ -1079,6 +1344,23 @@
                               object-fit: contain;
                             "
                           />
+                        {:else if field.fields.length === 1 && field.fields[0].label === 'expiry_date_label'}
+                          <!-- Expiry Date Label -->
+                          <div class="expiry-date-label-preview" style="
+                            width: 100%;
+                            height: 100%;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: {field.fields[0].fontSize || 14}px;
+                            color: {field.fields[0].color || '#000000'};
+                            text-align: center;
+                            direction: rtl;
+                          ">
+                            <span>من {field.fields[0].startDate || '00-00-0000'} إلى {field.fields[0].endDate || '00-00-0000'}</span>
+                            <span>أو حتى نفاد الكمية</span>
+                          </div>
                         {:else}
                           <!-- Normal fields with positioning -->
                           <div class="field-preview-content">
@@ -1211,6 +1493,180 @@
     </div>
   </div>
 </div>
+
+<!-- Add Sub Page Modal - Option Selection -->
+{#if showAddSubPageModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeAddSubPageModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content add-subpage-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>➕ Add Sub Page</h3>
+        <button class="modal-close-btn" on:click={closeAddSubPageModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">How would you like to create the new sub page?</p>
+        <div class="option-buttons">
+          <button class="option-btn copy-option" on:click={openPageSelectionModal} disabled={!firstPageImage && subPageImages.length === 0}>
+            <span class="option-icon">📋</span>
+            <span class="option-title">Copy from Existing</span>
+            <span class="option-desc">Copy all field configurations from an existing page</span>
+          </button>
+          <button class="option-btn new-option" on:click={addSubPageAsNew}>
+            <span class="option-icon">🆕</span>
+            <span class="option-title">Create New</span>
+            <span class="option-desc">Start with a blank page</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Page Selection Modal -->
+{#if showPageSelectionModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closePageSelectionModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content page-selection-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>📄 Select Page to Copy</h3>
+        <button class="modal-close-btn" on:click={closePageSelectionModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Select a page to copy its field configurations:</p>
+        <div class="page-list">
+          <!-- First Page Option -->
+          {#if firstPageImage}
+            <button class="page-option" on:click={() => copyFromPage('first')}>
+              <div class="page-thumbnail">
+                <img src={firstPageImage} alt="First Page" />
+              </div>
+              <div class="page-info">
+                <span class="page-name">📖 First Page</span>
+                <span class="page-fields">{firstPageFields.length} field(s)</span>
+              </div>
+            </button>
+          {/if}
+          
+          <!-- Sub Pages Options -->
+          {#each subPageImages as subPageImage, index}
+            <button class="page-option" on:click={() => copyFromPage('sub', index)}>
+              <div class="page-thumbnail">
+                {#if subPageImage}
+                  <img src={subPageImage} alt="Sub Page {index + 1}" />
+                {:else}
+                  <div class="no-image-placeholder">📄</div>
+                {/if}
+              </div>
+              <div class="page-info">
+                <span class="page-name">📑 Sub Page {index + 1}</span>
+                <span class="page-fields">{subPageFieldsArray[index]?.length || 0} field(s)</span>
+              </div>
+            </button>
+          {/each}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closePageSelectionModal}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- New Template Modal - Option Selection -->
+{#if showNewTemplateModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeNewTemplateModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content add-subpage-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>➕ New Template</h3>
+        <button class="modal-close-btn" on:click={closeNewTemplateModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">How would you like to create the new template?</p>
+        <div class="option-buttons">
+          <button class="option-btn copy-option" on:click={openTemplateSelectionModal} disabled={savedTemplates.length === 0}>
+            <span class="option-icon">📋</span>
+            <span class="option-title">Copy from Existing</span>
+            <span class="option-desc">Copy all configurations from a saved template</span>
+          </button>
+          <button class="option-btn new-option" on:click={newTemplateAsBlank}>
+            <span class="option-icon">🆕</span>
+            <span class="option-title">Create Blank</span>
+            <span class="option-desc">Start with a blank template</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Template Selection Modal -->
+{#if showTemplateSelectionModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeTemplateSelectionModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content page-selection-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>📄 Select Template to Copy</h3>
+        <button class="modal-close-btn" on:click={closeTemplateSelectionModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Select a template to copy all its configurations:</p>
+        <div class="page-list">
+          {#each savedTemplates as template}
+            <button class="page-option" on:click={() => selectTemplateForCopy(template.id)}>
+              <div class="page-thumbnail template-icon">
+                <span>📋</span>
+              </div>
+              <div class="page-info">
+                <span class="page-name">{template.name}</span>
+                <span class="page-fields">{template.description || 'No description'}</span>
+              </div>
+            </button>
+          {/each}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeTemplateSelectionModal}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Template Name Input Modal -->
+{#if showTemplateNameInputModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeTemplateNameInputModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content add-subpage-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>✏️ Enter Template Name</h3>
+        <button class="modal-close-btn" on:click={closeTemplateNameInputModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Enter a name for the new template:</p>
+        <div class="name-input-container">
+          <input 
+            type="text" 
+            bind:value={newTemplateNameInput}
+            placeholder="Enter template name"
+            class="template-name-input"
+            on:keydown={(e) => e.key === 'Enter' && confirmCopyTemplate()}
+          />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeTemplateNameInputModal}>Cancel</button>
+        <button class="confirm-btn" on:click={confirmCopyTemplate} disabled={!newTemplateNameInput.trim()}>
+          ✅ Create Template
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .flyer-designer {
@@ -1502,6 +1958,35 @@
   .add-symbol-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .add-expiry-btn {
+    width: 100%;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+    margin-bottom: 1rem;
+  }
+
+  .add-expiry-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
+  }
+
+  .add-expiry-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .expiry-date-label-preview {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.5;
   }
 
   .fields-list {
@@ -2199,5 +2684,270 @@
 
   .change-btn-small:hover {
     background: rgba(0, 0, 0, 0.9);
+  }
+
+  /* Modal Styles */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(2px);
+  }
+
+  .modal-content {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .page-selection-modal {
+    max-width: 600px;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    font-size: 1.125rem;
+    color: #1f2937;
+  }
+
+  .modal-close-btn {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    color: #6b7280;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+  }
+
+  .modal-close-btn:hover {
+    background: #e5e7eb;
+    color: #1f2937;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+  }
+
+  .modal-description {
+    margin: 0 0 1.25rem 0;
+    color: #6b7280;
+    font-size: 0.9375rem;
+  }
+
+  .option-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .option-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.5rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+
+  .option-btn:hover:not(:disabled) {
+    border-color: #3b82f6;
+    background: #eff6ff;
+  }
+
+  .option-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .copy-option:hover:not(:disabled) {
+    border-color: #10b981;
+    background: #ecfdf5;
+  }
+
+  .new-option:hover:not(:disabled) {
+    border-color: #8b5cf6;
+    background: #f5f3ff;
+  }
+
+  .option-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .option-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+  }
+
+  .option-desc {
+    font-size: 0.8125rem;
+    color: #6b7280;
+  }
+
+  .page-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .page-option {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+  }
+
+  .page-option:hover {
+    border-color: #3b82f6;
+    background: #eff6ff;
+  }
+
+  .page-thumbnail {
+    width: 60px;
+    height: 80px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid #e5e7eb;
+  }
+
+  .page-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .page-thumbnail.template-icon {
+    font-size: 2rem;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  }
+
+  .no-image-placeholder {
+    font-size: 1.5rem;
+    color: #9ca3af;
+  }
+
+  .page-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .page-name {
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 0.9375rem;
+  }
+
+  .page-fields {
+    font-size: 0.8125rem;
+    color: #6b7280;
+  }
+
+  .modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+
+  .cancel-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: white;
+    color: #374151;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .cancel-btn:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+  }
+
+  .name-input-container {
+    margin-top: 0.5rem;
+  }
+
+  .template-name-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+  }
+
+  .template-name-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .confirm-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    background: #10b981;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .confirm-btn:hover:not(:disabled) {
+    background: #059669;
+  }
+
+  .confirm-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
