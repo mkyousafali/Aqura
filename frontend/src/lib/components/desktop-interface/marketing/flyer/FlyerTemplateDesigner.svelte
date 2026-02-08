@@ -2095,6 +2095,30 @@
     cursor: not-allowed;
   }
 
+  .add-page-number-btn {
+    width: 100%;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    margin-bottom: 1rem;
+  }
+
+  .add-page-number-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+  }
+
+  .add-page-number-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .expiry-date-label-preview {
     font-family: 'Arial', sans-serif;
     line-height: 1.5;
