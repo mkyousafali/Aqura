@@ -134,6 +134,23 @@
   let selectedPopupPageIndex: number = 0;
   let popupFields: any[] = [];
   
+  // Reactive: Get selected offer object
+  $: selectedOffer = activeOffers.find(o => o.id === selectedOfferId) || null;
+  
+  // Format date for Arabic display (DD-MM-YYYY)
+  function formatDateArabic(dateString: string | undefined): string {
+    if (!dateString) return '00-00-0000';
+    try {
+      const date = new Date(dateString);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
+    } catch {
+      return '00-00-0000';
+    }
+  }
+  
   async function loadActiveOffers() {
     isLoadingOffers = true;
     errorMessage = '';
@@ -1553,6 +1570,7 @@
               overflow: visible !important;
               background: transparent !important;
               position: relative !important;
+              line-height: 1.2 !important;
             }
             /* Force proper Arabic text rendering */
             .field-text-preview,
@@ -1893,7 +1911,7 @@
                         on:click={(e) => handleFieldClick(field, 'first', 0, e)}
                         on:mousedown={(e) => handleFieldMouseDown(e, field.id)}
                       >
-                        {#if assignedProduct && field.fields && field.fields.length > 0}
+                        {#if (assignedProduct || field.fields?.some(f => f.label === 'expiry_date_label' || f.label === 'special_symbol')) && field.fields && field.fields.length > 0}
                           <!-- Render configured fields -->
                           <div class="field-preview-content">
                             {#each field.fields as configField}
@@ -2062,21 +2080,70 @@
                                 />
                               {:else if configField.label === 'variant_icon' && configField.variantIconUrl && assignedProduct?.is_variation_group}
                                 <!-- Variant Icon - only shows for variant products -->
-                                <img 
-                                  src={configField.variantIconUrl} 
-                                  alt="Variant Icon" 
-                                  class="field-variant-icon"
+                                <div 
+                                  class="variant-icon-wrapper"
                                   style="
                                     position: absolute;
                                     left: {configField.x || 0}px;
                                     top: {configField.y || 0}px;
                                     width: {configField.width || 50}px;
                                     height: {configField.height || 50}px;
-                                    object-fit: contain;
-                                    z-index: 10;
+                                    z-index: 999;
+                                    pointer-events: all;
+                                    cursor: pointer;
                                   "
-                                />
-                              {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && fieldValue}
+                                  on:dblclick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                  }}
+                                  on:mousedown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                  }}
+                                  role="button"
+                                  tabindex="0"
+                                >
+                                  <img 
+                                    src={configField.variantIconUrl} 
+                                    alt="Variant Icon" 
+                                    class="field-variant-icon"
+                                    style="
+                                      width: 100%;
+                                      height: 100%;
+                                      object-fit: contain;
+                                      pointer-events: none;
+                                    "
+                                  />
+                                </div>
+                              {:else if configField.label === 'expiry_date_label'}
+                                <!-- Expiry Date Label -->
+                                <div 
+                                  class="expiry-date-label"
+                                  style="
+                                    position: absolute;
+                                    left: 0;
+                                    top: 0;
+                                    width: 100%;
+                                    height: 100%;
+                                    display: flex;
+                                    flex-direction: column;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-size: {configField.fontSize || 14}px;
+                                    color: {configField.color || '#000000'};
+                                    text-align: center;
+                                    direction: rtl;
+                                    font-family: {configField.fontFamily || 'Arial'}, sans-serif;
+                                    font-weight: {configField.bold ? 'bold' : 'normal'};
+                                    line-height: 1.4;
+                                  "
+                                >
+                                  <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)}</span>
+                                  <span>أو حتى نفاد الكمية</span>
+                                </div>
+                              {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && fieldValue}
                                 <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                 <div 
                                   class="resizable-element"
@@ -2104,6 +2171,7 @@
                                       text-decoration: {configField.label === 'price' ? 'none' : (configField.strikethrough ? 'line-through' : 'none')};
                                       font-weight: {configField.bold ? 'bold' : 'normal'};
                                       font-style: {configField.italic ? 'italic' : 'normal'};
+                                      line-height: 1.3;
                                       {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
                                       display: flex;
                                       align-items: center;
@@ -2226,7 +2294,7 @@
                           on:click={(e) => handleFieldClick(field, 'sub', activeSubPageIndex, e)}
                           on:mousedown={(e) => handleFieldMouseDown(e, field.id)}
                         >
-                          {#if assignedProduct && field.fields && field.fields.length > 0}
+                          {#if (assignedProduct || field.fields?.some(f => f.label === 'expiry_date_label' || f.label === 'special_symbol')) && field.fields && field.fields.length > 0}
                             <!-- Render configured fields -->
                             <div class="field-preview-content">
                               {#each field.fields as configField}
@@ -2380,21 +2448,70 @@
                                   />
                                 {:else if configField.label === 'variant_icon' && configField.variantIconUrl && assignedProduct?.is_variation_group}
                                   <!-- Variant Icon - only shows for variant products -->
-                                  <img 
-                                    src={configField.variantIconUrl} 
-                                    alt="Variant Icon" 
-                                    class="field-variant-icon"
+                                  <div 
+                                    class="variant-icon-wrapper"
                                     style="
                                       position: absolute;
                                       left: {configField.x || 0}px;
                                       top: {configField.y || 0}px;
                                       width: {configField.width || 50}px;
                                       height: {configField.height || 50}px;
-                                      object-fit: contain;
-                                      z-index: 10;
+                                      z-index: 999;
+                                      pointer-events: all;
+                                      cursor: pointer;
                                     "
-                                  />
-                                {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && fieldValue}
+                                    on:dblclick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                    }}
+                                    on:mousedown={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleElementDoubleClick(e, configField, field, 'image', assignedProduct);
+                                    }}
+                                    role="button"
+                                    tabindex="0"
+                                  >
+                                    <img 
+                                      src={configField.variantIconUrl} 
+                                      alt="Variant Icon" 
+                                      class="field-variant-icon"
+                                      style="
+                                        width: 100%;
+                                        height: 100%;
+                                        object-fit: contain;
+                                        pointer-events: none;
+                                      "
+                                    />
+                                  </div>
+                                {:else if configField.label === 'expiry_date_label'}
+                                  <!-- Expiry Date Label -->
+                                  <div 
+                                    class="expiry-date-label"
+                                    style="
+                                      position: absolute;
+                                      left: 0;
+                                      top: 0;
+                                      width: 100%;
+                                      height: 100%;
+                                      display: flex;
+                                      flex-direction: column;
+                                      align-items: center;
+                                      justify-content: center;
+                                      font-size: {configField.fontSize || 14}px;
+                                      color: {configField.color || '#000000'};
+                                      text-align: center;
+                                      direction: rtl;
+                                      font-family: {configField.fontFamily || 'Arial'}, sans-serif;
+                                      font-weight: {configField.bold ? 'bold' : 'normal'};
+                                      line-height: 1.4;
+                                    "
+                                  >
+                                    <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)}</span>
+                                    <span>أو حتى نفاد الكمية</span>
+                                  </div>
+                                {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && fieldValue}
                                   <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
                                   <div 
                                     class="resizable-element"
@@ -2422,6 +2539,7 @@
                                         text-decoration: {configField.label === 'price' ? 'none' : (configField.strikethrough ? 'line-through' : 'none')};
                                         font-weight: {configField.bold ? 'bold' : 'normal'};
                                         font-style: {configField.italic ? 'italic' : 'normal'};
+                                        line-height: 1.3;
                                         {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
                                         display: flex;
                                         align-items: center;
@@ -3122,7 +3240,7 @@
   .field-text-preview {
     position: absolute;
     pointer-events: none;
-    line-height: 0.8;
+    line-height: 1.2;
     user-select: none;
     white-space: pre-line;
     text-align: center;
