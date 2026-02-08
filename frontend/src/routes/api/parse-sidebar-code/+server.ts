@@ -52,7 +52,7 @@ export const GET: RequestHandler = async () => {
 			},
 			MEDIA: {
 				DASHBOARD: ['FLYER_MASTER'],
-				MANAGE: ['PRODUCT_MASTER', 'VARIATION_MANAGER', 'OFFER_MANAGER', 'FLYER_TEMPLATES', 'FLYER_SETTINGS', 'SOCIAL_LINK_MANAGER'],
+				MANAGE: ['PRODUCT_MASTER', 'VARIATION_MANAGER', 'OFFER_MANAGER', 'FLYER_TEMPLATES', 'FLYER_SETTINGS', 'NORMAL_PAPER_MANAGER', 'SOCIAL_LINK_MANAGER'],
 				OPERATIONS: ['OFFER_PRODUCT_EDITOR', 'CREATE_NEW_OFFER', 'PRICING_MANAGER', 'ERP_ENTRY_MANAGER', 'GENERATE_FLYERS', 'SHELF_PAPER_MANAGER', 'NEAR_EXPIRY_MANAGER'],
 				REPORTS: []
 			},
@@ -185,7 +185,8 @@ export const GET: RequestHandler = async () => {
 			SOUND_SETTINGS: 'Sound Settings',
 			ERP_CONNECTIONS: 'ERP Connections',
 			FLYER_MASTER: 'Flyer Master',
-			FLYER_SETTINGS: 'Settings'
+			FLYER_SETTINGS: 'Settings',
+			NORMAL_PAPER_MANAGER: 'Normal Paper Manager'
 		};
 
 		// Actual button code mappings (for Controls section)
