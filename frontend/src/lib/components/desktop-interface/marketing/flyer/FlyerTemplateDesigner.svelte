@@ -42,6 +42,7 @@
     y: number;
     width: number;
     height: number;
+    rotation?: number;
     fields: FieldData[];
     pageNumber: number;
     pageOrder: number;
@@ -519,6 +520,7 @@
       y: 50,
       width: 150,
       height: 150,
+      rotation: 0,
       fields: [],
       pageNumber: currentPage,
       pageOrder: maxOrder + 1
@@ -547,6 +549,7 @@
       y: 100,
       width: 100,
       height: 100,
+      rotation: 0,
       fields: [{
         type: 'special_symbol',
         fontSize: 16,
@@ -594,6 +597,7 @@
       y: 100,
       width: 250,
       height: 60,
+      rotation: 0,
       fields: [{
         type: 'expiry_date_label',
         label: 'expiry_date_label',
@@ -602,6 +606,42 @@
         color: '#000000',
         startDate: startDateStr,
         endDate: endDateStr
+      }],
+      pageNumber: currentPage,
+      pageOrder: 0
+    };
+    
+    if (activeTab === 'first') {
+      firstPageFields = [...firstPageFields, newField];
+    } else {
+      if (!subPageFieldsArray[activeSubPageIndex]) {
+        subPageFieldsArray[activeSubPageIndex] = [];
+      }
+      subPageFieldsArray[activeSubPageIndex] = [...subPageFieldsArray[activeSubPageIndex], newField];
+      subPageFieldsArray = [...subPageFieldsArray];
+    }
+    
+    selectedFieldId = newField.id;
+  }
+  
+  function addPageNumber() {
+    const currentPage = activeTab === 'first' ? 1 : activeSubPageIndex + 2;
+    
+    const newField: ProductField = {
+      id: `page-number-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      number: nextFieldNumber++,
+      x: 350,
+      y: 50,
+      width: 80,
+      height: 40,
+      rotation: 0,
+      fields: [{
+        type: 'page_number',
+        label: 'page_number',
+        fontSize: 20,
+        alignment: 'center',
+        color: '#000000',
+        bold: true
       }],
       pageNumber: currentPage,
       pageOrder: 0
@@ -654,6 +694,7 @@
       y: Math.min(fieldToCopy.y + 20, 1123 - fieldToCopy.height),
       width: fieldToCopy.width,
       height: fieldToCopy.height,
+      rotation: fieldToCopy.rotation || 0,
       fields: JSON.parse(JSON.stringify(fieldToCopy.fields)), // Deep copy of field configurations
       pageNumber: fieldToCopy.pageNumber || 1,
       pageOrder: maxOrder + 1
@@ -720,6 +761,7 @@
       y: fieldToCopy.y,
       width: fieldToCopy.width,
       height: fieldToCopy.height,
+      rotation: fieldToCopy.rotation || 0,
       fields: JSON.parse(JSON.stringify(fieldToCopy.fields)), // Deep copy of field configurations
       pageNumber: targetIndex + 2, // Sub page 1 is page 2, sub page 2 is page 3, etc.
       pageOrder: maxOrder + 1
@@ -862,6 +904,15 @@
         break;
       case 'ArrowRight':
         updateField(selectedFieldId, { x: field.x + step });
+        break;
+      case 'r':
+      case 'R':
+        // Rotate field
+        event.preventDefault();
+        const rotateStep = event.shiftKey ? -15 : 15; // Shift+R rotates counter-clockwise
+        const currentRotation = field.rotation || 0;
+        const newRotation = (currentRotation + rotateStep) % 360;
+        updateField(selectedFieldId, { rotation: newRotation < 0 ? newRotation + 360 : newRotation });
         break;
       case 'Delete':
         deleteField(selectedFieldId);
@@ -1033,6 +1084,14 @@
           📅 Add Expiry Date Label
         </button>
         
+        <button 
+          class="add-page-number-btn" 
+          on:click={addPageNumber} 
+          disabled={activeTab === 'first' ? !firstPageImage : !subPageImages[activeSubPageIndex]}
+        >
+          🔢 Add Page Number
+        </button>
+        
         <div class="fields-list">
           <h4 class="fields-list-title">
             {activeTab === 'first' ? 'First Page' : `Sub Page ${activeSubPageIndex + 1}`} Fields ({activeTab === 'first' ? firstPageFields.length : (subPageFieldsArray[activeSubPageIndex] || []).length})
@@ -1094,6 +1153,58 @@
                 </label>
               </div>
               
+              <!-- Rotation controls -->
+              <div class="field-rotation-controls" on:click|stopPropagation>
+                <label class="rotation-label">
+                  🔄 Rotation: {field.rotation || 0}°
+                </label>
+                <div class="rotation-buttons">
+                  <button
+                    class="rotation-btn"
+                    on:click|stopPropagation={() => {
+                      const currentRotation = field.rotation || 0;
+                      const newRotation = (currentRotation - 15 + 360) % 360;
+                      updateField(field.id, { rotation: newRotation });
+                    }}
+                    title="Rotate counter-clockwise 15°"
+                  >
+                    ↺
+                  </button>
+                  <input 
+                    type="number" 
+                    min="0"
+                    max="359"
+                    step="1"
+                    value={field.rotation || 0}
+                    on:input={(e) => {
+                      const value = parseInt(e.target.value) || 0;
+                      const normalized = ((value % 360) + 360) % 360;
+                      updateField(field.id, { rotation: normalized });
+                    }}
+                    class="rotation-input"
+                    title="Enter rotation angle (0-359°)"
+                  />
+                  <button
+                    class="rotation-btn"
+                    on:click|stopPropagation={() => {
+                      const currentRotation = field.rotation || 0;
+                      const newRotation = (currentRotation + 15) % 360;
+                      updateField(field.id, { rotation: newRotation });
+                    }}
+                    title="Rotate clockwise 15°"
+                  >
+                    ↻
+                  </button>
+                  <button
+                    class="rotation-btn reset-btn"
+                    on:click|stopPropagation={() => updateField(field.id, { rotation: 0 })}
+                    title="Reset rotation to 0°"
+                  >
+                    ⟲
+                  </button>
+                </div>
+              </div>
+              
               {#if field.fields.length > 0}
                 <div class="field-tags">
                   {#each field.fields.slice(0, 3) as subField}
@@ -1150,7 +1261,7 @@
                   {#each firstPageFields as field}
                     <div
                       class="product-field {selectedFieldId === field.id ? 'selected' : ''}"
-                      style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px;"
+                      style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px; transform: rotate({field.rotation || 0}deg); transform-origin: center center;"
                       on:mousedown={(e) => handleMouseDown(e, field.id)}
                       on:dblclick={() => handleFieldDoubleClick(field)}
                     >
@@ -1321,7 +1432,7 @@
                   {#each (subPageFieldsArray[activeSubPageIndex] || []) as field}
                     <div
                       class="product-field {selectedFieldId === field.id ? 'selected' : ''}"
-                      style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px;"
+                      style="left: {field.x}px; top: {field.y}px; width: {field.width}px; height: {field.height}px; transform: rotate({field.rotation || 0}deg); transform-origin: center center;"
                       on:mousedown={(e) => handleMouseDown(e, field.id)}
                       on:dblclick={() => handleFieldDoubleClick(field)}
                     >
@@ -2136,6 +2247,92 @@
 
   .page-order-input:hover {
     border-color: #7c3aed;
+  }
+
+  .field-rotation-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin-bottom: 0.5rem;
+    padding: 0.375rem;
+    background: #f0f9ff;
+    border-radius: 6px;
+    border: 1px solid #bfdbfe;
+  }
+
+  .rotation-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #1e40af;
+    text-align: center;
+  }
+
+  .rotation-buttons {
+    display: flex;
+    gap: 0.375rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rotation-btn {
+    padding: 0.375rem 0.625rem;
+    background: white;
+    border: 1px solid #93c5fd;
+    border-radius: 4px;
+    font-size: 1.125rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #1e40af;
+    font-weight: bold;
+    line-height: 1;
+    min-width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rotation-btn:hover {
+    background: #dbeafe;
+    border-color: #3b82f6;
+    transform: scale(1.05);
+  }
+
+  .rotation-btn:active {
+    background: #bfdbfe;
+    transform: scale(0.98);
+  }
+
+  .rotation-btn.reset-btn {
+    border-color: #fca5a5;
+    color: #dc2626;
+  }
+
+  .rotation-btn.reset-btn:hover {
+    background: #fee2e2;
+    border-color: #ef4444;
+  }
+
+  .rotation-input {
+    width: 65px;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid #93c5fd;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    text-align: center;
+    background: white;
+    font-weight: 600;
+    color: #1e40af;
+    transition: all 0.2s;
+  }
+
+  .rotation-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  }
+
+  .rotation-input:hover {
+    border-color: #3b82f6;
   }
 
   .save-btn {
