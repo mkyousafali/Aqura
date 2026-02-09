@@ -5,15 +5,43 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ38.14.9.9</p>
-		<p class="version-details">Desktop: 38 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
+		<p class="version-title">Version AQ39.14.9.9</p>
+		<p class="version-details">Desktop: 39 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ Shelf Paper Enhancements, Offer Editor Fix, Sidebar Favorites & More</h3>
+		<p class="change-description">Major improvements to shelf paper designer, offer product editor data integrity, sidebar favorites, flyer system, and new Normal Paper Manager.</p>
+		<div class="change-details">
+			<h4>February 9, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Offer Product Editor:</b> Save now uses upsert instead of delete+reinsert — preserves all pricing data (cost, sales_price, offer_price, profit, quantities) when adding or removing products.</li>
+				<li>✅ <b>Shelf Paper - Select All Sizes:</b> Added A4/A5/A6/A7 select-all toggle buttons in the PDF Size column header for bulk size selection.</li>
+				<li>✅ <b>Shelf Paper - Offer Qty Images:</b> Products with offer_qty &gt; 1 now display repeated images in a grid layout (like variation groups) in both template and non-template PDF generation.</li>
+				<li>✅ <b>Shelf Paper - Parallel Loading:</b> Offers, templates, and fonts now load simultaneously for faster startup.</li>
+				<li>✅ <b>Shelf Paper - Loading Indicator:</b> Template dropdown shows spinner and "Loading templates..." text while loading.</li>
+				<li>✅ <b>Normal Paper Manager:</b> New component with template download, Excel import, table display, and scannable barcode printing.</li>
+				<li>✅ <b>Sidebar Favorites:</b> Users can pin favorite buttons to sidebar for quick access with persistent storage.</li>
+			</ul>
+		</div>
+		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+			<h4>February 3–8, 2026:</h4>
+			<ul>
+				<li>✅ <b>Flyer System:</b> Page numbers, rotation support, custom fonts per field, variant icon field type, expiry date labels, improved image handling and PNG export.</li>
+				<li>✅ <b>Variant Groups:</b> Create variant groups from Offer Product Selector with AI naming, proper page/order tracking, and automatic grid image layout.</li>
+				<li>✅ <b>Finance:</b> View All Paid windows with filters and Excel export for vendor/expense payments with sticky headers.</li>
+				<li>✅ <b>Branding:</b> Updated app logo to new Aqura logo across all interfaces.</li>
+				<li>✅ <b>Bug Fixes:</b> Vendor payment approval routing fix, Arabic filename sanitization for uploads, ERP Entry Manager column cleanup, price field strikethrough positioning.</li>
+			</ul>
+		</div>
+		<p class="date">Current Version (AQ39)</p>
+	</div>
+
+	<div class="previous-change">
 		<h3>✨ Flyer Offer Templates - Product Variations & Barcode Support</h3>
 		<p class="change-description">Enhanced flyer offer templates with comprehensive product variation management, barcode display options, and improved product selection interface.</p>
 		<div class="change-details">
-			<h4>February 3, 2026 (Latest):</h4>
+			<h4>February 3, 2026:</h4>
 			<ul>
 				<li>✅ <b>Product Variations:</b> Complete variation management system with size, color, and specification tracking for offer products.</li>
 				<li>✅ <b>Barcode Display:</b> Added configurable barcode display in offer templates with uppercase formatting and proper font styling.</li>
@@ -24,7 +52,7 @@
 				<li>✅ <b>UI/UX:</b> Improved visual hierarchy and spacing in offer templates for better readability across all product display modes.</li>
 			</ul>
 		</div>
-		<p class="date">Current Version (AQ38)</p>
+		<p class="date">February 3, 2026 (AQ38)</p>
 	</div>
 
 	<div class="previous-change">
