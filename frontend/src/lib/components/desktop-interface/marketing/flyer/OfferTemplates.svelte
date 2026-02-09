@@ -28,6 +28,9 @@
 	// Page/Order tracking for products
 	let productPageOrderMap: Map<string, {page: number, order: number}> = new Map();
 	
+	// Store existing flyer_offer_products data to preserve pricing on save
+	let existingOfferProductData: Map<string, any> = new Map();
+	
 	// Page selection modal state
 	let showPageSelectModal: boolean = false;
 	let pendingProductBarcode: string = '';
@@ -98,10 +101,10 @@
 				supabase
 					.from('product_units')
 					.select('id, name_en'),
-				// Load selected products for this template with page/order
+				// Load selected products for this template with ALL fields (to preserve pricing on save)
 				supabase
 					.from('flyer_offer_products')
-					.select('product_barcode, page_number, page_order')
+					.select('*')
 					.eq('offer_id', templateId)
 			];
 			
@@ -110,7 +113,7 @@
 				loadTasks.push(
 					supabase
 						.from('products')
-						.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en')
+						.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en, cost, sale_price')
 						.order('barcode', { ascending: true })
 				);
 			}
@@ -165,8 +168,9 @@
 				}
 			}
 
-			// Process selected products with page/order
+			// Process selected products with page/order and store full data
 			productPageOrderMap.clear();
+			existingOfferProductData.clear();
 			if (selectedResult.error) {
 				console.error('Error loading selected products:', selectedResult.error);
 				alert('Error loading selected products. Please try again.');
@@ -177,8 +181,11 @@
 						page: item.page_number || 1,
 						order: item.page_order || 1
 					});
+					// Store full row data so we can preserve pricing fields on save
+					existingOfferProductData.set(item.product_barcode, item);
 				});
 				productPageOrderMap = productPageOrderMap;
+				existingOfferProductData = existingOfferProductData;
 				selectedProducts = selectedProducts; // Trigger reactivity
 			}
 
@@ -541,58 +548,102 @@
 		isSaving = true;
 
 		try {
-			// First, delete all existing product selections for this template
-			const { error: deleteError } = await supabase
-				.from('flyer_offer_products')
-				.delete()
-				.eq('offer_id', selectedTemplate.id);
+			// Determine which products were removed
+			const previousBarcodes = new Set(existingOfferProductData.keys());
+			const currentBarcodes = new Set(selectedProducts);
+			const removedBarcodes = [...previousBarcodes].filter(b => !currentBarcodes.has(b));
+			
+			// Step 1: Delete only REMOVED products (not all)
+			if (removedBarcodes.length > 0) {
+				const { error: deleteError } = await supabase
+					.from('flyer_offer_products')
+					.delete()
+					.eq('offer_id', selectedTemplate.id)
+					.in('product_barcode', removedBarcodes);
 
-			if (deleteError) {
-				console.error('Error deleting old products:', deleteError);
-				alert('Error updating product selections. Please try again.');
-				isSaving = false;
-				return;
+				if (deleteError) {
+					console.error('Error deleting removed products:', deleteError);
+					alert('Error removing products. Please try again.');
+					isSaving = false;
+					return;
+				}
 			}
 
-			// Insert new selections
+			// Step 2: Upsert all current products (insert new, update existing page/order)
 			if (selectedProducts.size > 0) {
-				const insertData = Array.from(selectedProducts).map(barcode => {
-					// Find the product to get its cost and sales_price
+				const upsertData = Array.from(selectedProducts).map(barcode => {
 					const product = allProducts.find(p => p.barcode === barcode);
 					const pageOrder = productPageOrderMap.get(barcode);
+					const existing = existingOfferProductData.get(barcode);
 					
-					return {
-						offer_id: selectedTemplate.id,
-						product_barcode: barcode,
-						page_number: pageOrder?.page || 1,
-						page_order: pageOrder?.order || 1,
-						cost: product?.cost || 0,
-						sales_price: product?.sales_price || 0,
-						profit_amount: product?.cost && product?.sales_price 
-							? (product.sales_price - product.cost) 
-							: 0,
-						profit_percent: product?.cost && product?.sales_price && product.cost > 0
-							? ((product.sales_price - product.cost) / product.cost) * 100
-							: 0,
-						offer_qty: 1,
-						limit_qty: null,
-						free_qty: 0,
-						offer_price: 0,
-						profit_after_offer: 0,
-						decrease_amount: 0
-					};
+					if (existing) {
+						// Product already existed — preserve ALL fields, only update page/order
+						return {
+							offer_id: selectedTemplate.id,
+							product_barcode: barcode,
+							page_number: pageOrder?.page || existing.page_number || 1,
+							page_order: pageOrder?.order || existing.page_order || 1,
+							cost: existing.cost,
+							sales_price: existing.sales_price,
+							offer_price: existing.offer_price,
+							profit_amount: existing.profit_amount,
+							profit_percent: existing.profit_percent,
+							profit_after_offer: existing.profit_after_offer,
+							decrease_amount: existing.decrease_amount,
+							offer_qty: existing.offer_qty,
+							limit_qty: existing.limit_qty,
+							free_qty: existing.free_qty,
+							total_sales_price: existing.total_sales_price,
+							total_offer_price: existing.total_offer_price
+						};
+					} else {
+						// New product — use cost/sale_price from products table
+						const cost = product?.cost || 0;
+						const salesPrice = product?.sale_price || 0;
+						return {
+							offer_id: selectedTemplate.id,
+							product_barcode: barcode,
+							page_number: pageOrder?.page || 1,
+							page_order: pageOrder?.order || 1,
+							cost: cost,
+							sales_price: salesPrice,
+							profit_amount: cost && salesPrice ? (salesPrice - cost) : 0,
+							profit_percent: cost && salesPrice && cost > 0 ? ((salesPrice - cost) / cost) * 100 : 0,
+							offer_qty: 1,
+							limit_qty: null,
+							free_qty: 0,
+							offer_price: 0,
+							profit_after_offer: 0,
+							decrease_amount: 0,
+							total_sales_price: 0,
+							total_offer_price: 0
+						};
+					}
 				});
 
-				const { error: insertError } = await supabase
+				const { error: upsertError } = await supabase
 					.from('flyer_offer_products')
-					.insert(insertData);
+					.upsert(upsertData, { onConflict: 'offer_id,product_barcode' });
 
-				if (insertError) {
-					console.error('Error inserting products:', insertError);
+				if (upsertError) {
+					console.error('Error upserting products:', upsertError);
 					alert('Error saving product selections. Please try again.');
 					isSaving = false;
 					return;
 				}
+			}
+
+			// Refresh existingOfferProductData with the newly saved data
+			const { data: refreshedData } = await supabase
+				.from('flyer_offer_products')
+				.select('*')
+				.eq('offer_id', selectedTemplate.id);
+			if (refreshedData) {
+				existingOfferProductData.clear();
+				refreshedData.forEach(item => {
+					existingOfferProductData.set(item.product_barcode, item);
+				});
+				existingOfferProductData = existingOfferProductData;
 			}
 
 			alert(`Successfully saved ${selectedProducts.size} products for ${selectedTemplate.template_name}`);
