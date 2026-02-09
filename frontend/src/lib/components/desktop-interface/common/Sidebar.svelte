@@ -4619,7 +4619,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title={t('nav.whatsNew')}>
-				AQ38.14.9.9
+				AQ39.14.9.9
 			</button>
 		</div>
 	</div>
