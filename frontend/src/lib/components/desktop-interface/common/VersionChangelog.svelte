@@ -5,23 +5,26 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ39.14.9.9</p>
-		<p class="version-details">Desktop: 39 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
+		<p class="version-title">Version AQ40.14.9.9</p>
+		<p class="version-details">Desktop: 40 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
 		</div>
 
 		<div class="latest-change">
-		<h3>✨ Shelf Paper Enhancements, Offer Editor Fix, Sidebar Favorites & More</h3>
-		<p class="change-description">Major improvements to shelf paper designer, offer product editor data integrity, sidebar favorites, flyer system, and new Normal Paper Manager.</p>
+		<h3>✨ One Day Offer Manager, Shelf Paper Enhancements & More</h3>
+		<p class="change-description">New One Day Offer Manager with full offer workflow, shelf paper improvements, offer editor data integrity, and sidebar favorites.</p>
 		<div class="change-details">
 			<h4>February 9, 2026 (Latest):</h4>
 			<ul>
-				<li>✅ <b>Offer Product Editor:</b> Save now uses upsert instead of delete+reinsert — preserves all pricing data (cost, sales_price, offer_price, profit, quantities) when adding or removing products.</li>
-				<li>✅ <b>Shelf Paper - Select All Sizes:</b> Added A4/A5/A6/A7 select-all toggle buttons in the PDF Size column header for bulk size selection.</li>
-				<li>✅ <b>Shelf Paper - Offer Qty Images:</b> Products with offer_qty &gt; 1 now display repeated images in a grid layout (like variation groups) in both template and non-template PDF generation.</li>
-				<li>✅ <b>Shelf Paper - Parallel Loading:</b> Offers, templates, and fonts now load simultaneously for faster startup.</li>
-				<li>✅ <b>Shelf Paper - Loading Indicator:</b> Template dropdown shows spinner and "Loading templates..." text while loading.</li>
-				<li>✅ <b>Normal Paper Manager:</b> New component with template download, Excel import, table display, and scannable barcode printing.</li>
-				<li>✅ <b>Sidebar Favorites:</b> Users can pin favorite buttons to sidebar for quick access with persistent storage.</li>
+				<li>✅ <b>One Day Offer Manager:</b> New complete offer management tool — download Excel template, import products, 21+ column editable table with double-click name editing.</li>
+				<li>✅ <b>Offer Price Generator:</b> Smart algorithm that finds the lowest price ending in .95 (preferred) or .50 above cost, ensures minimum 2.05 decrease from sales price, auto-increases sales price if needed.</li>
+				<li>✅ <b>Offer Date Assignment:</b> Assign start and end dates to all products with calendar pickers, dates shown in DD-MM-YYYY format.</li>
+				<li>✅ <b>Print with Templates:</b> Print shelf paper using existing template system with offer prices, SAR currency icons, Arabic date labels, and configurable print copies per product.</li>
+				<li>✅ <b>Export for Entry:</b> Export to Excel with S.No, Barcode, scannable barcode images (CODE128), Product Name, Unit, Total Sales/Offer Price, Offer Type, Qty, Free, Limit.</li>
+				<li>✅ <b>Editable Columns:</b> Sales Price, Offer Price, Total Sales Price, Total Offer Price (back-calculates unit prices), Print Qty, Offer Qty, Free, Limit — all inline editable.</li>
+				<li>✅ <b>Profit Analytics:</b> Average Profit % Before and After offer shown in sticky footer, color-coded profit indicators per product.</li>
+				<li>✅ <b>Offer Product Editor:</b> Save now uses upsert instead of delete+reinsert — preserves all pricing data.</li>
+				<li>✅ <b>Shelf Paper Enhancements:</b> Select-all sizes toggle, offer qty grid images, parallel loading, loading indicator.</li>
+				<li>✅ <b>Normal Paper Manager:</b> New component with template download, Excel import, and scannable barcode printing.</li>
 			</ul>
 		</div>
 		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
@@ -34,7 +37,7 @@
 				<li>✅ <b>Bug Fixes:</b> Vendor payment approval routing fix, Arabic filename sanitization for uploads, ERP Entry Manager column cleanup, price field strikethrough positioning.</li>
 			</ul>
 		</div>
-		<p class="date">Current Version (AQ39)</p>
+		<p class="date">Current Version (AQ40)</p>
 	</div>
 
 	<div class="previous-change">
