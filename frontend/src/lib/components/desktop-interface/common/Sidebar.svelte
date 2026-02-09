@@ -67,6 +67,7 @@
 	import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
 	import NearExpiryManager from '$lib/components/desktop-interface/marketing/flyer/NearExpiryManager.svelte';
 	import NormalPaperManager from '$lib/components/desktop-interface/marketing/flyer/NormalPaperManager.svelte';
+	import OneDayOfferManager from '$lib/components/desktop-interface/marketing/flyer/OneDayOfferManager.svelte';
 	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
 	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
@@ -197,6 +198,7 @@
 		'PRODUCT_MASTER': 'nav.productMaster', 'VARIATION_MANAGER': 'nav.variationManager',
 		'OFFER_MANAGER': 'nav.offerManager', 'FLYER_TEMPLATES': 'nav.flyerTemplates',
 		'FLYER_SETTINGS': 'nav.flyerSettings', 'NORMAL_PAPER_MANAGER': 'nav.normalPaperManager',
+		'ONE_DAY_OFFER_MANAGER': 'nav.oneDayOfferManager',
 		'SOCIAL_LINK_MANAGER': 'nav.socialLinkManager', 'OFFER_PRODUCT_EDITOR': 'nav.offerProductEditor',
 		'CREATE_NEW_OFFER': 'nav.createNewOffer', 'PRICING_MANAGER': 'nav.pricingManager',
 		'ERP_ENTRY_MANAGER': 'nav.erpEntryManager', 'GENERATE_FLYERS': 'nav.generateFlyers',
@@ -1558,6 +1560,7 @@ function openApprovalCenter() {
 			'FLYER_TEMPLATES': openFlyerTemplates,
 			'FLYER_SETTINGS': openFlyerSettings,
 			'NORMAL_PAPER_MANAGER': openNormalPaperManager,
+			'ONE_DAY_OFFER_MANAGER': openOneDayOfferManager,
 			'SOCIAL_LINK_MANAGER': openSocialLinkManager,
 			'OFFER_PRODUCT_EDITOR': openOfferProductEditor,
 			'CREATE_NEW_OFFER': openCreateNewOffer,
@@ -2311,6 +2314,24 @@ function openApprovalCenter() {
 			title: `Normal Paper Manager #${instanceNumber}`,
 			component: NormalPaperManager,
 			icon: '📄',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openOneDayOfferManager() {
+		const windowId = generateWindowId('one-day-offer-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `One Day Offer Manager #${instanceNumber}`,
+			component: OneDayOfferManager,
+			icon: '📅',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
 			resizable: true,
@@ -3168,6 +3189,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openNormalPaperManager}>
 								<span class="menu-icon">📄</span>
 								<span class="menu-text">{t('nav.normalPaperManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ONE_DAY_OFFER_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOneDayOfferManager}>
+								<span class="menu-icon">📅</span>
+								<span class="menu-text">{t('nav.oneDayOfferManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -4619,7 +4648,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title={t('nav.whatsNew')}>
-				AQ39.14.9.9
+				AQ40.14.9.9
 			</button>
 		</div>
 	</div>

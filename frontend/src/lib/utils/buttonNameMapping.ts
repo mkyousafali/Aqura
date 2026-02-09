@@ -83,5 +83,6 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Approval Permissions": "APPROVAL_PERMISSIONS",
   "Denomination": "DENOMINATION",
   "Petty Cash": "PETTY_CASH",
-  "Approval Center": "APPROVAL_CENTER"
+  "Approval Center": "APPROVAL_CENTER",
+  "One Day Offer Manager": "ONE_DAY_OFFER_MANAGER"
 };
