@@ -94,9 +94,11 @@
   }
 
   onMount(async () => {
-    await loadActiveOffers();
-    await loadTemplates();
-    await loadCustomFonts();
+    await Promise.all([
+      loadActiveOffers(),
+      loadTemplates(),
+      loadCustomFonts()
+    ]);
   });
 
   async function loadCustomFonts() {
@@ -349,6 +351,21 @@
   $: {
     searchQuery;
     searchBy;
+    filterProducts();
+  }
+
+  function selectAllSize(size: 'a4' | 'a5' | 'a6' | 'a7') {
+    const allSelected = filteredProducts.every(p => p.pdfSizes.includes(size));
+    products = products.map(p => {
+      // Only affect products currently visible in filtered list
+      if (filteredProducts.some(fp => fp.barcode === p.barcode)) {
+        const sizes = allSelected
+          ? p.pdfSizes.filter(s => s !== size)
+          : p.pdfSizes.includes(size) ? p.pdfSizes : [...p.pdfSizes, size];
+        return { ...p, pdfSizes: sizes };
+      }
+      return p;
+    });
     filterProducts();
   }
 
@@ -631,7 +648,26 @@
           imgHtml += '</div>';
           console.log('✅ Generated imgHtml:', imgHtml.substring(0, 200));
         } else if (product.image_url) {
-          imgHtml = '<img src="' + product.image_url + '" class="pi" alt="' + product.product_name_en + '">';
+          if (product.offer_qty > 1) {
+            // Repeat product image offer_qty times in a grid (like variations)
+            const totalImages = product.offer_qty;
+            const cols = Math.ceil(Math.sqrt(totalImages));
+            const rows = Math.ceil(totalImages / cols);
+            const cellWidthPercent = 100 / cols;
+            const cellHeightPercent = 100 / rows;
+            
+            imgHtml = '<div class="img-grid" style="position:relative;width:100%;height:100%;">';
+            for (let qi = 0; qi < totalImages; qi++) {
+              const row = Math.floor(qi / cols);
+              const col = qi % cols;
+              const left = col * cellWidthPercent;
+              const top = row * cellHeightPercent;
+              imgHtml += '<img src="' + product.image_url + '" style="position:absolute;left:' + left + '%;top:' + top + '%;width:' + cellWidthPercent + '%;height:' + cellHeightPercent + '%;object-fit:contain;padding:2%;" alt="' + product.product_name_en + ' (' + (qi + 1) + ')">';
+            }
+            imgHtml += '</div>';
+          } else {
+            imgHtml = '<img src="' + product.image_url + '" class="pi" alt="' + product.product_name_en + '">';
+          }
         } else {
           imgHtml = '<div style="width:100%;height:40%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:48px">📦</div>';
         }
@@ -836,8 +872,29 @@
               
               pageHtml += '</div>';
             } else if (product.image_url) {
-              // Single product image (transparent background)
-              pageHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+              if (product.offer_qty > 1) {
+                // Repeat product image offer_qty times in a grid (like variations)
+                pageHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;">';
+                const totalImages = product.offer_qty;
+                const cols = Math.ceil(Math.sqrt(totalImages));
+                const rows = Math.ceil(totalImages / cols);
+                const cellWidth = scaledWidth / cols;
+                const cellHeight = scaledHeight / rows;
+                
+                for (let qi = 0; qi < totalImages; qi++) {
+                  const row = Math.floor(qi / cols);
+                  const col = qi % cols;
+                  const left = col * cellWidth;
+                  const top = row * cellHeight;
+                  const padding = Math.min(cellWidth, cellHeight) * 0.05;
+                  
+                  pageHtml += '<img src="' + product.image_url + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + cellWidth + 'px;height:' + cellHeight + 'px;object-fit:contain;padding:' + padding + 'px;" alt="' + product.product_name_en + ' (' + (qi + 1) + ')">';
+                }
+                pageHtml += '</div>';
+              } else {
+                // Single product image (transparent background)
+                pageHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+              }
             }
             return;
         }
@@ -1144,8 +1201,29 @@
                 
                 productFieldsHtml += '</div>';
               } else if (product.image_url) {
-                // Single product image (transparent background)
-                productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+                if (product.offer_qty > 1) {
+                  // Repeat product image offer_qty times in a grid (like variations)
+                  productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;">';
+                  const totalImages = product.offer_qty;
+                  const cols = Math.ceil(Math.sqrt(totalImages));
+                  const rows = Math.ceil(totalImages / cols);
+                  const cellWidth = scaledWidth / cols;
+                  const cellHeight = scaledHeight / rows;
+                  
+                  for (let qi = 0; qi < totalImages; qi++) {
+                    const row = Math.floor(qi / cols);
+                    const col = qi % cols;
+                    const left = col * cellWidth;
+                    const top = row * cellHeight;
+                    const padding = Math.min(cellWidth, cellHeight) * 0.05;
+                    
+                    productFieldsHtml += '<img src="' + product.image_url + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + cellWidth + 'px;height:' + cellHeight + 'px;object-fit:contain;padding:' + padding + 'px;" alt="' + product.product_name_en + ' (' + (qi + 1) + ')">';
+                  }
+                  productFieldsHtml += '</div>';
+                } else {
+                  // Single product image (transparent background)
+                  productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+                }
               }
               return;
           }
@@ -1265,17 +1343,32 @@
           <!-- Template Selector -->
           <div class="template-selector">
             <label for="template-select" class="template-label">📐 Choose Template:</label>
-            <select 
-              id="template-select"
-              bind:value={selectedTemplateId}
-              class="template-select"
-              disabled={isLoadingTemplates}
-            >
-              <option value={null}>-- No Template (Default Layout) --</option>
-              {#each savedTemplates as template}
-                <option value={template.id}>{template.name}</option>
-              {/each}
-            </select>
+            <div style="position:relative;display:inline-block;">
+              <select 
+                id="template-select"
+                bind:value={selectedTemplateId}
+                class="template-select"
+                disabled={isLoadingTemplates}
+                style={isLoadingTemplates ? 'opacity:0.5;pointer-events:none;' : ''}
+              >
+                {#if isLoadingTemplates}
+                  <option value={null}>Loading templates...</option>
+                {:else}
+                  <option value={null}>-- No Template (Default Layout) --</option>
+                  {#each savedTemplates as template}
+                    <option value={template.id}>{template.name}</option>
+                  {/each}
+                {/if}
+              </select>
+              {#if isLoadingTemplates}
+                <span style="position:absolute;right:30px;top:50%;transform:translateY(-50%);display:inline-flex;">
+                  <svg class="animate-spin" style="width:16px;height:16px;" fill="none" viewBox="0 0 24 24">
+                    <circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                </span>
+              {/if}
+            </div>
             {#if selectedTemplateId}
               <span class="template-badge">✓ Template Selected</span>
               <div class="size-buttons-group" style="display:inline-flex;gap:8px;margin-left:12px;">
@@ -1355,7 +1448,30 @@
                   <th>Qty</th>
                   <th>Limit</th>
                   <th>Savings</th>
-                  <th>PDF Size & Copies</th>
+                  <th>PDF Size & Copies
+                    <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
+                      <button
+                        class="select-all-size-btn"
+                        on:click={() => selectAllSize('a4')}
+                        title={filteredProducts.every(p => p.pdfSizes.includes('a4')) ? 'Deselect all A4' : 'Select all A4'}
+                      >{filteredProducts.every(p => p.pdfSizes.includes('a4')) ? '☑' : '☐'} A4</button>
+                      <button
+                        class="select-all-size-btn"
+                        on:click={() => selectAllSize('a5')}
+                        title={filteredProducts.every(p => p.pdfSizes.includes('a5')) ? 'Deselect all A5' : 'Select all A5'}
+                      >{filteredProducts.every(p => p.pdfSizes.includes('a5')) ? '☑' : '☐'} A5</button>
+                      <button
+                        class="select-all-size-btn"
+                        on:click={() => selectAllSize('a6')}
+                        title={filteredProducts.every(p => p.pdfSizes.includes('a6')) ? 'Deselect all A6' : 'Select all A6'}
+                      >{filteredProducts.every(p => p.pdfSizes.includes('a6')) ? '☑' : '☐'} A6</button>
+                      <button
+                        class="select-all-size-btn"
+                        on:click={() => selectAllSize('a7')}
+                        title={filteredProducts.every(p => p.pdfSizes.includes('a7')) ? 'Deselect all A7' : 'Select all A7'}
+                      >{filteredProducts.every(p => p.pdfSizes.includes('a7')) ? '☑' : '☐'} A7</button>
+                    </div>
+                  </th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -1960,6 +2076,24 @@
 
   .pdf-checkbox span {
     user-select: none;
+  }
+
+  .select-all-size-btn {
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background: #f3f4f6;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .select-all-size-btn:hover {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
   }
 
   .copies-input-inline {
