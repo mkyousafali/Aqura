@@ -234,7 +234,63 @@ export const realtimeService = {
   },
 
   /**
-   * Subscribe to fingerprint changes for a specific date
+   * Subscribe to fingerprint changes for multiple employees
+   * @param employeeIds - Array of employee codes to filter by
+   * @param callback - Function to call when data changes
+   * @returns Unsubscribe function
+   */
+  subscribeToEmployeeFingerprintChangesMultiple(
+    employeeIds: string[],
+    callback: (payload: any) => void
+  ): (() => void) | null {
+    try {
+      console.log(`📡 Setting up real-time subscription for employees: ${employeeIds.join(', ')}...`);
+
+      const channelName = `fingerprint_multiple_${Date.now()}`;
+
+      // Create OR filter for multiple employee IDs
+      const filterConditions = employeeIds.map(id => `employee_id=eq.${id}`).join(',');
+
+      this.fingerprintChannel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'hr_fingerprint_transactions',
+            filter: filterConditions
+          },
+          (payload) => {
+            console.log(`📍 Real-time punch update for one of the employees:`, {
+              event: payload.eventType,
+              employee_id: payload.new?.employee_id || payload.old?.employee_id,
+              data: payload.new || payload.old
+            });
+            callback(payload);
+          }
+        )
+        .subscribe((status) => {
+          console.log(`📡 Subscription status for multiple employees:`, status);
+          if (status === 'SUBSCRIBED') {
+            console.log(`✅ Successfully subscribed to punches for employees: ${employeeIds.join(', ')}`);
+          }
+        });
+
+      return () => {
+        if (this.fingerprintChannel) {
+          console.log(`🔌 Unsubscribing from multiple employees' punches`);
+          supabase.removeChannel(this.fingerprintChannel);
+          this.fingerprintChannel = null;
+        }
+      };
+    } catch (error) {
+      console.error(`❌ Error setting up subscription for multiple employees:`, error);
+      return null;
+    }
+  },
+
+  /**
    * @param date - Date to filter by (YYYY-MM-DD format)
    * @param callback - Function to call when data changes
    * @returns Unsubscribe function
