@@ -164,70 +164,61 @@
 				};
 				return;
 			}
-			
-			// Step 2: Look up user record to get employee_id field from users table
-			console.log('🔍 Step 2 - Looking up user record in users table...');
-			const { data: userRecord, error: userError } = await supabase
-				.from('users')
-				.select('id, employee_id')
-				.eq('id', userUuid)
-				.single();
-			
-			if (userError || !userRecord) {
-				console.warn('⚠️ User record not found:', userError);
-				punches = {
-					records: [],
-					loading: false,
-					error: 'User record not found'
-				};
-				return;
-			}
-			
-			const employeeUuid = userRecord.employee_id;
-			console.log('👥 Step 2 - User employee_id (UUID):', employeeUuid);
-			
-			if (!employeeUuid) {
-				console.warn('⚠️ Employee ID not linked to user');
-				punches = {
-					records: [],
-					loading: false,
-					error: 'Employee not linked to user account'
-				};
-				return;
-			}
-			
-			// Step 3: Look up hr_employees to get employee_id code
-			console.log('🔍 Step 3 - Looking up employee record...');
-			const { data: employeeRecord, error: empError } = await supabase
-				.from('hr_employees')
-				.select('id, employee_id')
-				.eq('id', employeeUuid)
-				.single();
-			
-			if (empError || !employeeRecord) {
-				console.warn('⚠️ Employee record not found:', empError);
-				punches = {
-					records: [],
-					loading: false,
-					error: 'Employee record not found'
-				};
-				return;
-			}
-			
-			const employeeCode = employeeRecord.employee_id;
-			console.log('🎯 Step 3 - Found employee_id (code):', employeeCode);
-			
-			// Step 4: Search hr_fingerprint_transactions for:
-			// - employee_id = employeeCode
-			// - order by date and time descending to get last 2 punches
-			console.log('🔍 Step 4 - Searching fingerprint transactions...');
-			const { data: punchData, error: punchError } = await supabase
-				.from('hr_fingerprint_transactions')
-				.select('*')
-				.eq('employee_id', employeeCode)
-				.order('date', { ascending: false })
-				.order('time', { ascending: false })
-				.limit(2);
+		
+		// Step 2: Look up hr_employee_master record to get employee code mapping
+		console.log('🔍 Step 2 - Looking up employee record in hr_employee_master...');
+		const { data: employeeRecord, error: empError } = await supabase
+			.from('hr_employee_master')
+			.select('id, current_branch_id, employee_id_mapping')
+			.eq('user_id', userUuid)
+			.single();
+		
+		if (empError || !employeeRecord) {
+			console.warn('⚠️ Employee record not found:', empError);
+			punches = {
+				records: [],
+				loading: false,
+				error: 'Employee record not found'
+			};
+			return;
+		}
+		
+		console.log('👥 Step 2 - Employee record:', employeeRecord);
+		
+		// Step 3: Extract ALL employee codes from employee_id_mapping (across all branches)
+		console.log('🔍 Step 3 - Extracting all employee codes from mapping...');
+		const employeeIdMapping = employeeRecord.employee_id_mapping;
+		
+		let allEmployeeCodes = [];
+		if (typeof employeeIdMapping === 'string') {
+			const mappingObj = JSON.parse(employeeIdMapping);
+			allEmployeeCodes = Object.values(mappingObj) as string[];
+		} else {
+			allEmployeeCodes = Object.values(employeeIdMapping) as string[];
+		}
+		
+		if (!allEmployeeCodes || allEmployeeCodes.length === 0) {
+			console.warn('⚠️ No employee codes found in mapping');
+			punches = {
+				records: [],
+				loading: false,
+				error: 'No employee codes found'
+			};
+			return;
+		}
+		
+		console.log('🎯 Step 3 - Found employee codes across all branches:', allEmployeeCodes);
+		
+		// Step 4: Search hr_fingerprint_transactions for ALL employee codes
+		// - Get last 2 punches across all branches
+		console.log('🔍 Step 4 - Searching fingerprint transactions for all branches...');
+		const { data: punchData, error: punchError } = await supabase
+			.from('hr_fingerprint_transactions')
+			.select('*')
+			.in('employee_id', allEmployeeCodes)
+			.order('date', { ascending: false })
+			.order('time', { ascending: false })
+			.limit(2);
 			
 			console.log('📊 Step 4 - Punch data:', punchData);
 			console.log('❌ Step 4 - Error:', punchError);
@@ -304,15 +295,16 @@
 				};
 			}
 			
-			// Step 7: Setup real-time subscription for this employee's punches
-			console.log('📡 Step 7 - Setting up real-time subscription for employee:', employeeCode);
+			// Step 7: Setup real-time subscription for this employee's punches (all branches)
+			console.log('📡 Step 7 - Setting up real-time subscription for employee codes:', allEmployeeCodes);
 			if (unsubscribeFingerprint) {
 				console.log('🔌 Cleaning up previous subscription');
 				unsubscribeFingerprint();
 			}
 			
-			unsubscribeFingerprint = realtimeService.subscribeToEmployeeFingerprintChanges(
-				employeeCode,
+			// Subscribe to all employee codes
+			unsubscribeFingerprint = realtimeService.subscribeToEmployeeFingerprintChangesMultiple(
+				allEmployeeCodes,
 				(payload) => {
 					console.log('🔔 Real-time punch update received:', payload);
 					
