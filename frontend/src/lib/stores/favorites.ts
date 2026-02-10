@@ -5,6 +5,7 @@ export interface FavoriteButton {
 	button_code: string;
 	button_name_en: string;
 	icon: string;
+	order?: number;  // Display order for drag-and-drop reordering (0-based index)
 }
 
 interface FavoritesState {
@@ -52,7 +53,14 @@ function createFavoritesStore() {
 					return;
 				}
 
-				const favorites: FavoriteButton[] = data?.favorite_config || [];
+				let favorites: FavoriteButton[] = data?.favorite_config || [];
+				
+				// Ensure all favorites have order property (for backward compatibility)
+				favorites = favorites.map((fav, index) => ({
+					...fav,
+					order: fav.order ?? index
+				}));
+
 				const rowId = data?.id || null;
 
 				update(s => ({
@@ -81,12 +89,18 @@ function createFavoritesStore() {
 				const state = get({ subscribe });
 				const rowId = state.rowId || `fv${Date.now()}`;
 
+				// Ensure all favorites have order property
+				const favoritesWithOrder = favorites.map((fav, index) => ({
+					...fav,
+					order: fav.order ?? index
+				}));
+
 				const { error } = await supabase
 					.from('user_favorite_buttons')
 					.upsert({
 						id: rowId,
 						user_id: currentUserId,
-						favorite_config: favorites,
+						favorite_config: favoritesWithOrder,
 						updated_at: new Date().toISOString()
 					}, {
 						onConflict: 'user_id'
@@ -100,17 +114,42 @@ function createFavoritesStore() {
 
 				update(s => ({
 					...s,
-					favorites,
+					favorites: favoritesWithOrder,
 					rowId,
 					saving: false,
 					error: null
 				}));
 
-				console.log('✅ [Favorites] Saved', favorites.length, 'favorites');
+				console.log('✅ [Favorites] Saved', favoritesWithOrder.length, 'favorites');
 			} catch (err: any) {
 				console.error('❌ [Favorites] Error saving:', err);
 				update(s => ({ ...s, saving: false, error: err.message }));
 			}
+		},
+
+		/** Reorder favorites by moving an item from one index to another */
+		async reorder(fromIndex: number, toIndex: number) {
+			const state = get({ subscribe });
+			const favorites = [...state.favorites];
+
+			// Validate indices
+			if (fromIndex < 0 || fromIndex >= favorites.length || toIndex < 0 || toIndex >= favorites.length) {
+				console.warn('❌ [Favorites] Invalid reorder indices:', { fromIndex, toIndex });
+				return;
+			}
+
+			// Move item
+			const [movedItem] = favorites.splice(fromIndex, 1);
+			favorites.splice(toIndex, 0, movedItem);
+
+			// Update order property for all items
+			const reorderedFavorites = favorites.map((fav, index) => ({
+				...fav,
+				order: index
+			}));
+
+			// Save to DB
+			await this.save(reorderedFavorites);
 		},
 
 		/** Check if a button_code is in favorites */
