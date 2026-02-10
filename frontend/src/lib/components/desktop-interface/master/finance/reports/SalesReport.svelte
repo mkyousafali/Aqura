@@ -65,7 +65,8 @@
 		await loadYesterdayCollectionData();
 		
 		// Subscribe to real-time changes in erp_daily_sales table
-		subscribeToSalesUpdates();
+		// NOTE: Disabled due to Supabase Realtime publication not including erp_daily_sales table
+		// subscribeToSalesUpdates();
 
 		// Cleanup on component unmount
 		return () => {
