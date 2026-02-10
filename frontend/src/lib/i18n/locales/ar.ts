@@ -1907,6 +1907,7 @@ export const arabicLocale: LocaleData = {
         submissionReport: "تقرير التسليم",
         newChecklist: "قائمة تحقق جديدة",
         editChecklist: "تعديل قائمة التحقق",
+        editQuestion: "تعديل السؤال",
         checklistName: "اسم قائمة التحقق",
         checklistNameEn: "اسم قائمة التحقق بالإنجليزية",
         checklistNameAr: "اسم قائمة التحقق بالعربية",
@@ -1957,6 +1958,11 @@ export const arabicLocale: LocaleData = {
         answerCount: "الإجابات",
         questionsCount: "الأسئلة",
         type: "النوع",
+        id: "المعرف",
+        boxNumber: "رقم الصندوق",
+        time: "الوقت",
+        search: "بحث",
+        viewAnswers: "عرض الإجابات",
       }
     },
     tasks: {

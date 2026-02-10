@@ -25,6 +25,16 @@
 	let loading = true;
 	let saving = false;
 	let saveMessage = '';
+	let searchQuery = '';
+
+	$: filteredQuestions = searchQuery.trim()
+		? allQuestions.filter(q => {
+			const s = searchQuery.toLowerCase();
+			return (q.id || '').toLowerCase().includes(s)
+				|| (q.question_en || '').toLowerCase().includes(s)
+				|| (q.question_ar || '').includes(s);
+		})
+		: allQuestions;
 
 	onMount(async () => {
 		await loadQuestions();
@@ -212,7 +222,18 @@
 		<!-- Questions Table -->
 		<div>
 			<div class="flex items-center justify-between mb-3">
-				<h3 class="text-sm font-bold text-slate-700">{$t('hr.dailyChecklist.selectQuestions')} <span class="text-xs text-slate-400">({selectedQuestionIds.size}/{allQuestions.length})</span></h3>
+				<div class="flex items-center gap-3">
+					<h3 class="text-sm font-bold text-slate-700 whitespace-nowrap">{$t('hr.dailyChecklist.selectQuestions')} <span class="text-xs text-slate-400">({selectedQuestionIds.size}/{allQuestions.length})</span></h3>
+					<div class="relative">
+						<svg class="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 {$locale === 'ar' ? 'right-2.5' : 'left-2.5'}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+						<input
+							type="text"
+							bind:value={searchQuery}
+							placeholder="Search questions..."
+							class="w-96 {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 outline-none"
+						/>
+					</div>
+				</div>
 				<div class="flex items-center gap-3">
 					{#if saveMessage === 'success'}
 						<span class="text-sm font-bold text-green-600">✅ {$t('hr.dailyChecklist.savedSuccess')}</span>
@@ -250,7 +271,7 @@
 								<th class="px-3 py-2.5 text-start w-10">
 									<input
 										type="checkbox"
-										checked={selectedQuestionIds.size === allQuestions.length && allQuestions.length > 0}
+										checked={selectedQuestionIds.size === filteredQuestions.length && filteredQuestions.length > 0}
 										on:change={toggleAll}
 										class="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
 									/>
@@ -264,7 +285,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each allQuestions as q, idx}
+							{#each filteredQuestions as q, idx}
 								<tr
 									class="border-b border-slate-100 hover:bg-emerald-50/50 transition-colors cursor-pointer {selectedQuestionIds.has(q.id) ? 'bg-emerald-50' : ''}"
 									on:click={() => toggleQuestion(q.id)}
