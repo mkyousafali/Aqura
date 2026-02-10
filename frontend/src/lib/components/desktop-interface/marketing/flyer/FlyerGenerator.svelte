@@ -12,6 +12,8 @@
     end_date: string;
     is_active: boolean;
     created_at: string;
+    offer_name_id: string | null;
+    offer_names: { name_ar: string; name_en: string } | null;
   }
   
   interface FlyerTemplate {
@@ -159,7 +161,7 @@
     try {
       const { data, error } = await supabase
         .from('flyer_offers')
-        .select('*')
+        .select('*, offer_names:offer_name_id(name_ar, name_en)')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
       
@@ -1399,7 +1401,7 @@
               overflow: visible !important;
               background: transparent !important;
               position: relative !important;
-              line-height: 1.2 !important;
+              line-height: 0.85 !important;
             }
             /* Force proper Arabic text rendering */
             .field-text-preview,
@@ -1608,7 +1610,7 @@
             <option value="">-- Choose an offer --</option>
             {#each activeOffers as offer}
               <option value={offer.id}>
-                {offer.template_name} ({formatDate(offer.start_date)} - {formatDate(offer.end_date)})
+                {formatDate(offer.start_date)} - {formatDate(offer.end_date)} | {offer.offer_names?.name_en || offer.offer_names?.name_ar || offer.template_name || 'Unnamed'}
               </option>
             {/each}
           </select>
@@ -2061,7 +2063,7 @@
                                       text-decoration: {configField.label === 'price' ? 'none' : (configField.strikethrough ? 'line-through' : 'none')};
                                       font-weight: {configField.bold ? 'bold' : 'normal'};
                                       font-style: {configField.italic ? 'italic' : 'normal'};
-                                      line-height: 1.3;
+                                      line-height: 0.85;
                                       {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
                                       display: flex;
                                       align-items: center;
@@ -2444,7 +2446,7 @@
                                         text-decoration: {configField.label === 'price' ? 'none' : (configField.strikethrough ? 'line-through' : 'none')};
                                         font-weight: {configField.bold ? 'bold' : 'normal'};
                                         font-style: {configField.italic ? 'italic' : 'normal'};
-                                        line-height: 1.3;
+                                        line-height: 0.85;
                                         {configField.fontFamily ? `font-family: '${configField.fontFamily}', sans-serif;` : ''}
                                         display: flex;
                                         align-items: center;
@@ -3145,7 +3147,7 @@
   .field-text-preview {
     position: absolute;
     pointer-events: none;
-    line-height: 1.2;
+    line-height: 0.85;
     user-select: none;
     white-space: pre-line;
     text-align: center;

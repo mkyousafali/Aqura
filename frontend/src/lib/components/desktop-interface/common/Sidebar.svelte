@@ -106,6 +106,7 @@
 	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
 	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
 	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
+	import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
 	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
@@ -220,7 +221,7 @@
 		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
 		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
 		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
-		'REPORT_INCIDENT': 'nav.reportIncident', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
+		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
 		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
 		'CREATE_TASK': 'nav.createTaskTemplate', 'VIEW_TASKS': 'nav.viewTaskTemplates',
 		'ASSIGN_TASKS': 'nav.assignTasks', 'VIEW_MY_TASKS': 'nav.viewMyTasks',
@@ -980,6 +981,29 @@
 		showHRSubmenu = false;
 	}
 
+	function openDailyChecklistManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('daily-checklist-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Daily Checklist Manager #${instanceNumber}`,
+			component: DailyChecklistManager,
+			icon: '📋',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
 	function openReportIncident() {
 		collapseAllMenus();
 		const windowId = generateWindowId('report-incident');
@@ -1604,6 +1628,7 @@ function openApprovalCenter() {
 			'DISCIPLINE': openDiscipline,
 			'INCIDENT_MANAGER': openIncidentManager,
 			'REPORT_INCIDENT': openReportIncident,
+			'DAILY_CHECKLIST_MANAGER': openDailyChecklistManager,
 			'FINGERPRINT_TRANSACTIONS': openFingerprintTransactions,
 			'EXPORT_BIOMETRIC_DATA': openExportBiometricData,
 			'TASK_MASTER': openTaskMaster,
@@ -3913,6 +3938,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openReportIncident}>
 								<span class="menu-icon">📝</span>
 								<span class="menu-text">{t('nav.reportIncident')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DAILY_CHECKLIST_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDailyChecklistManager}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('nav.dailyChecklistManager')}</span>
 							</button>
 						</div>
 					{/if}
