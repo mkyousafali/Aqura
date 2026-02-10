@@ -184,6 +184,11 @@
 	// Sidebar view mode: 'standard' or 'favorites'
 	let sidebarViewMode: 'standard' | 'favorites' = 'standard';
 
+	// Drag-and-drop state for favorites reordering
+	let draggedIndex: number | null = null;
+	let dragOverIndex: number | null = null;
+	let reorderDebounceTimer: NodeJS.Timeout | null = null;
+
 	// Subscribe to favorites store
 	$: userFavorites = $favoritesStore;
 
@@ -1662,6 +1667,52 @@ function openApprovalCenter() {
 		} else {
 			console.warn('⚠️ No action mapped for button code:', buttonCode);
 		}
+	}
+
+	// Drag-and-drop handlers for reordering favorite buttons
+	function handleDragStart(event: DragEvent, index: number) {
+		draggedIndex = index;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/html', '');
+		}
+	}
+
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+	}
+
+	function handleDragEnter(event: DragEvent, index: number) {
+		dragOverIndex = index;
+	}
+
+	function handleDragLeave(event: DragEvent) {
+		if (event.target === event.currentTarget) {
+			dragOverIndex = null;
+		}
+	}
+
+	async function handleDrop(event: DragEvent, toIndex: number) {
+		event.preventDefault();
+		dragOverIndex = null;
+
+		if (draggedIndex === null || draggedIndex === toIndex) {
+			draggedIndex = null;
+			return;
+		}
+
+		// Reorder using the favorites store
+		await favoritesStore.reorder(draggedIndex, toIndex);
+		draggedIndex = null;
+		console.log('✅ [Favorites] Reordered from index', draggedIndex, 'to', toIndex);
+	}
+
+	function handleDragEnd() {
+		draggedIndex = null;
+		dragOverIndex = null;
 	}
 
 	// Open Receiving window
@@ -4661,9 +4712,18 @@ function openApprovalCenter() {
 				<p class="fav-empty-hint">{t('nav.noFavoritesHint') || 'Use "Manage Favorites" on the desktop to add buttons here.'}</p>
 			</div>
 		{:else}
-			{#each userFavorites.favorites as fav}
+			{#each userFavorites.favorites as fav, index (fav.button_code)}
 				<button
 					class="favorite-sidebar-btn"
+					class:dragging={draggedIndex === index}
+					class:drag-over={dragOverIndex === index}
+					draggable="true"
+					on:dragstart={(e) => handleDragStart(e, index)}
+					on:dragover={handleDragOver}
+					on:dragenter={(e) => handleDragEnter(e, index)}
+					on:dragleave={handleDragLeave}
+					on:drop={(e) => handleDrop(e, index)}
+					on:dragend={handleDragEnd}
 					on:click={() => openFavoriteButton(fav.button_code)}
 					title={getButtonLabel(fav.button_code, fav.button_name_en)}
 				>
@@ -5476,7 +5536,7 @@ function openApprovalCenter() {
 		border: 1px solid rgba(21, 163, 74, 0.15);
 		border-radius: 8px;
 		color: #e5e7eb;
-		cursor: pointer;
+		cursor: move;
 		font-size: 11px;
 		font-weight: 500;
 		text-align: left;
@@ -5494,6 +5554,20 @@ function openApprovalCenter() {
 
 	.favorite-sidebar-btn:active {
 		transform: translateX(2px) scale(0.98);
+	}
+
+	.favorite-sidebar-btn.dragging {
+		opacity: 0.5;
+		background: rgba(21, 163, 74, 0.05);
+		border-color: rgba(21, 163, 74, 0.08);
+		cursor: grabbing;
+	}
+
+	.favorite-sidebar-btn.drag-over {
+		background: rgba(21, 163, 74, 0.25);
+		border-color: rgba(21, 163, 74, 0.6);
+		border-top: 3px solid #15A34A;
+		transform: scale(1.02);
 	}
 
 	.fav-btn-icon {

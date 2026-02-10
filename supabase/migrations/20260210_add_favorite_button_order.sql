@@ -1,0 +1,21 @@
+-- ============================================================
+-- Migration: Add order support to user_favorite_buttons
+-- Date: 2026-02-10
+-- Description: Adds order field to favorite_config JSONB to support drag-and-drop reordering
+-- ============================================================
+
+-- Note: No schema changes needed - JSONB structure now includes:
+-- favorite_config: [
+--   {
+--     "button_code": string,
+--     "button_name_en": string,
+--     "icon": string,
+--     "order": number   <-- NEW: display order (0-based index)
+--   }
+-- ]
+
+-- This migration serves as documentation for the new feature:
+-- - Favorite buttons can now be drag-and-drop reordered
+-- - Order is auto-saved to database
+-- - Order field is optional (auto-assigned if missing)
+-- - Migration timestamp: 2026-02-10T00:00:00Z
