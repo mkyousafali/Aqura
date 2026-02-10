@@ -1616,7 +1616,9 @@ export const englishLocale: LocaleData = {
         no_null_transactions: "ℹ️ No transactions with null status found in the date range",
         late_abbr: "L",
         underworked: "Underworked",
-        total_days: "Total Days"
+        total_days: "Total Days",
+        export_excel: "Export Excel",
+        exporting: "Exporting..."
       },
       salary: {
         title: "Salary and Wage Management",
