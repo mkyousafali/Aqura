@@ -1540,16 +1540,42 @@
 				return;
 			}
 			
+			// Generate next product ID (P1, P2, P3, etc.)
+			const { data: allProducts } = await supabase
+				.from('products')
+				.select('id');
+			let highestNum = 0;
+			if (allProducts && allProducts.length > 0) {
+				highestNum = Math.max(...allProducts.map(p => {
+					const match = p.id.match(/\d+/);
+					return match ? parseInt(match[0]) : 0;
+				}));
+			}
+			const newProductId = `P${highestNum + 1}`;
+			
+			// Map unit name to unit_id
+			let unit_id = null;
+			if (newProduct.unit_name) {
+				const unit = allUnits.find(u => u.name_en === newProduct.unit_name);
+				unit_id = unit?.id || null;
+			}
+			
+			// Map category name to category_id
+			let category_id = null;
+			if (newProduct.parent_category) {
+				const category = allCategories.find(c => c.name_en === newProduct.parent_category);
+				category_id = category?.id || null;
+			}
+			
 			const { error } = await supabase
 				.from('products')
 				.insert({
+					id: newProductId,
 					barcode: newProduct.barcode.trim(),
 					product_name_en: newProduct.product_name_en.trim(),
 					product_name_ar: newProduct.product_name_ar?.trim() || null,
-					unit_name: newProduct.unit_name?.trim() || null,
-					parent_category: newProduct.parent_category?.trim() || null,
-					parent_sub_category: newProduct.parent_sub_category?.trim() || null,
-					sub_category: newProduct.sub_category?.trim() || null,
+					unit_id: unit_id,
+					category_id: category_id,
 					image_url: newProduct.image_url || null,
 					created_at: new Date().toISOString(),
 					updated_at: new Date().toISOString()

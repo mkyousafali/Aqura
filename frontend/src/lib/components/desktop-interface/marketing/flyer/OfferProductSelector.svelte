@@ -385,8 +385,7 @@
 			const { data, error } = await supabase
 				.from('products')
 				.select('*')
-				.eq('variation_group_name_en', parentData.variation_group_name_en)
-				.eq('is_active', true);
+				.eq('variation_group_name_en', parentData.variation_group_name_en);
 			
 			if (error) {
 				console.error('Error loading variations:', error);
