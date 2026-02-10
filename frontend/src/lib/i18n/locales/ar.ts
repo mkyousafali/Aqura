@@ -1464,7 +1464,9 @@ export const arabicLocale: LocaleData = {
         no_null_transactions: "ℹ️ لم يتم العثور على معاملات بحالة null في النطاق الزمني المحدد",
         late_abbr: "تأخير",
         underworked: "نقص عمل",
-        total_days: "إجمالي الأيام"
+        total_days: "إجمالي الأيام",
+        export_excel: "تصدير إكسل",
+        exporting: "جاري التصدير..."
       },
       employee: "موظف",
       employees: "الموظفون",

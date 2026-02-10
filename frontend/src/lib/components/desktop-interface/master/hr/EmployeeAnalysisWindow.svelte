@@ -4,6 +4,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { onMount, onDestroy, tick } from 'svelte';
+	import XLSX from 'xlsx-js-style';
 
 	export let employee: any;
 	export let windowId: string;
@@ -927,6 +928,365 @@
 		return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 	}
 
+	let exporting = false;
+
+	function exportToExcel() {
+		if (punchPairs.length === 0) return;
+		exporting = true;
+		try {
+			const empNameEn = employee.name_en || employee.name_ar || 'Employee';
+			const empNameAr = employee.name_ar || employee.name_en || 'موظف';
+
+			// Build sorted pairs (oldest first for the sheet)
+			const sorted = [...punchPairs].sort((a, b) => {
+				const dateA = a.checkInDate || a.checkOutDate || '';
+				const dateB = b.checkInDate || b.checkOutDate || '';
+				const [dA, mA, yA] = dateA.split('-');
+				const [dB, mB, yB] = dateB.split('-');
+				return new Date(`${yA}-${mA}-${dA}`).getTime() - new Date(`${yB}-${mB}-${dB}`).getTime();
+			});
+
+			// Language-aware helpers
+			const daysEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+			const daysAr = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+			function getDayNameLang(dayNum: number, lang: 'en' | 'ar'): string {
+				const arr = lang === 'ar' ? daysAr : daysEn;
+				return arr[dayNum] ?? (lang === 'ar' ? 'غير معروف' : 'Unknown');
+			}
+
+			function formatTimeLang(timeString: string, lang: 'en' | 'ar'): string {
+				if (!timeString) return '-';
+				const [hoursStr, minutesStr] = timeString.split(':');
+				let hour = parseInt(hoursStr);
+				const minutes = minutesStr;
+				const ampm = lang === 'ar'
+					? (hour >= 12 ? 'م' : 'ص')
+					: (hour >= 12 ? 'PM' : 'AM');
+				hour = hour % 12 || 12;
+				return `${String(hour).padStart(2, '0')}:${minutes} ${ampm}`;
+			}
+
+			function formatDateLang(dateStr: string, lang: 'en' | 'ar'): string {
+				if (!dateStr || dateStr === '-') return '-';
+				// dateStr is DD-MM-YYYY — keep same format for both languages
+				return dateStr;
+			}
+
+			// Helper to build row data for a given language
+			function buildRows(lang: 'en' | 'ar') {
+				const isAr = lang === 'ar';
+				return sorted.map(pair => {
+					const rawDate = pair.checkInDate || pair.checkOutDate || '-';
+					const date = formatDateLang(rawDate, lang);
+					const dayNum = getDayNameFromDate(rawDate);
+					const dayName = getDayNameLang(dayNum, lang);
+
+					// Shift info
+					const shift = getApplicableShift(rawDate);
+					const shiftStart = shift ? formatTimeLang(shift.shift_start_time, lang) : '-';
+					const shiftEnd = shift ? formatTimeLang(shift.shift_end_time, lang) : '-';
+					const workingHours = shift?.working_hours ? `${shift.working_hours}${isAr ? ' س' : 'h'}` : '-';
+
+					// Day off info
+					const isOfficial = isOfficialDayOff(rawDate);
+					const isSpecific = isSpecificDayOff(rawDate);
+					const dayOff = isSpecific ? getSpecificDayOff(rawDate) : null;
+					let dayStatus = '';
+					if (pair.isEmptyDate) {
+						if (isOfficial) dayStatus = isAr ? 'يوم إجازة رسمية' : 'Official Day Off';
+						else if (isSpecific && dayOff?.approval_status === 'approved') dayStatus = isAr ? 'إجازة معتمدة' : 'Approved Leave';
+						else if (isSpecific && dayOff?.approval_status === 'pending') dayStatus = isAr ? 'إجازة معلقة' : 'Pending Leave';
+						else if (isSpecific && dayOff?.approval_status === 'rejected') dayStatus = isAr ? 'إجازة مرفوضة' : 'Rejected Leave';
+						else dayStatus = isAr ? 'غائب' : 'Absent';
+					} else {
+						if (pair.checkInTxn && pair.checkOutTxn) dayStatus = isAr ? 'مكتمل' : 'Complete';
+						else if (pair.checkInTxn && !pair.checkOutTxn) dayStatus = isAr ? 'خروج مفقود' : 'Missing Checkout';
+						else if (!pair.checkInTxn && pair.checkOutTxn) dayStatus = isAr ? 'دخول مفقود' : 'Missing Checkin';
+					}
+
+					// Punch times
+					const checkInTime = pair.checkInTxn ? formatTimeLang(pair.checkInTxn.punch_time, lang) : '-';
+					const checkOutTime = pair.checkOutTxn ? formatTimeLang(pair.checkOutTxn.punch_time, lang) : '-';
+
+					// Worked time
+					const worked = pair.workedTime || '-';
+
+					// Late check-in
+					const hSuffix = isAr ? ' س' : 'h';
+					const mSuffix = isAr ? ' د' : 'm';
+
+					const lateIn = pair.checkInEarlyLateTime?.late > 0
+						? `${Math.floor(pair.checkInEarlyLateTime.late / 60)}${hSuffix} ${pair.checkInEarlyLateTime.late % 60}${mSuffix}`
+						: '-';
+					
+					// Early check-in
+					const earlyIn = pair.checkInEarlyLateTime?.early > 0
+						? `${Math.floor(pair.checkInEarlyLateTime.early / 60)}${hSuffix} ${pair.checkInEarlyLateTime.early % 60}${mSuffix}`
+						: '-';
+
+					// Early checkout
+					const earlyOut = pair.lateEarlyTime?.early > 0
+						? `${Math.floor(pair.lateEarlyTime.early / 60)}${hSuffix} ${pair.lateEarlyTime.early % 60}${mSuffix}`
+						: '-';
+
+					// Underworked
+					let underworked = '-';
+					if (pair.workedTime && shift?.working_hours) {
+						const [wH, wM] = pair.workedTime.split(':').map(Number);
+						const workedMins = wH * 60 + wM;
+						const assignedMins = shift.working_hours * 60;
+						const diff = assignedMins - workedMins;
+						if (diff > 0) underworked = `${Math.floor(diff / 60)}${hSuffix} ${diff % 60}${mSuffix}`;
+					}
+
+					if (isAr) {
+						return {
+							'التاريخ': date,
+							'اليوم': dayName,
+							'الحالة': dayStatus,
+							'بداية الوردية': shiftStart,
+							'نهاية الوردية': shiftEnd,
+							'ساعات العمل': workingHours,
+							'وقت الدخول': checkInTime,
+							'وقت الخروج': checkOutTime,
+							'ساعات العمل الفعلية': worked,
+							'تأخير الدخول': lateIn,
+							'دخول مبكر': earlyIn,
+							'خروج مبكر': earlyOut,
+							'نقص ساعات': underworked
+						};
+					} else {
+						return {
+							'Date': date,
+							'Day': dayName,
+							'Status': dayStatus,
+							'Shift Start': shiftStart,
+							'Shift End': shiftEnd,
+							'Working Hours': workingHours,
+							'Check In': checkInTime,
+							'Check Out': checkOutTime,
+							'Worked': worked,
+							'Late Check-in': lateIn,
+							'Early Check-in': earlyIn,
+							'Early Checkout': earlyOut,
+							'Underworked': underworked
+						};
+					}
+				});
+			}
+
+			const rowsEn = buildRows('en');
+			const rowsAr = buildRows('ar');
+
+			// Calculate totals
+			let completeDays = 0;
+			let totalLateMins = 0;
+			let totalUnderworkedMins = 0;
+
+			for (const pair of sorted) {
+				if (!pair.isEmptyDate && pair.checkInTxn && pair.checkOutTxn) completeDays++;
+				if (pair.checkInEarlyLateTime?.late > 0) totalLateMins += pair.checkInEarlyLateTime.late;
+				if (pair.workedTime) {
+					const shift = getApplicableShift(pair.checkInDate || pair.checkOutDate || '');
+					if (shift?.working_hours) {
+						const [wH, wM] = pair.workedTime.split(':').map(Number);
+						const workedMins = wH * 60 + wM;
+						const assignedMins = shift.working_hours * 60;
+						const diff = assignedMins - workedMins;
+						if (diff > 0) totalUnderworkedMins += diff;
+					}
+				}
+			}
+
+			const lateH = Math.floor(totalLateMins / 60);
+			const lateM = totalLateMins % 60;
+			const uwH = Math.floor(totalUnderworkedMins / 60);
+			const uwM = totalUnderworkedMins % 60;
+
+			// --- Styling definitions ---
+			const headerStyle = {
+				fill: { fgColor: { rgb: '1F4E79' } },
+				font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12, name: 'Calibri' },
+				alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+				border: {
+					top: { style: 'thin', color: { rgb: '000000' } },
+					bottom: { style: 'thin', color: { rgb: '000000' } },
+					left: { style: 'thin', color: { rgb: '000000' } },
+					right: { style: 'thin', color: { rgb: '000000' } }
+				}
+			};
+			const headerStyleAr = { ...headerStyle, alignment: { ...headerStyle.alignment, horizontal: 'center' } };
+
+			const cellBorder = {
+				top: { style: 'thin', color: { rgb: 'D0D0D0' } },
+				bottom: { style: 'thin', color: { rgb: 'D0D0D0' } },
+				left: { style: 'thin', color: { rgb: 'D0D0D0' } },
+				right: { style: 'thin', color: { rgb: 'D0D0D0' } }
+			};
+
+			const evenRowStyle = {
+				fill: { fgColor: { rgb: 'F2F7FB' } },
+				font: { sz: 11, name: 'Calibri' },
+				alignment: { horizontal: 'center', vertical: 'center' },
+				border: cellBorder
+			};
+			const oddRowStyle = {
+				fill: { fgColor: { rgb: 'FFFFFF' } },
+				font: { sz: 11, name: 'Calibri' },
+				alignment: { horizontal: 'center', vertical: 'center' },
+				border: cellBorder
+			};
+
+			// Status color map
+			function getStatusStyle(status: string, baseStyle: any) {
+				const s = status.toLowerCase();
+				if (s.includes('complete') || s.includes('مكتمل')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '0D7A3E' }, bold: true } };
+				if (s.includes('absent') || s.includes('غائب')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: 'CC0000' }, bold: true } };
+				if (s.includes('day off') || s.includes('إجازة رسمية')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '0066CC' }, bold: true } };
+				if (s.includes('leave') || s.includes('إجازة')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '7B5EA7' }, bold: true } };
+				if (s.includes('missing') || s.includes('مفقود')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: 'E67E00' }, bold: true } };
+				return baseStyle;
+			}
+
+			// Late / underworked highlight
+			function getLateStyle(val: string, baseStyle: any) {
+				if (val && val !== '-') return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: 'CC0000' } } };
+				return baseStyle;
+			}
+
+			const totalsStyle = {
+				fill: { fgColor: { rgb: '1F4E79' } },
+				font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12, name: 'Calibri' },
+				alignment: { horizontal: 'center', vertical: 'center' },
+				border: {
+					top: { style: 'medium', color: { rgb: '000000' } },
+					bottom: { style: 'medium', color: { rgb: '000000' } },
+					left: { style: 'thin', color: { rgb: '000000' } },
+					right: { style: 'thin', color: { rgb: '000000' } }
+				}
+			};
+
+			// --- Build styled sheets ---
+			function buildStyledSheet(rows: any[], lang: 'en' | 'ar') {
+				const isAr = lang === 'ar';
+				const headersEn = ['Date', 'Day', 'Status', 'Shift Start', 'Shift End', 'Working Hours', 'Check In', 'Check Out', 'Worked', 'Late Check-in', 'Early Check-in', 'Early Checkout', 'Underworked'];
+				const headersAr = ['التاريخ', 'اليوم', 'الحالة', 'بداية الوردية', 'نهاية الوردية', 'ساعات العمل', 'وقت الدخول', 'وقت الخروج', 'ساعات العمل الفعلية', 'تأخير الدخول', 'دخول مبكر', 'خروج مبكر', 'نقص ساعات'];
+				const headers = isAr ? headersAr : headersEn;
+				const keys = isAr ? headersAr : headersEn;
+				const numCols = headers.length;
+
+				// Title row
+				const titleText = isAr
+					? `تقرير تحليل الموظف: ${empNameAr} | ${startDate} إلى ${endDate}`
+					: `Employee Analysis: ${empNameEn} | ${startDate} to ${endDate}`;
+				const titleStyle = {
+					fill: { fgColor: { rgb: '0B3D6B' } },
+					font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 14, name: 'Calibri' },
+					alignment: { horizontal: 'center', vertical: 'center' },
+					border: cellBorder
+				};
+
+				// Build AOA (array of arrays)
+				const aoa: any[][] = [];
+
+				// Row 0: title
+				const titleRow = [titleText, ...Array(numCols - 1).fill('')];
+				aoa.push(titleRow);
+
+				// Row 1: empty spacer
+				aoa.push(Array(numCols).fill(''));
+
+				// Row 2: headers
+				aoa.push([...headers]);
+
+				// Data rows
+				for (const row of rows) {
+					aoa.push(keys.map(k => (row as any)[k] ?? ''));
+				}
+
+				// Totals row
+				const totalsRow = Array(numCols).fill('');
+				totalsRow[2] = isAr ? `إجمالي الأيام المكتملة: ${completeDays}` : `Total Complete: ${completeDays}`;
+				totalsRow[9] = isAr ? `${lateH} س ${lateM} د` : `${lateH}h ${lateM}m`;
+				totalsRow[12] = isAr ? `${uwH} س ${uwM} د` : `${uwH}h ${uwM}m`;
+				aoa.push(totalsRow);
+
+				const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+				// Merge title row
+				ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } }];
+
+				// Column widths
+				const colWidths = headers.map((h, ci) => {
+					let max = h.length;
+					for (const row of rows) {
+						const val = String((row as any)[keys[ci]] ?? '');
+						if (val.length > max) max = val.length;
+					}
+					return { wch: Math.max(max + 3, 14) };
+				});
+				ws['!cols'] = colWidths;
+
+				// Row heights
+				const rowHeights: any[] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 24 }];
+				for (let i = 0; i < rows.length; i++) rowHeights.push({ hpt: 22 });
+				rowHeights.push({ hpt: 26 }); // totals
+				ws['!rows'] = rowHeights;
+
+				// Apply styles to cells
+				const totalRows = aoa.length;
+				for (let R = 0; R < totalRows; R++) {
+					for (let C = 0; C < numCols; C++) {
+						const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+						if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
+
+						if (R === 0) {
+							// Title row
+							ws[cellRef].s = titleStyle;
+						} else if (R === 1) {
+							// Spacer
+							ws[cellRef].s = { fill: { fgColor: { rgb: 'FFFFFF' } } };
+						} else if (R === 2) {
+							// Header row
+							ws[cellRef].s = isAr ? headerStyleAr : headerStyle;
+						} else if (R === totalRows - 1) {
+							// Totals row
+							ws[cellRef].s = totalsStyle;
+						} else {
+							// Data rows (alternating)
+							const dataIdx = R - 3;
+							const base = dataIdx % 2 === 0 ? { ...evenRowStyle } : { ...oddRowStyle };
+							if (C === 2) {
+								// Status column — color coded
+								ws[cellRef].s = getStatusStyle(String(ws[cellRef].v || ''), base);
+							} else if (C === 9 || C === 12) {
+								// Late Check-in / Underworked — red if has value
+								ws[cellRef].s = getLateStyle(String(ws[cellRef].v || ''), base);
+							} else {
+								ws[cellRef].s = base;
+							}
+						}
+					}
+				}
+
+				return ws;
+			}
+
+			const wsEn = buildStyledSheet(rowsEn, 'en');
+			const wsAr = buildStyledSheet(rowsAr, 'ar');
+
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, wsEn, empNameEn.substring(0, 28) + ' EN');
+			XLSX.utils.book_append_sheet(wb, wsAr, empNameAr.substring(0, 28) + ' AR');
+			XLSX.writeFile(wb, `${empNameEn}_${startDate}_to_${endDate}.xlsx`);
+		} catch (err) {
+			console.error('Export to Excel error:', err);
+		} finally {
+			exporting = false;
+		}
+	}
+
 	async function loadTransactions() {
 		loadingTransactions = true;
 		try {
@@ -1635,6 +1995,16 @@
 				>
 					<span class="block group-hover:rotate-180 transition-transform duration-500 text-xs">🔄</span>
 				</button>
+				{#if punchPairs.length > 0}
+					<button 
+						on:click={exportToExcel} 
+						disabled={exporting}
+						class="h-8 bg-green-600 hover:bg-green-700 text-[10px] text-white font-black px-3 rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-1"
+						title={$locale === 'ar' ? 'تصدير إلى Excel' : 'Export to Excel'}
+					>
+						<span class="text-xs">📊</span> {exporting ? '...' : 'Excel'}
+					</button>
+				{/if}
 			</div>
 		</div>
 	</div>

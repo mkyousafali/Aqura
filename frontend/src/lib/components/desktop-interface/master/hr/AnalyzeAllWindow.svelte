@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
+	import XLSX from 'xlsx-js-style';
 
 	export let windowId: string;
 
@@ -30,6 +31,7 @@
 	
 	let analysisData: any[] = [];
 	let datesInRange: string[] = [];
+	let exporting = false;
 
 	// Reactive filtering and sorting for the view
 	$: filteredAnalysisData = analysisData
@@ -748,6 +750,271 @@
 		return `${d.getDate()}/${d.getMonth() + 1}`;
 	}
 
+	function exportToExcel() {
+		if (filteredAnalysisData.length === 0 || datesInRange.length === 0) return;
+		exporting = true;
+		try {
+			const daysEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+			const daysAr = ['\u0627\u0644\u0623\u062d\u062f', '\u0627\u0644\u0627\u062b\u0646\u064a\u0646', '\u0627\u0644\u062b\u0644\u0627\u062b\u0627\u0621', '\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621', '\u0627\u0644\u062e\u0645\u064a\u0633', '\u0627\u0644\u062c\u0645\u0639\u0629', '\u0627\u0644\u0633\u0628\u062a'];
+
+			const statusMapAr: Record<string, string> = {
+				'Worked': '\u0639\u0645\u0644',
+				'Absent': '\u063a\u0627\u0626\u0628',
+				'Official Day Off': '\u0625\u062c\u0627\u0632\u0629 \u0631\u0633\u0645\u064a\u0629',
+				'Approved Leave (Deductible)': '\u0625\u062c\u0627\u0632\u0629 \u0645\u0639\u062a\u0645\u062f\u0629 (\u062e\u0635\u0645)',
+				'Approved Leave (No Deduction)': '\u0625\u062c\u0627\u0632\u0629 \u0645\u0639\u062a\u0645\u062f\u0629 (\u0628\u062f\u0648\u0646 \u062e\u0635\u0645)',
+				'Pending Approval': '\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629',
+				'Rejected-Deducted': '\u0645\u0631\u0641\u0648\u0636-\u0645\u062e\u0635\u0648\u0645',
+				'Rejected-Not Deducted': '\u0645\u0631\u0641\u0648\u0636-\u063a\u064a\u0631 \u0645\u062e\u0635\u0648\u0645',
+				'Check-In Missing': '\u062f\u062e\u0648\u0644 \u0645\u0641\u0642\u0648\u062f',
+				'Check-Out Missing': '\u062e\u0631\u0648\u062c \u0645\u0641\u0642\u0648\u062f',
+				'Incomplete': '\u063a\u064a\u0631 \u0645\u0643\u062a\u0645\u0644'
+			};
+
+			function fmtMinsLang(mins: number, lang: 'en' | 'ar'): string {
+				if (!mins || mins <= 0) return '-';
+				const h = Math.floor(mins / 60);
+				const m = mins % 60;
+				return lang === 'ar' ? `${h} \u0633 ${m} \u062f` : `${h}h ${m}m`;
+			}
+
+			function getDayLang(dateStr: string, lang: 'en' | 'ar'): string {
+				const d = new Date(dateStr);
+				const arr = lang === 'ar' ? daysAr : daysEn;
+				return arr[d.getDay()] ?? '';
+			}
+
+			function fmtDate(dateStr: string): string {
+				const d = new Date(dateStr);
+				const dd = String(d.getDate()).padStart(2, '0');
+				const mm = String(d.getMonth() + 1).padStart(2, '0');
+				return `${dd}-${mm}-${d.getFullYear()}`;
+			}
+
+			function getStatusLang(status: string, lang: 'en' | 'ar'): string {
+				if (lang === 'ar') return statusMapAr[status] || status;
+				return status;
+			}
+
+			// --- Styling ---
+			const headerStyle = {
+				fill: { fgColor: { rgb: '1F4E79' } },
+				font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
+				alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+				border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+			};
+			const cellBorder = { top: { style: 'thin', color: { rgb: 'D0D0D0' } }, bottom: { style: 'thin', color: { rgb: 'D0D0D0' } }, left: { style: 'thin', color: { rgb: 'D0D0D0' } }, right: { style: 'thin', color: { rgb: 'D0D0D0' } } };
+			const evenRow = { fill: { fgColor: { rgb: 'F2F7FB' } }, font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: cellBorder };
+			const oddRow = { fill: { fgColor: { rgb: 'FFFFFF' } }, font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: cellBorder };
+			const frozenColStyle = { fill: { fgColor: { rgb: 'E8F0FE' } }, font: { sz: 10, name: 'Calibri', bold: true }, alignment: { horizontal: 'center', vertical: 'center' }, border: cellBorder };
+			const totalsStyle = { fill: { fgColor: { rgb: '1F4E79' } }, font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: { top: { style: 'medium', color: { rgb: '000000' } }, bottom: { style: 'medium', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } };
+
+			function getStatusCellStyle(status: string, base: any) {
+				const s = status;
+				if (s === 'Worked') return { ...base, font: { ...base.font, color: { rgb: '0D7A3E' }, bold: true } };
+				if (s === 'Absent') return { ...base, font: { ...base.font, color: { rgb: 'CC0000' }, bold: true } };
+				if (s === 'Official Day Off') return { ...base, font: { ...base.font, color: { rgb: '0066CC' }, bold: true } };
+				if (s.includes('Approved Leave')) return { ...base, font: { ...base.font, color: { rgb: '7B5EA7' }, bold: true } };
+				if (s === 'Pending Approval') return { ...base, font: { ...base.font, color: { rgb: 'B8860B' }, bold: true } };
+				if (s.includes('Rejected')) return { ...base, font: { ...base.font, color: { rgb: 'CC0000' }, bold: true } };
+				if (s.includes('Missing')) return { ...base, font: { ...base.font, color: { rgb: 'E67E00' }, bold: true } };
+				return base;
+			}
+
+			function lateCellStyle(val: string, base: any) {
+				if (val && val !== '-' && val !== '') return { ...base, font: { ...base.font, color: { rgb: 'CC0000' } } };
+				return base;
+			}
+
+			// --- Build sheet ---
+			function buildSheet(lang: 'en' | 'ar') {
+				const isAr = lang === 'ar';
+
+				// Fixed columns: #, ID, Name
+				// Then for each date: 3 sub-columns (Status, Late, Underworked) or just the worked/status cell
+				// Simpler approach: one column per date showing status + worked time, then summary columns at end
+
+				// Headers row 1: fixed cols + date labels (merged across 1 col each)
+				const fixedHeaders = isAr ? ['#', '\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0638\u0641', '\u0627\u0644\u0627\u0633\u0645'] : ['#', 'ID', 'Name'];
+				const summaryHeaders = isAr
+					? ['\u0623\u064a\u0627\u0645 \u0627\u0644\u0639\u0645\u0644', '\u063a\u064a\u0627\u0628', '\u0625\u062c\u0627\u0632\u0627\u062a', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u062a\u0623\u062e\u064a\u0631', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0646\u0642\u0635']
+					: ['Work Days', 'Absent', 'Leaves', 'Total Late', 'Total Underworked'];
+
+				const numCols = fixedHeaders.length + datesInRange.length + summaryHeaders.length;
+
+				// Title row
+				const titleText = isAr
+					? `\u062a\u0642\u0631\u064a\u0631 \u062a\u062d\u0644\u064a\u0644 \u062c\u0645\u064a\u0639 \u0627\u0644\u0645\u0648\u0638\u0641\u064a\u0646 | ${startDate} \u0625\u0644\u0649 ${endDate}`
+					: `All Employees Analysis | ${startDate} to ${endDate}`;
+				const titleStyle = {
+					fill: { fgColor: { rgb: '0B3D6B' } },
+					font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 14, name: 'Calibri' },
+					alignment: { horizontal: 'center', vertical: 'center' },
+					border: cellBorder
+				};
+
+				const aoa: any[][] = [];
+
+				// Row 0: Title
+				aoa.push([titleText, ...Array(numCols - 1).fill('')]);
+				// Row 1: Spacer
+				aoa.push(Array(numCols).fill(''));
+
+				// Row 2: Headers
+				const headerRow = [
+					...fixedHeaders,
+					...datesInRange.map(d => `${fmtDate(d)}\n${getDayLang(d, lang)}`),
+					...summaryHeaders
+				];
+				aoa.push(headerRow);
+
+				// Data rows
+				for (let i = 0; i < filteredAnalysisData.length; i++) {
+					const row = filteredAnalysisData[i];
+					let workDays = 0, absentDays = 0, leaveDays = 0, totalLate = 0, totalUnder = 0;
+
+					const dateCells: string[] = [];
+					for (const date of datesInRange) {
+						const day = row.dayByDay[date];
+						if (!day) { dateCells.push('-'); continue; }
+
+						const st = day.status;
+						if (st === 'Worked') {
+							workDays++;
+							totalLate += day.lateMins || 0;
+							totalUnder += day.underMins || 0;
+							let cell = fmtMinsLang(day.workedMins, lang);
+							if (day.lateMins > 0) cell += `\n${isAr ? '\u062a\u0623\u062e\u064a\u0631' : 'Late'}: ${fmtMinsLang(day.lateMins, lang)}`;
+							if (day.underMins > 0) cell += `\n${isAr ? '\u0646\u0642\u0635' : 'Under'}: ${fmtMinsLang(day.underMins, lang)}`;
+							dateCells.push(cell);
+						} else if (st === 'Absent') {
+							absentDays++;
+							totalLate += day.lateMins || 0;
+							let cell = getStatusLang(st, lang);
+							if (day.lateMins > 0) cell += `\n${isAr ? '\u062a\u0623\u062e\u064a\u0631' : 'Late'}: ${fmtMinsLang(day.lateMins, lang)}`;
+							dateCells.push(cell);
+						} else if (st.includes('Leave') || st.includes('Approved') || st === 'Official Day Off') {
+							leaveDays++;
+							dateCells.push(getStatusLang(st, lang));
+						} else {
+							// Missing, Pending, Rejected, etc.
+							totalLate += day.lateMins || 0;
+							let cell = getStatusLang(st, lang);
+							if (day.lateMins > 0) cell += `\n${isAr ? '\u062a\u0623\u062e\u064a\u0631' : 'Late'}: ${fmtMinsLang(day.lateMins, lang)}`;
+							dateCells.push(cell);
+						}
+					}
+
+					const dataRow = [
+						i + 1,
+						row.employeeId,
+						row.employeeName,
+						...dateCells,
+						workDays,
+						absentDays,
+						leaveDays,
+						fmtMinsLang(totalLate, lang),
+						fmtMinsLang(totalUnder, lang)
+					];
+					aoa.push(dataRow);
+				}
+
+				const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+				// Merge title
+				ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } }];
+
+				// Column widths
+				const colWidths: any[] = [
+					{ wch: 5 },  // #
+					{ wch: 12 }, // ID
+					{ wch: 22 }, // Name
+					...datesInRange.map(() => ({ wch: 16 })),
+					{ wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }
+				];
+				ws['!cols'] = colWidths;
+
+				// Row heights
+				const rowHeights: any[] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 32 }];
+				for (let i = 0; i < filteredAnalysisData.length; i++) rowHeights.push({ hpt: 38 });
+				ws['!rows'] = rowHeights;
+
+				// Apply styles
+				const totalRows = aoa.length;
+				for (let R = 0; R < totalRows; R++) {
+					for (let C = 0; C < numCols; C++) {
+						const ref = XLSX.utils.encode_cell({ r: R, c: C });
+						if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+
+						if (R === 0) {
+							ws[ref].s = titleStyle;
+						} else if (R === 1) {
+							ws[ref].s = { fill: { fgColor: { rgb: 'FFFFFF' } } };
+						} else if (R === 2) {
+							ws[ref].s = headerStyle;
+						} else {
+							// Data row
+							const dataIdx = R - 3;
+							const base = dataIdx % 2 === 0 ? { ...evenRow } : { ...oddRow };
+
+							if (C < 3) {
+								// Fixed columns (# / ID / Name)
+								ws[ref].s = { ...frozenColStyle, fill: base.fill };
+							} else if (C >= fixedHeaders.length && C < fixedHeaders.length + datesInRange.length) {
+								// Date columns — color by status
+								const dateIdx = C - fixedHeaders.length;
+								const date = datesInRange[dateIdx];
+								const rowData = filteredAnalysisData[dataIdx >= 0 ? dataIdx : 0];
+								// Need actual row index
+								const actualRow = filteredAnalysisData[dataIdx >= 0 && dataIdx < filteredAnalysisData.length ? dataIdx : 0];
+								if (dataIdx < filteredAnalysisData.length) {
+									const empRow = filteredAnalysisData[R - 3];
+									if (empRow && empRow.dayByDay[date]) {
+										const st = empRow.dayByDay[date].status;
+										ws[ref].s = getStatusCellStyle(st, { ...base, alignment: { ...base.alignment, wrapText: true } });
+									} else {
+										ws[ref].s = { ...base, alignment: { ...base.alignment, wrapText: true } };
+									}
+								} else {
+									ws[ref].s = { ...base, alignment: { ...base.alignment, wrapText: true } };
+								}
+							} else if (C >= fixedHeaders.length + datesInRange.length) {
+								// Summary columns
+								const sumIdx = C - fixedHeaders.length - datesInRange.length;
+								if (sumIdx === 3 || sumIdx === 4) {
+									// Total Late / Total Underworked
+									ws[ref].s = lateCellStyle(String(ws[ref].v || ''), base);
+								} else if (sumIdx === 1) {
+									// Absent count — red if > 0
+									const v = Number(ws[ref].v) || 0;
+									ws[ref].s = v > 0 ? { ...base, font: { ...base.font, color: { rgb: 'CC0000' }, bold: true } } : base;
+								} else {
+									ws[ref].s = base;
+								}
+							} else {
+								ws[ref].s = base;
+							}
+						}
+					}
+				}
+
+				return ws;
+			}
+
+			const wsEn = buildSheet('en');
+			const wsAr = buildSheet('ar');
+
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, wsEn, 'All Employees EN');
+			XLSX.utils.book_append_sheet(wb, wsAr, '\u062c\u0645\u064a\u0639 \u0627\u0644\u0645\u0648\u0638\u0641\u064a\u0646 AR');
+			XLSX.writeFile(wb, `All_Employees_Analysis_${startDate}_to_${endDate}.xlsx`);
+		} catch (err) {
+			console.error('Export to Excel error:', err);
+		} finally {
+			exporting = false;
+		}
+	}
+
 	function getStatusColor(status: string): string {
 		switch (status) {
 			case 'Worked': return 'text-emerald-600';
@@ -808,6 +1075,17 @@
 			>
 				{loading ? $t('hr.processFingerprint.processing') : $t('hr.processFingerprint.load_analysis')}
 			</button>
+
+			{#if filteredAnalysisData.length > 0}
+				<button 
+					on:click={exportToExcel}
+					disabled={exporting}
+					class="px-5 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+					{exporting ? $t('hr.processFingerprint.exporting') || 'Exporting...' : $t('hr.processFingerprint.export_excel') || 'Export Excel'}
+				</button>
+			{/if}
 
 			<button 
 				on:click={() => windowManager.closeWindow(windowId)}
