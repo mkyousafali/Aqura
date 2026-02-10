@@ -523,7 +523,7 @@
 			}
 
 			// Auto-fill the group names
-			groupNameEn = result.nameEn || 'Assorted Products';
+			groupNameEn = (result.nameEn || 'Assorted Products').toUpperCase();
 			groupNameAr = result.nameAr || 'منتجات متنوعة';
 
 			notifications.add({
