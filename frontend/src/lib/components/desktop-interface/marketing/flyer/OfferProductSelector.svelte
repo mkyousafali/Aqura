@@ -62,6 +62,13 @@
 	let isCreatingGroup: boolean = false;
 	let isGeneratingAIName: boolean = false;
 	
+	// CREATE OFFER NAME popup state
+	let showCreateOfferNameModal: boolean = false;
+	let newOfferNameEn: string = '';
+	let newOfferNameAr: string = '';
+	let isSavingOfferName: boolean = false;
+	let offerNameSaveError: string = '';
+	
 	// Wizard steps
 	let currentStep: number = 1;
 	const totalSteps: number = 3;
@@ -1142,6 +1149,71 @@
 		}
 	}
 	
+	// Get next offer name ID (OF1, OF2, OF3...)
+	async function getNextOfferNameId(): Promise<string> {
+		try {
+			const { data, error } = await supabase
+				.from('offer_names')
+				.select('id');
+			
+			if (error) throw error;
+			
+			if (data && data.length > 0) {
+				// Find the highest numeric ID
+				let maxNum = 0;
+				for (const row of data) {
+					const match = row.id.match(/^OF(\d+)$/);
+					if (match) {
+						const num = parseInt(match[1], 10);
+						if (num > maxNum) maxNum = num;
+					}
+				}
+				return `OF${maxNum + 1}`;
+			}
+			return 'OF1';
+		} catch (error) {
+			console.error('Error getting next offer name ID:', error);
+			return `OF${Date.now()}`;
+		}
+	}
+	
+	// Save new offer name
+	async function saveNewOfferName() {
+		if (!newOfferNameEn.trim()) {
+			offerNameSaveError = 'English name is required';
+			return;
+		}
+		
+		isSavingOfferName = true;
+		offerNameSaveError = '';
+		
+		try {
+			const nextId = await getNextOfferNameId();
+			
+			const { error } = await supabase
+				.from('offer_names')
+				.insert({
+					id: nextId,
+					name_en: newOfferNameEn.trim(),
+					name_ar: newOfferNameAr.trim() || null
+				});
+			
+			if (error) throw error;
+			
+			// Reload offer names and close modal
+			await loadOfferNames();
+			newOfferNameEn = '';
+			newOfferNameAr = '';
+			showCreateOfferNameModal = false;
+			notifications.add({ message: `Offer name "${nextId}" created successfully!`, type: 'success' });
+		} catch (error: any) {
+			console.error('Error saving offer name:', error);
+			offerNameSaveError = error.message || 'Failed to save';
+		} finally {
+			isSavingOfferName = false;
+		}
+	}
+	
 	// Load active offers from database (for viewing)
 	async function loadActiveOffers() {
 		try {
@@ -1401,15 +1473,24 @@
 								<div class="space-y-3">
 									<div>
 										<label class="block text-xs font-medium text-gray-600 mb-1">Offer Name (Optional)</label>
-										<select
-											bind:value={template.offerNameId}
-											class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-										>
-											<option value="">-- Select Offer Name --</option>
-											{#each offerNames as offerName}
-												<option value={offerName.id}>{offerName.name_en}</option>
-											{/each}
-										</select>
+										<div class="flex items-center gap-1.5">
+											<select
+												bind:value={template.offerNameId}
+												class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+											>
+												<option value="">-- Select Offer Name --</option>
+												{#each offerNames as offerName}
+													<option value={offerName.id}>{offerName.name_en}</option>
+												{/each}
+											</select>
+											<button
+												on:click={() => { showCreateOfferNameModal = true; offerNameSaveError = ''; }}
+												class="px-2 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-bold whitespace-nowrap"
+												title="Create new offer name"
+											>
+												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+											</button>
+										</div>
 									</div>
 									
 									<div>
@@ -2039,6 +2120,63 @@
 			<!-- Product name -->
 			<div class="p-4 bg-white border-t">
 				<p class="text-center text-lg font-semibold text-gray-800">{popupImageName}</p>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Offer Name Modal -->
+{#if showCreateOfferNameModal}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+			<div class="p-5 border-b border-gray-200 flex items-center justify-between">
+				<h2 class="text-lg font-bold text-gray-800">Create Offer Name</h2>
+				<button on:click={() => { showCreateOfferNameModal = false; }} class="text-gray-400 hover:text-gray-600">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+				</button>
+			</div>
+			<div class="p-5 space-y-4">
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Name (English) *</label>
+					<input
+						type="text"
+						bind:value={newOfferNameEn}
+						placeholder="e.g. Weekly Offer"
+						dir="ltr"
+						class="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-200 focus:border-green-400 outline-none"
+					/>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Name (Arabic)</label>
+					<input
+						type="text"
+						bind:value={newOfferNameAr}
+						placeholder="مثال: عرض أسبوعي"
+						dir="rtl"
+						class="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-200 focus:border-green-400 outline-none"
+					/>
+				</div>
+				{#if offerNameSaveError}
+					<div class="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{offerNameSaveError}</div>
+				{/if}
+			</div>
+			<div class="p-5 border-t border-gray-200 flex items-center justify-end gap-3">
+				<button
+					on:click={() => { showCreateOfferNameModal = false; }}
+					class="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+				>Cancel</button>
+				<button
+					on:click={saveNewOfferName}
+					disabled={isSavingOfferName || !newOfferNameEn.trim()}
+					class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-bold flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+				>
+					{#if isSavingOfferName}
+						<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+					{:else}
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+					{/if}
+					Save
+				</button>
 			</div>
 		</div>
 	</div>

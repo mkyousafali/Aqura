@@ -62,6 +62,47 @@ export async function translateText(options: TranslationOptions): Promise<string
 	}
 }
 
+export async function correctSpelling(text: string): Promise<string> {
+	if (!text || text.trim() === '') {
+		return text;
+	}
+
+	try {
+		const apiKey = await getOpenAIApiKey();
+		if (!apiKey) return text;
+
+		const response = await fetch('https://api.openai.com/v1/chat/completions', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'Authorization': `Bearer ${apiKey}`
+			},
+			body: JSON.stringify({
+				model: 'gpt-3.5-turbo',
+				messages: [
+					{
+						role: 'system',
+						content: 'You are a spelling and grammar corrector. Fix any spelling mistakes in the given English text. Return ONLY the corrected text, nothing else. Keep the same meaning and style. If the text is already correct, return it as-is.'
+					},
+					{
+						role: 'user',
+						content: text
+					}
+				],
+				temperature: 0.1,
+				max_tokens: 200
+			})
+		});
+
+		if (!response.ok) return text;
+
+		const data = await response.json();
+		return data.choices[0]?.message?.content?.trim() || text;
+	} catch {
+		return text;
+	}
+}
+
 async function getOpenAIApiKey(): Promise<string | null> {
 	// First try environment variable
 	const envKey = import.meta.env.VITE_OPENAI_API_KEY;
