@@ -3,6 +3,8 @@
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 
 	export let windowId: string;
 	export let operation: any;
@@ -213,6 +215,17 @@
 	let showSuccessModal: boolean = false;
 	let successMessage: string = '';
 
+	// Checklist popup state for CL2
+	let showCloseChecklistPopup = false;
+	let closeChecklistData: any = null;
+	let closeChecklistQuestions: any[] = [];
+	let loadingCloseChecklist = false;
+	let closeSelectedAnswers: Record<string, string> = {};
+	let closeRemarksValues: Record<string, string> = {};
+	let closeOtherValues: Record<string, string> = {};
+	let closeCurrentQuestionIndex = 0;
+	let closeChecklistCompleted = false;
+
 	async function verifySupervisorCode() {
 		supervisorCodeError = '';
 		supervisorName = '';
@@ -336,6 +349,213 @@
 	} else {
 		cashierConfirmName = '';
 		cashierConfirmError = '';
+	}
+
+	// Auto-show checklist popup when both codes are valid
+	$: if (supervisorName && cashierConfirmName && !closeChecklistCompleted && !showCloseChecklistPopup) {
+		loadCloseChecklist();
+	}
+
+	async function loadCloseChecklist() {
+		loadingCloseChecklist = true;
+		showCloseChecklistPopup = true;
+		
+		// Load CL2 checklist
+		const { data: cl, error: clError } = await supabase
+			.from('hr_checklists')
+			.select('id, checklist_name_en, checklist_name_ar, question_ids')
+			.eq('id', 'CL2')
+			.single();
+		
+		if (clError || !cl) {
+			console.error('CL2 checklist not found');
+			// If CL2 not found, skip checklist
+			closeChecklistCompleted = true;
+			showCloseChecklistPopup = false;
+			loadingCloseChecklist = false;
+			return;
+		}
+		
+		closeChecklistData = cl;
+		
+		if (!cl.question_ids || cl.question_ids.length === 0) {
+			closeChecklistQuestions = [];
+			loadingCloseChecklist = false;
+			return;
+		}
+		
+		// Fetch questions
+		const { data: questions, error: qError } = await supabase
+			.from('hr_checklist_questions')
+			.select('*')
+			.in('id', cl.question_ids);
+		
+		if (!qError) {
+			closeChecklistQuestions = questions || [];
+			closeSelectedAnswers = {};
+			closeRemarksValues = {};
+			closeOtherValues = {};
+			closeCurrentQuestionIndex = 0;
+		}
+		loadingCloseChecklist = false;
+	}
+
+	function generateWindowId(type: string): string {
+		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	}
+
+	function openIncidentReport() {
+		const windowId = generateWindowId('report-incident');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Report Incident #${instanceNumber}`,
+			component: ReportIncident,
+			icon: '📝',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			props: {
+				violation: null,
+				employees: [],
+				branches: [],
+				preSelectedIncidentType: 'IN3',
+				preSelectedBranch: branch
+			}
+		});
+	}
+
+	function getCloseQuestionAnswers(q: any): { key: string; en: string; ar: string; points: number }[] {
+		const answers: { key: string; en: string; ar: string; points: number }[] = [];
+		for (let i = 1; i <= 6; i++) {
+			if (q[`answer_${i}_en`] || q[`answer_${i}_ar`]) {
+				answers.push({
+					key: `a${i}`,
+					en: q[`answer_${i}_en`] || '',
+					ar: q[`answer_${i}_ar`] || '',
+					points: q[`answer_${i}_points`] || 0
+				});
+			}
+		}
+		return answers;
+	}
+
+	function closeCloseChecklistPopup() {
+		showCloseChecklistPopup = false;
+		// Reset codes since they cancelled
+		supervisorCode = '';
+		supervisorName = '';
+		cashierConfirmCode = '';
+		cashierConfirmName = '';
+	}
+
+	async function saveCloseChecklistAndContinue() {
+		if (!closeChecklistData) return;
+
+		// Build answers array with points
+		const answersData: any[] = [];
+		let totalPoints = 0;
+		let maxPoints = 0;
+
+		for (const q of closeChecklistQuestions) {
+			// Calculate max possible points for this question
+			let questionMaxPoints = 0;
+			for (let i = 1; i <= 6; i++) {
+				const pts = q[`answer_${i}_points`] || 0;
+				if (pts > questionMaxPoints) questionMaxPoints = pts;
+			}
+			if (q.has_other && (q.other_points || 0) > questionMaxPoints) {
+				questionMaxPoints = q.other_points || 0;
+			}
+			maxPoints += questionMaxPoints;
+
+			const answerKey = closeSelectedAnswers[q.id];
+			if (!answerKey) continue;
+
+			let points = 0;
+			let answerText = '';
+
+			if (answerKey === 'other') {
+				points = q.other_points || 0;
+				answerText = 'Other';
+			} else {
+				const ansIdx = parseInt(answerKey.replace('a', ''));
+				points = q[`answer_${ansIdx}_points`] || 0;
+				answerText = q[`answer_${ansIdx}_en`] || q[`answer_${ansIdx}_ar`] || '';
+			}
+
+			totalPoints += points;
+
+			answersData.push({
+				question_id: q.id,
+				answer_key: answerKey,
+				answer_text: answerText,
+				points: points,
+				remarks: closeRemarksValues[q.id] || null,
+				other_value: answerKey === 'other' ? (closeOtherValues[q.id] || null) : null
+			});
+		}
+
+		// Lookup employee_id from hr_employee_master using cashier's user_id from operation
+		let employeeId: string | null = null;
+		let userId: string | null = null;
+		
+		try {
+			// Get cashier user info from the codes we verified
+			const { data: cashierData } = await supabase
+				.from('users')
+				.select('id')
+				.eq('quick_access_code', cashierConfirmCode)
+				.single();
+			
+			if (cashierData) {
+				userId = cashierData.id;
+				
+				const { data: empData } = await supabase
+					.from('hr_employee_master')
+					.select('id')
+					.eq('user_id', userId)
+					.single();
+				
+				if (empData) {
+					employeeId = empData.id;
+				}
+			}
+		} catch (e) {
+			console.error('Error looking up employee:', e);
+		}
+
+		// Save to hr_checklist_operations
+		const { error } = await supabase
+			.from('hr_checklist_operations')
+			.insert({
+				user_id: userId,
+				employee_id: employeeId,
+				box_number: operation?.box_number || null,
+				box_operation_id: operation?.id || null,
+				checklist_id: closeChecklistData.id,
+				answers: answersData,
+				total_points: totalPoints,
+				max_points: maxPoints,
+				branch_id: branch?.id || null
+			});
+
+		if (error) {
+			console.error('Error saving checklist operation:', error);
+			alert('Error saving checklist: ' + error.message);
+			return;
+		}
+
+		// Mark checklist as completed and close popup
+		closeChecklistCompleted = true;
+		showCloseChecklistPopup = false;
 	}
 
 	// Load saved closing details on component mount
@@ -1184,7 +1404,7 @@
 							<button
 								on:click={saveSupervisorCode}
 								class="save-button"
-								disabled={!supervisorName || !cashierConfirmName || closingSaved}
+								disabled={!supervisorName || !cashierConfirmName || !closeChecklistCompleted || closingSaved}
 								style="margin-top: 0.1rem;"
 							>
 								{closingSaved ? ($currentLocale === 'ar' ? '✓ تم الإغلاق' : '✓ Closed') : ($currentLocale === 'ar' ? 'إغلاق' : 'Close')}
@@ -1538,6 +1758,129 @@
 			<button class="btn-ok" on:click={() => showSuccessModal = false}>
 				{$currentLocale === 'ar' ? 'حسناً' : 'OK'}
 			</button>
+		</div>
+	</div>
+{/if}
+
+{#if showCloseChecklistPopup}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="checklist-overlay" on:click={closeCloseChecklistPopup} on:keydown={(e) => { if (e.key === 'Escape') closeCloseChecklistPopup(); }} role="dialog" aria-modal="true">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="checklist-popup" on:click|stopPropagation on:keydown|stopPropagation role="document">
+			<div class="checklist-popup-header">
+				<h3>{closeChecklistData ? `${closeChecklistData.id} - ${$currentLocale === 'ar' ? (closeChecklistData.checklist_name_ar || closeChecklistData.checklist_name_en) : (closeChecklistData.checklist_name_en || closeChecklistData.checklist_name_ar)}` : ($currentLocale === 'ar' ? 'قائمة التحقق' : 'Checklist')}</h3>
+				<button class="close-btn" on:click={closeCloseChecklistPopup}>×</button>
+			</div>
+			<div class="checklist-popup-body">
+				{#if loadingCloseChecklist}
+					<div class="checklist-loading">
+						<svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" opacity="0.25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75"></path></svg>
+					</div>
+				{:else if closeChecklistQuestions.length === 0}
+					<p class="no-checklists">{$currentLocale === 'ar' ? 'لا توجد أسئلة' : 'No questions in this checklist'}</p>
+				{:else if closeCurrentQuestionIndex >= closeChecklistQuestions.length}
+					<div class="checklist-complete">
+						<div class="complete-icon">✓</div>
+						<p class="complete-text">{$currentLocale === 'ar' ? 'تم إكمال القائمة!' : 'Checklist Complete!'}</p>
+						<button class="complete-btn" on:click={saveCloseChecklistAndContinue}>
+							{$currentLocale === 'ar' ? 'متابعة' : 'Continue'}
+						</button>
+					</div>
+				{:else}
+					{@const q = closeChecklistQuestions[closeCurrentQuestionIndex]}
+					<div class="question-progress">
+						<span>{$currentLocale === 'ar' ? 'السؤال' : 'Question'} {closeCurrentQuestionIndex + 1} / {closeChecklistQuestions.length}</span>
+						<div class="progress-bar">
+							<div class="progress-fill" style="width: {((closeCurrentQuestionIndex) / closeChecklistQuestions.length) * 100}%"></div>
+						</div>
+					</div>
+					<div class="questions-list">
+						<div class="question-card">
+							<div class="question-header">
+								<span class="question-number">{q.id}</span>
+								<span class="question-text">{$currentLocale === 'ar' ? (q.question_ar || q.question_en) : (q.question_en || q.question_ar)}</span>
+							</div>
+							<div class="answers-list">
+								{#each getCloseQuestionAnswers(q) as ans}
+								<label class="answer-option" class:selected={closeSelectedAnswers[q.id] === ans.key}>
+									<input
+										type="radio"
+										name={`close-q-${q.id}`}
+										value={ans.key}
+										checked={closeSelectedAnswers[q.id] === ans.key}
+										on:change={() => { closeSelectedAnswers[q.id] = ans.key; }}
+									/>
+									<span class="answer-text">{$currentLocale === 'ar' ? (ans.ar || ans.en) : (ans.en || ans.ar)}</span>
+									{#if ans.points !== 0}
+										<span class="answer-points" class:negative={ans.points < 0}>{ans.points > 0 ? '+' : ''}{ans.points}</span>
+									{/if}
+								</label>
+								{/each}
+								{#if q.has_other}
+									<label class="answer-option other-option" class:selected={closeSelectedAnswers[q.id] === 'other'}>
+										<input
+											type="radio"
+											name={`close-q-${q.id}`}
+											value="other"
+											checked={closeSelectedAnswers[q.id] === 'other'}
+											on:change={() => { closeSelectedAnswers[q.id] = 'other'; }}
+										/>
+										<span class="answer-text">{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</span>
+										{#if q.other_points !== 0}
+											<span class="answer-points" class:negative={q.other_points < 0}>{q.other_points > 0 ? '+' : ''}{q.other_points}</span>
+										{/if}
+									</label>
+									{#if closeSelectedAnswers[q.id] === 'other'}
+										<div class="other-input-wrapper">
+											<input
+												type="text"
+												class="other-input"
+												placeholder={$currentLocale === 'ar' ? 'أدخل إجابتك...' : 'Enter your answer...'}
+												bind:value={closeOtherValues[q.id]}
+											/>
+											<button class="next-btn" on:click={() => { if (closeCurrentQuestionIndex < closeChecklistQuestions.length) closeCurrentQuestionIndex++; }}>
+												→
+											</button>
+										</div>
+									{/if}
+								{/if}
+								{#if q.has_remarks}
+									<div class="remarks-section">
+										<textarea
+											class="remarks-input"
+											placeholder={$currentLocale === 'ar' ? 'ملاحظات...' : 'Remarks...'}
+											bind:value={closeRemarksValues[q.id]}
+										></textarea>
+									</div>
+								{/if}
+							</div>
+							<div class="nav-btn-wrapper">
+								{#if closeCurrentQuestionIndex > 0}
+									<button 
+										class="back-question-btn" 
+										on:click={() => { closeCurrentQuestionIndex--; }}
+									>
+										← {$currentLocale === 'ar' ? 'السابق' : 'Back'}
+									</button>
+								{/if}
+								<button 
+									class="next-question-btn" 
+									disabled={!closeSelectedAnswers[q.id]}
+									on:click={() => { if (closeCurrentQuestionIndex < closeChecklistQuestions.length) closeCurrentQuestionIndex++; }}
+								>
+									{$currentLocale === 'ar' ? 'التالي' : 'Next'} →
+								</button>
+								<button 
+									class="incident-btn" 
+									on:click={openIncidentReport}
+								>
+									⚠️ {$currentLocale === 'ar' ? 'الإبلاغ عن مشكلة' : 'Report a Problem'}
+								</button>
+							</div>
+						</div>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 {/if}
@@ -4089,6 +4432,372 @@
 
 	.btn-ok:active {
 		transform: translateY(0);
+	}
+
+	/* Checklist popup styles */
+	.checklist-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 10000;
+	}
+
+	.checklist-popup {
+		background: white;
+		border-radius: 1rem;
+		width: 500px;
+		max-height: 80vh;
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+		overflow: hidden;
+	}
+
+	.checklist-popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.5rem;
+		background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+		color: white;
+	}
+
+	.checklist-popup-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 700;
+	}
+
+	.checklist-popup-header .close-btn {
+		background: rgba(255, 255, 255, 0.2);
+		border: none;
+		color: white;
+		font-size: 1.5rem;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 0.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.checklist-popup-body {
+		padding: 1rem 1.5rem;
+		max-height: 60vh;
+		overflow-y: auto;
+	}
+
+	.checklist-loading {
+		display: flex;
+		justify-content: center;
+		padding: 2rem;
+	}
+
+	.checklist-loading .spinner {
+		width: 2rem;
+		height: 2rem;
+		color: #7c3aed;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.no-checklists {
+		text-align: center;
+		color: #94a3b8;
+		padding: 2rem;
+		font-size: 0.875rem;
+	}
+
+	.question-card {
+		border: 2px solid #e2e8f0;
+		border-radius: 0.75rem;
+		padding: 1rem;
+		background: #f8fafc;
+	}
+
+	.question-header {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.question-number {
+		font-size: 0.75rem;
+		font-weight: 800;
+		color: #7c3aed;
+		background: #ede9fe;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.375rem;
+		white-space: nowrap;
+	}
+
+	.question-text {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #1e293b;
+		line-height: 1.4;
+	}
+
+	.answers-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-left: 0.5rem;
+	}
+
+	.answer-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.5rem;
+		background: white;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.answer-option:hover {
+		border-color: #7c3aed;
+		background: #faf5ff;
+	}
+
+	.answer-option.selected {
+		border-color: #7c3aed;
+		background: #ede9fe;
+	}
+
+	.answer-option input[type="radio"] {
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		width: 1rem;
+		height: 1rem;
+		border: 2px solid #cbd5e1;
+		border-radius: 0.25rem;
+		background: white;
+		cursor: pointer;
+		position: relative;
+	}
+
+	.answer-option input[type="radio"]:checked {
+		background: #7c3aed;
+		border-color: #7c3aed;
+	}
+
+	.answer-option input[type="radio"]:checked::after {
+		content: '✓';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		color: white;
+		font-size: 0.7rem;
+		font-weight: bold;
+	}
+
+	.answer-text {
+		flex: 1;
+		font-size: 0.875rem;
+		color: #334155;
+	}
+
+	.answer-points {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #059669;
+		background: #d1fae5;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+	}
+
+	.answer-points.negative {
+		color: #dc2626;
+		background: #fee2e2;
+	}
+
+	.question-progress {
+		margin-bottom: 1rem;
+		text-align: center;
+	}
+
+	.question-progress span {
+		font-size: 0.8rem;
+		color: #64748b;
+		font-weight: 600;
+	}
+
+	.progress-bar {
+		height: 6px;
+		background: #e2e8f0;
+		border-radius: 3px;
+		margin-top: 0.5rem;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #7c3aed, #8b5cf6);
+		border-radius: 3px;
+		transition: width 0.3s ease;
+	}
+
+	.checklist-complete {
+		text-align: center;
+		padding: 2rem;
+	}
+
+	.complete-icon {
+		width: 4rem;
+		height: 4rem;
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+		font-size: 2rem;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 0 auto 1rem;
+	}
+
+	.complete-text {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #1e293b;
+		margin-bottom: 1rem;
+	}
+
+	.complete-btn {
+		background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+		color: white;
+		border: none;
+		padding: 0.75rem 2rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: transform 0.2s, box-shadow 0.2s;
+	}
+
+	.complete-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+	}
+
+	.other-input-wrapper {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		margin-top: 0.5rem;
+	}
+
+	.other-input {
+		flex: 1;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+	}
+
+	.next-btn {
+		background: #7c3aed;
+		color: white;
+		border: none;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 0.5rem;
+		cursor: pointer;
+		font-size: 1rem;
+	}
+
+	.nav-btn-wrapper {
+		display: flex;
+		justify-content: center;
+		gap: 1rem;
+		margin-top: 1rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #e2e8f0;
+	}
+
+	.back-question-btn {
+		background: #6b7280;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.back-question-btn:hover {
+		background: #4b5563;
+	}
+
+	.next-question-btn {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		padding: 0.75rem 2rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s, opacity 0.2s;
+	}
+
+	.next-question-btn:hover:not(:disabled) {
+		background: #2563eb;
+	}
+
+	.next-question-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.incident-btn {
+		background: #ef4444;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.incident-btn:hover {
+		background: #dc2626;
+	}
+
+	.remarks-section {
+		margin-top: 0.5rem;
+	}
+
+	.remarks-input {
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+		resize: vertical;
+		min-height: 3rem;
+	}
+
+	.questions-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
 	}
 </style>
 

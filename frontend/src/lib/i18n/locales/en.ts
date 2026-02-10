@@ -1890,6 +1890,7 @@ export const englishLocale: LocaleData = {
         submissionReport: "Submission Report",
         newChecklist: "New Checklist",
         editChecklist: "Edit Checklist",
+        editQuestion: "Edit Question",
         checklistName: "Checklist Name",
         checklistNameEn: "Checklist name in English",
         checklistNameAr: "Checklist name in Arabic",
@@ -1940,6 +1941,11 @@ export const englishLocale: LocaleData = {
         answerCount: "Answers",
         questionsCount: "Questions",
         type: "Type",
+        id: "ID",
+        boxNumber: "Box No.",
+        time: "Time",
+        search: "Search",
+        viewAnswers: "View Answers",
       }
     },
     tasks: {

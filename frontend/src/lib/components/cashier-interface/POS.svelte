@@ -6,6 +6,7 @@
 	import CloseBox from './CloseBox.svelte';
 	import ClosingDetails from './ClosingDetails.svelte';
 	import CounterCheck from './CounterCheck.svelte';
+	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 
 	export let branch: any;
 	export let user: any;
@@ -16,6 +17,19 @@
 	let fullBranch: any = null;
 	let currencySymbolUrl = '/icons/saudi-currency.png';
 	let userHasActiveOperation = false;
+
+	// Checklist popup state
+	let showChecklistPopup = false;
+	let pendingBox: any = null;
+	let checklists: any[] = [];
+	let loadingChecklists = false;
+	let selectedChecklist: any = null;
+	let checklistQuestions: any[] = [];
+	let loadingQuestions = false;
+	let selectedAnswers: Record<string, string> = {};
+	let remarksValues: Record<string, string> = {};
+	let otherValues: Record<string, string> = {};
+	let currentQuestionIndex = 0;
 
 	// Generate unique window ID
 	function generateWindowId(type: string): string {
@@ -328,26 +342,253 @@
 			return;
 		}
 		
-		const windowId = generateWindowId(`counter-check-${box.number}`);
-		
+		// Show checklist popup first
+		pendingBox = box;
+		showChecklistPopup = true;
+		loadChecklists();
+	}
+
+	async function loadChecklists() {
+		loadingChecklists = true;
+		const { data, error } = await supabase
+			.from('hr_checklists')
+			.select('id, checklist_name_en, checklist_name_ar, question_ids')
+			.order('created_at', { ascending: true });
+		if (!error) {
+			checklists = data || [];
+			// Auto-select CL1 (first checklist) and load its questions
+			if (checklists.length > 0) {
+				const cl1 = checklists.find(c => c.id === 'CL1') || checklists[0];
+				await selectChecklist(cl1);
+			}
+		}
+		loadingChecklists = false;
+	}
+
+	function closeChecklistPopup() {
+		showChecklistPopup = false;
+		pendingBox = null;
+		selectedChecklist = null;
+		checklistQuestions = [];
+		selectedAnswers = {};
+		remarksValues = {};
+		otherValues = {};
+		currentQuestionIndex = 0;
+	}
+
+	async function saveChecklistAndOpenModal() {
+		if (!pendingBox || !selectedChecklist) return;
+
+		// Build answers array with points
+		const answersData: any[] = [];
+		let totalPoints = 0;
+		let maxPoints = 0;
+
+		for (const q of checklistQuestions) {
+			// Calculate max possible points for this question
+			let questionMaxPoints = 0;
+			for (let i = 1; i <= 6; i++) {
+				const pts = q[`answer_${i}_points`] || 0;
+				if (pts > questionMaxPoints) questionMaxPoints = pts;
+			}
+			if (q.has_other && (q.other_points || 0) > questionMaxPoints) {
+				questionMaxPoints = q.other_points || 0;
+			}
+			maxPoints += questionMaxPoints;
+
+			const answerKey = selectedAnswers[q.id];
+			if (!answerKey) continue;
+
+			let points = 0;
+			let answerText = '';
+
+			if (answerKey === 'other') {
+				points = q.other_points || 0;
+				answerText = 'Other';
+			} else {
+				// Extract answer index (a1 -> 1)
+				const ansIdx = parseInt(answerKey.replace('a', ''));
+				points = q[`answer_${ansIdx}_points`] || 0;
+				answerText = q[`answer_${ansIdx}_en`] || q[`answer_${ansIdx}_ar`] || '';
+			}
+
+			totalPoints += points;
+
+			answersData.push({
+				question_id: q.id,
+				answer_key: answerKey,
+				answer_text: answerText,
+				points: points,
+				remarks: remarksValues[q.id] || null,
+				other_value: answerKey === 'other' ? (otherValues[q.id] || null) : null
+			});
+		}
+
+		console.log('Saving checklist operation:', {
+			user_id: user?.id,
+			checklist_id: selectedChecklist.id,
+			answers: answersData,
+			total_points: totalPoints,
+			max_points: maxPoints,
+			branch_id: branch?.id
+		});
+
+		// Lookup employee_id from hr_employee_master using user_id
+		let employeeId: string | null = null;
+		if (user?.id) {
+			const { data: empData } = await supabase
+				.from('hr_employee_master')
+				.select('id')
+				.eq('user_id', user.id)
+				.single();
+			if (empData) {
+				employeeId = empData.id;
+			}
+		}
+
+		// Save to hr_checklist_operations
+		const { data, error } = await supabase
+			.from('hr_checklist_operations')
+			.insert({
+				user_id: user?.id || null,
+				employee_id: employeeId,
+				box_number: pendingBox?.number || null,
+				box_operation_id: null, // Box operation not created yet
+				checklist_id: selectedChecklist.id,
+				answers: answersData,
+				total_points: totalPoints,
+				max_points: maxPoints,
+				branch_id: branch?.id || null
+			})
+			.select();
+
+		if (error) {
+			console.error('Error saving checklist operation:', error);
+			alert('Error saving checklist: ' + error.message);
+		} else {
+			console.log('Checklist operation saved successfully:', data);
+		}
+
+		// Store pending box in selectedBox and open modal
+		const boxToOpen = pendingBox;
+		const checklistIdToSave = selectedChecklist.id;
+
+		// Reset checklist popup state
+		showChecklistPopup = false;
+		pendingBox = null;
+		selectedChecklist = null;
+		checklistQuestions = [];
+		selectedAnswers = {};
+		remarksValues = {};
+		otherValues = {};
+		currentQuestionIndex = 0;
+
+		// Open counter check as a window
+		const windowId = `counter-check-${Date.now()}`;
 		openWindow({
 			id: windowId,
-			title: `${getBoxDisplayName(box.number)} - Counter Check`,
+			title: `${getBoxDisplayName(boxToOpen.number)} - ${t('pos.counterCheck') || 'Counter Check'}`,
 			component: CounterCheck,
-			props: {
+			props: { 
 				windowId,
-				box,
-				branch: fullBranch || branch,
-				user
+				box: boxToOpen, 
+				branch, 
+				user 
 			},
-			icon: '📦',
-			size: { width: 550, height: 650 },
-			position: { x: 300, y: 100 },
+			icon: '📋',
+			size: { width: 600, height: 700 },
+			position: { x: 150, y: 50 },
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
 			closable: true
 		});
+	}
+
+	async function selectChecklist(cl: any) {
+		selectedChecklist = cl;
+		loadingQuestions = true;
+		
+		// Get question IDs from the checklist
+		const { data: fullCl, error: clError } = await supabase
+			.from('hr_checklists')
+			.select('question_ids')
+			.eq('id', cl.id)
+			.single();
+		
+		if (clError || !fullCl?.question_ids || fullCl.question_ids.length === 0) {
+			checklistQuestions = [];
+			loadingQuestions = false;
+			return;
+		}
+		
+		// Fetch questions by IDs
+		const { data: questions, error: qError } = await supabase
+			.from('hr_checklist_questions')
+			.select('*')
+			.in('id', fullCl.question_ids);
+		
+		if (!qError) {
+			checklistQuestions = questions || [];
+			// Initialize selected answers
+			selectedAnswers = {};
+			remarksValues = {};
+			otherValues = {};
+			currentQuestionIndex = 0;
+		}
+		loadingQuestions = false;
+	}
+
+	function goBackToChecklists() {
+		selectedChecklist = null;
+		checklistQuestions = [];
+		selectedAnswers = {};
+		remarksValues = {};
+		otherValues = {};
+		currentQuestionIndex = 0;
+	}
+
+	function openIncidentReport() {
+		const windowId = generateWindowId('report-incident');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Report Incident #${instanceNumber}`,
+			component: ReportIncident,
+			icon: '📝',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			props: {
+				violation: null,
+				employees: [],
+				branches: [],
+				preSelectedIncidentType: 'IN3',
+				preSelectedBranch: branch
+			}
+		});
+	}
+
+	function getQuestionAnswers(q: any): { key: string; en: string; ar: string; points: number }[] {
+		const answers: { key: string; en: string; ar: string; points: number }[] = [];
+		for (let i = 1; i <= 6; i++) {
+			if (q[`answer_${i}_en`] || q[`answer_${i}_ar`]) {
+				answers.push({
+					key: `a${i}`,
+					en: q[`answer_${i}_en`] || '',
+					ar: q[`answer_${i}_ar`] || '',
+					points: q[`answer_${i}_points`] || 0
+				});
+			}
+		}
+		return answers;
 	}
 
 	function closeModal() {
@@ -962,7 +1203,572 @@
 	</div>
 {/if}
 
+{#if showChecklistPopup && pendingBox}
+	<div class="modal-overlay" on:click={closeChecklistPopup} on:keydown={(e) => { if (e.key === 'Escape') closeChecklistPopup(); }}>
+		<div class="checklist-popup" class:expanded={selectedChecklist} on:click|stopPropagation>
+			<div class="checklist-popup-header">
+				{#if selectedChecklist}
+					<h3>{selectedChecklist.id} - {$currentLocale === 'ar' ? (selectedChecklist.checklist_name_ar || selectedChecklist.checklist_name_en) : (selectedChecklist.checklist_name_en || selectedChecklist.checklist_name_ar)}</h3>
+				{:else}
+					<h3>{$currentLocale === 'ar' ? 'قائمة التحقق' : 'Checklist'} - {getBoxDisplayName(pendingBox.number)}</h3>
+				{/if}
+				<button class="close-btn" on:click={closeChecklistPopup}>×</button>
+			</div>
+			<div class="checklist-popup-body">
+				{#if !selectedChecklist}
+					{#if loadingChecklists}
+						<div class="checklist-loading">
+							<svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" opacity="0.25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75"></path></svg>
+						</div>
+					{:else if checklists.length === 0}
+						<p class="no-checklists">{$currentLocale === 'ar' ? 'لا توجد قوائم تحقق' : 'No checklists available'}</p>
+					{:else}
+						<div class="checklist-list">
+							{#each checklists as cl}
+								<button class="checklist-item" on:click={() => selectChecklist(cl)}>
+									<span class="checklist-code">{cl.id}</span>
+									<span class="checklist-name">{$currentLocale === 'ar' ? (cl.checklist_name_ar || cl.checklist_name_en || '-') : (cl.checklist_name_en || cl.checklist_name_ar || '-')}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				{:else}
+					{#if loadingQuestions}
+						<div class="checklist-loading">
+							<svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" opacity="0.25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75"></path></svg>
+						</div>
+					{:else if checklistQuestions.length === 0}
+						<p class="no-checklists">{$currentLocale === 'ar' ? 'لا توجد أسئلة' : 'No questions in this checklist'}</p>
+					{:else if currentQuestionIndex >= checklistQuestions.length}
+						<div class="checklist-complete">
+							<div class="complete-icon">✓</div>
+							<p class="complete-text">{$currentLocale === 'ar' ? 'تم إكمال القائمة!' : 'Checklist Complete!'}</p>
+							<button class="complete-btn" on:click={saveChecklistAndOpenModal}>
+								{$currentLocale === 'ar' ? 'متابعة' : 'Continue'}
+							</button>
+						</div>
+					{:else}
+						{@const q = checklistQuestions[currentQuestionIndex]}
+						<div class="question-progress">
+							<span>{$currentLocale === 'ar' ? 'السؤال' : 'Question'} {currentQuestionIndex + 1} / {checklistQuestions.length}</span>
+							<div class="progress-bar">
+								<div class="progress-fill" style="width: {((currentQuestionIndex) / checklistQuestions.length) * 100}%"></div>
+							</div>
+						</div>
+						<div class="questions-list">
+							<div class="question-card">
+								<div class="question-header">
+									<span class="question-number">{q.id}</span>
+									<span class="question-text">{$currentLocale === 'ar' ? (q.question_ar || q.question_en) : (q.question_en || q.question_ar)}</span>
+								</div>
+								<div class="answers-list">
+									{#each getQuestionAnswers(q) as ans}
+										<label class="answer-option" class:selected={selectedAnswers[q.id] === ans.key}>
+											<input
+												type="radio"
+												name={`q-${q.id}`}
+												value={ans.key}
+												checked={selectedAnswers[q.id] === ans.key}
+												on:change={() => { selectedAnswers[q.id] = ans.key; }}
+											/>
+											<span class="answer-text">{$currentLocale === 'ar' ? (ans.ar || ans.en) : (ans.en || ans.ar)}</span>
+											{#if ans.points !== 0}
+												<span class="answer-points" class:negative={ans.points < 0}>{ans.points > 0 ? '+' : ''}{ans.points}</span>
+											{/if}
+										</label>
+									{/each}
+									{#if q.has_other}
+										<label class="answer-option other-option" class:selected={selectedAnswers[q.id] === 'other'}>
+											<input
+												type="radio"
+												name={`q-${q.id}`}
+												value="other"
+												checked={selectedAnswers[q.id] === 'other'}
+												on:change={() => { selectedAnswers[q.id] = 'other'; }}
+											/>
+											<span class="answer-text">{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</span>
+											{#if q.other_points !== 0}
+												<span class="answer-points" class:negative={q.other_points < 0}>{q.other_points > 0 ? '+' : ''}{q.other_points}</span>
+											{/if}
+										</label>
+										{#if selectedAnswers[q.id] === 'other'}
+											<div class="other-input-wrapper">
+												<input
+													type="text"
+													class="other-input"
+													placeholder={$currentLocale === 'ar' ? 'أدخل إجابتك...' : 'Enter your answer...'}
+													bind:value={otherValues[q.id]}
+												/>
+												<button class="next-btn" on:click={() => { if (currentQuestionIndex < checklistQuestions.length) currentQuestionIndex++; }}>
+													{$currentLocale === 'ar' ? 'التالي' : 'Next'} →
+												</button>
+											</div>
+										{/if}
+									{/if}
+								</div>
+								{#if q.has_remarks}
+									<div class="remarks-section">
+										<label class="remarks-label">{$currentLocale === 'ar' ? 'ملاحظات:' : 'Remarks:'}</label>
+										<textarea
+											class="remarks-input"
+											rows="2"
+											placeholder={$currentLocale === 'ar' ? 'أدخل ملاحظاتك...' : 'Enter remarks...'}
+											bind:value={remarksValues[q.id]}
+										></textarea>
+									</div>
+								{/if}
+								<div class="nav-btn-wrapper">
+									{#if currentQuestionIndex > 0}
+										<button 
+											class="back-question-btn" 
+											on:click={() => { currentQuestionIndex--; }}
+										>
+											← {$currentLocale === 'ar' ? 'السابق' : 'Back'}
+										</button>
+									{/if}
+									<button 
+										class="next-question-btn" 
+										disabled={!selectedAnswers[q.id]}
+										on:click={() => { if (currentQuestionIndex < checklistQuestions.length) currentQuestionIndex++; }}
+									>
+										{$currentLocale === 'ar' ? 'التالي' : 'Next'} →
+									</button>
+									<button 
+										class="incident-btn" 
+										on:click={openIncidentReport}
+									>
+										⚠️ {$currentLocale === 'ar' ? 'الإبلاغ عن مشكلة' : 'Report a Problem'}
+									</button>
+								</div>
+							</div>
+						</div>
+					{/if}
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
+	.checklist-popup {
+		background: white;
+		border-radius: 1rem;
+		width: 400px;
+		max-height: 80vh;
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+		overflow: hidden;
+	}
+
+	.checklist-popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.5rem;
+		background: linear-gradient(135deg, #2563eb, #3b82f6);
+		color: white;
+	}
+
+	.checklist-popup-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 700;
+	}
+
+	.checklist-popup-body {
+		padding: 1rem 1.5rem;
+		max-height: 60vh;
+		overflow-y: auto;
+	}
+
+	.checklist-loading {
+		display: flex;
+		justify-content: center;
+		padding: 2rem;
+	}
+
+	.checklist-loading .spinner {
+		width: 2rem;
+		height: 2rem;
+		color: #3b82f6;
+		animation: spin 1s linear infinite;
+	}
+
+	.no-checklists {
+		text-align: center;
+		color: #94a3b8;
+		padding: 2rem;
+		font-size: 0.875rem;
+	}
+
+	.checklist-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.checklist-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 0.75rem;
+		background: #f8fafc;
+		cursor: pointer;
+		transition: all 0.2s;
+		width: 100%;
+		text-align: left;
+	}
+
+	.checklist-item:hover {
+		border-color: #3b82f6;
+		background: #eff6ff;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.15);
+	}
+
+	.checklist-code {
+		font-size: 0.875rem;
+		font-weight: 800;
+		color: #1e40af;
+		background: #dbeafe;
+		padding: 0.25rem 0.625rem;
+		border-radius: 0.5rem;
+		white-space: nowrap;
+	}
+
+	.checklist-name {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #334155;
+	}
+
+	.checklist-popup.expanded {
+		width: 600px;
+		max-width: 95%;
+	}
+
+	.questions-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.question-card {
+		border: 2px solid #e2e8f0;
+		border-radius: 0.75rem;
+		padding: 1rem;
+		background: #f8fafc;
+	}
+
+	.question-header {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.question-number {
+		font-size: 0.75rem;
+		font-weight: 800;
+		color: #7c3aed;
+		background: #ede9fe;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.375rem;
+		white-space: nowrap;
+	}
+
+	.question-text {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #1e293b;
+		line-height: 1.4;
+	}
+
+	.answers-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-left: 0.5rem;
+	}
+
+	.answer-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.5rem;
+		background: white;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.answer-option:hover {
+		border-color: #3b82f6;
+		background: #f0f9ff;
+	}
+
+	.answer-option.selected {
+		border-color: #3b82f6;
+		background: #dbeafe;
+	}
+
+	.answer-option input[type="radio"] {
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		width: 1rem;
+		height: 1rem;
+		border: 2px solid #cbd5e1;
+		border-radius: 0.25rem;
+		background: white;
+		cursor: pointer;
+		position: relative;
+	}
+
+	.answer-option input[type="radio"]:checked {
+		background: #3b82f6;
+		border-color: #3b82f6;
+	}
+
+	.answer-option input[type="radio"]:checked::after {
+		content: '✓';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		color: white;
+		font-size: 0.7rem;
+		font-weight: bold;
+	}
+
+	.answer-text {
+		flex: 1;
+		font-size: 0.875rem;
+		color: #334155;
+	}
+
+	.answer-points {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #059669;
+		background: #d1fae5;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+	}
+
+	.answer-points.negative {
+		color: #dc2626;
+		background: #fee2e2;
+	}
+
+	.question-progress {
+		margin-bottom: 1rem;
+		text-align: center;
+	}
+
+	.question-progress span {
+		font-size: 0.8rem;
+		color: #64748b;
+		font-weight: 600;
+	}
+
+	.progress-bar {
+		height: 6px;
+		background: #e2e8f0;
+		border-radius: 3px;
+		margin-top: 0.5rem;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #2563eb);
+		border-radius: 3px;
+		transition: width 0.3s ease;
+	}
+
+	.checklist-complete {
+		text-align: center;
+		padding: 2rem;
+	}
+
+	.complete-icon {
+		width: 4rem;
+		height: 4rem;
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+		font-size: 2rem;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 0 auto 1rem;
+	}
+
+	.complete-text {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #1e293b;
+		margin-bottom: 1rem;
+	}
+
+	.complete-btn {
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
+		color: white;
+		border: none;
+		padding: 0.75rem 2rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: transform 0.2s, box-shadow 0.2s;
+	}
+
+	.complete-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+	}
+
+	.other-input-wrapper {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		width: 100%;
+		margin-top: 0.5rem;
+	}
+
+	.other-input-wrapper .other-input {
+		flex: 1;
+		margin-top: 0;
+	}
+
+	.next-btn {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 0.375rem;
+		font-weight: 600;
+		font-size: 0.875rem;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: background 0.2s;
+	}
+
+	.next-btn:hover {
+		background: #2563eb;
+	}
+
+	.nav-btn-wrapper {
+		display: flex;
+		justify-content: center;
+		gap: 1rem;
+		margin-top: 1rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #e2e8f0;
+	}
+
+	.back-question-btn {
+		background: #6b7280;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.back-question-btn:hover {
+		background: #4b5563;
+	}
+
+	.next-question-btn {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		padding: 0.75rem 2rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s, opacity 0.2s;
+	}
+
+	.next-question-btn:hover:not(:disabled) {
+		background: #2563eb;
+	}
+
+	.next-question-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.incident-btn {
+		background: #ef4444;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.incident-btn:hover {
+		background: #dc2626;
+	}
+
+	.other-option {
+		flex-wrap: wrap;
+	}
+
+	.other-input {
+		width: 100%;
+		margin-top: 0.5rem;
+		padding: 0.5rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+	}
+
+	.other-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+	}
+
+	.remarks-section {
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 1px dashed #e2e8f0;
+	}
+
+	.remarks-label {
+		display: block;
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #64748b;
+		margin-bottom: 0.375rem;
+	}
+
+	.remarks-input {
+		width: 100%;
+		padding: 0.5rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		resize: vertical;
+		min-height: 2.5rem;
+	}
+
+	.remarks-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+	}
+
 	.pos-container {
 		width: 100%;
 		height: 100%;

@@ -3,6 +3,12 @@
 	import { translateText, correctSpelling } from '$lib/utils/translationService';
 	import { supabase } from '$lib/utils/supabase';
 
+	// Edit mode props
+	export let editId: string | null = null;
+	export let editData: any = null;
+
+	$: isEditMode = !!editId;
+
 	let saving = false;
 	let saveMessage = '';
 
@@ -16,6 +22,29 @@
 		otherPoints: number;
 	}[] = [];
 	let questionCounter = 0;
+
+	// Initialize from edit data if provided
+	if (editData && editId) {
+		const answers: { name_en: string; name_ar: string; points: number }[] = [];
+		for (let i = 1; i <= 6; i++) {
+			if (editData[`answer_${i}_en`] || editData[`answer_${i}_ar`]) {
+				answers.push({
+					name_en: editData[`answer_${i}_en`] || '',
+					name_ar: editData[`answer_${i}_ar`] || '',
+					points: editData[`answer_${i}_points`] || 0
+				});
+			}
+		}
+		questions = [{
+			name_en: editData.question_en || '',
+			name_ar: editData.question_ar || '',
+			answers,
+			hasRemarks: editData.has_remarks || false,
+			hasOther: editData.has_other || false,
+			otherPoints: editData.other_points || 0
+		}];
+		questionCounter = 1;
+	}
 
 	function addQuestion() {
 		questionCounter++;
@@ -105,7 +134,9 @@
 		saving = true;
 		saveMessage = '';
 		try {
-			const rows = questions.map((q) => {
+			if (isEditMode) {
+				// Update existing question
+				const q = questions[0];
 				const row: Record<string, any> = {
 					question_en: q.name_en,
 					question_ar: q.name_ar,
@@ -119,17 +150,41 @@
 					row[`answer_${i + 1}_ar`] = a ? a.name_ar : null;
 					row[`answer_${i + 1}_points`] = a ? a.points : 0;
 				}
-				return row;
-			});
-
-			const { error } = await supabase.from('hr_checklist_questions').insert(rows);
-			if (error) {
-				console.error('Save failed:', error);
-				saveMessage = 'error';
+				const { error } = await supabase.from('hr_checklist_questions').update(row).eq('id', editId);
+				if (error) {
+					console.error('Update failed:', error);
+					saveMessage = 'error';
+				} else {
+					saveMessage = 'success';
+				}
 			} else {
-				saveMessage = 'success';
-				questions = [];
-				questionCounter = 0;
+				// Insert new questions
+				const rows = questions.map((q) => {
+					const row: Record<string, any> = {
+						question_en: q.name_en,
+						question_ar: q.name_ar,
+						has_remarks: q.hasRemarks,
+						has_other: q.hasOther,
+						other_points: q.otherPoints
+					};
+					for (let i = 0; i < 6; i++) {
+						const a = q.answers[i];
+						row[`answer_${i + 1}_en`] = a ? a.name_en : null;
+						row[`answer_${i + 1}_ar`] = a ? a.name_ar : null;
+						row[`answer_${i + 1}_points`] = a ? a.points : 0;
+					}
+					return row;
+				});
+
+				const { error } = await supabase.from('hr_checklist_questions').insert(rows);
+				if (error) {
+					console.error('Save failed:', error);
+					saveMessage = 'error';
+				} else {
+					saveMessage = 'success';
+					questions = [];
+					questionCounter = 0;
+				}
 			}
 		} catch (err) {
 			console.error('Save failed:', err);
@@ -183,7 +238,7 @@
 				{:else}
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
 				{/if}
-				{$t('hr.dailyChecklist.save')}
+				{$t(isEditMode ? 'hr.dailyChecklist.update' : 'hr.dailyChecklist.save')}
 			</button>
 			{#if saveMessage === 'success'}
 				<span class="text-sm font-bold text-green-600">✅ {$t('hr.dailyChecklist.savedSuccess')}</span>
@@ -327,7 +382,6 @@
 											<input
 												type="number"
 												bind:value={answer.points}
-												min="0"
 												class="w-16 px-2 py-1.5 border border-slate-200 rounded-md text-sm text-center focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
 											/>
 										</div>
@@ -375,7 +429,7 @@
 											<input
 												type="number"
 												bind:value={questions[index].otherPoints}
-												min="0"
+
 												class="w-16 px-2 py-1 border border-orange-200 rounded-md text-sm text-center focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
 											/>
 										</div>

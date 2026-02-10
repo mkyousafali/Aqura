@@ -6,6 +6,8 @@
     export let violation: any;
     export let employees: any[] = [];
     export let branches: any[] = [];
+    export let preSelectedIncidentType: string = '';
+    export let preSelectedBranch: any = null;
     
     let selectedEmployee = '';
     let selectedEmployeeDetails: any = null;
@@ -117,6 +119,11 @@
         if (employees.length === 0) {
             await loadEmployees();
         }
+        
+        // Pre-select branch if passed
+        if (preSelectedBranch && preSelectedBranch.id) {
+            selectedBranch = preSelectedBranch.id;
+        }
     });
     
     async function loadBranches() {
@@ -148,8 +155,16 @@
             if (error) throw error;
             incidentTypes = data || [];
             
+            // Pre-select incident type if passed (e.g., IN3 from checklist)
+            if (preSelectedIncidentType) {
+                incidentType = preSelectedIncidentType;
+                selectedIncidentType = incidentTypes.find(t => t.id === preSelectedIncidentType) || null;
+                if (selectedIncidentType) {
+                    incidentTypeSearchQuery = $locale === 'ar' ? selectedIncidentType.incident_type_ar : selectedIncidentType.incident_type_en;
+                }
+            }
             // Only auto-select incident type if opened from Discipline (violation is passed)
-            if (violation) {
+            else if (violation) {
                 incidentType = 'IN2'; // Employee Incidents
                 selectedIncidentType = incidentTypes.find(t => t.id === 'IN2') || null;
                 if (selectedIncidentType) {
