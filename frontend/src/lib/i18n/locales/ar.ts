@@ -125,6 +125,7 @@ export const arabicLocale: LocaleData = {
       manageMasterAdmin: "إدارة المشرف الرئيسي",
       buttonAccessControl: "التحكم في وصول الأزرار",
       buttonGenerator: "مولد الأزرار",
+      aiChatGuide: "دليل محادثة الذكاء الاصطناعي",
       themeManager: "مدير السمات",
       createDepartment: "إنشاء قسم",
       createLevel: "إنشاء مستوى",

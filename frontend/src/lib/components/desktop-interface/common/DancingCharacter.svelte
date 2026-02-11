@@ -2,10 +2,12 @@
 	import { onMount } from 'svelte';
 	import { DotLottie } from '@lottiefiles/dotlottie-web';
 	import { currentLocale } from '$lib/i18n';
+	import ChatWindow from './ChatWindow.svelte';
 
 	let showBubble = false;
 	let bubbleText = '';
 	let hidden = false;
+	let showChat = false;
 	let canvasEl: HTMLCanvasElement;
 	let dotLottie: DotLottie | null = null;
 	let messageIndex = 0;
@@ -13,6 +15,7 @@
 	let intervalTimer: ReturnType<typeof setInterval> | null = null;
 
 	const greetingsEn = [
+		'Click to chat with me 💬',
 		'Assalamu Alaikum 🤲',
 		'Subhanallah ✨',
 		'Alhamdulillah 🌟',
@@ -36,6 +39,7 @@
 	];
 
 	const greetingsAr = [
+		'اضغط للدردشة معي 💬',
 		'السلام عليكم 🤲',
 		'سبحان الله ✨',
 		'الحمد لله 🌟',
@@ -71,7 +75,7 @@
 		bubbleTimer = setTimeout(() => {
 			showBubble = false;
 			bubbleTimer = null;
-		}, 4000);
+		}, 12000);
 	}
 
 	onMount(() => {
@@ -83,12 +87,12 @@
 			speed: 0.8
 		});
 
-		// Show messages automatically in order: 4s visible, 2s pause, then next
+		// Show messages automatically in order: 6s visible, 2s pause, then next
 		intervalTimer = setInterval(() => {
 			if (!showBubble) {
 				showNextMessage();
 			}
-		}, 6000);
+		}, 8000);
 
 		// Show first message after 3 seconds
 		setTimeout(() => showNextMessage(), 3000);
@@ -101,7 +105,7 @@
 	});
 
 	function handleClick() {
-		showNextMessage();
+		showChat = true;
 	}
 
 	function handleHide() {
@@ -123,37 +127,44 @@
 			class="character-btn"
 			on:click={handleClick}
 			on:dblclick={handleHide}
-			title="Click to greet • Double-click to hide"
+			title="Click to chat • Double-click to hide"
 		>
-			<canvas bind:this={canvasEl} width="150" height="150" class="character-canvas"></canvas>
+		<canvas bind:this={canvasEl} width="80" height="80" class="character-canvas"></canvas>
 		</button>
 	</div>
 {/if}
 
+{#if showChat}
+	<ChatWindow on:close={() => (showChat = false)} />
+{/if}
+
 <style>
 	.character-wrapper {
-		position: fixed;
-		bottom: 52px;
-		right: 16px;
-		z-index: 1999;
+		position: relative;
+		z-index: 1;
 		pointer-events: auto;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		justify-content: flex-end;
+		height: 80px;
+		min-height: 80px;
+		overflow: visible;
 	}
 
 	.speech-bubble {
 		position: absolute;
-		bottom: 155px;
-		right: -10px;
+		bottom: 75px;
+		left: 50%;
+		transform: translateX(-50%);
 		background: #fff;
 		color: #333;
-		padding: 8px 16px;
-		border-radius: 14px;
-		font-size: 13px;
+		padding: 5px 10px;
+		border-radius: 10px;
+		font-size: 10px;
 		font-weight: 600;
 		white-space: nowrap;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
 		animation: bubblePop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 		z-index: 10;
 		font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
@@ -162,13 +173,14 @@
 
 	.bubble-tail {
 		position: absolute;
-		bottom: -7px;
-		right: 20px;
+		bottom: -6px;
+		left: 50%;
+		transform: translateX(-50%);
 		width: 0;
 		height: 0;
-		border-left: 7px solid transparent;
-		border-right: 7px solid transparent;
-		border-top: 9px solid #fff;
+		border-left: 6px solid transparent;
+		border-right: 6px solid transparent;
+		border-top: 7px solid #fff;
 	}
 
 	@keyframes bubblePop {
@@ -201,13 +213,8 @@
 	}
 
 	.character-canvas {
-		width: 150px;
-		height: 150px;
+		width: 80px;
+		height: 80px;
 	}
 
-	@media (max-width: 768px) {
-		.character-wrapper {
-			display: none;
-		}
-	}
 </style>

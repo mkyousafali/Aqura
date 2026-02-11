@@ -122,6 +122,7 @@ export const englishLocale: LocaleData = {
       manageMasterAdmin: "Manage Master Admin",
       buttonAccessControl: "Button Access Control",
       buttonGenerator: "Button Generator",
+      aiChatGuide: "AI Chat Guide",
       themeManager: "Theme Manager",
       createDepartment: "Create Department",
       createLevel: "Create Level",

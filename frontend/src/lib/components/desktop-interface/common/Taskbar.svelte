@@ -12,7 +12,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import NotificationCenter from '$lib/components/desktop-interface/master/communication/NotificationCenter.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
 	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
-	import DancingCharacter from './DancingCharacter.svelte';
 	import { getSaudiDayOfWeek, isEmployeeDayOff, isAfterShiftStart, getShiftStartTime } from '$lib/utils/checklistHelpers';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -450,8 +449,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </script>
 
 <svelte:window on:click={handleClickOutside} />
-
-<DancingCharacter />
 
 <div class="taskbar">
 	<!-- Window Tasks -->
