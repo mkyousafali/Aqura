@@ -83,7 +83,7 @@
   /* Body and scrollbar styling */
   body {
     @apply text-gray-900;
-    background: linear-gradient(180deg, #86efac 0%, #6ee7b7 50%, #34d399 100%);
+    background: var(--theme-desktop-bg, #F9FAFB);
     /* Allow body scroll for login page and mobile compatibility */
     overflow: auto;
     overflow-x: hidden;
