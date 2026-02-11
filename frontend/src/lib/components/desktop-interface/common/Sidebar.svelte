@@ -8,7 +8,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { sidebar } from '$lib/stores/sidebar';
-	import { currentLocale, t } from '$lib/i18n';
+	import { currentLocale, t, switchLocale } from '$lib/i18n';
 	import { favoritesStore, favoritesPanelOpen } from '$lib/stores/favorites';
 	import {
 		showInstallPrompt,
@@ -2841,10 +2841,24 @@ function openApprovalCenter() {
 
 <div class="sidebar" class:favorites-mode={sidebarViewMode === 'favorites'}>
 	<div class="sidebar-content">
-	<!-- Online/Offline Indicator -->
-	<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
-		<div class="status-light"></div>
-		<span class="status-text">{isOnline ? t('nav.online') : t('nav.offline')}</span>
+	<!-- Online/Offline Indicator + Language Switch -->
+	<div class="top-controls-row">
+		<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
+			<div class="status-light"></div>
+		</div>
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div 
+			class="electric-switch lang-electric-switch" 
+			class:on={$currentLocale === 'ar'}
+			on:click={() => { switchLocale($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
+			title="{$currentLocale === 'en' ? 'Switch to Arabic' : 'Switch to English'}"
+		>
+			<div class="switch-track">
+				<div class="switch-knob">
+					<span class="knob-icon" class:off={$currentLocale === 'en'}>{$currentLocale === 'en' ? 'ع' : 'E'}</span>
+				</div>
+			</div>
+		</div>
 	</div>
 	
 	<!-- Standard / Favorites Toggle -->
@@ -5415,14 +5429,51 @@ function openApprovalCenter() {
 	}
 
 	/* Connection Indicator Styles */
+	.top-controls-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 8px;
+		margin-bottom: 4px;
+	}
+
 	.connection-indicator {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 10px 12px;
-		border-radius: 8px;
-		margin-bottom: 8px;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
 		transition: all 0.3s ease;
+		flex-shrink: 0;
+	}
+
+	/* Language Switch */
+	.lang-electric-switch {
+		flex: 1;
+		width: auto !important;
+	}
+
+	.lang-electric-switch.on .switch-knob {
+		left: calc(100% - 27px) !important;
+	}
+
+	.lang-electric-switch .switch-knob {
+		background: linear-gradient(145deg, #F59E0B, #D97706) !important;
+		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.3) !important;
+	}
+
+	.lang-electric-switch .switch-track {
+		background: #3d3520 !important;
+		border-color: #8B6914 !important;
+		box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 8px rgba(245, 158, 11, 0.3) !important;
+	}
+
+	.lang-electric-switch .switch-knob .knob-icon {
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: white !important;
+		filter: none !important;
 	}
 
 	/* View Mode Toggle - Electric Switch */
