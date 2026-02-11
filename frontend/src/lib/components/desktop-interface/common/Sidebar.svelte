@@ -4185,12 +4185,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openDailyChecklist}>
-							<span class="menu-icon">✅</span>
-							<span class="menu-text">My Daily Checklist</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('MY_DAILY_CHECKLIST')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDailyChecklist}>
+								<span class="menu-icon">✅</span>
+								<span class="menu-text">My Daily Checklist</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
