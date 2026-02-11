@@ -544,7 +544,9 @@
 				answers: answersData,
 				total_points: totalPoints,
 				max_points: maxPoints,
-				branch_id: branch?.id || null
+				branch_id: branch?.id || null,
+				submission_type_en: 'POS',
+				submission_type_ar: 'نقاط البيع'
 			});
 
 		if (error) {

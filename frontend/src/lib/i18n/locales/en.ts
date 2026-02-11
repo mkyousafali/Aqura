@@ -160,6 +160,7 @@ export const englishLocale: LocaleData = {
       warningMaster: "Warning Master",
       createUserRoles: "Create User Roles",
       assignRoles: "Assign Roles",
+      cancel: "Cancel",
     },
 
     // Mobile page titles
@@ -1887,6 +1888,7 @@ export const englishLocale: LocaleData = {
       },
       dailyChecklist: {
         title: "Daily Checklist Manager",
+        myDailyChecklist: "My Daily Checklist",
         createChecklist: "Create Checklist",
         assignChecklist: "Assign Checklist",
         submissionReport: "Submission Report",
