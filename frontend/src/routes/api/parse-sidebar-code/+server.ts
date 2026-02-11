@@ -77,7 +77,7 @@ export const GET: RequestHandler = async () => {
 			TASKS: {
 				DASHBOARD: ['TASK_MASTER'],
 				MANAGE: ['CREATE_TASK', 'VIEW_TASKS'],
-				OPERATIONS: ['ASSIGN_TASKS'],
+				OPERATIONS: ['ASSIGN_TASKS', 'MY_DAILY_CHECKLIST'],
 				REPORTS: ['VIEW_MY_TASKS', 'VIEW_MY_ASSIGNMENTS', 'TASK_STATUS', 'BRANCH_PERFORMANCE']
 			},
 			NOTIFICATIONS: {
@@ -188,7 +188,8 @@ export const GET: RequestHandler = async () => {
 			FLYER_SETTINGS: 'Settings',
 			NORMAL_PAPER_MANAGER: 'Normal Paper Manager',
 			ONE_DAY_OFFER_MANAGER: 'One Day Offer Manager',
-			DAILY_CHECKLIST_MANAGER: 'Daily Checklist Manager'
+			DAILY_CHECKLIST_MANAGER: 'Daily Checklist Manager',
+			MY_DAILY_CHECKLIST: 'My Daily Checklist'
 		};
 
 		// Actual button code mappings (for Controls section)
