@@ -27,6 +27,8 @@
     let realtimeSubscription: any = null;
     let showPendingUsersModal = false;
     let pendingUsersList: { name_en: string; name_ar: string }[] = [];
+    let showReportsToModal = false;
+    let selectedReportsToIncident: any = null;
     
     // Filter state
     let filterIncidentType = '';
@@ -152,14 +154,16 @@
                     
                     try {
                         // Get employee name
-                        const { data: empData } = await supabase
-                            .from('hr_employee_master')
-                            .select('name_en, name_ar')
-                            .eq('id', incident.employee_id)
-                            .single();
-                        
-                        if (empData) {
-                            employeeName = $locale === 'ar' ? empData.name_ar : empData.name_en;
+                        if (incident.employee_id) {
+                            const { data: empData } = await supabase
+                                .from('hr_employee_master')
+                                .select('name_en, name_ar')
+                                .eq('id', incident.employee_id)
+                                .single();
+                            
+                            if (empData) {
+                                employeeName = $locale === 'ar' ? empData.name_ar : empData.name_en;
+                            }
                         }
                     } catch (e) {
                         console.warn('Employee fetch error:', e);
@@ -167,16 +171,18 @@
                     
                     try {
                         // Get branch name and location
-                        const { data: branchData } = await supabase
-                            .from('branches')
-                            .select('name_en, name_ar, location_en, location_ar')
-                            .eq('id', incident.branch_id)
-                            .single();
-                        
-                        if (branchData) {
-                            const name = $locale === 'ar' ? branchData.name_ar : branchData.name_en;
-                            const location = $locale === 'ar' ? branchData.location_ar : branchData.location_en;
-                            branchName = `${name} - ${location}`;
+                        if (incident.branch_id) {
+                            const { data: branchData } = await supabase
+                                .from('branches')
+                                .select('name_en, name_ar, location_en, location_ar')
+                                .eq('id', incident.branch_id)
+                                .single();
+                            
+                            if (branchData) {
+                                const name = $locale === 'ar' ? branchData.name_ar : branchData.name_en;
+                                const location = $locale === 'ar' ? branchData.location_ar : branchData.location_en;
+                                branchName = `${name} - ${location}`;
+                            }
                         }
                     } catch (e) {
                         console.warn('Branch fetch error:', e);
@@ -291,33 +297,17 @@
     function isClaimedByCurrentUser(incident: any): boolean {
         if (!currentUserID) return false;
         
-        // Check if user is in reports_to_user_ids
-        let reportsToIds = incident.reports_to_user_ids;
-        if (typeof reportsToIds === 'string') {
-            try {
-                reportsToIds = JSON.parse(reportsToIds);
-            } catch (e) {
-                reportsToIds = [];
-            }
-        }
-        const isInReportsTo = Array.isArray(reportsToIds) && reportsToIds.includes(currentUserID);
-        
-        // Check user_statuses for claimed status
+        // Check user_statuses for claimed status - ONLY check the current user's status
         if (incident.user_statuses) {
             const userStatuses = typeof incident.user_statuses === 'string'
                 ? JSON.parse(incident.user_statuses)
                 : incident.user_statuses;
             
             const currentUserStatus = userStatuses[currentUserID];
-            // Check for both 'claimed' and 'Claimed' (case-insensitive)
+            // Only return true if THIS user has claimed the incident
             if (currentUserStatus?.status?.toLowerCase() === 'claimed') {
                 return true;
             }
-        }
-        
-        // Also consider claimed if resolution_status is 'claimed' and user is in reports_to list
-        if (incident.resolution_status === 'claimed' && isInReportsTo) {
-            return true;
         }
         
         return false;
@@ -418,11 +408,23 @@
                 claimed_at: new Date().toISOString()
             };
             
+            // Add current user to reports_to_user_ids if not already there
+            if (!Array.isArray(reportsToIds)) {
+                reportsToIds = [];
+            } else {
+                reportsToIds = [...reportsToIds];
+            }
+            
+            if (!reportsToIds.includes(currentUserID)) {
+                reportsToIds.push(currentUserID);
+            }
+            
             const { error: updateError } = await supabase
                 .from('incidents')
                 .update({
                     resolution_status: 'claimed',
-                    user_statuses: userStatusesObj
+                    user_statuses: userStatusesObj,
+                    reports_to_user_ids: reportsToIds
                 })
                 .eq('id', incident.id);
             
@@ -490,6 +492,12 @@
     }
     
     async function handleResolveIncident(incident: any) {
+        // Check if current user has claimed this incident
+        if (!isClaimedByCurrentUser(incident)) {
+            alert($locale === 'ar' ? 'يجب أن تطالب بالحادثة أولاً' : 'You must claim the incident first');
+            return;
+        }
+        
         try {
             // First, check if there are any pending quick_tasks for this incident
             const { data: pendingTasks, error: taskError } = await supabase
@@ -650,6 +658,12 @@
     }
 
     function openInvestigationModal(incident: any) {
+        // Check if current user has claimed this incident
+        if (!isClaimedByCurrentUser(incident)) {
+            alert($locale === 'ar' ? 'يجب أن تطالب بالحادثة أولاً' : 'You must claim the incident first');
+            return;
+        }
+        
         const hasInvestigation = !!incident.investigation_report;
         const windowId = `investigation-incident-${Date.now()}`;
         openWindow({
@@ -691,6 +705,12 @@
     }
     
     function openWarningModal(incident: any) {
+        // Check if current user has claimed this incident
+        if (!isClaimedByCurrentUser(incident)) {
+            alert($locale === 'ar' ? 'يجب أن تطالب بالحادثة أولاً' : 'You must claim the incident first');
+            return;
+        }
+        
         const existingWarning = getWarningAction(incident);
         const isViewMode = !!existingWarning;
         
@@ -928,6 +948,16 @@
         selectedUserId = user.user_id;
         searchQuery = $locale === 'ar' ? user.name_ar : user.name_en;
         filteredUsers = [];
+    }
+    
+    function openReportsToModal(incident: any) {
+        selectedReportsToIncident = incident;
+        showReportsToModal = true;
+    }
+    
+    function closeReportsToModal() {
+        showReportsToModal = false;
+        selectedReportsToIncident = null;
     }
     
     function handleAttachmentClick(attachment: any) {
@@ -1193,20 +1223,28 @@
                             </td>
                             <td class="px-4 py-3.5 text-sm text-slate-700">
                                 {#if incident.reportToNames && incident.reportToNames.length > 0}
-                                    <div class="space-y-2">
-                                        {#each incident.reportToNames as user}
-                                            <div class="flex items-center gap-2">
-                                                <span class="text-sm font-medium text-slate-700">{user.name}</span>
-                                                <span class="text-xs px-2 py-1 rounded {user.status === 'reported' ? 'bg-blue-100 text-blue-800' : user.status === 'claimed' ? 'bg-yellow-100 text-yellow-800' : user.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-                                                    {$locale === 'ar'
-                                                        ? user.status === 'reported' ? 'مبلغ عنه'
-                                                        : user.status === 'claimed' ? 'مطالب به'
-                                                        : user.status === 'resolved' ? 'تم حله'
-                                                        : user.status
-                                                        : user.status.charAt(0).toUpperCase() + user.status.slice(1)}
-                                                </span>
-                                            </div>
-                                        {/each}
+                                    <div class="flex flex-col gap-2">
+                                        {#if incident.resolution_status === 'claimed'}
+                                            {#each incident.reportToNames as user}
+                                                {#if user.status === 'claimed' || user.status === 'Claimed'}
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">
+                                                            ✓ {user.name}
+                                                        </span>
+                                                    </div>
+                                                {/if}
+                                            {/each}
+                                        {/if}
+                                        {#if incident.reportToNames}
+                                            {@const userStatusesObj = typeof incident.user_statuses === 'string' ? JSON.parse(incident.user_statuses) : (incident.user_statuses || {})}
+                                            {@const acknowledgedCount = Object.values(userStatusesObj).filter((u: any) => u.status && u.status.toLowerCase() !== 'reported').length}
+                                            <button
+                                                on:click={() => openReportsToModal(incident)}
+                                                class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition font-semibold text-sm shadow-sm w-fit"
+                                            >
+                                                {acknowledgedCount} {$locale === 'ar' ? 'من أصل' : 'out of'} {incident.reportToNames.length} {$locale === 'ar' ? 'مستخدم' : 'user'}{incident.reportToNames.length > 1 ? 's' : ''}
+                                            </button>
+                                        {/if}
                                     </div>
                                 {:else}
                                     <span class="text-slate-400 italic">{$locale === 'ar' ? 'لا أحد' : 'None'}</span>
@@ -1291,23 +1329,23 @@
                                     <button
                                         on:click={() => openAssignModal(incident)}
                                         disabled={!isClaimedByCurrentUser(incident) || hasAnyAssignedUser(incident) || !!incident.investigation_report}
-                                        class="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-xs rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700'}"
                                         title={$locale === 'ar' ? 'تعيين مهمة' : 'Assign task'}
                                     >
                                         {$locale === 'ar' ? 'تعيين' : 'Assign'}
                                     </button>
                                     <button
                                         on:click={() => openInvestigationModal(incident)}
-                                        disabled={!incident.investigation_report && !isClaimedByCurrentUser(incident)}
-                                        class="px-3 py-1.5 {incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'} text-white text-xs rounded-lg transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
+                                        disabled={!isClaimedByCurrentUser(incident)}
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'}"
                                         title={$locale === 'ar' ? (incident.investigation_report ? 'عرض التقرير' : 'التحقيق') : (incident.investigation_report ? 'View Report' : 'Investigation')}
                                     >
                                         {$locale === 'ar' ? (incident.investigation_report ? 'تقرير ✓' : 'تحقيق') : (incident.investigation_report ? 'Report ✓' : 'Investigate')}
                                     </button>
                                     <button
                                         on:click={() => openWarningModal(incident)}
-                                        disabled={!hasWarningAction(incident) && (!isClaimedByCurrentUser(incident) || incident.resolution_status === 'resolved')}
-                                        class="px-3 py-1.5 {hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'} text-white text-xs rounded-lg transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
+                                        disabled={!isClaimedByCurrentUser(incident)}
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'}"
                                         title={hasWarningAction(incident) 
                                             ? ($locale === 'ar' ? 'عرض التحذير' : 'View Warning')
                                             : ($locale === 'ar' ? 'إصدار تحذير' : 'Issue warning')}
@@ -1318,8 +1356,8 @@
                                     </button>
                                     <button
                                         on:click={() => incident.resolution_status === 'resolved' ? openResolutionModal(incident) : handleResolveIncident(incident)}
-                                        disabled={incident.resolution_status !== 'resolved' && !incident.investigation_report}
-                                        class="px-3 py-1.5 {incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'} text-white text-xs rounded-lg transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
+                                        disabled={!isClaimedByCurrentUser(incident)}
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'}"
                                         title={incident.resolution_status === 'resolved' 
                                             ? ($locale === 'ar' ? 'عرض تقرير الحل' : 'View Resolution')
                                             : ($locale === 'ar' ? 'حل الحادثة' : 'Resolve incident')}
@@ -1547,6 +1585,70 @@
                 class="w-full px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-semibold"
             >
                 OK, I understand | <span dir="rtl">حسناً، فهمت</span>
+            </button>
+        </div>
+    </div>
+{/if}
+
+{#if showReportsToModal && selectedReportsToIncident}
+    <div class="modal-overlay" on:click={closeReportsToModal}>
+        <div class="modal-content" on:click|stopPropagation>
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span class="text-2xl">👥</span>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-slate-800">
+                        {$locale === 'ar' ? 'المستخدمون المعينون' : 'Assigned Users'}
+                    </h3>
+                    <p class="text-sm text-slate-500">
+                        {$locale === 'ar' ? `حادثة #${selectedReportsToIncident.id}` : `Incident #${selectedReportsToIncident.id}`}
+                    </p>
+                </div>
+            </div>
+
+            <!-- Users List -->
+            <div class="mb-6">
+                {#if selectedReportsToIncident.reportToNames && selectedReportsToIncident.reportToNames.length > 0}
+                    <div class="space-y-3 max-h-64 overflow-y-auto">
+                        {#each selectedReportsToIncident.reportToNames as user}
+                            <div class="border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <p class="font-semibold text-slate-800">{user.name}</p>
+                                        <p class="text-xs text-slate-500 mt-1">
+                                            {$locale === 'ar' ? 'الحالة:' : 'Status:'} 
+                                            <span class="font-medium">{user.status}</span>
+                                        </p>
+                                    </div>
+                                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold {user.status === 'reported' ? 'bg-blue-100 text-blue-800' : user.status === 'claimed' || user.status === 'Claimed' ? 'bg-yellow-100 text-yellow-800' : user.status === 'resolved' ? 'bg-green-100 text-green-800' : user.status === 'acknowledged' || user.status === 'Assigned' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-800'}">
+                                        {$locale === 'ar'
+                                            ? user.status === 'reported' ? 'مبلغ عنه'
+                                            : user.status === 'claimed' || user.status === 'Claimed' ? 'مطالب به'
+                                            : user.status === 'resolved' ? 'تم حله'
+                                            : user.status === 'acknowledged' ? 'تم الإقرار'
+                                            : user.status === 'Assigned' ? 'معين'
+                                            : user.status
+                                            : user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                                    </span>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                {:else}
+                    <div class="text-center py-4">
+                        <p class="text-slate-500">{$locale === 'ar' ? 'لا يوجد مستخدمون معينون' : 'No assigned users'}</p>
+                    </div>
+                {/if}
+            </div>
+
+            <!-- Close Button -->
+            <button
+                on:click={closeReportsToModal}
+                class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+            >
+                {$locale === 'ar' ? 'إغلاق' : 'Close'}
             </button>
         </div>
     </div>
