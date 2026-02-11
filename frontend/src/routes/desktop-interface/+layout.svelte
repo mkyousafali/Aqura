@@ -23,6 +23,7 @@
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	// import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
 	import { startNotificationListener } from '$lib/stores/notifications';
+	import { themeStore } from '$lib/stores/themeStore';
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	import { initPreload } from '$lib/utils/preload';
 	
@@ -778,6 +779,10 @@
 					handleUserLogin(user.id, true).catch(error => {
 						console.error('❌ Error handling user login for push notifications:', error);
 					});
+					// Load user's desktop theme
+					themeStore.loadUserTheme(user.id).catch(error => {
+						console.warn('⚠️ Could not load user theme:', error);
+					});
 				}
 			});
 
@@ -1214,7 +1219,7 @@
 	.app {
 		min-height: 100vh;
 		min-height: 100dvh; /* Use dynamic viewport height for mobile */
-		background: #F9FAFB;
+		background: var(--theme-desktop-bg, #F9FAFB);
 		background-attachment: fixed;
 		font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 		overflow: auto; /* Allow scrolling on mobile */
@@ -1235,6 +1240,7 @@
 			radial-gradient(circle at 80% 20%, rgba(229, 231, 235, 0.08) 0%, transparent 40%),
 			radial-gradient(circle at 20% 80%, rgba(243, 244, 246, 0.1) 0%, transparent 45%),
 			url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236B7280' fill-opacity='0.02'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+		opacity: var(--theme-desktop-pattern-opacity, 0.4);
 		z-index: 0;
 	}
 

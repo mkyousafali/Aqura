@@ -9,6 +9,7 @@
 	import type { FavoriteButton } from '$lib/stores/favorites';
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import WelcomeWindow from '$lib/components/common/WelcomeWindow.svelte';
+	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 
 	// Icon mapping for sidebar buttons (used when saving favorites)
 	const buttonIconMap: Record<string, string> = {
@@ -42,7 +43,7 @@
 		'MANAGE_ADMIN_USERS': '👥', 'MANAGE_MASTER_ADMIN': '🔐',
 		'INTERFACE_ACCESS_MANAGER': '🔧', 'APPROVAL_PERMISSIONS': '🔐',
 		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
-		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'BUTTON_GENERATOR': '🔨',
+		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'BUTTON_GENERATOR': '🔨', 'THEME_MANAGER': '🎨',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
 		// Additional DB button codes
 		'UPLOAD_EMPLOYEES': '📤', 'WARNING_MASTER': '⚠️', 'SALARY_WAGE_MANAGEMENT': '💰',
@@ -157,6 +158,7 @@
 		'CLEAR_TABLES': 'nav.clearTables',
 		'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'BUTTON_GENERATOR': 'nav.buttonGenerator',
+		'THEME_MANAGER': 'nav.themeManager',
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
 		'LEAVE_REQUEST': 'nav.leaveRequest',
 		// Additional DB button codes (aliases / alternate codes)
@@ -355,6 +357,19 @@
 		}, 500);
 	}
 
+	function showVersionInfo() {
+		openWindow({
+			id: 'version-changelog-' + Date.now(),
+			title: 'Version Changelog',
+			component: VersionChangelog,
+			size: { width: 800, height: 600 },
+			position: { x: 100, y: 50 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true
+		});
+	}
+
 	// Sample windows for demonstration
 	function openWelcomeWindow() {
 		openWindow({
@@ -423,6 +438,7 @@
 		<div class="welcome-screen">
 			<div class="welcome-card">
 				<div class="logo-section">
+					<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ40.15.9.9</button>
 					<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 						<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 					</div>
@@ -656,8 +672,8 @@
 	.logo-section {
 		text-align: center;
 		padding: 3rem 2rem 2rem;
-		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
-		color: white;
+		background: var(--theme-logo-bar-bg, linear-gradient(135deg, #15A34A 0%, #22C55E 100%));
+		color: var(--theme-logo-bar-text, white);
 		position: relative;
 		width: 100%;
 		height: 100%;
@@ -672,7 +688,7 @@
 		height: 120px;
 		margin: 0 auto 1.5rem;
 		background: #FFFFFF;
-		border: 6px solid #F59E0B;
+		border: 6px solid var(--theme-logo-border, #F59E0B);
 		border-radius: 20px;
 		display: flex;
 		align-items: center;
@@ -726,6 +742,27 @@
 		font-size: 1.1rem;
 		opacity: 0.9;
 		font-weight: 300;
+	}
+
+	.version-badge {
+		position: absolute;
+		top: 10px;
+		right: 12px;
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 12px;
+		padding: 3px 10px;
+		font-size: 0.7rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.2s;
+		z-index: 2;
+		letter-spacing: 0.5px;
+	}
+
+	.version-badge:hover {
+		background: rgba(255, 255, 255, 0.35);
 	}
 
 	@keyframes fadeIn {

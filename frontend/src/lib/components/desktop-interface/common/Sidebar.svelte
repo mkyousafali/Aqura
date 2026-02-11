@@ -88,7 +88,7 @@
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
 	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
-	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
+	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -1546,6 +1546,29 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 	}
 
+	function openThemeManager() {
+		const windowId = generateWindowId('theme-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.themeManager')} #${instanceNumber}`,
+			component: ThemeManager,
+			icon: '🎨',
+			size: { width: 1100, height: 700 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsSubmenu = false;
+		showControlsManageSubmenu = false;
+	}
+
 	function openCommunicationCenter() {
 		const windowId = generateWindowId('communication-center');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -1684,6 +1707,7 @@ function openApprovalCenter() {
 			'CLEAR_TABLES': openClearTables,
 			'BUTTON_ACCESS_CONTROL': openButtonAccessControl,
 			'BUTTON_GENERATOR': openButtonGenerator,
+			'THEME_MANAGER': openThemeManager,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 		};
 
@@ -2705,25 +2729,6 @@ function openApprovalCenter() {
 		showSettingsSubmenu = false;
 	}
 
-	// Show version changelog window
-	function showVersionInfo() {
-		const windowId = generateWindowId('version-changelog');
-		
-		openWindow({
-			id: windowId,
-			title: 'Version Changelog',
-			component: VersionChangelog,
-			size: { width: 800, height: 600 },
-			position: { 
-				x: 100, 
-				y: 50 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true
-		});
-	}
-
 	// User Section Functions (Placeholder)
 	function openUserDashboard() {
 		collapseAllMenus();
@@ -2841,26 +2846,6 @@ function openApprovalCenter() {
 
 <div class="sidebar" class:favorites-mode={sidebarViewMode === 'favorites'}>
 	<div class="sidebar-content">
-	<!-- Online/Offline Indicator + Language Switch -->
-	<div class="top-controls-row">
-		<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
-			<div class="status-light"></div>
-		</div>
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div 
-			class="electric-switch lang-electric-switch" 
-			class:on={$currentLocale === 'ar'}
-			on:click={() => { switchLocale($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
-			title="{$currentLocale === 'en' ? 'Switch to Arabic' : 'Switch to English'}"
-		>
-			<div class="switch-track">
-				<div class="switch-knob">
-					<span class="knob-icon" class:off={$currentLocale === 'en'}>{$currentLocale === 'en' ? 'ع' : 'E'}</span>
-				</div>
-			</div>
-		</div>
-	</div>
-	
 	<!-- Standard / Favorites Toggle -->
 	<div class="view-mode-toggle">
 		<div
@@ -4734,6 +4719,14 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+				{#if isButtonAllowed('THEME_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openThemeManager}>
+							<span class="menu-icon">🎨</span>
+							<span class="menu-text">{t('nav.themeManager')}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}			<!-- Operations Subsection -->
 			<div class="submenu-item-container">
@@ -4835,16 +4828,28 @@ function openApprovalCenter() {
 	</div>
 	{/if}
 
-	</div>
-	<!-- Sidebar Footer -->
-	<div class="sidebar-footer">
-		<!-- Version Information -->
-		<div class="version-info">
-			<button class="version-text" on:click={showVersionInfo} title={t('nav.whatsNew')}>
-				AQ40.15.9.9
-			</button>
+	<!-- Online/Offline Indicator + Language Switch -->
+	<div class="bottom-controls-row">
+		<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
+			<div class="status-light"></div>
+		</div>
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div 
+			class="electric-switch lang-electric-switch" 
+			class:on={$currentLocale === 'ar'}
+			on:click={() => { switchLocale($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
+			title="{$currentLocale === 'en' ? 'Switch to Arabic' : 'Switch to English'}"
+		>
+			<div class="switch-track">
+				<div class="switch-knob">
+					<span class="knob-icon" class:off={$currentLocale === 'en'}>{$currentLocale === 'en' ? 'ع' : 'E'}</span>
+				</div>
+			</div>
 		</div>
 	</div>
+
+	</div>
+
 </div>
 
 <style>
@@ -4856,7 +4861,7 @@ function openApprovalCenter() {
 	.interface-switch-btn {
 		width: 100%;
 		padding: 0.5rem 1rem;
-		background: linear-gradient(145deg, #3b82f6, #2563eb);
+		background: var(--theme-interface-switch-bg, linear-gradient(145deg, #3b82f6, #2563eb));
 		border: none;
 		border-radius: 0.375rem;
 		color: white;
@@ -4872,7 +4877,7 @@ function openApprovalCenter() {
 	}
 
 	.interface-switch-btn:hover {
-		background: linear-gradient(145deg, #2563eb, #1d4ed8);
+		background: var(--theme-interface-switch-hover-bg, linear-gradient(145deg, #2563eb, #1d4ed8));
 		transform: translateY(-1px);
 		box-shadow: 
 			0 3px 6px rgba(59, 130, 246, 0.4),
@@ -4900,23 +4905,23 @@ function openApprovalCenter() {
 		top: 0;
 		bottom: 56px; /* Fixed taskbar height */
 		width: 154px;
-		background: #374151;
-		color: #e5e7eb;
+		background: var(--theme-sidebar-bg, #374151);
+		color: var(--theme-sidebar-text, #e5e7eb);
 		display: flex;
 		flex-direction: column;
 		box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
 		z-index: 1200;
-		border-right: 1px solid #1f2937;
+		border-right: 1px solid var(--theme-sidebar-border, #1f2937);
 		transition: all 0.3s ease;
 	}
 
 	.sidebar.favorites-mode {
-		background: #1d2c5e;
-		border-right-color: #1d2c5e;
+		background: var(--theme-sidebar-favorites-bg, #1d2c5e);
+		border-right-color: var(--theme-sidebar-favorites-bg, #1d2c5e);
 	}
 
 	.sidebar.favorites-mode .sidebar-content {
-		color: #fcd34d;
+		color: var(--theme-sidebar-favorites-text, #fcd34d);
 	}
 
 	.sidebar-content {
@@ -4926,8 +4931,7 @@ function openApprovalCenter() {
 		display: flex;
 		flex-direction: column;
 		gap: 15px;
-		/* Reserve space for footer */
-		padding-bottom: 70px;
+		padding-bottom: 0;
 	}
 
 	.menu-section {
@@ -4942,9 +4946,9 @@ function openApprovalCenter() {
 		align-items: flex-start;
 		gap: 8px;
 		padding: 10px 8px;
-		background: #1DBC83;
+		background: var(--theme-section-btn-bg, #1DBC83);
 		border: none;
-		color: white;
+		color: var(--theme-section-btn-text, white);
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
@@ -4955,8 +4959,8 @@ function openApprovalCenter() {
 	}
 
 	.section-button:hover {
-		background: #3b82f6;
-		color: white;
+		background: var(--theme-section-btn-hover-bg, #3b82f6);
+		color: var(--theme-section-btn-hover-text, white);
 		transform: translateX(2px);
 	}
 
@@ -5020,9 +5024,9 @@ function openApprovalCenter() {
 		align-items: flex-start;
 		gap: 8px;
 		padding: 10px 8px;
-		background: white;
+		background: var(--theme-submenu-item-bg, white);
 		border: none;
-		color: #f97316;
+		color: var(--theme-submenu-item-text, #f97316);
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
@@ -5035,8 +5039,8 @@ function openApprovalCenter() {
 	}
 
 	.submenu-item:hover {
-		background: #3b82f6;
-		color: white;
+		background: var(--theme-submenu-item-hover-bg, #3b82f6);
+		color: var(--theme-submenu-item-hover-text, white);
 		transform: translateX(2px);
 	}
 
@@ -5110,9 +5114,9 @@ function openApprovalCenter() {
 		align-items: flex-start;
 		gap: 8px;
 		padding: 10px 8px;
-		background: white;
+		background: var(--theme-submenu-item-bg, white);
 		border: none;
-		color: #f97316;
+		color: var(--theme-submenu-item-text, #f97316);
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
@@ -5125,8 +5129,8 @@ function openApprovalCenter() {
 	}
 
 	.submenu-inline .submenu-item:hover {
-		background: #3b82f6;
-		color: white;
+		background: var(--theme-submenu-item-hover-bg, #3b82f6);
+		color: var(--theme-submenu-item-hover-text, white);
 		transform: translateX(2px);
 	}
 
@@ -5171,9 +5175,9 @@ function openApprovalCenter() {
 		align-items: flex-start;
 		gap: 8px;
 		padding: 10px 8px;
-		background: #1DBC83;
+		background: var(--theme-subsection-btn-bg, #1DBC83);
 		border: none;
-		color: white;
+		color: var(--theme-subsection-btn-text, white);
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
@@ -5184,8 +5188,8 @@ function openApprovalCenter() {
 	}
 
 	.submenu-subsection-button:hover {
-		background: #3b82f6;
-		color: white;
+		background: var(--theme-subsection-btn-hover-bg, #3b82f6);
+		color: var(--theme-subsection-btn-hover-text, white);
 		transform: translateX(2px);
 	}
 
@@ -5313,17 +5317,7 @@ function openApprovalCenter() {
 		background: rgba(255, 255, 255, 0.3);
 	}
 
-	/* Sidebar Footer */
-	.sidebar-footer {
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		padding: 10px 15px;
-		border-top: 1px solid #1f2937;
-		background: #374151;
-		backdrop-filter: blur(10px);
-	}
+
 
 	.pwa-install-button {
 		display: flex;
@@ -5390,51 +5384,20 @@ function openApprovalCenter() {
 		white-space: nowrap;
 	}
 
-	/* Version Information */
-	.version-info {
-		margin-top: 8px;
-		text-align: center;
-		border-top: 1px solid rgba(107, 114, 128, 0.3);
-		padding-top: 6px;
-	}
 
-	.version-text {
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		color: white;
-		font-size: 11px;
-		font-weight: 600;
-		font-family: monospace;
-		letter-spacing: 0.5px;
-		cursor: pointer;
-		padding: 6px 12px;
-		border-radius: 6px;
-		transition: all 0.2s ease;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-		text-transform: uppercase;
-		width: 100%;
-		text-align: center;
-	}
-
-	.version-text:hover {
-		background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
-		border-color: rgba(255, 255, 255, 0.3);
-		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-	}
-
-	.version-text:active {
-		transform: translateY(0);
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-	}
 
 	/* Connection Indicator Styles */
-	.top-controls-row {
+	.bottom-controls-row {
 		display: flex;
 		align-items: center;
+		justify-content: center;
 		gap: 8px;
-		padding: 6px 8px;
-		margin-bottom: 4px;
+		padding: 8px 12px;
+		margin-top: auto;
+		border-top: 1px solid rgba(107, 114, 128, 0.3);
+		background: var(--theme-sidebar-bg, #374151);
+		position: sticky;
+		bottom: 0;
 	}
 
 	.connection-indicator {
@@ -5450,12 +5413,10 @@ function openApprovalCenter() {
 
 	/* Language Switch */
 	.lang-electric-switch {
-		flex: 1;
-		width: auto !important;
 	}
 
 	.lang-electric-switch.on .switch-knob {
-		left: calc(100% - 27px) !important;
+		left: 29px !important;
 	}
 
 	.lang-electric-switch .switch-knob {
@@ -5479,8 +5440,8 @@ function openApprovalCenter() {
 	/* View Mode Toggle - Electric Switch */
 	.view-mode-toggle {
 		padding: 0;
-		margin-top: -8px;
-		margin-bottom: -16px;
+		margin-top: 2px;
+		margin-bottom: -10px;
 		margin-left: -8px;
 		display: flex;
 		justify-content: center;

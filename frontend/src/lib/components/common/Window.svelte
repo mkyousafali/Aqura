@@ -466,7 +466,7 @@
 
 	.window.active {
 		box-shadow: 0 20px 40px rgba(11, 18, 32, 0.25);
-		border-color: #4F46E5;
+		border-color: var(--theme-window-border-active, #4F46E5);
 	}
 
 	.window.modal {
@@ -488,7 +488,7 @@
 	}
 
 	.title-bar {
-		background: linear-gradient(135deg, #F9FAFB 0%, #E5E7EB 100%);
+		background: var(--theme-window-title-inactive-bg, linear-gradient(135deg, #F9FAFB 0%, #E5E7EB 100%));
 		border-bottom: 1px solid rgba(21, 163, 74, 0.2);
 		height: 40px;
 		display: flex;
@@ -497,19 +497,19 @@
 		padding: 0 12px;
 		cursor: move;
 		pointer-events: all;
-		color: #374151;
+		color: var(--theme-window-title-inactive-text, #374151);
 	}
 
 	.window.active .title-bar {
-		background: #0066b2;
-		color: white;
-		border-bottom-color: #0066b2;
+		background: var(--theme-window-title-active-bg, #0066b2);
+		color: var(--theme-window-title-active-text, white);
+		border-bottom-color: var(--theme-window-title-active-bg, #0066b2);
 	}
 
 	.window.modal .title-bar {
-		background: #0066b2;
-		color: white;
-		border-bottom-color: #0066b2;
+		background: var(--theme-window-title-active-bg, #0066b2);
+		color: var(--theme-window-title-active-text, white);
+		border-bottom-color: var(--theme-window-title-active-bg, #0066b2);
 	}
 
 	.title-bar-content {
