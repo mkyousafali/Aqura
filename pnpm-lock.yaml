@@ -26,6 +26,9 @@ importers:
       web-push:
         specifier: ^3.6.7
         version: 3.6.7
+      xlsx-js-style:
+        specifier: ^1.2.0
+        version: 1.2.0
     devDependencies:
       concurrently:
         specifier: ^8.2.2
@@ -7079,6 +7082,7 @@ snapshots:
       mssql: 12.1.1
       onnxruntime-web: 1.23.2
       web-push: 3.6.7
+      xlsx-js-style: 1.2.0
     transitivePeerDependencies:
       - bufferutil
       - supports-color
