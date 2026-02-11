@@ -18,6 +18,7 @@
 		inUseBoxes: 0,
 		pendingChecklists: 0
 	};
+	let hasAssignedChecklists = false;
 	let isLoading = true;
 	let currentTime = new Date();
 	let unsubscribeFingerprint: (() => void) | null = null;
@@ -199,6 +200,9 @@
 			}
 
 			const submittedChecklistIds = new Set((submissions || []).map((s) => s.checklist_id));
+
+			// Check if user has any assigned checklists
+			hasAssignedChecklists = assignments && assignments.length > 0;
 
 			// Get today's day of week for weekly checklists
 			const today_date = new Date();
@@ -711,7 +715,7 @@
 			{/if}
 
 			<!-- My Checklist Card (always show) -->
-			<div class="stat-card blank clickable my-checklist" on:click={() => stats.pendingChecklists > 0 && goto('/mobile-interface/my-checklist')} class:completed={stats.pendingChecklists === 0} class:disabled={stats.pendingChecklists === 0}>
+			<div class="stat-card blank clickable my-checklist" on:click={() => stats.pendingChecklists > 0 && goto('/mobile-interface/my-checklist')} class:completed={stats.pendingChecklists === 0 && hasAssignedChecklists} class:disabled={stats.pendingChecklists === 0}>
 				{#if stats.pendingChecklists > 0}
 					<div class="stat-icon">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -724,7 +728,7 @@
 						<p>{$localeData.code === 'ar' ? 'قائمة مجدولة' : 'Pending Checklists'}</p>
 						<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للإرسال' : 'Click to submit'}</p>
 					</div>
-				{:else}
+				{:else if hasAssignedChecklists}
 					<div class="stat-icon completed">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<polyline points="20 6 9 17 4 12"/>
@@ -733,6 +737,17 @@
 					<div class="stat-info">
 						<h3 class="completed-date">{formatChecklistDate()}</h3>
 						<p>{$localeData.code === 'ar' ? 'تم إرسال جميع القوائم' : 'All Checklists Submitted'}</p>
+					</div>
+				{:else}
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="3" y="5" width="18" height="14" rx="2"/>
+							<path d="M7 15h10M7 10h10"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3>—</h3>
+						<p>{$localeData.code === 'ar' ? 'لا توجد قوائم مسندة' : 'No Checklists Assigned'}</p>
 					</div>
 				{/if}
 			</div>
