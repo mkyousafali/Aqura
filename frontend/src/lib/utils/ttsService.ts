@@ -225,7 +225,7 @@ export async function speakWithGoogleTTS(
 	const ssmlText = '<speak>' + clean
 		.split('\n')
 		.filter(line => line.trim())
-		.map(line => line.trim())
+		.map(line => line.trim().replace(/\s*-\s*/g, '<break time="400ms"/>'))
 		.join('<break time="600ms"/>') + '</speak>';
 
 	const isArabic = locale === 'ar';

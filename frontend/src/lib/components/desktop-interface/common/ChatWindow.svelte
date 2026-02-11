@@ -246,7 +246,7 @@
 		if (closingCountdown) cancelCountdown();
 		resetInactivityTimer();
 
-		const requestMsg = isArabic ? '📊 تقرير مبيعات أمس' : '📊 Yesterday\'s Sales Report';
+		const requestMsg = isArabic ? '📊 تقرير المبيعات' : '📊 Sales Report';
 		messages = [...messages, { role: 'user', content: requestMsg }];
 		await scrollToBottom();
 
@@ -257,19 +257,39 @@
 			// Use Saudi timezone (UTC+3)
 			const now = new Date();
 			const saudiNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
-			saudiNow.setDate(saudiNow.getDate() - 1);
-			const dateStr = `${saudiNow.getFullYear()}-${String(saudiNow.getMonth() + 1).padStart(2, '0')}-${String(saudiNow.getDate()).padStart(2, '0')}`;
 
-			const { data: salesData, error } = await supabase
-				.from('erp_daily_sales')
-				.select('*')
-				.eq('sale_date', dateStr)
-				.order('branch_id', { ascending: true });
+			// Yesterday's date
+			const yesterday = new Date(saudiNow);
+			yesterday.setDate(yesterday.getDate() - 1);
+			const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+			const yesterdayDisplay = yesterday.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-			if (error) throw error;
+			// Current month range (1st to yesterday)
+			const currentMonthStart = `${saudiNow.getFullYear()}-${String(saudiNow.getMonth() + 1).padStart(2, '0')}-01`;
+			const currentMonthEnd = yesterdayStr;
+
+			// Last month range (1st to same date as yesterday — for fair comparison)
+			const lastMonthDate = new Date(saudiNow.getFullYear(), saudiNow.getMonth() - 1, 1);
+			const lastMonthStart = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+			const lastMonthSameDayDate = new Date(saudiNow.getFullYear(), saudiNow.getMonth() - 1, yesterday.getDate());
+			const lastMonthEnd = `${lastMonthSameDayDate.getFullYear()}-${String(lastMonthSameDayDate.getMonth() + 1).padStart(2, '0')}-${String(lastMonthSameDayDate.getDate()).padStart(2, '0')}`;
+
+			// Same date last month
+			const sameDateLastMonthStr = lastMonthEnd;
+			const sameDateLastMonthDisplay = lastMonthSameDayDate.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+			// Fetch all data in parallel
+			const [yesterdayRes, currentMonthRes, lastMonthRes] = await Promise.all([
+				supabase.from('erp_daily_sales').select('*').eq('sale_date', yesterdayStr),
+				supabase.from('erp_daily_sales').select('*').gte('sale_date', currentMonthStart).lte('sale_date', currentMonthEnd),
+				supabase.from('erp_daily_sales').select('*').gte('sale_date', lastMonthStart).lte('sale_date', lastMonthEnd)
+			]);
+
+			if (yesterdayRes.error) throw yesterdayRes.error;
 
 			// Get branch names
-			const branchIds = [...new Set(salesData?.map(s => s.branch_id) || [])];
+			const allData = [...(yesterdayRes.data || []), ...(currentMonthRes.data || []), ...(lastMonthRes.data || [])];
+			const branchIds = [...new Set(allData.map(s => s.branch_id))];
 			let branchMap: Record<number, string> = {};
 			if (branchIds.length > 0) {
 				const { data: branches } = await supabase
@@ -281,42 +301,137 @@
 				});
 			}
 
-			if (!salesData || salesData.length === 0) {
-				const noDataMsg = isArabic
-					? `📊 لا توجد بيانات مبيعات ليوم ${dateStr}`
-					: `📊 No sales data found for ${dateStr}`;
-				messages = [...messages, { role: 'assistant', content: noDataMsg }];
-				speakText(noDataMsg);
-			} else {
-				// Group by branch
-				const byBranch: Record<number, { net_amount: number; net_bills: number; return_amount: number }> = {};
-				salesData.forEach(s => {
-					if (!byBranch[s.branch_id]) byBranch[s.branch_id] = { net_amount: 0, net_bills: 0, return_amount: 0 };
-					byBranch[s.branch_id].net_amount += (s.net_amount || 0);
-					byBranch[s.branch_id].net_bills += (s.net_bills || 0);
-					byBranch[s.branch_id].return_amount += (s.return_amount || 0);
-				});
+			// ── Yesterday's sales by branch ──
+			const yesterdayByBranch: Record<number, number> = {};
+			let yesterdayTotal = 0;
+			(yesterdayRes.data || []).forEach(s => {
+				yesterdayByBranch[s.branch_id] = (yesterdayByBranch[s.branch_id] || 0) + (s.net_amount || 0);
+				yesterdayTotal += (s.net_amount || 0);
+			});
 
-				let totalSales = 0;
-				let lines: string[] = [];
-				lines.push(isArabic ? `📊 مبيعات أمس (${dateStr})` : `📊 Yesterday's Sales (${dateStr})`);
+			// ── Current month average ──
+			const currentMonthByDate: Record<string, number> = {};
+			let currentMonthTotal = 0;
+			(currentMonthRes.data || []).forEach(s => {
+				const d = s.sale_date?.substring(0, 10);
+				currentMonthByDate[d] = (currentMonthByDate[d] || 0) + (s.net_amount || 0);
+				currentMonthTotal += (s.net_amount || 0);
+			});
+			const currentMonthDays = Object.keys(currentMonthByDate).length || 1;
+			const currentMonthAvg = currentMonthTotal / currentMonthDays;
 
-				Object.entries(byBranch).forEach(([bid, data]) => {
-					const name = branchMap[Number(bid)] || (isArabic ? `فرع ${bid}` : `Branch ${bid}`);
-					lines.push(isArabic
-						? `🏪 ${name}: ${data.net_amount.toLocaleString()} ر.س`
-						: `🏪 ${name}: ${data.net_amount.toLocaleString()} SAR`);
-					totalSales += data.net_amount;
-				});
+			// ── Last month average ──
+			const lastMonthByDate: Record<string, number> = {};
+			let lastMonthTotal = 0;
+			(lastMonthRes.data || []).forEach(s => {
+				const d = s.sale_date?.substring(0, 10);
+				lastMonthByDate[d] = (lastMonthByDate[d] || 0) + (s.net_amount || 0);
+				lastMonthTotal += (s.net_amount || 0);
+			});
+			const lastMonthDays = Object.keys(lastMonthByDate).length || 1;
+			const lastMonthAvg = lastMonthTotal / lastMonthDays;
 
+			// ── Same date last month by branch + total ──
+			const sameDateByBranch: Record<number, number> = {};
+			let sameDateTotal = 0;
+			(lastMonthRes.data || []).forEach(s => {
+				if (s.sale_date?.substring(0, 10) === sameDateLastMonthStr) {
+					sameDateByBranch[s.branch_id] = (sameDateByBranch[s.branch_id] || 0) + (s.net_amount || 0);
+					sameDateTotal += (s.net_amount || 0);
+				}
+			});
+
+			// ── Build report ──
+			const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+			const cur = isArabic ? 'ر.س' : 'SAR';
+			let lines: string[] = [];
+
+			// Section 1: Yesterday's sales with same date last month comparison
+			lines.push(isArabic ? `📊 مبيعات أمس (${yesterdayDisplay})` : `📊 Yesterday's Sales (${yesterdayDisplay})`);
+			lines.push('─'.repeat(30));
+			Object.entries(yesterdayByBranch).forEach(([bid, amount]) => {
+				const bId = Number(bid);
+				const name = branchMap[bId] || (isArabic ? `فرع ${bid}` : `Branch ${bid}`);
+				const lastMonthBranchAmt = sameDateByBranch[bId] || 0;
+				let compText = '';
+				if (lastMonthBranchAmt > 0) {
+					const branchDiff = amount - lastMonthBranchAmt;
+					const direction = isArabic
+						? (branchDiff >= 0 ? 'زيادة' : 'انخفاض')
+						: (branchDiff >= 0 ? 'Increased' : 'Decreased');
+					compText = isArabic
+						? ` (الشهر الماضي: ${fmt(lastMonthBranchAmt)} - ${direction} ${fmt(Math.abs(branchDiff))} ${cur})`
+						: ` (Last month: ${fmt(lastMonthBranchAmt)} - ${direction} ${fmt(Math.abs(branchDiff))} ${cur})`;
+				} else {
+					compText = isArabic ? ' (لا توجد بيانات الشهر الماضي)' : ' (No data last month)';
+				}
+				lines.push(`🏪 ${name}: ${fmt(amount)} ${cur}${compText}`);
+			});
+			lines.push(isArabic ? `📈 الإجمالي: ${fmt(yesterdayTotal)} ${cur}` : `📈 Total: ${fmt(yesterdayTotal)} ${cur}`);
+
+			// Section 2: Current month average
+			lines.push('');
+			const currentMonthName = saudiNow.toLocaleString(isArabic ? 'ar-SA' : 'en-US', { month: 'long' });
+			lines.push(isArabic
+				? `📅 متوسط المبيعات اليومية (${currentMonthName}): ${fmt(currentMonthAvg)} ${cur}`
+				: `📅 Current Month Daily Average (${currentMonthName}): ${fmt(currentMonthAvg)} ${cur}`);
+			lines.push(isArabic
+				? `   (${currentMonthDays} يوم، إجمالي: ${fmt(currentMonthTotal)} ${cur})`
+				: `   (${currentMonthDays} days, total: ${fmt(currentMonthTotal)} ${cur})`);
+
+			// Section 3: Last month average
+			const lastMonthName = lastMonthDate.toLocaleString(isArabic ? 'ar-SA' : 'en-US', { month: 'long' });
+			lines.push(isArabic
+				? `📅 متوسط المبيعات اليومية (${lastMonthName} ١-${yesterday.getDate()}): ${fmt(lastMonthAvg)} ${cur}`
+				: `📅 Last Month Daily Average (${lastMonthName} 1-${yesterday.getDate()}): ${fmt(lastMonthAvg)} ${cur}`);
+			lines.push(isArabic
+				? `   (${lastMonthDays} يوم، إجمالي: ${fmt(lastMonthTotal)} ${cur})`
+				: `   (${lastMonthDays} days, total: ${fmt(lastMonthTotal)} ${cur})`);
+
+			// Section 4: Same date last month comparison
+			lines.push('');
+			lines.push(isArabic
+				? `🔄 مبيعات نفس اليوم الشهر الماضي (${sameDateLastMonthDisplay}): ${fmt(sameDateTotal)} ${cur}`
+				: `🔄 Same Date Last Month (${sameDateLastMonthDisplay}): ${fmt(sameDateTotal)} ${cur}`);
+
+			// Section 5: Comparison summary
+			lines.push('');
+			lines.push(isArabic ? '📋 ملخص المقارنة' : '📋 Comparison Summary');
+			lines.push('─'.repeat(30));
+
+			// Yesterday vs same date last month
+			if (sameDateTotal > 0) {
+				const diff1 = yesterdayTotal - sameDateTotal;
+				const vsLastMonthDate = (diff1 / sameDateTotal * 100);
+				const upDown1 = isArabic ? (vsLastMonthDate >= 0 ? 'زيادة' : 'انخفاض') : (vsLastMonthDate >= 0 ? 'Increased' : 'Decreased');
 				lines.push(isArabic
-					? `\n📈 الإجمالي: ${totalSales.toLocaleString()} ر.س`
-					: `\n📈 Total: ${totalSales.toLocaleString()} SAR`);
-
-				const reply = lines.join('\n');
-				messages = [...messages, { role: 'assistant', content: reply }];
-				speakText(reply);
+					? `أمس مقابل نفس اليوم الشهر الماضي: ${fmt(Math.abs(diff1))} ${cur} ${upDown1} ${Math.abs(vsLastMonthDate).toFixed(1)} بالمئة`
+					: `Yesterday vs Same Date Last Month: ${fmt(Math.abs(diff1))} ${cur} ${upDown1} ${Math.abs(vsLastMonthDate).toFixed(1)} percent`);
 			}
+
+			// Yesterday vs current month average
+			if (currentMonthAvg > 0) {
+				const diff2 = yesterdayTotal - currentMonthAvg;
+				const vsCurrentAvg = (diff2 / currentMonthAvg * 100);
+				const upDown2 = isArabic ? (vsCurrentAvg >= 0 ? 'زيادة' : 'انخفاض') : (vsCurrentAvg >= 0 ? 'Increased' : 'Decreased');
+				lines.push(isArabic
+					? `أمس مقابل متوسط الشهر الحالي: ${fmt(Math.abs(diff2))} ${cur} ${upDown2} ${Math.abs(vsCurrentAvg).toFixed(1)} بالمئة`
+					: `Yesterday vs Current Month Average: ${fmt(Math.abs(diff2))} ${cur} ${upDown2} ${Math.abs(vsCurrentAvg).toFixed(1)} percent`);
+			}
+
+			// Current month avg vs last month avg
+			if (lastMonthAvg > 0) {
+				const diff3 = currentMonthAvg - lastMonthAvg;
+				const avgComparison = (diff3 / lastMonthAvg * 100);
+				const upDown3 = isArabic ? (avgComparison >= 0 ? 'زيادة' : 'انخفاض') : (avgComparison >= 0 ? 'Increased' : 'Decreased');
+				lines.push(isArabic
+					? `متوسط الشهر الحالي مقابل الشهر الماضي: ${fmt(Math.abs(diff3))} ${cur} ${upDown3} ${Math.abs(avgComparison).toFixed(1)} بالمئة`
+					: `Current Month Average vs Last Month Average: ${fmt(Math.abs(diff3))} ${cur} ${upDown3} ${Math.abs(avgComparison).toFixed(1)} percent`);
+			}
+
+			const reply = lines.join('\n');
+			messages = [...messages, { role: 'assistant', content: reply }];
+			speakText(reply);
 		} catch (err: any) {
 			messages = [...messages, {
 				role: 'assistant',
