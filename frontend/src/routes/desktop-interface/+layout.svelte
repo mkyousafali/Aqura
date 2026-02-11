@@ -1227,6 +1227,7 @@
 	}
 
 	.app {
+		width: 100%;
 		min-height: 100vh;
 		min-height: 100dvh; /* Use dynamic viewport height for mobile */
 		background: var(--theme-desktop-bg, #F9FAFB);
