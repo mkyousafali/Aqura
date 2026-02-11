@@ -786,6 +786,16 @@
 				}
 			});
 
+			// Also load theme immediately if user is already authenticated (page reload / persistent session)
+			{
+				const existingUser = get(currentUser);
+				if (existingUser?.id) {
+					themeStore.loadUserTheme(existingUser.id).catch(error => {
+						console.warn('⚠️ Could not load user theme on init:', error);
+					});
+				}
+			}
+
 			// Fallback timeout to prevent infinite loading
 			const loadingTimeout = setTimeout(() => {
 				if (isLoading) {
