@@ -328,11 +328,27 @@
 			// Don't fail the save if notification fails
 		}
 
-		alert(`✅ Permissions saved for ${getDisplayName(user)}`);
-		await loadUsersWithPermissions();
+		// Refresh only the changed user row
+		try {
+			const { data: updatedPerm, error: err } = await supabase
+				.from('approval_permissions')
+				.select('*')
+				.eq('user_id', user.id)
+				.single();
+
+			if (!err && updatedPerm) {
+				const userIndex = users.findIndex(u => u.id === user.id);
+				if (userIndex !== -1) {
+					users[userIndex].permissions = updatedPerm;
+					users = [...users]; // Trigger reactivity
+					console.log('✅ Refreshed user row:', user.username);
+				}
+			}
+		} catch (refreshErr) {
+			console.error('⚠️ Error refreshing user row:', refreshErr);
+		}
 	} catch (err: any) {
 			console.error('Error saving permissions:', err);
-			alert(`❌ Error saving permissions: ${err.message}`);
 		} finally {
 			saving = false;
 		}

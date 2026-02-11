@@ -50,6 +50,7 @@
     "dotenv": "^17.2.3",
     "mssql": "^12.1.1",
     "onnxruntime-web": "^1.23.2",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "xlsx-js-style": "^1.2.0"
   }
 }
