@@ -5207,7 +5207,7 @@ function openApprovalCenter() {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: white;
+		color: var(--theme-subsection-btn-text, white);
 	}
 
 	.submenu-subsection-button .menu-text {
@@ -5234,9 +5234,9 @@ function openApprovalCenter() {
 		align-items: flex-start;
 		gap: 8px;
 		padding: 10px 8px;
-		background: #1DBC83;
+		background: var(--theme-subsection-btn-bg, #1DBC83);
 		border: none;
-		color: white;
+		color: var(--theme-subsection-btn-text, white);
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
@@ -5398,6 +5398,10 @@ function openApprovalCenter() {
 		background: var(--theme-sidebar-bg, #374151);
 		position: sticky;
 		bottom: 0;
+	}
+
+	.sidebar.favorites-mode .bottom-controls-row {
+		background: var(--theme-sidebar-favorites-bg, #1d2c5e);
 	}
 
 	.connection-indicator {
