@@ -3,6 +3,7 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import CreateChecklist from './CreateChecklist.svelte';
 	import CreateChecklistQuestion from './CreateChecklistQuestion.svelte';
 	import ViewChecklistAnswers from './ViewChecklistAnswers.svelte';
@@ -17,6 +18,23 @@
 	let allQuestions: any[] = [];
 	let loadingQuestions = true;
 
+	// Employees from DB (for assign tab)
+	let employees: any[] = [];
+	let loadingEmployees = true;
+
+	// Checklists dropdown (for assign tab)
+	let availableChecklists: any[] = [];
+	let loadingAvailableChecklists = true;
+	let checklistSearchQueries: { [key: string]: string } = {};
+	let selectedChecklistsByEmployee: { [key: string]: { [clId: string]: { frequency: string; day?: string; is_active: boolean; db_id?: string } } } = {};
+	let checklistSearchForEmployee: string | null = null;
+	let checklistSearchQuery = '';
+	let savingState: { [key: string]: boolean } = {};
+	let savingError: { [key: string]: string } = {};
+
+	// Filter for assign tab
+	let selectedBranchFilter = '';
+
 	// Checklist operations (submissions)
 	let submissions: any[] = [];
 	let loadingSubmissions = true;
@@ -24,6 +42,7 @@
 	// Search
 	let searchChecklists = '';
 	let searchQuestions = '';
+	let searchEmployees = '';
 	let searchSubmissions = '';
 
 	$: filteredChecklists = searchChecklists.trim()
@@ -44,6 +63,35 @@
 		})
 		: allQuestions;
 
+	$: filteredEmployees = naturalSort(
+		searchEmployees.trim() || selectedBranchFilter
+			? employees.filter(e => {
+				const s = searchEmployees.toLowerCase();
+				const matchSearch = !searchEmployees.trim() || (
+					(e.id || '').toLowerCase().includes(s)
+					|| (e.user_id || '').toLowerCase().includes(s)
+					|| (e.name_en || '').toLowerCase().includes(s)
+					|| (e.name_ar || '').includes(s)
+					|| (e.branches?.name_en || '').toLowerCase().includes(s)
+					|| (e.branches?.name_ar || '').includes(s)
+					|| (e.branches?.location_en || '').toLowerCase().includes(s)
+					|| (e.branches?.location_ar || '').includes(s)
+				);
+				const matchBranch = !selectedBranchFilter || String(e.branches?.id) === selectedBranchFilter;
+				return matchSearch && matchBranch;
+			})
+			: employees,
+		'id'
+	);
+
+	$: uniqueBranches = [...new Map(employees.map(e => [e.branches?.id, e.branches])).values()]
+		.filter(b => b)
+		.sort((a, b) => {
+			const nameA = ($locale === 'ar' ? a?.name_ar : a?.name_en) || '';
+			const nameB = ($locale === 'ar' ? b?.name_ar : b?.name_en) || '';
+			return nameA.localeCompare(nameB);
+		});
+
 	$: filteredSubmissions = searchSubmissions.trim()
 		? submissions.filter(s => {
 			const q = searchSubmissions.toLowerCase();
@@ -56,7 +104,7 @@
 		: submissions;
 
 	onMount(async () => {
-		await Promise.all([loadChecklists(), loadQuestions(), loadSubmissions()]);
+		await Promise.all([loadChecklists(), loadQuestions(), loadEmployees(), loadAvailableChecklists(), loadSubmissions(), loadAssignedChecklists()]);
 	});
 
 	async function loadChecklists() {
@@ -77,6 +125,155 @@
 			.order('created_at', { ascending: true });
 		if (!error) allQuestions = data || [];
 		loadingQuestions = false;
+	}
+
+	async function loadEmployees() {
+		loadingEmployees = true;
+		const { data, error } = await supabase
+			.from('hr_employee_master')
+			.select('id, user_id, name_en, name_ar, current_branch_id, branches!current_branch_id(id, name_en, name_ar, location_en, location_ar)');
+		if (!error) {
+			// Sort numerically by ID
+			employees = (data || []).sort((a, b) => {
+				const numA = parseInt(a.id) || 0;
+				const numB = parseInt(b.id) || 0;
+				return numA - numB;
+			});
+		}
+		loadingEmployees = false;
+	}
+
+	async function loadAvailableChecklists() {
+		loadingAvailableChecklists = true;
+		const { data, error } = await supabase
+			.from('hr_checklists')
+			.select('id, checklist_name_en, checklist_name_ar')
+			.order('id', { ascending: true });
+		if (!error) availableChecklists = data || [];
+		loadingAvailableChecklists = false;
+	}
+
+	async function loadAssignedChecklists() {
+		const { data, error } = await supabase
+			.from('employee_checklist_assignments')
+			.select('*')
+			.is('deleted_at', null)
+			.order('created_at', { ascending: false });
+
+		if (!error && data) {
+			for (const assignment of data) {
+				if (!selectedChecklistsByEmployee[assignment.employee_id]) {
+					selectedChecklistsByEmployee[assignment.employee_id] = {};
+				}
+				selectedChecklistsByEmployee[assignment.employee_id][assignment.checklist_id] = {
+					frequency: assignment.frequency_type,
+					day: assignment.day_of_week,
+					is_active: assignment.is_active,
+					db_id: assignment.id
+				};
+			}
+			selectedChecklistsByEmployee = selectedChecklistsByEmployee;
+		}
+	}
+
+	async function saveAssignment(employeeId: string, checklistId: string) {
+		const key = `${employeeId}-${checklistId}`;
+		savingState[key] = true;
+		savingError[key] = '';
+
+		try {
+			const config = selectedChecklistsByEmployee[employeeId]?.[checklistId];
+			if (!config) return;
+
+			const employee = employees.find(e => e.id === employeeId);
+			if (!employee) return;
+
+			const payload = {
+				employee_id: employeeId,
+				assigned_to_user_id: employee.user_id,
+				branch_id: employee.current_branch_id,
+				checklist_id: checklistId,
+				frequency_type: config.frequency,
+				day_of_week: config.frequency === 'weekly' ? config.day : null,
+				is_active: config.is_active,
+				assigned_by: $currentUser?.id
+			};
+
+			console.log('📝 Saving assignment:', { currentUser: $currentUser, payload });
+
+			if (config.db_id) {
+				// Update existing
+				const { error } = await supabase
+					.from('employee_checklist_assignments')
+					.update({ ...payload, updated_at: new Date().toISOString() })
+					.eq('id', config.db_id);
+				if (error) throw error;
+			} else {
+				// Create new
+				const { data, error } = await supabase
+					.from('employee_checklist_assignments')
+					.insert([payload])
+					.select();
+				if (error) throw error;
+				if (data?.[0]?.id) {
+					config.db_id = data[0].id;
+				}
+			}
+		} catch (err: any) {
+			savingError[key] = err.message || 'Failed to save assignment';
+		} finally {
+			savingState[key] = false;
+		}
+	}
+
+	async function deleteAssignment(employeeId: string, checklistId: string) {
+		const key = `${employeeId}-${checklistId}`;
+		savingState[key] = true;
+
+		try {
+			const config = selectedChecklistsByEmployee[employeeId]?.[checklistId];
+			if (!config?.db_id) return;
+
+			const { error } = await supabase
+				.from('employee_checklist_assignments')
+				.update({ deleted_at: new Date().toISOString() })
+				.eq('id', config.db_id);
+			if (error) throw error;
+
+			delete selectedChecklistsByEmployee[employeeId][checklistId];
+			selectedChecklistsByEmployee = selectedChecklistsByEmployee;
+		} catch (err: any) {
+			savingError[key] = err.message || 'Failed to delete assignment';
+		} finally {
+			savingState[key] = false;
+		}
+	}
+
+	function naturalSort(arr: any[], field: string) {
+		return arr.sort((a, b) => {
+			const aVal = String(a[field]).toLowerCase();
+			const bVal = String(b[field]).toLowerCase();
+			
+			// Extract all numbers and non-numbers
+			const aArray = aVal.match(/(\d+|\D+)/g) || [];
+			const bArray = bVal.match(/(\d+|\D+)/g) || [];
+			
+			for (let i = 0; i < Math.max(aArray.length, bArray.length); i++) {
+				const aStr = aArray[i] || '';
+				const bStr = bArray[i] || '';
+				
+				// Check if both are numbers
+				const aNum = parseInt(aStr);
+				const bNum = parseInt(bStr);
+				
+				if (!isNaN(aNum) && !isNaN(bNum)) {
+					if (aNum !== bNum) return aNum - bNum;
+				} else {
+					if (aStr !== bStr) return aStr.localeCompare(bStr);
+				}
+			}
+			return 0;
+		});
 	}
 
 	async function loadSubmissions() {
@@ -406,32 +603,230 @@
 					</div>
 				</div>
 			{:else if activeTab === 'assign'}
-				<div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1">
-					<div class="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4 flex items-center justify-end">
-						<button class="bg-white/20 hover:bg-white/30 text-white font-bold p-2 rounded-lg transition-colors shadow" title="Refresh">
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-						</button>
+				<div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
+					<div class="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4 flex items-center justify-between gap-4">
+						<div class="flex items-center gap-2 flex-1">
+							<select 
+								bind:value={selectedBranchFilter}
+								class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+							>
+								<option value="">All Branches</option>
+								{#each uniqueBranches as branch}
+									<option value={String(branch.id)}>
+										{$locale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}
+									</option>
+								{/each}
+							</select>
+						</div>
+						<div class="flex items-center gap-2">
+							<div class="relative">
+								<svg class="w-4 h-4 text-white/60 absolute top-1/2 -translate-y-1/2 {$locale === 'ar' ? 'right-2.5' : 'left-2.5'}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+								<input type="text" bind:value={searchEmployees} placeholder="Search..." class="w-80 {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-1.5 bg-white/20 border border-white/30 rounded-lg text-sm text-white placeholder-white/50 focus:bg-white/30 focus:border-white/50 outline-none" />
+							</div>
+							<button on:click={loadEmployees} class="bg-white/20 hover:bg-white/30 text-white font-bold p-2 rounded-lg transition-colors shadow" title="Refresh">
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+							</button>
+						</div>
 					</div>
-					<div class="p-6">
-						<table class="w-full text-sm">
-							<thead>
-								<tr class="border-b border-slate-200">
-									<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">#</th>
-									<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.checklist')}</th>
-									<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.assignedTo')}</th>
-									<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.branch')}</th>
-									<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.frequency')}</th>
-									<th class="text-center py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.actions')}</th>
-								</tr>
-							</thead>
-							<tbody>
-								<tr>
-									<td colspan="6" class="text-center py-12 text-slate-400">{$t('hr.dailyChecklist.noAssignments')}</td>
-								</tr>
-							</tbody>
-						</table>
+					<div class="flex-1 overflow-y-auto p-6">
+						{#if loadingEmployees}
+							<div class="flex items-center justify-center py-12">
+								<svg class="w-6 h-6 text-orange-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+							</div>
+						{:else}
+							<div class="overflow-x-auto">
+								<table class="w-full text-sm">
+								<thead>
+									<tr class="border-b border-slate-200">
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.id')}</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Name</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Branch & Location</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Checklist</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#if filteredEmployees.length === 0}
+										<tr>
+											<td colspan="4" class="text-center py-12 text-slate-400">No employees found</td>
+										</tr>
+									{:else}
+										{#each filteredEmployees as emp}
+											<tr class="border-b border-slate-100 hover:bg-orange-50/50 transition-colors">
+												<td class="py-3 px-4 text-xs font-bold text-slate-400">{emp.id}</td>
+												<td class="py-3 px-4 text-slate-700" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>{$locale === 'ar' ? (emp.name_ar || emp.name_en || '-') : (emp.name_en || emp.name_ar || '-')}</td>
+												<td class="py-3 px-4 text-slate-700" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+													<div>{$locale === 'ar' ? (emp.branches?.name_ar || emp.branches?.name_en || '-') : (emp.branches?.name_en || emp.branches?.name_ar || '-')}</div>
+													<div class="text-xs text-slate-500">{$locale === 'ar' ? (emp.branches?.location_ar || emp.branches?.location_en || '-') : (emp.branches?.location_en || emp.branches?.location_ar || '-')}</div>
+												</td>
+												<td class="py-3 px-4">
+													<div class="flex flex-col gap-3">
+														{#if selectedChecklistsByEmployee[emp.id] && Object.keys(selectedChecklistsByEmployee[emp.id]).length > 0}
+															{#each Object.entries(selectedChecklistsByEmployee[emp.id]) as [clId, config]}
+																{@const cl = availableChecklists.find(c => c.id === clId)}
+																{#if cl}
+																	<div class="flex flex-col gap-2 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
+																		<div class="flex items-center justify-between">
+																			<div class="font-medium text-slate-700">{$locale === 'ar' ? (cl.checklist_name_ar || cl.checklist_name_en) : (cl.checklist_name_en || cl.checklist_name_ar)}</div>
+																			<div class="flex items-center gap-2">
+																				<input 
+																					type="checkbox"
+																					checked={config.is_active}
+																					on:change={(e) => {
+																						const target = e.target as HTMLInputElement;
+																						config.is_active = target.checked;
+																						saveAssignment(emp.id, clId);
+																					}}
+																					title={config.is_active ? 'Active' : 'Inactive'}
+																					class="w-4 h-4 text-orange-500 rounded focus:ring-2 focus:ring-orange-400"
+																				/>
+																				{#if savingState[`${emp.id}-${clId}`]}
+																					<svg class="w-4 h-4 text-orange-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+																				{/if}
+																				<button on:click={() => {
+																					deleteAssignment(emp.id, clId);
+																				}} class="text-red-500 hover:text-red-700 text-lg leading-none">
+																					×
+																				</button>
+																			</div>
+																		</div>
+																		<div class="flex items-center gap-2">
+																			<span class="text-xs font-semibold text-slate-600">Frequency:</span>
+																			<select 
+																				value={config.frequency}
+																				on:change={(e) => {
+																					const target = e.target as HTMLSelectElement;
+																					config.frequency = target.value;
+																					if (target.value !== 'weekly') {
+																						config.day = undefined;
+																					}
+																					saveAssignment(emp.id, clId);
+																				}}
+																				class="px-2 py-1 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+																			>
+																				<option value="daily">Daily</option>
+																				<option value="weekly">Weekly</option>
+																			</select>
+																		</div>
+																		{#if config.frequency === 'weekly'}
+																			<div class="flex items-center gap-2">
+																				<span class="text-xs font-semibold text-slate-600">Day:</span>
+																				<select 
+																					value={config.day || ''}
+																					on:change={(e) => {
+																						const target = e.target as HTMLSelectElement;
+																						config.day = target.value || undefined;
+																						saveAssignment(emp.id, clId);
+																					}}
+																					class="px-2 py-1 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+																				>
+																					<option value="">Select Day</option>
+																					<option value="Monday">Monday</option>
+																					<option value="Tuesday">Tuesday</option>
+																					<option value="Wednesday">Wednesday</option>
+																					<option value="Thursday">Thursday</option>
+																					<option value="Friday">Friday</option>
+																					<option value="Saturday">Saturday</option>
+																					<option value="Sunday">Sunday</option>
+																				</select>
+																			</div>
+																		{/if}
+																	</div>
+																{/if}
+															{/each}
+														{/if}
+														<button on:click={() => {
+															checklistSearchForEmployee = emp.id;
+															checklistSearchQuery = '';
+														}} class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold transition-colors w-full">
+															+ Add Checklist
+														</button>
+													</div>
+												</td>
+											</tr>
+										{/each}
+									{/if}
+								</tbody>
+							</table>
+							</div>
+						{/if}
 					</div>
 				</div>
+
+				<!-- Checklist Selection Modal -->
+				{#if checklistSearchForEmployee !== null}
+					<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+						<div class="bg-white rounded-2xl shadow-2xl w-96 max-h-[600px] flex flex-col overflow-hidden">
+							<div class="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4 flex items-center justify-between">
+								<h3 class="text-white font-bold text-lg">Add Checklists</h3>
+								<button on:click={() => {
+									checklistSearchForEmployee = null;
+									checklistSearchQuery = '';
+							}} class="text-white hover:text-orange-100 transition-colors" aria-label="Close">
+									<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+								</button>
+							</div>
+							
+							<div class="px-6 py-4 border-b border-slate-200">
+								<input 
+									type="text" 
+									bind:value={checklistSearchQuery}
+									placeholder="Search checklists..."
+
+									class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+								/>
+							</div>
+
+							<div class="flex-1 overflow-y-auto">
+								{#each availableChecklists.filter(cl => {
+									const search = checklistSearchQuery.toLowerCase();
+									return !search || 
+										(cl.checklist_name_en || '').toLowerCase().includes(search) || 
+										(cl.checklist_name_ar || '').includes(search) ||
+										(cl.id || '').toLowerCase().includes(search);
+								}) as checklist}
+									{@const isSelected = checklistSearchForEmployee && selectedChecklistsByEmployee[checklistSearchForEmployee] && selectedChecklistsByEmployee[checklistSearchForEmployee][checklist.id] !== undefined}
+									<label class="flex items-center gap-3 px-6 py-3 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors">
+										<input 
+											type="checkbox"
+											checked={isSelected}
+											on:change={(e) => {
+												const target = e.target as HTMLInputElement;
+												if (!selectedChecklistsByEmployee[checklistSearchForEmployee]) {
+													selectedChecklistsByEmployee[checklistSearchForEmployee] = {};
+												}
+												if (target.checked) {
+												selectedChecklistsByEmployee[checklistSearchForEmployee][checklist.id] = { frequency: 'daily', day: undefined, is_active: true };
+												} else {
+													delete selectedChecklistsByEmployee[checklistSearchForEmployee][checklist.id];
+												}
+											}}
+											class="w-5 h-5 text-orange-500 border-slate-300 rounded focus:ring-2 focus:ring-orange-500"
+										/>
+										<div class="flex-1">
+											<div class="font-medium text-slate-700">{$locale === 'ar' ? (checklist.checklist_name_ar || checklist.checklist_name_en) : (checklist.checklist_name_en || checklist.checklist_name_ar)}</div>
+											<div class="text-xs text-slate-500">ID: {checklist.id}</div>
+										</div>
+									</label>
+								{/each}
+							</div>
+
+							<div class="px-6 py-4 border-t border-slate-200 flex gap-2">
+								<button on:click={async () => {
+									// Save all selected checklists for this employee
+									if (checklistSearchForEmployee && selectedChecklistsByEmployee[checklistSearchForEmployee]) {
+										for (const clId of Object.keys(selectedChecklistsByEmployee[checklistSearchForEmployee])) {
+											await saveAssignment(checklistSearchForEmployee, clId);
+										}
+									}
+									checklistSearchForEmployee = null;
+									checklistSearchQuery = '';
+								}} class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-50 transition-colors">
+									Done
+								</button>
+							</div>
+						</div>
+					</div>
+				{/if}
 			{:else if activeTab === 'questions'}
 				<div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1">
 					<div class="bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-4 flex items-center justify-end">
