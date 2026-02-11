@@ -115,6 +115,7 @@
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
+	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
 	import PushNotificationSettings from '$lib/components/common/PushNotificationSettings.svelte';
 	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
 
@@ -639,6 +640,27 @@
 		});
 		showTasksSubmenu = false;
 		showTasksReportsSubmenu = false;
+	}
+
+	function openDailyChecklist() {
+		const windowId = generateWindowId('daily-checklist');
+		openWindow({
+			id: windowId,
+			title: 'My Daily Checklist',
+			component: DailyChecklistWindow,
+			icon: '✅',
+			size: { width: 800, height: 600 },
+			position: {
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksOperationsSubmenu = false;
 	}
 
 	function openCreateDepartment() {
@@ -4163,6 +4185,12 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openDailyChecklist}>
+							<span class="menu-icon">✅</span>
+							<span class="menu-text">My Daily Checklist</span>
+						</button>
+					</div>
 				</div>
 			{/if}
 
