@@ -499,134 +499,11 @@
         }
         
         try {
-            // First, check if there are any pending quick_tasks for this incident
-            const { data: pendingTasks, error: taskError } = await supabase
-                .from('quick_tasks')
-                .select(`
-                    id,
-                    status,
-                    quick_task_assignments (
-                        id,
-                        assigned_to_user_id,
-                        status
-                    )
-                `)
-                .eq('incident_id', incident.id)
-                .neq('status', 'completed');
-            
-            if (taskError) {
-                console.error('Error checking tasks:', taskError);
-            }
-            
-            console.log('🔍 Checking pending tasks for incident:', incident.id, pendingTasks);
-            
-            // Check for users who haven't completed their tasks
-            const pendingUsers: { name_en: string; name_ar: string }[] = [];
-            
-            if (pendingTasks && pendingTasks.length > 0) {
-                for (const task of pendingTasks) {
-                    const assignments = task.quick_task_assignments || [];
-                    for (const assignment of assignments) {
-                        // If assignment status is not 'completed'
-                        if (assignment.status !== 'completed') {
-                            // Get user name from users table with hr_employee_master join
-                            try {
-                                const { data: userData } = await supabase
-                                    .from('users')
-                                    .select(`
-                                        id,
-                                        username,
-                                        hr_employee_master (
-                                            name_en,
-                                            name_ar
-                                        )
-                                    `)
-                                    .eq('id', assignment.assigned_to_user_id)
-                                    .single();
-                                
-                                if (userData) {
-                                    const empData = userData.hr_employee_master;
-                                    const userObj = {
-                                        name_en: empData?.name_en || userData.username,
-                                        name_ar: empData?.name_ar || userData.username
-                                    };
-                                    // Check if already added
-                                    if (!pendingUsers.some(u => u.name_en === userObj.name_en)) {
-                                        pendingUsers.push(userObj);
-                                    }
-                                } else {
-                                    pendingUsers.push({ name_en: assignment.assigned_to_user_id, name_ar: assignment.assigned_to_user_id });
-                                }
-                            } catch {
-                                pendingUsers.push({ name_en: assignment.assigned_to_user_id, name_ar: assignment.assigned_to_user_id });
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Also check user_statuses for any 'Assigned' status
-            const userStatuses = typeof incident.user_statuses === 'string'
-                ? JSON.parse(incident.user_statuses || '{}')
-                : (incident.user_statuses || {});
-            
-            console.log('🔍 Checking user_statuses:', userStatuses);
-            
-            for (const [userId, statusObj] of Object.entries(userStatuses)) {
-                const status = (statusObj as any)?.status;
-                // If user is assigned but not acknowledged/completed, add to pending list
-                if (status === 'Assigned') {
-                    // Get user name from users table with hr_employee_master join
-                    try {
-                        const { data: userData } = await supabase
-                            .from('users')
-                            .select(`
-                                id,
-                                username,
-                                hr_employee_master (
-                                    name_en,
-                                    name_ar
-                                )
-                            `)
-                            .eq('id', userId)
-                            .single();
-                        
-                        if (userData) {
-                            const empData = userData.hr_employee_master;
-                            const userObj = {
-                                name_en: empData?.name_en || userData.username,
-                                name_ar: empData?.name_ar || userData.username
-                            };
-                            // Check if already added
-                            if (!pendingUsers.some(u => u.name_en === userObj.name_en)) {
-                                pendingUsers.push(userObj);
-                            }
-                        } else if (!pendingUsers.some(u => u.name_en === userId)) {
-                            pendingUsers.push({ name_en: userId, name_ar: userId });
-                        }
-                    } catch {
-                        if (!pendingUsers.some(u => u.name_en === userId)) {
-                            pendingUsers.push({ name_en: userId, name_ar: userId });
-                        }
-                    }
-                }
-            }
-            
-            console.log('🔍 Pending users:', pendingUsers);
-            
-            // If there are pending users, show modal
-            if (pendingUsers.length > 0) {
-                pendingUsersList = pendingUsers;
-                showPendingUsersModal = true;
-                return;
-            }
-            
-            // Open Resolution window
+            // Open Resolution window directly
             openResolutionModal(incident);
-            
         } catch (err) {
-            console.error('Error checking tasks:', err);
-            alert($locale === 'ar' ? 'خطأ في التحقق من المهام' : 'Error checking tasks');
+            console.error('Error resolving incident:', err);
+            alert($locale === 'ar' ? 'خطأ في حل الحادثة' : 'Error resolving incident');
         }
     }
     
@@ -1240,9 +1117,10 @@
                                             {@const acknowledgedCount = Object.values(userStatusesObj).filter((u: any) => u.status && u.status.toLowerCase() !== 'reported').length}
                                             <button
                                                 on:click={() => openReportsToModal(incident)}
-                                                class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition font-semibold text-sm shadow-sm w-fit"
+                                                class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition font-semibold text-sm shadow-sm w-fit flex items-center gap-1"
                                             >
-                                                {acknowledgedCount} {$locale === 'ar' ? 'من أصل' : 'out of'} {incident.reportToNames.length} {$locale === 'ar' ? 'مستخدم' : 'user'}{incident.reportToNames.length > 1 ? 's' : ''}
+                                                <span>👁️</span>
+                                                <span>{acknowledgedCount} {$locale === 'ar' ? 'من أصل' : 'out of'} {incident.reportToNames.length} {$locale === 'ar' ? 'مستخدم' : 'user'}{incident.reportToNames.length > 1 ? 's' : ''}</span>
                                             </button>
                                         {/if}
                                     </div>
