@@ -14,6 +14,7 @@
 
 	let currentUserData = null;
 	let employeeId: string = '';
+	let userBranchId: number | null = null;
 	let userAssignedChecklists: any[] = [];
 	let loading = true;
 	let error = '';
@@ -134,7 +135,7 @@
 					answers: answers,
 					total_points: totalPoints,
 					max_points: maxPoints,
-					branch_id: null,
+				branch_id: userBranchId,
 					submission_type_en: submissionTypeEn,
 					submission_type_ar: submissionTypeAr
 				});
@@ -174,10 +175,10 @@
 		}
 
 		try {
-			// Get employee ID for the current user
+			// Get employee ID and branch for the current user
 			const { data: employeeData, error: empError } = await supabase
 				.from('hr_employee_master')
-				.select('id')
+				.select('id, current_branch_id')
 				.eq('user_id', $currentUser.id)
 				.single();
 
@@ -186,6 +187,7 @@
 			}
 
 			employeeId = employeeData.id;
+			userBranchId = employeeData.current_branch_id;
 
 			// Check if employee has day off today
 			isDayOff = await isEmployeeDayOff(employeeId);
