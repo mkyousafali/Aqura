@@ -259,12 +259,8 @@
 			const alpha = alphaMatch ? alphaMatch[1] : '1';
 			editColors[field as keyof ThemeColors] = `rgba(${r}, ${g}, ${b}, ${alpha})`;
 		} else if (/^linear-gradient/i.test(current.trim())) {
-			// Replace first hex color in gradient
-			let replaced = false;
-			editColors[field as keyof ThemeColors] = current.replace(/#[0-9a-fA-F]{3,6}/i, () => {
-				if (!replaced) { replaced = true; return hexColor; }
-				return hexColor;
-			});
+			// Replace ALL hex colors in gradient with the picked color
+			editColors[field as keyof ThemeColors] = current.replace(/#[0-9a-fA-F]{3,6}/gi, () => hexColor);
 		} else {
 			editColors[field as keyof ThemeColors] = hexColor;
 		}

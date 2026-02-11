@@ -496,6 +496,15 @@
 	let isAuthenticated = false;
 	let isLoading = true;
 	let currentUserData = null;
+
+	// Loading message cycling
+	const loadingMessages = [
+		{ en: 'Getting Ready... 😊', ar: 'جاري التحضير...' },
+		{ en: 'Almost There... 😊', ar: 'أوشكنا على الانتهاء...' },
+		{ en: 'Just a Second... 😊', ar: 'لحظة واحدة...' }
+	];
+	let msgIndex = 0;
+	let msgInterval: ReturnType<typeof setInterval>;
 	let unsubscribePersistent: (() => void) | undefined;
 	let unsubscribeUser: (() => void) | undefined;
 	
@@ -505,6 +514,11 @@
 	let initializationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	onMount(async () => {
+		// Start loading message cycling
+		msgInterval = setInterval(() => {
+			msgIndex = (msgIndex + 1) % loadingMessages.length;
+		}, 1500);
+
 		// CRITICAL: Set maximum timeout to prevent infinite loading
 		const maxLoadingTimeout = setTimeout(() => {
 			console.warn('⚠️ Maximum loading timeout (3s) reached, forcing app to load');
@@ -864,6 +878,8 @@
 	});
 	
 	onDestroy(() => {
+		// Cleanup loading message interval
+		if (msgInterval) clearInterval(msgInterval);
 		// Cleanup subscriptions on component destroy
 		if (unsubscribePersistent) unsubscribePersistent();
 		if (unsubscribeUser) unsubscribeUser();
@@ -1084,7 +1100,10 @@
 {#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
-		<p>Loading...</p>
+		<div class="loading-text">
+			<p>{loadingMessages[msgIndex].en}</p>
+			<p>{loadingMessages[msgIndex].ar}</p>
+		</div>
 	</div>
 {:else if isMobileRoute || isMobileLoginRoute || isCashierRoute}
 	<!-- Mobile and cashier routes get no desktop layout - completely independent -->
@@ -1205,19 +1224,19 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: var(--theme-desktop-bg, #F9FAFB);
+		color: #374151;
 		font-family: 'Inter', 'Segoe UI', sans-serif;
 	}
 
 	.loading-spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid rgba(255, 255, 255, 0.3);
-		border-top: 3px solid white;
+		width: 70px;
+		height: 70px;
+		border: 5px solid rgba(107, 114, 128, 0.3);
+		border-top: 5px solid #374151;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
+		margin-bottom: 1.5rem;
 	}
 
 	@keyframes spin {
@@ -1226,9 +1245,16 @@
 		}
 	}
 
+	.loading-text {
+		margin-top: 1.5rem;
+		text-align: center;
+	}
+
 	.loading-screen p {
-		font-size: 1.1rem;
-		opacity: 0.9;
+		margin: 0;
+		font-size: 2rem;
+		font-weight: 600;
+		line-height: 1.4;
 	}
 
 	.simple-layout {
@@ -1245,7 +1271,7 @@
 	.app {
 		min-height: 100vh;
 		min-height: 100dvh; /* Use dynamic viewport height for mobile */
-		background: #F9FAFB;
+		background: var(--theme-desktop-bg, #F9FAFB);
 		background-attachment: fixed;
 		font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 		overflow: auto; /* Allow scrolling on mobile */
@@ -1260,12 +1286,8 @@
 		right: 0;
 		bottom: 0;
 		background: 
-			radial-gradient(circle at 25% 25%, rgba(107, 114, 128, 0.08) 0%, transparent 50%),
-			radial-gradient(circle at 75% 75%, rgba(156, 163, 175, 0.06) 0%, transparent 50%),
-			radial-gradient(circle at 50% 50%, rgba(209, 213, 219, 0.04) 0%, transparent 60%),
-			radial-gradient(circle at 80% 20%, rgba(229, 231, 235, 0.08) 0%, transparent 40%),
-			radial-gradient(circle at 20% 80%, rgba(243, 244, 246, 0.1) 0%, transparent 45%),
 			url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236B7280' fill-opacity='0.02'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+		opacity: var(--theme-desktop-pattern-opacity, 0.4);
 		z-index: 0;
 	}
 

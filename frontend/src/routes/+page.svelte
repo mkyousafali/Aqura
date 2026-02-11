@@ -1,24 +1,41 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
-		onMount(() => {
+	const loadingMessages = [
+		{ en: 'Getting Ready... 😊', ar: 'جاري التحضير...' },
+		{ en: 'Almost There... 😊', ar: 'أوشكنا على الانتهاء...' },
+		{ en: 'Just a Second... 😊', ar: 'لحظة واحدة...' }
+	];
+	let msgIndex = 0;
+	let msgInterval: ReturnType<typeof setInterval>;
+
+	onMount(() => {
+		msgInterval = setInterval(() => {
+			msgIndex = (msgIndex + 1) % loadingMessages.length;
+		}, 1500);
+
 		// Redirect to appropriate interface based on user type
 		if ($currentUser) {
-			// Default to desktop interface for logged-in users
 			goto('/desktop-interface');
 		} else {
-			// Redirect to login for unauthenticated users
 			goto('/login');
 		}
+	});
+
+	onDestroy(() => {
+		if (msgInterval) clearInterval(msgInterval);
 	});
 </script>
 
 <!-- Loading state while redirecting -->
 <div class="loading-container">
 	<div class="spinner"></div>
-	<p>Loading...</p>
+	<div class="loading-text">
+		<p>{loadingMessages[msgIndex].en}</p>
+		<p>{loadingMessages[msgIndex].ar}</p>
+	</div>
 </div>
 
 <style>
@@ -28,15 +45,15 @@
 		align-items: center;
 		justify-content: center;
 		height: 100vh;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: var(--theme-desktop-bg, #F9FAFB);
+		color: #374151;
 	}
 
 	.spinner {
-		width: 50px;
-		height: 50px;
-		border: 4px solid rgba(255, 255, 255, 0.3);
-		border-top-color: white;
+		width: 70px;
+		height: 70px;
+		border: 5px solid rgba(107, 114, 128, 0.3);
+		border-top-color: #374151;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 	}
@@ -45,8 +62,15 @@
 		to { transform: rotate(360deg); }
 	}
 
-	p {
-		margin-top: 1rem;
-		font-size: 1.2rem;
+	.loading-text {
+		margin-top: 1.5rem;
+		text-align: center;
+	}
+
+	.loading-text p {
+		margin: 0;
+		font-size: 2rem;
+		font-weight: 600;
+		line-height: 1.4;
 	}
 </style>

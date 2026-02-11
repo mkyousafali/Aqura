@@ -53,6 +53,7 @@
   },
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
+    "@lottiefiles/dotlottie-web": "^0.62.0",
     "@supabase/supabase-js": "^2.45.4",
     "@sveltejs/adapter-auto": "^6.1.0",
     "aqura": "file:..",
@@ -63,6 +64,7 @@
     "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",
     "jsbarcode": "^3.12.1",
+    "lottie-web": "^5.13.0",
     "lucide-svelte": "^0.447.0",
     "mssql": "^12.1.1",
     "onnxruntime-web": "^1.23.2",
