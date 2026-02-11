@@ -5,26 +5,26 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ40.14.9.9</p>
-		<p class="version-details">Desktop: 40 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
+		<p class="version-title">Version AQ40.15.9.9</p>
+		<p class="version-details">Desktop: 40 | Mobile: 15 | Cashier: 9 | Customer: 9</p>
 		</div>
 
 		<div class="latest-change">
-		<h3>✨ One Day Offer Manager, Shelf Paper Enhancements & More</h3>
-		<p class="change-description">New One Day Offer Manager with full offer workflow, shelf paper improvements, offer editor data integrity, and sidebar favorites.</p>
+		<h3>✨ Daily Checklist Mobile Interface - Submission Tracking & Enhanced UI</h3>
+		<p class="change-description">New mobile interface for daily checklist submissions with pending counter, completion tracking, and improved form usability with larger checkboxes.</p>
 		<div class="change-details">
-			<h4>February 9, 2026 (Latest):</h4>
+			<h4>February 11, 2026 (Latest):</h4>
 			<ul>
-				<li>✅ <b>One Day Offer Manager:</b> New complete offer management tool — download Excel template, import products, 21+ column editable table with double-click name editing.</li>
-				<li>✅ <b>Offer Price Generator:</b> Smart algorithm that finds the lowest price ending in .95 (preferred) or .50 above cost, ensures minimum 2.05 decrease from sales price, auto-increases sales price if needed.</li>
-				<li>✅ <b>Offer Date Assignment:</b> Assign start and end dates to all products with calendar pickers, dates shown in DD-MM-YYYY format.</li>
-				<li>✅ <b>Print with Templates:</b> Print shelf paper using existing template system with offer prices, SAR currency icons, Arabic date labels, and configurable print copies per product.</li>
-				<li>✅ <b>Export for Entry:</b> Export to Excel with S.No, Barcode, scannable barcode images (CODE128), Product Name, Unit, Total Sales/Offer Price, Offer Type, Qty, Free, Limit.</li>
-				<li>✅ <b>Editable Columns:</b> Sales Price, Offer Price, Total Sales Price, Total Offer Price (back-calculates unit prices), Print Qty, Offer Qty, Free, Limit — all inline editable.</li>
-				<li>✅ <b>Profit Analytics:</b> Average Profit % Before and After offer shown in sticky footer, color-coded profit indicators per product.</li>
-				<li>✅ <b>Offer Product Editor:</b> Save now uses upsert instead of delete+reinsert — preserves all pricing data.</li>
-				<li>✅ <b>Shelf Paper Enhancements:</b> Select-all sizes toggle, offer qty grid images, parallel loading, loading indicator.</li>
-				<li>✅ <b>Normal Paper Manager:</b> New component with template download, Excel import, and scannable barcode printing.</li>
+				<li>✅ <b>Mobile Checklist Page:</b> New full-page mobile interface at /mobile-interface/my-checklist for submitting daily and weekly checklists with question forms.</li>
+				<li>✅ <b>Pending Checklists Counter:</b> Home dashboard shows count of pending checklists due for submission, with three states: pending count, all submitted with date (dd-mm-yyyy), or no checklists assigned.</li>
+				<li>✅ <b>Submission Type Tracking:</b> Database schema extended with submission_type_en/ar columns to track Daily (يومي), Weekly (أسبوعي), or POS (نقاط البيع) submissions.</li>
+				<li>✅ <b>Form Validation:</b> Submit button disabled until all checklist questions are answered, preventing incomplete submissions.</li>
+				<li>✅ <b>Checkbox Styling:</b> Increased checkbox size from 1rem to 1.25rem with orange (#f97316) border for better visibility and usability on mobile.</li>
+				<li>✅ <b>Completion Display:</b> When all checklists submitted, shows green checkmark with today's date and 'All Checklists Submitted' message.</li>
+				<li>✅ <b>No Assignment State:</b> Shows 'No Checklists Assigned' when user has no checklist assignments (with dash icon).</li>
+				<li>✅ <b>Global Top Bar Integration:</b> Added my-checklist route to getPageTitle function in layout for consistent page title display in mobile header.</li>
+				<li>✅ <b>Saudi Timezone Support:</b> Checklist filtering respects Saudi Arabia (Asia/Riyadh) timezone for daily eligibility checks.</li>
+				<li>✅ <b>HR Reporting:</b> DailyChecklistManager admin tool now displays submission type in reports (Daily/Weekly/POS with Arabic equivalents).</li>
 			</ul>
 		</div>
 		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
