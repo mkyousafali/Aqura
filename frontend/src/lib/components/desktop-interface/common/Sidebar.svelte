@@ -54,6 +54,7 @@
 	import ProductSelectorWindow from '$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte';
 	import OrdersManager from '$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte';
 	import FlyerMasterDashboard from '$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte';
+	import ProductsDashboard from '$lib/components/desktop-interface/marketing/products/ProductsDashboard.svelte';
 	import ProductMaster from '$lib/components/desktop-interface/marketing/flyer/ProductMaster.svelte';
 	import VariationManager from '$lib/components/desktop-interface/marketing/flyer/VariationManager.svelte';
 	import OfferTemplates from '$lib/components/desktop-interface/marketing/flyer/OfferTemplates.svelte';
@@ -65,6 +66,7 @@
 	import FlyerTemplates from '$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte';
 	import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
 	import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
+	import ShelfPaperTemplateDesigner from '$lib/components/desktop-interface/marketing/flyer/ShelfPaperTemplateDesigner.svelte';
 	import NearExpiryManager from '$lib/components/desktop-interface/marketing/flyer/NearExpiryManager.svelte';
 	import NormalPaperManager from '$lib/components/desktop-interface/marketing/flyer/NormalPaperManager.svelte';
 	import OneDayOfferManager from '$lib/components/desktop-interface/marketing/flyer/OneDayOfferManager.svelte';
@@ -209,7 +211,7 @@
 		'SOCIAL_LINK_MANAGER': 'nav.socialLinkManager', 'OFFER_PRODUCT_EDITOR': 'nav.offerProductEditor',
 		'CREATE_NEW_OFFER': 'nav.createNewOffer', 'PRICING_MANAGER': 'nav.pricingManager',
 		'ERP_ENTRY_MANAGER': 'nav.erpEntryManager', 'GENERATE_FLYERS': 'nav.generateFlyers',
-		'SHELF_PAPER_MANAGER': 'nav.shelfPaperManager', 'NEAR_EXPIRY_MANAGER': 'nav.nearExpiryManager',
+		'SHELF_PAPER_MANAGER': 'nav.shelfPaperManager', 'SHELF_PAPER_TEMPLATE_DESIGNER': 'nav.shelfPaperTemplateDesigner', 'NEAR_EXPIRY_MANAGER': 'nav.nearExpiryManager',
 		'COUPON_DASHBOARD_PROMO': 'nav.couponDashboard', 'CAMPAIGN_MANAGER': 'nav.manageCampaigns',
 		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
 		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
@@ -1605,6 +1607,7 @@ function openApprovalCenter() {
 			'RECEIVING_RECORDS': openReceivingRecords,
 			'VENDOR_RECORDS': openVendorRecords,
 			'FLYER_MASTER': openFlyerMaster,
+			'PRODUCTS_DASHBOARD': openProductsDashboard,
 			'PRODUCT_MASTER': openProductMaster,
 			'VARIATION_MANAGER': openVariationManager,
 			'OFFER_MANAGER': openOfferManager,
@@ -1619,6 +1622,7 @@ function openApprovalCenter() {
 			'ERP_ENTRY_MANAGER': openErpEntryManager,
 			'GENERATE_FLYERS': openGenerateFlyers,
 			'SHELF_PAPER_MANAGER': openShelfPaperManager,
+			'SHELF_PAPER_TEMPLATE_DESIGNER': openShelfPaperTemplateDesigner,
 			'NEAR_EXPIRY_MANAGER': openNearExpiryManager,
 			'COUPON_DASHBOARD_PROMO': openCouponDashboardPromo,
 			'CAMPAIGN_MANAGER': openCampaignManager,
@@ -2242,6 +2246,24 @@ function openApprovalCenter() {
 		showMediaSubmenu = false;
 	}
 
+	function openProductsDashboard() {
+		const windowId = generateWindowId('products-dashboard');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Products #${instanceNumber}`,
+			component: ProductsDashboard,
+			icon: '📦',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
 	function openProductMaster() {
 		const windowId = generateWindowId('product-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2484,6 +2506,24 @@ function openApprovalCenter() {
 			title: `Shelf Paper Manager #${instanceNumber}`,
 			component: DesignPlanner,
 			icon: '🏷️',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openShelfPaperTemplateDesigner() {
+		const windowId = generateWindowId('shelf-paper-template-designer');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Shelf Paper Template Designer #${instanceNumber}`,
+			component: ShelfPaperTemplateDesigner,
+			icon: '📐',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
 			resizable: true,
@@ -3219,6 +3259,14 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+				{#if isButtonAllowed('PRODUCTS_DASHBOARD')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openProductsDashboard}>
+							<span class="menu-icon">📦</span>
+							<span class="menu-text">{t('nav.productsDashboard')}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}			<!-- Manage Subsection -->
 			<div class="submenu-item-container">
@@ -3303,6 +3351,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openSocialLinkManager}>
 								<span class="menu-icon">🔗</span>
 								<span class="menu-text">{t('nav.socialLinkManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SHELF_PAPER_TEMPLATE_DESIGNER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openShelfPaperTemplateDesigner}>
+								<span class="menu-icon">📐</span>
+								<span class="menu-text">{t('nav.shelfPaperTemplateDesigner')}</span>
 							</button>
 						</div>
 					{/if}
