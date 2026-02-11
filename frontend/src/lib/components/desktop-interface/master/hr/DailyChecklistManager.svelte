@@ -937,6 +937,7 @@
 										<th class="text-center py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.points')}</th>
 										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.remarks')}</th>
 										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.other')}</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Submission Type</th>
 										<th class="text-center py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.actions')}</th>
 									</tr>
 								</thead>
@@ -972,6 +973,12 @@
 											</td>
 											<td class="py-3 px-4 text-slate-600 text-xs max-w-[200px] truncate" title={getRemarks(sub.answers)}>{getRemarks(sub.answers)}</td>
 											<td class="py-3 px-4 text-slate-600 text-xs max-w-[200px] truncate" title={getOtherValues(sub.answers)}>{getOtherValues(sub.answers)}</td>
+											<td class="py-3 px-4 text-slate-600 text-xs">
+												<div class="font-medium text-slate-700">{sub.submission_type_en || '-'}</div>
+												{#if sub.submission_type_ar}
+													<div class="text-xs text-slate-500">{sub.submission_type_ar}</div>
+												{/if}
+											</td>
 											<td class="py-3 px-4 text-center">
 												<div class="flex items-center justify-center gap-1">
 													<button

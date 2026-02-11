@@ -458,9 +458,11 @@
 				answers: answersData,
 				total_points: totalPoints,
 				max_points: maxPoints,
-				branch_id: branch?.id || null
+				branch_id: branch?.id || null,
+				submission_type_en: 'POS',
+				submission_type_ar: 'نقاط البيع'
 			})
-			.select();
+			.select('*, submission_type_en, submission_type_ar');
 
 		if (error) {
 			console.error('Error saving checklist operation:', error);

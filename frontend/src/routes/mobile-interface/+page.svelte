@@ -15,7 +15,8 @@
 		pendingTasks: 0,
 		pendingToClose: 0,
 		closedBoxes: 0,
-		inUseBoxes: 0
+		inUseBoxes: 0,
+		pendingChecklists: 0
 	};
 	let isLoading = true;
 	let currentTime = new Date();
@@ -38,6 +39,14 @@
 	// Computed role check
 	$: userRole = currentUserData?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
+	// Format date as dd-mm-yyyy
+	function formatChecklistDate(date = new Date()): string {
+		const day = String(date.getDate()).padStart(2, '0');
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const year = date.getFullYear();
+		return `${day}-${month}-${year}`;
+	}
+	
 	// Helper function to get translations
 	function getTranslation(keyPath: string): string {
 		const keys = keyPath.split('.');
@@ -51,6 +60,7 @@
 		}
 		return typeof value === 'string' ? value : keyPath;
 	}
+	
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
@@ -134,6 +144,98 @@
 			console.log('📊 Final stats:', stats);
 		} catch (error) {
 			console.error('❌ Error loading box operations counts:', error);
+		}
+	}
+	
+	async function loadPendingChecklistsCount() {
+		try {
+			if (!currentUserData?.id) {
+				console.warn('⚠️ No user ID for pending checklists count');
+				return;
+			}
+
+			console.log('📋 Loading pending checklists count for user:', currentUserData.id);
+
+			// Get employee ID for the current user
+			const { data: employeeData, error: empError } = await supabase
+				.from('hr_employee_master')
+				.select('id')
+				.eq('user_id', currentUserData.id)
+				.single();
+
+			if (empError || !employeeData) {
+				console.warn('⚠️ Employee record not found:', empError);
+				return;
+			}
+
+			const employeeId = employeeData.id;
+
+			// Get today's date (ISO format)
+			const today = new Date().toISOString().split('T')[0];
+
+			// Get checklists assigned to user
+			const { data: assignments, error: assignmentError } = await supabase
+				.from('employee_checklist_assignments')
+				.select('id, frequency_type, day_of_week, checklist_id')
+				.eq('assigned_to_user_id', currentUserData.id)
+				.is('deleted_at', null)
+				.eq('is_active', true);
+
+			if (assignmentError) {
+				console.error('❌ Error loading checklist assignments:', assignmentError);
+				return;
+			}
+
+			// Get today's submissions to exclude submitted checklists
+			const { data: submissions, error: submissionsError } = await supabase
+				.from('hr_checklist_operations')
+				.select('checklist_id')
+				.eq('employee_id', employeeId)
+				.eq('operation_date', today);
+
+			if (submissionsError) {
+				console.error('❌ Error loading submissions:', submissionsError);
+				return;
+			}
+
+			const submittedChecklistIds = new Set((submissions || []).map((s) => s.checklist_id));
+
+			// Get today's day of week for weekly checklists
+			const today_date = new Date();
+			const saudiTimezone = 'Asia/Riyadh';
+			const saudiDate = new Date(
+				new Intl.DateTimeFormat('en-CA', {
+					timeZone: saudiTimezone,
+					year: 'numeric',
+					month: '2-digit',
+					day: '2-digit'
+				}).format(today_date)
+			);
+			const saToday = saudiDate.getDay();
+
+			// Count pending checklists
+			let pendingCount = 0;
+			if (assignments) {
+				for (const assignment of assignments) {
+					// Skip if already submitted today
+					if (submittedChecklistIds.has(assignment.checklist_id)) {
+						continue;
+					}
+					// Allow daily checklists
+					if (assignment.frequency_type === 'daily') {
+						pendingCount++;
+					}
+					// Allow weekly checklists for today
+					if (assignment.frequency_type === 'weekly' && assignment.day_of_week === saToday) {
+						pendingCount++;
+					}
+				}
+			}
+
+			stats.pendingChecklists = pendingCount;
+			console.log('📋 Pending checklists count:', stats.pendingChecklists);
+		} catch (error) {
+			console.error('❌ Error loading pending checklists count:', error);
 		}
 	}
 	
@@ -353,6 +455,9 @@
 			
 			// Load box operations counts
 			await loadBoxOperationsCounts();
+			
+			// Load pending checklists count
+			await loadPendingChecklistsCount();
 			
 			// Set pending tasks to 0 for now (TODO: implement task loading)
 			stats.pendingTasks = 0;
@@ -604,6 +709,33 @@
 					</div>
 				</div>
 			{/if}
+
+			<!-- My Checklist Card (always show) -->
+			<div class="stat-card blank clickable my-checklist" on:click={() => stats.pendingChecklists > 0 && goto('/mobile-interface/my-checklist')} class:completed={stats.pendingChecklists === 0} class:disabled={stats.pendingChecklists === 0}>
+				{#if stats.pendingChecklists > 0}
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="3" y="5" width="18" height="14" rx="2"/>
+							<path d="M7 15h10M7 10h10"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3>{stats.pendingChecklists}</h3>
+						<p>{$localeData.code === 'ar' ? 'قائمة مجدولة' : 'Pending Checklists'}</p>
+						<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للإرسال' : 'Click to submit'}</p>
+					</div>
+				{:else}
+					<div class="stat-icon completed">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3 class="completed-date">{formatChecklistDate()}</h3>
+						<p>{$localeData.code === 'ar' ? 'تم إرسال جميع القوائم' : 'All Checklists Submitted'}</p>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</section>
 	{/if}
@@ -871,6 +1003,32 @@
 
 	.in-use-box p {
 		color: #312E81;
+	}
+
+	/* My Checklist Styling */
+	.my-checklist .stat-icon {
+		background: rgba(251, 146, 60, 0.1);
+		color: #FB923C;
+	}
+	
+	.my-checklist.completed .stat-icon.completed {
+		background: rgba(34, 197, 94, 0.1);
+		color: #22C55E;
+	}
+	
+	.my-checklist.completed .completed-date {
+		font-family: 'Courier New', monospace;
+		font-weight: 600;
+		color: #22C55E;
+	}
+	
+	.my-checklist.disabled {
+		cursor: default;
+	}
+	
+	.my-checklist.disabled:hover {
+		transform: none;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 	
 	.stat-card.clickable:hover {

@@ -167,6 +167,7 @@ export const arabicLocale: LocaleData = {
       warningMaster: "سجل التحذيرات",
       createUserRoles: "إنشاء أدوار المستخدمين",
       assignRoles: "تعيين الأدوار",
+      cancel: "إلغاء",
     },
 
     // Mobile page titles
@@ -1904,6 +1905,7 @@ export const arabicLocale: LocaleData = {
       },
       dailyChecklist: {
         title: "إدارة قائمة التحقق اليومية",
+        myDailyChecklist: "قائمتي اليومية",
         createChecklist: "إنشاء قائمة تحقق",
         assignChecklist: "تعيين قائمة تحقق",
         submissionReport: "تقرير التسليم",

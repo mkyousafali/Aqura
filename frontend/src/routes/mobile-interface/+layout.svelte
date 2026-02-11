@@ -598,6 +598,7 @@
 		if (path === '/mobile-interface/day-off-request' || path === '/mobile-interface/day-off-request/') return getTranslation('mobile.leaveRequest');
 		if (path === '/mobile-interface/fingerprint-analysis' || path === '/mobile-interface/fingerprint-analysis/') return getTranslation('mobile.fingerprintAnalysis');
 		if (path === '/mobile-interface/purchase-voucher' || path === '/mobile-interface/purchase-voucher/') return getTranslation('mobile.purchaseVoucher.title');
+		if (path === '/mobile-interface/my-checklist' || path === '/mobile-interface/my-checklist/') return getTranslation('hr.dailyChecklist.myDailyChecklist');
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
