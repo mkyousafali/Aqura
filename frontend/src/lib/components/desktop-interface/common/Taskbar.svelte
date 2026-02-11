@@ -637,8 +637,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		left: 0;
 		right: 0;
 		height: 56px;
-		background: rgba(0, 102, 178, 0.75);
-		border-top: 1px solid rgba(255, 255, 255, 0.2);
+		background: var(--theme-taskbar-bg, rgba(0, 102, 178, 0.75));
+		border-top: 1px solid var(--theme-taskbar-border, rgba(255, 255, 255, 0.2));
 		display: flex;
 		align-items: center;
 		padding: 0 8px;
@@ -668,8 +668,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		background: rgba(255, 255, 255, 0.95);
-		color: #0B1220;
+		background: var(--theme-taskbar-btn-inactive-bg, rgba(255, 255, 255, 0.95));
+		color: var(--theme-taskbar-btn-inactive-text, #0B1220);
 		border: 1px solid rgba(229, 231, 235, 0.8);
 		border-radius: 4px;
 		padding: 6px 8px;
@@ -683,13 +683,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.task-button:hover {
 		background: #FFFFFF;
-		border-color: #4F46E5;
-		color: #4F46E5;
+		border-color: var(--theme-taskbar-btn-hover-border, #4F46E5);
+		color: var(--theme-taskbar-btn-hover-border, #4F46E5);
 	}
 
 	.task-button.active {
-		background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
-		color: white;
+		background: var(--theme-taskbar-btn-active-bg, linear-gradient(135deg, #4F46E5 0%, #6366F1 100%));
+		color: var(--theme-taskbar-btn-active-text, white);
 		border-color: #4338CA;
 	}
 
@@ -738,7 +738,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		justify-content: center;
 		width: 40px;
 		height: 40px;
-		background: rgba(255, 255, 255, 0.1);
+		background: var(--theme-taskbar-quick-access-bg, rgba(255, 255, 255, 0.1));
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
