@@ -19,6 +19,7 @@
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { approvalCounts } from '$lib/stores/approvalCounts';
+	import DancingCharacter from './DancingCharacter.svelte';
 	
 	// Component imports
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
@@ -89,6 +90,7 @@
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
 	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
+	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -242,6 +244,7 @@
 		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'BUTTON_GENERATOR': 'nav.buttonGenerator',
+		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
 		// Additional DB button codes (aliases / alternate codes)
 		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees', 'WARNING_MASTER': 'nav.warningMaster',
 		'SALARY_WAGE_MANAGEMENT': 'hr.masterSalaryManagement', 'CONTACT_MANAGEMENT': 'hr.masterContactManagement',
@@ -1569,6 +1572,29 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 	}
 
+	function openAIChatGuide() {
+		const windowId = generateWindowId('ai-chat-guide');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `AI Chat Guide #${instanceNumber}`,
+			component: AIChatGuide,
+			icon: '🤖',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsSubmenu = false;
+		showControlsManageSubmenu = false;
+	}
+
 	function openCommunicationCenter() {
 		const windowId = generateWindowId('communication-center');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -1708,6 +1734,7 @@ function openApprovalCenter() {
 			'BUTTON_ACCESS_CONTROL': openButtonAccessControl,
 			'BUTTON_GENERATOR': openButtonGenerator,
 			'THEME_MANAGER': openThemeManager,
+			'AI_CHAT_GUIDE': openAIChatGuide,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 		};
 
@@ -4727,6 +4754,14 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+				{#if isButtonAllowed('AI_CHAT_GUIDE')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openAIChatGuide}>
+							<span class="menu-icon">🤖</span>
+							<span class="menu-text">{t('nav.aiChatGuide') || 'AI Chat Guide'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}			<!-- Operations Subsection -->
 			<div class="submenu-item-container">
@@ -4827,6 +4862,11 @@ function openApprovalCenter() {
 		{/if}
 	</div>
 	{/if}
+
+	<!-- AI Chat Character -->
+	<div class="sidebar-character">
+		<DancingCharacter />
+	</div>
 
 	<!-- Online/Offline Indicator + Language Switch -->
 	<div class="bottom-controls-row">
@@ -5393,11 +5433,22 @@ function openApprovalCenter() {
 		justify-content: center;
 		gap: 8px;
 		padding: 8px 12px;
-		margin-top: auto;
 		border-top: 1px solid rgba(107, 114, 128, 0.3);
 		background: var(--theme-sidebar-bg, #374151);
 		position: sticky;
 		bottom: 0;
+		flex-shrink: 0;
+	}
+
+	.sidebar-character {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 4px 0;
+		margin-top: auto;
+		flex-shrink: 0;
+		position: relative;
+		overflow: visible;
 	}
 
 	.sidebar.favorites-mode .bottom-controls-row {

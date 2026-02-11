@@ -94,7 +94,7 @@ export const GET: RequestHandler = async () => {
 			},
 			CONTROLS: {
 				DASHBOARD: [],
-				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER'],
+				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE'],
 				OPERATIONS: [],
 				REPORTS: []
 			}
@@ -202,7 +202,8 @@ export const GET: RequestHandler = async () => {
 			CLEAR_TABLES: 'Clear Tables',
 			BUTTON_ACCESS_CONTROL: 'Button Access Control',
 			BUTTON_GENERATOR: 'Button Generator',
-			THEME_MANAGER: 'Theme Manager'
+			THEME_MANAGER: 'Theme Manager',
+			AI_CHAT_GUIDE: 'AI Chat Guide'
 		};
 
 		// Merge both mappings

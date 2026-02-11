@@ -158,6 +158,7 @@
 		'CLEAR_TABLES': 'nav.clearTables',
 		'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'BUTTON_GENERATOR': 'nav.buttonGenerator',
+		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
 		'THEME_MANAGER': 'nav.themeManager',
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
 		'LEAVE_REQUEST': 'nav.leaveRequest',
