@@ -11,6 +11,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { approvalCounts, initApprovalCountMonitoring, refreshApprovalCounts } from '$lib/stores/approvalCounts';
 	import NotificationCenter from '$lib/components/desktop-interface/master/communication/NotificationCenter.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
+	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
+	import { getSaudiDayOfWeek, isEmployeeDayOff, isAfterShiftStart, getShiftStartTime } from '$lib/utils/checklistHelpers';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { supabase } from '$lib/utils/supabase';
@@ -48,6 +50,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let currentDate = '';
 	let timeInterval: NodeJS.Timeout;
 
+	// Pending checklist count
+	let pendingChecklistCount = 0;
+
 	onMount(() => {
 		updateTime();
 		timeInterval = setInterval(updateTime, 1000);
@@ -63,10 +68,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		// Initialize approval count monitoring
 		initApprovalCountMonitoring();
+
+		// Fetch initial pending checklist count
+		fetchPendingChecklistCount();
+		const checklistInterval = setInterval(fetchPendingChecklistCount, 60000);
 		
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
 			if (notificationInterval) clearInterval(notificationInterval);
+			if (checklistInterval) clearInterval(checklistInterval);
 		};
 	});
 
@@ -235,6 +245,78 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Quick access functions
 	function generateWindowId(type: string): string {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	}
+
+	function openDailyChecklist() {
+		const windowId = generateWindowId('daily-checklist');
+		openWindow({
+			id: windowId,
+			title: 'My Daily Checklist',
+			component: DailyChecklistWindow,
+			icon: '📒',
+			size: { width: 800, height: 600 },
+			position: { x: 150, y: 80 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	async function fetchPendingChecklistCount() {
+		try {
+			if (!$currentUser?.id) return;
+
+			// Get employee ID
+			const { data: empData } = await supabase
+				.from('hr_employee_master')
+				.select('id')
+				.eq('user_id', $currentUser.id)
+				.single();
+
+			if (!empData) { pendingChecklistCount = 0; return; }
+
+			// Check day off
+			const dayOff = await isEmployeeDayOff(empData.id);
+			if (dayOff) { pendingChecklistCount = 0; return; }
+
+			// Check shift
+			const shiftTime = await getShiftStartTime(empData.id);
+			if (!shiftTime) { pendingChecklistCount = 0; return; }
+			const shiftStarted = await isAfterShiftStart(empData.id);
+			if (!shiftStarted) { pendingChecklistCount = 0; return; }
+
+			// Get all active assignments
+			const { data: assignments } = await supabase
+				.from('employee_checklist_assignments')
+				.select('id, checklist_id, frequency_type, day_of_week')
+				.eq('assigned_to_user_id', $currentUser.id)
+				.is('deleted_at', null)
+				.eq('is_active', true);
+
+			if (!assignments || assignments.length === 0) { pendingChecklistCount = 0; return; }
+
+			// Get today's submissions
+			const today = new Date().toISOString().split('T')[0];
+			const { data: submissions } = await supabase
+				.from('hr_checklist_operations')
+				.select('checklist_id')
+				.eq('employee_id', empData.id)
+				.eq('operation_date', today);
+
+			const submittedIds = new Set((submissions || []).map(s => s.checklist_id));
+			const saToday = getSaudiDayOfWeek();
+
+			// Count pending (not submitted, applicable today)
+			pendingChecklistCount = assignments.filter(a => {
+				if (submittedIds.has(a.checklist_id)) return false;
+				if (a.frequency_type === 'daily') return true;
+				if (a.frequency_type === 'weekly' && a.day_of_week === saToday) return true;
+				return false;
+			}).length;
+		} catch (err) {
+			console.error('Error fetching checklist count:', err);
+		}
 	}
 
 	function openQuickNotifications() {
@@ -426,6 +508,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<div class="quick-icon">🔔</div>
 			{#if counts.unread > 0}
 				<div class="quick-badge">{counts.unread > 99 ? '99+' : counts.unread}</div>
+			{/if}
+		</button>
+
+		<!-- My Daily Checklist -->
+		<button 
+			class="quick-btn checklist-btn"
+			on:click={openDailyChecklist}
+			title="My Daily Checklist ({pendingChecklistCount} pending)"
+		>
+			<div class="quick-icon">📒</div>
+			{#if pendingChecklistCount > 0}
+				<div class="quick-badge">{pendingChecklistCount > 99 ? '99+' : pendingChecklistCount}</div>
 			{/if}
 		</button>
 	</div>
@@ -715,7 +809,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		background: #10b981;
 	}
 
+	.checklist-btn {
+		background: rgba(249, 115, 22, 0.15) !important;
+	}
 
+	.checklist-btn:hover {
+		background: rgba(249, 115, 22, 0.3) !important;
+	}
+
+	.checklist-btn .quick-badge {
+		background: #f97316;
+	}
 
 	.system-tray {
 		display: flex;

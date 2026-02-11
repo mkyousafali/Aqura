@@ -4407,7 +4407,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateNotification}>
 								<span class="menu-icon">📝</span>
-								<span class="menu-text">{t('nav.createNotification') || 'Create Notification'}</span>
+								<span class="menu-text">{t('mobile.createNotification')}</span>
 							</button>
 						</div>
 					{/if}
