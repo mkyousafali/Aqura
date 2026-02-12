@@ -1382,6 +1382,7 @@ export const arabicLocale: LocaleData = {
       processFingerprint: {
         title: "معالجة بصمات الأصابع",
         analyze_all: "تحليل الكل",
+        process_all: "معالجة البصمات",
         checkIn: "الدخول",
         checkOut: "الخروج",
         punch_time: "وقت البصمة",

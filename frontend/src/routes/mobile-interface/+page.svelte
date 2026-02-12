@@ -34,6 +34,86 @@
 		loading: false,
 		error: ''
 	};
+
+	// Attendance analysis data for today and yesterday
+	let attendanceToday: any = null;
+	let attendanceYesterday: any = null;
+	let attendanceLoading = false;
+	// Shift info looked up directly from shift tables (priority: special_shift_date_wise → special_shift_weekday → regular_shift)
+	let todayShiftInfo: { shift_end_time: string; shift_start_time: string; is_shift_overlapping_next_day: boolean } | null = null;
+
+	/** Check if shift end time has passed (Saudi timezone) for today's attendance.
+	 *  Uses todayShiftInfo from shift tables (not from analysed data).
+	 *  For overlapping shifts (e.g. 20:00-08:00), shift always ends next day → not passed yet today. */
+	function isTodayShiftEndPassed(att: any): boolean {
+		// Use shift info from shift tables if available
+		if (todayShiftInfo) {
+			// If shift overlaps to next day, it can't have ended today
+			if (todayShiftInfo.is_shift_overlapping_next_day) return false;
+			const nowSaudi = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' });
+			return nowSaudi >= todayShiftInfo.shift_end_time.slice(0, 8);
+		}
+		// Fallback to analysed data shift_end_time
+		if (!att?.shift_end_time) return false;
+		const nowSaudi = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' });
+		return nowSaudi >= att.shift_end_time.slice(0, 8);
+	}
+
+	/** Get display status for today — if Absent/Missing but shift not over yet, show 'Not yet' */
+	function getTodayDisplayStatus(att: any): string {
+		if (!att) return '';
+		const isNotFinal = att.status === 'Absent' || att.status?.includes('Missing');
+		if (isNotFinal && !isTodayShiftEndPassed(att)) {
+			return $localeData.code === 'ar' ? 'لم يحن الوقت بعد' : 'Not yet';
+		}
+		return translateStatus(att.status);
+	}
+
+	/** Translate attendance status to Arabic */
+	const statusTranslations: Record<string, string> = {
+		'Worked': 'حاضر',
+		'Absent': 'غائب',
+		'Official Day Off': 'يوم إجازة رسمي',
+		'Approved Leave (Deductible)': 'إجازة معتمدة (قابلة للخصم)',
+		'Approved Leave (No Deduction)': 'إجازة معتمدة (بدون خصم)',
+		'Pending Approval': 'بانتظار الموافقة',
+		'Rejected-Deducted': 'مرفوض - مخصوم',
+		'Rejected-Not Deducted': 'مرفوض - غير مخصوم',
+		'Check-In Missing': 'تسجيل الدخول مفقود',
+		'Check-Out Missing': 'تسجيل الخروج مفقود',
+	};
+
+	function translateStatus(status: string): string {
+		if (!status) return '';
+		if ($localeData.code === 'ar') {
+			return statusTranslations[status] || status;
+		}
+		return status;
+	}
+
+	/** Convert HH:MM:SS or HH:MM to 12-hour format (locale-aware) */
+	function to12h(time: string | null): string {
+		if (!time) return '';
+		const [h, m] = time.split(':').map(Number);
+		const timeDate = new Date(2000, 0, 1, h, m);
+		const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
+		return timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: true });
+	}
+
+	/** Format shift_date (YYYY-MM-DD) as "DayName DD-MM-YYYY" (locale-aware) */
+	function formatAttDate(dateStr: string): string {
+		if (!dateStr) return '';
+		const d = new Date(dateStr + 'T00:00:00');
+		const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
+		const dayName = d.toLocaleDateString(locale, { weekday: 'short' });
+		const formatted = d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
+		// Rearrange to DD-MM-YYYY with dashes
+		const parts = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(d);
+		const dd = parts.find(p => p.type === 'day')?.value;
+		const mm = parts.find(p => p.type === 'month')?.value;
+		const yyyy = parts.find(p => p.type === 'year')?.value;
+		return `${dayName} ${dd}-${mm}-${yyyy}`;
+	}
 	
 	// Update time every second
 	let timeInterval: ReturnType<typeof setInterval>;
@@ -315,9 +395,86 @@
 		
 		console.log('🎯 Step 3 - Found employee codes across all branches:', allEmployeeCodes);
 		
-		// Step 4: Search hr_fingerprint_transactions for ALL employee codes
-		// - Get last 2 punches across all branches
-		console.log('🔍 Step 4 - Searching fingerprint transactions for all branches...');
+		// Step 4: Load attendance analysis data for today and yesterday
+		console.log('🔍 Step 4 - Loading attendance analysis data...');
+		attendanceLoading = true;
+		try {
+			const today = new Date();
+			const yesterday = new Date(today);
+			yesterday.setDate(yesterday.getDate() - 1);
+			const todayStr = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+			const yesterdayStr = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+
+			const { data: attData, error: attError } = await supabase
+				.from('hr_analysed_attendance_data')
+				.select('*')
+				.eq('employee_id', employeeRecord.id)
+				.in('shift_date', [todayStr, yesterdayStr])
+				.order('shift_date', { ascending: false });
+
+			if (attError) {
+				console.error('Error loading attendance data:', attError);
+			} else if (attData) {
+				attendanceToday = attData.find(r => r.shift_date === todayStr) || null;
+				attendanceYesterday = attData.find(r => r.shift_date === yesterdayStr) || null;
+				console.log('✅ Step 4 - Today:', attendanceToday, 'Yesterday:', attendanceYesterday);
+			}
+		} catch (e) {
+			console.error('Error in attendance data load:', e);
+		} finally {
+			attendanceLoading = false;
+		}
+
+		// Step 4b: Look up today's shift end time from shift tables (priority: special_shift_date_wise → special_shift_weekday → regular_shift)
+		try {
+			const todaySaudi = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+			const todayWeekday = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh' })).getDay(); // 0=Sun, 5=Fri
+
+			// 1) Check special_shift_date_wise first
+			const { data: dateShift } = await supabase
+				.from('special_shift_date_wise')
+				.select('shift_end_time, shift_start_time, is_shift_overlapping_next_day')
+				.eq('employee_id', employeeRecord.id)
+				.eq('shift_date', todaySaudi)
+				.maybeSingle();
+
+			if (dateShift) {
+				todayShiftInfo = dateShift;
+				console.log('✅ Step 4b - Shift from special_shift_date_wise:', todayShiftInfo);
+			} else {
+				// 2) Check special_shift_weekday
+				const { data: weekdayShift } = await supabase
+					.from('special_shift_weekday')
+					.select('shift_end_time, shift_start_time, is_shift_overlapping_next_day')
+					.eq('employee_id', employeeRecord.id)
+					.eq('weekday', todayWeekday)
+					.maybeSingle();
+
+				if (weekdayShift) {
+					todayShiftInfo = weekdayShift;
+					console.log('✅ Step 4b - Shift from special_shift_weekday:', todayShiftInfo);
+				} else {
+					// 3) Fallback to regular_shift (id = employee_id)
+					const { data: regShift } = await supabase
+						.from('regular_shift')
+						.select('shift_end_time, shift_start_time, is_shift_overlapping_next_day')
+						.eq('id', employeeRecord.id)
+						.maybeSingle();
+
+					if (regShift) {
+						todayShiftInfo = regShift;
+						console.log('✅ Step 4b - Shift from regular_shift:', todayShiftInfo);
+					} else {
+						console.warn('⚠️ Step 4b - No shift info found for employee');
+					}
+				}
+			}
+		} catch (e) {
+			console.error('Error looking up shift info:', e);
+		}
+
+		// Step 5: Also load last 2 raw punches for backward compatibility
+		console.log('🔍 Step 5 - Searching fingerprint transactions for all branches...');
 		const { data: punchData, error: punchError } = await supabase
 			.from('hr_fingerprint_transactions')
 			.select('*')
@@ -326,8 +483,8 @@
 			.order('time', { ascending: false })
 			.limit(2);
 			
-			console.log('📊 Step 4 - Punch data:', punchData);
-			console.log('❌ Step 4 - Error:', punchError);
+			console.log('📊 Step 5 - Punch data:', punchData);
+			console.log('❌ Step 5 - Error:', punchError);
 			
 			if (punchError) {
 				console.error('Error loading punches:', punchError);
@@ -339,9 +496,9 @@
 				return;
 			}
 			
-			// Step 5: Display the last 2 punch records
+		// Step 6: Display the last 2 punch records
 			if (punchData && punchData.length > 0) {
-				console.log('✅ Step 5 - Found', punchData.length, 'punch records');
+				console.log('✅ Step 6 - Found', punchData.length, 'punch records');
 				
 				const punchRecords = punchData
 					.map(punch => {
@@ -386,14 +543,14 @@
 						return mappedPunch;
 					});
 				
-				console.log('✅ Step 5 - Displaying', punchRecords.length, 'punch records');
+				console.log('✅ Step 6 - Displaying', punchRecords.length, 'punch records');
 				punches = {
 					records: punchRecords,
 					loading: false,
 					error: ''
 				};
 			} else {
-				console.log('ℹ️ Step 5 - No punch records found');
+				console.log('ℹ️ Step 6 - No punch records found');
 				punches = {
 					records: [],
 					loading: false,
@@ -617,52 +774,68 @@
 					<p>{getTranslation('mobile.dashboardContent.stats.pendingTasks')}</p>
 				</div>
 			</div>
-			<div class="stat-card punch">
-				<div class="stat-icon">
+			<div class="stat-card attendance-card clickable" on:click={() => goto('/mobile-interface/fingerprint-analysis')}>
+				<div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10B981;">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="12" cy="12" r="10"/>
-						<polyline points="12,6 12,12 16,14"/>
+						<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+						<line x1="16" y1="2" x2="16" y2="6"/>
+						<line x1="8" y1="2" x2="8" y2="6"/>
+						<line x1="3" y1="10" x2="21" y2="10"/>
 					</svg>
 				</div>
 				<div class="stat-info">
-					{#if punches.loading}
-						<div class="loading-text">Loading...</div>
-					{:else if punches.error}
-						<h3 style="color: #ef4444;">—</h3>
-						<p>{punches.error}</p>
-					{:else if punches.records.length > 0}
-						<div class="punch-detail">
-							<h3>{punches.records[0].time}</h3>
-							<p class="punch-date">{punches.records[0].date}</p>
-							<p class="punch-status" class:checkin={punches.records[0].status === 'check-in'} class:checkout={punches.records[0].status === 'check-out'}>
-								{punches.records[0].status === 'check-in' ? getTranslation('mobile.dashboardContent.stats.checkIn') : getTranslation('mobile.dashboardContent.stats.checkOut')}
-							</p>
-						</div>
+					<p class="attendance-label">{$localeData.code === 'ar' ? 'اليوم' : 'Today'}</p>
+					{#if attendanceLoading}
+						<div class="loading-text" style="font-size: 0.7rem;">...</div>
+					{:else if attendanceToday}
+						<p class="attendance-date">{formatAttDate(attendanceToday.shift_date)}</p>
+						{@const isNotFinal = attendanceToday.status === 'Absent' || attendanceToday.status?.includes('Missing')}
+						{@const shiftOver = isTodayShiftEndPassed(attendanceToday)}
+						<p class="attendance-status" class:status-worked={attendanceToday.status === 'Worked'} class:status-absent={attendanceToday.status === 'Absent' && shiftOver} class:status-dayoff={attendanceToday.status === 'Official Day Off'} class:status-leave={attendanceToday.status?.includes('Leave')} class:status-missing={attendanceToday.status?.includes('Missing') && shiftOver} class:status-notyet={isNotFinal && !shiftOver}>
+							{getTodayDisplayStatus(attendanceToday)}
+						</p>
+						{#if attendanceToday.check_in_time}
+							<p class="attendance-time">✅ {to12h(attendanceToday.check_in_time)}{attendanceToday.check_out_time ? ' → ' + to12h(attendanceToday.check_out_time) : ''}</p>
+						{/if}
+						{#if attendanceToday.late_minutes > 0}
+							<p class="attendance-late">⏰ {$localeData.code === 'ar' ? 'تأخير' : 'Late'}: {attendanceToday.late_minutes} {$localeData.code === 'ar' ? 'دقيقة' : 'min'}</p>
+						{/if}
 					{:else}
 						<h3>—</h3>
-						<p>{getTranslation('mobile.dashboardContent.stats.noPunch')}</p>
+						<p style="font-size: 0.6rem; color: #9CA3AF;">{$localeData.code === 'ar' ? 'لا توجد بيانات' : 'No data'}</p>
 					{/if}
 				</div>
 			</div>
-			{#if punches.records.length > 1}
-				<div class="stat-card punch">
-					<div class="stat-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<circle cx="12" cy="12" r="10"/>
-							<polyline points="12,6 12,12 16,14"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<div class="punch-detail">
-							<h3>{punches.records[1].time}</h3>
-							<p class="punch-date">{punches.records[1].date}</p>
-							<p class="punch-status" class:checkin={punches.records[1].status === 'check-in'} class:checkout={punches.records[1].status === 'check-out'}>
-								{punches.records[1].status === 'check-in' ? getTranslation('mobile.dashboardContent.stats.checkIn') : getTranslation('mobile.dashboardContent.stats.checkOut')}
-							</p>
-						</div>
-					</div>
+			<div class="stat-card attendance-card clickable" on:click={() => goto('/mobile-interface/fingerprint-analysis')}>
+				<div class="stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366F1;">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+						<line x1="16" y1="2" x2="16" y2="6"/>
+						<line x1="8" y1="2" x2="8" y2="6"/>
+						<line x1="3" y1="10" x2="21" y2="10"/>
+					</svg>
 				</div>
-			{/if}
+				<div class="stat-info">
+					<p class="attendance-label">{$localeData.code === 'ar' ? 'أمس' : 'Yesterday'}</p>
+					{#if attendanceLoading}
+						<div class="loading-text" style="font-size: 0.7rem;">...</div>
+					{:else if attendanceYesterday}
+						<p class="attendance-date">{formatAttDate(attendanceYesterday.shift_date)}</p>
+						<p class="attendance-status" class:status-worked={attendanceYesterday.status === 'Worked'} class:status-absent={attendanceYesterday.status === 'Absent'} class:status-dayoff={attendanceYesterday.status === 'Official Day Off'} class:status-leave={attendanceYesterday.status?.includes('Leave')} class:status-missing={attendanceYesterday.status?.includes('Missing')}>
+							{translateStatus(attendanceYesterday.status)}
+						</p>
+						{#if attendanceYesterday.check_in_time}
+							<p class="attendance-time">✅ {to12h(attendanceYesterday.check_in_time)}{attendanceYesterday.check_out_time ? ' → ' + to12h(attendanceYesterday.check_out_time) : ''}</p>
+						{/if}
+						{#if attendanceYesterday.late_minutes > 0}
+							<p class="attendance-late">⏰ {$localeData.code === 'ar' ? 'تأخير' : 'Late'}: {attendanceYesterday.late_minutes} {$localeData.code === 'ar' ? 'دقيقة' : 'min'}</p>
+						{/if}
+					{:else}
+						<h3>—</h3>
+						<p style="font-size: 0.6rem; color: #9CA3AF;">{$localeData.code === 'ar' ? 'لا توجد بيانات' : 'No data'}</p>
+					{/if}
+				</div>
+			</div>
 			
 			<!-- Blank Card 1 - Pending POS (only show if data exists) -->
 			{#if stats.pendingToClose > 0}
@@ -920,6 +1093,51 @@
 	.stat-card.punch .stat-icon {
 		background: rgba(239, 68, 68, 0.1);
 		color: #EF4444;
+	}
+	/* Attendance card styles */
+	.attendance-card {
+		cursor: pointer;
+		border: 2px solid transparent;
+		transition: all 0.2s ease;
+	}
+	.attendance-card:active {
+		transform: scale(0.97);
+	}
+	.attendance-label {
+		font-size: 0.6rem !important;
+		font-weight: 700 !important;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #6B7280 !important;
+		margin-bottom: 0.1rem !important;
+	}
+	.attendance-date {
+		font-size: 0.55rem !important;
+		color: #374151 !important;
+		font-weight: 600;
+		margin: 0 0 0.15rem 0 !important;
+	}
+	.attendance-status {
+		font-size: 0.7rem !important;
+		font-weight: 700 !important;
+		margin: 0.1rem 0 !important;
+	}
+	.attendance-status.status-worked { color: #10B981 !important; }
+	.attendance-status.status-absent { color: #EF4444 !important; }
+	.attendance-status.status-dayoff { color: #6366F1 !important; }
+	.attendance-status.status-leave { color: #F59E0B !important; }
+	.attendance-status.status-missing { color: #F97316 !important; }
+	.attendance-status.status-notyet { color: #9CA3AF !important; font-style: italic; }
+	.attendance-time {
+		font-size: 0.55rem !important;
+		color: #6B7280 !important;
+		margin: 0.1rem 0 0 0 !important;
+	}
+	.attendance-late {
+		font-size: 0.55rem !important;
+		color: #EF4444 !important;
+		font-weight: 600;
+		margin: 0.1rem 0 0 0 !important;
 	}
 	.stat-info h3 {
 		font-size: 1rem;

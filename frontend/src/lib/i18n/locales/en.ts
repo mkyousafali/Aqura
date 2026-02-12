@@ -1534,6 +1534,7 @@ export const englishLocale: LocaleData = {
       processFingerprint: {
         title: "Process Fingerprint",
         analyze_all: "Analyze All",
+        process_all: "Process Fingerprints",
         checkIn: "Check In",
         checkOut: "Check Out",
         punch_time: "Punch Time",

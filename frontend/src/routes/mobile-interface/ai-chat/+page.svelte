@@ -32,6 +32,9 @@
 	let availableVoices: VoiceOption[] = [];
 	let selectedVoice = '';
 
+	// Voice narration prompt
+	let showVoicePrompt = true;
+
 	$: {
 		availableVoices = getVoicesForLocale($currentLocale);
 		selectedVoice = getSelectedVoiceId($currentLocale);
@@ -81,11 +84,16 @@
 		await loadVoicePreferences();
 		selectedVoice = getSelectedVoiceId($currentLocale);
 
+		// Pre-load browser speech synthesis voices
+		if (window.speechSynthesis) {
+			window.speechSynthesis.getVoices();
+		}
+
 		messages = [{ role: 'assistant', content: welcomeMsg }];
-		inputEl?.focus();
 		resetInactivityTimer();
-		readAloud = true;
-		speakWithGoogleTTS(welcomeMsg, $currentLocale);
+		// Show voice prompt instead of auto-reading
+		showVoicePrompt = true;
+		readAloud = false;
 
 		// Check button permissions
 		try {
@@ -434,6 +442,25 @@
 	function clearChat() {
 		messages = [{ role: 'assistant', content: welcomeMsg }];
 	}
+
+	async function acceptVoiceNarration() {
+		showVoicePrompt = false;
+		readAloud = true;
+		// Small delay to let UI update, then speak
+		await tick();
+		try {
+			await speakWithGoogleTTS(welcomeMsg, $currentLocale);
+		} catch (err) {
+			console.error('[AIChat] Error speaking welcome:', err);
+		}
+		inputEl?.focus();
+	}
+
+	function declineVoiceNarration() {
+		showVoicePrompt = false;
+		readAloud = false;
+		inputEl?.focus();
+	}
 </script>
 
 <div class="chat-page" dir={isArabic ? 'rtl' : 'ltr'}>
@@ -534,6 +561,26 @@
 			{/if}
 		</button>
 	</div>
+
+	<!-- Voice Narration Prompt -->
+	{#if showVoicePrompt}
+		<div class="voice-prompt-overlay" transition:fade={{ duration: 200 }}>
+			<div class="voice-prompt-card">
+				<div class="voice-prompt-icon">🔊</div>
+				<p class="voice-prompt-text">
+					{isArabic ? 'هل تريد تفعيل السرد الصوتي؟' : 'Would you like to turn on voice narration?'}
+				</p>
+				<div class="voice-prompt-buttons">
+					<button class="voice-prompt-btn yes" on:click={acceptVoiceNarration}>
+						{isArabic ? '✅ نعم' : '✅ Yes'}
+					</button>
+					<button class="voice-prompt-btn no" on:click={declineVoiceNarration}>
+						{isArabic ? '❌ لا' : '❌ No'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Messages -->
 	<div class="chat-messages" bind:this={messagesContainer}>
@@ -1157,5 +1204,84 @@
 	.voice-dropdown::-webkit-scrollbar-thumb {
 		background: rgba(148, 163, 184, 0.3);
 		border-radius: 4px;
+	}
+
+	/* ── Voice Narration Prompt ── */
+	.voice-prompt-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 100;
+		background: rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(6px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.voice-prompt-card {
+		background: rgba(255, 255, 255, 0.97);
+		border-radius: 20px;
+		padding: 28px 32px;
+		text-align: center;
+		box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.2);
+		max-width: 300px;
+		width: 85%;
+		animation: promptPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+	}
+
+	@keyframes promptPop {
+		0% { transform: scale(0.8); opacity: 0; }
+		100% { transform: scale(1); opacity: 1; }
+	}
+
+	.voice-prompt-icon {
+		font-size: 40px;
+		margin-bottom: 12px;
+	}
+
+	.voice-prompt-text {
+		font-size: 15px;
+		font-weight: 600;
+		color: #1e293b;
+		margin: 0 0 20px 0;
+		line-height: 1.5;
+	}
+
+	.voice-prompt-buttons {
+		display: flex;
+		gap: 12px;
+		justify-content: center;
+	}
+
+	.voice-prompt-btn {
+		padding: 10px 28px;
+		border: none;
+		border-radius: 12px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.voice-prompt-btn.yes {
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+	}
+
+	.voice-prompt-btn.yes:hover {
+		background: linear-gradient(135deg, #059669, #047857);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+	}
+
+	.voice-prompt-btn.no {
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+		color: white;
+	}
+
+	.voice-prompt-btn.no:hover {
+		background: linear-gradient(135deg, #dc2626, #b91c1c);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 	}
 </style>

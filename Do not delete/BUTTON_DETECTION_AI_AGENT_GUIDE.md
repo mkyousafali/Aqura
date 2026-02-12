@@ -144,35 +144,196 @@ detectMissingButtons() {
 - **Operations** (empty)
 - **Reports** (empty)
 
-## How to Add New Buttons
+## Complete Button Implementation Workflow
 
-### Method 1: Manual Addition (Quick)
+This is the **FULL PROCESS** to follow when adding a new button to the system:
 
-1. **Add button to Sidebar.svelte**
-   ```svelte
-   {#if isButtonAllowed('YOUR_BUTTON_CODE')}
-     <button on:click={() => navigateTo('...')}>Button Name</button>
-   {/if}
-   ```
+### Phase 1: Implementation
 
-2. **Update parse-sidebar-code endpoint**
-   - Find the appropriate section/subsection
-   - Add button to the structure:
-   ```typescript
-   buttons: [
-     ...existing buttons,
-     { code: 'YOUR_BUTTON_CODE', name: 'Button Display Name' }
-   ]
-   ```
+#### Step 1.1: Create the Component/Feature
+- Develop your feature in the appropriate component
+- Example: Create DailyChecklistManager.svelte for checklist management
 
-3. **Run Button Sync**
-   - Go to Controls > Manage > Button Generator
-   - Click "Sync Buttons"
-   - The system will:
-     - Detect missing buttons
-     - Add them to database
-     - Create permissions for all users
-     - Remove orphaned buttons & permissions
+#### Step 1.2: Add Button to Sidebar.svelte
+- Locate the correct section and subsection in `Sidebar.svelte`
+- Add the button with conditional rendering:
+  ```svelte
+  {#if isButtonAllowed('DAILY_CHECKLIST_MANAGER')}
+    <div class="submenu-item-container">
+      <button class="submenu-item" on:click={openDailyChecklistManager}>
+        <span class="menu-icon">📋</span>
+        <span class="menu-text">Daily Checklist Manager</span>
+      </button>
+    </div>
+  {/if}
+  ```
+
+#### Step 1.3: Add Button Handler to Sidebar Logic
+- Add the import statement for your component:
+  ```typescript
+  import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
+  ```
+- Add click handler function:
+  ```typescript
+  function openDailyChecklistManager() {
+    openWindow({
+      id: 'daily-checklist-manager',
+      title: t('nav.dailyChecklistManager'),
+      component: DailyChecklistManager,
+      minimizable: true,
+      maximizable: true,
+      closable: true,
+      width: 1200,
+      height: 600
+    });
+  }
+  ```
+- Register in the button click handlers map:
+  ```typescript
+  'DAILY_CHECKLIST_MANAGER': openDailyChecklistManager,
+  ```
+
+### Phase 2: Button Configuration
+
+#### Step 2.1: Add Button Code Translation
+- Add translation key to `buttonCodeTranslationMap` in `frontend/src/routes/desktop-interface/+page.svelte`:
+  ```typescript
+  'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager',
+  ```
+
+#### Step 2.2: Add Button Icon
+- Add icon to `buttonIconMap` in the same file:
+  ```typescript
+  'DAILY_CHECKLIST_MANAGER': '📋',
+  ```
+
+#### Step 2.3: Add i18n Translations
+- Update English locale `frontend/src/lib/i18n/locales/en.ts`:
+  ```typescript
+  dailyChecklistManager: "Daily Checklist Manager"
+  ```
+- Update Arabic locale `frontend/src/lib/i18n/locales/ar.ts`:
+  ```typescript
+  dailyChecklistManager: "مدير قائمة التحقق اليومية"
+  ```
+
+### Phase 3: Database Detection & Sync
+
+#### Step 3.1: Update Parse Sidebar Code Endpoint
+- Edit `frontend/src/routes/api/parse-sidebar-code/+server.ts`
+- Find the correct section (e.g., HR section):
+  ```typescript
+  OPERATIONS: ['EMPLOYEE_FILES', 'FINGERPRINT_TRANSACTIONS', 'PROCESS_FINGERPRINT', 'SALARY_AND_WAGE', 'SHIFT_AND_DAY_OFF', 'LEAVES_AND_VACATIONS', 'DISCIPLINE', 'INCIDENT_MANAGER', 'REPORT_INCIDENT', 'DAILY_CHECKLIST_MANAGER', 'LEAVE_REQUEST'],
+  ```
+- Add the button code to the appropriate subsection array
+
+#### Step 3.2: Add Button Display Names (endpoint)
+- In the same endpoint file, add the button display name:
+  ```typescript
+  DAILY_CHECKLIST_MANAGER: 'Daily Checklist Manager',
+  ```
+
+#### Step 3.3: Run Button Sync
+- Navigate to: **Controls > Manage > Button Generator**
+- Click **"Sync Buttons"** button
+- The system will automatically:
+  - Detect the new button in Sidebar.svelte
+  - Add it to the `sidebar_buttons` table
+  - Create permissions in `button_permissions` for all users (enabled by default)
+  - Assign to the correct section and subsection
+
+#### Step 3.4: Verify Database Entry
+- Check Supabase: `SELECT * FROM sidebar_buttons WHERE code = 'DAILY_CHECKLIST_MANAGER'`
+- Verify:
+  - Button is in correct section_id
+  - Button is in correct subsection_id
+  - Button name is correct
+  - Status is active (not deleted)
+- Check `button_permissions`: All users should have this button enabled
+
+### Phase 4: Add to Favorites System (Optional)
+
+If users should be able to add this button to their favorites:
+
+#### Step 4.1: Add Icon Mapping
+- Add to `buttonIconMap` in `frontend/src/routes/desktop-interface/+page.svelte`:
+  ```typescript
+  'DAILY_CHECKLIST_MANAGER': '📋',
+  ```
+
+#### Step 4.2: Add Translation Mapping
+- Add to `buttonCodeTranslationMap` in the same file:
+  ```typescript
+  'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager',
+  ```
+
+**Note:** This enables the button to appear in the Manage Favorites popup with proper icon and translated name.
+
+### Phase 5: Testing & Verification
+
+#### Step 5.1: Test Button Visibility
+- Login with different user roles
+- Verify button appears/disappears based on permissions
+- Test in both desktop and mobile interfaces (if applicable)
+
+#### Step 5.2: Test Button Functionality
+- Click button and verify it opens the component correctly
+- Test all features of the component
+- Verify data is saved to database with correct user context
+
+#### Step 5.3: Test Favorites (if Phase 4 completed)
+- Click "Link" icon in sidebar
+- Verify new button appears in favorites selection popup
+- Verify icon displays correctly
+- Verify translated name displays correctly
+- Test adding/removing from favorites
+
+#### Step 5.4: Test Permissions
+- Revoke button permission for a test user
+- Verify button disappears from their sidebar
+- Re-grant permission and verify button reappears
+
+### Phase 6: Git Commit & Documentation
+
+#### Step 6.1: Commit Code Changes
+```bash
+git add frontend/src/lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte
+git add frontend/src/lib/components/desktop-interface/common/Sidebar.svelte
+git add frontend/src/routes/desktop-interface/+page.svelte
+git add frontend/src/routes/api/parse-sidebar-code/+server.ts
+git add frontend/src/lib/i18n/locales/en.ts
+git add frontend/src/lib/i18n/locales/ar.ts
+
+git commit -m "feat(hr): add daily checklist manager button
+
+- Add DAILY_CHECKLIST_MANAGER button to Operations subsection
+- Implement DailyChecklistManager component
+- Add icon (📋) and translations
+- Enable in favorites system
+- Update parse-sidebar-code endpoint"
+```
+
+#### Step 6.2: Update Version Changelog
+- Edit `VersionChangelog.svelte`
+- Add entry documenting the new button feature
+
+#### Step 6.3: Push Changes
+```bash
+git push
+```
+
+---
+
+## How to Add New Buttons (Quick Reference)
+
+### Method 1: Manual Addition (Quick) - Key Steps Only
+
+1. **Add button to Sidebar.svelte** with `isButtonAllowed('CODE')`
+2. **Update parse-sidebar-code endpoint** - add button code to section array
+3. **Add to buttonIconMap & buttonCodeTranslationMap** in +page.svelte
+4. **Add i18n translations** in en.ts and ar.ts
+5. **Run Button Sync** - Controls > Manage > Button Generator
+6. **Test and commit**
 
 ### Method 2: AI Agent Detection (Automated)
 
