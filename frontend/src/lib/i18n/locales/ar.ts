@@ -193,6 +193,7 @@ export const arabicLocale: LocaleData = {
       reportIncident: "الإبلاغ عن حادثة",
       dailyChecklistManager: "مدير قائمة التحقق اليومية",
       incidentManager: "إدارة الحوادث",
+      productRequest: "طلب منتج",
       assignTasks: "تعيين المهام",
       createTask: "إنشاء مهمة",
       completeTask: "إكمال المهمة",
@@ -480,6 +481,15 @@ export const arabicLocale: LocaleData = {
         success: {
           taskCreated: "تم إنشاء المهمة بنجاح!",
         },
+      },
+
+      // Product Request Content
+      productRequestContent: {
+        barcode: "باركود المنتج",
+        barcodePlaceholder: "أدخل أو امسح الباركود",
+        quantity: "الكمية",
+        scan: "مسح الباركود",
+        scanTitle: "مسح الباركود",
       },
 
       // Quick Task Content
