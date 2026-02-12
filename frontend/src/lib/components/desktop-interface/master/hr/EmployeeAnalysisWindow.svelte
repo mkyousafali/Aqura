@@ -607,12 +607,41 @@
 				// Close modal and reload transactions
 				closeAddPunchModal();
 				await loadTransactions();
+
+				// Trigger Edge Function to re-analyze this employee's attendance
+				triggerEdgeFunctionForEmployee();
 			}
 		} catch (error) {
 			console.error('Error saving punch:', error);
 			alert($t('common.error') || 'Error' + ': ' + (error as Error).message);
 		} finally {
 			savingPunch = false;
+		}
+	}
+
+	/** Fire-and-forget: re-analyze this employee via edge function so AnalyzeAllWindow stays up to date */
+	async function triggerEdgeFunctionForEmployee() {
+		try {
+			const today = new Date();
+			const start = new Date(startDate);
+			const diffMs = today.getTime() - start.getTime();
+			const rollingDays = Math.max(Math.ceil(diffMs / (1000 * 60 * 60 * 24)), 7);
+
+			const { data: { session } } = await supabase.auth.getSession();
+			const token = session?.access_token;
+
+			await fetch('https://supabase.urbanaqura.com/functions/v1/analyze-attendance', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ rollingDays, employeeId: employee.id })
+			});
+			console.log('✅ Edge function triggered for employee', employee.id);
+		} catch (err) {
+			// Silent fail – main punch already saved, edge function will catch up via cron
+			console.warn('⚠️ Edge function trigger failed (will sync via cron):', err);
 		}
 	}
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { DotLottie } from '@lottiefiles/dotlottie-web';
+	import type { DotLottie as DotLottieType } from '@lottiefiles/dotlottie-web';
 	import { currentLocale } from '$lib/i18n';
 	import ChatWindow from './ChatWindow.svelte';
 
@@ -9,7 +9,7 @@
 	let hidden = false;
 	let showChat = false;
 	let canvasEl: HTMLCanvasElement;
-	let dotLottie: DotLottie | null = null;
+	let dotLottie: DotLottieType | null = null;
 	let messageIndex = 0;
 	let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
 	let intervalTimer: ReturnType<typeof setInterval> | null = null;
@@ -78,7 +78,8 @@
 		}, 12000);
 	}
 
-	onMount(() => {
+	onMount(async () => {
+		const { DotLottie } = await import('@lottiefiles/dotlottie-web');
 		dotLottie = new DotLottie({
 			canvas: canvasEl,
 			src: ANIMATION_URL,

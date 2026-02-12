@@ -32,6 +32,8 @@
 	let analysisData: any[] = [];
 	let datesInRange: string[] = [];
 	let exporting = false;
+	let refreshing = false;
+	let lastUpdated: string = '';
 
 	// Reactive filtering and sorting for the view
 	$: filteredAnalysisData = analysisData
@@ -59,13 +61,6 @@
 			// Finally sort by employee ID
 			return String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true });
 		});
-
-	// Cache for shifts and day offs to avoid repeated DB calls
-	let employeeShifts: Map<string, any> = new Map();
-	let employeeDayOffs: Map<string, any> = new Map();
-	let employeeSpecialShiftsDateWise: Map<string, any[]> = new Map();
-	let employeeSpecialShiftsWeekday: Map<string, any[]> = new Map();
-	let employeeSpecificDayOffs: Map<string, any[]> = new Map();
 
 	onMount(async () => {
 		await loadInitialData();
@@ -142,98 +137,138 @@
 		}
 
 		try {
-			// 1. Fetch all needed data for all employees in range
-			// We'll need fingerprint transactions, shifts, day offs, etc.
-			const empIds = employees
-				.filter(e => {
-					const matchesBranch = !selectedBranch || String(e.current_branch_id) === String(selectedBranch);
-					const matchesSearch = !searchQuery || 
-						String(e.id).toLowerCase().includes(searchQuery.toLowerCase()) || 
-						e.name_en.toLowerCase().includes(searchQuery.toLowerCase()) || 
-						(e.name_ar && e.name_ar.includes(searchQuery));
-					return matchesBranch && matchesSearch;
-				})
-				.map(e => e.id);
+			// Query pre-computed analysis data from the Edge Function table
+			const { data: rows, error } = await supabase
+				.from('hr_analysed_attendance_data')
+				.select('*')
+				.gte('shift_date', startDate)
+				.lte('shift_date', endDate);
 
-			if (empIds.length === 0) {
+			if (error) throw error;
+
+			if (!rows || rows.length === 0) {
+				lastUpdated = '';
 				loading = false;
 				return;
 			}
 
-			// Extend date range by 1 day before and after to capture carryover punches
-			const extendedStartDate = new Date(startDate);
-			extendedStartDate.setDate(extendedStartDate.getDate() - 1);
-			const extStart = extendedStartDate.toISOString().split('T')[0];
-			
-			const extendedEndDate = new Date(endDate);
-			extendedEndDate.setDate(extendedEndDate.getDate() + 1);
-			const extEnd = extendedEndDate.toISOString().split('T')[0];
-
-			// Pre-fetch everything in bulk
-			const [
-				{ data: transactions },
-				{ data: shifts },
-				{ data: dayOffWeekdays },
-				{ data: specialShiftsDW },
-				{ data: specialShiftsWD },
-				{ data: specificDayOffs }
-			] = await Promise.all([
-				supabase.from('processed_fingerprint_transactions').select('*').in('center_id', empIds).gte('punch_date', extStart).lte('punch_date', extEnd),
-				supabase.from('regular_shift').select('*').in('id', empIds),
-				supabase.from('day_off_weekday').select('*').in('employee_id', empIds),
-				supabase.from('special_shift_date_wise').select('*').in('employee_id', empIds),
-				supabase.from('special_shift_weekday').select('*').in('employee_id', empIds),
-				supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds)
-			]);
-
-			// Organize data maps for efficient lookup
-			employeeShifts = new Map(shifts?.map(s => [String(s.id), s]));
-			employeeDayOffs = new Map(dayOffWeekdays?.map(d => [String(d.employee_id), d]));
-			
-			employeeSpecialShiftsDateWise = new Map();
-			specialShiftsDW?.forEach(s => {
-				const list = employeeSpecialShiftsDateWise.get(String(s.employee_id)) || [];
-				list.push(s);
-				employeeSpecialShiftsDateWise.set(String(s.employee_id), list);
-			});
-
-			employeeSpecialShiftsWeekday = new Map();
-			specialShiftsWD?.forEach(s => {
-				const list = employeeSpecialShiftsWeekday.get(String(s.employee_id)) || [];
-				list.push(s);
-				employeeSpecialShiftsWeekday.set(String(s.employee_id), list);
-			});
-
-			employeeSpecificDayOffs = new Map();
-			specificDayOffs?.forEach(d => {
-				const list = employeeSpecificDayOffs.get(String(d.employee_id)) || [];
-				list.push(d);
-				employeeSpecificDayOffs.set(String(d.employee_id), list);
-			});
-
-			const txnsByEmp = new Map();
-			transactions?.forEach(t => {
-				const list = txnsByEmp.get(String(t.center_id)) || [];
-				list.push(t);
-				txnsByEmp.set(String(t.center_id), list);
-			});
-
-			// 2. Perform analysis for each employee
-			const results = [];
-			const filteredEmps = employees.filter(e => empIds.includes(e.id));
-
-			for (const emp of filteredEmps) {
-				const empTxns = txnsByEmp.get(String(emp.id)) || [];
-				const analysis = analyzeEmployee(emp, empTxns);
-				results.push(analysis);
+			// Find the most recent analyzed_at timestamp
+			const maxAnalyzedAt = rows.reduce((max: string, r: any) => {
+				if (!r.analyzed_at) return max;
+				return r.analyzed_at > max ? r.analyzed_at : max;
+			}, '');
+			if (maxAnalyzedAt) {
+				const d = new Date(maxAnalyzedAt);
+				const parts = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh' }).formatToParts(d);
+				const dd = parts.find(p => p.type === 'day')?.value ?? '';
+				const mm = parts.find(p => p.type === 'month')?.value ?? '';
+				const yyyy = parts.find(p => p.type === 'year')?.value ?? '';
+				lastUpdated = `${dd}-${mm}-${yyyy} ` + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' });
+			} else {
+				lastUpdated = '';
 			}
 
-			analysisData = results;
+			// Group by employee and build the same structure as before
+			const empMap = new Map<string, any>();
+
+			for (const row of rows) {
+				const empId = String(row.employee_id);
+
+				if (!empMap.has(empId)) {
+					empMap.set(empId, {
+						employeeId: empId,
+						employeeName: $locale === 'ar' 
+							? (row.employee_name_ar || row.employee_name_en) 
+							: row.employee_name_en,
+						currentBranchId: row.branch_id,
+						nationality: row.nationality,
+						shiftInfo: row.shift_start_time && row.shift_end_time
+							? `${formatTime12Hour(row.shift_start_time)} - ${formatTime12Hour(row.shift_end_time)}`
+							: '',
+						dayByDay: {} as Record<string, any>
+					});
+				}
+
+				const emp = empMap.get(empId)!;
+				// shift_date from Supabase DATE column comes as "YYYY-MM-DD"
+				const dateStr = typeof row.shift_date === 'string'
+					? row.shift_date.split('T')[0]
+					: new Date(row.shift_date).toISOString().split('T')[0];
+
+				// Map legacy Edge Function status strings to AnalyzeAllWindow status strings
+				let status = row.status;
+				if (status === 'Complete') status = 'Worked';
+				else if (status === 'Missing Checkout') status = 'Check-Out Missing';
+				else if (status === 'Missing Checkin') status = 'Check-In Missing';
+				else if (status === 'Pending Leave') status = 'Pending Approval';
+				else if (status === 'Approved Leave') status = 'Approved Leave (No Deduction)';
+				else if (status === 'Rejected Leave') status = 'Rejected-Not Deducted';
+
+				emp.dayByDay[dateStr] = {
+					workedMins: row.worked_minutes || 0,
+					status,
+					lateMins: row.late_minutes || 0,
+					underMins: row.under_minutes || 0
+				};
+			}
+
+			// Fill missing dates with 'Absent' default
+			for (const [, empData] of empMap) {
+				for (const date of datesInRange) {
+					if (!empData.dayByDay[date]) {
+						empData.dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
+					}
+				}
+			}
+
+			analysisData = Array.from(empMap.values());
 
 		} catch (error) {
-			console.error('Error during analysis:', error);
+			console.error('Error loading analysis:', error);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function refreshFromServer() {
+		if (!startDate || !endDate) {
+			alert('Please select date range first');
+			return;
+		}
+		refreshing = true;
+		try {
+			// Calculate rolling days from startDate to today
+			const today = new Date();
+			const start = new Date(startDate);
+			const diffMs = today.getTime() - start.getTime();
+			const rollingDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+			const { data: { session } } = await supabase.auth.getSession();
+			const token = session?.access_token;
+
+			const res = await fetch(`https://supabase.urbanaqura.com/functions/v1/analyze-attendance`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ rollingDays })
+			});
+
+			const result = await res.json();
+
+			if (result.success) {
+				alert(`Analysis refreshed!\n${result.upserted} records updated, ${result.errors} errors.`);
+				// Reload the data from the table
+				await loadAnalysis();
+			} else {
+				alert(`Refresh failed: ${result.error || 'Unknown error'}`);
+			}
+		} catch (err: any) {
+			console.error('Error refreshing analysis:', err);
+			alert(`Error: ${err.message}`);
+		} finally {
+			refreshing = false;
 		}
 	}
 
@@ -263,444 +298,6 @@
 			maximizable: true,
 			closable: true
 		});
-	}
-
-	function timeToMinutes(timeStr: string): number {
-		if (!timeStr) return 0;
-		const parts = timeStr.split(':');
-		return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-	}
-
-	function getApplicableShift(empId: string, dateStr: string) {
-		const sId = String(empId);
-		const dateObj = new Date(dateStr);
-		const dayNum = dateObj.getDay();
-
-		// Date-wise special shift
-		const dateWise = employeeSpecialShiftsDateWise.get(sId)?.find(s => s.shift_date === dateStr);
-		if (dateWise) return dateWise;
-
-		// Weekday special shift
-		const weekdayShift = employeeSpecialShiftsWeekday.get(sId)?.find(s => s.weekday === dayNum);
-		if (weekdayShift) return weekdayShift;
-
-		// Regular shift
-		return employeeShifts.get(sId);
-	}
-
-	function isOfficialDayOff(empId: string, dateStr: string): boolean {
-		const dayOffWD = employeeDayOffs.get(String(empId));
-		if (!dayOffWD) return false;
-		const dayNum = new Date(dateStr).getDay();
-		return dayNum === dayOffWD.weekday;
-	}
-
-	function getSpecificDayOff(empId: string, dateStr: string): any {
-		return employeeSpecificDayOffs.get(String(empId))?.find(d => d.day_off_date === dateStr);
-	}
-
-	function calculateWorkedMinutesRaw(checkInTime: string, checkOutTime: string): number {
-		const checkInMinutes = timeToMinutes(checkInTime);
-		const checkOutMinutes = timeToMinutes(checkOutTime);
-		let diffMinutes = checkOutMinutes - checkInMinutes;
-		if (diffMinutes < 0) diffMinutes += 24 * 60;
-		return diffMinutes;
-	}
-
-	function getTransactionStatus(punchTime: string, shift: any): string {
-		if (!shift) return 'Other';
-
-		const punchMinutes = timeToMinutes(punchTime);
-		const shiftStartMinutes = timeToMinutes(shift.shift_start_time);
-		const shiftEndMinutes = timeToMinutes(shift.shift_end_time);
-		const startBufferMinutes = (shift.shift_start_buffer || 0) * 60;
-		const endBufferMinutes = (shift.shift_end_buffer || 0) * 60;
-
-		const checkInStart = shiftStartMinutes - startBufferMinutes;
-		const checkInEnd = shiftStartMinutes + startBufferMinutes;
-		const checkOutStart = shiftEndMinutes - endBufferMinutes;
-		const checkOutEnd = shiftEndMinutes + endBufferMinutes;
-
-		if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) return 'Check In';
-		if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) return 'Check Out';
-		if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) return 'In Progress';
-		return 'Other';
-	}
-
-	function calculateLateArrivalMinutes(punchTime: string, shift: any): number {
-		if (!shift) return 0;
-		const punchMinutes = timeToMinutes(punchTime);
-		const shiftStartMinutes = timeToMinutes(shift.shift_start_time);
-		const shiftEndMinutes = timeToMinutes(shift.shift_end_time);
-		const isOvernight = shiftEndMinutes < shiftStartMinutes;
-
-		if (isOvernight) {
-			// If they punch in during the evening (normal start)
-			if (punchMinutes >= shiftStartMinutes) {
-				return punchMinutes - shiftStartMinutes;
-			}
-			// If they punch in during the early morning (very late start)
-			// Check if it's closer to start or end
-			if (punchMinutes < shiftEndMinutes) {
-				// This is actually morning, and it's after the shift start (which was last night)
-				// We treat this as total lateness (24h wrap)
-				return (24 * 60 - shiftStartMinutes) + punchMinutes;
-			}
-		}
-		return punchMinutes > shiftStartMinutes ? punchMinutes - shiftStartMinutes : 0;
-	}
-
-	function getPreviousDateStr(dateStr: string): string {
-		const d = new Date(dateStr);
-		d.setDate(d.getDate() - 1);
-		return d.toISOString().split('T')[0];
-	}
-
-	function getNextDateStr(dateStr: string): string {
-		const d = new Date(dateStr);
-		d.setDate(d.getDate() + 1);
-		return d.toISOString().split('T')[0];
-	}
-
-	function analyzeEmployee(emp: Employee, txns: any[]) {
-		const dayByDay: any = {};
-		
-		// Get regular shift for layout
-		const regShift = employeeShifts.get(String(emp.id));
-		let shiftInfo = '';
-		let expectedMinutesPerDay = 0;
-		if (regShift) {
-			shiftInfo = `${formatTime12Hour(regShift.shift_start_time)} - ${formatTime12Hour(regShift.shift_end_time)}`;
-			const sStart = timeToMinutes(regShift.shift_start_time);
-			const sEnd = timeToMinutes(regShift.shift_end_time);
-			expectedMinutesPerDay = sEnd - sStart;
-			if (expectedMinutesPerDay < 0) expectedMinutesPerDay += 24 * 60;
-		}
-
-		// 1. Assign transactions to shift dates (carryover logic)
-		const assignedTransactions = txns.map(txn => {
-			const calendarDate = txn.punch_date;
-			const punchTime = txn.punch_time;
-			const punchMinutes = timeToMinutes(punchTime);
-			
-			let shiftDate = calendarDate;
-			let status = 'Other';
-			
-			// Get the applicable shift for this calendar date
-			const calendarShift = getApplicableShift(emp.id, calendarDate);
-			
-			// CRITICAL: Check if this is a morning punch that belongs to the PREVIOUS day's overnight shift
-			// If punch time is before the current day's shift check-in window starts, it might be an early checkout from previous day
-			const calendarShiftStartMinutes = calendarShift ? timeToMinutes(calendarShift.shift_start_time) : 24 * 60;
-			const calendarShiftStartBuffer = calendarShift ? (calendarShift.shift_start_buffer || 0) * 60 : 0;
-			const calendarCheckInStart = calendarShiftStartMinutes - calendarShiftStartBuffer;
-			
-			if (punchMinutes < calendarCheckInStart) {  // Before current day's shift check-in window
-				const prevDateStr = getPreviousDateStr(calendarDate);
-				const prevShift = getApplicableShift(emp.id, prevDateStr);
-				
-				if (prevShift) {
-					const prevShiftEndMinutes = timeToMinutes(prevShift.shift_end_time);
-					const prevShiftStartMinutes = timeToMinutes(prevShift.shift_start_time);
-					const isOvernightPrevShift = prevShiftEndMinutes < prevShiftStartMinutes;
-					
-					// If previous shift is overnight (ends after it starts in time, meaning crosses midnight)
-					if (isOvernightPrevShift) {
-						const prevEndBufferMinutes = (prevShift.shift_end_buffer || 0) * 60;
-						const prevCheckOutStart = prevShiftEndMinutes - prevEndBufferMinutes;
-						const prevCheckOutEnd = prevShiftEndMinutes + prevEndBufferMinutes;
-						
-						// Adjust for negative (midnight crossing)
-						const adjustedCheckOutEnd = prevCheckOutEnd < 0 ? prevCheckOutEnd + (24 * 60) : prevCheckOutEnd;
-						
-						// Check if this punch is in the previous shift's checkout window
-						if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
-							// This is an early morning checkout for the PREVIOUS day's shift
-							shiftDate = prevDateStr;
-							status = 'Check Out';
-							return { ...txn, calendarDate, shiftDate, status };
-						}
-					}
-				}
-			}
-
-			return { ...txn, shiftDate: calendarDate, calendarDate };
-		});
-
-		const txnsByShiftDate = new Map();
-		assignedTransactions.forEach(t => {
-			const shift = getApplicableShift(emp.id, t.shiftDate);
-			const punchMinutes = timeToMinutes(t.punch_time);
-			const shiftStartMinutes = timeToMinutes(shift?.shift_start_time || '00:00');
-			const shiftEndMinutes = timeToMinutes(shift?.shift_end_time || '00:00');
-			const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
-
-			let status = '';
-			let finalShiftDate = t.shiftDate;
-
-			if (!shift) {
-				status = 'Other';
-			} else {
-				const startBufferMinutes = (shift.shift_start_buffer || 0) * 60;
-				const endBufferMinutes = (shift.shift_end_buffer || 0) * 60;
-				const checkInStart = shiftStartMinutes - startBufferMinutes;
-				const checkInEnd = shiftStartMinutes + startBufferMinutes;
-				const checkOutStart = shiftEndMinutes - endBufferMinutes;
-				const checkOutEnd = shiftEndMinutes + endBufferMinutes;
-
-				if (isOvernightShift) {
-					// For overnight shifts (e.g., 4 PM - 12 AM with wrapping checkout window)
-					// Check-in window: shift_start ± buffer (e.g., 4 PM ± 3h = 1 PM to 7 PM)
-					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
-						// Evening check-in window (within shift start ± buffer)
-						status = 'Check In';
-						finalShiftDate = t.shiftDate;
-					} 
-					// For overnight shifts ending at/near midnight:
-					// If shift_end is 00:00 (midnight) with 3h buffer:
-					//   checkOutStart = 0 - 180 = -180 (21:00 previous day)
-					//   checkOutEnd = 0 + 180 = 180 (03:00 next day)
-					// Both evening (21:00-23:59) and early morning (00:00-03:00) are valid checkout times on THIS calendar date
-					else if (checkOutStart < 0) {
-						// Shift ends at or near midnight - checkout window wraps around
-						const adjustedCheckOutStart = checkOutStart + (24 * 60); // Convert negative to evening time
-						
-						// Case 1: Early morning punch (00:00 to 03:00) = checkout for this shift
-						if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
-							status = 'Check Out';
-							finalShiftDate = t.shiftDate; // FIXED: Keep on same calendar date
-						}
-						// Case 2: Evening punch (21:00 to 23:59) = checkout for this shift
-						else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
-							status = 'Check Out';
-							finalShiftDate = t.shiftDate;
-						}
-						// Case 3: In progress
-						else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
-							status = 'In Progress';
-							finalShiftDate = t.shiftDate;
-						} else {
-							status = 'Other';
-							finalShiftDate = t.shiftDate;
-						}
-					}
-					// Checkout window doesn't cross midnight (normal overnight case)
-					else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-						status = 'Check Out';
-						finalShiftDate = t.shiftDate;
-					}
-					else {
-						status = 'Other';
-						finalShiftDate = t.shiftDate;
-					}
-				} else {
-					// Normal shift (e.g., 9 AM - 6 PM)
-					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
-						status = 'Check In';
-					} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-						status = 'Check Out';
-					} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
-						status = 'In Progress';
-					} else {
-						status = 'Other';
-					}
-				}
-			}
-
-			const list = txnsByShiftDate.get(finalShiftDate) || [];
-			list.push({ ...t, status, shiftDate: finalShiftDate });
-			txnsByShiftDate.set(finalShiftDate, list);
-		});
-
-		for (const date of datesInRange) {
-			const shift = getApplicableShift(emp.id, date);
-			let allTransactions = txnsByShiftDate.get(date) || [];
-			
-			const isOff = isOfficialDayOff(emp.id, date);
-			const specOff = getSpecificDayOff(emp.id, date);
-			const isApprovedOff = specOff && specOff.approval_status === 'approved';
-			const isPendingOff = specOff && (!specOff.approval_status || specOff.approval_status === 'pending');
-			const isRejectedOff = specOff && specOff.approval_status === 'rejected';
-
-			let workedMins = 0;
-			let lateMins = 0;
-			let underMins = 0;
-			let isIncomplete = false;
-			let status = '';
-
-			if (isOff) {
-				status = 'Official Day Off';
-			} else if (isApprovedOff) {
-				// Check deduction status for approved leaves
-				if (specOff.is_deductible_on_salary) {
-					status = 'Approved Leave (Deductible)';
-				} else {
-					status = 'Approved Leave (No Deduction)';
-				}
-			} else if (isPendingOff) {
-				status = 'Pending Approval';
-				// Don't count in any total for pending
-			} else if (isRejectedOff && allTransactions.length === 0) {
-				// Only show rejected status if employee didn't work that day
-				// Check deduction status for rejected leaves
-				if (specOff.is_deductible_on_salary) {
-					status = 'Rejected-Deducted';
-				} else {
-					status = 'Rejected-Not Deducted';
-				}
-				// Don't count in any total for rejected
-			} else if (allTransactions.length === 0) {
-				status = 'Absent';
-			} else {
-				// DEDUPLICATION: Keep only the last punch per status type
-				// BUT: If there are multiple punches of the same status and NO complementary punch exists,
-				// keep all of them so they can be paired together (e.g., two Check Ins can become check-in/check-out)
-				const allCheckIns = allTransactions.filter(t => t.status === 'Check In');
-				const allCheckOuts = allTransactions.filter(t => t.status === 'Check Out');
-				const allOthers = allTransactions.filter(t => t.status !== 'Check In' && t.status !== 'Check Out');
-				
-				let filteredTransactions: any[] = [];
-				
-				// If we have multiple Check Ins but NO Check Outs, keep all Check Ins (they can be paired together)
-				if (allCheckIns.length >= 2 && allCheckOuts.length === 0) {
-					filteredTransactions.push(...allCheckIns);
-				} else if (allCheckIns.length > 0) {
-					// Normal case: deduplicate check-ins, keep latest
-					const checkInMap: { [key: string]: any } = {};
-					allCheckIns.forEach(txn => {
-						const key = `${txn.shiftDate}-${txn.calendarDate}`;
-						if (!checkInMap[key] || new Date(txn.created_at) > new Date(checkInMap[key].created_at)) {
-							checkInMap[key] = txn;
-						}
-					});
-					filteredTransactions.push(...Object.values(checkInMap));
-				}
-				
-				// If we have multiple Check Outs but NO Check Ins, keep all Check Outs (they can be paired together)
-				if (allCheckOuts.length >= 2 && allCheckIns.length === 0) {
-					filteredTransactions.push(...allCheckOuts);
-				} else if (allCheckOuts.length > 0) {
-					// Normal case: deduplicate check-outs, keep latest
-					const checkOutMap: { [key: string]: any } = {};
-					allCheckOuts.forEach(txn => {
-						const key = `${txn.shiftDate}-${txn.calendarDate}`;
-						if (!checkOutMap[key] || new Date(txn.created_at) > new Date(checkOutMap[key].created_at)) {
-							checkOutMap[key] = txn;
-						}
-					});
-					filteredTransactions.push(...Object.values(checkOutMap));
-				}
-				
-				// Keep all "In Progress" and "Other" transactions
-				filteredTransactions.push(...allOthers);
-
-				// Sort by punch time
-				filteredTransactions.sort((a, b) => {
-					if (a.calendarDate !== b.calendarDate) return a.calendarDate.localeCompare(b.calendarDate);
-					return a.punch_time.localeCompare(b.punch_time);
-				});
-
-				// Separate by status: Check In transactions, Check Out transactions, Other transactions
-				const checkInTransactions = filteredTransactions.filter(t => t.status === 'Check In');
-				const checkOutTransactions = filteredTransactions.filter(t => t.status === 'Check Out');
-				const otherTransactions = filteredTransactions.filter(t => t.status !== 'Check In' && t.status !== 'Check Out');
-
-				// Pair Check-In with Check-Out
-				const pairs = [];
-				
-				// Special case: If we have multiple Check Ins but NO Check Outs, pair them together
-				if (checkInTransactions.length >= 2 && checkOutTransactions.length === 0) {
-					// Pair consecutive check-ins: first is check-in, second is check-out
-					for (let i = 0; i < checkInTransactions.length - 1; i += 2) {
-						pairs.push({ in: checkInTransactions[i], out: checkInTransactions[i + 1] });
-					}
-					// If odd number, last one is incomplete
-					if (checkInTransactions.length % 2 === 1) {
-						pairs.push({ in: checkInTransactions[checkInTransactions.length - 1], out: null });
-					}
-				}
-				// Special case: If we have multiple Check Outs but NO Check Ins, pair them together
-				else if (checkOutTransactions.length >= 2 && checkInTransactions.length === 0) {
-					// Pair consecutive check-outs: first is check-in, second is check-out
-					for (let i = 0; i < checkOutTransactions.length - 1; i += 2) {
-						pairs.push({ in: checkOutTransactions[i], out: checkOutTransactions[i + 1] });
-					}
-					// If odd number, last one is incomplete
-					if (checkOutTransactions.length % 2 === 1) {
-						pairs.push({ in: null, out: checkOutTransactions[checkOutTransactions.length - 1] });
-					}
-				}
-				// Normal case: pair Check Ins with Check Outs
-				else {
-					const pairCount = Math.min(checkInTransactions.length, checkOutTransactions.length);
-
-					for (let i = 0; i < pairCount; i++) {
-						pairs.push({ in: checkInTransactions[i], out: checkOutTransactions[i] });
-					}
-
-					// Leftover Check-Ins (missing checkout)
-					for (let i = pairCount; i < checkInTransactions.length; i++) {
-						pairs.push({ in: checkInTransactions[i], out: null });
-					}
-
-					// Leftover Check-Outs (missing checkin)
-					for (let i = pairCount; i < checkOutTransactions.length; i++) {
-						pairs.push({ in: null, out: checkOutTransactions[i] });
-					}
-				}
-
-				// Add other transactions as incomplete pairs
-				otherTransactions.forEach(t => {
-					pairs.push({ in: null, out: t });
-				});
-
-				// Calculate totals from pairs
-				let hasIncompletePair = false;
-				let missingType = '';
-
-				pairs.forEach((p, idx) => {
-					if (p.in && p.out) {
-						workedMins += calculateWorkedMinutesRaw(p.in.punch_time, p.out.punch_time);
-						if (idx === 0 && shift) {
-							lateMins = calculateLateArrivalMinutes(p.in.punch_time, shift);
-						}
-					} else {
-						hasIncompletePair = true;
-						if (p.in) {
-							missingType = 'Check-Out Missing';
-							if (idx === 0 && shift) lateMins = calculateLateArrivalMinutes(p.in.punch_time, shift);
-						} else {
-							missingType = 'Check-In Missing';
-						}
-					}
-				});
-
-				if (hasIncompletePair) {
-					isIncomplete = true;
-					status = missingType;
-				} else {
-					if (shift) {
-						const sStart = timeToMinutes(shift.shift_start_time);
-						const sEnd = timeToMinutes(shift.shift_end_time);
-						let expected = sEnd - sStart;
-						if (expected < 0) expected += 24 * 60;
-						if (workedMins < expected) underMins = expected - workedMins;
-					}
-					status = 'Worked';
-				}
-			}
-
-			dayByDay[date] = { workedMins, status, lateMins, underMins };
-		}
-
-		return {
-			employeeId: emp.id,
-			employeeName: $locale === 'ar' ? emp.name_ar || emp.name_en : emp.name_en,
-			currentBranchId: emp.current_branch_id,
-			nationality: emp.nationality_name_en,
-			shiftInfo,
-			dayByDay
-		};
 	}
 
 	function formatMinutes(mins: number): string {
@@ -1075,6 +672,24 @@
 			>
 				{loading ? $t('hr.processFingerprint.processing') : $t('hr.processFingerprint.load_analysis')}
 			</button>
+
+			<button 
+				on:click={refreshFromServer}
+				disabled={refreshing || loading}
+				class="px-5 py-2 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
+				title="Re-run Edge Function to refresh analysis data from server"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+				{refreshing ? 'Refreshing...' : 'Refresh Data'}
+			</button>
+
+			{#if lastUpdated}
+				<div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg h-[38px] text-xs text-slate-600" title="Last analysis run time">
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+					<span class="font-semibold text-slate-500">Updated:</span>
+					<span class="font-bold text-slate-700">{lastUpdated}</span>
+				</div>
+			{/if}
 
 			{#if filteredAnalysisData.length > 0}
 				<button 

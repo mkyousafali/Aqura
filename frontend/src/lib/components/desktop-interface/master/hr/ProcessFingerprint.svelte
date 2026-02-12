@@ -335,20 +335,86 @@
 		return matchesEmployeeId && matchesEmployeeName && matchesDate;
 	});
 
+	let edgeFunctionTriggering = false;
+	let edgeFunctionResult: string | null = null;
+	let lastProcessed: string = '';
+
+	async function loadLastProcessedTime() {
+		try {
+			await initSupabase();
+			const { data } = await supabase
+				.from('processed_fingerprint_transactions')
+				.select('created_at')
+				.order('created_at', { ascending: false })
+				.limit(1)
+				.single();
+
+			if (data?.created_at) {
+				const d = new Date(data.created_at);
+				const parts = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh' }).formatToParts(d);
+				const dd = parts.find(p => p.type === 'day')?.value;
+				const mm = parts.find(p => p.type === 'month')?.value;
+				const yyyy = parts.find(p => p.type === 'year')?.value;
+				lastProcessed = `${dd}-${mm}-${yyyy} ` + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' });
+			} else {
+				lastProcessed = '';
+			}
+		} catch {
+			lastProcessed = '';
+		}
+	}
+
 	onMount(async () => {
 		const { supabase: client } = await import('$lib/utils/supabase');
 		supabase = client;
 		
-		// Automatically load employees and start processing
 		activeView = 'with_data';
 		showTable = true;
 		await loadEmployeesWithFinger();
-		
-		// Auto-start processing after a short delay to ensure data is loaded
-		setTimeout(() => {
-			processAllEmployees();
-		}, 500);
+		await loadLastProcessedTime();
+
+		// Auto-trigger edge function on window open (fire-and-forget)
+		triggerProcessFingerprintsEdgeFunction();
 	});
+
+	/** Trigger the process-fingerprints Edge Function on the server */
+	async function triggerProcessFingerprintsEdgeFunction() {
+		edgeFunctionTriggering = true;
+		edgeFunctionResult = null;
+		try {
+			await initSupabase();
+			const { data: { session } } = await supabase.auth.getSession();
+			const token = session?.access_token;
+
+			const res = await fetch('https://supabase.urbanaqura.com/functions/v1/process-fingerprints', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({})
+			});
+
+			const result = await res.json();
+			if (result.success) {
+				const msg = result.processed > 0
+					? `✅ ${result.processed} transactions processed`
+					: '✅ No new transactions to process';
+				edgeFunctionResult = msg;
+				showAlert(msg, 'success');
+				await loadLastProcessedTime();
+			} else {
+				edgeFunctionResult = `❌ ${result.error || 'Unknown error'}`;
+				showAlert(result.error || 'Edge function failed', 'error');
+			}
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : 'Failed to trigger edge function';
+			edgeFunctionResult = `❌ ${errMsg}`;
+			showAlert(errMsg, 'error');
+		} finally {
+			edgeFunctionTriggering = false;
+		}
+	}
 
 	async function loadEmployeesWithFinger() {
 		loading = true;
@@ -1196,6 +1262,21 @@
 
 			<!-- Analyze All Button with Progress -->
 			<div class="flex items-end gap-4">
+				<!-- Process Fingerprints Edge Function Button -->
+				<button 
+					on:click={triggerProcessFingerprintsEdgeFunction}
+					disabled={edgeFunctionTriggering}
+					class="px-6 py-2.5 bg-gradient-to-br from-emerald-600 to-green-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5 transition-all flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+				>
+					{#if edgeFunctionTriggering}
+						<span class="animate-spin text-xl">⚙️</span>
+						Processing...
+					{:else}
+						<span class="text-xl">⚡</span>
+						{$t('hr.processFingerprint.process_all') || 'Process Fingerprints'}
+					{/if}
+				</button>
+
 				<button 
 					on:click={openAnalyzeAllWindow}
 					class="px-6 py-2.5 bg-gradient-to-br from-indigo-600 to-blue-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 transition-all flex items-center gap-2 whitespace-nowrap"
@@ -1216,6 +1297,14 @@
 							></circle>
 						</svg>
 						<span class="text-sm font-bold text-green-600 whitespace-nowrap">{processProgress}%</span>
+					</div>
+				{/if}
+
+				{#if lastProcessed}
+					<div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-lg text-xs">
+						<span>🕐</span>
+						<span class="font-semibold text-slate-500">Updated:</span>
+						<span class="font-bold text-slate-700">{lastProcessed}</span>
 					</div>
 				{/if}
 			</div>
