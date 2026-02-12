@@ -87,6 +87,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let warehouseHandlerSearchQuery = '';
   let showAllUsersForWarehouseHandlers = false; // Flag to show all users when no warehouse handlers found
 
+  // Default positions auto-load state
+  let defaultPositionsLoading = false;
+  let defaultPositionsLoaded = false;
+  let defaultPositionsError = '';
+
+  // Default branch for receiving (per user)
+  let setAsDefaultBranch = false;
+  let userDefaultBranchId = null;
+
   // Vendor selection state
   let vendors = [];
   let filteredVendors = [];
@@ -244,7 +253,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // }
 
   // Reactive statement to check if all required users are selected
-  // Note: Night Supervisors require at least 1 selection (multiple selection but minimum 1)
+  // Now only shelf stocker is manual; 6 others come from defaults
   $: allRequiredUsersSelected = selectedBranch && 
     selectedBranchManager && 
     selectedAccountant && 
@@ -255,9 +264,78 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedNightSupervisors.length > 0;
 
   onMount(async () => {
-    // Load only branches on startup, no other data
+    // Load branches and user's default branch
     await loadBranches();
+    await loadUserDefaultBranch();
   });
+
+  // Load the user's saved default branch for receiving
+  async function loadUserDefaultBranch() {
+    if (!$currentUser?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('receiving_user_defaults')
+        .select('default_branch_id')
+        .eq('user_id', $currentUser.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+      if (data) {
+        userDefaultBranchId = data.default_branch_id;
+        // Auto-select the default branch
+        selectedBranch = data.default_branch_id.toString();
+        setAsDefaultBranch = true;
+        // Auto-confirm the branch selection
+        confirmBranchSelection();
+      }
+    } catch (err) {
+      console.error('Error loading default branch:', err);
+    }
+  }
+
+  // Save or remove the default branch for receiving
+  async function saveUserDefaultBranch(branchId) {
+    if (!$currentUser?.id) return;
+    try {
+      const { error } = await supabase
+        .from('receiving_user_defaults')
+        .upsert({
+          user_id: $currentUser.id,
+          default_branch_id: parseInt(branchId)
+        }, { onConflict: 'user_id' });
+
+      if (error) throw error;
+      userDefaultBranchId = parseInt(branchId);
+      console.log('✅ Default branch saved:', branchId);
+    } catch (err) {
+      console.error('Error saving default branch:', err);
+    }
+  }
+
+  async function removeUserDefaultBranch() {
+    if (!$currentUser?.id) return;
+    try {
+      const { error } = await supabase
+        .from('receiving_user_defaults')
+        .delete()
+        .eq('user_id', $currentUser.id);
+
+      if (error) throw error;
+      userDefaultBranchId = null;
+      console.log('✅ Default branch removed');
+    } catch (err) {
+      console.error('Error removing default branch:', err);
+    }
+  }
+
+  // Handle default branch checkbox toggle
+  async function handleDefaultBranchToggle() {
+    if (setAsDefaultBranch && selectedBranch) {
+      await saveUserDefaultBranch(selectedBranch);
+    } else {
+      await removeUserDefaultBranch();
+    }
+  }
 
   async function loadBranches() {
     try {
@@ -316,6 +394,96 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       console.error('Error loading vendors:', err);
     } finally {
       vendorLoading = false;
+    }
+  }
+
+  // Load default positions for the selected branch from branch_default_positions table
+  async function loadBranchDefaultPositions() {
+    if (!selectedBranch) return;
+    
+    try {
+      defaultPositionsLoading = true;
+      defaultPositionsError = '';
+      defaultPositionsLoaded = false;
+
+      const { data, error } = await supabase
+        .from('branch_default_positions')
+        .select('*')
+        .eq('branch_id', parseInt(selectedBranch, 10))
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        defaultPositionsError = 'No default positions configured for this branch. Please set them up in Vendor → Manage → Default Positions.';
+        return;
+      }
+
+      // Collect all user IDs to resolve in one query
+      const userIds = [
+        data.branch_manager_user_id,
+        data.purchasing_manager_user_id,
+        data.inventory_manager_user_id,
+        data.accountant_user_id,
+        data.warehouse_handler_user_id,
+        ...(data.night_supervisor_user_ids || [])
+      ].filter(Boolean);
+
+      if (userIds.length === 0) {
+        defaultPositionsError = 'Default positions are configured but no users are assigned. Please update in Default Positions.';
+        return;
+      }
+
+      // Fetch user details from hr_employee_master
+      const { data: employees, error: empError } = await supabase
+        .from('hr_employee_master')
+        .select('user_id, name_en, id')
+        .in('user_id', userIds);
+
+      if (empError) throw empError;
+
+      const userMap = {};
+      (employees || []).forEach(emp => {
+        userMap[emp.user_id] = {
+          id: emp.user_id,
+          username: emp.id,
+          employeeName: emp.name_en || emp.id,
+          position: '',
+        };
+      });
+
+      // Assign resolved users to their positions
+      if (data.branch_manager_user_id && userMap[data.branch_manager_user_id]) {
+        selectedBranchManager = userMap[data.branch_manager_user_id];
+      }
+      if (data.purchasing_manager_user_id && userMap[data.purchasing_manager_user_id]) {
+        selectedPurchasingManager = userMap[data.purchasing_manager_user_id];
+      }
+      if (data.inventory_manager_user_id && userMap[data.inventory_manager_user_id]) {
+        selectedInventoryManager = userMap[data.inventory_manager_user_id];
+      }
+      if (data.accountant_user_id && userMap[data.accountant_user_id]) {
+        selectedAccountant = userMap[data.accountant_user_id];
+      }
+      if (data.warehouse_handler_user_id && userMap[data.warehouse_handler_user_id]) {
+        selectedWarehouseHandler = userMap[data.warehouse_handler_user_id];
+      }
+      if (data.night_supervisor_user_ids && data.night_supervisor_user_ids.length > 0) {
+        selectedNightSupervisors = data.night_supervisor_user_ids
+          .filter(id => userMap[id])
+          .map(id => userMap[id]);
+      }
+
+      defaultPositionsLoaded = true;
+      console.log('Loaded default positions for branch', selectedBranch);
+
+      // Now load shelf stockers for manual selection
+      await loadShelfStockersForSelection();
+    } catch (err) {
+      defaultPositionsError = 'Failed to load default positions: ' + err.message;
+      console.error('Error loading default positions:', err);
+    } finally {
+      defaultPositionsLoading = false;
     }
   }
 
@@ -746,41 +914,32 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get all active users from the selected branch
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Get all employees from the selected branch via hr_employee_master
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en,
-                position_title_ar
-              )
-            )
+          name_en,
+          current_position_id,
+          hr_positions(
+            position_title_en
           )
         `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .order('username');
+        .eq('current_branch_id', parseInt(selectedBranch))
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .order('name_en');
 
       if (loadError) throw loadError;
 
       // Transform data into user objects
-      const allBranchUsers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const allBranchUsers = (employees || []).map(emp => {
+        const position = emp.hr_positions?.position_title_en || 'No Position Assigned';
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
+          id: emp.user_id,
+          username: emp.id,
+          employeeName: emp.name_en || emp.id,
+          employeeId: emp.id,
           position: position
         };
       });
@@ -1192,35 +1351,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     handleVendorSearch();
   }
 
-  // Load purchasing managers from all branches when branch manager is selected
-  $: if (selectedBranchManager) {
-    loadPurchasingManagersForSelection();
-  }
-
-  // Load inventory managers when purchasing manager is selected
-  $: if (selectedPurchasingManager) {
-    loadInventoryManagersForSelection();
-  }
-
-  // Load night supervisors when inventory manager is selected
-  $: if (selectedInventoryManager) {
-    loadNightSupervisorsForSelection();
-  }
-
-  // Load warehouse handlers when at least one night supervisor is selected
-  $: if (selectedNightSupervisors.length > 0) {
-    loadWarehouseHandlersForSelection();
-  }
-
-  // Load shelf stockers when warehouse handler is selected
-  $: if (selectedWarehouseHandler) {
-    loadShelfStockersForSelection();
-  }
-
-  // Load accountants when shelf stocker is selected
-  $: if (selectedShelfStocker) {
-    loadAccountantsForSelection();
-  }
+  // NOTE: 6 positions (branch manager, purchasing manager, inventory manager,
+  // accountant, night supervisors, warehouse handler) are now auto-loaded from
+  // branch_default_positions table via loadBranchDefaultPositions().
+  // Only shelf stocker remains manual - loaded after defaults are loaded.
 
   // Reactive calculations for return amounts
   $: totalReturnAmount = 
@@ -1290,11 +1424,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   function confirmBranchSelection() {
     if (selectedBranch) {
       showBranchSelector = false;
-      // Stay on step 0 to select branch manager and other positions
-      // currentStep will be updated to 1 when continue button is clicked
+      // Check if this branch is the user's default
+      setAsDefaultBranch = userDefaultBranchId !== null && userDefaultBranchId.toString() === selectedBranch.toString();
       
       // Load vendors for step 2 (but don't go there yet)
       loadVendors();
+
+      // Auto-load 6 default positions from branch_default_positions table
+      loadBranchDefaultPositions();
     }
   }
 
@@ -2469,25 +2606,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </script>
 <StepIndicator {steps} {currentStep} />
 
-<!-- Current User Section -->
-<div class="user-info-section">
-  <h2>Start Receiving Process</h2>
-  {#if $currentUser}
-    <p class="user-greeting">
-      Welcome, <strong>{$currentUser.employeeName || $currentUser.username}</strong>
-      {#if $currentUser.branchName}
-        <span class="branch-info">({$currentUser.branchName})</span>
-      {/if}
-    </p>
-  {:else}
-    <p class="user-greeting">Welcome to the Receiving Process</p>
-  {/if}
-</div>
-
 <!-- Step 1: Branch Selection Section -->
 {#if currentStep === 0}
 <div class="form-section">
-  <h3>Step 1: Select Branch</h3>
   
   {#if selectedBranch && !showBranchSelector}
     <div class="current-selection">
@@ -2495,973 +2616,228 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         <span class="label">Selected Branch:</span>
         <span class="value">{selectedBranchName}</span>
       </div>
+      <label class="default-branch-checkbox">
+        <input 
+          type="checkbox" 
+          checked={setAsDefaultBranch}
+          on:change={(e) => { setAsDefaultBranch = e.target.checked; handleDefaultBranchToggle(); }}
+        />
+        <span>Set as default</span>
+      </label>
       <button type="button" on:click={changeBranch} class="change-btn">
         Change Branch
       </button>
     </div>
 
-    <!-- Manager Selection Container - Side by Side -->
-    <div class="managers-selection-container">
-      <!-- Branch Manager Selection -->
-      <div class="branch-users-section">
-        <h4>
-          {#if showAllUsers}
-            Select Responsible User
-          {:else}
-            Select Branch Manager
-          {/if}
-        </h4>
-        
-        {#if selectedBranchManager}
-          <div class="selected-user">
-            <div class="user-info">
-              <span class="user-label">
-                {#if showAllUsers}
-                  Selected Responsible User:
-                {:else}
-                  Selected Branch Manager:
-                {/if}
-              </span>
-              <span class="user-value">{selectedBranchManager.username} - {selectedBranchManager.employeeName}</span>
-            </div>
-            <button type="button" on:click={() => selectedBranchManager = null} class="change-user-btn">
-              Change Selection
-            </button>
-          </div>
-        {:else}
-          {#if branchManagersLoading}
-            <div class="users-loading">
-              <div class="spinner"></div>
-              <span>Loading branch users...</span>
-            </div>
-          {:else if actualBranchManagers.length === 0 && !showAllUsers}
-            <!-- No Branch Manager Found - Show Message -->
-            <div class="no-manager-found">
-              <div class="no-manager-message">
-                <span class="warning-icon">⚠️</span>
-                <div class="message-content">
-                  <h5>No Branch Manager Found</h5>
-                  <p>No user with "Branch Manager" position found for this branch.</p>
-                  <button type="button" class="select-responsible-btn" on:click={showAllUsersForSelection}>
-                    Select Responsible User Instead
-                  </button>
-                </div>
-              </div>
-            </div>
-          {:else if filteredBranchManagers.length === 0}
-            <div class="no-users">
-              <span class="notice-icon">⚠️</span>
-              <span>No active users found for this branch</span>
-            </div>
-          {:else}
-            <!-- Show instructions based on current view -->
-            {#if showAllUsers}
-              <div class="fallback-notice">
-                <span class="info-icon">ℹ️</span>
-                <span>No branch manager found. Please select a responsible user from the list below:</span>
-              </div>
-            {/if}
-
-            <!-- Search Box -->
-            <div class="user-search">
-              <input 
-                type="text" 
-                bind:value={branchManagerSearchQuery}
-                placeholder="Search by username, employee name, or position..."
-                class="search-input"
-              />
-            </div>
-
-            <!-- Users Card Grid for Branch Manager Selection -->
-            <div class="users-card-grid-container">
-              <div class="users-card-grid">
-                {#each filteredBranchManagers as user}
-                  <div class="user-card" class:is-manager={user.position.toLowerCase().includes('branch') && user.position.toLowerCase().includes('manager')}>
-                    <div class="card-header">
-                      <div class="user-avatar">{user.username.charAt(0).toUpperCase()}</div>
-                      <div class="card-title">
-                        <div class="username">{user.username}</div>
-                        {#if user.position.toLowerCase().includes('branch') && user.position.toLowerCase().includes('manager')}
-                          <span class="manager-badge">Branch Manager</span>
-                        {/if}
-                      </div>
-                    </div>
-                    <div class="card-body">
-                      <div class="info-row">
-                        <span class="label">Employee Name:</span>
-                        <span class="value">{user.employeeName}</span>
-                      </div>
-                      <div class="info-row">
-                        <span class="label">Employee ID:</span>
-                        <span class="value">{user.employeeId}</span>
-                      </div>
-                      <div class="info-row">
-                        <span class="label">Position:</span>
-                        <span class="value">{user.position}</span>
-                      </div>
-                    </div>
-                    <div class="card-footer">
-                      <button 
-                        type="button" 
-                        class="select-user-btn"
-                        on:click={() => selectBranchManager(user)}
-                      >
-                        Select
-                      </button>
-                    </div>
-                  </div>
-                {/each}
-              </div>
-              
-              {#if filteredBranchManagers.length === 0 && branchManagerSearchQuery}
-                <div class="no-search-results">
-                  <p>No users found matching "{branchManagerSearchQuery}"</p>
-                </div>
-              {/if}
-            </div>
-          {/if}
-        {/if}
-      </div>
-
-      <!-- Purchasing Manager Selection (Single Selection) -->
-      <div class="purchasing-manager-section">
-        {#if !selectedBranchManager}
-          <div class="section-disabled-notice">
-            <span class="info-icon">ℹ️</span>
-            <span>Please select a Branch Manager first to view Purchasing Manager options</span>
-          </div>
-        {:else}
-        <h4>
-          {#if showAllUsersForPurchasingManager}
-            Select User as Purchasing Manager
-          {:else}
-            Select Purchasing Manager
-          {/if}
-        </h4>
-        
-        {#if selectedPurchasingManager}
-          <div class="selected-purchasing-manager">
-            <div class="purchasing-manager-info">
-              <span class="purchasing-manager-label">
-                {#if showAllUsersForPurchasingManager}
-                  Selected User as Purchasing Manager:
-                {:else}
-                  Selected Purchasing Manager:
-                {/if}
-              </span>
-              <span class="purchasing-manager-value">
-                {selectedPurchasingManager.username} - {selectedPurchasingManager.employeeName}
-                <span class="selected-branch-info">({selectedPurchasingManager.branchName})</span>
-                {#if selectedPurchasingManager.position.toLowerCase().includes('purchasing') && selectedPurchasingManager.position.toLowerCase().includes('manager')}
-                  <span class="purchasing-manager-badge">Purchasing Manager</span>
-                {/if}
-              </span>
-            </div>
-            <button type="button" on:click={() => selectedPurchasingManager = null} class="change-purchasing-manager-btn">
-              Change Selection
-            </button>
-          </div>
-        {:else}
-          {#if purchasingManagersLoading}
-            <div class="purchasing-managers-loading">
-              <div class="spinner"></div>
-              <span>Loading purchasing managers...</span>
-            </div>
-          {:else if actualPurchasingManagers.length === 0 && !showAllUsersForPurchasingManager}
-            <!-- No Purchasing Manager Found - Show Message -->
-            <div class="no-purchasing-manager-found">
-              <div class="no-purchasing-manager-message">
-                <span class="warning-icon">⚠️</span>
-                <div class="message-content">
-                  <h5>No Purchasing Manager Found</h5>
-                  <p>No users with "Purchasing Manager" position found across all branches. You can select any other user to handle purchasing tasks.</p>
-                  <button type="button" class="select-any-user-btn" on:click={showAllUsersForPurchasingManagerSelection}>
-                    Select Any User as Purchasing Manager
-                  </button>
-                </div>
-              </div>
-            </div>
-          {:else if filteredPurchasingManagers.length === 0}
-            <div class="no-purchasing-managers">
-              <span class="notice-icon">⚠️</span>
-              <span>No active users found for purchasing manager selection</span>
-            </div>
-          {:else}
-            <!-- Show instructions based on current view -->
-            {#if showAllUsersForPurchasingManager}
-              <div class="fallback-notice">
-                <span class="info-icon">ℹ️</span>
-                <span>No official purchasing manager found across all branches. Please select any user from the list below to handle purchasing tasks:</span>
-              </div>
-            {/if}
-
-            <!-- Search Box -->
-            <div class="purchasing-manager-search">
-              <input 
-                type="text" 
-                bind:value={purchasingManagerSearchQuery}
-                placeholder="Search by username, employee name, branch, or position..."
-                class="search-input"
-              />
-            </div>
-
-            <!-- Purchasing Managers Card Grid -->
-            <div class="purchasing-managers-card-grid-container">
-              <div class="purchasing-managers-card-grid">
-                {#each filteredPurchasingManagers as user}
-                  <div class="purchasing-manager-card" class:is-purchasing-manager={user.position.toLowerCase().includes('purchasing') && user.position.toLowerCase().includes('manager')}>
-                    <div class="card-header">
-                      <div class="user-avatar" style="background: #ff9800;">{user.username.charAt(0).toUpperCase()}</div>
-                      <div class="card-title">
-                        <div class="username">{user.username}</div>
-                        {#if user.position.toLowerCase().includes('purchasing') && user.position.toLowerCase().includes('manager')}
-                          <span class="purchasing-manager-badge">Purchasing Manager</span>
-                        {/if}
-                      </div>
-                    </div>
-                    <div class="card-body">
-                      <div class="info-row">
-                        <span class="label">Employee Name:</span>
-                        <span class="value">{user.employeeName}</span>
-                      </div>
-                      <div class="info-row">
-                        <span class="label">Employee ID:</span>
-                        <span class="value">{user.employeeId}</span>
-                      </div>
-                      <div class="info-row">
-                        <span class="label">Branch:</span>
-                        <span class="value">
-                          {user.branchName}
-                          {#if user.branchId == selectedBranch}
-                            <span class="current-branch-badge">Current</span>
-                          {/if}
-                        </span>
-                      </div>
-                      <div class="info-row">
-                        <span class="label">Position:</span>
-                        <span class="value">{user.position}</span>
-                      </div>
-                    </div>
-                    <div class="card-footer">
-                      <button 
-                        type="button" 
-                        class="select-purchasing-manager-btn"
-                        on:click={() => selectPurchasingManager(user)}
-                      >
-                        Select
-                      </button>
-                    </div>
-                  </div>
-                {/each}
-              </div>
-              
-              {#if filteredPurchasingManagers.length === 0 && purchasingManagerSearchQuery}
-                <div class="no-search-results">
-                  <p>No users found matching "{purchasingManagerSearchQuery}"</p>
-                </div>
-              {/if}
-            </div>
-          {/if}
-        {/if}
-        {/if}
-      </div>
-    </div>
-
-    <!-- Inventory & Night Supervisors Container - Side by Side -->
-    <div class="inventory-night-supervisors-container">
-      <!-- Inventory Manager Selection (Single Selection) -->
-      <div class="inventory-manager-section">
-      {#if !selectedBranchManager}
-        <div class="section-disabled-notice">
-          <span class="info-icon">ℹ️</span>
-          <span>Please select a Branch Manager first to view Inventory Manager options</span>
+    <!-- Default Positions Summary (auto-loaded from branch_default_positions) -->
+    <div class="defaults-summary-section">
+      {#if defaultPositionsLoading}
+        <div class="defaults-loading">
+          <div class="spinner"></div>
+          <span>Loading default positions...</span>
         </div>
-      {:else}
-        <h4>
-          {#if showAllUsersForInventoryManager}
-            Select User as Inventory Manager
-          {:else}
-            Select Inventory Manager
-          {/if}
-        </h4>
-        
-        {#if selectedInventoryManager}
-          <div class="selected-inventory-manager">
-            <div class="inventory-manager-info">
-              <span class="inventory-manager-label">
-                {#if showAllUsersForInventoryManager}
-                  Selected User as Inventory Manager:
-                {:else}
-                  Selected Inventory Manager:
-                {/if}
-              </span>
-              <span class="inventory-manager-value">
-                {selectedInventoryManager.username} - {selectedInventoryManager.employeeName}
-                {#if selectedInventoryManager.position.toLowerCase().includes('inventory') && selectedInventoryManager.position.toLowerCase().includes('manager')}
-                  <span class="inventory-manager-badge">Inventory Manager</span>
-                {/if}
-              </span>
-            </div>
-            <button type="button" on:click={() => selectedInventoryManager = null} class="change-inventory-manager-btn">
-              Change Selection
-            </button>
-          </div>
-        {:else}
-          {#if inventoryManagersLoading}
-            <div class="inventory-managers-loading">
-              <div class="spinner"></div>
-              <span>Loading inventory managers...</span>
-            </div>
-          {:else if actualInventoryManagers.length === 0 && !showAllUsersForInventoryManager}
-            <div class="no-inventory-manager-found">
-              <div class="no-inventory-manager-message">
-                <span class="warning-icon">⚠️</span>
-                <div class="message-content">
-                  <h5>No Inventory Manager Found</h5>
-                  <p>No users with "Inventory Manager" position found for this branch. You can select any other user to handle inventory tasks.</p>
-                  <button type="button" class="select-any-user-btn" on:click={showAllUsersForInventoryManagerSelection}>
-                    Select Any User as Inventory Manager
-                  </button>
-                </div>
-              </div>
-            </div>
-          {:else if filteredInventoryManagers.length === 0}
-            <div class="no-inventory-managers">
-              <span class="notice-icon">⚠️</span>
-              <span>No active users found for inventory manager selection</span>
-            </div>
-          {:else}
-            {#if showAllUsersForInventoryManager}
-              <div class="fallback-notice">
-                <span class="info-icon">ℹ️</span>
-                <span>No official inventory manager found. Please select any user from the list below to handle inventory tasks:</span>
-              </div>
-            {/if}
-
-            <div class="inventory-manager-search">
-              <input 
-                type="text" 
-                bind:value={inventoryManagerSearchQuery}
-                placeholder="Search by username, employee name, or position..."
-                class="search-input"
-              />
-            </div>
-
-            <div class="inventory-managers-table-container">
-              <table class="inventory-managers-table">
-                <thead>
-                  <tr>
-                    <th>Username</th>
-                    <th>Employee Name</th>
-                    <th>Employee ID</th>
-                    <th>Position</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each filteredInventoryManagers as user}
-                    <tr class="inventory-manager-row" class:is-inventory-manager={user.position.toLowerCase().includes('inventory') && user.position.toLowerCase().includes('manager')}>
-                      <td class="username-cell">{user.username}</td>
-                      <td class="name-cell">{user.employeeName}</td>
-                      <td class="id-cell">{user.employeeId}</td>
-                      <td class="position-cell">
-                        {user.position}
-                        {#if user.position.toLowerCase().includes('inventory') && user.position.toLowerCase().includes('manager')}
-                          <span class="inventory-manager-badge">Inventory Manager</span>
-                        {/if}
-                      </td>
-                      <td class="action-cell">
-                        <button 
-                          type="button" 
-                          class="select-inventory-manager-btn"
-                          on:click={() => selectInventoryManager(user)}
-                        >
-                          Select
-                        </button>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-              
-              {#if filteredInventoryManagers.length === 0 && inventoryManagerSearchQuery}
-                <div class="no-search-results">
-                  <p>No users found matching "{inventoryManagerSearchQuery}"</p>
-                </div>
-              {/if}
-            </div>
-          {/if}
-        {/if}
-        {/if}
-      </div>
-
-    <!-- Night Supervisors Selection (Multiple Selection) -->
-    <div class="night-supervisors-section">
-      {#if !selectedBranchManager}
-        <div class="section-disabled-notice">
-          <span class="info-icon">ℹ️</span>
-          <span>Please select a Branch Manager first to view Night Supervisors options</span>
+      {:else if defaultPositionsError}
+        <div class="defaults-error">
+          <span class="warning-icon">⚠️</span>
+          <span>{defaultPositionsError}</span>
         </div>
-      {:else}
-        <h4>
-          {#if showAllUsersForNightSupervisors}
-            Select Users as Night Supervisors (Multiple)
-          {:else}
-            Select Night Supervisors (Multiple)
-          {/if}
-        </h4>
-        
-        {#if selectedNightSupervisors.length > 0}
-          <div class="selected-night-supervisors">
-            <h5>Selected Night Supervisors ({selectedNightSupervisors.length}):</h5>
-            <div class="selected-night-supervisors-list">
-              {#each selectedNightSupervisors as supervisor}
-                <div class="selected-night-supervisor-item">
-                  <span class="night-supervisor-info">
-                    {supervisor.username} - {supervisor.employeeName}
-                    {#if supervisor.position.toLowerCase().includes('night') && supervisor.position.toLowerCase().includes('supervisor')}
-                      <span class="night-supervisor-badge">Night Supervisor</span>
-                    {/if}
-                  </span>
-                  <button 
-                    type="button" 
-                    class="remove-night-supervisor-btn"
-                    on:click={() => removeNightSupervisor(supervisor.id)}
-                    title="Remove this night supervisor"
-                  >
-                    ×
-                  </button>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-        
-        {#if nightSupervisorsLoading}
-          <div class="night-supervisors-loading">
-            <div class="spinner"></div>
-            <span>Loading night supervisors...</span>
-          </div>
-        {:else if actualNightSupervisors.length === 0 && !showAllUsersForNightSupervisors}
-          <div class="no-night-supervisors-found">
-            <div class="no-night-supervisors-message">
-              <span class="warning-icon">⚠️</span>
-              <div class="message-content">
-                <h5>No Night Supervisors Found</h5>
-                <p>No users with "Night Supervisor" position found for this branch. You can select any other users to help with night supervision.</p>
-                <button type="button" class="select-any-user-btn" on:click={showAllUsersForNightSupervisorSelection}>
-                  Select Any Users as Night Supervisors
-                </button>
-              </div>
-            </div>
-          </div>
-        {:else if filteredNightSupervisors.length === 0}
-          <div class="no-night-supervisors">
-            <span class="notice-icon">⚠️</span>
-            <span>No active users found for night supervisor selection</span>
-          </div>
-        {:else}
-          {#if showAllUsersForNightSupervisors}
-            <div class="fallback-notice">
-              <span class="info-icon">ℹ️</span>
-              <span>No official night supervisors found. Please select any users from the list below to help with night supervision:</span>
-            </div>
-          {/if}
-
-          <div class="night-supervisor-search">
-            <input 
-              type="text" 
-              bind:value={nightSupervisorSearchQuery}
-              placeholder="Search by username, employee name, or position..."
-              class="search-input"
-            />
-          </div>
-
-          <div class="night-supervisors-table-container">
-            <table class="night-supervisors-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Employee Name</th>
-                  <th>Employee ID</th>
-                  <th>Position</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each filteredNightSupervisors as user}
-                  {@const isSelected = selectedNightSupervisors.some(supervisor => supervisor.id === user.id)}
-                  <tr class="night-supervisor-row" class:is-night-supervisor={user.position.toLowerCase().includes('night') && user.position.toLowerCase().includes('supervisor')} class:is-selected={isSelected}>
-                    <td class="username-cell">{user.username}</td>
-                    <td class="name-cell">{user.employeeName}</td>
-                    <td class="id-cell">{user.employeeId}</td>
-                    <td class="position-cell">
-                      {user.position}
-                      {#if user.position.toLowerCase().includes('night') && user.position.toLowerCase().includes('supervisor')}
-                        <span class="night-supervisor-badge">Night Supervisor</span>
-                      {/if}
-                    </td>
-                    <td class="action-cell">
-                      {#if isSelected}
-                        <button 
-                          type="button" 
-                          class="remove-night-supervisor-btn"
-                          on:click={() => removeNightSupervisor(user.id)}
-                        >
-                          Remove
-                        </button>
-                      {:else}
-                        <button 
-                          type="button" 
-                          class="select-night-supervisor-btn"
-                          on:click={() => selectNightSupervisor(user)}
-                        >
-                          Select
-                        </button>
-                      {/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-            
-            {#if filteredNightSupervisors.length === 0 && nightSupervisorSearchQuery}
-              <div class="no-search-results">
-                <p>No users found matching "{nightSupervisorSearchQuery}"</p>
-              </div>
+      {:else if defaultPositionsLoaded}
+        <h4 class="defaults-header">Assigned Positions (from Branch Defaults)</h4>
+        <div class="defaults-grid">
+          <!-- Branch Manager -->
+          <div class="default-item">
+            <span class="default-role">Branch Manager</span>
+            {#if selectedBranchManager}
+              <span class="default-user">✅ {selectedBranchManager.username} - {selectedBranchManager.employeeName}</span>
+            {:else}
+              <span class="default-missing">❌ Not assigned</span>
             {/if}
           </div>
-        {/if}
-        {/if}
-      </div>
-    </div>
-
-    <!-- Warehouse & Shelf Stockers Container - Side by Side -->
-    <div class="warehouse-shelf-container">
-      <!-- Warehouse & Stock Handlers Selection (Multiple Selection) -->
-      <div class="warehouse-handlers-section">
-      {#if !selectedBranchManager}
-        <div class="section-disabled-notice">
-          <span class="info-icon">ℹ️</span>
-          <span>Please select a Branch Manager first to view Warehouse Handlers options</span>
-        </div>
-      {:else}
-        <h4>
-          {#if showAllUsersForWarehouseHandlers}
-            Select User as Warehouse & Stock Handler
-          {:else}
-            Select Warehouse & Stock Handler
-          {/if}
-        </h4>
-        
-        {#if selectedWarehouseHandler}
-          <div class="selected-warehouse-handler">
-            <h5>Selected Warehouse & Stock Handler:</h5>
-            <div class="selected-warehouse-handler-item">
-              <span class="warehouse-handler-info">
-                {selectedWarehouseHandler.username} - {selectedWarehouseHandler.employeeName}
-                {#if (selectedWarehouseHandler.position.toLowerCase().includes('warehouse') || (selectedWarehouseHandler.position.toLowerCase().includes('stock') && selectedWarehouseHandler.position.toLowerCase().includes('handler')))}
-                  <span class="warehouse-handler-badge">Warehouse Handler</span>
-                {/if}
-              </span>
-              <button 
-                type="button" 
-                class="remove-warehouse-handler-btn"
-                on:click={removeWarehouseHandler}
-                title="Remove this warehouse handler"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        {/if}
-        
-        {#if warehouseHandlersLoading}
-          <div class="warehouse-handlers-loading">
-            <div class="spinner"></div>
-            <span>Loading warehouse handlers...</span>
-          </div>
-        {:else if actualWarehouseHandlers.length === 0 && !showAllUsersForWarehouseHandlers}
-          <div class="no-warehouse-handlers-found">
-            <div class="no-warehouse-handlers-message">
-              <span class="warning-icon">⚠️</span>
-              <div class="message-content">
-                <h5>No Warehouse & Stock Handlers Found</h5>
-                <p>No users with "Warehouse" or "Stock Handler" positions found for this branch. You can select any other users to help with warehouse tasks.</p>
-                <button type="button" class="select-any-user-btn" on:click={showAllUsersForWarehouseHandlerSelection}>
-                  Select Any Users as Warehouse Handlers
-                </button>
-              </div>
-            </div>
-          </div>
-        {:else if filteredWarehouseHandlers.length === 0}
-          <div class="no-warehouse-handlers">
-            <span class="notice-icon">⚠️</span>
-            <span>No active users found for warehouse handler selection</span>
-          </div>
-        {:else}
-          {#if showAllUsersForWarehouseHandlers}
-            <div class="fallback-notice">
-              <span class="info-icon">ℹ️</span>
-              <span>No official warehouse handlers found. Please select any users from the list below to help with warehouse tasks:</span>
-            </div>
-          {/if}
-
-          <div class="warehouse-handler-search">
-            <input 
-              type="text" 
-              bind:value={warehouseHandlerSearchQuery}
-              placeholder="Search by username, employee name, or position..."
-              class="search-input"
-            />
-          </div>
-
-          <div class="warehouse-handlers-table-container">
-            <table class="warehouse-handlers-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Employee Name</th>
-                  <th>Employee ID</th>
-                  <th>Position</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each filteredWarehouseHandlers as user}
-                  {@const isSelected = selectedWarehouseHandler && selectedWarehouseHandler.id === user.id}
-                  <tr class="warehouse-handler-row" class:is-warehouse-handler={(user.position.toLowerCase().includes('warehouse') || (user.position.toLowerCase().includes('stock') && user.position.toLowerCase().includes('handler')))} class:is-selected={isSelected}>
-                    <td class="username-cell">{user.username}</td>
-                    <td class="name-cell">{user.employeeName}</td>
-                    <td class="id-cell">{user.employeeId}</td>
-                    <td class="position-cell">
-                      {user.position}
-                      {#if (user.position.toLowerCase().includes('warehouse') || (user.position.toLowerCase().includes('stock') && user.position.toLowerCase().includes('handler')))}
-                        <span class="warehouse-handler-badge">Warehouse Handler</span>
-                      {/if}
-                    </td>
-                    <td class="action-cell">
-                      {#if isSelected}
-                        <button 
-                          type="button" 
-                          class="remove-warehouse-handler-btn"
-                          on:click={removeWarehouseHandler}
-                        >
-                          Remove
-                        </button>
-                      {:else}
-                        <button 
-                          type="button" 
-                          class="select-warehouse-handler-btn"
-                          on:click={() => selectWarehouseHandler(user)}
-                        >
-                          Select
-                        </button>
-                      {/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-            
-            {#if filteredWarehouseHandlers.length === 0 && warehouseHandlerSearchQuery}
-              <div class="no-search-results">
-                <p>No users found matching "{warehouseHandlerSearchQuery}"</p>
-              </div>
+          <!-- Purchasing Manager -->
+          <div class="default-item">
+            <span class="default-role">Purchasing Manager</span>
+            {#if selectedPurchasingManager}
+              <span class="default-user">✅ {selectedPurchasingManager.username} - {selectedPurchasingManager.employeeName}</span>
+            {:else}
+              <span class="default-missing">❌ Not assigned</span>
             {/if}
           </div>
-        {/if}
-        {/if}
-      </div>
-
-    <!-- Receiving User Information (Auto-selected: logged-in user) -->
-    <div class="receiving-user-section">
-      <h4>Receiving User</h4>
-      <div class="receiving-user-info">
-        <div class="auto-selected-user">
-          <span class="receiving-label">Performed by:</span>
-          <span class="receiving-value">{$currentUser?.username || 'Current User'}</span>
+          <!-- Inventory Manager -->
+          <div class="default-item">
+            <span class="default-role">Inventory Manager</span>
+            {#if selectedInventoryManager}
+              <span class="default-user">✅ {selectedInventoryManager.username} - {selectedInventoryManager.employeeName}</span>
+            {:else}
+              <span class="default-missing">❌ Not assigned</span>
+            {/if}
+          </div>
+          <!-- Accountant -->
+          <div class="default-item">
+            <span class="default-role">Accountant</span>
+            {#if selectedAccountant}
+              <span class="default-user">✅ {selectedAccountant.username} - {selectedAccountant.employeeName}</span>
+            {:else}
+              <span class="default-missing">❌ Not assigned</span>
+            {/if}
+          </div>
+          <!-- Night Supervisor(s) -->
+          <div class="default-item">
+            <span class="default-role">Night Supervisor(s)</span>
+            {#if selectedNightSupervisors.length > 0}
+              <span class="default-user">✅ {selectedNightSupervisors.map(s => s.username + ' - ' + s.employeeName).join(', ')}</span>
+            {:else}
+              <span class="default-missing">❌ Not assigned</span>
+            {/if}
+          </div>
+          <!-- Warehouse Handler -->
+          <div class="default-item">
+            <span class="default-role">Warehouse Handler</span>
+            {#if selectedWarehouseHandler}
+              <span class="default-user">✅ {selectedWarehouseHandler.username} - {selectedWarehouseHandler.employeeName}</span>
+            {:else}
+              <span class="default-missing">❌ Not assigned</span>
+            {/if}
+          </div>
         </div>
-        <div class="user-note">
+        <div class="defaults-note">
           <span class="note-icon">ℹ️</span>
-          <span>This receiving will be recorded under your account</span>
+          <span>These positions are auto-loaded from branch defaults. To change them, go to Vendor → Manage → Default Positions.</span>
         </div>
-      </div>
+      {/if}
     </div>
 
-    <!-- Shelf Stockers & Accountant Group -->
-    <div class="shelf-accountant-group">
-      <!-- Shelf Stockers Selection (Multiple Selection) -->
-      <div class="shelf-stockers-section">
-      {#if !selectedBranchManager}
-        <div class="section-disabled-notice">
-          <span class="info-icon">ℹ️</span>
-          <span>Please select a Branch Manager first to view Shelf Stockers options</span>
+    <!-- Shelf Stocker Selection (Manual - standalone) -->
+    <div class="shelf-stocker-standalone-section">
+      <h4>
+        {#if showAllUsersForShelfStockers}
+          Select User as Shelf Stocker
+        {:else}
+          Select Shelf Stocker
+        {/if}
+      </h4>
+      
+      <!-- Selected Shelf Stocker Display -->
+      {#if selectedShelfStocker}
+        <div class="selected-stocker">
+          <h5>Selected Shelf Stocker:</h5>
+          <div class="selected-stocker-item">
+            <span class="stocker-info">
+              {selectedShelfStocker.username} - {selectedShelfStocker.employeeName}
+              {#if selectedShelfStocker.position.toLowerCase().includes('shelf') && selectedShelfStocker.position.toLowerCase().includes('stocker')}
+                <span class="stocker-badge">Shelf Stocker</span>
+              {/if}
+            </span>
+            <button 
+              type="button" 
+              class="remove-stocker-btn"
+              on:click={removeShelfStocker}
+              title="Remove this shelf stocker"
+            >
+              ×
+            </button>
+          </div>
         </div>
-      {:else}
-        <h4>
-          {#if showAllUsersForShelfStockers}
-            Select User as Shelf Stocker
-          {:else}
-            Select Shelf Stocker
-          {/if}
-        </h4>
-        
-        <!-- Selected Shelf Stocker Display -->
-        {#if selectedShelfStocker}
-          <div class="selected-stocker">
-            <h5>Selected Shelf Stocker:</h5>
-            <div class="selected-stocker-item">
-              <span class="stocker-info">
-                {selectedShelfStocker.username} - {selectedShelfStocker.employeeName}
-                {#if selectedShelfStocker.position.toLowerCase().includes('shelf') && selectedShelfStocker.position.toLowerCase().includes('stocker')}
-                  <span class="stocker-badge">Shelf Stocker</span>
-                {/if}
-              </span>
-              <button 
-                type="button" 
-                class="remove-stocker-btn"
-                on:click={removeShelfStocker}
-                title="Remove this shelf stocker"
-              >
-                ×
+      {/if}
+      
+      {#if shelfStockersLoading}
+        <div class="stockers-loading">
+          <div class="spinner"></div>
+          <span>Loading shelf stockers...</span>
+        </div>
+      {:else if actualShelfStockers.length === 0 && !showAllUsersForShelfStockers}
+        <!-- No Shelf Stockers Found - Show Message -->
+        <div class="no-stockers-found">
+          <div class="no-stockers-message">
+            <span class="warning-icon">⚠️</span>
+            <div class="message-content">
+              <h5>No Shelf Stockers Found</h5>
+              <p>No users with "Shelf Stocker" position found for this branch. You can select any other user to help with shelf stocking.</p>
+              <button type="button" class="select-any-user-btn" on:click={showAllUsersForShelfStockerSelection}>
+                Select Any User as Shelf Stocker
               </button>
             </div>
           </div>
-        {/if}
-        
-        {#if shelfStockersLoading}
-          <div class="stockers-loading">
-            <div class="spinner"></div>
-            <span>Loading shelf stockers...</span>
-          </div>
-        {:else if actualShelfStockers.length === 0 && !showAllUsersForShelfStockers}
-          <!-- No Shelf Stockers Found - Show Message -->
-          <div class="no-stockers-found">
-            <div class="no-stockers-message">
-              <span class="warning-icon">⚠️</span>
-              <div class="message-content">
-                <h5>No Shelf Stockers Found</h5>
-                <p>No users with "Shelf Stocker" position found for this branch. You can select any other users to help with shelf stocking.</p>
-                <button type="button" class="select-any-user-btn" on:click={showAllUsersForShelfStockerSelection}>
-                  Select Any User as Shelf Stocker
-                </button>
-              </div>
-            </div>
-          </div>
-        {:else if filteredShelfStockers.length === 0}
-          <div class="no-stockers">
-            <span class="notice-icon">⚠️</span>
-            <span>No active users found for shelf stocker selection</span>
-          </div>
-        {:else}
-          <!-- Show instructions based on current view -->
-          {#if showAllUsersForShelfStockers}
-            <div class="fallback-notice">
-              <span class="info-icon">ℹ️</span>
-              <span>No official shelf stockers found. Please select any users from the list below to help with shelf stocking:</span>
-            </div>
-          {/if}
-
-          <!-- Search Box -->
-          <div class="stocker-search">
-            <input 
-              type="text" 
-              bind:value={shelfStockerSearchQuery}
-              placeholder="Search by username, employee name, or position..."
-              class="search-input"
-            />
-          </div>
-
-          <!-- Shelf Stockers Table -->
-          <div class="stockers-table-container">
-            <table class="stockers-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Employee Name</th>
-                  <th>Employee ID</th>
-                  <th>Position</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each filteredShelfStockers as user}
-                  {@const isSelected = selectedShelfStocker && selectedShelfStocker.id === user.id}
-                  <tr class="stocker-row" class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}>
-                    <td class="username-cell">{user.username}</td>
-                    <td class="name-cell">{user.employeeName}</td>
-                    <td class="id-cell">{user.employeeId}</td>
-                    <td class="position-cell">
-                      {user.position}
-                      {#if user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')}
-                        <span class="stocker-badge">Shelf Stocker</span>
-                      {/if}
-                    </td>
-                    <td class="action-cell">
-                      {#if isSelected}
-                        <button 
-                          type="button" 
-                          class="remove-stocker-btn"
-                          on:click={removeShelfStocker}
-                        >
-                          Remove
-                        </button>
-                      {:else}
-                        <button 
-                          type="button" 
-                          class="select-stocker-btn"
-                          on:click={() => selectShelfStocker(user)}
-                        >
-                          Select
-                        </button>
-                      {/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-            
-            {#if filteredShelfStockers.length === 0 && shelfStockerSearchQuery}
-              <div class="no-search-results">
-                <p>No users found matching "{shelfStockerSearchQuery}"</p>
-              </div>
-            {/if}
-          </div>
-        {/if}
-        {/if}
-      </div>
-
-      <!-- Accountant Selection (Single Selection) -->
-      <div class="accountant-section">
-      {#if !selectedBranchManager}
-        <div class="section-disabled-notice">
-          <span class="info-icon">ℹ️</span>
-          <span>Please select a Branch Manager first to view Accountant options</span>
+        </div>
+      {:else if filteredShelfStockers.length === 0 && !shelfStockerSearchQuery}
+        <div class="no-stockers">
+          <span class="notice-icon">⚠️</span>
+          <span>No active users found for shelf stocker selection</span>
         </div>
       {:else}
-        <h4>
-          {#if showAllUsersForAccountant}
-            Select User as Accountant
-          {:else}
-            Select Accountant
-          {/if}
-        </h4>
-        
-        {#if selectedAccountant}
-          <div class="selected-accountant">
-            <div class="accountant-info">
-              <span class="accountant-label">
-                {#if showAllUsersForAccountant}
-                  Selected User as Accountant:
-                {:else}
-                  Selected Accountant:
-                {/if}
-              </span>
-              <span class="accountant-value">
-                {selectedAccountant.username} - {selectedAccountant.employeeName}
-                {#if selectedAccountant.position.toLowerCase().includes('accountant')}
-                  <span class="accountant-badge">Accountant</span>
-                {/if}
-              </span>
-            </div>
-            <button type="button" on:click={() => selectedAccountant = null} class="change-accountant-btn">
-              Change Selection
-            </button>
+        <!-- Show instructions based on current view -->
+        {#if showAllUsersForShelfStockers}
+          <div class="fallback-notice">
+            <span class="info-icon">ℹ️</span>
+            <span>No official shelf stockers found. Please select any user from the list below to help with shelf stocking:</span>
           </div>
-        {:else}
-          {#if accountantsLoading}
-            <div class="accountants-loading">
-              <div class="spinner"></div>
-              <span>Loading accountants...</span>
-            </div>
-          {:else if actualAccountants.length === 0 && !showAllUsersForAccountant}
-            <!-- No Accountant Found - Show Message -->
-            <div class="no-accountant-found">
-              <div class="no-accountant-message">
-                <span class="warning-icon">⚠️</span>
-                <div class="message-content">
-                  <h5>No Accountant Found</h5>
-                  <p>No users with "Accountant" position found for this branch. You can select any other user to handle accounting tasks.</p>
-                  <button type="button" class="select-any-user-btn" on:click={showAllUsersForAccountantSelection}>
-                    Select Any User as Accountant
-                  </button>
-                </div>
-              </div>
-            </div>
-          {:else if filteredAccountants.length === 0}
-            <div class="no-accountants">
-              <span class="notice-icon">⚠️</span>
-              <span>No active users found for accountant selection</span>
+        {/if}
+
+        <!-- Search Box -->
+        <div class="stocker-search">
+          <input 
+            type="text" 
+            bind:value={shelfStockerSearchQuery}
+            placeholder="Search by employee ID, name, or position..."
+            class="search-input"
+          />
+        </div>
+
+        <!-- Shelf Stockers Table -->
+        <div class="stockers-table-container">
+          {#if filteredShelfStockers.length === 0 && shelfStockerSearchQuery}
+            <div class="no-search-results">
+              <p>No users found matching "{shelfStockerSearchQuery}"</p>
             </div>
           {:else}
-            <!-- Show instructions based on current view -->
-            {#if showAllUsersForAccountant}
-              <div class="fallback-notice">
-                <span class="info-icon">ℹ️</span>
-                <span>No official accountant found. Please select any user from the list below to handle accounting tasks:</span>
-              </div>
-            {/if}
-
-            <!-- Search Box -->
-            <div class="accountant-search">
-              <input 
-                type="text" 
-                bind:value={accountantSearchQuery}
-                placeholder="Search by username, employee name, or position..."
-                class="search-input"
-              />
-            </div>
-
-            <!-- Accountants Table -->
-            <div class="accountants-table-container">
-              <table class="accountants-table">
-                <thead>
-                  <tr>
-                    <th>Username</th>
-                    <th>Employee Name</th>
-                    <th>Employee ID</th>
-                    <th>Position</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each filteredAccountants as user}
-                    <tr class="accountant-row" class:is-accountant={user.position.toLowerCase().includes('accountant')}>
-                      <td class="username-cell">{user.username}</td>
-                      <td class="name-cell">{user.employeeName}</td>
-                      <td class="id-cell">{user.employeeId}</td>
-                      <td class="position-cell">
-                        {user.position}
-                        {#if user.position.toLowerCase().includes('accountant')}
-                          <span class="accountant-badge">Accountant</span>
-                        {/if}
-                      </td>
-                      <td class="action-cell">
-                        <button 
-                          type="button" 
-                          class="select-accountant-btn"
-                          on:click={() => selectAccountant(user)}
-                        >
-                          Select
-                        </button>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-              
-              {#if filteredAccountants.length === 0 && accountantSearchQuery}
-                <div class="no-search-results">
-                  <p>No users found matching "{accountantSearchQuery}"</p>
-                </div>
-              {/if}
-            </div>
+          <table class="stockers-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Employee Name</th>
+                <th>Employee ID</th>
+                <th>Position</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each filteredShelfStockers as user}
+                {@const isSelected = selectedShelfStocker && selectedShelfStocker.id === user.id}
+                <tr class="stocker-row" class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}>
+                  <td class="username-cell">{user.username}</td>
+                  <td class="name-cell">{user.employeeName}</td>
+                  <td class="id-cell">{user.employeeId}</td>
+                  <td class="position-cell">
+                    {user.position}
+                    {#if user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')}
+                      <span class="stocker-badge">Shelf Stocker</span>
+                    {/if}
+                  </td>
+                  <td class="action-cell">
+                    {#if isSelected}
+                      <button 
+                        type="button" 
+                        class="remove-stocker-btn"
+                        on:click={removeShelfStocker}
+                      >
+                        Remove
+                      </button>
+                    {:else}
+                      <button 
+                        type="button" 
+                        class="select-stocker-btn"
+                        on:click={() => selectShelfStocker(user)}
+                      >
+                        Select
+                      </button>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
           {/if}
-        {/if}
-        {/if}
-      </div>
-    </div>
+        </div>
+      {/if}
     </div>
 
   {:else}
@@ -3531,8 +2907,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <!-- Step 2: Vendor Selection Section -->
 {#if currentStep === 1 && selectedBranch && !showBranchSelector}
   <div class="form-section">
-    <h3>Step 2: Select Vendor</h3>
-    
     {#if selectedVendor}
       <div class="current-selection">
         <div class="selection-info">
@@ -3910,7 +3284,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <!-- Step 3: Bill Information -->
 {#if currentStep === 2 && selectedVendor}
   <div class="form-section">
-    <h3>Step 3: Bill Information</h3>
+
     <p class="step-description">Review current date and enter bill details</p>
     
     <div class="bill-info-grid">
@@ -4433,7 +3807,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <!-- Step 4: Finalization -->
 {#if currentStep === 3}
   <div class="form-section">
-    <h3>Step 4: Finalization</h3>
+
     {#if savedReceivingId}
       <p class="step-description">✅ Receiving data saved successfully! Generate clearance certificate template.</p>
     {:else}
@@ -4524,6 +3898,137 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.selection-info .label {
 		color: #666;
 		margin-right: 0.5rem;
+	}
+
+	/* Default Branch Checkbox */
+	.default-branch-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		padding: 0;
+		cursor: pointer;
+		font-size: 12px;
+		color: #555;
+		user-select: none;
+	}
+
+	.default-branch-checkbox input[type="checkbox"] {
+		width: 16px;
+		height: 16px;
+		cursor: pointer;
+		accent-color: #4caf50;
+	}
+
+	.default-branch-checkbox span {
+		line-height: 1;
+	}
+
+	/* Default Positions Summary Section */
+	.defaults-summary-section {
+		margin-top: 1.5rem;
+		padding: 1rem 1.25rem;
+		background: #f0f7ff;
+		border: 1px solid #b8d4f0;
+		border-radius: 8px;
+	}
+
+	.defaults-loading {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		color: #555;
+	}
+
+	.defaults-error {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: #fff3cd;
+		border: 1px solid #ffc107;
+		border-radius: 6px;
+		color: #856404;
+		font-size: 0.85rem;
+	}
+
+	.defaults-header {
+		margin: 0 0 0.75rem 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: #1a73e8;
+	}
+
+	.defaults-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.75rem;
+	}
+
+	.default-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 0.6rem 0.75rem;
+		background: #fff;
+		border-radius: 6px;
+		border: 1px solid #e0e0e0;
+	}
+
+	.default-role {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #555;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.default-user {
+		font-size: 0.85rem;
+		color: #2e7d32;
+	}
+
+	.default-missing {
+		font-size: 0.85rem;
+		color: #c62828;
+	}
+
+	.defaults-note {
+		margin-top: 0.75rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.8rem;
+		color: #666;
+	}
+
+	/* Shelf Stocker Standalone Section */
+	.shelf-stocker-standalone-section {
+		margin-top: 1.5rem;
+		padding: 1rem 1.25rem;
+		background: #f8f9fa;
+		border: 1px solid #dee2e6;
+		border-radius: 8px;
+	}
+
+	.shelf-stocker-standalone-section h4 {
+		margin: 0 0 0.75rem 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: #333;
+	}
+
+	@media (max-width: 1200px) {
+		.defaults-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 768px) {
+		.defaults-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	/* Manager Selection Container - Side by Side */
