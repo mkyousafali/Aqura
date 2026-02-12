@@ -5,28 +5,27 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ41.15.9.9</p>
-		<p class="version-details">Desktop: 41 | Mobile: 15 | Cashier: 9 | Customer: 9</p>
+		<p class="version-title">Version AQ42.16.10.10</p>
+		<p class="version-details">Desktop: 42 | Mobile: 16 | Cashier: 10 | Customer: 10</p>
 		</div>
 
 		<div class="latest-change">
-		<h3>✨ AI Chat, Receiving Defaults, Theme System & Major Desktop Improvements</h3>
-		<p class="change-description">AI-powered chat assistant, branch default positions for receiving, desktop theme management, and many UI/UX improvements across all interfaces.</p>
+		<h3>✨ Automated Attendance Analysis, Mobile Dashboard & Edge Functions</h3>
+		<p class="change-description">Server-side attendance analysis with Edge Functions, mobile dashboard attendance cards, smart "Not yet" status logic, and pg_cron automated scheduling.</p>
 		<div class="change-details">
 			<h4>February 12, 2026 (Latest):</h4>
 			<ul>
-				<li>✅ <b>AI Chat System:</b> New Aqura bot with TTS voice selection, sales report integration, voice input support, and mobile-optimized interface with icon-only bottom nav.</li>
-				<li>✅ <b>Sales Report:</b> Enhanced with comparisons, voice input, and full date display.</li>
-				<li>✅ <b>Branch Default Positions:</b> New <code>branch_default_positions</code> table to store 6 default roles per branch (Branch Manager, Purchasing Manager, Inventory Manager, Accountant, Night Supervisors, Warehouse Handler).</li>
-				<li>✅ <b>Default Positions Window:</b> New management window in Vendor → Manage → Default Positions for assigning default personnel per branch with search and employee selection.</li>
-				<li>✅ <b>Auto-Load Positions:</b> StartReceiving now auto-loads 6 positions from branch defaults when a branch is confirmed, leaving only Shelf Stocker as manual selection.</li>
-				<li>✅ <b>Default Branch for Receiving:</b> New <code>receiving_user_defaults</code> table stores the user's preferred branch. "Set as default" checkbox auto-selects the branch on next visit.</li>
-				<li>✅ <b>Active Users Filter:</b> Default Positions window filters out inactive users by checking the <code>users.status</code> field, only showing active employees.</li>
-				<li>✅ <b>Clearance Certificate Names:</b> Generated tasks now show employee names (ID + Name) next to role badges using a reactive employee name map.</li>
-				<li>✅ <b>Clearance Certificate UI:</b> Removed hard blue gradient header, replaced with clean white header. Bill Amount uses SAR currency icon instead of dollar sign.</li>
-				<li>✅ <b>Shelf Stocker Search:</b> Rewritten to use <code>hr_employee_master</code> with <code>hr_positions</code> join. Search box stays visible when no results found.</li>
-				<li>✅ <b>Employee Data Source:</b> All receiving components now use <code>hr_employee_master</code> table instead of legacy <code>users</code> table for employee names and IDs.</li>
-				<li>✅ <b>UI Cleanup:</b> Removed redundant step headings (Step 1-4) since step indicator already shows progress. Removed "Receiving User" info card.</li>
+				<li>✅ <b>HR Module — Analyze Attendance Edge Function:</b> New <code>analyze-attendance</code> server-side Edge Function replaces client-side analysis. Runs via pg_cron 6x/day (6AM, 8:30AM, 1PM, 6PM, 8:30PM, 12:30AM Saudi time). Results stored in <code>hr_analysed_attendance_data</code> table.</li>
+				<li>✅ <b>HR Module — Process Fingerprints Edge Function:</b> New <code>process-fingerprints</code> Edge Function copies raw device punches to processed transactions. Runs hourly via pg_cron.</li>
+				<li>✅ <b>HR Module — AnalyzeAllWindow Refactored:</b> Now reads pre-computed data from <code>hr_analysed_attendance_data</code> instead of running analysis client-side. Added "Refresh Data" button to manually trigger Edge Function, and "Last Updated" timestamp badge.</li>
+				<li>✅ <b>HR Module — Process Fingerprint Button:</b> Replaced client-side auto-processing with server-side Edge Function trigger. Added ⚡ Process Fingerprints button and auto-trigger on window open.</li>
+				<li>✅ <b>HR Module — Auto Re-analyze on Punch Save:</b> EmployeeAnalysisWindow now triggers Edge Function after saving a manual punch, keeping analysis data up-to-date.</li>
+				<li>✅ <b>Mobile Dashboard — Attendance Cards:</b> Replaced raw punch display with Today/Yesterday attendance cards showing status, check-in/out times, and late minutes from analyzed data.</li>
+				<li>✅ <b>Mobile Dashboard — Smart "Not Yet" Status:</b> When today's status is Absent/Missing but shift hasn't ended, shows "Not yet" instead. Looks up shift tables directly (special_shift_date_wise → special_shift_weekday → regular_shift) with overlapping shift support.</li>
+				<li>✅ <b>Mobile Dashboard — Locale-Aware Formatting:</b> 12-hour time format, Arabic/English day names, DD-MM-YYYY dates, and translated status labels (حاضر, غائب, etc.).</li>
+				<li>✅ <b>AI Chat:</b> Voice narration prompt on open instead of auto-play. TTS voice selection and Google TTS integration.</li>
+				<li>✅ <b>Desktop:</b> Dancing character lazy-loaded, removed What's New info card from welcome screen.</li>
+				<li>✅ <b>Edge Function Deployment Guide:</b> New comprehensive guide with Kong wildcard routing, pg_cron schedule reference, and troubleshooting.</li>
 			</ul>
 		</div>
 		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
