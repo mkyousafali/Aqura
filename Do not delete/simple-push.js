@@ -90,6 +90,21 @@ if (fs.existsSync(sidebarPath)) {
   console.log('✅ Updated Sidebar.svelte version display');
 }
 
+// Update Login Screen (+page.svelte) with new version
+const loginPagePath = path.join(__dirname, '..', 'frontend', 'src', 'routes', 'desktop-interface', '+page.svelte');
+
+if (fs.existsSync(loginPagePath)) {
+  let loginContent = fs.readFileSync(loginPagePath, 'utf-8');
+  
+  loginContent = loginContent.replace(
+    /AQ\d+\.\d+\.\d+\.\d+/g,
+    newVersion
+  );
+  
+  fs.writeFileSync(loginPagePath, loginContent, 'utf-8');
+  console.log('✅ Updated Login Screen version display');
+}
+
 // Update Mobile Interface layout with new version
 const mobileLayoutPath = path.join(__dirname, '..', 'frontend', 'src', 'routes', 'mobile-interface', '+layout.svelte');
 

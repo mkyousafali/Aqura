@@ -437,13 +437,29 @@
 
 		<!-- Welcome Screen -->
 		<div class="welcome-screen">
-			<div class="welcome-card">
-				<div class="logo-section">
-					<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ40.15.9.9</button>
-					<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
-						<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
+			<div class="welcome-container">
+				<div class="welcome-card">
+					<div class="logo-section">
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ41.15.9.9</button>
+						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
+							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
+						</div>
+						<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
 					</div>
-					<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
+				</div>
+
+				<!-- What's New Info Card -->
+				<div class="info-card">
+					<div class="info-card-icon">⚠️</div>
+					<div class="info-card-content">
+						<div class="info-card-title">What's New in Start Receiving</div>
+						<ul class="info-card-list">
+							<li>Positions are now loaded automatically — set them in <b>Vendor → Manage → Default Positions</b>. You only need to select <b>Shelf Stocker</b> manually.</li>
+							<li>To set default positions: open <b>Vendor → Manage → Default Positions</b>, select a branch, then assign employees to each role.</li>
+							<li>You can set a <b>default branch</b> in <b>Vendor → Start Receiving</b> so it auto-selects next time.</li>
+							<li>Defaults are currently set by <b>Yousuf</b> — please verify they are correct for your branch.</li>
+						</ul>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -657,6 +673,15 @@
 		margin: 0;
 	}
 
+	.welcome-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 16px;
+		max-height: 95%;
+		overflow-y: auto;
+	}
+
 	.welcome-card {
 		background: #FFFFFF;
 		width: 600px;
@@ -790,5 +815,74 @@
 		.app-title {
 			font-size: 2rem;
 		}
+
+		.info-card {
+			padding: 10px 12px;
+		}
+	}
+
+	/* Info Card */
+	.info-card {
+		width: 600px;
+		max-width: 90%;
+		background: #fffbeb;
+		border: 1px solid #f59e0b;
+		border-radius: 12px;
+		padding: 14px 18px;
+		display: flex;
+		gap: 12px;
+		align-items: flex-start;
+		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1);
+		animation: fadeIn 0.5s ease-out 0.3s both;
+	}
+
+	.info-card-icon {
+		font-size: 2.2rem;
+		flex-shrink: 0;
+		margin-top: 2px;
+		animation: heartbeat 1.5s ease-in-out infinite;
+	}
+
+	@keyframes heartbeat {
+		0%, 100% { transform: scale(1); }
+		15% { transform: scale(1.25); }
+		30% { transform: scale(1); }
+		45% { transform: scale(1.15); }
+		60% { transform: scale(1); }
+	}
+
+	.info-card-content {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.info-card-title {
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: #92400e;
+		margin-bottom: 8px;
+	}
+
+	.info-card-list {
+		margin: 0;
+		padding: 0 0 0 18px;
+		font-size: 0.92rem;
+		color: #78350f;
+		line-height: 1.6;
+	}
+
+	.info-card-list li {
+		margin-bottom: 3px;
+	}
+
+	.info-card-list b {
+		color: #92400e;
+	}
+
+	.info-card-hint {
+		font-size: 0.7rem;
+		color: #b45309;
+		margin-top: 6px;
+		opacity: 0.8;
 	}
 </style>

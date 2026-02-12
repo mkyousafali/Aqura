@@ -5,15 +5,73 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ40.15.9.9</p>
-		<p class="version-details">Desktop: 40 | Mobile: 15 | Cashier: 9 | Customer: 9</p>
+		<p class="version-title">Version AQ41.15.9.9</p>
+		<p class="version-details">Desktop: 41 | Mobile: 15 | Cashier: 9 | Customer: 9</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ AI Chat, Receiving Defaults, Theme System & Major Desktop Improvements</h3>
+		<p class="change-description">AI-powered chat assistant, branch default positions for receiving, desktop theme management, and many UI/UX improvements across all interfaces.</p>
+		<div class="change-details">
+			<h4>February 12, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>AI Chat System:</b> New Aqura bot with TTS voice selection, sales report integration, voice input support, and mobile-optimized interface with icon-only bottom nav.</li>
+				<li>✅ <b>Sales Report:</b> Enhanced with comparisons, voice input, and full date display.</li>
+				<li>✅ <b>Branch Default Positions:</b> New <code>branch_default_positions</code> table to store 6 default roles per branch (Branch Manager, Purchasing Manager, Inventory Manager, Accountant, Night Supervisors, Warehouse Handler).</li>
+				<li>✅ <b>Default Positions Window:</b> New management window in Vendor → Manage → Default Positions for assigning default personnel per branch with search and employee selection.</li>
+				<li>✅ <b>Auto-Load Positions:</b> StartReceiving now auto-loads 6 positions from branch defaults when a branch is confirmed, leaving only Shelf Stocker as manual selection.</li>
+				<li>✅ <b>Default Branch for Receiving:</b> New <code>receiving_user_defaults</code> table stores the user's preferred branch. "Set as default" checkbox auto-selects the branch on next visit.</li>
+				<li>✅ <b>Active Users Filter:</b> Default Positions window filters out inactive users by checking the <code>users.status</code> field, only showing active employees.</li>
+				<li>✅ <b>Clearance Certificate Names:</b> Generated tasks now show employee names (ID + Name) next to role badges using a reactive employee name map.</li>
+				<li>✅ <b>Clearance Certificate UI:</b> Removed hard blue gradient header, replaced with clean white header. Bill Amount uses SAR currency icon instead of dollar sign.</li>
+				<li>✅ <b>Shelf Stocker Search:</b> Rewritten to use <code>hr_employee_master</code> with <code>hr_positions</code> join. Search box stays visible when no results found.</li>
+				<li>✅ <b>Employee Data Source:</b> All receiving components now use <code>hr_employee_master</code> table instead of legacy <code>users</code> table for employee names and IDs.</li>
+				<li>✅ <b>UI Cleanup:</b> Removed redundant step headings (Step 1-4) since step indicator already shows progress. Removed "Receiving User" info card.</li>
+			</ul>
+		</div>
+		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+			<h4>February 11, 2026:</h4>
+			<ul>
+				<li>✅ <b>Dancing Character:</b> Lottie animation with bilingual greetings on desktop welcome screen.</li>
+				<li>✅ <b>Theme System:</b> Desktop interface theme management with CSS variables for subsection buttons and backgrounds, persists on reload.</li>
+				<li>✅ <b>Sidebar:</b> Language switch and compact online indicator added.</li>
+				<li>✅ <b>Taskbar:</b> My Daily Checklist button with pending count badge.</li>
+				<li>✅ <b>Shelf Paper:</b> Template Designer button in Media → Manage, with loading indicators, copy template, font manager, and app notifications.</li>
+				<li>✅ <b>Products Dashboard:</b> Modernized UI with search/filter features.</li>
+				<li>✅ <b>Incident Manager:</b> Eye icon for report counts, improved incident management and reporting.</li>
+				<li>✅ <b>Mobile Checklist:</b> Pending checklists counter, submission tracking, enhanced checklist UI with larger checkboxes.</li>
+				<li>✅ <b>Daily Checklist Fix:</b> Auto-save using persistent auth store, hidden user ID column, fixed infinite loop in frequency/day selects.</li>
+				<li>✅ <b>Approval Permissions:</b> Removed browser alerts, optimized refresh to only update changed rows.</li>
+				<li>✅ <b>Export Excel:</b> Styled Excel export added to AnalyzeAllWindow with i18n keys.</li>
+			</ul>
+		</div>
+		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+			<h4>February 10, 2026:</h4>
+			<ul>
+				<li>✅ <b>Favorites:</b> Drag-and-drop reordering for favorite buttons with auto-save.</li>
+				<li>✅ <b>Punch Display:</b> Shows last 2 punches across all branches using <code>hr_employee_master</code> with multi-employee real-time subscription.</li>
+				<li>✅ <b>HR Checklist:</b> Checklist operations with View Answers and Report Problem button.</li>
+				<li>✅ <b>Flyer Generator:</b> Offer name creation, flyer generator improvements.</li>
+				<li>✅ <b>Bug Fixes:</b> Uppercase AI-generated English group names, product creation ID generation, variation group queries, SalesReport realtime subscription fix.</li>
+			</ul>
+		</div>
+		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+			<h4>February 9, 2026:</h4>
+			<ul>
+				<li>✅ <b>One Day Offer Manager:</b> Import, pricing, print, and barcode export for one-day marketing offers.</li>
+				<li>✅ <b>Shelf Paper:</b> Parallel load, template loading indicator, select-all size buttons, offer_qty image grid.</li>
+				<li>✅ <b>Sidebar Favorites:</b> Desktop sidebar favorites system, normal paper manager.</li>
+				<li>✅ <b>Offer Editor Fix:</b> Preserve pricing data with upsert instead of delete+reinsert.</li>
+			</ul>
+		</div>
+		<p class="date">Current Version (AQ41)</p>
+	</div>
+
+	<div class="previous-change">
 		<h3>✨ Daily Checklist Mobile Interface - Submission Tracking & Enhanced UI</h3>
 		<p class="change-description">New mobile interface for daily checklist submissions with pending counter, completion tracking, and improved form usability with larger checkboxes.</p>
 		<div class="change-details">
-			<h4>February 11, 2026 (Latest):</h4>
+			<h4>February 11, 2026:</h4>
 			<ul>
 				<li>✅ <b>Mobile Checklist Page:</b> New full-page mobile interface at /mobile-interface/my-checklist for submitting daily and weekly checklists with question forms.</li>
 				<li>✅ <b>Pending Checklists Counter:</b> Home dashboard shows count of pending checklists due for submission, with three states: pending count, all submitted with date (dd-mm-yyyy), or no checklists assigned.</li>
@@ -37,7 +95,7 @@
 				<li>✅ <b>Bug Fixes:</b> Vendor payment approval routing fix, Arabic filename sanitization for uploads, ERP Entry Manager column cleanup, price field strikethrough positioning.</li>
 			</ul>
 		</div>
-		<p class="date">Current Version (AQ40)</p>
+		<p class="date">February 11, 2026 (AQ40)</p>
 	</div>
 
 	<div class="previous-change">
