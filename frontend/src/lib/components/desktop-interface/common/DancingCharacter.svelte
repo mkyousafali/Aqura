@@ -185,15 +185,15 @@
 
 	@keyframes bubblePop {
 		0% {
-			transform: scale(0) translateY(10px);
+			transform: translateX(-50%) scale(0) translateY(10px);
 			opacity: 0;
 		}
 		60% {
-			transform: scale(1.08) translateY(-3px);
+			transform: translateX(-50%) scale(1.08) translateY(-3px);
 			opacity: 1;
 		}
 		100% {
-			transform: scale(1) translateY(0);
+			transform: translateX(-50%) scale(1) translateY(0);
 			opacity: 1;
 		}
 	}
