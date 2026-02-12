@@ -332,6 +332,33 @@
 		showOfferModal = false;
 		selectedOffer = null;
 	}
+
+	/** Refresh attendance analysis data after edge function completes */
+	async function refreshAttendanceData(empId: string) {
+		try {
+			const today = new Date();
+			const yesterday = new Date(today);
+			yesterday.setDate(yesterday.getDate() - 1);
+			const todayStr = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+			const yesterdayStr = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+
+			const { data: attData, error: attError } = await supabase
+				.from('hr_analysed_attendance_data')
+				.select('*')
+				.eq('employee_id', empId)
+				.in('shift_date', [todayStr, yesterdayStr])
+				.order('shift_date', { ascending: false });
+
+			if (!attError && attData) {
+				attendanceToday = attData.find(r => r.shift_date === todayStr) || null;
+				attendanceYesterday = attData.find(r => r.shift_date === yesterdayStr) || null;
+				console.log('🔄 Attendance data refreshed after analysis - Today:', attendanceToday, 'Yesterday:', attendanceYesterday);
+			}
+		} catch (e) {
+			console.error('Error refreshing attendance data:', e);
+		}
+	}
+
 	async function loadDashboardData() {
 		try {
 			const startTime = performance.now();
@@ -394,6 +421,22 @@
 		}
 		
 		console.log('🎯 Step 3 - Found employee codes across all branches:', allEmployeeCodes);
+
+		// Step 3b: Trigger analyze-attendance edge function for this employee (fire-and-forget, don't block dashboard)
+		console.log('🔄 Step 3b - Triggering analyze-attendance edge function for employee:', employeeRecord.id);
+		supabase.functions.invoke('analyze-attendance', {
+			body: { employeeId: employeeRecord.id, rollingDays: 3 }
+		}).then(({ data: analyzeData, error: analyzeError }) => {
+			if (analyzeError) {
+				console.error('❌ analyze-attendance edge function error:', analyzeError);
+			} else {
+				console.log('✅ analyze-attendance completed:', analyzeData);
+				// Refresh attendance data after analysis completes
+				refreshAttendanceData(employeeRecord.id);
+			}
+		}).catch(err => {
+			console.error('❌ analyze-attendance invocation failed:', err);
+		});
 		
 		// Step 4: Load attendance analysis data for today and yesterday
 		console.log('🔍 Step 4 - Loading attendance analysis data...');

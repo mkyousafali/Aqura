@@ -4,6 +4,13 @@
 
 This guide explains how the button detection system works, how to detect new buttons from the codebase, and how to update endpoints for future maintenance.
 
+> **⚠️ MANDATORY BILINGUAL RULE:** This application supports **English and Arabic**. When creating buttons, **NEVER** hardcode English text for:
+> - **Window titles** in `openWindow()` — always use `title: t('nav.keyName')`
+> - **Button labels** in Sidebar.svelte — always use `{t('nav.keyName')}`
+> - Always add translations to **both** `en.ts` and `ar.ts`
+>
+> Hardcoded English strings will break the Arabic interface.
+
 ## System Architecture
 
 ### Core Components
@@ -162,11 +169,13 @@ This is the **FULL PROCESS** to follow when adding a new button to the system:
     <div class="submenu-item-container">
       <button class="submenu-item" on:click={openDailyChecklistManager}>
         <span class="menu-icon">📋</span>
-        <span class="menu-text">Daily Checklist Manager</span>
+        <span class="menu-text">{t('nav.dailyChecklistManager')}</span>
       </button>
     </div>
   {/if}
   ```
+
+> **⚠️ BILINGUAL RULE:** NEVER hardcode English text in button labels or window titles. Always use `t('nav.keyName')` so the text displays correctly in both English and Arabic.
 
 #### Step 1.3: Add Button Handler to Sidebar Logic
 - Add the import statement for your component:
@@ -174,11 +183,14 @@ This is the **FULL PROCESS** to follow when adding a new button to the system:
   import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
   ```
 - Add click handler function:
+
+  > **⚠️ CRITICAL:** The `title` property MUST use `t()` for bilingual support. NEVER use a hardcoded English string like `` title: `Daily Checklist Manager` ``. Always use `title: t('nav.dailyChecklistManager')` so the window header displays correctly in Arabic.
+
   ```typescript
   function openDailyChecklistManager() {
     openWindow({
       id: 'daily-checklist-manager',
-      title: t('nav.dailyChecklistManager'),
+      title: t('nav.dailyChecklistManager'),  // ✅ Always use t() - NEVER hardcode English
       component: DailyChecklistManager,
       minimizable: true,
       maximizable: true,
@@ -328,12 +340,13 @@ git push
 
 ### Method 1: Manual Addition (Quick) - Key Steps Only
 
-1. **Add button to Sidebar.svelte** with `isButtonAllowed('CODE')`
+1. **Add button to Sidebar.svelte** with `isButtonAllowed('CODE')` — use `{t('nav.keyName')}` for label text, NEVER hardcode English
 2. **Update parse-sidebar-code endpoint** - add button code to section array
 3. **Add to buttonIconMap & buttonCodeTranslationMap** in +page.svelte
-4. **Add i18n translations** in en.ts and ar.ts
-5. **Run Button Sync** - Controls > Manage > Button Generator
-6. **Test and commit**
+4. **Add i18n translations** in **both** en.ts and ar.ts
+5. **Add click handler** with `title: t('nav.keyName')` — NEVER hardcode English in window title
+6. **Run Button Sync** - Controls > Manage > Button Generator
+7. **Test and commit**
 
 ### Method 2: AI Agent Detection (Automated)
 

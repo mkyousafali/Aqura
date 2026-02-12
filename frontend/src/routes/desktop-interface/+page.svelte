@@ -48,7 +48,7 @@
 		// Additional DB button codes
 		'UPLOAD_EMPLOYEES': '📤', 'WARNING_MASTER': '⚠️', 'SALARY_WAGE_MANAGEMENT': '💰',
 		'CONTACT_MANAGEMENT': '📇', 'DOCUMENT_MANAGEMENT': '📑', 'BIOMETRIC_DATA': '👆',
-		'BRANCH_MASTER': '🏢', 'SOUND_SETTINGS': '🔊', 'CATEGORY_MANAGER': '📂',
+		'BRANCH_MASTER': '🏢', 'SOUND_SETTINGS': '🔊', 'CATEGORY_MANAGER': '📂', 'ASSET_MANAGER': '🏗️',
 		'REPORTS_STATS': '📊', 'COUPON_DASHBOARD': '🎁', 'MANAGE_CAMPAIGNS': '📋',
 		'IMPORT_CUSTOMERS': '👥', 'MANAGE_PRODUCTS': '🎁', 'OVER_DUES': '⏰',
 		'USER_PERMISSIONS': '🔐', 'USERS': '👤', 'CREATE_USER_ROLES': '👥',
@@ -172,6 +172,7 @@
 		'BRANCH_MASTER': 'admin.branchesMaster',
 		'SOUND_SETTINGS': 'nav.soundSettings',
 		'CATEGORY_MANAGER': 'nav.categoryManager',
+		'ASSET_MANAGER': 'nav.assetManager',
 		'REPORTS_STATS': 'nav.reportsAndStats',
 		'COUPON_DASHBOARD': 'nav.couponDashboard',
 		'MANAGE_CAMPAIGNS': 'nav.manageCampaigns',
@@ -440,7 +441,7 @@
 			<div class="welcome-container">
 				<div class="welcome-card">
 					<div class="logo-section">
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ42.16.10.10</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ43.16.10.10</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>
