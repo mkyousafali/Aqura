@@ -186,6 +186,7 @@ export const englishLocale: LocaleData = {
       reportIncident: "Report Incident",
       dailyChecklistManager: "Daily Checklist Manager",
       incidentManager: "Incident Manager",
+      productRequest: "Product Request",
       assignTasks: "Assign Tasks",
       createTask: "Create Task",
       completeTask: "Complete Task",
@@ -472,6 +473,15 @@ export const englishLocale: LocaleData = {
         success: {
           taskCreated: "Task created successfully!",
         },
+      },
+
+      // Product Request Content
+      productRequestContent: {
+        barcode: "Product Barcode",
+        barcodePlaceholder: "Enter or scan barcode",
+        quantity: "Quantity",
+        scan: "Scan Barcode",
+        scanTitle: "Scan Barcode",
       },
 
       // Quick Task Content
