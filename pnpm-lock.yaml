@@ -42,6 +42,9 @@ importers:
       '@imgly/background-removal':
         specifier: ^1.7.0
         version: 1.7.0(onnxruntime-web@1.23.2)
+      '@lottiefiles/dotlottie-web':
+        specifier: ^0.62.0
+        version: 0.62.0
       '@supabase/supabase-js':
         specifier: ^2.45.4
         version: 2.58.0
@@ -72,6 +75,9 @@ importers:
       jsbarcode:
         specifier: ^3.12.1
         version: 3.12.1
+      lottie-web:
+        specifier: ^5.13.0
+        version: 5.13.0
       lucide-svelte:
         specifier: ^0.447.0
         version: 0.447.0(svelte@5.39.8)
@@ -1316,6 +1322,9 @@ packages:
 
   '@js-joda/core@5.6.5':
     resolution: {integrity: sha512-3zwefSMwHpu8iVUW8YYz227sIv6UFqO31p1Bf1ZH/Vom7CmNyUsXjDBlnNzcuhmOL1XfxZ3nvND42kR23XlbcQ==}
+
+  '@lottiefiles/dotlottie-web@0.62.0':
+    resolution: {integrity: sha512-iOvJnOoN202ZtGxT8yFe4Lhh8pj8vTGEEyUJMiNNrTZTGLrp9zSbFZEAow5ICd/MSoAYqDPbSLR/AHYHXq8RLQ==}
 
   '@malept/cross-spawn-promise@2.0.0':
     resolution: {integrity: sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg==}
@@ -3529,6 +3538,9 @@ packages:
 
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
+
+  lottie-web@5.13.0:
+    resolution: {integrity: sha512-+gfBXl6sxXMPe8tKQm7qzLnUy5DUPJPKIyRHwtpCpyUEYjHYRJC/5gjUvdkuO2c3JllrPtHXH5UJJK8LRYl5yQ==}
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
@@ -6337,6 +6349,8 @@ snapshots:
 
   '@js-joda/core@5.6.5': {}
 
+  '@lottiefiles/dotlottie-web@0.62.0': {}
+
   '@malept/cross-spawn-promise@2.0.0':
     dependencies:
       cross-spawn: 7.0.6
@@ -8865,6 +8879,8 @@ snapshots:
       is-unicode-supported: 0.1.0
 
   long@5.3.2: {}
+
+  lottie-web@5.13.0: {}
 
   loupe@3.2.1: {}
 
