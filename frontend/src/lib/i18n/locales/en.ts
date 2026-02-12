@@ -199,6 +199,7 @@ export const englishLocale: LocaleData = {
         create: "Assign",
         assignments: "Assignments",
         purchaseVoucher: "Voucher",
+        aiChat: "Aqura",
       },
       // Error messages
       error: {

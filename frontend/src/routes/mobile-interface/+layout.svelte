@@ -599,6 +599,7 @@
 		if (path === '/mobile-interface/fingerprint-analysis' || path === '/mobile-interface/fingerprint-analysis/') return getTranslation('mobile.fingerprintAnalysis');
 		if (path === '/mobile-interface/purchase-voucher' || path === '/mobile-interface/purchase-voucher/') return getTranslation('mobile.purchaseVoucher.title');
 		if (path === '/mobile-interface/my-checklist' || path === '/mobile-interface/my-checklist/') return getTranslation('hr.dailyChecklist.myDailyChecklist');
+		if (path === '/mobile-interface/ai-chat' || path === '/mobile-interface/ai-chat/') return getTranslation('mobile.bottomNav.aiChat');
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -992,6 +993,17 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- AI Chat Button -->
+			<a href="/mobile-interface/ai-chat" class="nav-item ai-chat-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/ai-chat')} on:click={() => { showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }}>
+				<div class="nav-icon ai-chat-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+						<path d="M8 10h.01M12 10h.01M16 10h.01"/>
+					</svg>
+				</div>
+				<span class="nav-label">{getTranslation('mobile.bottomNav.aiChat')}</span>
+			</a>
 		</nav>
 	</div>
 {:else}
@@ -1582,9 +1594,7 @@
 	}
 
 	.nav-label {
-		font-size: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
-		font-weight: 500;
-		text-align: center;
+		display: none;
 	}
 
 	/* Special styling for quick task button */
@@ -1731,6 +1741,55 @@
 
 	.nav-item.hr-menu-btn .nav-label {
 		font-weight: 600;
+	}
+
+	/* AI Chat Button styles */
+	.nav-item.ai-chat-btn {
+		border: none;
+		background: none;
+		cursor: pointer;
+		position: relative;
+	}
+
+	.nav-item.ai-chat-btn:hover {
+		color: #6366F1;
+		background: rgba(99, 102, 241, 0.05);
+	}
+
+	.nav-item.ai-chat-btn.active {
+		color: #6366F1;
+	}
+
+	.nav-item.ai-chat-btn.active .nav-icon {
+		background: rgba(99, 102, 241, 0.1);
+		color: #6366F1;
+	}
+
+	.nav-item.ai-chat-btn .nav-label {
+		font-weight: 600;
+		color: #6366F1;
+	}
+
+	.ai-chat-icon {
+		position: relative;
+	}
+
+	.ai-chat-icon::after {
+		content: '';
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		width: 6px;
+		height: 6px;
+		background: #4ade80;
+		border-radius: 50%;
+		box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+		animation: ai-pulse 2s infinite;
+	}
+
+	@keyframes ai-pulse {
+		0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(74, 222, 128, 0.6); }
+		50% { opacity: 0.6; box-shadow: 0 0 10px rgba(74, 222, 128, 0.9); }
 	}
 
 	/* HR Submenu Styles */
