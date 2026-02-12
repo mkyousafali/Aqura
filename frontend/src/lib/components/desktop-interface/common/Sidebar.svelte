@@ -43,6 +43,7 @@
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
 	import BankReconciliation from '$lib/components/desktop-interface/master/finance/BankReconciliation.svelte';
+	import AssetManager from '$lib/components/desktop-interface/master/finance/AssetManager.svelte';
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
 	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
@@ -2118,6 +2119,27 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Asset Manager window
+	function openAssetManager() {
+		collapseAllMenus();
+		
+		const windowId = 'asset-manager-main';
+		
+		openWindow({
+			id: windowId,
+			title: t('nav.assetManager'),
+			component: AssetManager,
+			icon: '🏗️',
+			size: { width: 1100, height: 700 },
+			position: { 
+				x: 180 + (Math.random() * 100),
+				y: 180 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Open Day Budget Planner window
 	function openDayBudgetPlanner() {
 		collapseAllMenus();
@@ -3776,6 +3798,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openBankReconciliation}>
 								<span class="menu-icon">🏦</span>
 								<span class="menu-text">{t('nav.bankReconciliation')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ASSET_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAssetManager}>
+								<span class="menu-icon">🏗️</span>
+								<span class="menu-text">{t('nav.assetManager')}</span>
 							</button>
 						</div>
 					{/if}
