@@ -206,6 +206,7 @@ export const arabicLocale: LocaleData = {
         create: "تعيين",
         assignments: "التكليفات",
         purchaseVoucher: "القسائم",
+        aiChat: "أكورا",
       },
       // Error messages
       error: {
