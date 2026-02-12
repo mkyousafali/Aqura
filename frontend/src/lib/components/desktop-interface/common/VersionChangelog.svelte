@@ -5,11 +5,31 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ42.16.10.10</p>
-		<p class="version-details">Desktop: 42 | Mobile: 16 | Cashier: 10 | Customer: 10</p>
+		<p class="version-title">Version AQ43.16.10.10</p>
+		<p class="version-details">Desktop: 43 | Mobile: 16 | Cashier: 10 | Customer: 10</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ Finance — Asset Manager (Complete Feature)</h3>
+		<p class="change-description">Full asset management system with 5 tabs: Add Asset, Download Template, Import Assets, Manage Assets, and Manage Categories/Sub Categories.</p>
+		<div class="change-details">
+			<h4>February 13, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Finance — Add Asset:</b> Form with auto-generated Asset ID (editable), sub category selection, asset name EN/AR, purchase date, purchase value, branch selection with location, and invoice upload.</li>
+				<li>✅ <b>Finance — Manage Assets Table:</b> Full table with Asset ID, Asset Name, Category, Sub Category, Purchase Date, Asset Value (with SAR currency icon), Branch + Location, Invoice, and Actions columns. Search bar with total asset value display.</li>
+				<li>✅ <b>Finance — Edit Asset Popup:</b> Edit all asset fields including auto-regenerating Asset ID on sub category change. Invoice section with View/Update/Upload buttons matching manage table style.</li>
+				<li>✅ <b>Finance — Delete Asset:</b> Delete button in actions column, visible only for Master Admins with confirmation dialog.</li>
+				<li>✅ <b>Finance — Manage Categories:</b> CRUD for main categories and sub categories with group codes, depreciation rates, useful life years. Search bars and sticky headers.</li>
+				<li>✅ <b>Finance — Download Template:</b> Excel template with sample data and styled headers for bulk import.</li>
+				<li>✅ <b>Finance — Import Assets:</b> File chooser with preview table, bulk import from Excel files.</li>
+				<li>✅ <b>Finance — Inline Invoice Management:</b> View, Update, and Upload invoice buttons directly in the table. File upload to Supabase storage.</li>
+				<li>✅ <b>UI/UX:</b> Locale-aware display (Arabic-only or English-only based on language), dd-mm-yyyy date format, column and row borders, currency symbol from static icons, sticky headers, search filtering across all tables.</li>
+				<li>✅ <b>Database:</b> 4 migration files for asset_main_categories (18 seeded), asset_sub_categories (68+ seeded with depreciation), assets table, and asset-invoices storage bucket.</li>
+			</ul>
+		</div>
+		</div>
+
+		<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ Automated Attendance Analysis, Mobile Dashboard & Edge Functions</h3>
 		<p class="change-description">Server-side attendance analysis with Edge Functions, mobile dashboard attendance cards, smart "Not yet" status logic, and pg_cron automated scheduling.</p>
 		<div class="change-details">
