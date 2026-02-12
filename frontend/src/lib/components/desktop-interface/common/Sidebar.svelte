@@ -79,6 +79,7 @@
 	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
+	import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
 	import ViewOfferManager from '$lib/components/desktop-interface/marketing/coupon/ViewOfferManager.svelte';
@@ -1639,6 +1640,26 @@ function openApprovalCenter() {
 		});
 	}
 
+	function openDefaultPositions() {
+		collapseAllMenus();
+		const windowId = generateWindowId('default-positions');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Default Positions #${instanceNumber}`,
+			component: DefaultPositions,
+			icon: '👥',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Map button_code to open function for favorites sidebar
 	function openFavoriteButton(buttonCode: string) {
 		const actionMap: Record<string, () => void> = {
@@ -1651,6 +1672,7 @@ function openApprovalCenter() {
 			'UPLOAD_VENDOR': openUploadVendor,
 			'CREATE_VENDOR': openCreateVendor,
 			'MANAGE_VENDOR': openManageVendor,
+			'DEFAULT_POSITIONS': openDefaultPositions,
 			'RECEIVING': openReceiving,
 			'START_RECEIVING': openStartReceiving,
 			'RECEIVING_RECORDS': openReceivingRecords,
@@ -3158,6 +3180,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openManageVendor}>
 								<span class="menu-icon">📋</span>
 								<span class="menu-text">{t('admin.manageVendor') || 'Manage Vendor'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DEFAULT_POSITIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDefaultPositions}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">Default Positions</span>
 							</button>
 						</div>
 					{/if}

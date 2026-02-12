@@ -46,7 +46,7 @@ export const GET: RequestHandler = async () => {
 			},
 			VENDOR: {
 				DASHBOARD: ['RECEIVING'],
-				MANAGE: ['UPLOAD_VENDOR', 'CREATE_VENDOR', 'MANAGE_VENDOR'],
+				MANAGE: ['UPLOAD_VENDOR', 'CREATE_VENDOR', 'MANAGE_VENDOR', 'DEFAULT_POSITIONS'],
 				OPERATIONS: ['START_RECEIVING', 'RECEIVING_RECORDS'],
 				REPORTS: ['VENDOR_RECORDS']
 			},
@@ -112,6 +112,7 @@ export const GET: RequestHandler = async () => {
 			UPLOAD_VENDOR: 'Upload Vendor',
 			CREATE_VENDOR: 'Create Vendor',
 			MANAGE_VENDOR: 'Manage Vendor',
+			DEFAULT_POSITIONS: 'Default Positions',
 			START_RECEIVING: 'Start Receiving',
 			RECEIVING_RECORDS: 'Receiving Records',
 			VENDOR_RECORDS: 'Vendor Records',

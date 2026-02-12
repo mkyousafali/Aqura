@@ -7,6 +7,7 @@
   export let receivingRecord = null;
   export let show = false;
   
+  let currencySymbolUrl = '/icons/saudi-currency.png';
   const dispatch = createEventDispatcher();
   
   let isGenerating = false;
@@ -18,6 +19,9 @@
   let generatedTasks = [];
   let tasksGenerated = false;
   let tasksSummary = null;
+  
+  // Employee name map: role_type → { name, employeeId }
+  let roleEmployeeNames = {};
   
   // New workflow states
   let certificateGenerated = false;
@@ -962,6 +966,72 @@
     }
   }
   
+  // Map role_type to the user ID field in receiving_records
+  function getUserIdForRole(roleType) {
+    if (!receivingRecord) return null;
+    switch (roleType) {
+      case 'branch_manager': return receivingRecord.branch_manager_user_id;
+      case 'purchase_manager': return receivingRecord.purchasing_manager_user_id;
+      case 'inventory_manager': return receivingRecord.inventory_manager_user_id;
+      case 'accountant': return receivingRecord.accountant_user_id;
+      case 'night_supervisor': return (receivingRecord.night_supervisor_user_ids || [])[0] || null;
+      case 'warehouse_handler': return (receivingRecord.warehouse_handler_user_ids || [])[0] || null;
+      case 'shelf_stocker': return (receivingRecord.shelf_stocker_user_ids || [])[0] || null;
+      default: return null;
+    }
+  }
+
+  // Resolve all employee names from the receiving record when it changes
+  async function resolveEmployeeNames() {
+    if (!receivingRecord) return;
+    
+    const userIds = [
+      receivingRecord.branch_manager_user_id,
+      receivingRecord.purchasing_manager_user_id,
+      receivingRecord.inventory_manager_user_id,
+      receivingRecord.accountant_user_id,
+      ...(receivingRecord.night_supervisor_user_ids || []),
+      ...(receivingRecord.warehouse_handler_user_ids || []),
+      ...(receivingRecord.shelf_stocker_user_ids || []),
+    ].filter(Boolean);
+
+    const uniqueIds = [...new Set(userIds)];
+    if (uniqueIds.length === 0) return;
+
+    try {
+      const { data: employees } = await supabase
+        .from('hr_employee_master')
+        .select('user_id, name_en, id')
+        .in('user_id', uniqueIds);
+
+      if (employees) {
+        const empMap = {};
+        employees.forEach(emp => {
+          empMap[emp.user_id] = { name: emp.name_en || emp.id, employeeId: emp.id };
+        });
+
+        // Build role → employee name map
+        const roles = ['branch_manager', 'purchase_manager', 'inventory_manager', 'accountant', 'night_supervisor', 'warehouse_handler', 'shelf_stocker'];
+        const newMap = {};
+        for (const role of roles) {
+          const uid = getUserIdForRole(role);
+          if (uid && empMap[uid]) {
+            newMap[role] = empMap[uid];
+          }
+        }
+        roleEmployeeNames = newMap;
+        console.log('✅ Resolved employee names:', roleEmployeeNames);
+      }
+    } catch (err) {
+      console.error('Error resolving employee names:', err);
+    }
+  }
+
+  // When receivingRecord changes, resolve names
+  $: if (receivingRecord && show) {
+    resolveEmployeeNames();
+  }
+
   // Load generated tasks for the receiving record
   async function loadGeneratedTasks() {
     if (!receivingRecord?.id) return;
@@ -1043,15 +1113,15 @@
   <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
       <!-- Header -->
-      <div class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4">
+      <div class="px-6 py-4 border-b border-gray-200">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-xl font-semibold">Clearance Certificate Manager</h2>
-            <p class="text-blue-100 text-sm">Generate tasks for receiving process</p>
+            <h2 class="text-xl font-semibold text-gray-800">Clearance Certificate Manager</h2>
+            <p class="text-gray-400 text-sm">Generate tasks for receiving process</p>
           </div>
           <button
             on:click={close}
-            class="text-white hover:text-gray-200 text-2xl font-bold"
+            class="text-gray-400 hover:text-gray-600 text-2xl font-bold"
           >
             ×
           </button>
@@ -1075,7 +1145,7 @@
               </div>
               <div>
                 <span class="text-gray-600">Bill Amount:</span>
-                <span class="ml-2">${receivingRecord.bill_amount}</span>
+                <span class="ml-2 inline-flex items-center gap-1"><img src={currencySymbolUrl} alt="SAR" class="inline-block w-2.5 h-2.5" />{receivingRecord.bill_amount}</span>
               </div>
               <div>
                 <span class="text-gray-600">Bill Number:</span>
@@ -1297,6 +1367,11 @@
                           <span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {getRoleDisplayName(task.role_type)}
                           </span>
+                          {#if roleEmployeeNames[task.role_type]}
+                            <span class="text-sm text-gray-700 font-medium">
+                              {roleEmployeeNames[task.role_type].employeeId} - {roleEmployeeNames[task.role_type].name}
+                            </span>
+                          {/if}
                           <span class="px-2 py-1 rounded-full text-xs font-medium {getTaskStatusColor(task.assignment_status)}">
                             {task.assignment_status}
                           </span>
