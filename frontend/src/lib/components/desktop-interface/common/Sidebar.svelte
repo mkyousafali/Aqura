@@ -93,6 +93,7 @@
 	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
+	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -130,6 +131,7 @@
 	import BTRequestsList from '$lib/components/desktop-interface/master/stock/BTRequestsList.svelte';
 	import NearExpiryRequestsList from '$lib/components/desktop-interface/master/stock/NearExpiryRequestsList.svelte';
 	import CustomerProductRequestsList from '$lib/components/desktop-interface/master/stock/CustomerProductRequestsList.svelte';
+	import ErpProductsList from '$lib/components/desktop-interface/master/stock/ErpProductsList.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -258,6 +260,7 @@
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'BUTTON_GENERATOR': 'nav.buttonGenerator',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
+		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
 		// Additional DB button codes (aliases / alternate codes)
 		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees', 'WARNING_MASTER': 'nav.warningMaster',
 		'SALARY_WAGE_MANAGEMENT': 'hr.masterSalaryManagement', 'CONTACT_MANAGEMENT': 'hr.masterContactManagement',
@@ -272,6 +275,7 @@
 		'INTERFACE_ACCESS': 'nav.interfaceAccess', 'CREATE_TASK_TEMPLATE': 'nav.createTaskTemplate',
 		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates',
 		'STOCK_PRODUCT_REQUEST': 'nav.productRequest',
+		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 	};
 
 	/** Get translated button name from button_code */
@@ -1614,6 +1618,29 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 	}
 
+	function openErpProductManager() {
+		const windowId = generateWindowId('erp-product-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.erpProductManager')} #${instanceNumber}`,
+			component: ErpProductManager,
+			icon: '🏭',
+			size: { width: 1400, height: 800 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsSubmenu = false;
+		showControlsManageSubmenu = false;
+	}
+
 	function openCommunicationCenter() {
 		const windowId = generateWindowId('communication-center');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -1775,7 +1802,9 @@ function openApprovalCenter() {
 			'BUTTON_GENERATOR': openButtonGenerator,
 			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
+			'ERP_PRODUCT_MANAGER': openErpProductManager,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
+			'STOCK_ERP_PRODUCTS': openStockErpProducts,
 		};
 
 		const action = actionMap[buttonCode];
@@ -1891,6 +1920,29 @@ function openApprovalCenter() {
 		showNotificationsSubmenu = false;
 		showUserSubmenu = false;
 		showStockSubmenu = false;
+	}
+
+	// Open ERP Products List window
+	function openStockErpProducts() {
+		collapseAllMenus();
+		const windowId = generateWindowId('erp-products');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `ERP Products #${instanceNumber}`,
+			component: ErpProductsList,
+			icon: '🏭',
+			size: { width: 1400, height: 800 },
+			position: { 
+				x: 120 + (Math.random() * 100),
+				y: 120 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	// Open Product Request Desktop window
@@ -4501,6 +4553,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					{#if isButtonAllowed('STOCK_ERP_PRODUCTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openStockErpProducts}>
+								<span class="menu-icon">🏭</span>
+								<span class="menu-text">{t('nav.erpProducts') || 'ERP Products'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -5144,6 +5204,12 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openErpProductManager}>
+							<span class="menu-icon">🏭</span>
+							<span class="menu-text">{t('nav.erpProductManager')}</span>
+						</button>
+					</div>
 			</div>
 		{/if}			<!-- Operations Subsection -->
 			<div class="submenu-item-container">
