@@ -15,6 +15,7 @@
 		unit_qty: number;
 		is_base_unit: boolean;
 		synced_at?: string;
+		expiry_dates?: { branch_id?: number; erp_branch_id?: number; erp_row_branch_id?: number; expiry_date: string }[];
 	}
 
 	interface ServerSettings {
@@ -39,6 +40,14 @@
 	let totalSynced = 0;
 	let totalFiltered = 0;
 	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Per-branch connection test status: branch_id -> { testing, success, message }
+	let branchTestStatus: Record<number, { testing: boolean; success?: boolean; message?: string }> = {};
+
+	// Inline expiry date editing
+	let editingCell: { productIndex: number; branchId: number } | null = null;
+	let editingValue = '';
+	let savingExpiry = false;
 
 	// Server settings  
 	let settings: ServerSettings = {
@@ -124,6 +133,9 @@
 		connectionStatus = null;
 	}
 
+	// Reactive: get the full selected config object for branch IDs
+	$: selectedConfig = savedConfigs.find(c => c.id === selectedConfigId) || null;
+
 	async function testConnection() {
 		if (!settings.serverIp || !settings.databaseName || !settings.username || !settings.password) {
 			connectionStatus = { success: false, message: 'Please fill in all server settings' };
@@ -168,7 +180,9 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'sync',
-					...settings
+					...settings,
+					erpBranchId: selectedConfig?.erp_branch_id || null,
+					appBranchId: selectedConfig?.branch_id || null
 				})
 			});
 
@@ -182,34 +196,35 @@
 			const fetchedProducts: ErpProduct[] = result.products;
 			syncStatus = { success: true, message: `Fetched ${fetchedProducts.length} barcodes. Inserting...` };
 
-			// Step 2: Insert in batches
-			const batchSize = 500;
+			// Step 2: Insert/upsert in batches using RPC for expiry merge
+			const batchSize = 200;
 			let newCount = 0;
+			let updatedCount = 0;
 			
 			for (let i = 0; i < fetchedProducts.length; i += batchSize) {
 				const batch = fetchedProducts.slice(i, i + batchSize);
 				
-				const { data: insertData, error: insertError } = await supabase
-					.from('erp_synced_products')
-					.insert(batch)
-					.select('id');
+				const { data: rpcResult, error: rpcError } = await supabase
+					.rpc('upsert_erp_products_with_expiry', {
+						p_products: batch
+					});
 
-				if (insertError) {
-					console.error(`Error inserting batch ${i}:`, insertError);
-				} else {
-					const insertedInBatch = insertData?.length || 0;
-					newCount += insertedInBatch;
+				if (rpcError) {
+					console.error(`Error upserting batch ${i}:`, rpcError);
+				} else if (rpcResult) {
+					newCount += rpcResult.inserted || 0;
+					updatedCount += rpcResult.updated || 0;
 				}
 
 				syncStatus = { 
 					success: true, 
-					message: `Inserting... ${i + batch.length}/${fetchedProducts.length} (${newCount} inserted)` 
+					message: `Syncing... ${i + batch.length}/${fetchedProducts.length} (${newCount} new, ${updatedCount} updated)` 
 				};
 			}
 
 			syncStatus = { 
 				success: true, 
-				message: `✅ Sync complete! ${newCount} barcodes synced from ${result.baseProductsCount} products.` 
+				message: `✅ Sync complete! ${newCount} new + ${updatedCount} updated barcodes from ${result.baseProductsCount} products.` 
 			};
 
 			// Reload synced products
@@ -270,6 +285,156 @@
 	}
 
 	$: isRtl = $locale === 'ar';
+
+	// Dynamic branch columns for expiry dates - one column per saved ERP connection
+	$: branchColumns = savedConfigs.map(c => ({ branch_id: c.branch_id, branch_name: c.branch_name }));
+
+	function getExpiryForBranch(product: ErpProduct, branchId: number): string | null {
+		if (!product.expiry_dates || product.expiry_dates.length === 0) return null;
+		const entry = product.expiry_dates.find(e => e.branch_id === branchId);
+		if (!entry?.expiry_date) return null;
+		// Convert yyyy-mm-dd to dd-mm-yyyy
+		const parts = entry.expiry_date.split('-');
+		if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+		return entry.expiry_date;
+	}
+
+	async function testBranchConnection(branchId: number) {
+		const config = savedConfigs.find(c => c.branch_id === branchId);
+		if (!config) return;
+
+		branchTestStatus[branchId] = { testing: true };
+		branchTestStatus = branchTestStatus; // trigger reactivity
+
+		try {
+			const response = await fetch('/api/erp-products', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'test',
+					serverIp: config.server_ip,
+					databaseName: config.database_name,
+					username: config.username,
+					password: config.password
+				})
+			});
+			const result = await response.json();
+			branchTestStatus[branchId] = { testing: false, success: result.success, message: result.success ? '✅' : '❌' };
+		} catch (err: any) {
+			branchTestStatus[branchId] = { testing: false, success: false, message: '❌' };
+		}
+		branchTestStatus = branchTestStatus;
+	}
+
+	function startEditExpiry(productIndex: number, branchId: number, currentValue: string | null) {
+		// Convert dd-mm-yyyy display back to yyyy-mm-dd for input
+		let inputVal = '';
+		if (currentValue) {
+			const parts = currentValue.split('-');
+			if (parts.length === 3 && parts[0].length === 2) {
+				inputVal = `${parts[2]}-${parts[1]}-${parts[0]}`;
+			} else {
+				inputVal = currentValue;
+			}
+		}
+		editingCell = { productIndex, branchId };
+		editingValue = inputVal;
+	}
+
+	function cancelEdit() {
+		editingCell = null;
+		editingValue = '';
+	}
+
+	async function saveExpiryDate() {
+		if (!editingCell || !editingValue) { cancelEdit(); return; }
+
+		const product = products[editingCell.productIndex];
+		const branchId = editingCell.branchId;
+		const config = savedConfigs.find(c => c.branch_id === branchId);
+		if (!product || !config) { cancelEdit(); return; }
+
+		const newExpiryDate = editingValue; // yyyy-mm-dd format
+		savingExpiry = true;
+
+		try {
+			// 1. Update SQL Server (ERP)
+			const response = await fetch('/api/erp-products', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'update-expiry',
+					serverIp: config.server_ip,
+					databaseName: config.database_name,
+					username: config.username,
+					password: config.password,
+					barcode: product.barcode,
+					newExpiryDate
+				})
+			});
+			const result = await response.json();
+
+			if (!result.success) {
+				alert(result.error || 'Failed to update ERP');
+				savingExpiry = false;
+				return;
+			}
+
+			// 2. Update Supabase (app) - merge into expiry_dates JSON for this barcode + all sibling barcodes (same parent_barcode)
+			const newEntry = { branch_id: branchId, erp_branch_id: config.erp_branch_id, expiry_date: newExpiryDate };
+
+			// Find all barcodes that share the same parent_barcode
+			const parentBarcode = product.parent_barcode || product.barcode;
+			const { data: siblings } = await supabase
+				.from('erp_synced_products')
+				.select('barcode, expiry_dates')
+				.or(`parent_barcode.eq.${parentBarcode},barcode.eq.${parentBarcode}`);
+
+			const barcodesToUpdate = siblings && siblings.length > 0 ? siblings : [{ barcode: product.barcode, expiry_dates: product.expiry_dates }];
+			let sbErrors: string[] = [];
+
+			for (const sibling of barcodesToUpdate) {
+				const sibExpiry: any[] = sibling.expiry_dates ? [...sibling.expiry_dates] : [];
+				const idx = sibExpiry.findIndex((e: any) => e.branch_id === branchId);
+				if (idx >= 0) {
+					sibExpiry[idx] = newEntry;
+				} else {
+					sibExpiry.push(newEntry);
+				}
+
+				const { error: sbErr } = await supabase
+					.from('erp_synced_products')
+					.update({ expiry_dates: sibExpiry, synced_at: new Date().toISOString() })
+					.eq('barcode', sibling.barcode);
+
+				if (sbErr) {
+					console.error('Supabase update error for', sibling.barcode, sbErr);
+					sbErrors.push(sibling.barcode);
+				}
+			}
+
+			if (sbErrors.length > 0) {
+				alert(`ERP updated but Supabase failed for: ${sbErrors.join(', ')}`);
+			}
+
+			// 3. Update local state for all matching products
+			const updatedBarcodes = new Set(barcodesToUpdate.map(s => s.barcode));
+			for (let i = 0; i < products.length; i++) {
+				if (updatedBarcodes.has(products[i].barcode)) {
+					const localExpiry: any[] = products[i].expiry_dates ? [...products[i].expiry_dates] : [];
+					const li = localExpiry.findIndex((e: any) => e.branch_id === branchId);
+					if (li >= 0) { localExpiry[li] = newEntry; } else { localExpiry.push(newEntry); }
+					products[i].expiry_dates = localExpiry;
+				}
+			}
+			products = products;
+		} catch (err: any) {
+			alert('Error: ' + err.message);
+		} finally {
+			savingExpiry = false;
+			cancelEdit();
+		}
+	}
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans text-slate-800" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -545,7 +710,28 @@
 								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[200px]">{isRtl ? 'الاسم (عربي)' : 'Name (Arabic)'}</th>
 								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[80px]">{isRtl ? 'الوحدة' : 'Unit'}</th>
 								<th class="bg-blue-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap w-[60px]">{isRtl ? 'الكمية' : 'Qty'}</th>
-								<th class="bg-blue-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-blue-700 whitespace-nowrap w-[50px]">{isRtl ? 'أساسي' : 'Base'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap w-[50px]">{isRtl ? 'أساسي' : 'Base'}</th>
+								{#each branchColumns as branch}
+									<th class="bg-orange-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-orange-700 border-r border-orange-500 whitespace-nowrap min-w-[110px]">
+										<div class="flex items-center justify-center gap-1">
+											<span>📅 {branch.branch_name}</span>
+											<button
+												class="ml-1 bg-white/20 hover:bg-white/40 text-white border-none rounded-md px-1.5 py-0.5 text-[10px] cursor-pointer transition-all font-bold leading-none disabled:opacity-50"
+												disabled={branchTestStatus[branch.branch_id]?.testing}
+												on:click|stopPropagation={() => testBranchConnection(branch.branch_id)}
+												title={isRtl ? 'اختبار اتصال SQL' : 'Test SQL connection'}
+											>
+												{#if branchTestStatus[branch.branch_id]?.testing}
+													<span class="inline-block animate-spin">⏳</span>
+												{:else if branchTestStatus[branch.branch_id]?.message}
+													{branchTestStatus[branch.branch_id].message}
+												{:else}
+													🔗
+												{/if}
+											</button>
+										</div>
+									</th>
+								{/each}
 							</tr>
 						</thead>
 						<tbody>
@@ -564,6 +750,36 @@
 											<span class="bg-emerald-500 text-white rounded-full w-[22px] h-[22px] inline-flex items-center justify-center text-xs font-bold">✓</span>
 										{/if}
 									</td>
+									{#each branchColumns as branch}
+										{@const expDate = getExpiryForBranch(product, branch.branch_id)}
+									<td
+										class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center text-xs cursor-pointer hover:bg-orange-50 transition-colors"
+										on:dblclick={() => startEditExpiry(index, branch.branch_id, expDate)}
+										title={isRtl ? 'انقر مرتين للتعديل' : 'Double-click to edit'}
+									>
+										{#if editingCell && editingCell.productIndex === index && editingCell.branchId === branch.branch_id}
+											<div class="flex items-center gap-1">
+												<input
+													type="date"
+													class="w-[110px] text-xs border border-orange-400 rounded px-1 py-0.5 outline-none focus:border-orange-600 font-mono"
+													bind:value={editingValue}
+													on:keydown={(e) => { if (e.key === 'Enter') saveExpiryDate(); if (e.key === 'Escape') cancelEdit(); }}
+													disabled={savingExpiry}
+												/>
+												{#if savingExpiry}
+													<span class="text-[10px] animate-spin">⏳</span>
+												{:else}
+													<button class="text-emerald-600 border-none bg-transparent cursor-pointer text-sm p-0 leading-none" on:click={saveExpiryDate} title="Save">✓</button>
+													<button class="text-red-500 border-none bg-transparent cursor-pointer text-sm p-0 leading-none" on:click={cancelEdit} title="Cancel">✕</button>
+												{/if}
+											</div>
+										{:else if expDate}
+												<span class="font-mono text-orange-700 font-semibold">{expDate}</span>
+											{:else}
+												<span class="text-slate-300">—</span>
+											{/if}
+										</td>
+									{/each}
 								</tr>
 							{/each}
 						</tbody>
