@@ -57,6 +57,15 @@
 	let sendSuccess = false;
 	let sendError = '';
 
+	// Text recognition (OCR) state
+	let textScanning = false;
+	let textVideoEl: HTMLVideoElement;
+	let textStream: MediaStream | null = null;
+	let detectedTexts: string[] = [];
+	let showTextResults = false;
+	let textDetecting = false;
+	let ocrNoResult = false;
+
 	function openSavePopup() {
 		requestType = null;
 		selectedBranchId = null;
@@ -472,7 +481,103 @@
 		if (fileInput) fileInput.value = '';
 	}
 
-	onDestroy(() => { stopScan(); });
+	// --- Text recognition (OCR) for product name ---
+	async function startTextScan() {
+		textScanning = true;
+		detectedTexts = [];
+		showTextResults = false;
+		textDetecting = false;
+		ocrNoResult = false;
+		try {
+			textStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+			await new Promise(r => setTimeout(r, 50));
+			if (textVideoEl) {
+				textVideoEl.srcObject = textStream;
+				await textVideoEl.play();
+			}
+		} catch (err) {
+			console.error('Camera access error:', err);
+			textScanning = false;
+		}
+	}
+
+	function stopTextScan() {
+		if (textStream) { textStream.getTracks().forEach(t => t.stop()); textStream = null; }
+		textScanning = false;
+		textDetecting = false;
+	}
+
+	async function captureAndDetect() {
+		if (!textVideoEl || textVideoEl.readyState < 2) return;
+		textDetecting = true;
+		ocrNoResult = false;
+		try {
+			const canvas = document.createElement('canvas');
+			canvas.width = textVideoEl.videoWidth;
+			canvas.height = textVideoEl.videoHeight;
+			const ctx = canvas.getContext('2d');
+			if (!ctx) return;
+			ctx.drawImage(textVideoEl, 0, 0);
+			const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+			const apiKey = import.meta.env.VITE_GOOGLE_VISION_API_KEY || import.meta.env.VITE_GOOGLE_TTS_API_KEY;
+			if (!apiKey) {
+				console.error('No Google API key configured for Vision');
+				textDetecting = false;
+				ocrNoResult = true;
+				return;
+			}
+
+			const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					requests: [{
+						image: { content: base64 },
+						features: [{ type: 'TEXT_DETECTION', maxResults: 20 }]
+					}]
+				})
+			});
+			const data = await response.json();
+
+			if (data.error) {
+				console.error('Vision API error:', data.error);
+				textDetecting = false;
+				ocrNoResult = true;
+				return;
+			}
+
+			const annotations = data.responses?.[0]?.textAnnotations || [];
+			if (annotations.length > 0) {
+				const fullText = annotations[0]?.description || '';
+				const lines = fullText.split('\n').filter((l: string) => l.trim().length > 0);
+				detectedTexts = lines;
+				showTextResults = true;
+				stopTextScan();
+			} else {
+				detectedTexts = [];
+				textDetecting = false;
+				ocrNoResult = true;
+			}
+		} catch (err) {
+			console.error('OCR error:', err);
+			textDetecting = false;
+			ocrNoResult = true;
+		}
+	}
+
+	function selectDetectedText(text: string) {
+		modalProductName = text;
+		showTextResults = false;
+		detectedTexts = [];
+	}
+
+	function closeTextResults() {
+		showTextResults = false;
+		detectedTexts = [];
+	}
+
+	onDestroy(() => { stopScan(); stopTextScan(); });
 </script>
 
 <div class="product-request-page" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
@@ -565,7 +670,15 @@
 					</div>
 					<div class="form-group">
 						<label>{getTranslation('mobile.productRequestContent.productName')}</label>
-						<input type="text" bind:value={modalProductName} class="form-input" placeholder={getTranslation('mobile.productRequestContent.productNamePlaceholder')} />
+						<div class="barcode-input-row">
+							<input type="text" bind:value={modalProductName} class="form-input" placeholder={getTranslation('mobile.productRequestContent.productNamePlaceholder')} />
+							<button type="button" class="scan-btn text-scan-btn" on:click={startTextScan} title={$currentLocale === 'ar' ? 'مسح اسم المنتج بالكاميرا' : 'Scan product name'}>
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M4 7V4h3"/><path d="M17 4h3v3"/><path d="M20 17v3h-3"/><path d="M7 20H4v-3"/>
+									<line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="15" x2="13" y2="15"/>
+								</svg>
+							</button>
+						</div>
 					</div>
 					<div class="form-group">
 						<label>{getTranslation('mobile.productRequestContent.quantity')}</label>
@@ -611,6 +724,72 @@
 					<!-- svelte-ignore a11y-media-has-caption -->
 					<video bind:this={videoEl} playsinline autoplay muted class="scanner-video"></video>
 					<div class="scan-line"></div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Text Scanner (OCR) overlay -->
+	{#if textScanning}
+		<div class="scanner-overlay" on:click={stopTextScan} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && stopTextScan()}>
+			<div class="scanner-container text-scanner" on:click|stopPropagation role="none">
+				<div class="scanner-header">
+					<span>{$currentLocale === 'ar' ? '📷 مسح اسم المنتج' : '📷 Scan Product Name'}</span>
+					<button type="button" class="scanner-close" on:click={stopTextScan}>&times;</button>
+				</div>
+				<div class="scanner-video-wrapper">
+					<!-- svelte-ignore a11y-media-has-caption -->
+					<video bind:this={textVideoEl} playsinline autoplay muted class="scanner-video"></video>
+					{#if !textDetecting}
+						<div class="ocr-guide-overlay">
+							<div class="ocr-guide-box"></div>
+						</div>
+					{/if}
+				</div>
+				<div class="ocr-capture-bar">
+					{#if textDetecting}
+						<div class="ocr-detecting">
+							<span class="spinner"></span>
+							<span>{$currentLocale === 'ar' ? 'جاري التعرف على النص...' : 'Detecting text...'}</span>
+						</div>
+					{:else}
+						{#if ocrNoResult}
+							<p class="ocr-error">{$currentLocale === 'ar' ? 'لم يتم العثور على نص. حاول مرة أخرى.' : 'No text found. Try again.'}</p>
+						{/if}
+						<button type="button" class="ocr-capture-btn" on:click={captureAndDetect}>
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+								<circle cx="12" cy="12" r="10"/>
+							</svg>
+							<span>{$currentLocale === 'ar' ? 'التقاط' : 'Capture'}</span>
+						</button>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Detected Text Results -->
+	{#if showTextResults && detectedTexts.length > 0}
+		<div class="modal-overlay" on:click={closeTextResults} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && closeTextResults()}>
+			<div class="modal-container text-results-popup" on:click|stopPropagation role="none">
+				<div class="modal-header">
+					<span>{$currentLocale === 'ar' ? 'اختر اسم المنتج' : 'Select Product Name'}</span>
+					<button type="button" class="modal-close" on:click={closeTextResults}>&times;</button>
+				</div>
+				<div class="modal-body text-results-body">
+					<p class="text-results-hint">{$currentLocale === 'ar' ? 'اضغط على النص المطلوب:' : 'Tap the desired text:'}</p>
+					<div class="text-results-list">
+						{#each detectedTexts as text, i}
+							<button type="button" class="text-result-item" on:click={() => selectDetectedText(text)}>
+								<span class="text-result-num">{i + 1}</span>
+								<span class="text-result-value">{text}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn-close-modal" on:click={closeTextResults}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+					<button type="button" class="btn-add" on:click={startTextScan}>{$currentLocale === 'ar' ? 'إعادة المسح' : 'Rescan'}</button>
 				</div>
 			</div>
 		</div>
@@ -1394,5 +1573,145 @@
 
 	@keyframes spin {
 		to { transform: rotate(360deg); }
+	}
+
+	/* Text scan button (OCR) - amber to distinguish from blue barcode */
+	.text-scan-btn {
+		background: #F59E0B !important;
+	}
+
+	.text-scan-btn:active {
+		background: #D97706 !important;
+	}
+
+	/* OCR scanner additions */
+	.text-scanner {
+		max-width: 400px;
+	}
+
+	.ocr-guide-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+	}
+
+	.ocr-guide-box {
+		width: 80%;
+		height: 30%;
+		border: 2px dashed rgba(255, 255, 255, 0.7);
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.ocr-capture-bar {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #1a1a1a;
+	}
+
+	.ocr-capture-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1.5rem;
+		background: #F59E0B;
+		color: white;
+		border: none;
+		border-radius: 25px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.ocr-capture-btn:active {
+		background: #D97706;
+		transform: scale(0.97);
+	}
+
+	.ocr-detecting {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		color: #F59E0B;
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+
+	.ocr-error {
+		color: #EF4444;
+		font-size: 0.78rem;
+		font-weight: 600;
+		margin: 0;
+	}
+
+	/* Text results popup */
+	.text-results-popup {
+		max-width: 380px;
+	}
+
+	.text-results-body {
+		max-height: 50vh;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.text-results-hint {
+		font-size: 0.75rem;
+		color: #6B7280;
+		margin-bottom: 0.5rem;
+		font-weight: 500;
+	}
+
+	.text-results-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.text-result-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.55rem 0.65rem;
+		background: #F9FAFB;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		font-size: 0.82rem;
+		color: #111827;
+		cursor: pointer;
+		text-align: start;
+		transition: all 0.1s;
+	}
+
+	.text-result-item:active {
+		background: #FEF3C7;
+		border-color: #F59E0B;
+	}
+
+	.text-result-num {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.4rem;
+		height: 1.4rem;
+		background: #F59E0B;
+		color: white;
+		border-radius: 50%;
+		font-size: 0.65rem;
+		font-weight: 700;
+		flex-shrink: 0;
+	}
+
+	.text-result-value {
+		flex: 1;
+		word-break: break-word;
+		line-height: 1.3;
 	}
 </style>
