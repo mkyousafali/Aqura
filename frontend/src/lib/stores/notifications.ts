@@ -229,6 +229,6 @@ export function refreshNotificationCounts(userId?: string, silent = true) {
 // Real-time notification listener for immediate sound playing
 // 🔴 DISABLED: WebSocket subscriptions disabled
 export function startNotificationListener() {
-  console.warn('⚠️ [NotificationStore] Real-time notification listener disabled');
+  // Real-time notification listener disabled - using polling instead
   return null;
 }
