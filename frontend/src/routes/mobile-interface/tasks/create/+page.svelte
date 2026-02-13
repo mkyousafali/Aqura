@@ -1,13 +1,13 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import FileUpload from '$lib/components/common/FileUpload.svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { locale, getTranslation } from '$lib/i18n';
 
-	let fileUploadComponent;
 	let cameraInput;
+	let fileInput;
+	let attachedFiles = [];
 	
 	let formData = {
 		title: '',
@@ -32,18 +32,26 @@
 
 	function handleCameraCapture(event) {
 		const files = event.target.files;
-		if (files && files.length > 0 && fileUploadComponent) {
-			fileUploadComponent.addFiles(files);
-			event.target.value = '';
+		if (files && files.length > 0) {
+			attachedFiles = [...attachedFiles, ...Array.from(files)];
 		}
+		event.target.value = '';
 	}
 
-	function handleUploadError(event) {
-		console.log('Upload error:', event.detail);
+	function handleFileSelect(event) {
+		const files = event.target.files;
+		if (files && files.length > 0) {
+			attachedFiles = [...attachedFiles, ...Array.from(files)];
+		}
+		event.target.value = '';
 	}
 
-	function handleUploadComplete(event) {
-		console.log('Upload complete:', event.detail);
+	function removeAttachedFile(index) {
+		attachedFiles = attachedFiles.filter((_, i) => i !== index);
+	}
+
+	function openFilePicker() {
+		if (fileInput) fileInput.click();
 	}
 
 	const validateForm = () => {
@@ -118,6 +126,15 @@
 	on:change={handleCameraCapture}
 />
 
+<input
+	bind:this={fileInput}
+	type="file"
+	accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+	multiple
+	style="display: none;"
+	on:change={handleFileSelect}
+/>
+
 <div class="mobile-page">
 	<div class="mobile-content">
 		<div class="form-group">
@@ -149,21 +166,33 @@
 		</div>
 
 		<div class="form-group">
-			<div class="upload-header">
-				<h3>{getTranslation('mobile.createContent.attachments')}</h3>
-				<button type="button" class="camera-btn" on:click={openCamera}>
-					📷 {getTranslation('mobile.createContent.camera')}
+			<label>{getTranslation('mobile.createContent.attachments')}</label>
+			<div class="attachment-buttons">
+				<button type="button" class="attach-btn" on:click={openCamera}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+						<circle cx="12" cy="13" r="4"/>
+					</svg>
+					{getTranslation('mobile.createContent.camera')}
+				</button>
+				<button type="button" class="attach-btn" on:click={openFilePicker}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+					</svg>
+					{getTranslation('mobile.createContent.chooseFiles')}
 				</button>
 			</div>
-			
-			<FileUpload
-				bind:this={fileUploadComponent}
-				label={getTranslation('mobile.createContent.uploadFile')}
-				placeholder={getTranslation('mobile.createContent.chooseFiles')}
-				hint={getTranslation('mobile.createContent.supportedFormats')}
-				on:uploadError={handleUploadError}
-				on:uploadComplete={handleUploadComplete}
-			/>
+
+			{#if attachedFiles.length > 0}
+				<div class="attached-files">
+					{#each attachedFiles as file, index}
+						<div class="attached-file-chip">
+							<span class="file-chip-name">{file.name}</span>
+							<button class="file-chip-remove" on:click={() => removeAttachedFile(index)}>&times;</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 
 		<!-- Inline Action Buttons -->
@@ -190,45 +219,96 @@
 
 	.mobile-content {
 		flex: 1;
-		padding: 1rem;
+		padding: 0.5rem;
 	}
 
 	.form-group {
 		background: white;
-		border-radius: 12px;
-		padding: 1.5rem;
-		margin-bottom: 1rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		border-radius: 6px;
+		padding: 0.6rem;
+		margin-bottom: 0.5rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 	}
 
-	.upload-header {
+	.attachment-buttons {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
+		gap: 0.4rem;
 	}
 
-	.camera-btn {
-		background: #3B82F6;
-		color: white;
-		border: none;
-		padding: 0.5rem 1rem;
-		border-radius: 8px;
+	.attach-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.35rem 0.6rem;
+		background: #F3F4F6;
+		border: 1px solid #D1D5DB;
+		border-radius: 5px;
+		font-size: 0.72rem;
+		font-weight: 500;
+		color: #374151;
 		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.attach-btn:hover {
+		background: #E5E7EB;
+		border-color: #9CA3AF;
+	}
+
+	.attached-files {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		margin-top: 0.4rem;
+	}
+
+	.attached-file-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+		background: #EFF6FF;
+		border: 1px solid #BFDBFE;
+		color: #1E40AF;
+		padding: 0.15rem 0.4rem;
+		border-radius: 9999px;
+		font-size: 0.65rem;
+	}
+
+	.file-chip-name {
+		max-width: 120px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.file-chip-remove {
+		background: none;
+		border: none;
+		color: #3B82F6;
+		font-size: 0.85rem;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0;
+	}
+
+	.file-chip-remove:hover {
+		color: #EF4444;
 	}
 
 	label {
 		display: block;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.3rem;
 		font-weight: 500;
+		font-size: 0.78rem;
 	}
 
 	input, textarea {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #d1d5db;
-		border-radius: 8px;
+		border-radius: 5px;
 		box-sizing: border-box;
+		font-size: 0.78rem;
 	}
 
 	input.error, textarea.error {
@@ -237,27 +317,28 @@
 
 	.error-text {
 		color: #ef4444;
-		font-size: 0.875rem;
-		margin-top: 0.25rem;
+		font-size: 0.7rem;
+		margin-top: 0.15rem;
 	}
 
 	.inline-actions {
 		background: white;
-		padding: 1.5rem;
+		padding: 0.5rem;
 		border-top: 1px solid #e5e7eb;
-		border-radius: 16px;
-		margin-top: 1rem;
+		border-radius: 6px;
+		margin-top: 0.5rem;
 		display: flex;
-		gap: 1rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		gap: 0.5rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 	}
 
 	.action-btn {
 		flex: 1;
-		padding: 1rem;
+		padding: 0.5rem;
 		border: none;
-		border-radius: 12px;
+		border-radius: 6px;
 		font-weight: 600;
+		font-size: 0.78rem;
 		cursor: pointer;
 	}
 

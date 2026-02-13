@@ -797,7 +797,7 @@
 			{#if resolvedRequireTaskFinished}
 				<div class="requirement-item">
 					<div class="requirement-header">
-						<span class="requirement-label required">✅ Task Finished (Required)</span>
+						<span class="requirement-label required">Task Finished (Required)</span>
 						<input
 							type="checkbox"
 							bind:checked={completionData.task_finished_completed}
@@ -908,12 +908,10 @@
 
 <style>
 	.mobile-task-completion {
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
-		overflow-x: hidden;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
+		padding: 0;
+		padding-bottom: 0.5rem;
 	}
 
 	.loading-state,
@@ -922,9 +920,9 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		text-align: center;
-		min-height: 50vh;
+		min-height: 30vh;
 	}
 
 	.loading-spinner {
@@ -944,8 +942,8 @@
 
 	.task-details-section {
 		background: white;
-		margin: 1rem;
-		border-radius: 12px;
+		margin: 0.5rem 0.6rem;
+		border-radius: 8px;
 		border: 1px solid #E5E7EB;
 		overflow: hidden;
 	}
@@ -954,14 +952,14 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 1rem 1.5rem;
+		padding: 0.6rem 0.85rem;
 		background: #F9FAFB;
 		border-bottom: 1px solid #E5E7EB;
 	}
 
 	.details-header h3 {
 		margin: 0;
-		font-size: 1rem;
+		font-size: 0.88rem;
 		font-weight: 600;
 		color: #1F2937;
 	}
@@ -969,11 +967,11 @@
 	.toggle-btn {
 		background: none;
 		border: none;
-		padding: 0.5rem;
+		padding: 0.35rem;
 		cursor: pointer;
 		color: #6B7280;
-		font-size: 0.875rem;
-		border-radius: 6px;
+		font-size: 0.8rem;
+		border-radius: 4px;
 		transition: all 0.2s;
 	}
 
@@ -983,41 +981,41 @@
 	}
 
 	.details-content {
-		padding: 1.5rem;
+		padding: 0.6rem 0.85rem;
 	}
 
 	.detail-grid {
 		display: grid;
 		grid-template-columns: 1fr;
-		gap: 1rem;
-		margin-bottom: 1.5rem;
+		gap: 0.5rem;
+		margin-bottom: 0.6rem;
 	}
 
 	.detail-item {
 		background: #F9FAFB;
-		padding: 1rem;
-		border-radius: 8px;
+		padding: 0.5rem 0.7rem;
+		border-radius: 6px;
 		border: 1px solid #E5E7EB;
 	}
 
 	.detail-item span.detail-label {
 		font-weight: 600;
 		color: #374151;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 	}
 
 	.detail-item .value {
 		color: #1F2937;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 	}
 
 	.priority-badge {
 		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		border-radius: 1rem;
-		font-size: 0.75rem;
+		padding: 0.2rem 0.55rem;
+		border-radius: 0.75rem;
+		font-size: 0.7rem;
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -1049,54 +1047,54 @@
 	}
 
 	.description-block {
-		margin-top: 1.5rem;
+		margin-top: 0.5rem;
 	}
 
 	.description-block .detail-label {
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		font-weight: 600;
 		color: #374151;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.3rem;
 	}
 
 	.description-text {
 		background: #F9FAFB;
-		padding: 1rem;
-		border-radius: 8px;
+		padding: 0.55rem 0.7rem;
+		border-radius: 6px;
 		border: 1px solid #E5E7EB;
 		white-space: pre-wrap;
 		color: #1F2937;
-		line-height: 1.6;
-		font-size: 0.875rem;
+		line-height: 1.4;
+		font-size: 0.8rem;
 	}
 
 	.attachments-section {
-		margin-top: 1.5rem;
+		margin-top: 0.5rem;
 	}
 
 	.attachments-section .detail-label {
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		font-weight: 600;
 		color: #374151;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.attachments-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.attachment-item {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 1rem;
+		padding: 0.55rem 0.7rem;
 		background: #F9FAFB;
 		border: 1px solid #E5E7EB;
-		border-radius: 8px;
+		border-radius: 6px;
 	}
 
 	.attachment-info {
@@ -1106,21 +1104,21 @@
 	.attachment-name {
 		font-weight: 500;
 		color: #1F2937;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 	}
 
 	.attachment-meta {
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 		color: #6B7280;
-		margin-top: 0.25rem;
+		margin-top: 0.15rem;
 	}
 
 	.download-btn {
 		background: #3B82F6;
 		color: white;
 		border: none;
-		border-radius: 6px;
-		padding: 0.5rem;
+		border-radius: 5px;
+		padding: 0.35rem;
 		cursor: pointer;
 		transition: background 0.2s;
 		display: flex;
@@ -1134,24 +1132,24 @@
 
 	.progress-section {
 		background: white;
-		margin: 1rem;
-		padding: 1.5rem;
-		border-radius: 12px;
+		margin: 0.5rem 0.6rem;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
 		border: 1px solid #E5E7EB;
 	}
 
 	.progress-label {
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		font-weight: 500;
 		color: #374151;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.35rem;
 	}
 
 	.progress-bar {
 		width: 100%;
-		height: 8px;
+		height: 6px;
 		background: #E5E7EB;
-		border-radius: 4px;
+		border-radius: 3px;
 		overflow: hidden;
 	}
 
@@ -1165,11 +1163,11 @@
 	.message {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 1rem 1.5rem;
-		margin: 1rem;
-		border-radius: 12px;
-		font-size: 0.875rem;
+		gap: 0.45rem;
+		padding: 0.55rem 0.85rem;
+		margin: 0.5rem 0.6rem;
+		border-radius: 8px;
+		font-size: 0.8rem;
 		font-weight: 500;
 	}
 
@@ -1187,24 +1185,24 @@
 
 	.requirements-section {
 		background: white;
-		margin: 1rem;
-		padding: 1.5rem;
-		border-radius: 12px;
+		margin: 0.5rem 0.6rem;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
 		border: 1px solid #E5E7EB;
 	}
 
 	.requirements-section h4 {
-		margin: 0 0 1.5rem 0;
-		font-size: 1rem;
+		margin: 0 0 0.6rem 0;
+		font-size: 0.88rem;
 		font-weight: 600;
 		color: #1F2937;
 	}
 
 	.requirement-item {
-		margin-bottom: 1.5rem;
-		padding: 1rem;
+		margin-bottom: 0.6rem;
+		padding: 0.55rem 0.7rem;
 		border: 1px solid #E5E7EB;
-		border-radius: 8px;
+		border-radius: 6px;
 		background: #F9FAFB;
 	}
 
@@ -1212,12 +1210,12 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.requirement-label {
 		font-weight: 500;
-		font-size: 0.875rem;
+		font-size: 0.82rem;
 	}
 
 	.requirement-label.required {
@@ -1225,14 +1223,26 @@
 	}
 
 	.requirement-checkbox {
-		width: 18px;
-		height: 18px;
-		accent-color: #10B981;
+		width: 20px;
+		height: 20px;
 		cursor: pointer;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		border: 2px solid #10B981;
+		border-radius: 4px;
+		background: white;
+		position: relative;
+		flex-shrink: 0;
+	}
+
+	.requirement-checkbox:checked {
+		background: #10B981;
+		border-color: #10B981;
 	}
 
 	.input-section {
-		margin-top: 0.75rem;
+		margin-top: 0.35rem;
 	}
 
 	.file-input {
@@ -1240,19 +1250,19 @@
 	}
 
 	.upload-section {
-		margin-top: 0.75rem;
+		margin-top: 0.35rem;
 	}
 
 	.upload-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
+		gap: 0.4rem;
+		padding: 0.5rem 0.85rem;
 		background: #3B82F6;
 		color: white;
-		border-radius: 8px;
+		border-radius: 6px;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		font-weight: 500;
 		transition: background 0.2s;
 		border: none;
@@ -1264,27 +1274,27 @@
 
 	.photo-preview {
 		position: relative;
-		margin-top: 0.75rem;
+		margin-top: 0.35rem;
 	}
 
 	.preview-image {
 		width: 100%;
-		max-width: 300px;
+		max-width: 200px;
 		height: auto;
-		border-radius: 8px;
-		border: 2px solid #E5E7EB;
+		border-radius: 6px;
+		border: 1px solid #E5E7EB;
 	}
 
 	.remove-photo {
 		position: absolute;
-		top: 8px;
-		right: 8px;
+		top: 4px;
+		right: 4px;
 		background: rgba(0, 0, 0, 0.7);
 		color: white;
 		border: none;
 		border-radius: 50%;
-		width: 32px;
-		height: 32px;
+		width: 24px;
+		height: 24px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1298,10 +1308,10 @@
 
 	.erp-input {
 		width: 100%;
-		padding: 0.75rem;
-		border: 2px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		padding: 0.5rem 0.6rem;
+		border: 1.5px solid #D1D5DB;
+		border-radius: 6px;
+		font-size: 0.8rem;
 		background: white;
 		transition: border-color 0.2s;
 	}
@@ -1314,14 +1324,14 @@
 
 	.notes-textarea {
 		width: 100%;
-		padding: 0.75rem;
-		border: 2px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		padding: 0.5rem 0.6rem;
+		border: 1.5px solid #D1D5DB;
+		border-radius: 6px;
+		font-size: 0.8rem;
 		background: white;
 		transition: border-color 0.2s;
 		resize: vertical;
-		min-height: 80px;
+		min-height: 60px;
 		font-family: inherit;
 	}
 
@@ -1333,8 +1343,8 @@
 
 	.actions {
 		display: flex;
-		gap: 1rem;
-		padding: 1.5rem;
+		gap: 0.6rem;
+		padding: 0.6rem 0.85rem;
 		background: white;
 		border-top: 1px solid #E5E7EB;
 		position: sticky;
@@ -1344,18 +1354,18 @@
 	.cancel-btn,
 	.complete-btn {
 		flex: 1;
-		padding: 1rem 1.5rem;
-		border-radius: 12px;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
 		font-weight: 600;
-		font-size: 0.875rem;
+		font-size: 0.82rem;
 		cursor: pointer;
 		transition: all 0.2s;
 		border: none;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		min-height: 48px;
+		gap: 0.4rem;
+		min-height: 40px;
 	}
 
 	.cancel-btn {
@@ -1404,13 +1414,13 @@
 	/* Mobile optimizations */
 	@media (max-width: 640px) {
 		.header {
-			padding: 1rem;
+			padding: 0.4rem 0.5rem;
 		}
 
 		.requirements-section,
 		.progress-section,
 		.task-details-section {
-			margin: 0.75rem;
+			margin: 0.4rem 0.6rem;
 		}
 
 		.actions {
@@ -1430,11 +1440,11 @@
 	/* Safe area handling */
 	@supports (padding: max(0px)) {
 		.header {
-			padding-top: max(1rem, env(safe-area-inset-top));
+			padding-top: max(0.4rem, env(safe-area-inset-top));
 		}
 
 		.actions {
-			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+			padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 		}
 	}
 </style>

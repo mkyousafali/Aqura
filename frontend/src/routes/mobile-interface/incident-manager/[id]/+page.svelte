@@ -220,11 +220,7 @@
 <div class="mobile-page" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 	<!-- Header -->
 	<div class="page-header-bar">
-		<button class="back-btn" on:click={goBack}>
-			{$currentLocale === 'ar' ? '→' : '←'}
-		</button>
 		<h1>{$currentLocale === 'ar' ? 'تفاصيل الحادثة' : 'Incident Details'}</h1>
-		<div class="spacer"></div>
 	</div>
 
 	<div class="mobile-content">
@@ -400,16 +396,16 @@
 
 <style>
 	.mobile-page {
-		min-height: 100vh;
-		background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-		padding-bottom: 100px;
+		min-height: 100%;
+		background: #F8FAFC;
+		padding: 0;
 	}
 
 	.page-header-bar {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
+		justify-content: center;
+		padding: 0.4rem 0.6rem;
 		background: white;
 		border-bottom: 1px solid #e5e7eb;
 		position: sticky;
@@ -418,33 +414,15 @@
 	}
 
 	.page-header-bar h1 {
-		font-size: 1.125rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 		color: #1e293b;
 		margin: 0;
 	}
 
-	.back-btn {
-		width: 36px;
-		height: 36px;
-		border: none;
-		border-radius: 50%;
-		background: #f1f5f9;
-		color: #475569;
-		font-size: 1.25rem;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.spacer {
-		width: 36px;
-	}
-
 	.mobile-content {
-		padding: 1rem;
-		max-width: 600px;
+		padding: 0.4rem 0.5rem;
+		max-width: 100%;
 		margin: 0 auto;
 	}
 
@@ -453,14 +431,16 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 1rem;
+		min-height: 40vh;
+		gap: 0.5rem;
+		font-size: 0.82rem;
 		color: #64748b;
 	}
 
 	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid #e2e8f0;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #e2e8f0;
 		border-top-color: #3b82f6;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
@@ -472,24 +452,25 @@
 
 	.empty-state {
 		text-align: center;
-		padding: 3rem 1rem;
+		padding: 2rem 0.5rem;
 		color: #94a3b8;
+		font-size: 0.8rem;
 	}
 
 	.empty-icon {
-		font-size: 4rem;
+		font-size: 2rem;
 		display: block;
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.back-link {
-		margin-top: 1rem;
-		padding: 0.75rem 1.5rem;
+		margin-top: 0.5rem;
+		padding: 0.4rem 0.8rem;
 		border: none;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		background: #3b82f6;
 		color: white;
-		font-size: 0.9rem;
+		font-size: 0.78rem;
 		cursor: pointer;
 	}
 
@@ -498,19 +479,19 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.incident-id {
-		font-size: 1.25rem;
+		font-size: 0.82rem;
 		font-weight: 700;
 		color: #3b82f6;
 	}
 
 	.status-badge {
-		font-size: 0.75rem;
+		font-size: 0.6rem;
 		font-weight: 600;
-		padding: 0.375rem 1rem;
+		padding: 0.15rem 0.5rem;
 		border-radius: 2rem;
 		text-transform: uppercase;
 	}
@@ -538,27 +519,28 @@
 	/* Detail Cards */
 	.detail-card {
 		background: white;
-		border-radius: 1rem;
-		padding: 1rem;
-		margin-bottom: 1rem;
-		box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+		border-radius: 6px;
+		padding: 0.5rem 0.6rem;
+		margin-bottom: 0.4rem;
+		box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 	}
 
 	.type-card {
 		background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
 		text-align: center;
+		padding: 0.4rem;
 	}
 
 	.type-label {
-		font-size: 1.125rem;
+		font-size: 0.82rem;
 		font-weight: 700;
 		color: white;
 	}
 
 	.detail-row {
 		display: flex;
-		gap: 0.75rem;
-		padding: 0.75rem 0;
+		gap: 0.4rem;
+		padding: 0.3rem 0;
 		border-bottom: 1px solid #f1f5f9;
 	}
 
@@ -572,7 +554,7 @@
 	}
 
 	.detail-icon {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		flex-shrink: 0;
 	}
 
@@ -582,16 +564,16 @@
 
 	.detail-content label {
 		display: block;
-		font-size: 0.7rem;
+		font-size: 0.62rem;
 		font-weight: 600;
 		color: #94a3b8;
 		text-transform: uppercase;
-		margin-bottom: 0.125rem;
+		margin-bottom: 0.05rem;
 	}
 
 	.detail-content p {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: 0.78rem;
 		color: #1e293b;
 		font-weight: 500;
 	}
@@ -602,35 +584,37 @@
 	}
 
 	.section-title {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 700;
 		color: #475569;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.3rem;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 	}
 
 	.description-text {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: 0.78rem;
 		color: #334155;
-		line-height: 1.6;
+		line-height: 1.5;
 		background: #f8fafc;
-		padding: 0.75rem;
-		border-radius: 0.5rem;
+		padding: 0.4rem 0.5rem;
+		border-radius: 5px;
+		word-break: break-word;
+		overflow-wrap: break-word;
 	}
 
 	/* Attachments */
 	.attachments-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-		gap: 0.5rem;
+		grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+		gap: 0.35rem;
 	}
 
 	.attachment-thumb {
 		aspect-ratio: 1;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		overflow: hidden;
 		cursor: pointer;
 		border: 1px solid #e5e7eb;
@@ -647,19 +631,19 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		background: #f1f5f9;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		text-decoration: none;
-		gap: 0.25rem;
+		gap: 0.15rem;
 	}
 
 	.file-icon {
-		font-size: 1.5rem;
+		font-size: 1.2rem;
 	}
 
 	.file-name {
-		font-size: 0.6rem;
+		font-size: 0.55rem;
 		color: #475569;
 		text-align: center;
 		word-break: break-all;
@@ -673,8 +657,8 @@
 	.meta-row {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.8rem;
-		padding: 0.25rem 0;
+		font-size: 0.72rem;
+		padding: 0.15rem 0;
 	}
 
 	.meta-label {
@@ -690,22 +674,23 @@
 	.action-buttons {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
-		margin-top: 1.5rem;
+		gap: 0.35rem;
+		margin-top: 0.5rem;
 	}
 
 	.action-btn {
 		width: 100%;
-		padding: 1rem;
+		padding: 0.5rem;
 		border: none;
-		border-radius: 0.75rem;
-		font-size: 1rem;
+		border-radius: 6px;
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
+		min-height: 36px;
 		transition: transform 0.2s;
 	}
 
@@ -759,15 +744,15 @@
 
 	.close-preview {
 		position: absolute;
-		top: 1rem;
-		right: 1rem;
-		width: 44px;
-		height: 44px;
+		top: 0.5rem;
+		right: 0.5rem;
+		width: 32px;
+		height: 32px;
 		border: none;
 		border-radius: 50%;
 		background: white;
 		color: #1e293b;
-		font-size: 1.5rem;
+		font-size: 1.2rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;

@@ -22,6 +22,81 @@
 	let punchPairs: any[] = [];
 	let realtimeChannel: any = null;
 
+	// Calendar date picker state
+	let showDatePicker = false;
+	let datePickerTarget: 'start' | 'end' = 'start';
+	let pickerYear: number = new Date().getFullYear();
+	let pickerMonth: number = new Date().getMonth();
+
+	function openDatePicker(target: 'start' | 'end') {
+		datePickerTarget = target;
+		const dateStr = target === 'start' ? startDate : endDate;
+		const d = new Date(dateStr);
+		pickerYear = d.getFullYear();
+		pickerMonth = d.getMonth();
+		showDatePicker = true;
+	}
+
+	function closeDatePicker() {
+		showDatePicker = false;
+	}
+
+	function selectCalendarDay(day: number) {
+		const m = String(pickerMonth + 1).padStart(2, '0');
+		const d = String(day).padStart(2, '0');
+		const dateVal = `${pickerYear}-${m}-${d}`;
+		if (datePickerTarget === 'start') {
+			startDate = dateVal;
+		} else {
+			endDate = dateVal;
+		}
+		showDatePicker = false;
+	}
+
+	function prevMonth() {
+		if (pickerMonth === 0) { pickerMonth = 11; pickerYear--; } else { pickerMonth--; }
+	}
+
+	function nextMonth() {
+		if (pickerMonth === 11) { pickerMonth = 0; pickerYear++; } else { pickerMonth++; }
+	}
+
+	function getDaysInMonth(year: number, month: number): number {
+		return new Date(year, month + 1, 0).getDate();
+	}
+
+	function getFirstDayOfMonth(year: number, month: number): number {
+		return new Date(year, month, 1).getDay();
+	}
+
+	function formatDisplayDate(dateStr: string): string {
+		if (!dateStr) return '';
+		const d = new Date(dateStr);
+		const day = d.getDate();
+		const monthNames = $currentLocale === 'ar'
+			? ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+			: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+		return `${day} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+	}
+
+	function getMonthName(month: number): string {
+		const names = $currentLocale === 'ar'
+			? ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+			: ['January','February','March','April','May','June','July','August','September','October','November','December'];
+		return names[month];
+	}
+
+	$: calendarDays = (() => {
+		const daysInMonth = getDaysInMonth(pickerYear, pickerMonth);
+		const firstDay = getFirstDayOfMonth(pickerYear, pickerMonth);
+		const days: (number | null)[] = [];
+		for (let i = 0; i < firstDay; i++) days.push(null);
+		for (let i = 1; i <= daysInMonth; i++) days.push(i);
+		return days;
+	})();
+
+	$: selectedPickerDate = datePickerTarget === 'start' ? startDate : endDate;
+
 	function getDefaultStartDate(): string {
 		// Get 25th of previous month
 		const today = new Date();
@@ -993,44 +1068,23 @@
 
 <div class="fingerprint-analysis-page">
 
-	<!-- Shift Info Card -->
-	{#if regularShift}
-		<div class="glass-card shift-summary">
-			<div class="card-glow"></div>
-			<div class="card-content">
-				<div class="shift-title">
-					<div class="pulse-indicator"></div>
-					{$t('hr.shift.regularShift')}
-				</div>
-				<div class="shift-grid">
-					<div class="shift-item">
-						<span class="shift-label">{$t('hr.shift.shift_start')}</span>
-						<span class="shift-value in">{formatTime12Hour(regularShift.shift_start_time)}</span>
-					</div>
-					<div class="shift-item">
-						<span class="shift-label">{$t('hr.shift.shift_end')}</span>
-						<span class="shift-value out">{formatTime12Hour(regularShift.shift_end_time)}</span>
-					</div>
-					<div class="shift-item span-2">
-						<span class="shift-label">{$t('hr.shift.total_working_hours')}</span>
-						<span class="shift-value total">{regularShift.working_hours} {$t('common.hours')}</span>
-					</div>
-				</div>
-			</div>
-		</div>
-	{/if}
-
 	<!-- Date Range Filter -->
 	<div class="modern-filter">
 		<div class="filter-inputs">
-			<div class="filter-group">
-				<label>{$t('hr.startDate')}</label>
-				<input type="date" bind:value={startDate} />
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="filter-group date-tap" on:click={() => openDatePicker('start')}>
+				<span class="filter-label">{$t('hr.startDate')}</span>
+				<span class="filter-date-value">{formatDisplayDate(startDate)}</span>
+				<span class="tap-hint">{$currentLocale === 'ar' ? 'انقر للتغيير' : 'Tap to change'}</span>
 			</div>
 			<div class="filter-divider"></div>
-			<div class="filter-group">
-				<label>{$t('hr.endDate')}</label>
-				<input type="date" bind:value={endDate} />
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="filter-group date-tap" on:click={() => openDatePicker('end')}>
+				<span class="filter-label">{$t('hr.endDate')}</span>
+				<span class="filter-date-value">{formatDisplayDate(endDate)}</span>
+				<span class="tap-hint">{$currentLocale === 'ar' ? 'انقر للتغيير' : 'Tap to change'}</span>
 			</div>
 		</div>
 		<button on:click={loadTransactions} disabled={loadingTransactions} class="futuristic-btn">
@@ -1053,11 +1107,17 @@
 				{@const isSpecific = isSpecificDayOff(shiftDate)}
 				{@const dayOff = isSpecific ? getSpecificDayOff(shiftDate) : null}
 				{@const isUnapprovedLeave = pair.isEmptyDate && !isOfficial && !isSpecific}
+				{@const assignedShift = getApplicableShift(shiftDate)}
 
 				<div class="timeline-card" class:is-day-off={isOfficial || (isSpecific && dayOff?.approval_status === 'approved')} class:is-unapproved={isUnapprovedLeave}>
 					<div class="timeline-header">
 						<div class="header-left">
 							<div class="date-badge">{shiftDate}</div>
+							{#if assignedShift}
+								<span class="shift-info-mini">
+									{formatTime12Hour(assignedShift.shift_start_time)} - {formatTime12Hour(assignedShift.shift_end_time)}
+								</span>
+							{/if}
 							{#if isOfficial}
 								<span class="status-pill official">{$t('hr.shift.official_day_off')}</span>
 							{:else if isSpecific}
@@ -1182,6 +1242,49 @@
 	</div>
 </div>
 
+<!-- Calendar Date Picker Popup -->
+{#if showDatePicker}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="calendar-overlay" on:click={closeDatePicker}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="calendar-popup" on:click|stopPropagation>
+			<div class="calendar-header">
+				<button class="cal-nav-btn" on:click={prevMonth}>‹</button>
+				<span class="cal-month-year">{getMonthName(pickerMonth)} {pickerYear}</span>
+				<button class="cal-nav-btn" on:click={nextMonth}>›</button>
+			</div>
+			<div class="cal-weekdays">
+				{#if $currentLocale === 'ar'}
+					<span>أح</span><span>إث</span><span>ثل</span><span>أر</span><span>خم</span><span>جم</span><span>سب</span>
+				{:else}
+					<span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+				{/if}
+			</div>
+			<div class="cal-days">
+				{#each calendarDays as day}
+					{#if day === null}
+						<span class="cal-day empty"></span>
+					{:else}
+						{@const m = String(pickerMonth + 1).padStart(2, '0')}
+						{@const d = String(day).padStart(2, '0')}
+						{@const thisDayStr = `${pickerYear}-${m}-${d}`}
+						{@const isToday = thisDayStr === new Date().toISOString().split('T')[0]}
+						{@const isSelected = thisDayStr === selectedPickerDate}
+						<button
+							class="cal-day {isToday ? 'today' : ''} {isSelected ? 'selected' : ''}"
+							on:click={() => selectCalendarDay(day)}
+						>
+							{day}
+						</button>
+					{/if}
+				{/each}
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	:root {
 		--futuristic-green: #10B981;
@@ -1195,113 +1298,48 @@
 	}
 
 	.fingerprint-analysis-page {
-		padding: 1.25rem;
+		padding: 0.5rem;
 		background: var(--futuristic-bg);
-		min-height: 100vh;
+		min-height: 100%;
 		font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 	}
-
-	/* Futuristic Shift Card */
-	.glass-card {
-		background: var(--futuristic-white);
-		border-radius: 1.5rem;
-		padding: 1.5rem;
-		position: relative;
-		overflow: hidden;
-		box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
-		border: 1px solid var(--futuristic-border);
-		margin-bottom: 1.5rem;
-	}
-
-	.card-glow {
-		position: absolute;
-		top: -50%;
-		left: -50%;
-		width: 200%;
-		height: 200%;
-		background: radial-gradient(circle at center, rgba(16, 185, 129, 0.05) 0%, transparent 70%);
-		pointer-events: none;
-	}
-
-	.shift-title {
-		font-size: 0.75rem;
-		font-weight: 700;
-		color: var(--futuristic-text-light);
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 1.25rem;
-	}
-
-	.pulse-indicator {
-		width: 8px;
-		height: 8px;
-		background: var(--futuristic-green);
-		border-radius: 50%;
-		box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
-		animation: pulse 2s infinite;
-	}
-
-	@keyframes pulse {
-		0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-		70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-		100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-	}
-
-	.shift-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.25rem;
-	}
-
-	.shift-item {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.shift-item.span-2 { grid-column: span 2; }
-
-	.shift-label {
-		font-size: 0.7rem;
-		color: var(--futuristic-text-light);
-		font-weight: 500;
-	}
-
-	.shift-value {
-		font-size: 1.125rem;
-		font-weight: 800;
-		color: var(--futuristic-text);
-	}
-
-	.shift-value.in { color: var(--futuristic-green); }
-	.shift-value.out { color: var(--futuristic-orange); }
-	.shift-value.total { font-size: 1.25rem; }
 
 	/* Modern Filter */
 	.modern-filter {
 		background: var(--futuristic-white);
-		border-radius: 1.25rem;
-		padding: 1rem;
-		margin-bottom: 1.5rem;
+		border-radius: 8px;
+		padding: 0.5rem;
+		margin-bottom: 0.5rem;
 		border: 1px solid var(--futuristic-border);
-		box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+		box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.05);
 	}
 
 	.filter-inputs {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
+		gap: 0.4rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.filter-group {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.15rem;
+	}
+
+	.filter-group.date-tap {
+		background: var(--futuristic-bg);
+		padding: 0.35rem 0.5rem;
+		border-radius: 6px;
+		border: 1px dashed var(--futuristic-border);
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.filter-group.date-tap:active {
+		border-color: var(--futuristic-green);
+		background: rgba(16, 185, 129, 0.06);
 	}
 
 	.filter-divider {
@@ -1310,22 +1348,29 @@
 		background: var(--futuristic-border);
 	}
 
-	.filter-group label {
-		font-size: 0.65rem;
+	.filter-label {
+		font-size: 0.62rem;
 		font-weight: 600;
 		color: var(--futuristic-text-light);
 		text-transform: uppercase;
 	}
 
-	.filter-group input {
-		border: none;
-		background: transparent;
-		font-size: 0.9rem;
+	.filter-date-value {
+		font-size: 0.78rem;
 		font-weight: 600;
 		color: var(--futuristic-text);
-		padding: 0;
-		width: 100%;
-		outline: none;
+		cursor: pointer;
+	}
+
+	.tap-hint {
+		font-size: 0.54rem;
+		color: var(--futuristic-green);
+		font-weight: 500;
+		opacity: 0.7;
+	}
+
+	.filter-group:active .filter-date-value {
+		color: var(--futuristic-green);
 	}
 
 	.futuristic-btn {
@@ -1333,15 +1378,17 @@
 		background: var(--futuristic-orange);
 		color: white;
 		border: none;
-		border-radius: 1rem;
-		padding: 1rem;
+		border-radius: 6px;
+		padding: 0.45rem;
 		font-weight: 700;
+		font-size: 0.8rem;
 		position: relative;
 		overflow: hidden;
 		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		min-height: 36px;
 	}
 
 	.futuristic-btn:active { transform: scale(0.98); }
@@ -1363,19 +1410,19 @@
 	.timeline-container {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.35rem;
 	}
 
 	.timeline-card {
 		background: var(--futuristic-white);
-		border-radius: 1.25rem;
+		border-radius: 8px;
 		border: 1px solid var(--futuristic-border);
 		overflow: hidden;
 		transition: transform 0.2s ease;
 	}
 
 	.timeline-header {
-		padding: 1rem 1.25rem;
+		padding: 0.35rem 0.5rem;
 		background: white;
 		border-bottom: 1px solid var(--futuristic-bg);
 		display: flex;
@@ -1386,14 +1433,14 @@
 	.header-left {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		flex-wrap: wrap;
 	}
 
 	.status-pill {
-		font-size: 0.65rem;
+		font-size: 0.58rem;
 		font-weight: 800;
-		padding: 0.2rem 0.6rem;
+		padding: 0.1rem 0.35rem;
 		border-radius: 2rem;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
@@ -1404,12 +1451,22 @@
 	.status-pill.unapproved { background: #FEF3C7; color: #D97706; border: 1px solid #FDE68A; }
 
 	.date-badge {
-		font-size: 0.875rem;
+		font-size: 0.74rem;
 		font-weight: 700;
 		color: var(--futuristic-text);
 		background: var(--futuristic-bg);
-		padding: 0.375rem 0.75rem;
-		border-radius: 0.75rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 5px;
+	}
+
+	.shift-info-mini {
+		font-size: 0.58rem;
+		font-weight: 600;
+		color: var(--futuristic-text-light);
+		background: rgba(16, 185, 129, 0.08);
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+		white-space: nowrap;
 	}
 
 	.timeline-card.is-day-off {
@@ -1423,12 +1480,12 @@
 	.work-duration {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.8125rem;
+		gap: 0.3rem;
+		font-size: 0.72rem;
 		font-weight: 800;
 		color: var(--futuristic-green);
 		background: rgba(16, 185, 129, 0.08);
-		padding: 0.35rem 0.75rem;
+		padding: 0.15rem 0.4rem;
 		border-radius: 2rem;
 		transition: all 0.3s ease;
 	}
@@ -1445,8 +1502,8 @@
 	}
 
 	.indicator-svg {
-		width: 14px;
-		height: 14px;
+		width: 11px;
+		height: 11px;
 	}
 
 	.time-text {
@@ -1456,34 +1513,34 @@
 	.clock-icon { width: 14px; height: 14px; }
 
 	.punch-slots {
-		padding: 0.75rem 1.25rem 1.25rem;
+		padding: 0.3rem 0.5rem 0.4rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.3rem;
 	}
 
 	.slot-item {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem;
-		border-radius: 1rem;
+		gap: 0.4rem;
+		padding: 0.35rem 0.4rem;
+		border-radius: 6px;
 		background: var(--futuristic-bg);
 	}
 
 	.slot-icon {
-		width: 32px;
-		height: 32px;
+		width: 26px;
+		height: 26px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 0.75rem;
+		border-radius: 5px;
 	}
 
 	.check-in .slot-icon { background: rgba(16, 185, 129, 0.1); color: var(--futuristic-green); }
 	.check-out .slot-icon { background: rgba(249, 115, 22, 0.1); color: var(--futuristic-orange); }
 
-	.slot-icon svg { width: 18px; height: 18px; }
+	.slot-icon svg { width: 14px; height: 14px; }
 
 	.slot-data {
 		flex: 1;
@@ -1492,21 +1549,21 @@
 	}
 
 	.slot-status {
-		font-size: 0.65rem;
+		font-size: 0.6rem;
 		font-weight: 600;
 		color: var(--futuristic-text-light);
 		text-transform: uppercase;
 	}
 
 	.slot-time {
-		font-size: 0.9375rem;
+		font-size: 0.82rem;
 		font-weight: 700;
 		color: var(--futuristic-text);
 	}
 
 	.slot-time.missing {
 		color: #EF4444;
-		font-size: 0.8rem;
+		font-size: 0.72rem;
 		font-style: italic;
 	}
 
@@ -1518,11 +1575,11 @@
 	}
 
 	.next-day-label {
-		font-size: 0.6rem;
+		font-size: 0.56rem;
 		color: var(--futuristic-orange);
 		background: rgba(249, 115, 22, 0.05);
-		padding: 0.1rem 0.3rem;
-		border-radius: 0.25rem;
+		padding: 0.05rem 0.2rem;
+		border-radius: 3px;
 	}
 
 	.slot-badges-row {
@@ -1533,9 +1590,9 @@
 	}
 
 	.slot-badge {
-		padding: 0.25rem 0.5rem;
-		border-radius: 0.5rem;
-		font-size: 0.75rem;
+		padding: 0.1rem 0.3rem;
+		border-radius: 4px;
+		font-size: 0.66rem;
 		font-weight: 700;
 	}
 
@@ -1544,21 +1601,21 @@
 	.slot-badge.warning { background: #FFEDD5; color: #EA580C; }
 
 	.empty-slot {
-		padding: 1.5rem;
+		padding: 0.5rem;
 		text-align: center;
 		color: var(--futuristic-text-light);
-		font-size: 0.8125rem;
+		font-size: 0.74rem;
 		font-weight: 500;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.25rem;
 	}
 
 	.empty-icon {
-		font-size: 1.5rem;
-		width: 40px;
-		height: 40px;
+		font-size: 1rem;
+		width: 28px;
+		height: 28px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1578,32 +1635,33 @@
 	}
 
 	.no-results {
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		text-align: center;
 		color: var(--futuristic-text-light);
+		font-size: 0.78rem;
 	}
 
 	.no-results-icon {
-		width: 48px;
-		height: 48px;
-		margin: 0 auto 1rem;
+		width: 32px;
+		height: 32px;
+		margin: 0 auto 0.5rem;
 		color: var(--futuristic-border);
 	}
 
 	.loading-ring {
 		display: inline-block;
 		position: relative;
-		width: 20px;
-		height: 20px;
-		margin-right: 0.75rem;
+		width: 16px;
+		height: 16px;
+		margin-right: 0.4rem;
 	}
 	.loading-ring div {
 		box-sizing: border-box;
 		display: block;
 		position: absolute;
-		width: 16px;
-		height: 16px;
-		margin: 2px;
+		width: 14px;
+		height: 14px;
+		margin: 1px;
 		border: 2px solid #fff;
 		border-radius: 50%;
 		animation: loading-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
@@ -1617,8 +1675,130 @@
 		100% { transform: rotate(360deg); }
 	}
 
-	@media (max-width: 640px) {
-		.fingerprint-analysis-page { padding: 1rem; }
-		.shift-value { font-size: 1rem; }
+	/* Calendar Popup */
+	.calendar-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: calc(3.6rem + env(safe-area-inset-bottom));
+		background: rgba(0, 0, 0, 0.4);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+		padding: 1rem;
+		animation: calFadeIn 0.15s ease-out;
+	}
+
+	@keyframes calFadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	.calendar-popup {
+		background: white;
+		border-radius: 10px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+		width: 100%;
+		max-width: 320px;
+		overflow: hidden;
+		animation: calSlideUp 0.2s ease-out;
+	}
+
+	@keyframes calSlideUp {
+		from { opacity: 0; transform: translateY(16px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.calendar-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.6rem;
+		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+		color: white;
+	}
+
+	.cal-nav-btn {
+		width: 30px;
+		height: 30px;
+		border: none;
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		border-radius: 50%;
+		font-size: 1.1rem;
+		font-weight: 700;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.15s;
+	}
+
+	.cal-nav-btn:active {
+		background: rgba(255, 255, 255, 0.35);
+	}
+
+	.cal-month-year {
+		font-size: 0.88rem;
+		font-weight: 700;
+	}
+
+	.cal-weekdays {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		text-align: center;
+		padding: 0.4rem 0.5rem 0.2rem;
+		border-bottom: 1px solid #F3F4F6;
+	}
+
+	.cal-weekdays span {
+		font-size: 0.68rem;
+		font-weight: 700;
+		color: #9CA3AF;
+		text-transform: uppercase;
+	}
+
+	.cal-days {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		padding: 0.3rem 0.5rem 0.5rem;
+		gap: 2px;
+	}
+
+	.cal-day {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 36px;
+		border: none;
+		background: transparent;
+		border-radius: 50%;
+		font-size: 0.78rem;
+		font-weight: 500;
+		color: #374151;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.cal-day.empty { cursor: default; }
+	.cal-day:not(.empty):active { transform: scale(0.9); }
+
+	.cal-day.today {
+		border: 2px solid #10B981;
+		font-weight: 700;
+		color: #10B981;
+	}
+
+	.cal-day.selected {
+		background: #10B981;
+		color: white;
+		font-weight: 700;
+	}
+
+	.cal-day.selected.today {
+		border-color: #10B981;
+		color: white;
 	}
 </style>

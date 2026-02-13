@@ -200,12 +200,6 @@
 				<p>{$currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
 			</div>
 		{:else}
-			<!-- Page Header -->
-			<div class="page-header">
-				<h1>📋 {$currentLocale === 'ar' ? 'إدارة الحوادث' : 'Incident Manager'}</h1>
-				<p class="subtitle">{$currentLocale === 'ar' ? 'الحوادث غير المحلولة المطلوب متابعتها' : 'Unresolved incidents requiring action'}</p>
-			</div>
-
 			<!-- Filter Tabs -->
 			<div class="filter-tabs">
 				<button class="filter-tab" class:active={filterStatus === 'all'} on:click={() => filterStatus = 'all'}>
@@ -279,14 +273,14 @@
 
 <style>
 	.mobile-page {
-		min-height: 100vh;
-		background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-		padding-bottom: 80px;
+		min-height: 100%;
+		background: #F8FAFC;
+		padding: 0;
 	}
 	
 	.mobile-content {
-		padding: 1rem;
-		max-width: 600px;
+		padding: 0.4rem 0.5rem;
+		max-width: 100%;
 		margin: 0 auto;
 	}
 	
@@ -295,14 +289,16 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 1rem;
+		min-height: 40vh;
+		gap: 0.5rem;
+		font-size: 0.82rem;
 		color: #64748b;
 	}
 	
 	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid #e2e8f0;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #e2e8f0;
 		border-top-color: #3b82f6;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
@@ -312,44 +308,26 @@
 		to { transform: rotate(360deg); }
 	}
 	
-	.page-header {
-		text-align: center;
-		margin-bottom: 1.5rem;
-	}
-	
-	.page-header h1 {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #1e293b;
-		margin: 0 0 0.25rem;
-	}
-	
-	.page-header .subtitle {
-		font-size: 0.875rem;
-		color: #64748b;
-		margin: 0;
-	}
-	
 	/* Filter Tabs */
 	.filter-tabs {
 		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
+		gap: 0.3rem;
+		margin-bottom: 0.5rem;
 		overflow-x: auto;
-		padding-bottom: 0.25rem;
+		padding-bottom: 0.15rem;
 	}
 	
 	.filter-tab {
 		flex-shrink: 0;
-		padding: 0.5rem 1rem;
+		padding: 0.3rem 0.6rem;
 		border: none;
 		border-radius: 2rem;
 		background: white;
 		color: #64748b;
-		font-size: 0.8rem;
+		font-size: 0.72rem;
 		font-weight: 600;
 		cursor: pointer;
-		box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+		box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 		transition: all 0.2s;
 	}
 	
@@ -361,28 +339,29 @@
 	/* Empty State */
 	.empty-state {
 		text-align: center;
-		padding: 3rem 1rem;
+		padding: 2rem 0.5rem;
 		color: #94a3b8;
+		font-size: 0.8rem;
 	}
 	
 	.empty-icon {
-		font-size: 4rem;
+		font-size: 2rem;
 		display: block;
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 	
 	/* Incidents List */
 	.incidents-list {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.4rem;
 	}
 	
 	.incident-card {
 		background: white;
-		border-radius: 1rem;
-		padding: 1rem;
-		box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+		border-radius: 6px;
+		padding: 0.5rem 0.6rem;
+		box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 		cursor: pointer;
 		transition: transform 0.2s, box-shadow 0.2s;
 		border: none;
@@ -391,27 +370,27 @@
 	}
 	
 	.incident-card:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+		transform: translateY(-1px);
+		box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 	}
 	
 	.incident-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 	
 	.incident-id {
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		font-weight: 700;
 		color: #3b82f6;
 	}
 	
 	.status-badge {
-		font-size: 0.7rem;
+		font-size: 0.6rem;
 		font-weight: 600;
-		padding: 0.25rem 0.75rem;
+		padding: 0.12rem 0.4rem;
 		border-radius: 1rem;
 		text-transform: uppercase;
 	}
@@ -437,17 +416,17 @@
 	}
 	
 	.incident-type {
-		font-size: 1rem;
+		font-size: 0.8rem;
 		font-weight: 600;
 		color: #1e293b;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.3rem;
 	}
 	
 	.incident-info {
 		display: flex;
-		gap: 0.5rem;
-		font-size: 0.8rem;
-		margin-bottom: 0.25rem;
+		gap: 0.3rem;
+		font-size: 0.72rem;
+		margin-bottom: 0.15rem;
 	}
 	
 	.incident-info .label {
@@ -466,16 +445,16 @@
 	.incident-footer {
 		display: flex;
 		justify-content: space-between;
-		margin-top: 0.75rem;
-		padding-top: 0.75rem;
+		margin-top: 0.3rem;
+		padding-top: 0.3rem;
 		border-top: 1px solid #f1f5f9;
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		color: #94a3b8;
 	}
 	
 	.view-more {
-		margin-top: 0.75rem;
-		font-size: 0.8rem;
+		margin-top: 0.3rem;
+		font-size: 0.72rem;
 		font-weight: 600;
 		color: #3b82f6;
 		text-align: center;

@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import { locale, getTranslation } from '$lib/i18n';
+	import { locale, getTranslation, currentLocale } from '$lib/i18n';
 
 	// State management
 	let loading = true;
@@ -18,6 +18,7 @@
 	let setAsDefaultUsers = false;
 	let showBranchSelector = false;
 	let showUserSelector = false;
+	let showUserPopup = false;
 	let isSubmitting = false;
 	let showSuccessMessage = false;
 	let successMessage = '';
@@ -97,6 +98,8 @@
 		const positionNameAr = user.position_info?.position_title_ar || '';
 		return (
 			user.username?.toLowerCase().includes(term) ||
+			user.name_en?.toLowerCase().includes(term) ||
+			user.name_ar?.toLowerCase().includes(term) ||
 			user.hr_employees?.name?.toLowerCase().includes(term) ||
 			user.employee_id?.toLowerCase().includes(term) ||
 			positionNameEn.toLowerCase().includes(term) ||
@@ -267,46 +270,44 @@
 		}
 
 		try {
-			const { data: userData, error } = await supabase
-				.from('users')
+			const { data: employeeData, error } = await supabase
+				.from('hr_employee_master')
 				.select(`
 					id,
-					username,
-					employee_id,
-					hr_employees(
-						id, 
-						name,
-						employee_id
+					user_id,
+					name_en,
+					name_ar,
+					current_position_id,
+					hr_positions(
+						id,
+						position_title_en,
+						position_title_ar
 					)
 				`)
-				.eq('branch_id', branchId)
-				.eq('status', 'active')
-				.order('username');
+				.eq('current_branch_id', branchId)
+				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+				.neq('user_id', 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b');
 
 			if (error) {
-				console.error('Error loading users:', error);
-				// Fallback query without positions if the join fails
-				const { data: fallbackData, error: fallbackError } = await supabase
-					.from('users')
-					.select(`
-						id,
-						username,
-						employee_id,
-						hr_employees(id, name, employee_id)
-					`)
-					.eq('branch_id', branchId)
-					.eq('status', 'active')
-					.order('username');
-
-				if (!fallbackError) {
-					users = fallbackData || [];
-				}
-			} else {
-				users = userData || [];
+				console.error('Error loading employees:', error);
+				users = [];
+				return;
 			}
 
-			// Load position information separately to avoid complex nested queries
-			await loadUserPositions();
+			// Map hr_employee_master data to the user format expected by the UI
+			const isAr = $locale === 'ar';
+			users = (employeeData || []).map(emp => ({
+				id: emp.user_id,
+				username: emp.name_en || emp.name_ar || '',
+				employee_id: emp.id,
+				name_en: emp.name_en || '',
+				name_ar: emp.name_ar || '',
+				hr_employees: {
+					id: emp.id,
+					name: isAr ? (emp.name_ar || emp.name_en || '') : (emp.name_en || emp.name_ar || '')
+				},
+				position_info: emp.hr_positions || null
+			}));
 
 			// If we have default user IDs and no users selected yet, use defaults
 			if (defaultUserIds.length > 0 && selectedUsers.length === 0) {
@@ -314,43 +315,6 @@
 			}
 		} catch (error) {
 			console.error('Error loading branch users:', error);
-		}
-	}
-
-	// Load position information for current users
-	async function loadUserPositions() {
-		if (!users || users.length === 0) return;
-
-		try {
-			const employeeIds = users.map(user => user.hr_employees?.id).filter(Boolean);
-			
-			if (employeeIds.length === 0) return;
-
-			const { data: positionData, error } = await supabase
-				.from('hr_position_assignments')
-				.select(`
-					employee_id,
-					hr_positions!inner(
-						id,
-						position_title_en,
-						position_title_ar
-					)
-				`)
-				.in('employee_id', employeeIds)
-				.eq('is_current', true);
-
-			if (!error && positionData) {
-				// Merge position data with users
-				users = users.map(user => {
-					const position = positionData.find(p => p.employee_id === user.hr_employees?.id);
-					return {
-						...user,
-						position_info: position?.hr_positions || null
-					};
-				});
-			}
-		} catch (error) {
-			console.error('Error loading position data:', error);
 		}
 	}
 
@@ -700,7 +664,7 @@
 	<title>{getTranslation('mobile.quickTaskContent.title')}</title>
 </svelte:head>
 
-<div class="quick-task-page">
+<div class="quick-task-page" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 	{#if loading}
 		<div class="loading">
 			<div class="spinner"></div>
@@ -778,17 +742,16 @@
 			<h3>{getTranslation('mobile.quickTaskContent.step1.title')}</h3>
 			
 			{#if selectedBranch && !showBranchSelector}
-				<div class="current-selection">
-					<div class="selection-info">
-						<span class="label">{getTranslation('mobile.quickTaskContent.step1.branchLabel')}</span>
+				<div class="current-selection inline-row">
+					<div class="branch-name-block">
 						<span class="value">{selectedBranchName}</span>
 						{#if selectedBranchLocation}
 							<span class="location-text">{selectedBranchLocation}</span>
 						{/if}
-						{#if isUsingDefaultBranch}
-							<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
-						{/if}
 					</div>
+					{#if isUsingDefaultBranch}
+						<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
+					{/if}
 					<button type="button" on:click={showBranchSelection} class="change-btn">
 						{getTranslation('mobile.quickTaskContent.step1.change')}
 					</button>
@@ -815,74 +778,76 @@
 		{#if selectedBranch && !showBranchSelector}
 			<!-- Step 2: User Selection -->
 			<div class="form-section">
-				<h3>{getTranslation('mobile.quickTaskContent.step2.title')}</h3>
-				
-				{#if selectedUsers.length > 0 && !showUserSelector}
-					<div class="current-selection">
-						<div class="selection-info">
-							<span class="label">{getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
-							<span class="value">{selectedUsers.length} {getTranslation('mobile.quickTaskContent.step2.selected')}</span>
-							{#if isUsingDefaultUsers}
-								<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
-							{/if}
-						</div>
-						<button type="button" on:click={showUserSelection} class="change-btn">
-							{getTranslation('mobile.quickTaskContent.step2.change')}
-						</button>
-					</div>
+				<div class="section-header-row">
+					<h3>{getTranslation('mobile.quickTaskContent.step2.title')}</h3>
+					<button type="button" class="select-users-btn" on:click={() => { showUserPopup = true; searchTerm = ''; }}>
+						{#if selectedUsers.length > 0}
+							<span>{selectedUsers.length} {getTranslation('mobile.quickTaskContent.step2.selected')}</span>
+						{:else}
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+							<span>{getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
+						{/if}
+					</button>
+				</div>
+				{#if selectedUsers.length > 0}
 					<div class="selected-users-preview">
-						{#each selectedUsers.slice(0, 3) as userId}
+						{#each selectedUsers as userId}
 							{@const user = users.find(u => u.id === userId)}
 							{#if user}
 								<span class="user-chip">
 									{getUserDisplayName(user)}
+									<button type="button" class="chip-remove" on:click={() => toggleUserSelection(user.id)}>&times;</button>
 								</span>
 							{/if}
 						{/each}
-						{#if selectedUsers.length > 3}
-							<span class="user-chip more">+{selectedUsers.length - 3} {getTranslation('mobile.quickTaskContent.step2.more')}</span>
-						{/if}
 					</div>
-				{:else}
-					{#if users.length > 0}
-						<input 
-							type="text" 
-							placeholder={getTranslation('mobile.quickTaskContent.step2.searchPlaceholder')}
-							bind:value={searchTerm}
-							class="search-input"
-						/>
-						<div class="user-list">
-							{#each filteredUsers as user}
-								<label class="user-item">
-									<input 
-										type="checkbox" 
-										checked={selectedUsers.includes(user.id)}
-										on:change={() => toggleUserSelection(user.id)}
-									/>
-									<div class="user-info">
-										<span class="user-name">{getUserDisplayName(user)}</span>
-										<span class="user-details">{user.username}</span>
-										{#if user.position_info && getPositionTitle(user.position_info)}
-											<span class="user-position">{getPositionTitle(user.position_info)}</span>
-										{/if}
-									</div>
-								</label>
-							{/each}
+				{/if}
+			</div>
+
+			<!-- User Selection Popup -->
+			{#if showUserPopup}
+				<div class="user-popup-overlay" on:click={() => showUserPopup = false} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && (showUserPopup = false)}>
+					<div class="user-popup" on:click|stopPropagation role="none">
+						<div class="user-popup-header">
+							<span>{getTranslation('mobile.quickTaskContent.step2.title')}</span>
+							<button type="button" class="user-popup-close" on:click={() => showUserPopup = false}>&times;</button>
 						</div>
-						{#if selectedUsers.length > 0}
+						<div class="user-popup-search">
+							<input 
+								type="text" 
+								placeholder={getTranslation('mobile.quickTaskContent.step2.searchPlaceholder')}
+								bind:value={searchTerm}
+								class="search-input"
+							/>
+						</div>
+						<div class="user-popup-list">
+							{#if users.length > 0}
+								{#each filteredUsers as user}
+									<label class="user-item">
+										<input 
+											type="checkbox" 
+											checked={selectedUsers.includes(user.id)}
+											on:change={() => toggleUserSelection(user.id)}
+										/>
+										<span class="user-name">{getUserDisplayName(user)}</span>
+									</label>
+								{/each}
+							{:else}
+								<p class="no-users">No users found for this branch</p>
+							{/if}
+						</div>
+						<div class="user-popup-footer">
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={setAsDefaultUsers} />
 								{getTranslation('mobile.quickTaskContent.step2.setAsDefault')}
 							</label>
-							<button type="button" on:click={hideUserSelection} class="confirm-btn">
-								{getTranslation('mobile.quickTaskContent.step2.confirmUsers')}
+							<button type="button" class="confirm-btn" on:click={() => showUserPopup = false}>
+								{getTranslation('mobile.quickTaskContent.step2.confirmUsers')} ({selectedUsers.length})
 							</button>
-						{/if}
-					{:else}
-						<p class="no-users">No users found for this branch</p>
-					{/if}
-				{/if}
-			</div>
+						</div>
+					</div>
+				</div>
+			{/if}
 
 			<!-- Step 3: Task Details -->
 			<div class="form-section">
@@ -1039,11 +1004,12 @@
 
 <style>
 	.quick-task-page {
-		padding: 1rem;
-		max-width: 600px;
-		margin: 0 auto;
+		padding: 0;
+		padding-bottom: 0.5rem;
+		min-height: 100%;
 		background: #F8FAFC;
-		min-height: 100vh;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.loading {
@@ -1051,7 +1017,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 3rem;
+		padding: 1.5rem;
 		color: #666;
 	}
 
@@ -1070,14 +1036,139 @@
 		100% { transform: rotate(360deg); }
 	}
 
+	/* Section header with inline button */
+	.section-header-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.4rem;
+		margin-bottom: 0.3rem;
+	}
+
+	.section-header-row h3 {
+		margin: 0 !important;
+	}
+
+	.select-users-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.3rem 0.65rem;
+		background: #007bff;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.88rem;
+		font-weight: 600;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.select-users-btn:active {
+		background: #0056b3;
+	}
+
+	.chip-remove {
+		background: none;
+		border: none;
+		color: #0066cc;
+		font-size: 0.85rem;
+		cursor: pointer;
+		padding: 0;
+		margin-left: 0.15rem;
+		line-height: 1;
+		font-weight: 700;
+	}
+
+	.chip-remove:active {
+		color: #EF4444;
+	}
+
+	/* User Selection Popup */
+	.user-popup-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 1000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.75rem;
+	}
+
+	.user-popup {
+		background: white;
+		border-radius: 12px;
+		width: 100%;
+		max-width: 360px;
+		max-height: 65vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		margin-bottom: 4rem;
+	}
+
+	.user-popup-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.65rem 0.85rem;
+		border-bottom: 1px solid #E5E7EB;
+		font-weight: 700;
+		font-size: 0.9rem;
+		color: #111827;
+		flex-shrink: 0;
+	}
+
+	.user-popup-close {
+		background: none;
+		border: none;
+		font-size: 1.3rem;
+		cursor: pointer;
+		color: #6B7280;
+		line-height: 1;
+		padding: 0 0.2rem;
+	}
+
+	.user-popup-search {
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #F3F4F6;
+		flex-shrink: 0;
+	}
+
+	.user-popup-search .search-input {
+		margin-bottom: 0;
+	}
+
+	.user-popup-list {
+		flex: 1;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		min-height: 0;
+	}
+
+	.user-popup-footer {
+		padding: 0.5rem 0.75rem;
+		border-top: 1px solid #E5E7EB;
+		flex-shrink: 0;
+	}
+
+	.user-popup-footer .checkbox-label {
+		margin-bottom: 0.3rem;
+	}
+
+	.user-popup-footer .confirm-btn {
+		width: 100%;
+	}
+
 	/* Success Message Styles */
 	.success-message {
-		background: linear-gradient(135deg, #4caf50, #45a049);
+		background: linear-gradient(135deg, #10B981, #059669);
 		color: white;
-		margin: 1rem 0;
-		padding: 1rem;
-		border-radius: 8px;
-		box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+		margin: 0.35rem 0.5rem;
+		padding: 0.5rem 0.65rem;
+		border-radius: 6px;
+		box-shadow: 0 1px 4px rgba(16, 185, 129, 0.3);
 		position: relative;
 		animation: slideIn 0.3s ease-out;
 	}
@@ -1085,7 +1176,7 @@
 	.success-content {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.35rem;
 	}
 
 	.success-content svg {
@@ -1095,28 +1186,28 @@
 
 	.success-content p {
 		margin: 0;
-		font-weight: 500;
-		font-size: 0.95rem;
-		line-height: 1.4;
+		font-weight: 600;
+		font-size: 0.9rem;
+		line-height: 1.3;
 	}
 
 	.close-success {
 		position: absolute;
-		top: 0.5rem;
-		right: 0.5rem;
+		top: 0.25rem;
+		right: 0.25rem;
 		background: rgba(255, 255, 255, 0.2);
 		border: none;
 		border-radius: 50%;
-		width: 32px;
-		height: 32px;
+		width: 24px;
+		height: 24px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: background-color 0.2s;
+		transition: background-color 0.15s;
 	}
 
-	.close-success:hover {
+	.close-success:active {
 		background: rgba(255, 255, 255, 0.3);
 	}
 
@@ -1137,55 +1228,50 @@
 
 	.form-section {
 		background: white;
-		border-radius: 12px;
-		padding: 1.5rem;
-		margin-bottom: 1rem;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+		border-radius: 8px;
+		padding: 0.65rem 0.75rem;
+		margin: 0 0.5rem 0.5rem;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 	}
 
 	.form-section h3 {
-		margin: 0 0 1rem 0;
-		font-size: 1.1rem;
-		font-weight: 600;
-		color: #333;
+		margin: 0 0 0.5rem 0;
+		font-size: 0.95rem;
+		font-weight: 700;
+		color: #374151;
 	}
 
 	.current-selection {
 		background: #f8f9fa;
-		border-radius: 8px;
-		padding: 1rem;
-		margin-bottom: 1rem;
+		border-radius: 6px;
+		padding: 0.5rem;
+		margin-bottom: 0.5rem;
 	}
 
-	.selection-info {
+	.current-selection.inline-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		margin-bottom: 8px;
+		gap: 0.4rem;
+		flex-wrap: nowrap;
 	}
 
-	.selection-info .label {
-		font-weight: 500;
-		color: #666;
+	.branch-name-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
 	}
 
-	.selection-info .value {
-		font-weight: 600;
-		color: #333;
-	}
-
-	.selection-info .location-text {
+	.branch-name-block .location-text {
 		font-size: 0.75rem;
-		color: #6B7280;
-		font-weight: 400;
+		color: #9CA3AF;
 	}
 
 	.default-badge {
 		background: #e7f3ff;
 		color: #0066cc;
 		font-size: 0.75rem;
-		padding: 2px 8px;
-		border-radius: 12px;
+		padding: 1px 6px;
+		border-radius: 10px;
 		font-weight: 500;
 	}
 
@@ -1193,32 +1279,40 @@
 		background: #007bff;
 		color: white;
 		border: none;
-		padding: 8px 16px;
+		padding: 0.35rem 0.75rem;
 		border-radius: 6px;
 		font-size: 0.9rem;
 		cursor: pointer;
-		font-weight: 500;
+		font-weight: 600;
+		margin-left: auto;
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
-	.change-btn:hover, .confirm-btn:hover {
+	.change-btn:active, .confirm-btn:active {
 		background: #0056b3;
 	}
 
 	.form-select, .form-input, .form-textarea {
 		width: 100%;
-		padding: 12px;
-		border: 1px solid #ddd;
-		border-radius: 6px;
-		font-size: 1rem;
-		margin-bottom: 12px;
+		padding: 0.35rem 0.5rem;
+		border: 1px solid #D1D5DB;
+		border-radius: 0.375rem;
+		font-size: 0.9rem;
+		margin-bottom: 0.5rem;
 		box-sizing: border-box;
+		height: 2rem;
+	}
+
+	.form-textarea {
+		height: auto;
 	}
 
 	/* RTL Support for select dropdown arrow */
 	:global([dir="rtl"]) .form-select {
-		padding-right: 12px;
-		padding-left: 40px;
-		background-position: left 12px center;
+		padding-right: 0.5rem;
+		padding-left: 1.5rem;
+		background-position: left 0.5rem center;
 	}
 
 	.form-select:focus, .form-input:focus, .form-textarea:focus {
@@ -1228,49 +1322,54 @@
 	}
 
 	.form-group {
-		margin-bottom: 1rem;
+		margin-bottom: 0.6rem;
+	}
+
+	.form-group:last-child {
+		margin-bottom: 0;
 	}
 
 	.form-group label {
 		display: block;
-		margin-bottom: 6px;
-		font-weight: 500;
-		color: #333;
+		margin-bottom: 0.15rem;
+		font-weight: 600;
+		color: #374151;
+		font-size: 0.88rem;
 	}
 
 	.checkbox-label {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		margin-bottom: 16px;
+		gap: 0.4rem;
+		margin-bottom: 0.4rem;
 		cursor: pointer;
-		font-size: 1rem;
-		padding: 12px;
+		font-size: 0.9rem;
+		padding: 0.35rem 0.5rem;
 		background: #f8f9fa;
-		border-radius: 8px;
-		border: 2px solid transparent;
-		transition: all 0.2s ease;
+		border-radius: 6px;
+		border: 1px solid transparent;
+		transition: all 0.15s ease;
 	}
 
-	.checkbox-label:hover {
+	.checkbox-label:active {
 		background: #e9ecef;
 		border-color: #007bff;
 	}
 
 	.checkbox-label input[type="checkbox"] {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		margin: 0;
 		cursor: pointer;
-		transform: scale(1.2);
 		accent-color: #007bff;
 		border: 2px solid #007bff;
-		border-radius: 4px;
+		border-radius: 3px;
 		background: white;
 		-webkit-appearance: none;
 		-moz-appearance: none;
 		appearance: none;
 		position: relative;
+		flex-shrink: 0;
 	}
 
 	.checkbox-label input[type="checkbox"]:checked {
@@ -1285,39 +1384,32 @@
 		left: 50%;
 		transform: translate(-50%, -50%);
 		color: white;
-		font-size: 14px;
+		font-size: 11px;
 		font-weight: bold;
 	}
 
 	.search-input {
 		width: 100%;
-		padding: 12px;
-		border: 1px solid #ddd;
-		border-radius: 6px;
-		margin-bottom: 12px;
-		font-size: 1rem;
+		padding: 0.35rem 0.5rem;
+		border: 1px solid #D1D5DB;
+		border-radius: 0.375rem;
+		margin-bottom: 0.4rem;
+		font-size: 0.9rem;
 		box-sizing: border-box;
-	}
-
-	.user-list {
-		max-height: 400px;
-		overflow-y: auto;
-		border: 1px solid #ddd;
-		border-radius: 6px;
-		margin-bottom: 12px;
+		height: 2rem;
 	}
 
 	.user-item {
 		display: flex;
 		align-items: center;
-		gap: 16px;
-		padding: 16px;
-		border-bottom: 1px solid #eee;
+		gap: 0.4rem;
+		padding: 0.4rem 0.5rem;
+		border-bottom: 1px solid #F3F4F6;
 		cursor: pointer;
-		transition: background 0.2s ease;
+		transition: background 0.15s ease;
 	}
 
-	.user-item:hover {
+	.user-item:active {
 		background: #f0f8ff;
 	}
 
@@ -1326,19 +1418,19 @@
 	}
 
 	.user-item input[type="checkbox"] {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		margin: 0;
 		cursor: pointer;
-		transform: scale(1.3);
 		accent-color: #007bff;
 		border: 2px solid #007bff;
-		border-radius: 4px;
+		border-radius: 3px;
 		background: white;
 		-webkit-appearance: none;
 		-moz-appearance: none;
 		appearance: none;
 		position: relative;
+		flex-shrink: 0;
 	}
 
 	.user-item input[type="checkbox"]:checked {
@@ -1353,7 +1445,7 @@
 		left: 50%;
 		transform: translate(-50%, -50%);
 		color: white;
-		font-size: 14px;
+		font-size: 11px;
 		font-weight: bold;
 	}
 
@@ -1363,75 +1455,71 @@
 
 	.user-name {
 		display: block;
-		font-weight: 500;
-		color: #333;
+		font-weight: 600;
+		color: #111827;
+		font-size: 0.9rem;
 	}
 
 	.user-details, .user-position {
 		display: block;
-		font-size: 0.85rem;
-		color: #666;
+		font-size: 0.8rem;
+		color: #6B7280;
 	}
 
 	.selected-users-preview {
 		display: flex;
-		gap: 8px;
+		gap: 0.3rem;
 		flex-wrap: wrap;
-		margin-top: 8px;
+		margin-top: 0.25rem;
 	}
 
 	.user-chip {
 		background: #e7f3ff;
 		color: #0066cc;
-		padding: 4px 8px;
-		border-radius: 12px;
+		padding: 2px 6px;
+		border-radius: 10px;
 		font-size: 0.8rem;
 		font-weight: 500;
 	}
 
-	.user-chip.more {
-		background: #f0f0f0;
-		color: #666;
-	}
-
 	.file-actions {
 		display: flex;
-		gap: 12px;
-		margin-bottom: 1rem;
+		gap: 0.4rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.file-btn {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 12px 16px;
-		background: #f8f9fa;
-		border: 1px solid #ddd;
+		gap: 0.3rem;
+		padding: 0.4rem 0.65rem;
+		background: #F3F4F6;
+		border: 1px solid #D1D5DB;
 		border-radius: 6px;
 		cursor: pointer;
 		font-size: 0.9rem;
-		font-weight: 500;
-		color: #333;
+		font-weight: 600;
+		color: #374151;
 	}
 
-	.file-btn:hover {
-		background: #e9ecef;
+	.file-btn:active {
+		background: #E5E7EB;
 	}
 
 	.camera-btn {
-		background: #28a745;
+		background: #10B981;
 		color: white;
-		border-color: #28a745;
+		border-color: #10B981;
 	}
 
-	.camera-btn:hover {
-		background: #218838;
+	.camera-btn:active {
+		background: #059669;
 	}
 
 	.file-list {
-		border: 1px solid #ddd;
+		border: 1px solid #D1D5DB;
 		border-radius: 6px;
-		max-height: 150px;
+		max-height: 100px;
 		overflow-y: auto;
 	}
 
@@ -1439,8 +1527,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 12px;
-		border-bottom: 1px solid #eee;
+		padding: 0.35rem 0.5rem;
+		border-bottom: 1px solid #F3F4F6;
 	}
 
 	.file-item:last-child {
@@ -1453,88 +1541,89 @@
 
 	.file-name {
 		display: block;
-		font-weight: 500;
-		color: #333;
+		font-weight: 600;
+		color: #111827;
+		font-size: 0.88rem;
 	}
 
 	.file-size {
 		display: block;
-		font-size: 0.85rem;
-		color: #666;
+		font-size: 0.8rem;
+		color: #6B7280;
 	}
 
 	.remove-file-btn {
 		background: none;
 		border: none;
-		color: #dc3545;
+		color: #EF4444;
 		cursor: pointer;
-		padding: 4px;
+		padding: 0.1rem 0.2rem;
 		border-radius: 4px;
 	}
 
-	.remove-file-btn:hover {
-		background: #f8f9fa;
+	.remove-file-btn:active {
+		background: #FEE2E2;
 	}
 
 	.requirements-list {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 0.25rem;
 	}
 
 	.assign-btn {
 		width: 100%;
-		background: #28a745;
+		background: #10B981;
 		color: white;
 		border: none;
-		padding: 16px;
+		padding: 0.55rem;
 		border-radius: 8px;
-		font-size: 1.1rem;
+		font-size: 0.95rem;
 		font-weight: 600;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 8px;
+		gap: 0.35rem;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 	}
 
-	.assign-btn:hover:not(:disabled) {
-		background: #218838;
+	.assign-btn:active:not(:disabled) {
+		background: #059669;
 	}
 
 	.assign-btn:disabled {
-		background: #6c757d;
+		background: #9CA3AF;
 		cursor: not-allowed;
+		box-shadow: none;
 	}
 
 	.btn-spinner {
-		width: 16px;
-		height: 16px;
+		width: 14px;
+		height: 14px;
 		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top: 2px solid white;
+		border-top-color: white;
 		border-radius: 50%;
-		animation: spin 1s linear infinite;
+		animation: spin 0.6s linear infinite;
 	}
 
 	.no-users {
-		color: #666;
+		color: #6B7280;
 		font-style: italic;
 		text-align: center;
-		padding: 2rem;
+		padding: 0.75rem;
+		font-size: 0.9rem;
 	}
 
 	/* Success Popup Modal */
 	.popup-overlay {
 		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
+		inset: 0;
 		background: rgba(0, 0, 0, 0.5);
+		z-index: 1000;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 9999;
 		padding: 1rem;
 		backdrop-filter: blur(4px);
 		animation: fadeIn 0.3s ease-out;
@@ -1551,8 +1640,8 @@
 
 	.popup-modal {
 		background: white;
-		border-radius: 16px;
-		max-width: 400px;
+		border-radius: 12px;
+		max-width: 360px;
 		width: 100%;
 		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 		animation: slideUp 0.3s ease-out;
@@ -1572,13 +1661,13 @@
 
 	.popup-header {
 		text-align: center;
-		padding: 2rem 1.5rem 1rem;
-		background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+		padding: 1rem 0.85rem 0.65rem;
+		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
 		color: white;
 	}
 
 	.success-icon {
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.success-icon svg {
@@ -1603,23 +1692,23 @@
 
 	.popup-header h2 {
 		margin: 0;
-		font-size: 1.3rem;
-		font-weight: 600;
-		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		font-size: 0.95rem;
+		font-weight: 700;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
 	.popup-content {
-		padding: 1.5rem;
+		padding: 0.75rem 0.85rem;
 	}
 
 	.task-detail {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		padding: 12px;
+		gap: 2px;
+		padding: 0.4rem 0.5rem;
 		background: #f8f9fa;
-		border-radius: 8px;
-		margin-bottom: 12px;
+		border-radius: 6px;
+		margin-bottom: 0.4rem;
 	}
 
 	.task-detail:last-child {
@@ -1627,46 +1716,40 @@
 	}
 
 	.detail-label {
-		font-size: 0.85rem;
-		color: #666;
-		font-weight: 500;
+		font-size: 0.7rem;
+		color: #6B7280;
+		font-weight: 600;
 	}
 
 	.detail-value {
-		font-size: 1rem;
-		color: #333;
+		font-size: 0.8rem;
+		color: #111827;
 		font-weight: 600;
 	}
 
 	.popup-actions {
-		padding: 1.5rem;
+		padding: 0.65rem 0.85rem;
 		background: #f8f9fa;
-		border-top: 1px solid #e9ecef;
+		border-top: 1px solid #E5E7EB;
 	}
 
 	.popup-btn {
 		width: 100%;
-		padding: 14px 24px;
+		padding: 0.5rem;
 		border: none;
 		border-radius: 8px;
-		font-size: 1rem;
+		font-size: 0.85rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all 0.15s;
 	}
 
 	.popup-btn.primary {
-		background: #28a745;
+		background: #10B981;
 		color: white;
 	}
 
-	.popup-btn.primary:hover {
-		background: #218838;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-	}
-
 	.popup-btn.primary:active {
-		transform: translateY(0);
+		background: #059669;
 	}
 </style>

@@ -4,7 +4,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { supabase, db } from '$lib/utils/supabase';
-	import FileUpload from '$lib/components/common/FileUpload.svelte';
+	import { uploadToSupabase } from '$lib/utils/supabase';
 	import { getTranslation, currentLocale } from '$lib/i18n';
 
 	// Current user and role information
@@ -27,7 +27,10 @@
 	};
 
 	// File upload variables
-	let fileUploadComponent: FileUpload;
+	let cameraInput: HTMLInputElement;
+	let fileInput: HTMLInputElement;
+	let attachedFiles: File[] = [];
+	let previewUrls: string[] = [];
 
 	// Available users from API
 	let allUsers: Array<{ 
@@ -58,6 +61,54 @@
 	let isLoading = false;
 	let successMessage = '';
 	let errorMessage = '';
+	let showUserPopup = false;
+
+	function handleFilesSelected(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const files = Array.from(target.files || []);
+		for (const file of files) {
+			if (file.size > 10 * 1024 * 1024) continue;
+			attachedFiles = [...attachedFiles, file];
+			if (file.type.startsWith('image/')) {
+				const reader = new FileReader();
+				reader.onload = (e) => {
+					if (e.target?.result) previewUrls = [...previewUrls, e.target.result as string];
+				};
+				reader.readAsDataURL(file);
+			} else {
+				previewUrls = [...previewUrls, ''];
+			}
+		}
+		target.value = '';
+	}
+
+	function removeAttachedFile(index: number) {
+		attachedFiles = attachedFiles.filter((_, i) => i !== index);
+		previewUrls = previewUrls.filter((_, i) => i !== index);
+	}
+
+	function getFileIcon(type: string): string {
+		if (type.startsWith('image/')) return '🖼️';
+		if (type.includes('pdf')) return '📄';
+		if (type.includes('doc')) return '📝';
+		return '📎';
+	}
+
+	async function uploadAttachedFiles(): Promise<{success: boolean, uploadedFiles: any[], errors: string[]}> {
+		if (attachedFiles.length === 0) return { success: true, uploadedFiles: [], errors: [] };
+		const uploadedFileData: any[] = [];
+		const uploadErrors: string[] = [];
+		for (const file of attachedFiles) {
+			const ext = file.name.split('.').pop() || 'bin';
+			const uniqueName = `file-${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
+			try {
+				const result = await uploadToSupabase(file, 'notification-images', uniqueName);
+				if (result.error) { uploadErrors.push(`${file.name}: ${result.error.message}`); }
+				else { uploadedFileData.push({ fileName: file.name, filePath: uniqueName, fileSize: file.size, fileType: file.type, fileUrl: result.data?.publicUrl || '', originalFile: file }); }
+			} catch { uploadErrors.push(`${file.name}: Upload failed`); }
+		}
+		return { success: uploadErrors.length === 0, uploadedFiles: uploadedFileData, errors: uploadErrors };
+	}
 
 	// Load users on mount
 	onMount(async () => {
@@ -225,9 +276,9 @@
 			let uploadedFiles: any[] = [];
 
 			// Upload files if present
-			if (fileUploadComponent) {
+			if (attachedFiles.length > 0) {
 				console.log('📎 [Notification] Uploading files...');
-				const uploadResult = await fileUploadComponent.uploadFiles();
+				const uploadResult = await uploadAttachedFiles();
 				
 				if (!uploadResult.success) {
 					errorMessage = `${getTranslation('mobile.createNotificationContent.errors.uploadFailed')}: ${uploadResult.errors.join(', ')}`;
@@ -310,9 +361,8 @@
 			target_type: 'specific_users' as 'all_users' | 'specific_users',
 			target_users: [] as string[]
 		};
-		if (fileUploadComponent) {
-			fileUploadComponent.clearFiles();
-		}
+		attachedFiles = [];
+		previewUrls = [];
 		updateFilteredUsers();
 	}
 
@@ -396,89 +446,58 @@
 		<div class="form-section">
 			<h2 class="section-title">{getTranslation('mobile.createNotificationContent.targetAudience')}</h2>
 			
-			<div class="form-group">
-				<label class="form-label">{getTranslation('mobile.createNotificationContent.sendTo')}</label>
-				<div class="radio-group" style="display: none;">
-					<label class="radio-option">
-						<input type="radio" bind:group={notificationData.target_type} value="all_users" />
-						<span class="radio-label">{getTranslation('mobile.createNotificationContent.allUsers')}</span>
-					</label>
-					<label class="radio-option">
-						<input type="radio" bind:group={notificationData.target_type} value="specific_users" />
-						<span class="radio-label">{getTranslation('mobile.createNotificationContent.specificUsers')}</span>
-					</label>
-				</div>
-			</div>
-
-			{#if notificationData.target_type === 'specific_users'}
-				<div class="user-selection">
-					<div class="search-header">
-						<input 
-							type="text" 
-							bind:value={userSearchTerm}
-							on:input={updateFilteredUsers}
-							placeholder={getTranslation('mobile.createNotificationContent.searchPlaceholder')}
-							class="search-input"
-						/>
-						<div class="selection-actions">
-							<button type="button" on:click={selectAllUsers} class="select-all-btn">
-								{getTranslation('mobile.createNotificationContent.selectAll')}
-							</button>
-							<button type="button" on:click={deselectAllUsers} class="deselect-all-btn">
-								{getTranslation('mobile.createNotificationContent.deselectAll')}
-							</button>
-						</div>
-					</div>
-
-					{#if isLoadingUsers}
-						<div class="loading-users">{getTranslation('mobile.createNotificationContent.loadingUsers')}</div>
-					{:else}
-						<div class="users-list">
-							{#each filteredUsers as user (user.id)}
-								<label class="user-item">
-									<input 
-										type="checkbox" 
-										checked={user.selected}
-										on:change={() => toggleUserSelection(user.id)}
-									/>
-									<div class="user-info">
-										<div class="user-name">{user.employee_name || user.username}</div>
-										<div class="user-details">
-											{user.username} • {user.position_name || user.role_type}
-										</div>
-									</div>
-								</label>
-							{/each}
-						</div>
-
-						{#if filteredUsers.length === 0}
-							<div class="no-users">{getTranslation('mobile.createNotificationContent.noUsers')}</div>
-						{/if}
-					{/if}
-
+			<button type="button" class="audience-trigger-btn" on:click={() => showUserPopup = true}>
+				<span class="audience-trigger-icon">👥</span>
+				<span class="audience-trigger-text">
 					{#if notificationData.target_users.length > 0}
-						<div class="selected-count">
-							{notificationData.target_users.length} {getTranslation('mobile.createNotificationContent.userSelected')}
-						</div>
+						{notificationData.target_users.length} {getTranslation('mobile.createNotificationContent.userSelected')}
+					{:else}
+						{getTranslation('mobile.createNotificationContent.sendTo')}
 					{/if}
-				</div>
-			{/if}
+				</span>
+				<span class="audience-trigger-arrow">›</span>
+			</button>
 		</div>
 
 		<!-- File Attachments -->
 		<div class="form-section">
 			<h2 class="section-title">{getTranslation('mobile.createNotificationContent.attachments')}</h2>
-			<FileUpload
-				bind:this={fileUploadComponent}
-				acceptedTypes="image/*,application/pdf,.doc,.docx,.txt"
-				maxSizeInMB={10}
-				bucket="notification-images"
-				multiple={true}
-				showPreview={true}
-				label={getTranslation('mobile.createNotificationContent.fileUpload.label')}
-				placeholder={getTranslation('mobile.createNotificationContent.fileUpload.placeholder')}
-				hint={getTranslation('mobile.createNotificationContent.fileUpload.hint')}
-			/>
+			<div class="attach-buttons">
+				<button type="button" class="attach-btn" on:click={() => cameraInput?.click()}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+						<circle cx="12" cy="13" r="4"/>
+					</svg>
+					<span>{getTranslation('mobile.createNotificationContent.publish') === 'Publish' ? 'Camera' : 'كاميرا'}</span>
+				</button>
+				<button type="button" class="attach-btn" on:click={() => fileInput?.click()}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+					</svg>
+					<span>{getTranslation('mobile.createNotificationContent.publish') === 'Publish' ? 'File' : 'ملف'}</span>
+				</button>
+			</div>
+
+			<!-- Hidden inputs -->
+			<input bind:this={cameraInput} type="file" accept="image/*" capture="environment" multiple on:change={handleFilesSelected} style="display:none" />
+			<input bind:this={fileInput} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" multiple on:change={handleFilesSelected} style="display:none" />
+
+			<!-- Attached files preview -->
+			{#if attachedFiles.length > 0}
+				<div class="attached-files-list">
+					{#each attachedFiles as file, index}
+						<div class="attached-file-item">
+							{#if file.type.startsWith('image/') && previewUrls[index]}
+								<img src={previewUrls[index]} alt="Preview" class="attached-thumb" />
+							{:else}
+								<span class="attached-icon">{getFileIcon(file.type)}</span>
+							{/if}
+							<span class="attached-name">{file.name}</span>
+							<button type="button" class="attached-remove" on:click={() => removeAttachedFile(index)}>✕</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 
 		<!-- Submit Actions -->
@@ -507,25 +526,91 @@
 	</div>
 </div>
 
+<!-- User Selection Popup (outside main container to escape overflow clipping) -->
+{#if showUserPopup}
+	<div class="popup-overlay" on:click|self={() => showUserPopup = false}>
+		<div class="popup-container">
+			<div class="popup-header">
+				<h3 class="popup-title">{getTranslation('mobile.createNotificationContent.targetAudience')}</h3>
+				<button type="button" class="popup-close-btn" on:click={() => showUserPopup = false}>✕</button>
+			</div>
+
+			<div class="popup-search">
+				<input 
+					type="text" 
+					bind:value={userSearchTerm}
+					on:input={updateFilteredUsers}
+					placeholder={getTranslation('mobile.createNotificationContent.searchPlaceholder')}
+					class="search-input"
+				/>
+				<div class="selection-actions">
+					<button type="button" on:click={selectAllUsers} class="select-all-btn">
+						{getTranslation('mobile.createNotificationContent.selectAll')}
+					</button>
+					<button type="button" on:click={deselectAllUsers} class="deselect-all-btn">
+						{getTranslation('mobile.createNotificationContent.deselectAll')}
+					</button>
+				</div>
+			</div>
+
+			<div class="popup-body">
+				{#if isLoadingUsers}
+					<div class="loading-users">{getTranslation('mobile.createNotificationContent.loadingUsers')}</div>
+				{:else}
+					<div class="users-list">
+						{#each filteredUsers as user (user.id)}
+							<label class="user-item">
+								<input 
+									type="checkbox" 
+									checked={user.selected}
+									on:change={() => toggleUserSelection(user.id)}
+								/>
+								<div class="user-info">
+									<div class="user-name">{user.employee_name || user.username}</div>
+									<div class="user-details">
+										{user.username} • {user.position_name || user.role_type}
+									</div>
+								</div>
+							</label>
+						{/each}
+					</div>
+
+					{#if filteredUsers.length === 0}
+						<div class="no-users">{getTranslation('mobile.createNotificationContent.noUsers')}</div>
+					{/if}
+				{/if}
+			</div>
+
+			<div class="popup-footer">
+				{#if notificationData.target_users.length > 0}
+					<span class="selected-count-text">{notificationData.target_users.length} {getTranslation('mobile.createNotificationContent.userSelected')}</span>
+				{/if}
+				<button type="button" class="popup-done-btn" on:click={() => showUserPopup = false}>
+					✓ {getTranslation('mobile.createNotificationContent.publish') === 'Publish' ? 'Done' : 'تم'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.mobile-create-notification {
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
 		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
-		padding-top: 1rem;
+		padding-top: 0.4rem;
 	}
 
 	.success-banner, .error-banner {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 1rem;
-		margin: 1rem;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		gap: 0.4rem;
+		padding: 0.5rem;
+		margin: 0.4rem;
+		border-radius: 5px;
+		font-size: 0.76rem;
 	}
 
 	.success-banner {
@@ -541,101 +626,169 @@
 	}
 
 	.form-container {
-		padding: 1rem;
+		padding: 0.4rem;
 		max-width: 600px;
 		margin: 0 auto;
 	}
 
 	.form-section {
 		background: white;
-		border-radius: 12px;
-		padding: 1.5rem;
-		margin-bottom: 1rem;
+		border-radius: 6px;
+		padding: 0.5rem;
+		margin-bottom: 0.5rem;
 		border: 1px solid #E5E7EB;
 	}
 
 	.section-title {
-		font-size: 1.125rem;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #111827;
-		margin: 0 0 1rem 0;
+		margin: 0 0 0.4rem 0;
 	}
 
 	.form-group {
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.form-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
+		gap: 0.5rem;
 	}
 
 	.form-label {
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 500;
 		color: #374151;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 
 	.form-input, .form-textarea, .form-select, .search-input {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 1rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		transition: border-color 0.2s;
 	}
 
 	.form-input:focus, .form-textarea:focus, .form-select:focus, .search-input:focus {
 		outline: none;
 		border-color: #3B82F6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 
-	.radio-group {
-		display: flex;
-		gap: 1rem;
-	}
-
-	.radio-option {
+	/* Audience trigger button */
+	.audience-trigger-btn {
+		width: 100%;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		padding: 0.5rem;
+		border: 1px solid #D1D5DB;
+		border-radius: 5px;
+		background: white;
 		cursor: pointer;
-	}
-
-	.radio-label {
-		font-size: 0.875rem;
+		transition: all 0.2s;
+		font-size: 0.78rem;
 		color: #374151;
 	}
 
-	.user-selection {
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		overflow: hidden;
+	.audience-trigger-btn:hover {
+		background: #F9FAFB;
+		border-color: #3B82F6;
 	}
 
-	.search-header {
-		padding: 1rem;
+	.audience-trigger-icon {
+		font-size: 1rem;
+	}
+
+	.audience-trigger-text {
+		flex: 1;
+		text-align: start;
+	}
+
+	.audience-trigger-arrow {
+		font-size: 1.1rem;
+		color: #9CA3AF;
+		font-weight: 600;
+	}
+
+	/* Popup overlay & container */
+	.popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 1100;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		animation: fadeIn 0.2s ease;
+	}
+
+	.popup-container {
+		background: white;
+		border-radius: 12px 12px 0 0;
+		width: 100%;
+		max-width: 600px;
+		max-height: 80vh;
+		display: flex;
+		flex-direction: column;
+		animation: slideUp 0.25s ease;
+	}
+
+	.popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.6rem 0.75rem;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.popup-title {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #111827;
+		margin: 0;
+	}
+
+	.popup-close-btn {
+		background: none;
+		border: none;
+		font-size: 1rem;
+		color: #6B7280;
+		cursor: pointer;
+		padding: 0.2rem 0.4rem;
+		border-radius: 4px;
+	}
+
+	.popup-close-btn:hover {
+		background: #F3F4F6;
+	}
+
+	.popup-search {
+		padding: 0.4rem 0.5rem;
 		border-bottom: 1px solid #E5E7EB;
 		background: #F9FAFB;
 	}
 
 	.selection-actions {
 		display: flex;
-		gap: 0.5rem;
-		margin-top: 0.75rem;
+		gap: 0.3rem;
+		margin-top: 0.4rem;
 	}
 
 	.select-all-btn, .deselect-all-btn {
-		padding: 0.5rem 1rem;
+		padding: 0.3rem 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 6px;
+		border-radius: 4px;
 		background: white;
 		color: #374151;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		cursor: pointer;
 		transition: all 0.2s;
 	}
@@ -644,16 +797,22 @@
 		background: #F3F4F6;
 	}
 
-	.users-list {
-		max-height: 300px;
+	.popup-body {
+		flex: 1;
 		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.users-list {
+		max-height: none;
+		overflow-y: visible;
 	}
 
 	.user-item {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
+		gap: 0.4rem;
+		padding: 0.5rem 0.6rem;
 		border-bottom: 1px solid #F3F4F6;
 		cursor: pointer;
 		transition: background 0.2s;
@@ -674,41 +833,163 @@
 	.user-name {
 		font-weight: 500;
 		color: #111827;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 
 	.user-details {
-		font-size: 0.75rem;
+		font-size: 0.68rem;
 		color: #6B7280;
 	}
 
-	.loading-users, .no-users, .selected-count {
-		padding: 1rem;
+	.loading-users, .no-users {
+		padding: 0.6rem;
 		text-align: center;
 		color: #6B7280;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 	}
 
-	.selected-count {
-		background: #EFF6FF;
-		color: #1D4ED8;
+	.popup-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.75rem;
 		border-top: 1px solid #E5E7EB;
+		background: #F9FAFB;
+		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+	}
+
+	.selected-count-text {
+		font-size: 0.74rem;
+		color: #1D4ED8;
+		font-weight: 500;
+	}
+
+	.popup-done-btn {
+		padding: 0.4rem 1rem;
+		background: linear-gradient(135deg, #3B82F6, #2563EB);
+		color: white;
+		border: none;
+		border-radius: 5px;
+		font-size: 0.76rem;
+		font-weight: 500;
+		cursor: pointer;
+		min-height: 34px;
+	}
+
+	.popup-done-btn:hover {
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	@keyframes slideUp {
+		from { transform: translateY(100%); }
+		to { transform: translateY(0); }
+	}
+
+	/* Attachment buttons */
+	.attach-buttons {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.attach-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.35rem 0.6rem;
+		border: 1px solid #D1D5DB;
+		border-radius: 5px;
+		background: white;
+		color: #374151;
+		font-size: 0.72rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-height: 32px;
+	}
+
+	.attach-btn:hover {
+		background: #F3F4F6;
+		border-color: #3B82F6;
+	}
+
+	.attach-btn svg {
+		color: #6B7280;
+		flex-shrink: 0;
+	}
+
+	.attached-files-list {
+		margin-top: 0.4rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.attached-file-item {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.3rem 0.4rem;
+		background: #F9FAFB;
+		border: 1px solid #E5E7EB;
+		border-radius: 4px;
+		font-size: 0.72rem;
+	}
+
+	.attached-thumb {
+		width: 28px;
+		height: 28px;
+		object-fit: cover;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+
+	.attached-icon {
+		font-size: 0.9rem;
+		flex-shrink: 0;
+	}
+
+	.attached-name {
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		color: #374151;
+	}
+
+	.attached-remove {
+		background: none;
+		border: none;
+		color: #EF4444;
+		font-size: 0.8rem;
+		cursor: pointer;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+
+	.attached-remove:hover {
+		background: #FEE2E2;
 	}
 
 	.form-actions {
 		display: flex;
-		gap: 1rem;
-		margin-top: 2rem;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
 	}
 
 	.reset-btn, .submit-btn {
 		flex: 1;
-		padding: 0.75rem 1.5rem;
-		border-radius: 8px;
-		font-size: 1rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
+		min-height: 36px;
 	}
 
 	.reset-btn {
@@ -742,10 +1023,6 @@
 	@media (max-width: 640px) {
 		.form-row {
 			grid-template-columns: 1fr;
-		}
-
-		.radio-group {
-			flex-direction: column;
 		}
 
 		.selection-actions {

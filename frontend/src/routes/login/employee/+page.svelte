@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
@@ -38,6 +38,7 @@
 	let showContent = false;
 	let logoClickCount = 0;
 	let showCustomerButton = false;
+	let showAccessCode = false;
 
 	onMount(async () => {
 		mounted = true;
@@ -73,6 +74,13 @@
 		} else {
 			interfaceChoice = 'desktop';
 			clearForm();
+			loginMethod = 'quickAccess';
+			tick().then(() => {
+				setTimeout(() => {
+					const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+					if (firstDigit) firstDigit.focus();
+				}, 100);
+			});
 		}
 	}
 
@@ -340,7 +348,7 @@
 									title={$_('customer.login.interface.desktop')}
 								>
 									<div class="interface-icon">
-										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<rect x="2" y="4" width="20" height="12" rx="2"/>
 											<path d="M2 16h20"/>
 											<path d="M8 20h8"/>
@@ -356,7 +364,7 @@
 									title={$_('customer.login.interface.mobile')}
 								>
 									<div class="interface-icon">
-										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<rect x="5" y="2" width="14" height="20" rx="2"/>
 											<path d="M12 18h.01"/>
 										</svg>
@@ -372,7 +380,7 @@
 									title={$_('coupon.cashier') || 'Cashier'}
 								>
 									<div class="interface-icon">
-										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 											<circle cx="8.5" cy="8.5" r="1.5"/>
 											<polyline points="21 15 16 10 5 21"/>
@@ -391,7 +399,7 @@
 										title="Customer Login"
 									>
 										<div class="interface-icon">
-											<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 												<circle cx="12" cy="12" r="9"/>
 												<circle cx="12" cy="12" r="1"/>
 												<path d="M12 8v-1"/>
@@ -486,10 +494,19 @@
 										</div>
 
 										<div class="field-group">
-											<label for="password">{t('common.password')}</label>
+											<div class="label-with-toggle">
+										<label for="password">{t('common.password')}</label>
+										<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} tabindex="-1">
+											{#if showAccessCode}
+												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+											{:else}
+												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+											{/if}
+										</button>
+									</div>
 											<input 
 												id="password"
-												type="password" 
+												type={showAccessCode ? 'text' : 'password'} 
 												class="field-input"
 												class:error={!passwordValid}
 												bind:value={password}
@@ -543,12 +560,21 @@
 
 									<div class="form-fields">
 										<div class="field-group">
-											<label for="quickAccess">{t('common.securityCode')}</label>
+											<div class="label-with-toggle">
+										<label for="quickAccess">{t('common.securityCode')}</label>
+										<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} tabindex="-1">
+											{#if showAccessCode}
+												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+											{:else}
+												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+											{/if}
+										</button>
+									</div>
 											<div class="quick-access-digits">
 												{#each quickAccessDigits as digit, index}
 													<input 
 														id="digit-{index}"
-														type="text" 
+														type={showAccessCode ? 'text' : 'password'} 
 														class="digit-input"
 														class:error={!quickAccessValid && quickAccessDigits.some(d => d !== '')}
 														bind:value={quickAccessDigits[index]}
@@ -672,11 +698,10 @@
 		min-height: 100vh;
 		min-height: 100dvh;
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		justify-content: center;
-		padding: 1rem;
-		padding-top: 2rem;
-		background: #F9FAFB;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
 		position: relative;
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -694,9 +719,9 @@
 		right: 0;
 		bottom: 0;
 		background: 
-			radial-gradient(circle at 25% 25%, rgba(245, 158, 11, 0.03) 0%, transparent 50%),
-			radial-gradient(circle at 75% 75%, rgba(21, 163, 74, 0.03) 0%, transparent 50%),
-			url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236B7280' fill-opacity='0.02'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+			radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+			radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+			radial-gradient(ellipse at 50% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%);
 		z-index: 0;
 	}
 
@@ -706,78 +731,68 @@
 
 	.login-content {
 		width: 100%;
-		max-width: 900px;
+		max-width: 480px;
 		position: relative;
 		z-index: 1;
-		margin: 1rem 0;
 		min-height: 0;
 	}
 
 	.login-main-card {
-		background: #FFFFFF;
+		background: rgba(255, 255, 255, 0.08);
+		backdrop-filter: blur(24px);
+		-webkit-backdrop-filter: blur(24px);
 		border-radius: 20px;
-		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		box-shadow: 
+			0 20px 60px rgba(0, 0, 0, 0.3),
+			0 0 0 1px rgba(255, 255, 255, 0.05) inset;
 		overflow: hidden;
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0;
-		margin-bottom: 2rem;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.logo-section {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 		color: white;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 2rem;
-		gap: 1.5rem;
-		min-height: 400px;
+		padding: 2rem 1.5rem 1rem;
+		gap: 0.5rem;
 	}
 
 	.logo-header {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.5rem;
 		width: 100%;
 	}
 
 	.logo {
-		width: 180px;
-		height: 110px;
-		background: white;
-		border: 5px solid #F59E0B;
+		width: 100px;
+		height: 65px;
+		background: rgba(255, 255, 255, 0.95);
+		border: 2px solid rgba(255, 255, 255, 0.3);
 		border-radius: 16px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		box-shadow: 
-			0 0 20px rgba(245, 158, 11, 0.6),
-			0 0 40px rgba(245, 158, 11, 0.4);
-		animation: logoPulse 3s ease-in-out infinite;
+			0 8px 32px rgba(0, 0, 0, 0.2),
+			0 0 0 1px rgba(255, 255, 255, 0.1);
+		animation: logoFloat 4s ease-in-out infinite;
 	}
 
-	@keyframes logoPulse {
-		from {
-			box-shadow: 
-				0 0 25px rgba(245, 158, 11, 0.5),
-				0 0 50px rgba(245, 158, 11, 0.3),
-				inset 0 0 15px rgba(245, 158, 11, 0.15);
-		}
-		to {
-			box-shadow: 
-				0 0 40px rgba(245, 158, 11, 0.7),
-				0 0 80px rgba(245, 158, 11, 0.4),
-				inset 0 0 25px rgba(245, 158, 11, 0.25);
-		}
+	@keyframes logoFloat {
+		0%, 100% { transform: translateY(0); }
+		50% { transform: translateY(-4px); }
 	}
 
 	.logo-image {
-		width: 140px;
-		height: 80px;
-		border-radius: 12px;
+		width: 90px;
+		height: 55px;
+		border-radius: 8px;
 		object-fit: contain;
 	}
 
@@ -803,29 +818,30 @@
 	.language-toggle-main {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.625rem 1.25rem;
-		background: rgba(255, 255, 255, 0.2);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		color: white;
-		border-radius: 8px;
+		gap: 0.3rem;
+		padding: 0.35rem 0.75rem;
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.8);
+		border-radius: 20px;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		font-weight: 500;
 		transition: all 0.3s ease;
 		white-space: nowrap;
 	}
 
 	.language-toggle-main:hover {
-		background: rgba(255, 255, 255, 0.3);
-		border-color: rgba(255, 255, 255, 0.5);
+		background: rgba(255, 255, 255, 0.15);
+		border-color: rgba(255, 255, 255, 0.25);
+		color: white;
 	}
 
 	.auth-section {
-		padding: 2.5rem;
+		padding: 1.25rem 1.5rem 1.5rem;
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 0.5rem;
 	}
 
 	.interface-choice {
@@ -835,30 +851,31 @@
 	.back-btn-top {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		background: #F3F4F6;
-		border: 1px solid #E5E7EB;
-		color: #374151;
+		gap: 0.3rem;
+		padding: 0.35rem 0.6rem;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		color: rgba(255, 255, 255, 0.7);
 		border-radius: 8px;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		font-weight: 500;
 		transition: all 0.3s ease;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.back-btn-top:hover {
-		background: #E5E7EB;
-		border-color: #D1D5DB;
+		background: rgba(255, 255, 255, 0.12);
+		border-color: rgba(255, 255, 255, 0.2);
+		color: white;
 	}
 
 	.interface-options {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 1rem;
+		gap: 0.75rem;
 		justify-items: center;
-		margin-top: 1rem;
+		margin-top: 0.5rem;
 	}
 
 	.interface-btn {
@@ -866,72 +883,80 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.75rem;
-		padding: 1.5rem 1rem;
-		background: #F8FAFC;
-		border: 2px solid #E2E8F0;
-		border-radius: 12px;
+		gap: 0.5rem;
+		padding: 1.25rem 1rem;
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 14px;
 		cursor: pointer;
 		transition: all 0.3s ease;
-		min-width: 140px;
+		width: 100%;
 		text-align: center;
 	}
 
 	.interface-btn:hover:not(:disabled) {
-		border-color: #667eea;
-		background: rgba(102, 126, 234, 0.05);
-		transform: translateY(-2px);
+		border-color: rgba(99, 102, 241, 0.5);
+		background: rgba(99, 102, 241, 0.1);
+		transform: translateY(-3px);
+		box-shadow: 0 8px 24px rgba(99, 102, 241, 0.15);
 	}
 
 	.interface-btn:disabled {
-		opacity: 0.5;
+		opacity: 0.4;
 		cursor: not-allowed;
 	}
 
 	.interface-icon {
-		color: #667eea;
+		width: 48px;
+		height: 48px;
+		background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.15));
+		border-radius: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		color: #a5b4fc;
 	}
 
 	.interface-label {
-		font-size: 0.875rem;
+		font-size: 0.78rem;
 		font-weight: 600;
-		color: #374151;
+		color: rgba(255, 255, 255, 0.85);
 	}
 
 	.customer-btn .interface-icon {
-		color: #8B5CF6;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(168, 85, 247, 0.15));
+		color: #c4b5fd;
 	}
 
 	.customer-btn:hover:not(:disabled) {
-		border-color: #8B5CF6;
-		background: rgba(139, 92, 246, 0.08);
+		border-color: rgba(139, 92, 246, 0.5);
+		background: rgba(139, 92, 246, 0.1);
+		box-shadow: 0 8px 24px rgba(139, 92, 246, 0.15);
 	}
 
 	.desktop-login-header {
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.back-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		background: #F3F4F6;
-		border: 1px solid #E5E7EB;
-		color: #374151;
+		gap: 0.3rem;
+		padding: 0.35rem 0.6rem;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		color: rgba(255, 255, 255, 0.7);
 		border-radius: 8px;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		font-weight: 500;
 		transition: all 0.3s ease;
 	}
 
 	.back-btn:hover:not(:disabled) {
-		background: #E5E7EB;
-		border-color: #D1D5DB;
+		background: rgba(255, 255, 255, 0.12);
+		border-color: rgba(255, 255, 255, 0.2);
+		color: white;
 	}
 
 	.back-btn:disabled {
@@ -942,30 +967,31 @@
 	.method-selector {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
-		margin-bottom: 1.5rem;
+		gap: 0.4rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.method-btn {
 		display: flex;
-		gap: 0.75rem;
-		padding: 1rem;
-		background: #F8FAFC;
-		border: 2px solid #E2E8F0;
-		border-radius: 12px;
+		gap: 0.4rem;
+		padding: 0.6rem;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 10px;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		align-items: flex-start;
 	}
 
 	.method-btn:hover:not(:disabled) {
-		border-color: #667eea;
-		background: rgba(102, 126, 234, 0.05);
+		border-color: rgba(99, 102, 241, 0.4);
+		background: rgba(99, 102, 241, 0.08);
 	}
 
 	.method-btn.active {
-		border-color: #667eea;
-		background: rgba(102, 126, 234, 0.1);
+		border-color: rgba(99, 102, 241, 0.6);
+		background: rgba(99, 102, 241, 0.12);
+		box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
 	}
 
 	.method-btn:disabled {
@@ -975,7 +1001,7 @@
 
 	.method-icon {
 		flex-shrink: 0;
-		color: #667eea;
+		color: #a5b4fc;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -987,84 +1013,90 @@
 	}
 
 	.method-info h3 {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
-		color: #374151;
-		margin: 0 0 0.25rem 0;
+		color: rgba(255, 255, 255, 0.9);
+		margin: 0 0 0.15rem 0;
 	}
 
 	.method-info p {
-		font-size: 0.75rem;
-		color: #6B7280;
+		font-size: 0.68rem;
+		color: rgba(255, 255, 255, 0.5);
 		margin: 0;
 	}
 
 	.auth-forms {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 0.5rem;
 	}
 
 	.auth-form {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 0.5rem;
 	}
 
 	.form-header {
 		text-align: center;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 
 	.form-header h2 {
-		font-size: 1.5rem;
+		font-size: 1rem;
 		font-weight: 700;
-		color: #1F2937;
-		margin: 0 0 0.5rem 0;
+		color: rgba(255, 255, 255, 0.95);
+		margin: 0 0 0.25rem 0;
 	}
 
 	.form-header p {
-		font-size: 0.875rem;
-		color: #6B7280;
+		font-size: 0.76rem;
+		color: rgba(255, 255, 255, 0.5);
 		margin: 0;
 	}
 
 	.form-fields {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.4rem;
 	}
 
 	.field-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.25rem;
 	}
 
 	.field-group label {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
-		color: #374151;
+		color: rgba(255, 255, 255, 0.7);
 	}
 
 	.field-input {
-		padding: 0.75rem 1rem;
-		border: 1px solid #D1D5DB;
+		padding: 0.5rem 0.7rem;
+		border: 1px solid rgba(255, 255, 255, 0.12);
 		border-radius: 8px;
-		font-size: 1rem;
+		font-size: 0.82rem;
 		transition: all 0.3s ease;
-		background: white;
+		background: rgba(255, 255, 255, 0.06);
+		color: white;
 	}
 
 	.field-input:focus {
 		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+		border-color: rgba(99, 102, 241, 0.6);
+		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+		background: rgba(255, 255, 255, 0.1);
 	}
 
 	.field-input.error {
-		border-color: #DC2626;
-		background: rgba(220, 38, 38, 0.05);
+		border-color: #f87171;
+		background: rgba(248, 113, 113, 0.08);
+	}
+
+	.field-input::placeholder {
+		color: rgba(255, 255, 255, 0.3);
 	}
 
 	.field-error {
@@ -1072,35 +1104,58 @@
 		color: #DC2626;
 	}
 
+	.label-with-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.eye-toggle {
+		background: none;
+		border: none;
+		padding: 0.15rem;
+		cursor: pointer;
+		color: rgba(255, 255, 255, 0.5);
+		transition: color 0.2s ease;
+		display: flex;
+		align-items: center;
+	}
+
+	.eye-toggle:hover {
+		color: rgba(255, 255, 255, 0.85);
+	}
+
 	.quick-access-digits {
 		display: grid;
 		grid-template-columns: repeat(6, 1fr);
-		gap: 0.5rem;
+		gap: 0.4rem;
 		direction: ltr;
 	}
 
 	.digit-input {
 		width: 100%;
-		padding: 0.75rem 0;
-		border: none;
-		border-bottom: 2px solid #D1D5DB;
-		border-radius: 0;
-		font-size: 1.25rem;
+		padding: 0.5rem 0;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 8px;
+		font-size: 1.1rem;
 		font-weight: 600;
 		text-align: center;
 		transition: all 0.3s ease;
-		background: transparent;
+		background: rgba(255, 255, 255, 0.06);
+		color: white;
 		direction: ltr !important;
 	}
 
 	.digit-input:focus {
 		outline: none;
-		border-bottom-color: #667eea;
-		box-shadow: 0 2px 0 #667eea;
+		border-color: rgba(99, 102, 241, 0.6);
+		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+		background: rgba(255, 255, 255, 0.1);
 	}
 
 	.digit-input.error {
-		border-bottom-color: #DC2626;
+		border-color: #f87171;
+		background: rgba(248, 113, 113, 0.08);
 	}
 
 	.field-spacer {
@@ -1116,9 +1171,9 @@
 	.checkbox-option {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.875rem;
-		color: #374151;
+		gap: 0.3rem;
+		font-size: 0.76rem;
+		color: rgba(255, 255, 255, 0.7);
 		cursor: pointer;
 		user-select: none;
 	}
@@ -1136,25 +1191,26 @@
 	}
 
 	.auth-submit-btn {
-		padding: 1rem 1.5rem;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		padding: 0.6rem 0.75rem;
+		background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
 		color: white;
 		border: none;
-		border-radius: 8px;
-		font-size: 1rem;
+		border-radius: 10px;
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		min-height: 48px;
+		gap: 0.3rem;
+		min-height: 40px;
+		box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
 	}
 
 	.auth-submit-btn:hover:not(:disabled) {
 		transform: translateY(-2px);
-		box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+		box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
 	}
 
 	.auth-submit-btn:disabled {
@@ -1180,23 +1236,26 @@
 
 	.status-message {
 		display: flex;
-		gap: 1rem;
-		padding: 1rem 1.25rem;
-		border-radius: 8px;
-		margin-top: 1rem;
+		gap: 0.4rem;
+		padding: 0.6rem 0.75rem;
+		border-radius: 10px;
+		margin-top: 0.4rem;
 		align-items: flex-start;
+		margin-left: 1.5rem;
+		margin-right: 1.5rem;
+		margin-bottom: 1rem;
 	}
 
 	.error-status {
-		background: #FEF2F2;
-		border: 1px solid #FECACA;
-		color: #DC2626;
+		background: rgba(248, 113, 113, 0.1);
+		border: 1px solid rgba(248, 113, 113, 0.25);
+		color: #fca5a5;
 	}
 
 	.success-status {
-		background: #F0FDF4;
-		border: 1px solid #BBF7D0;
-		color: #16A34A;
+		background: rgba(74, 222, 128, 0.1);
+		border: 1px solid rgba(74, 222, 128, 0.25);
+		color: #86efac;
 	}
 
 	.status-icon {
@@ -1205,13 +1264,13 @@
 	}
 
 	.status-content h4 {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
-		margin: 0 0 0.25rem 0;
+		margin: 0 0 0.15rem 0;
 	}
 
 	.status-content p {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		margin: 0;
 		opacity: 0.9;
 	}
@@ -1219,84 +1278,64 @@
 	@media (max-width: 1024px) {
 		.login-page {
 			padding: 1rem;
-			align-items: flex-start;
-			padding-top: 2rem;
-			padding-bottom: 2rem;
+			align-items: center;
 		}
 
 		.login-content {
-			max-width: 600px;
-			margin: 0;
+			max-width: 440px;
 		}
 	}
 
 	@media (max-width: 768px) {
 		.login-main-card {
-			grid-template-columns: 1fr;
+			border-radius: 16px;
 		}
 
 		.logo-section {
-			min-height: auto;
-			padding: 2rem 1.5rem;
+			padding: 1.5rem 1rem 0.75rem;
 		}
 
 		.logo {
-			width: 140px;
-			height: 85px;
+			width: 90px;
+			height: 58px;
 		}
 
 		.logo-image {
-			width: 95px;
-			height: 55px;
+			width: 65px;
+			height: 38px;
 		}
 
 		.auth-section {
-			padding: 1.5rem;
+			padding: 1rem;
 		}
 
 		.method-selector {
 			grid-template-columns: 1fr;
-			gap: 0.5rem;
-			margin-bottom: 1.5rem;
+			gap: 0.3rem;
+			margin-bottom: 0.5rem;
 		}
 
 		.method-btn {
-			flex-direction: column;
-			padding: 0.75rem 0.5rem;
-			gap: 0.5rem;
-		}
-
-		.method-icon {
-			width: 28px;
-			height: 28px;
-		}
-
-		.method-info h3 {
-			font-size: 0.85rem;
-		}
-
-		.method-info p {
-			font-size: 0.7rem;
+			padding: 0.5rem;
+			gap: 0.25rem;
 		}
 
 		.form-header {
-			margin-bottom: 1rem;
+			margin-bottom: 0.3rem;
 		}
 
 		.form-header h2 {
-			font-size: 1.25rem;
+			font-size: 0.9rem;
 		}
 
 		.field-group {
-			margin-bottom: 1rem;
+			margin-bottom: 0.3rem;
 		}
 	}
 
 	@media (max-width: 480px) {
 		.login-page {
 			padding: 0.75rem;
-			padding-top: 1rem;
-			padding-bottom: 3rem;
 		}
 
 		.login-content {
@@ -1304,30 +1343,25 @@
 		}
 
 		.login-main-card {
-			grid-template-columns: 1fr;
+			border-radius: 14px;
 		}
 
 		.logo-section {
-			min-height: auto;
-			padding: 1.5rem 1rem;
+			padding: 1.25rem 0.75rem 0.5rem;
 		}
 
 		.logo {
-			width: 120px;
-			height: 75px;
+			width: 80px;
+			height: 52px;
 		}
 
 		.logo-image {
-			width: 85px;
-			height: 50px;
+			width: 58px;
+			height: 34px;
 		}
 
 		.auth-section {
-			padding: 1.5rem 1rem;
-		}
-
-		.form-header h2 {
-			font-size: 1.125rem;
+			padding: 0.75rem;
 		}
 
 		.method-selector {
@@ -1335,33 +1369,32 @@
 		}
 
 		.method-btn {
-			padding: 0.5rem;
+			padding: 0.4rem;
 		}
 
 		.interface-options {
-			grid-template-columns: 1fr;
+			grid-template-columns: 1fr 1fr;
+			gap: 0.5rem;
 		}
 
 		.interface-btn {
-			width: 100%;
+			padding: 1rem 0.5rem;
 		}
 	}
 
 	@media (max-width: 320px) {
 		.login-page {
 			padding: 0.5rem;
-			padding-top: 0.5rem;
-			padding-bottom: 4rem;
 		}
 
 		.logo {
-			width: 100px;
-			height: 65px;
+			width: 70px;
+			height: 46px;
 		}
 
 		.logo-image {
-			width: 70px;
-			height: 40px;
+			width: 50px;
+			height: 30px;
 		}
 	}
 
@@ -1373,57 +1406,17 @@
 
 		.login-main-card {
 			display: flex;
+			flex-direction: row;
 		}
 
 		.logo-section {
-			flex: 0 0 280px;
-			padding: 1.5rem 1rem;
-		}
-
-		.logo {
-			width: 100px;
-			height: 60px;
-			margin-bottom: 0.5rem;
-		}
-
-		.logo-image {
-			width: 70px;
-			height: 40px;
+			flex: 0 0 200px;
+			padding: 1rem;
 		}
 
 		.auth-section {
 			flex: 1;
-			padding: 1.5rem;
-		}
-
-		.method-selector {
-			grid-template-columns: 1fr 1fr;
-			gap: 0.5rem;
-			margin-bottom: 1.5rem;
-		}
-
-		.method-btn {
-			flex-direction: column;
-			text-align: center;
-			gap: 0.75rem;
 			padding: 1rem;
-		}
-
-		.method-icon {
-			width: 32px;
-			height: 32px;
-		}
-
-		.method-info h3 {
-			font-size: 0.85rem;
-		}
-
-		.method-info p {
-			font-size: 0.7rem;
-		}
-
-		.form-header {
-			margin-bottom: 1rem;
 		}
 	}
 

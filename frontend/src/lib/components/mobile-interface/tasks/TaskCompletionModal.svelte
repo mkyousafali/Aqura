@@ -435,7 +435,7 @@
 			{#if resolvedRequireTaskFinished}
 				<div class="requirement-item">
 					<div class="requirement-header">
-						<span class="requirement-label required">✅ Task Finished (Required)</span>
+						<span class="requirement-label required">Task Finished (Required)</span>
 						<input
 							type="checkbox"
 							bind:checked={completionData.task_finished_completed}

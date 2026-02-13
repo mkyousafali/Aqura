@@ -35,6 +35,91 @@
 	let errorMessage = '';
 	let successMessage = '';
 
+	// Calendar date picker state
+	let showDatePicker = false;
+	let datePickerTarget: 'start' | 'end' = 'start';
+	let pickerYear: number = new Date().getFullYear();
+	let pickerMonth: number = new Date().getMonth(); // 0-based
+
+	function openDatePicker(target: 'start' | 'end') {
+		datePickerTarget = target;
+		const dateStr = target === 'start' ? startDate : endDate;
+		const d = new Date(dateStr);
+		pickerYear = d.getFullYear();
+		pickerMonth = d.getMonth();
+		showDatePicker = true;
+	}
+
+	function closeDatePicker() {
+		showDatePicker = false;
+	}
+
+	function selectCalendarDay(day: number) {
+		const m = String(pickerMonth + 1).padStart(2, '0');
+		const d = String(day).padStart(2, '0');
+		const dateVal = `${pickerYear}-${m}-${d}`;
+		if (datePickerTarget === 'start') {
+			startDate = dateVal;
+		} else {
+			endDate = dateVal;
+		}
+		showDatePicker = false;
+	}
+
+	function prevMonth() {
+		if (pickerMonth === 0) {
+			pickerMonth = 11;
+			pickerYear--;
+		} else {
+			pickerMonth--;
+		}
+	}
+
+	function nextMonth() {
+		if (pickerMonth === 11) {
+			pickerMonth = 0;
+			pickerYear++;
+		} else {
+			pickerMonth++;
+		}
+	}
+
+	function getDaysInMonth(year: number, month: number): number {
+		return new Date(year, month + 1, 0).getDate();
+	}
+
+	function getFirstDayOfMonth(year: number, month: number): number {
+		return new Date(year, month, 1).getDay();
+	}
+
+	function formatDisplayDate(dateStr: string): string {
+		if (!dateStr) return '';
+		const d = new Date(dateStr);
+		const day = d.getDate();
+		const monthNames = $currentLocale === 'ar'
+			? ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+			: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+		return `${day} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+	}
+
+	function getMonthName(month: number): string {
+		const names = $currentLocale === 'ar'
+			? ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+			: ['January','February','March','April','May','June','July','August','September','October','November','December'];
+		return names[month];
+	}
+
+	$: calendarDays = (() => {
+		const daysInMonth = getDaysInMonth(pickerYear, pickerMonth);
+		const firstDay = getFirstDayOfMonth(pickerYear, pickerMonth);
+		const days: (number | null)[] = [];
+		for (let i = 0; i < firstDay; i++) days.push(null);
+		for (let i = 1; i <= daysInMonth; i++) days.push(i);
+		return days;
+	})();
+
+	$: selectedPickerDate = datePickerTarget === 'start' ? startDate : endDate;
+
 	// Initialize component
 	onMount(async () => {
 
@@ -335,24 +420,24 @@
 
 				<!-- Start Date -->
 				<div class="form-group">
-					<label for="start-date">{$t('hr.shift.mobile_day_off_request.startDate')}</label>
-					<input 
-						id="start-date"
-						type="date" 
-						bind:value={startDate}
-						class="form-input"
-					/>
+					<span class="form-label">{$t('hr.shift.mobile_day_off_request.startDate')}</span>
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div class="date-trigger" on:click={() => openDatePicker('start')}>
+						<span class="date-trigger-text">{formatDisplayDate(startDate)}</span>
+						<span class="date-trigger-icon">📅</span>
+					</div>
 				</div>
 
 				<!-- End Date -->
 				<div class="form-group">
-					<label for="end-date">{$t('hr.shift.mobile_day_off_request.endDate')}</label>
-					<input 
-						id="end-date"
-						type="date" 
-						bind:value={endDate}
-						class="form-input"
-					/>
+					<span class="form-label">{$t('hr.shift.mobile_day_off_request.endDate')}</span>
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div class="date-trigger" on:click={() => openDatePicker('end')}>
+						<span class="date-trigger-text">{formatDisplayDate(endDate)}</span>
+						<span class="date-trigger-icon">📅</span>
+					</div>
 				</div>
 
 				<!-- Reason Selection -->
@@ -504,6 +589,54 @@
 	</div>
 </div>
 
+<!-- Calendar Date Picker Popup -->
+{#if showDatePicker}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="calendar-overlay" on:click={closeDatePicker}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="calendar-popup" on:click|stopPropagation>
+			<!-- Calendar Header -->
+			<div class="calendar-header">
+				<button class="cal-nav-btn" on:click={prevMonth}>‹</button>
+				<span class="cal-month-year">{getMonthName(pickerMonth)} {pickerYear}</span>
+				<button class="cal-nav-btn" on:click={nextMonth}>›</button>
+			</div>
+
+			<!-- Day of week headers -->
+			<div class="cal-weekdays">
+				{#if $currentLocale === 'ar'}
+					<span>أح</span><span>إث</span><span>ثل</span><span>أر</span><span>خم</span><span>جم</span><span>سب</span>
+				{:else}
+					<span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+				{/if}
+			</div>
+
+			<!-- Days grid -->
+			<div class="cal-days">
+				{#each calendarDays as day}
+					{#if day === null}
+						<span class="cal-day empty"></span>
+					{:else}
+						{@const m = String(pickerMonth + 1).padStart(2, '0')}
+						{@const d = String(day).padStart(2, '0')}
+						{@const thisDayStr = `${pickerYear}-${m}-${d}`}
+						{@const isToday = thisDayStr === new Date().toISOString().split('T')[0]}
+						{@const isSelected = thisDayStr === selectedPickerDate}
+						<button
+							class="cal-day {isToday ? 'today' : ''} {isSelected ? 'selected' : ''}"
+							on:click={() => selectCalendarDay(day)}
+						>
+							{day}
+						</button>
+					{/if}
+				{/each}
+			</div>
+		</div>
+	</div>
+{/if}
+
 <!-- Alert Modal Popup -->
 {#if showAlertModal}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -550,21 +683,18 @@
 	</div>
 {/if}<style>
 	.mobile-page {
-		display: flex;
-		flex-direction: column;
-		height: 100vh;
-		height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
+		padding: 0;
 	}
 
 	.mobile-content {
-		flex: 1;
-		overflow-y: auto;
-		padding-bottom: 4rem;
+		padding: 0;
+		max-width: 100%;
 	}
 
 	.form-container {
-		padding: 1.5rem;
+		padding: 0.5rem 0.6rem;
 		max-width: 100%;
 	}
 
@@ -573,14 +703,16 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		height: 100vh;
-		gap: 1rem;
+		min-height: 40vh;
+		gap: 0.5rem;
+		font-size: 0.82rem;
+		color: #6B7280;
 	}
 
 	.spinner {
-		width: 3rem;
-		height: 3rem;
-		border: 3px solid #E5E7EB;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #E5E7EB;
 		border-top-color: #10B981;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
@@ -588,13 +720,13 @@
 
 	.spinner-small {
 		display: inline-block;
-		width: 1rem;
-		height: 1rem;
+		width: 0.8rem;
+		height: 0.8rem;
 		border: 2px solid #ffffff;
 		border-top-color: transparent;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
-		margin-right: 0.5rem;
+		margin-right: 0.3rem;
 	}
 
 	@keyframes spin {
@@ -602,20 +734,21 @@
 	}
 
 	.form-group {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.5rem;
 	}
 
-	.form-group label {
+	.form-group label,
+	.form-label {
 		display: block;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.2rem;
 		font-weight: 600;
 		color: #374151;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 
 	.field-hint {
-		margin-top: 0.5rem;
-		font-size: 0.8125rem;
+		margin-top: 0.2rem;
+		font-size: 0.68rem;
 		color: #6B7280;
 		font-style: italic;
 	}
@@ -623,24 +756,186 @@
 	.form-input,
 	.form-textarea {
 		width: 100%;
-		padding: 0.75rem;
-		border: 2px solid #E5E7EB;
-		border-radius: 0.5rem;
-		font-size: 1rem;
+		padding: 0.4rem 0.5rem;
+		border: 1px solid #D1D5DB;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		font-family: inherit;
 		transition: border-color 0.2s;
+		box-sizing: border-box;
 	}
 
 	.form-input:focus,
 	.form-textarea:focus {
 		outline: none;
 		border-color: #10B981;
-		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+		box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
 	}
 
 	.form-textarea {
 		resize: vertical;
-		min-height: 100px;
+		min-height: 60px;
+	}
+
+	/* Date Trigger Button */
+	.date-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.6rem;
+		border: 1px solid #D1D5DB;
+		border-radius: 6px;
+		background: white;
+		cursor: pointer;
+		min-height: 38px;
+		transition: border-color 0.2s;
+	}
+
+	.date-trigger:active {
+		border-color: #10B981;
+		background: #F0FDF4;
+	}
+
+	.date-trigger-text {
+		font-size: 0.82rem;
+		font-weight: 500;
+		color: #1e293b;
+	}
+
+	.date-trigger-icon {
+		font-size: 0.9rem;
+	}
+
+	/* Calendar Popup */
+	.calendar-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: calc(3.6rem + env(safe-area-inset-bottom));
+		background: rgba(0, 0, 0, 0.4);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+		padding: 1rem;
+		animation: calFadeIn 0.15s ease-out;
+	}
+
+	@keyframes calFadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	.calendar-popup {
+		background: white;
+		border-radius: 10px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+		width: 100%;
+		max-width: 320px;
+		overflow: hidden;
+		animation: calSlideUp 0.2s ease-out;
+	}
+
+	@keyframes calSlideUp {
+		from { opacity: 0; transform: translateY(16px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.calendar-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.6rem;
+		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+		color: white;
+	}
+
+	.cal-nav-btn {
+		width: 30px;
+		height: 30px;
+		border: none;
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		border-radius: 50%;
+		font-size: 1.1rem;
+		font-weight: 700;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.15s;
+	}
+
+	.cal-nav-btn:active {
+		background: rgba(255, 255, 255, 0.35);
+	}
+
+	.cal-month-year {
+		font-size: 0.88rem;
+		font-weight: 700;
+	}
+
+	.cal-weekdays {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		text-align: center;
+		padding: 0.4rem 0.5rem 0.2rem;
+		border-bottom: 1px solid #F3F4F6;
+	}
+
+	.cal-weekdays span {
+		font-size: 0.68rem;
+		font-weight: 700;
+		color: #9CA3AF;
+		text-transform: uppercase;
+	}
+
+	.cal-days {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		padding: 0.3rem 0.5rem 0.5rem;
+		gap: 2px;
+	}
+
+	.cal-day {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 36px;
+		border: none;
+		background: transparent;
+		border-radius: 50%;
+		font-size: 0.78rem;
+		font-weight: 500;
+		color: #374151;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.cal-day.empty {
+		cursor: default;
+	}
+
+	.cal-day:not(.empty):active {
+		transform: scale(0.9);
+	}
+
+	.cal-day.today {
+		border: 2px solid #10B981;
+		font-weight: 700;
+		color: #10B981;
+	}
+
+	.cal-day.selected {
+		background: #10B981;
+		color: white;
+		font-weight: 700;
+	}
+
+	.cal-day.selected.today {
+		border-color: #10B981;
+		color: white;
 	}
 
 	.document-label {
@@ -651,59 +946,58 @@
 
 	.required-badge {
 		display: inline-block;
-		padding: 0.25rem 0.75rem;
+		padding: 0.1rem 0.4rem;
 		background: #FEE2E2;
 		color: #991B1B;
 		border-radius: 9999px;
-		font-size: 0.7rem;
+		font-size: 0.6rem;
 		font-weight: 700;
-		letter-spacing: 0.05em;
 	}
 
 	.optional-badge {
 		display: inline-block;
-		padding: 0.25rem 0.75rem;
+		padding: 0.1rem 0.4rem;
 		background: #DBEAFE;
 		color: #1E40AF;
 		border-radius: 9999px;
-		font-size: 0.7rem;
+		font-size: 0.6rem;
 		font-weight: 700;
-		letter-spacing: 0.05em;
 	}
 
 	.mandatory-notice {
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		background: #FEF3C7;
-		border-inline-start: 4px solid #F59E0B;
-		border-radius: 0.25rem;
-		margin-bottom: 0.75rem;
+		border-inline-start: 3px solid #F59E0B;
+		border-radius: 4px;
+		margin-bottom: 0.4rem;
 		color: #92400E;
-		font-size: 0.875rem;
+		font-size: 0.74rem;
 	}
 
 	.mandatory-notice strong {
 		display: block;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.1rem;
+		font-size: 0.74rem;
 	}
 
 	.mandatory-notice p {
 		margin: 0;
-		font-size: 0.8rem;
+		font-size: 0.7rem;
 	}
 
 	.form-input {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 0.5rem;
-		font-size: 1rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		transition: border-color 0.2s, box-shadow 0.2s;
 	}
 
 	.form-input:focus {
 		outline: none;
 		border-color: #10B981;
-		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+		box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
 	}
 
 	.custom-file-upload {
@@ -723,13 +1017,13 @@
 	.file-upload-trigger {
 		display: flex;
 		align-items: center;
-		padding: 1rem;
-		border: 2px dashed #D1D5DB;
-		border-radius: 0.5rem;
+		padding: 0.5rem 0.6rem;
+		border: 1px dashed #D1D5DB;
+		border-radius: 5px;
 		background: #F9FAFB;
 		cursor: pointer;
 		transition: all 0.2s;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.file-upload-trigger:hover {
@@ -740,19 +1034,19 @@
 	.camera-upload {
 		position: relative;
 		width: 100%;
-		margin-top: 0.75rem;
+		margin-top: 0.35rem;
 	}
 
 	.camera-trigger {
 		display: flex;
 		align-items: center;
-		padding: 1rem;
-		border: 2px dashed #3B82F6;
-		border-radius: 0.5rem;
+		padding: 0.5rem 0.6rem;
+		border: 1px dashed #3B82F6;
+		border-radius: 5px;
 		background: #EFF6FF;
 		cursor: pointer;
 		transition: all 0.2s;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.camera-trigger:hover {
@@ -761,16 +1055,17 @@
 	}
 
 	.camera-icon {
-		font-size: 1.25rem;
+		font-size: 0.9rem;
 	}
 
 	.camera-text {
 		color: #1E40AF;
 		font-weight: 500;
+		font-size: 0.76rem;
 	}
 
 	.upload-icon {
-		font-size: 1.25rem;
+		font-size: 0.9rem;
 	}
 
 	.upload-text {
@@ -780,18 +1075,19 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		flex: 1;
+		font-size: 0.76rem;
 	}
 
 	.no-file-text {
 		color: #6B7280;
-		font-size: 0.8125rem;
+		font-size: 0.68rem;
 	}
 
 	.file-info {
-		margin-top: 0.5rem;
-		padding: 0.75rem;
-		border-radius: 0.5rem;
-		font-size: 0.875rem;
+		margin-top: 0.3rem;
+		padding: 0.35rem 0.5rem;
+		border-radius: 5px;
+		font-size: 0.74rem;
 	}
 
 	.file-info p {
@@ -812,10 +1108,10 @@
 
 	.progress-bar {
 		width: 100%;
-		height: 4px;
+		height: 3px;
 		background: #D1D5DB;
 		border-radius: 2px;
-		margin-top: 0.5rem;
+		margin-top: 0.3rem;
 		overflow: hidden;
 	}
 
@@ -828,13 +1124,13 @@
 	.reason-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.35rem;
 	}
 
 	.reason-item {
-		padding: 1rem;
-		border: 2px solid #E5E7EB;
-		border-radius: 0.5rem;
+		padding: 0.45rem 0.5rem;
+		border: 1px solid #E5E7EB;
+		border-radius: 5px;
 		background: white;
 		cursor: pointer;
 		text-align: start;
@@ -853,15 +1149,15 @@
 	.reason-header {
 		display: flex;
 		align-items: center;
-		margin-bottom: 0.5rem;
-		gap: 0.75rem;
+		margin-bottom: 0.15rem;
+		gap: 0.4rem;
 	}
 
 	.reason-checkbox {
-		width: 1.5rem;
-		height: 1.5rem;
+		width: 1.1rem;
+		height: 1.1rem;
 		border: 2px solid #D1D5DB;
-		border-radius: 0.375rem;
+		border-radius: 4px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -878,7 +1174,7 @@
 	.check-mark {
 		color: white;
 		font-weight: 800;
-		font-size: 1rem;
+		font-size: 0.7rem;
 	}
 
 	.reason-title {
@@ -886,19 +1182,20 @@
 		color: #1F2937;
 		flex: 1;
 		text-align: inherit;
+		font-size: 0.78rem;
 	}
 
 	.reason-badges {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		flex-wrap: wrap;
 	}
 
 	.badge {
 		display: inline-block;
-		padding: 0.25rem 0.75rem;
+		padding: 0.1rem 0.4rem;
 		border-radius: 9999px;
-		font-size: 0.75rem;
+		font-size: 0.64rem;
 		font-weight: 600;
 	}
 
@@ -908,15 +1205,15 @@
 	}
 
 	.alert {
-		padding: 1rem;
-		border-radius: 0.5rem;
-		margin-bottom: 1rem;
+		padding: 0.4rem 0.5rem;
+		border-radius: 5px;
+		margin-bottom: 0.5rem;
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.alert-icon {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		flex-shrink: 0;
 	}
 
@@ -926,8 +1223,8 @@
 
 	.alert-content p {
 		margin: 0;
-		font-size: 0.875rem;
-		line-height: 1.5;
+		font-size: 0.76rem;
+		line-height: 1.4;
 	}
 
 	.error-alert {
@@ -943,25 +1240,26 @@
 	}
 
 	.submit-section {
-		margin-top: 1rem;
-		padding-top: 1rem;
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
 	}
 
 	.submit-btn {
 		width: 100%;
-		padding: 1rem;
+		padding: 0.5rem;
 		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
 		color: white;
 		border: none;
-		border-radius: 0.5rem;
-		font-size: 1rem;
+		border-radius: 6px;
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
+		min-height: 36px;
 	}
 
 	.submit-btn:active:not(:disabled) {
@@ -985,23 +1283,22 @@
 		right: 0;
 		bottom: 0;
 		background: rgba(0, 0, 0, 0.5);
-		backdrop-filter: blur(4px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 9999;
-		padding: 1rem;
+		padding: 0.5rem;
 	}
 
 	.modal-content {
 		background: white;
-		border-radius: 1rem;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
-		max-width: 90vw;
+		border-radius: 8px;
+		box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+		max-width: 280px;
 		width: 100%;
 		max-height: 90vh;
 		overflow-y: auto;
-		animation: modalSlideUp 0.3s ease-out;
+		animation: modalSlideUp 0.2s ease-out;
 	}
 
 	@keyframes modalSlideUp {
@@ -1016,8 +1313,8 @@
 	}
 
 	.modal-header {
-		padding: 1.5rem;
-		border-bottom: 2px solid #F3F4F6;
+		padding: 0.6rem 0.8rem;
+		border-bottom: 1px solid #F3F4F6;
 	}
 
 	.modal-header.alert-header {
@@ -1030,7 +1327,7 @@
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 	}
 
@@ -1043,34 +1340,35 @@
 	}
 
 	.modal-body {
-		padding: 1.5rem;
+		padding: 0.6rem 0.8rem;
 		color: #374151;
-		line-height: 1.6;
+		line-height: 1.5;
 	}
 
 	.modal-body p {
 		margin: 0;
 		white-space: pre-wrap;
 		word-break: break-word;
+		font-size: 0.78rem;
 	}
 
 	.modal-footer {
-		padding: 1rem 1.5rem;
+		padding: 0.5rem 0.8rem;
 		background: #F9FAFB;
 		border-top: 1px solid #E5E7EB;
 		display: flex;
-		gap: 1rem;
+		gap: 0.5rem;
 		justify-content: flex-end;
 	}
 
 	.modal-btn {
-		padding: 0.75rem 1.5rem;
+		padding: 0.4rem 0.8rem;
 		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
 		color: white;
 		border: none;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		font-weight: 600;
-		font-size: 1rem;
+		font-size: 0.82rem;
 		cursor: pointer;
 		transition: all 0.2s;
 	}

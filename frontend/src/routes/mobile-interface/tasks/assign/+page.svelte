@@ -28,6 +28,8 @@
 	
 	// Current step (1: users, 2: tasks, 3: settings, 4: criteria)
 	let currentStep = 1;
+	let showUserPopup = false;
+	let showTaskPopup = false;
 	
 	// Assignment settings
 	let assignmentSettings = {
@@ -191,7 +193,9 @@
 	}
 
 	function filterTasks() {
+		const hiddenTitle = 'New payment made — enter into the ERP, update the ERP reference, and upload the payment receipt';
 		filteredTasks = tasks.filter(task => {
+			if (task.title === hiddenTitle) return false;
 			const matchesSearch = task.title.toLowerCase().includes(taskSearchTerm.toLowerCase()) ||
 								task.description?.toLowerCase().includes(taskSearchTerm.toLowerCase());
 			return matchesSearch;
@@ -727,57 +731,31 @@
 					<h2>{getTranslation('mobile.assignContent.step1.title')}</h2>
 					<p class="step-description">{getTranslation('mobile.assignContent.step1.description')}</p>
 					
-					<!-- User Filters -->
-					<div class="filter-section">
-						<div class="search-bar">
-							<input
-								type="text"
-								placeholder={getTranslation('mobile.assignContent.step1.searchPlaceholder')}
-								bind:value={userSearchTerm}
-							/>
-						</div>
-						
-						<div class="filter-row">
-							<select bind:value={selectedBranch}>
-								<option value="">{getTranslation('mobile.assignContent.step1.allBranches')}</option>
-								{#each branches as branch}
-									<option value={branch.id}>{getBranchName(branch)}</option>
-								{/each}
-							</select>
-						</div>
-					</div>
+					<!-- Select Users Button -->
+					<button class="select-users-btn" on:click={() => showUserPopup = true}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+							<circle cx="9" cy="7" r="4"/>
+							<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+						</svg>
+						<span>{getTranslation('mobile.assignContent.step1.title')}</span>
+						{#if selectedUsers.size > 0}
+							<span class="selected-count-badge">{selectedUsers.size}</span>
+						{/if}
+					</button>
 
-					<!-- User List -->
-					<div class="selection-list">
-						{#each filteredUsers as user}
-							<div class="selection-item" class:selected={selectedUsers.has(user.id)}>
-								<label class="checkbox-label">
-									<input 
-										type="checkbox" 
-										checked={selectedUsers.has(user.id)}
-										on:change={() => toggleUserSelection(user.id)}
-									/>
-									<span class="checkmark"></span>
-									<div class="item-content">
-										<h4>{user.display_name}</h4>
-										<p>{user.email}</p>
-										<div class="item-meta">
-											{#key $locale}
-												{#if getUserPositionTitle(user)}
-													<span class="meta-tag">{getUserPositionTitle(user)}</span>
-												{/if}
-											{/key}
-											{#key $locale}
-												{#if getUserBranchName(user)}
-													<span class="meta-tag">{getUserBranchName(user)}</span>
-												{/if}
-											{/key}
-										</div>
-									</div>
-								</label>
-							</div>
-						{/each}
-					</div>
+					<!-- Selected Users Summary -->
+					{#if selectedUsers.size > 0}
+						<div class="selected-users-summary">
+							{#each users.filter(u => selectedUsers.has(u.id)) as user}
+								<div class="selected-user-chip">
+									<span>{user.display_name}</span>
+									<button class="chip-remove" on:click={() => toggleUserSelection(user.id)}>&times;</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
 					
 					<!-- Inline Action Buttons -->
 					<div class="inline-actions">
@@ -804,42 +782,29 @@
 					<h2>{getTranslation('mobile.assignContent.step2.title')}</h2>
 					<p class="step-description">{getTranslation('mobile.assignContent.step2.description')}</p>
 					
-					<!-- Task Filters -->
-					<div class="filter-section">
-						<div class="search-bar">
-							<input
-								type="text"
-								placeholder={getTranslation('mobile.assignContent.step2.searchPlaceholder')}
-								bind:value={taskSearchTerm}
-							/>
-						</div>
-					</div>
+					<!-- Select Tasks Button -->
+					<button class="select-tasks-btn" on:click={() => showTaskPopup = true}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M9 11l3 3L22 4"/>
+							<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+						</svg>
+						<span>{getTranslation('mobile.assignContent.step2.title')}</span>
+						{#if selectedTasks.size > 0}
+							<span class="selected-count-badge">{selectedTasks.size}</span>
+						{/if}
+					</button>
 
-					<!-- Task List -->
-					<div class="selection-list">
-						{#each filteredTasks as task}
-							<div class="selection-item" class:selected={selectedTasks.has(task.id)}>
-								<label class="checkbox-label">
-									<input 
-										type="checkbox" 
-										checked={selectedTasks.has(task.id)}
-										on:change={() => toggleTaskSelection(task.id)}
-									/>
-									<span class="checkmark"></span>
-									<div class="item-content">
-										<h4>{task.title}</h4>
-										<p>{task.description || getTranslation('mobile.assignContent.step2.noDescription')}</p>
-										<div class="item-meta">
-											<span class="meta-tag priority" style="color: {getPriorityColor(task.priority)}">
-												{getPriorityText(task.priority)}
-											</span>
-											<span class="meta-tag">{getStatusText(task.status)}</span>
-										</div>
-									</div>
-								</label>
-							</div>
-						{/each}
-					</div>
+					<!-- Selected Tasks Summary -->
+					{#if selectedTasks.size > 0}
+						<div class="selected-users-summary">
+							{#each tasks.filter(t => selectedTasks.has(t.id)) as task}
+								<div class="selected-user-chip">
+									<span>{task.title}</span>
+									<button class="chip-remove" on:click={() => toggleTaskSelection(task.id)}>&times;</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
 					
 					<!-- Inline Action Buttons -->
 					<div class="inline-actions">
@@ -1135,6 +1100,126 @@
 	{/if}
 </div>
 
+<!-- User Selection Popup -->
+{#if showUserPopup}
+	<div class="user-popup-overlay" on:click={() => showUserPopup = false} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && (showUserPopup = false)}>
+		<div class="user-popup" on:click|stopPropagation role="none">
+			<div class="user-popup-header">
+				<span>{getTranslation('mobile.assignContent.step1.title')}</span>
+				<button type="button" class="user-popup-close" on:click={() => showUserPopup = false}>&times;</button>
+			</div>
+			
+			<!-- Filters inside popup -->
+			<div class="user-popup-filters">
+				<input
+					type="text"
+					placeholder={getTranslation('mobile.assignContent.step1.searchPlaceholder')}
+					bind:value={userSearchTerm}
+					class="user-popup-search-input"
+				/>
+				<select bind:value={selectedBranch} class="user-popup-select">
+					<option value="">{getTranslation('mobile.assignContent.step1.allBranches')}</option>
+					{#each branches as branch}
+						<option value={branch.id}>{getBranchName(branch)}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- User List -->
+			<div class="user-popup-list">
+				{#each filteredUsers as user}
+					<div class="user-popup-item" class:selected={selectedUsers.has(user.id)}>
+						<label class="checkbox-label">
+							<input 
+								type="checkbox" 
+								checked={selectedUsers.has(user.id)}
+								on:change={() => toggleUserSelection(user.id)}
+							/>
+							<span class="checkmark"></span>
+							<div class="item-content">
+								<h4>{user.display_name}</h4>
+								<p>{user.email}</p>
+								<div class="item-meta">
+									{#key $locale}
+										{#if getUserPositionTitle(user)}
+											<span class="meta-tag">{getUserPositionTitle(user)}</span>
+										{/if}
+									{/key}
+									{#key $locale}
+										{#if getUserBranchName(user)}
+											<span class="meta-tag">{getUserBranchName(user)}</span>
+										{/if}
+									{/key}
+								</div>
+							</div>
+						</label>
+					</div>
+				{/each}
+			</div>
+
+			<div class="user-popup-footer">
+				<button class="user-popup-confirm" on:click={() => showUserPopup = false}>
+					{getTranslation('mobile.assignContent.actions.confirm')} ({selectedUsers.size})
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Task Selection Popup -->
+{#if showTaskPopup}
+	<div class="user-popup-overlay" on:click={() => showTaskPopup = false} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && (showTaskPopup = false)}>
+		<div class="user-popup" on:click|stopPropagation role="none">
+			<div class="user-popup-header">
+				<span>{getTranslation('mobile.assignContent.step2.title')}</span>
+				<button type="button" class="user-popup-close" on:click={() => showTaskPopup = false}>&times;</button>
+			</div>
+			
+			<!-- Search inside popup -->
+			<div class="user-popup-filters">
+				<input
+					type="text"
+					placeholder={getTranslation('mobile.assignContent.step2.searchPlaceholder')}
+					bind:value={taskSearchTerm}
+					class="user-popup-search-input"
+				/>
+			</div>
+
+			<!-- Task List -->
+			<div class="user-popup-list">
+				{#each filteredTasks as task}
+					<div class="user-popup-item" class:selected={selectedTasks.has(task.id)}>
+						<label class="checkbox-label">
+							<input 
+								type="checkbox" 
+								checked={selectedTasks.has(task.id)}
+								on:change={() => toggleTaskSelection(task.id)}
+							/>
+							<span class="checkmark"></span>
+							<div class="item-content">
+								<h4>{task.title}</h4>
+								<p>{task.description || getTranslation('mobile.assignContent.step2.noDescription')}</p>
+								<div class="item-meta">
+									<span class="meta-tag priority" style="color: {getPriorityColor(task.priority)}">
+										{getPriorityText(task.priority)}
+									</span>
+									<span class="meta-tag">{getStatusText(task.status)}</span>
+								</div>
+							</div>
+						</label>
+					</div>
+				{/each}
+			</div>
+
+			<div class="user-popup-footer">
+				<button class="user-popup-confirm" on:click={() => showTaskPopup = false}>
+					{getTranslation('mobile.assignContent.actions.confirm')} ({selectedTasks.size})
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.mobile-page {
 		min-height: 100vh;
@@ -1152,17 +1237,17 @@
 		align-items: center;
 		justify-content: center;
 		color: #6B7280;
-		padding: 2rem;
+		padding: 1rem;
 	}
 
 	.loading-spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid rgba(255, 255, 255, 0.3);
-		border-top: 3px solid white;
+		width: 32px;
+		height: 32px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top: 2px solid white;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	@keyframes spin {
@@ -1172,7 +1257,7 @@
 
 	/* Action Header */
 	.action-header {
-		padding: 1rem;
+		padding: 0.4rem 0.5rem;
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
 		display: flex;
@@ -1182,13 +1267,13 @@
 	.create-task-template-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
 		color: white;
 		border: none;
-		border-radius: 12px;
-		padding: 0.9rem 1.2rem;
-		font-size: 0.9rem;
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.78rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.3s ease;
@@ -1209,7 +1294,7 @@
 
 	.steps-container {
 		background: white;
-		padding: 1rem;
+		padding: 0.4rem 0.5rem;
 		border-bottom: 1px solid #e5e7eb;
 	}
 
@@ -1232,15 +1317,15 @@
 	}
 
 	.step-number {
-		width: 32px;
-		height: 32px;
+		width: 24px;
+		height: 24px;
 		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		font-weight: 600;
-		border: 2px solid #d1d5db;
+		border: 1.5px solid #d1d5db;
 		background: white;
 		color: #6b7280;
 	}
@@ -1258,7 +1343,7 @@
 	}
 
 	.step-label {
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 		color: #6b7280;
 		font-weight: 500;
 	}
@@ -1271,13 +1356,13 @@
 	.step-count {
 		background: #3B82F6;
 		color: white;
-		font-size: 0.625rem;
+		font-size: 0.58rem;
 		font-weight: 600;
-		padding: 0.125rem 0.375rem;
+		padding: 0.1rem 0.3rem;
 		border-radius: 9999px;
 		position: absolute;
-		top: -0.25rem;
-		right: -0.25rem;
+		top: -0.2rem;
+		right: -0.2rem;
 	}
 
 	.step-arrow {
@@ -1288,7 +1373,7 @@
 
 	.mobile-content {
 		flex: 1;
-		padding: 0.5rem 1rem;
+		padding: 0.4rem 0.5rem;
 		overflow-y: auto;
 	}
 
@@ -1299,90 +1384,23 @@
 
 	.step-content h2 {
 		color: #1F2937;
-		font-size: 1.5rem;
+		font-size: 0.88rem;
 		font-weight: 600;
-		margin: 0 0 0.5rem 0;
+		margin: 0 0 0.3rem 0;
 	}
 
 	.step-description {
 		color: #6B7280;
-		margin-bottom: 1rem;
-		font-size: 0.875rem;
-	}
-
-	.filter-section {
-		background: white;
-		border-radius: 12px;
-		padding: 1rem;
-		margin-bottom: 1rem;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-	}
-
-	.search-bar {
-		margin-bottom: 1rem;
-	}
-
-	.filter-row {
-		display: block;
-		margin-bottom: 1rem;
-	}
-
-	.search-bar input,
-	.filter-row select {
-		width: 100%;
-		padding: 0.75rem 2.5rem 0.75rem 1rem;
-		border: 1px solid #d1d5db;
-		border-radius: 8px;
-		font-size: 1rem;
-		background-color: white;
-		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-		background-position: right 0.75rem center;
-		background-repeat: no-repeat;
-		background-size: 1.5em 1.5em;
-		-webkit-appearance: none;
-		-moz-appearance: none;
-		appearance: none;
-	}
-
-	.search-bar input {
-		background-image: none;
-		padding: 0.75rem 1rem;
-	}
-
-	/* RTL Support for select dropdown arrow */
-	:global([dir="rtl"]) .filter-row select {
-		padding: 0.75rem 1rem 0.75rem 2.5rem;
-		background-position: left 0.75rem center;
-	}
-
-	.selection-list {
-		background: white;
-		border-radius: 12px;
-		max-height: 400px;
-		overflow-y: auto;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-	}
-
-	.selection-item {
-		border-bottom: 1px solid #e5e7eb;
-		padding: 1rem;
-		transition: background-color 0.2s;
-	}
-
-	.selection-item:last-child {
-		border-bottom: none;
-	}
-
-	.selection-item.selected {
-		background: #eff6ff;
+		margin-bottom: 0.5rem;
+		font-size: 0.72rem;
 	}
 
 	.checkbox-label {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		cursor: pointer;
-		line-height: 1.5;
+		line-height: 1.4;
 		width: 100%;
 	}
 
@@ -1391,10 +1409,10 @@
 	}
 
 	.checkmark {
-		width: 20px;
-		height: 20px;
-		border: 2px solid #d1d5db;
-		border-radius: 4px;
+		width: 16px;
+		height: 16px;
+		border: 1.5px solid #d1d5db;
+		border-radius: 3px;
 		background: white;
 		display: flex;
 		align-items: center;
@@ -1411,7 +1429,7 @@
 	.checkbox-label input[type="checkbox"]:checked + .checkmark:after {
 		content: '✓';
 		color: white;
-		font-size: 14px;
+		font-size: 11px;
 	}
 
 	.item-content {
@@ -1419,17 +1437,17 @@
 	}
 
 	.item-content h4 {
-		margin: 0 0 0.25rem 0;
-		font-size: 1rem;
+		margin: 0 0 0.15rem 0;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #1f2937;
 	}
 
 	.item-content p {
-		margin: 0 0 0.5rem 0;
-		font-size: 0.875rem;
+		margin: 0 0 0.3rem 0;
+		font-size: 0.72rem;
 		color: #6b7280;
-		line-height: 1.4;
+		line-height: 1.3;
 	}
 
 	.item-meta {
@@ -1439,10 +1457,10 @@
 	}
 
 	.meta-tag {
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 		font-weight: 500;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
+		padding: 0.15rem 0.35rem;
+		border-radius: 3px;
 		background: #f3f4f6;
 		color: #374151;
 	}
@@ -1453,18 +1471,18 @@
 
 	.settings-form {
 		background: white;
-		border-radius: 12px;
-		padding: 1.5rem;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		border-radius: 6px;
+		padding: 0.75rem;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
 	}
 
 	.setting-group {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.75rem;
 	}
 
 	.setting-group h3 {
-		margin: 0 0 1rem 0;
-		font-size: 1rem;
+		margin: 0 0 0.5rem 0;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #1f2937;
 	}
@@ -1472,13 +1490,13 @@
 	.radio-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.radio-label {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		cursor: pointer;
 	}
 
@@ -1487,9 +1505,9 @@
 	}
 
 	.radio-mark {
-		width: 20px;
-		height: 20px;
-		border: 2px solid #d1d5db;
+		width: 16px;
+		height: 16px;
+		border: 1.5px solid #d1d5db;
 		border-radius: 50%;
 		background: white;
 		display: flex;
@@ -1512,21 +1530,21 @@
 	}
 
 	.input-group {
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.input-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
-		margin-top: 1rem;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
 	}
 
 	.deadline-fields {
-		margin-top: 1rem;
-		padding: 1rem;
+		margin-top: 0.5rem;
+		padding: 0.5rem;
 		background: #f8fafc;
-		border-radius: 8px;
+		border-radius: 5px;
 		border: 1px solid #e2e8f0;
 	}
 
@@ -1549,14 +1567,14 @@
 	}
 
 	.day-mark {
-		width: 40px;
-		height: 40px;
-		border: 2px solid #d1d5db;
-		border-radius: 8px;
+		width: 30px;
+		height: 30px;
+		border: 1.5px solid #d1d5db;
+		border-radius: 5px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 		font-weight: 600;
 		color: #6b7280;
 		background: white;
@@ -1570,14 +1588,14 @@
 
 	.assignment-summary {
 		background: #f8fafc;
-		border-radius: 8px;
-		padding: 1rem;
-		margin-top: 1rem;
+		border-radius: 5px;
+		padding: 0.5rem;
+		margin-top: 0.5rem;
 	}
 
 	.assignment-summary h3 {
-		margin: 0 0 1rem 0;
-		font-size: 1rem;
+		margin: 0 0 0.5rem 0;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #1f2937;
 	}
@@ -1606,17 +1624,18 @@
 
 	label {
 		display: block;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.3rem;
 		font-weight: 500;
 		color: #374151;
+		font-size: 0.78rem;
 	}
 
 	input, select, textarea {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		border: 1px solid #d1d5db;
-		border-radius: 8px;
-		font-size: 1rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		box-sizing: border-box;
 	}
 
@@ -1643,26 +1662,26 @@
 	input:focus, select:focus, textarea:focus {
 		outline: none;
 		border-color: #3B82F6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 
 	.inline-actions {
 		background: white;
-		padding: 1.5rem;
+		padding: 0.5rem;
 		border-top: 1px solid #e5e7eb;
-		border-radius: 16px;
-		margin-top: 1rem;
+		border-radius: 8px;
+		margin-top: 0.5rem;
 		display: flex;
-		gap: 1rem;
+		gap: 0.5rem;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
 	.action-btn {
 		flex: 1;
-		padding: 1rem;
+		padding: 0.5rem;
 		border: none;
-		border-radius: 12px;
-		font-size: 1rem;
+		border-radius: 6px;
+		font-size: 0.78rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -1693,8 +1712,216 @@
 
 	@supports (padding: max(0px)) {
 		.inline-actions {
-			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+			padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 		}
+	}
+
+	/* Select Users Button */
+	.select-users-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.65rem;
+		background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.82rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		touch-action: manipulation;
+		box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+	}
+
+	.select-users-btn:hover {
+		box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
+	}
+
+	.selected-count-badge {
+		background: rgba(255, 255, 255, 0.25);
+		padding: 0.1rem 0.45rem;
+		border-radius: 9999px;
+		font-size: 0.72rem;
+		font-weight: 700;
+	}
+
+	/* Selected Users Chips */
+	.selected-users-summary {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin-top: 0.5rem;
+	}
+
+	.selected-user-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		background: #EFF6FF;
+		border: 1px solid #BFDBFE;
+		color: #1E40AF;
+		padding: 0.2rem 0.45rem;
+		border-radius: 9999px;
+		font-size: 0.7rem;
+		font-weight: 500;
+	}
+
+	.chip-remove {
+		background: none;
+		border: none;
+		color: #3B82F6;
+		font-size: 0.9rem;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0;
+		margin-left: 0.1rem;
+	}
+
+	.chip-remove:hover {
+		color: #EF4444;
+	}
+
+	/* User Selection Popup */
+	.user-popup-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 1100;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.75rem;
+	}
+
+	.user-popup {
+		background: white;
+		border-radius: 10px;
+		width: 100%;
+		max-width: 400px;
+		max-height: 75vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+	}
+
+	.user-popup-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.6rem 0.75rem;
+		border-bottom: 1px solid #E5E7EB;
+		font-weight: 700;
+		font-size: 0.85rem;
+		color: #111827;
+		flex-shrink: 0;
+	}
+
+	.user-popup-close {
+		background: none;
+		border: none;
+		font-size: 1.3rem;
+		cursor: pointer;
+		color: #6B7280;
+		line-height: 1;
+		padding: 0 0.2rem;
+	}
+
+	.user-popup-filters {
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #F3F4F6;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		flex-shrink: 0;
+	}
+
+	.user-popup-search-input,
+	.user-popup-select {
+		width: 100%;
+		padding: 0.4rem 0.5rem;
+		border: 1px solid #d1d5db;
+		border-radius: 5px;
+		font-size: 0.78rem;
+		box-sizing: border-box;
+	}
+
+	.user-popup-search-input:focus,
+	.user-popup-select:focus {
+		outline: none;
+		border-color: #3B82F6;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+	}
+
+	.user-popup-list {
+		flex: 1;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		min-height: 0;
+	}
+
+	.user-popup-item {
+		border-bottom: 1px solid #f3f4f6;
+		padding: 0.5rem 0.75rem;
+		transition: background-color 0.15s;
+	}
+
+	.user-popup-item:last-child {
+		border-bottom: none;
+	}
+
+	.user-popup-item.selected {
+		background: #EFF6FF;
+	}
+
+	.user-popup-footer {
+		padding: 0.5rem 0.75rem;
+		border-top: 1px solid #E5E7EB;
+		flex-shrink: 0;
+	}
+
+	.user-popup-confirm {
+		width: 100%;
+		padding: 0.5rem;
+		background: #3B82F6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.user-popup-confirm:hover {
+		background: #2563EB;
+	}
+
+	/* Select Tasks Button */
+	.select-tasks-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.65rem;
+		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.82rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		touch-action: manipulation;
+		box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+	}
+
+	.select-tasks-btn:hover {
+		box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
 	}
 </style>
 

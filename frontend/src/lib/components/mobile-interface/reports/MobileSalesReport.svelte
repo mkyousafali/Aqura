@@ -826,32 +826,32 @@
 
 <style>
 	.mobile-sales-report-container {
-		padding: 0.75rem;
+		padding: 0.4rem;
 		width: 100%;
 		background-color: #f8f9fa;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.4rem;
 	}
 
 	.sales-card {
 		background: white;
-		border-radius: 16px;
-		padding: 1rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-		border: 2px solid #10b981;
+		border-radius: 6px;
+		padding: 0.5rem;
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+		border: 1px solid #10b981;
 	}
 
 	.card-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.card-header h3 {
-		font-size: 1rem;
+		font-size: 0.78rem;
 		font-weight: 700;
 		color: #1f2937;
 		margin: 0;
@@ -861,7 +861,7 @@
 		background: none;
 		border: none;
 		cursor: pointer;
-		padding: 0.5rem;
+		padding: 0.25rem;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -880,26 +880,26 @@
 
 	.loading {
 		text-align: center;
-		padding: 2rem;
+		padding: 1rem;
 		color: #6b7280;
-		font-size: 0.9rem;
+		font-size: 0.76rem;
 	}
 
 	.monthly-averages {
 		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
+		gap: 0.3rem;
+		margin-bottom: 0.4rem;
 		flex-wrap: wrap;
 		justify-content: center;
 	}
 
 	.month-avg {
-		padding: 0.75rem;
-		border-radius: 12px;
+		padding: 0.4rem;
+		border-radius: 6px;
 		color: white;
 		text-align: center;
 		flex: 1;
-		min-width: 100px;
+		min-width: 80px;
 	}
 
 	.month-avg.previous {
@@ -911,22 +911,22 @@
 	}
 
 	.month-label {
-		font-size: 0.65rem;
+		font-size: 0.58rem;
 		opacity: 0.9;
-		margin-bottom: 0.35rem;
+		margin-bottom: 0.2rem;
 		font-weight: 500;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 	}
 
 	.month-value {
-		font-size: 0.9rem;
+		font-size: 0.78rem;
 		font-weight: 700;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.25rem;
-		margin-bottom: 0.2rem;
+		gap: 0.15rem;
+		margin-bottom: 0.1rem;
 	}
 
 	.month-value .currency-icon {
@@ -944,11 +944,11 @@
 		display: flex;
 		justify-content: space-around;
 		align-items: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem 0.5rem 1rem;
-		min-height: 280px;
+		gap: 0.35rem;
+		padding: 0.7rem 0.3rem 0.5rem;
+		min-height: 220px;
 		background: #f9fafb;
-		border-radius: 12px;
+		border-radius: 6px;
 		overflow-x: auto;
 	}
 
@@ -956,26 +956,26 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.25rem;
 		flex: 1;
-		min-width: 60px;
+		min-width: 50px;
 		overflow: visible;
 	}
 
 	.branch-monthly-badges {
 		display: flex;
-		gap: 0.3rem;
-		margin-bottom: 0.5rem;
+		gap: 0.2rem;
+		margin-bottom: 0.25rem;
 		flex-wrap: wrap;
 		justify-content: center;
 	}
 
 	.mini-badge {
-		padding: 0.4rem 0.6rem;
-		border-radius: 6px;
-		font-size: 0.55rem;
+		padding: 0.2rem 0.35rem;
+		border-radius: 4px;
+		font-size: 0.5rem;
 		color: white;
-		min-width: 60px;
+		min-width: 48px;
 	}
 
 	.mini-badge.previous-badge {
@@ -987,20 +987,20 @@
 	}
 
 	.badge-label {
-		font-size: 0.6rem;
+		font-size: 0.52rem;
 		opacity: 0.9;
-		margin-bottom: 0.2rem;
+		margin-bottom: 0.1rem;
 		font-weight: 500;
 		text-transform: uppercase;
 	}
 
 	.badge-value {
-		font-size: 0.65rem;
+		font-size: 0.58rem;
 		font-weight: 700;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.15rem;
+		gap: 0.1rem;
 	}
 
 	.currency-icon-micro {
@@ -1012,20 +1012,20 @@
 	.bar-container {
 		flex: 1;
 		height: 100%;
-		width: 40px;
+		width: 32px;
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		min-height: 180px;
+		min-height: 140px;
 	}
 
 	.bar {
 		width: 80%;
-		min-height: 20px;
+		min-height: 16px;
 		max-height: 100%;
-		border-radius: 8px 8px 0 0;
+		border-radius: 5px 5px 0 0;
 		transition: all 0.3s ease;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 	}
 
 	.bar:hover {
@@ -1045,18 +1045,18 @@
 	.date-label {
 		font-weight: 600;
 		color: #333;
-		font-size: 0.7rem;
+		font-size: 0.62rem;
 	}
 
 	.amount-label {
 		font-weight: 700;
 		color: #111;
-		font-size: 0.75rem;
+		font-size: 0.68rem;
 		word-break: break-word;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.2rem;
+		gap: 0.15rem;
 	}
 
 	.currency-icon {
@@ -1066,28 +1066,28 @@
 	}
 
 	.bills-label {
-		font-size: 0.6rem;
+		font-size: 0.55rem;
 		color: #666;
 	}
 
 	.basket-label {
-		font-size: 0.6rem;
+		font-size: 0.55rem;
 		color: #10b981;
 		font-weight: 600;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.15rem;
+		gap: 0.1rem;
 	}
 
 	.return-label {
-		font-size: 0.6rem;
+		font-size: 0.55rem;
 		color: #ef4444;
 		font-weight: 600;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.15rem;
+		gap: 0.1rem;
 	}
 
 	.currency-icon-small {

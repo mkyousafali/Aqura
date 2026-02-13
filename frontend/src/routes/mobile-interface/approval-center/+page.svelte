@@ -1641,8 +1641,8 @@ async function rejectRequisition(reason) {
 
 <style>
 	.mobile-approval-center {
-		padding: 1rem;
-		padding-bottom: 5rem;
+		padding: 0.5rem;
+		padding-bottom: 4rem;
 	}
 
 	.loading {
@@ -1650,18 +1650,18 @@ async function rejectRequisition(reason) {
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 3rem 1rem;
+		padding: 1.5rem 0.5rem;
 		color: #6B7280;
 	}
 
 	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid #E5E7EB;
+		width: 28px;
+		height: 28px;
+		border: 2px solid #E5E7EB;
 		border-top-color: #3B82F6;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	@keyframes spin {
@@ -1671,20 +1671,20 @@ async function rejectRequisition(reason) {
 	/* Section Tabs */
 	.section-tabs {
 		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
+		gap: 0.25rem;
+		margin-bottom: 0.5rem;
 		background: #F3F4F6;
-		padding: 0.25rem;
-		border-radius: 12px;
+		padding: 0.15rem;
+		border-radius: 6px;
 	}
 
 	.tab-button {
 		flex: 1;
-		padding: 0.75rem 1rem;
+		padding: 0.35rem 0.5rem;
 		border: none;
 		background: transparent;
-		border-radius: 10px;
-		font-size: 0.875rem;
+		border-radius: 5px;
+		font-size: 0.76rem;
 		font-weight: 600;
 		color: #6B7280;
 		cursor: pointer;
@@ -1693,7 +1693,7 @@ async function rejectRequisition(reason) {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
+		gap: 0.25rem;
 	}
 
 	.tab-button.active {
@@ -1705,11 +1705,11 @@ async function rejectRequisition(reason) {
 	.tab-button .badge {
 		background: #EF4444;
 		color: white;
-		font-size: 0.625rem;
-		padding: 0.125rem 0.375rem;
-		border-radius: 10px;
+		font-size: 0.6rem;
+		padding: 0.1rem 0.3rem;
+		border-radius: 6px;
 		font-weight: 700;
-		min-width: 18px;
+		min-width: 14px;
 		text-align: center;
 	}
 
@@ -1720,16 +1720,16 @@ async function rejectRequisition(reason) {
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 0.75rem;
-		margin-bottom: 1.5rem;
+		gap: 0.35rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.stat-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1rem;
+		border-radius: 6px;
+		padding: 0.4rem;
 		text-align: center;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 		cursor: pointer;
 		transition: all 0.2s;
 	}
@@ -1739,13 +1739,13 @@ async function rejectRequisition(reason) {
 	}
 
 	.stat-value {
-		font-size: 2rem;
+		font-size: 1.2rem;
 		font-weight: 700;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.1rem;
 	}
 
 	.stat-label {
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 		color: #6B7280;
 		text-transform: uppercase;
 		font-weight: 600;
@@ -1759,18 +1759,18 @@ async function rejectRequisition(reason) {
 	.requisitions-list {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.4rem;
 	}
 
 	.req-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1rem;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+		border-radius: 6px;
+		padding: 0.5rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 		transition: all 0.2s;
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.3rem;
 	}
 
 	.card-header {
@@ -1788,25 +1788,25 @@ async function rejectRequisition(reason) {
 
 	.card-actions {
 		display: flex;
-		gap: 0.5rem;
-		padding-top: 0.5rem;
+		gap: 0.3rem;
+		padding-top: 0.3rem;
 		border-top: 1px solid #F3F4F6;
 	}
 
 	.btn-approve-card,
 	.btn-reject-card {
 		flex: 1;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		border: none;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		border-radius: 5px;
+		font-size: 0.76rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.25rem;
+		gap: 0.2rem;
 	}
 
 	.btn-approve-card {
@@ -1843,32 +1843,32 @@ async function rejectRequisition(reason) {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.75rem;
-		padding-bottom: 0.75rem;
+		margin-bottom: 0.3rem;
+		padding-bottom: 0.3rem;
 		border-bottom: 1px solid #F3F4F6;
 	}
 
 	.req-number {
 		font-weight: 700;
 		color: #1F2937;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 
 	.status-badge {
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 5px;
+		font-size: 0.65rem;
 		font-weight: 600;
 		text-transform: uppercase;
 	}
 
 	.schedule-badge {
 		display: inline-block;
-		padding: 0.35rem 0.75rem;
+		padding: 0.2rem 0.4rem;
 		background: #ede9fe;
 		color: #5b21b6;
-		border-radius: 8px;
-		font-size: 0.65rem;
+		border-radius: 5px;
+		font-size: 0.6rem;
 		font-weight: 700;
 		text-transform: uppercase;
 	}
@@ -1909,13 +1909,13 @@ async function rejectRequisition(reason) {
 	.req-info {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.25rem;
 	}
 
 	.info-row {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 
 	.info-row .label {
@@ -1936,13 +1936,13 @@ async function rejectRequisition(reason) {
 
 	.empty-state {
 		text-align: center;
-		padding: 3rem 1rem;
+		padding: 1.5rem 0.5rem;
 		color: #9CA3AF;
 	}
 
 	.empty-icon {
-		font-size: 3rem;
-		margin-bottom: 1rem;
+		font-size: 1.8rem;
+		margin-bottom: 0.5rem;
 	}
 
 	/* Modal Styles */
@@ -1968,7 +1968,7 @@ async function rejectRequisition(reason) {
 		background: white;
 		width: 100%;
 		max-height: 85vh;
-		border-radius: 20px 20px 0 0;
+		border-radius: 10px 10px 0 0;
 		overflow-y: auto;
 		animation: slideUp 0.3s;
 	}
@@ -1982,7 +1982,7 @@ async function rejectRequisition(reason) {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 1.25rem;
+		padding: 0.6rem;
 		border-bottom: 1px solid #F3F4F6;
 		position: sticky;
 		top: 0;
@@ -1991,19 +1991,19 @@ async function rejectRequisition(reason) {
 	}
 
 	.modal-header h2 {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 		color: #1F2937;
 	}
 
 	.close-btn {
-		width: 32px;
-		height: 32px;
+		width: 26px;
+		height: 26px;
 		border-radius: 50%;
 		border: none;
 		background: #F3F4F6;
 		color: #6B7280;
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -2011,81 +2011,81 @@ async function rejectRequisition(reason) {
 	}
 
 	.modal-body {
-		padding: 1.25rem;
+		padding: 0.6rem;
 	}
 
 	.detail-section {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
-		margin-bottom: 1.5rem;
+		gap: 0.4rem;
+		margin-bottom: 0.6rem;
 	}
 
 	.detail-item {
 		display: flex;
 		justify-content: space-between;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		background: #F9FAFB;
-		border-radius: 8px;
+		border-radius: 5px;
 	}
 
 	.detail-item.full-width {
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.25rem;
 	}
 
 	.detail-item .label {
 		color: #6B7280;
 		font-weight: 500;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 
 	.detail-item .value {
 		color: #1F2937;
 		font-weight: 600;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		text-align: right;
 	}
 
 	.amount-large {
 		color: #10B981 !important;
 		font-family: 'Courier New', monospace;
-		font-size: 1.125rem !important;
+		font-size: 0.88rem !important;
 	}
 
 	.permission-notice {
-		padding: 0.875rem 1rem;
+		padding: 0.5rem 0.6rem;
 		background: #fef3c7;
 		border: 1px solid #fbbf24;
-		border-radius: 12px;
+		border-radius: 6px;
 		color: #92400e;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		text-align: center;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.permission-notice small {
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 		color: #b45309;
 		display: block;
-		margin-top: 0.25rem;
+		margin-top: 0.15rem;
 	}
 
 	.action-buttons {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-		padding-top: 1rem;
+		gap: 0.35rem;
+		padding-top: 0.5rem;
 		border-top: 1px solid #F3F4F6;
 	}
 
 	.btn-approve,
 	.btn-reject {
-		padding: 1rem;
-		border-radius: 12px;
+		padding: 0.45rem;
+		border-radius: 6px;
 		border: none;
 		font-weight: 600;
-		font-size: 1rem;
+		font-size: 0.8rem;
 		cursor: pointer;
 		transition: all 0.2s;
 	}
@@ -2117,13 +2117,13 @@ async function rejectRequisition(reason) {
 	}
 
 	.status-info {
-		padding: 1rem;
+		padding: 0.5rem;
 		background: #F3F4F6;
-		border-radius: 12px;
+		border-radius: 6px;
 		text-align: center;
 		color: #6B7280;
 		font-weight: 600;
-		margin-top: 1rem;
+		margin-top: 0.5rem;
 		border-top: 1px solid #E5E7EB;
 	}
 
@@ -2140,13 +2140,13 @@ async function rejectRequisition(reason) {
 		justify-content: center;
 		z-index: 10000;
 		backdrop-filter: blur(4px);
-		padding: 1rem;
+		padding: 0.5rem;
 	}
 
 	.confirm-modal {
 		background: white;
-		border-radius: 16px;
-		padding: 1.5rem;
+		border-radius: 8px;
+		padding: 0.7rem;
 		max-width: 500px;
 		width: 100%;
 		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
@@ -2165,39 +2165,39 @@ async function rejectRequisition(reason) {
 	}
 
 	.confirm-title {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 		color: #1e293b;
-		margin: 0 0 1rem 0;
+		margin: 0 0 0.5rem 0;
 		text-align: center;
 	}
 
 	.confirm-message {
-		font-size: 0.9rem;
+		font-size: 0.76rem;
 		color: #475569;
-		margin: 0 0 1.5rem 0;
+		margin: 0 0 0.7rem 0;
 		text-align: center;
-		line-height: 1.6;
+		line-height: 1.5;
 	}
 
 	.form-group {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.7rem;
 	}
 
 	.form-label {
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
 		color: #334155;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.3rem;
 	}
 
 	.rejection-textarea {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		border: 2px solid #e2e8f0;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		border-radius: 5px;
+		font-size: 0.76rem;
 		font-family: inherit;
 		resize: vertical;
 		transition: border-color 0.2s;
@@ -2214,16 +2214,16 @@ async function rejectRequisition(reason) {
 
 	.confirm-actions {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.35rem;
 		justify-content: flex-end;
 	}
 
 	.btn-confirm-cancel,
 	.btn-confirm-ok {
-		padding: 0.75rem 1.5rem;
+		padding: 0.4rem 0.8rem;
 		border: none;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		border-radius: 5px;
+		font-size: 0.76rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -2266,11 +2266,11 @@ async function rejectRequisition(reason) {
 	/* Bulk Actions */
 	.bulk-actions {
 		display: flex;
-		gap: 0.75rem;
-		padding: 1rem;
+		gap: 0.35rem;
+		padding: 0.5rem;
 		background: white;
-		border-radius: 12px;
-		margin-bottom: 1rem;
+		border-radius: 6px;
+		margin-bottom: 0.5rem;
 		flex-wrap: wrap;
 	}
 
@@ -2278,14 +2278,15 @@ async function rejectRequisition(reason) {
 	.btn-clear-bulk,
 	.btn-mark-all {
 		flex: 1;
-		padding: 0.75rem 1rem;
+		padding: 0.4rem 0.5rem;
 		border: none;
-		border-radius: 8px;
+		border-radius: 5px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
-		min-width: 120px;
+		min-width: 90px;
 		white-space: nowrap;
+		font-size: 0.76rem;
 	}
 
 	.btn-approve-bulk {
@@ -2323,14 +2324,14 @@ async function rejectRequisition(reason) {
 	/* Card Checkbox */
 	.card-checkbox {
 		position: absolute;
-		top: 12px;
-		right: 12px;
+		top: 8px;
+		right: 8px;
 		z-index: 10;
 	}
 
 	.card-checkbox input[type="checkbox"] {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		cursor: pointer;
 		accent-color: #3b82f6;
 	}
@@ -2362,24 +2363,24 @@ async function rejectRequisition(reason) {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.6rem;
 	}
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		color: #1e293b;
 	}
 
 	.modal-close {
 		background: none;
 		border: none;
-		font-size: 1.5rem;
+		font-size: 1.1rem;
 		color: #64748b;
 		cursor: pointer;
 		padding: 0;
-		width: 32px;
-		height: 32px;
+		width: 26px;
+		height: 26px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -2390,45 +2391,46 @@ async function rejectRequisition(reason) {
 	}
 
 	.modal-body {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.6rem;
 	}
 
 	.bulk-confirm-message {
-		font-size: 1rem;
+		font-size: 0.82rem;
 		color: #1e293b;
-		margin-bottom: 1rem;
-		line-height: 1.6;
+		margin-bottom: 0.5rem;
+		line-height: 1.5;
 	}
 
 	.bulk-confirm-message strong {
 		color: #10b981;
 		font-weight: 700;
-		font-size: 1.1rem;
+		font-size: 0.88rem;
 	}
 
 	.bulk-confirm-note {
 		color: #64748b;
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		font-style: italic;
 		margin: 0;
-		line-height: 1.5;
+		line-height: 1.4;
 	}
 
 	.modal-footer {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.35rem;
 		justify-content: flex-end;
 	}
 
 	.btn-cancel {
-		padding: 0.75rem 1.5rem;
+		padding: 0.4rem 0.8rem;
 		background: #e2e8f0;
 		color: #475569;
 		border: none;
-		border-radius: 8px;
+		border-radius: 5px;
 		cursor: pointer;
 		font-weight: 600;
 		transition: all 0.2s;
+		font-size: 0.76rem;
 	}
 
 	.btn-cancel:active:not(:disabled) {
@@ -2441,17 +2443,18 @@ async function rejectRequisition(reason) {
 	}
 
 	.btn-approve-bulk-modal {
-		padding: 0.75rem 1.5rem;
+		padding: 0.4rem 0.8rem;
 		background: #10b981;
 		color: white;
 		border: none;
-		border-radius: 8px;
+		border-radius: 5px;
 		cursor: pointer;
 		font-weight: 600;
 		transition: all 0.2s;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
+		font-size: 0.76rem;
 	}
 
 	.btn-approve-bulk-modal:active:not(:disabled) {
@@ -2464,18 +2467,18 @@ async function rejectRequisition(reason) {
 	}
 
 	.btn-view-doc {
-		padding: 0.5rem 1rem;
+		padding: 0.3rem 0.5rem;
 		background: #10b981;
 		color: white;
 		border: none;
-		border-radius: 6px;
+		border-radius: 5px;
 		cursor: pointer;
 		font-weight: 500;
-		font-size: 0.95rem;
+		font-size: 0.76rem;
 		transition: all 0.2s;
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 	}
 
 	.btn-view-doc:hover {
