@@ -3,7 +3,7 @@
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
 // SERVICE WORKER VERSION - Increment to force updates
-const SW_VERSION = '2.1.0'; // Updated: Fixed notification count caching
+const SW_VERSION = '2.2.0'; // Updated: Added ERP Product Manager
 console.log(`[ServiceWorker] Version ${SW_VERSION} initializing`);
 
 // Import workbox from CDN for service worker
