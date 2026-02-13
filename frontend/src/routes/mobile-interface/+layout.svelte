@@ -736,13 +736,6 @@
 		<header class="global-mobile-header">
 			<div class="header-content">
 				<div class="user-info">
-					{#if $page.url.pathname !== '/mobile-interface'}
-						<button class="back-btn" on:click={goBack} aria-label={getTranslation('nav.goBack')}>
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="m15 18-6-6 6-6"/>
-							</svg>
-						</button>
-					{/if}
 					<button class="menu-btn" on:click={() => showMenu = !showMenu} aria-label="Menu">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<line x1="3" y1="6" x2="21" y2="6"/>
@@ -863,7 +856,7 @@
 		<nav class="bottom-nav">
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/quick-task') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
+				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
 					{#if taskCount > 0}
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
@@ -886,13 +879,6 @@
 								<rect x="9" y="7" width="6" height="5"/>
 							</svg>
 							<span>{getTranslation('mobile.bottomNav.tasks')}</span>
-						</a>
-						<a href="/mobile-interface/quick-task" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/quick-task')}>
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-								<circle cx="12" cy="12" r="3"/>
-							</svg>
-							<span>{getTranslation('mobile.quickTask')}</span>
 						</a>
 						<a href="/mobile-interface/assignments" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/assignments')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

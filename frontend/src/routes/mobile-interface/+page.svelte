@@ -1006,20 +1006,35 @@
 					{/if}
 				</div>
 			</div>
+
+			<!-- Quick Task Card -->
+			<div class="stat-card blank clickable quick-task-card" on:click={() => goto('/mobile-interface/quick-task')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<p>{getTranslation('mobile.quickTask')}</p>
+				</div>
+			</div>
 		</div>
 	</section>
 	{/if}
+
+	<!-- Logo at bottom -->
+	<div class="bottom-logo">
+		<img src="/icons/logo.png" alt="Aqura" />
+		<img src="/icons/Aqura%20logo.png" alt="Aqura" />
+	</div>
 </div>
 
 <style>
 	.mobile-dashboard {
-		min-height: 100vh;
-		min-height: 100dvh;
 		background: #F8FAFC;
 		overflow-x: hidden;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
 		position: relative;
+		padding-bottom: 1rem;
 	}
 
 	/* Featured Offers LED Screen - Top Section */
@@ -1366,6 +1381,50 @@
 		font-weight: 600;
 		margin: 0.1rem 0 0 0 !important;
 	}
+
+	.quick-task-card {
+		background: white !important;
+	}
+
+	.quick-task-card .stat-icon {
+		background: rgba(245, 158, 11, 0.1) !important;
+		color: #F59E0B !important;
+	}
+
+	.bottom-logo {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		gap: 1.5rem;
+		width: 100%;
+		padding: 6rem 0 1.5rem;
+		opacity: 0.7;
+	}
+
+	.bottom-logo img {
+		width: 120px;
+		height: 50px;
+		object-fit: contain;
+		border: 2px solid #F59E0B;
+		border-radius: 12px;
+		padding: 6px 20px;
+		background: white;
+		box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+		animation: logo-glow 2.5s ease-in-out infinite;
+	}
+
+	@keyframes logo-glow {
+		0%, 100% {
+			box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+			border-color: rgba(245, 158, 11, 0.6);
+		}
+		50% {
+			box-shadow: 0 0 18px rgba(245, 158, 11, 0.5);
+			border-color: rgba(245, 158, 11, 1);
+		}
+	}
+
+
 
 	.stat-card.clickable:hover {
 		transform: translateY(-5px);

@@ -108,6 +108,7 @@
 	$: selectedBranchName = branches.find(b => b.id == selectedBranch)?.[getBranchNameField()] || 
 	                       branches.find(b => b.id == selectedBranch)?.name || 
 	                       'Unknown Branch';
+	$: selectedBranchLocation = branches.find(b => b.id == selectedBranch)?.[getBranchLocationField()] || '';
 	$: defaultBranchName = branches.find(b => b.id == defaultBranchId)?.[getBranchNameField()] || 
 	                      branches.find(b => b.id == defaultBranchId)?.name || 
 	                      '';
@@ -115,6 +116,10 @@
 	// Helper function to get the correct name field based on locale
 	function getBranchNameField() {
 		return $locale === 'ar' ? 'name_ar' : 'name_en';
+	}
+
+	function getBranchLocationField() {
+		return $locale === 'ar' ? 'location_ar' : 'location_en';
 	}
 
 	// Helper function to get user display name
@@ -187,7 +192,16 @@
 		await loadInitialData();
 		await loadUserPreferences();
 		
-		// If no branch is selected, show the branch selector
+		// If no branch is selected, auto-select logged-in user's branch
+		if (!selectedBranch && $currentUser?.branch_id) {
+			const userBranchId = parseInt($currentUser.branch_id);
+			if (branches.find(b => b.id === userBranchId)) {
+				selectedBranch = userBranchId;
+				await loadBranchUsers(selectedBranch);
+			}
+		}
+		
+		// If still no branch is selected, show the branch selector
 		if (!selectedBranch) {
 			showBranchSelector = true;
 		}
@@ -200,7 +214,7 @@
 			// Load branches
 			const { data: branchData, error: branchError } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en, location_ar')
 				.order('name_en');
 
 			if (!branchError) {
@@ -768,6 +782,9 @@
 					<div class="selection-info">
 						<span class="label">{getTranslation('mobile.quickTaskContent.step1.branchLabel')}</span>
 						<span class="value">{selectedBranchName}</span>
+						{#if selectedBranchLocation}
+							<span class="location-text">{selectedBranchLocation}</span>
+						{/if}
 						{#if isUsingDefaultBranch}
 							<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
 						{/if}
@@ -780,7 +797,7 @@
 				<select bind:value={selectedBranch} on:change={handleBranchChange} class="form-select">
 					<option value="">{getTranslation('mobile.quickTaskContent.step1.selectBranch')}</option>
 					{#each branches as branch}
-						<option value={branch.id}>{branch[getBranchNameField()]}</option>
+						<option value={branch.id}>{branch[getBranchNameField()]} — {branch[getBranchLocationField()]}</option>
 					{/each}
 				</select>
 				{#if selectedBranch}
@@ -1157,6 +1174,12 @@
 		color: #333;
 	}
 
+	.selection-info .location-text {
+		font-size: 0.75rem;
+		color: #6B7280;
+		font-weight: 400;
+	}
+
 	.default-badge {
 		background: #e7f3ff;
 		color: #0066cc;
@@ -1277,7 +1300,7 @@
 	}
 
 	.user-list {
-		max-height: 250px;
+		max-height: 400px;
 		overflow-y: auto;
 		border: 1px solid #ddd;
 		border-radius: 6px;
