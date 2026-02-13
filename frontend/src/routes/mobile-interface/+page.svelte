@@ -19,7 +19,7 @@
 		pendingChecklists: 0
 	};
 	let hasAssignedChecklists = false;
-	let pendingProductRequests = 0;
+
 	let isLoading = true;
 	let currentTime = new Date();
 	let unsubscribeFingerprint: (() => void) | null = null;
@@ -148,8 +148,7 @@
 		if (currentUserData) {
 			// Load dashboard data from Go backend (combines tasks + punches)
 			await loadDashboardData();
-			// Load pending product requests count
-			await loadPendingProductRequests();
+
 		}
 		isLoading = false;
 		
@@ -174,23 +173,7 @@
 		}
 	});
 	
-	async function loadPendingProductRequests() {
-		try {
-			if (!currentUserData?.id) return;
-			const userId = currentUserData.id;
 
-			const [btRes, poRes, stRes] = await Promise.all([
-				supabase.from('product_request_bt').select('id', { count: 'exact', head: true }).eq('target_user_id', userId).eq('status', 'pending'),
-				supabase.from('product_request_po').select('id', { count: 'exact', head: true }).eq('target_user_id', userId).eq('status', 'pending'),
-				supabase.from('product_request_st').select('id', { count: 'exact', head: true }).eq('target_user_id', userId).eq('status', 'pending')
-			]);
-
-			pendingProductRequests = (btRes.count || 0) + (poRes.count || 0) + (stRes.count || 0);
-			console.log('📦 Pending product requests:', pendingProductRequests);
-		} catch (err) {
-			console.error('❌ Error loading pending product requests:', err);
-		}
-	}
 
 	async function loadBoxOperationsCounts() {
 		try {
@@ -989,21 +972,17 @@
 				{/if}
 			</div>
 
-			<!-- Product Request Card -->
-			<div class="stat-card blank clickable product-request-card" on:click={() => goto('/mobile-interface/product-request')}>
+			<!-- Customer Product Request Card -->
+			<div class="stat-card blank clickable customer-request-card" on:click={() => goto('/mobile-interface/customer-product-request')}>
 				<div class="stat-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-						<polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-						<line x1="12" y1="22.08" x2="12" y2="12"/>
+						<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+						<circle cx="8.5" cy="7" r="4"/>
+						<path d="M20 8v6M23 11h-6"/>
 					</svg>
 				</div>
 				<div class="stat-info">
-					<p>{getTranslation('mobile.productRequest')}</p>
-					{#if pendingProductRequests > 0}
-						<p class="product-request-pending">{$localeData.code === 'ar' ? `لديك ${pendingProductRequests} طلب معلق` : `You have ${pendingProductRequests} pending`}</p>
-						<p class="product-request-pending">{$localeData.code === 'ar' ? 'سجل الدخول لسطح المكتب للإدارة' : 'Log in to Desktop to manage'}</p>
-					{/if}
+					<p>{getTranslation('mobile.customerProductRequest')}</p>
 				</div>
 			</div>
 
@@ -1361,25 +1340,18 @@
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 
-	.product-request-card {
+	.customer-request-card {
 		background: white !important;
 	}
 
-	.product-request-card .stat-icon {
-		background: rgba(99, 102, 241, 0.1) !important;
-		color: #6366F1 !important;
+	.customer-request-card .stat-icon {
+		background: rgba(16, 185, 129, 0.1) !important;
+		color: #10B981 !important;
 	}
 
-	.product-request-card .click-hint {
-		color: #6366F1 !important;
+	.customer-request-card .click-hint {
+		color: #10B981 !important;
 		font-weight: 600;
-	}
-
-	.product-request-pending {
-		color: #EF4444 !important;
-		font-size: 0.55rem !important;
-		font-weight: 600;
-		margin: 0.1rem 0 0 0 !important;
 	}
 
 	.quick-task-card {
