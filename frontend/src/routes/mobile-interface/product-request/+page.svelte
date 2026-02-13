@@ -482,6 +482,7 @@
 			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
 				<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
 			</svg>
+			<span>{$currentLocale === 'ar' ? 'إضافة منتج للطلب' : 'Add Product to Request'}</span>
 		</button>
 		{#if items.length > 0}
 			<button type="button" class="save-btn" on:click={openSavePopup}>
@@ -490,6 +491,7 @@
 					<polyline points="17 21 17 13 7 13 7 21"/>
 					<polyline points="7 3 7 8 15 8"/>
 				</svg>
+				<span>{$currentLocale === 'ar' ? 'حفظ وإرسال الطلب' : 'Save & Send Request'}</span>
 			</button>
 		{/if}
 	</div>
@@ -539,6 +541,7 @@
 					<button type="button" class="modal-close" on:click={closeModal}>&times;</button>
 				</div>
 				<div class="modal-body">
+					<p class="modal-info">{$currentLocale === 'ar' ? '⚠️ يجب ملء حقل واحد على الأقل: الباركود أو اسم المنتج أو الصورة' : '⚠️ At least one is mandatory: Photo, Barcode, or Product Name'}</p>
 					<div class="form-group">
 						<label>{getTranslation('mobile.productRequestContent.barcode')}</label>
 						<div class="barcode-input-row">
@@ -582,7 +585,7 @@
 				</div>
 				<div class="modal-footer">
 					<button type="button" class="btn-close-modal" on:click={closeModal}>{getTranslation('mobile.productRequestContent.close')}</button>
-					<button type="button" class="btn-add" on:click={addItem}>{getTranslation('mobile.productRequestContent.add')}</button>
+					<button type="button" class="btn-add" on:click={addItem} disabled={!modalBarcode && !modalProductName && !modalPhoto}>{getTranslation('mobile.productRequestContent.add')}</button>
 				</div>
 			</div>
 		</div>
@@ -625,6 +628,16 @@
 						<span class="type-label">{getTranslation('mobile.productRequestContent.inBranch')}</span>
 						<span class="type-label">{getTranslation('mobile.productRequestContent.purchaseOrder')}</span>
 					</div>
+
+					<!-- Type info descriptions (hide once a type is selected) -->
+					{#if !requestType}
+						<div class="type-info-box">
+							<p class="type-info-header">{$currentLocale === 'ar' ? 'اختر نوع الطلب:' : 'Select a request type:'}</p>
+							<p><strong>BT</strong> – {$currentLocale === 'ar' ? 'طلب نقل بين الفروع فقط' : 'Branch Transfer requests only'}</p>
+							<p><strong>ST</strong> – {$currentLocale === 'ar' ? 'طلب نقص في المعرض - يُرسل إلى مستودع المتجر' : 'Shortage in showroom - request to shop warehouse'}</p>
+							<p><strong>PO</strong> – {$currentLocale === 'ar' ? 'طلب شراء لاحتياجات العملاء وطلبات أخرى من مسؤولي الفرع' : 'Customer needs & other orders from branch officials'}</p>
+						</div>
+					{/if}
 
 					{#if requestType}
 <!-- Branch Selection (BT & ST) -->
@@ -800,6 +813,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		gap: 0.5rem;
 		padding: 0.5rem 1rem;
 		background: #007bff;
 		color: white;
@@ -807,6 +821,9 @@
 		border-radius: 8px;
 		cursor: pointer;
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+		font-size: 0.85rem;
+		font-weight: 600;
+		white-space: nowrap;
 	}
 
 	.add-btn:active {
@@ -817,6 +834,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		gap: 0.5rem;
 		padding: 0.5rem 1rem;
 		background: #10B981;
 		color: white;
@@ -824,6 +842,9 @@
 		border-radius: 8px;
 		cursor: pointer;
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+		font-size: 0.85rem;
+		font-weight: 600;
+		white-space: nowrap;
 	}
 
 	.save-btn:active {
@@ -875,6 +896,18 @@
 		padding: 0.75rem 0.85rem;
 	}
 
+	.modal-info {
+		font-size: 0.75rem;
+		color: #B45309;
+		background: #FEF3C7;
+		border: 1px solid #FDE68A;
+		border-radius: 6px;
+		padding: 0.5rem 0.65rem;
+		margin-bottom: 0.6rem;
+		text-align: center;
+		font-weight: 500;
+	}
+
 	.modal-footer {
 		display: flex;
 		gap: 0.5rem;
@@ -912,6 +945,12 @@
 
 	.btn-add:active {
 		background: #0056b3;
+	}
+
+	.btn-add:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	/* Form fields inside modal */
@@ -1139,7 +1178,7 @@
 	.type-labels-row {
 		display: flex;
 		gap: 0.5rem;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.type-label {
@@ -1148,6 +1187,25 @@
 		font-size: 0.6rem;
 		color: #6B7280;
 		font-weight: 500;
+	}
+
+	.type-info-box {
+		background: #EFF6FF;
+		border: 1px solid #BFDBFE;
+		border-radius: 6px;
+		padding: 0.45rem 0.6rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.type-info-box p {
+		font-size: 0.65rem;
+		color: #1E40AF;
+		margin: 0.15rem 0;
+		line-height: 1.3;
+	}
+
+	.type-info-box strong {
+		color: #1D4ED8;
 	}
 
 	.auto-info {

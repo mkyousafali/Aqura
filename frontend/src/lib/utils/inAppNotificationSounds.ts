@@ -392,7 +392,7 @@ class InAppNotificationSoundManager {
 
     // On mobile, check if audio is unlocked
     if (this.isMobileDevice && !this.audioUnlocked) {
-      console.warn(
+      console.log(
         "📱 [SoundManager] Mobile audio not yet unlocked - user interaction needed",
       );
       // Still try to play, might work on some browsers

@@ -1232,8 +1232,7 @@ export class NotificationManagementService {
    * Listen for real-time notifications and show push notifications with error handling
    */
   async startRealtimeNotificationListener(): Promise<void> {
-    // 🔴 DISABLED: Real-time subscriptions disabled to reduce load
-    console.warn("⚠️ [NotificationManagement] Real-time notification listener disabled - using polling instead");
+    // 🔴 DISABLED: Real-time subscriptions disabled to reduce load - using polling instead
     return;
     
     // Prevent concurrent connection attempts
