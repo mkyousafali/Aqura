@@ -23,6 +23,7 @@
 	// Quick Access form
 	let quickAccessCode = '';
 	let quickAccessDigits = ['', '', '', '', '', ''];
+	let showAccessCode = false;
 	let isLoading = false;
 	let errorMessage = '';
 	let successMessage = '';
@@ -36,6 +37,11 @@
 		mounted = true;
 		setTimeout(() => {
 			showContent = true;
+			// Auto-focus first digit input after content is visible
+			setTimeout(() => {
+				const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+				if (firstDigit) firstDigit.focus();
+			}, 100);
 		}, 300);
 
 		// Check if user is already logged in
@@ -293,11 +299,12 @@
 				<form class="mobile-auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
 					<div class="form-fields">
 						<div class="field-group">
+							<div class="digits-with-toggle">
 							<div class="quick-access-digits">
 								{#each quickAccessDigits as digit, index}
 									<input 
 										id="digit-{index}"
-										type="text" 
+										type={showAccessCode ? 'text' : 'password'} 
 										class="digit-input"
 										class:error={!quickAccessValid && quickAccessDigits.some(d => d !== '')}
 										bind:value={quickAccessDigits[index]}
@@ -312,6 +319,14 @@
 										pattern="[0-9]*"
 									/>
 								{/each}
+							</div>
+							<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} tabindex="-1">
+								{#if showAccessCode}
+									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+								{:else}
+									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+								{/if}
+							</button>
 						</div>
 						{#if !quickAccessValid && quickAccessDigits.some(d => d !== '')}
 							<span class="field-error">{t('mobile.login.invalidDigitError')}</span>
@@ -401,7 +416,7 @@
 		width: 100%;
 		max-width: 480px;
 		margin: 0 auto;
-		padding: 2rem 1.5rem;
+		padding: 0.75rem 0.5rem;
 		min-height: 100vh;
 		min-height: 100dvh;
 		display: flex;
@@ -411,7 +426,7 @@
 	/* Header Section */
 	.mobile-header {
 		text-align: center;
-		margin-bottom: 3rem;
+		margin-bottom: 2.5rem;
 		position: relative;
 	}
 
@@ -421,13 +436,13 @@
 		left: 0;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem;
+		gap: 0.3rem;
+		padding: 0.4rem;
 		background: rgba(255, 255, 255, 0.1);
 		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 12px;
+		border-radius: 6px;
 		color: white;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		touch-action: manipulation;
@@ -454,16 +469,16 @@
 	}
 
 	.mobile-logo {
-		margin-top: 2rem;
+		margin-top: 0.5rem;
 	}
 
 	.logo-icon {
-		width: 180px;
-		height: 80px;
-		margin: 0 auto 1.5rem;
+		width: 120px;
+		height: 55px;
+		margin: 0 auto 0.15rem;
 		background: white;
-		border: 4px solid rgba(255, 255, 255, 0.3);
-		border-radius: 24px;
+		border: 3px solid rgba(255, 255, 255, 0.3);
+		border-radius: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -488,40 +503,40 @@
 	}
 
 	.logo-image {
-		width: 500px;
+		width: 350px;
 		height: auto;
-		border-radius: 16px;
+		border-radius: 10px;
 		object-fit: contain;
-		margin-top: 15px;
+		margin-top: 10px;
 	}
 
 	.app-name {
-		font-size: 2.5rem;
+		font-size: 1.5rem;
 		font-weight: 800;
-		margin: 1rem 0 0.25rem;
+		margin: 0.4rem 0 0.15rem;
 		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 		color: white;
 		letter-spacing: -0.02em;
 	}
 
 	.app-description {
-		font-size: 1rem;
+		font-size: 0.78rem;
 		opacity: 0.85;
 		font-weight: 400;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 		color: rgba(255, 255, 255, 0.9);
 	}
 
 	.page-title {
-		font-size: 1.75rem;
+		font-size: 1.1rem;
 		font-weight: 600;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.15rem;
 		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 		color: white;
 	}
 
 	.page-subtitle {
-		font-size: 1rem;
+		font-size: 0.78rem;
 		opacity: 0.8;
 		font-weight: 300;
 		color: rgba(255, 255, 255, 0.8);
@@ -529,48 +544,46 @@
 
 	/* Auth Section */
 	.mobile-auth-section {
-		flex: 1;
 		display: flex;
 		flex-direction: column;
-		justify-content: center;
 	}
 
 	.mobile-auth-form {
 		background: rgba(255, 255, 255, 0.1);
 		backdrop-filter: blur(20px);
 		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 24px;
-		padding: 2.5rem 2rem;
-		margin-bottom: 2rem;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+		border-radius: 10px;
+		padding: 0.5rem 0.75rem;
+		margin-bottom: 0.5rem;
+		box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
 	}
 
 	/* Form fields */
 	.form-fields {
-		margin-bottom: 2rem;
+		margin-bottom: 0.3rem;
 	}
 
 	.field-group {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.2rem;
 	}
 
 	/* Quick Access Digits */
 	.quick-access-digits {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		justify-content: center;
 		align-items: center;
-		margin: 1rem 0;
+		margin: 0.2rem 0;
 		direction: ltr;
 	}
 
 	.digit-input {
-		width: 48px;
-		height: 60px;
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-radius: 12px;
+		width: 40px;
+		height: 48px;
+		border: 1.5px solid rgba(255, 255, 255, 0.3);
+		border-radius: 6px;
 		text-align: center;
-		font-size: 1.5rem;
+		font-size: 1.1rem;
 		font-weight: 600;
 		font-family: 'JetBrains Mono', 'Courier New', monospace;
 		background: rgba(255, 255, 255, 0.1);
@@ -590,7 +603,7 @@
 		outline: none;
 		border-color: rgba(255, 255, 255, 0.8);
 		background: rgba(255, 255, 255, 0.2);
-		box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+		box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
 	}
 
 	.digit-input.error {
@@ -610,31 +623,59 @@
 
 	.field-error {
 		color: #FCA5A5;
-		font-size: 0.75rem;
-		margin-top: 0.5rem;
+		font-size: 0.68rem;
+		margin-top: 0.3rem;
 		display: block;
 		text-align: center;
+	}
+
+	.digits-with-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.digits-with-toggle .quick-access-digits {
+		flex: 1;
+	}
+
+	.eye-toggle {
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 6px;
+		padding: 0.4rem;
+		cursor: pointer;
+		color: rgba(255, 255, 255, 0.6);
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		touch-action: manipulation;
+	}
+
+	.eye-toggle:hover {
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
 	}
 
 	/* Submit button */
 	.mobile-submit-btn {
 		width: 100%;
-		padding: 1.25rem 1.5rem;
+		padding: 0.6rem 0.75rem;
 		background: rgba(255, 255, 255, 0.9);
 		color: #1D4ED8;
 		border: none;
-		border-radius: 16px;
-		font-size: 1.1rem;
+		border-radius: 8px;
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		touch-action: manipulation;
 		-webkit-tap-highlight-color: transparent;
-		min-height: 56px;
+		min-height: 40px;
 		backdrop-filter: blur(10px);
 	}
 
@@ -657,8 +698,8 @@
 	}
 
 	.loading-spinner {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		border: 2px solid rgba(29, 78, 216, 0.3);
 		border-top: 2px solid #1D4ED8;
 		border-radius: 50%;
@@ -675,10 +716,10 @@
 	.status-message {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.75rem;
-		padding: 1rem 1.25rem;
-		margin-bottom: 1rem;
-		border-radius: 16px;
+		gap: 0.4rem;
+		padding: 0.5rem 0.6rem;
+		margin-bottom: 0.4rem;
+		border-radius: 6px;
 		animation: messageSlideIn 0.4s ease-out;
 		backdrop-filter: blur(20px);
 	}
@@ -712,13 +753,13 @@
 	}
 
 	.status-content h4 {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
-		margin: 0 0 0.25rem 0;
+		margin: 0 0 0.15rem 0;
 	}
 
 	.status-content p {
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		margin: 0;
 		opacity: 0.9;
 	}
@@ -726,86 +767,86 @@
 	/* Responsive adjustments */
 	@media (max-width: 480px) {
 		.mobile-login-content {
-			padding: 1.5rem 1rem;
+			padding: 0.5rem 0.4rem;
 		}
 
 		.mobile-auth-form {
-			padding: 2rem 1.5rem;
+			padding: 0.75rem 0.5rem;
 		}
 
 		.digit-input {
-			width: 44px;
-			height: 56px;
-			font-size: 1.3rem;
+			width: 36px;
+			height: 44px;
+			font-size: 1rem;
 		}
 
 		.quick-access-digits {
-			gap: 0.5rem;
+			gap: 0.3rem;
 		}
 
 		.app-name {
-			font-size: 2rem;
+			font-size: 1.25rem;
 		}
 
 		.app-description {
-			font-size: 0.9rem;
-			margin-bottom: 1rem;
+			font-size: 0.72rem;
+			margin-bottom: 0.3rem;
 		}
 
 		.page-title {
-			font-size: 1.5rem;
+			font-size: 1rem;
 		}
 
 		.page-subtitle {
-			font-size: 0.9rem;
+			font-size: 0.72rem;
 		}
 
 		.logo-icon {
-			width: 150px;
-			height: 70px;
+			width: 100px;
+			height: 48px;
 		}
 
 		.logo-image {
-			width: 100px;
-			height: 50px;
+			width: 280px;
+			height: auto;
 		}
 	}
 
 	@media (max-width: 375px) {
 		.digit-input {
-			width: 40px;
-			height: 52px;
-			font-size: 1.2rem;
+			width: 32px;
+			height: 40px;
+			font-size: 0.9rem;
 		}
 
 		.quick-access-digits {
-			gap: 0.4rem;
+			gap: 0.25rem;
 		}
 	}
 
 	/* Landscape mode adjustments */
 	@media (orientation: landscape) and (max-height: 500px) {
 		.mobile-login-content {
-			padding: 1rem;
+			padding: 0.4rem;
 		}
 
 		.mobile-header {
-			margin-bottom: 1.5rem;
+			margin-bottom: 0.5rem;
 		}
 
 		.logo-icon {
-			width: 120px;
-			height: 60px;
-			margin-bottom: 1rem;
+			width: 90px;
+			height: 42px;
+			margin-bottom: 0.3rem;
 		}
 
 		.logo-image {
-			width: 80px;
-			height: 40px;
+			width: 250px;
+			height: auto;
 		}
 
 		.mobile-auth-form {
-			padding: 1.5rem;
+			padding: 0.6rem 0.5rem;
 		}
 	}
 

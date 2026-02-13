@@ -828,14 +828,6 @@
 				<LanguageToggle />
 				<span class="menu-item-text">{getTranslation('mobile.language')}</span>
 			</div>
-			<button class="menu-item" on:click={() => { logout(); showMenu = false; }} title={getTranslation('mobile.logout')}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-					<polyline points="16 17 21 12 16 7"/>
-					<line x1="21" y1="12" x2="9" y2="12"/>
-				</svg>
-				<span class="menu-item-text">{getTranslation('mobile.logout')}</span>
-			</button>
 			<div class="menu-item menu-version-item">
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<circle cx="12" cy="12" r="10"/>
@@ -844,6 +836,15 @@
 				</svg>
 				<span class="menu-item-text">{mobileVersion}</span>
 			</div>
+			<div class="menu-spacer"></div>
+			<button class="menu-item menu-logout" on:click={() => { logout(); showMenu = false; }} title={getTranslation('mobile.logout')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+					<polyline points="16 17 21 12 16 7"/>
+					<line x1="21" y1="12" x2="9" y2="12"/>
+				</svg>
+				<span class="menu-item-text">{getTranslation('mobile.logout')}</span>
+			</button>
 		</div>
 	{/if}
 	
@@ -1186,6 +1187,21 @@
 		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
 	}
 
+	.menu-spacer {
+		flex: 1;
+		min-height: 8px;
+	}
+
+	.menu-logout {
+		background: #EF4444 !important;
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
+	}
+
+	.menu-logout:hover {
+		background: #DC2626 !important;
+		box-shadow: 0 6px 20px rgba(220, 38, 38, 0.5) !important;
+	}
+
 	.user-info {
 		display: flex;
 		align-items: center;
@@ -1263,6 +1279,7 @@
 		position: fixed;
 		top: 60px;
 		left: 10px;
+		bottom: 70px;
 		background: transparent;
 		z-index: 1000;
 		animation: slideDown 0.2s ease;

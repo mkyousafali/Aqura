@@ -1244,7 +1244,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	/* Action Buttons */
 	.action-buttons-section {
-		padding: 1rem;
+		padding: 0.5rem;
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
 	}
@@ -1253,14 +1253,14 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
+		gap: 0.4rem;
 		width: 100%;
-		padding: 0.75rem 1rem;
+		padding: 0.5rem 0.75rem;
 		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
 		color: white;
 		border: none;
-		border-radius: 8px;
-		font-size: 0.9rem;
+		border-radius: 6px;
+		font-size: 0.78rem;
 		font-weight: 600;
 		text-decoration: none;
 		cursor: pointer;
@@ -1279,21 +1279,21 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	}
 
 	.assign-task-btn svg {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		stroke-width: 2;
 	}
 
 	/* Filters */
 	.filters-section {
-		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
+		padding: 0.5rem;
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
 	}
 
 	.search-box {
 		position: relative;
-		margin-bottom: 0.8rem; /* Reduced from 1rem (20% smaller) */
+		margin-bottom: 0.4rem;
 	}
 
 	.search-box svg {
@@ -1306,10 +1306,10 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	.search-input {
 		width: 100%;
-		padding: 0.6rem 0.8rem 0.6rem 2.4rem; /* Reduced padding (20% smaller) */
-		border: 2px solid #E5E7EB;
-		border-radius: 10px; /* Reduced from 12px */
-		font-size: 0.8rem; /* Reduced from 1rem (20% smaller) */
+		padding: 0.4rem 0.6rem 0.4rem 2rem;
+		border: 1px solid #E5E7EB;
+		border-radius: 6px;
+		font-size: 0.75rem;
 		background: #F9FAFB;
 		color: #374151;
 		transition: all 0.3s ease;
@@ -1325,16 +1325,16 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	.filter-chips {
 		display: flex;
-		gap: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
-		margin-bottom: 0.8rem; /* Reduced from 1rem (20% smaller) */
+		gap: 0.4rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.filter-select {
 		flex: 1;
-		padding: 0.4rem 0.6rem; /* Reduced from 0.5rem 0.75rem */
-		border: 2px solid #E5E7EB;
-		border-radius: 6px; /* Reduced from 8px */
-		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
+		padding: 0.3rem 0.4rem;
+		border: 1px solid #E5E7EB;
+		border-radius: 5px;
+		font-size: 0.68rem;
 		background: white;
 		color: #374151;
 		cursor: pointer;
@@ -1349,56 +1349,56 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	/* Show Completed Toggle */
 	.toggle-section {
-		margin: 0.8rem 0;
-		padding: 0.6rem 0.8rem;
+		margin: 0.4rem 0;
+		padding: 0.3rem 0.5rem;
 		background: #F9FAFB;
-		border-radius: 8px;
+		border-radius: 5px;
 	}
 
 	.toggle-label {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
+		gap: 0.4rem;
 		cursor: pointer;
 		user-select: none;
 	}
 
 	.toggle-checkbox {
-		width: 18px;
-		height: 18px;
+		width: 14px;
+		height: 14px;
 		cursor: pointer;
 		accent-color: #3B82F6;
 	}
 
 	.toggle-text {
-		font-size: 0.8rem;
+		font-size: 0.72rem;
 		color: #374151;
 		font-weight: 500;
 	}
 
 	.results-count {
-		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
+		font-size: 0.65rem;
 		color: #6B7280;
 		text-align: center;
 	}
 
 	/* Content */
 	.content-section {
-		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
-		padding-bottom: calc(1.2rem + env(safe-area-inset-bottom));
+		padding: 0.5rem;
+		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
 	}
 
 	/* Loading State */
 	.loading-skeleton {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.5rem;
 	}
 
 	.skeleton-card {
 		background: white;
-		border-radius: 16px;
-		padding: 1rem;
+		border-radius: 8px;
+		padding: 0.6rem;
 		animation: pulse 1.5s ease-in-out infinite;
 	}
 
@@ -1406,7 +1406,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.skeleton-title {
@@ -1443,8 +1443,8 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	.skeleton-details {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
-		margin: 1rem 0;
+		gap: 0.3rem;
+		margin: 0.5rem 0;
 	}
 
 	.skeleton-detail {
@@ -1456,16 +1456,16 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	.skeleton-actions {
 		display: flex;
-		gap: 0.75rem;
-		padding-top: 0.75rem;
+		gap: 0.4rem;
+		padding-top: 0.4rem;
 		border-top: 1px solid #F3F4F6;
 	}
 
 	.skeleton-button {
 		flex: 1;
-		height: 2.5rem;
+		height: 2rem;
 		background: #E5E7EB;
-		border-radius: 10px;
+		border-radius: 6px;
 	}
 
 	@keyframes pulse {
@@ -1482,7 +1482,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		text-align: center;
 		color: #6B7280;
 	}
@@ -1493,33 +1493,33 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		text-align: center;
 	}
 
 	.empty-icon {
-		width: 80px;
-		height: 80px;
+		width: 48px;
+		height: 48px;
 		background: #F3F4F6;
-		border-radius: 20px;
+		border-radius: 10px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.75rem;
 		color: #9CA3AF;
 	}
 
 	.empty-state h2 {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		font-weight: 600;
 		color: #374151;
-		margin: 0 0 0.5rem 0;
+		margin: 0 0 0.3rem 0;
 	}
 
 	.empty-state p {
-		font-size: 1rem;
+		font-size: 0.75rem;
 		color: #6B7280;
-		margin: 0 0 2rem 0;
+		margin: 0 0 1rem 0;
 		line-height: 1.5;
 	}
 
@@ -1527,16 +1527,16 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	.task-list {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.5rem;
 	}
 
 	.task-card {
 		background: white;
-		border-radius: 16px;
+		border-radius: 8px;
 		overflow: hidden;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		transition: all 0.3s ease;
-		border: 2px solid transparent;
+		border: 1px solid transparent;
 	}
 
 	.task-card:hover {
@@ -1550,7 +1550,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	}
 
 	.task-header {
-		padding: 0.8rem 0.8rem 0.4rem; /* Reduced from 1rem 1rem 0.5rem */
+		padding: 0.5rem 0.5rem 0.25rem;
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
@@ -1563,26 +1563,26 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	}
 
 	.task-header h3 {
-		font-size: 0.88rem; /* Reduced from 1.1rem (20% smaller) */
+		font-size: 0.78rem;
 		font-weight: 600;
 		color: #1F2937;
-		margin: 0 0 0.6rem 0; /* Reduced from 0.75rem */
+		margin: 0 0 0.3rem 0;
 		line-height: 1.4;
 	}
 
 	.task-meta {
 		display: flex;
-		gap: 0.4rem; /* Reduced from 0.5rem (20% smaller) */
+		gap: 0.25rem;
 		flex-wrap: wrap;
 	}
 
 	.task-priority,
 	.task-status,
 	.task-type-badge {
-		font-size: 0.75rem;
+		font-size: 0.62rem;
 		font-weight: 600;
-		padding: 0.25rem 0.5rem;
-		border-radius: 6px;
+		padding: 0.15rem 0.35rem;
+		border-radius: 4px;
 		text-transform: uppercase;
 	}
 
@@ -1594,11 +1594,11 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	}
 
 	.overdue-badge {
-		width: 32px;
-		height: 32px;
+		width: 24px;
+		height: 24px;
 		background: #FEE2E2;
 		color: #DC2626;
-		border-radius: 8px;
+		border-radius: 6px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1606,16 +1606,16 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	}
 
 	.task-content {
-		padding: 0 1rem 1rem;
+		padding: 0 0.5rem 0.5rem;
 		cursor: pointer;
 		touch-action: manipulation;
 	}
 
 	.task-description {
-		font-size: 0.875rem;
+		font-size: 0.72rem;
 		color: #6B7280;
-		margin: 0 0 1rem 0;
-		line-height: 1.5;
+		margin: 0 0 0.5rem 0;
+		line-height: 1.4;
 		display: -webkit-box;
 		-webkit-line-clamp: 3;
 		line-clamp: 3;
@@ -1692,8 +1692,8 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	.task-detail {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.75rem;
+		gap: 0.3rem;
+		font-size: 0.65rem;
 		color: #9CA3AF;
 	}
 
@@ -1736,10 +1736,10 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	/* Task Actions */
 	.task-actions {
-		padding: 1rem;
+		padding: 0.4rem 0.5rem;
 		border-top: 1px solid #F3F4F6;
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.complete-btn,
@@ -1748,11 +1748,11 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
+		gap: 0.3rem;
+		padding: 0.4rem 0.5rem;
 		border: none;
-		border-radius: 10px;
-		font-size: 0.875rem;
+		border-radius: 6px;
+		font-size: 0.72rem;
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.3s ease;
@@ -1954,13 +1954,13 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	/* Responsive adjustments */
 	@media (max-width: 480px) {
 		.page-header {
-			padding: 1rem;
-			padding-top: calc(1rem + env(safe-area-inset-top));
+			padding: 0.5rem;
+			padding-top: calc(0.5rem + env(safe-area-inset-top));
 		}
 
 		.filters-section,
 		.content-section {
-			padding: 1rem;
+			padding: 0.5rem;
 		}
 
 		.filter-chips {
@@ -1968,7 +1968,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		}
 
 		.task-card {
-			border-radius: 12px;
+			border-radius: 6px;
 		}
 
 		.task-actions {
@@ -1984,11 +1984,11 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	/* Safe area handling */
 	@supports (padding: max(0px)) {
 		.page-header {
-			padding-top: max(1rem, env(safe-area-inset-top));
+			padding-top: max(0.5rem, env(safe-area-inset-top));
 		}
 
 		.content-section {
-			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+			padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 		}
 	}
 </style>

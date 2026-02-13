@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
 	import { setCashierAuth } from '$lib/stores/cashierAuth';
@@ -16,6 +16,14 @@
 	let error = '';
 	let step: 'accessCode' | 'branch' = 'accessCode';
 	let authenticatedUser: any = null;
+	let showAccessCode = false;
+
+	onMount(() => {
+		setTimeout(() => {
+			const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+			if (firstDigit) firstDigit.focus();
+		}, 300);
+	});
 
 	// Load branches on mount
 	async function loadBranches() {
@@ -289,12 +297,13 @@
 									</svg>
 									{t('auth.accessCode') || 'Security Code'}
 								</label>
-								<div class="quick-access-digits">
-									{#each accessDigits as digit, index}
-										<input 
-											id="digit-{index}"
-											type="text" 
-											class="digit-input"
+								<div class="digits-with-toggle">
+									<div class="quick-access-digits">
+										{#each accessDigits as digit, index}
+											<input 
+												id="digit-{index}"
+												type={showAccessCode ? 'text' : 'password'} 
+												class="digit-input"
 											class:error={error && accessDigits.some(d => d !== '')}
 											bind:value={accessDigits[index]}
 											on:input={(e) => handleDigitInput(e, index)}
@@ -308,6 +317,14 @@
 											pattern="[0-9]*"
 										/>
 									{/each}
+									</div>
+									<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} tabindex="-1">
+										{#if showAccessCode}
+											<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+										{:else}
+											<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+										{/if}
+									</button>
 								</div>
 								{#if error}
 									<span class="field-error">{error}</span>
@@ -750,6 +767,34 @@
 		color: #ef4444;
 		font-size: 0.875rem;
 		margin-top: 0.5rem;
+	}
+
+	.digits-with-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.digits-with-toggle .quick-access-digits {
+		flex: 1;
+	}
+
+	.eye-toggle {
+		background: rgba(99, 102, 241, 0.08);
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		padding: 0.5rem;
+		cursor: pointer;
+		color: #6B7280;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+	}
+
+	.eye-toggle:hover {
+		background: rgba(99, 102, 241, 0.15);
+		color: #4F46E5;
+		border-color: #C7D2FE;
 	}
 
 	.field-spacer {

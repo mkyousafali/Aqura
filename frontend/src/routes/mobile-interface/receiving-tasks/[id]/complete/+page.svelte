@@ -722,12 +722,6 @@
 			</button>
 		</div>
 	{:else}
-		<!-- Header -->
-		<div class="header-section">
-			<h1>📦 Complete Inventory Task</h1>
-			<p class="task-title">{taskDetails.title}</p>
-		</div>
-
 		<!-- Task Details -->
 		<div class="task-info-section">
 			<h3>📋 Task Information</h3>
@@ -772,39 +766,32 @@
 
 		<!-- Completion Form -->
 		<div class="form-section">
-			<h3>✅ Completion Requirements</h3>
+			<h3>Completion</h3>
 			
 			{#if taskDetails?.role_type === 'inventory_manager'}
-				<!-- Inventory Manager Requirements -->
-				
-				<!-- ERP Purchase Invoice Reference -->
-				<div class="requirement-item">
-					<div class="requirement-header">
-						<span class="requirement-label required">🔢 ERP Purchase Invoice Reference</span>
-						<input
-							type="checkbox"
-							bind:checked={formData.has_erp_purchase_invoice}
-							disabled
-							class="requirement-checkbox"
-						/>
-					</div>
-					<div class="input-section">
-						<input
-							type="text"
-							bind:value={formData.erp_purchase_invoice_reference}
-							on:input={onErpReferenceChange}
-							placeholder="Enter ERP purchase invoice reference number"
-							disabled={isSubmitting}
-							class="erp-input"
-							required
-						/>
-					</div>
+				<!-- ERP Reference -->
+				<div class="req-row">
+					<span class="req-label required">ERP Invoice Ref</span>
+					<input
+						type="checkbox"
+						bind:checked={formData.has_erp_purchase_invoice}
+						disabled
+						class="requirement-checkbox"
+					/>
 				</div>
+				<input
+					type="text"
+					bind:value={formData.erp_purchase_invoice_reference}
+					on:input={onErpReferenceChange}
+					placeholder="Enter ERP reference number"
+					disabled={isSubmitting}
+					class="erp-input"
+					required
+				/>
 
-			<!-- PR Excel File Upload -->
-			<div class="requirement-item">
-				<div class="requirement-header">
-					<span class="requirement-label required">📊 PR Excel File</span>
+				<!-- PR Excel -->
+				<div class="req-row" style="margin-top: 0.5rem;">
+					<span class="req-label required">PR Excel File</span>
 					<input
 						type="checkbox"
 						bind:checked={formData.has_pr_excel_file}
@@ -812,53 +799,25 @@
 						class="requirement-checkbox"
 					/>
 				</div>
-				
 				{#if !prExcelFile}
 					<div class="upload-section">
-						<input
-							id="pr-excel-upload"
-							type="file"
-							accept=".xls,.xlsx"
-							on:change={handlePRExcelUpload}
-							disabled={isSubmitting}
-							class="file-input"
-							required
-						/>
-						<label for="pr-excel-upload" class="upload-btn">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-								<polyline points="14,2 14,8 20,8"/>
-								<line x1="16" y1="13" x2="8" y2="13"/>
-								<line x1="16" y1="17" x2="8" y2="17"/>
-								<polyline points="10,9 9,9 8,9"/>
-							</svg>
-							Choose Excel File
-						</label>
+						<input id="pr-excel-upload" type="file" accept=".xls,.xlsx" on:change={handlePRExcelUpload} disabled={isSubmitting} class="file-input" required />
+						<label for="pr-excel-upload" class="upload-btn">Choose Excel File</label>
 					</div>
 				{:else}
 					<div class="file-preview">
 						<div class="file-info">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-								<polyline points="14,2 14,8 20,8"/>
-							</svg>
 							<span class="file-name">{prExcelFile.name}</span>
 						</div>
 						{#if !prExcelFile.alreadyUploaded}
-							<button class="remove-file" on:click={removePRExcelFile} disabled={isSubmitting}>
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M18 6L6 18M6 6l12 12"/>
-								</svg>
-							</button>
+							<button class="remove-file" on:click={removePRExcelFile} disabled={isSubmitting}>✕</button>
 						{/if}
 					</div>
 				{/if}
-			</div>
 
-			<!-- Original Bill Upload -->
-			<div class="requirement-item">
-				<div class="requirement-header">
-					<span class="requirement-label required">📄 Original Bill</span>
+				<!-- Original Bill -->
+				<div class="req-row" style="margin-top: 0.5rem;">
+					<span class="req-label required">Original Bill</span>
 					<input
 						type="checkbox"
 						bind:checked={formData.has_original_bill}
@@ -866,426 +825,96 @@
 						class="requirement-checkbox"
 					/>
 				</div>
-				
 				{#if !originalBillFile}
 					<div class="upload-section">
-						<input
-							id="original-bill-upload"
-							type="file"
-							accept=".pdf,.jpg,.jpeg,.png"
-							on:change={handleOriginalBillUpload}
-							disabled={isSubmitting}
-							class="file-input"
-							required
-						/>
-						<label for="original-bill-upload" class="upload-btn">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="7,10 12,15 17,10"/>
-								<line x1="12" y1="15" x2="12" y2="3"/>
-							</svg>
-							Choose Bill File
-						</label>
+						<input id="original-bill-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" on:change={handleOriginalBillUpload} disabled={isSubmitting} class="file-input" required />
+						<label for="original-bill-upload" class="upload-btn">Choose Bill File</label>
 					</div>
 				{:else}
 					<div class="file-preview">
 						<div class="file-info">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-								<polyline points="14,2 14,8 20,8"/>
-							</svg>
 							<span class="file-name">{originalBillFile.name}</span>
 						</div>
 						{#if !originalBillFile.alreadyUploaded}
-							<button class="remove-file" on:click={removeOriginalBillFile} disabled={isSubmitting}>
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M18 6L6 18M6 6l12 12"/>
-								</svg>
-							</button>
+							<button class="remove-file" on:click={removeOriginalBillFile} disabled={isSubmitting}>✕</button>
 						{/if}
 					</div>
 				{/if}
-			</div>
 
-			<!-- Completion Notes -->
-			<div class="requirement-item">
-				<div class="requirement-header">
-					<span class="requirement-label">📝 Additional Notes (Optional)</span>
-				</div>
-				<div class="input-section">
-					<textarea
-						bind:value={formData.completion_notes}
-						placeholder="Add any additional notes about the inventory task completion..."
-						disabled={isSubmitting}
-						class="notes-textarea"
-					></textarea>
-				</div>
-			</div>
+				<!-- Notes -->
+				<textarea
+					bind:value={formData.completion_notes}
+					placeholder="Additional notes (optional)"
+					disabled={isSubmitting}
+					class="notes-textarea"
+					style="margin-top: 0.5rem;"
+				></textarea>
 			
 			{:else if taskDetails?.role_type === 'purchase_manager'}
-				<!-- Purchase Manager Requirements -->
-				<div class="purchase-manager-info">
-					<!-- Receiving Record Details -->
-					{#if receivingRecord}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📋 Receiving Record Details</h4>
-							</div>
-							<div class="details-grid">
-								<div class="detail-row">
-									<span class="detail-label">Branch:</span>
-									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Vendor:</span>
-									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Receiving Date:</span>
-									<span class="detail-value">{new Date(receivingRecord.bill_date).toLocaleDateString()}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Amount:</span>
-									<span class="detail-value">{receivingRecord.bill_amount}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Number:</span>
-									<span class="detail-value">{receivingRecord.bill_number}</span>
-								</div>
-							</div>
-						</div>
-					{/if}
-
-					<!-- Task Requirements Status -->
-					<div class="info-card">
-						<div class="info-header">
-							<h4>📊 Task Requirements Status</h4>
-						</div>
-						<div class="requirements-checklist">
-							<div class="requirement-check" class:check-success={prExcelUploaded} class:check-error={!prExcelUploaded}>
-								<span class="check-icon">
-									{#if prExcelUploaded}
-										✅
-									{:else}
-										❌
-									{/if}
-								</span>
-								<div class="check-content">
-									<strong>PR Excel Upload Status</strong>
-									{#if prExcelUploaded}
-										<p class="status-success">PR Excel file is uploaded</p>
-									{:else}
-										<p class="status-error">PR Excel not uploaded. The inventory manager must upload the PR Excel. After that, you need to verify it.</p>
-									{/if}
-								</div>
-							</div>
-							<div class="requirement-check" class:check-success={verificationCompleted} class:check-error={!verificationCompleted}>
-								<span class="check-icon">
-									{#if verificationCompleted}
-										✅
-									{:else}
-										❌
-									{/if}
-								</span>
-								<div class="check-content">
-									<strong>Verification Status</strong>
-									{#if verificationCompleted}
-										<p class="status-success">PR Excel verified</p>
-									{:else}
-										<p class="status-error">PR Excel not verified.</p>
-									{/if}
-								</div>
-							</div>
-						</div>
-						
-						{#if prExcelUploaded && verificationCompleted}
-							<div class="ready-indicator">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-								</svg>
-								<span><strong>Ready to complete!</strong> All requirements are met.</span>
-							</div>
-						{/if}
-					</div>
+				<div class="req-row">
+					<span class="req-label" class:status-ok={prExcelUploaded} class:status-fail={!prExcelUploaded}>
+						{prExcelUploaded ? '✓' : '✗'} PR Excel uploaded
+					</span>
 				</div>
+				<div class="req-row">
+					<span class="req-label" class:status-ok={verificationCompleted} class:status-fail={!verificationCompleted}>
+						{verificationCompleted ? '✓' : '✗'} PR Excel verified
+					</span>
+				</div>
+				{#if prExcelUploaded && verificationCompleted}
+					<div class="status-ready">Ready to complete</div>
+				{/if}
 			
 			{:else if taskDetails?.role_type === 'shelf_stocker'}
-				<!-- Shelf Stocker Requirements -->
-				<div class="shelf-stocker-info">
-					{#if receivingRecord}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📋 Receiving Record Details</h4>
-							</div>
-							<div class="details-grid">
-								<div class="detail-row">
-									<span class="detail-label">Branch:</span>
-									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Vendor:</span>
-									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Amount:</span>
-									<span class="detail-value">{receivingRecord.bill_amount}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Number:</span>
-									<span class="detail-value">{receivingRecord.bill_number}</span>
-								</div>
-							</div>
+				{#if requirePhotoUpload}
+					<div class="req-row">
+						<span class="req-label required">Photo Required</span>
+					</div>
+					{#if !photoPreview}
+						<div class="upload-section">
+							<input id="photo-upload" type="file" accept="image/*" on:change={handlePhotoUpload} disabled={isSubmitting} class="file-input" required />
+							<label for="photo-upload" class="upload-btn">Take Photo</label>
+						</div>
+					{:else}
+						<div class="photo-preview">
+							<img src={photoPreview} alt="Completion" class="preview-image" />
+							<button class="remove-photo" on:click={removePhoto} disabled={isSubmitting}>✕</button>
 						</div>
 					{/if}
-
-					<!-- Photo Upload Requirement -->
-					{#if requirePhotoUpload}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📷 Photo Upload Required</h4>
-							</div>
-							<div class="photo-requirement">
-								<p class="requirement-description">
-									Please take a photo of the completed shelf stocking to document your work.
-								</p>
-								
-								{#if !photoPreview}
-									<div class="upload-section">
-										<input
-											id="photo-upload"
-											type="file"
-											accept="image/*"
-											on:change={handlePhotoUpload}
-											disabled={isSubmitting}
-											class="file-input"
-											required
-										/>
-										<label for="photo-upload" class="upload-btn">
-											<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-												<circle cx="12" cy="13" r="4"/>
-											</svg>
-											Take Photo
-										</label>
-									</div>
-								{:else}
-									<div class="photo-preview">
-										<img src={photoPreview} alt="Shelf stocking completion" class="preview-image" />
-										<button class="remove-photo" on:click={removePhoto} disabled={isSubmitting}>
-											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<path d="M18 6L6 18M6 6l12 12"/>
-											</svg>
-										</button>
-									</div>
-								{/if}
-							</div>
-						</div>
-					{/if}
-				</div>
+				{/if}
 
 			{:else if taskDetails?.role_type === 'branch_manager' || taskDetails?.role_type === 'night_supervisor'}
-				<!-- Branch Manager / Night Supervisor Requirements -->
-				<div class="supervisor-info">
-					{#if receivingRecord}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📋 Receiving Record Details</h4>
-							</div>
-							<div class="details-grid">
-								<div class="detail-row">
-									<span class="detail-label">Branch:</span>
-									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Vendor:</span>
-									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Amount:</span>
-									<span class="detail-value">{receivingRecord.bill_amount}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Number:</span>
-									<span class="detail-value">{receivingRecord.bill_number}</span>
-								</div>
-							</div>
-						</div>
+				{#if dependencyStatus}
+					{#if canComplete}
+						<div class="status-ready">All dependencies met — ready to complete</div>
+					{:else}
+						<div class="status-waiting">Waiting for: {blockingRoles.join(', ')}</div>
 					{/if}
+				{/if}
 
-					<!-- Dependency Status -->
-					{#if dependencyStatus}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📊 Task Dependencies</h4>
+				{#if dependencyPhotos && Object.keys(dependencyPhotos).length > 0}
+					<div class="photos-grid">
+						{#each Object.entries(dependencyPhotos) as [roleType, photoUrl]}
+							<div class="dep-photo" on:click={() => openPhotoViewer(photoUrl, roleType)}>
+								<img src={photoUrl} alt="{roleType}" class="dep-photo-img" />
+								<span class="dep-photo-label">{roleType === 'shelf_stocker' ? 'Shelf Stocker' : roleType}</span>
 							</div>
-							<div class="dependency-status">
-								{#if canComplete}
-									<div class="dependency-success">
-										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-										</svg>
-										<span><strong>Ready to complete!</strong> All dependencies are met.</span>
-									</div>
-								{:else}
-									<div class="dependency-waiting">
-										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<circle cx="12" cy="12" r="10"/>
-											<polyline points="12,6 12,12 16,14"/>
-										</svg>
-										<span><strong>Waiting for:</strong> {blockingRoles.join(', ')}</span>
-									</div>
-								{/if}
-							</div>
-						</div>
-					{/if}
-
-					<!-- Dependency Photos (show completed dependency work) -->
-					{#if dependencyPhotos && Object.keys(dependencyPhotos).length > 0}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📸 Completed Work Photos</h4>
-							</div>
-							<div class="dependency-photos">
-								{#each Object.entries(dependencyPhotos) as [roleType, photoUrl]}
-									<div class="dependency-photo">
-										<h5 class="photo-role-title">
-											{roleType === 'shelf_stocker' ? 'Shelf Stocker' : roleType} Work:
-										</h5>
-										<div class="photo-container" on:click={() => openPhotoViewer(photoUrl, roleType)}>
-											<img src={photoUrl} alt="{roleType} completion photo" class="dependency-photo-img" />
-											<div class="photo-overlay">
-												<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<path d="M15 3h6v6m-6 0L9 15M9 3H3v6"/>
-												</svg>
-												<span>Tap to view full size</span>
-											</div>
-										</div>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/if}
-				</div>
+						{/each}
+					</div>
+				{/if}
 
 			{:else if taskDetails?.role_type === 'accountant'}
-				<!-- Accountant Requirements -->
-				<div class="accountant-info">
-					{#if receivingRecord}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📋 Receiving Record Details</h4>
-							</div>
-							<div class="details-grid">
-								<div class="detail-row">
-									<span class="detail-label">Branch:</span>
-									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Vendor:</span>
-									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Amount:</span>
-									<span class="detail-value">{receivingRecord.bill_amount}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Number:</span>
-									<span class="detail-value">{receivingRecord.bill_number}</span>
-								</div>
-							</div>
-						</div>
+				{#if canComplete}
+					<div class="status-ready">Original bill uploaded — ready to complete</div>
+				{:else}
+					<div class="status-waiting">Waiting: {blockingRoles.join(', ')}</div>
+					{#if errorMessage}
+						<div class="status-error-msg">{errorMessage}</div>
 					{/if}
-
-					<!-- Accountant Dependency Status -->
-					<div class="info-card">
-						<div class="info-header">
-							<h4>📊 Prerequisites</h4>
-						</div>
-						<div class="dependency-status">
-							{#if canComplete}
-								<div class="dependency-success">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-									</svg>
-									<span><strong>Ready to complete!</strong> Original bill has been uploaded by the Inventory Manager.</span>
-								</div>
-							{:else}
-								<div class="dependency-waiting">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<circle cx="12" cy="12" r="10"/>
-										<polyline points="12,6 12,12 16,14"/>
-									</svg>
-									<span><strong>Waiting:</strong> {blockingRoles.join(', ')}</span>
-								</div>
-								{#if errorMessage}
-									<div class="error-message">
-										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<circle cx="12" cy="12" r="10"/>
-											<line x1="12" y1="8" x2="12" y2="12"/>
-											<line x1="12" y1="16" x2="12.01" y2="16"/>
-										</svg>
-										<span>{errorMessage}</span>
-									</div>
-								{/if}
-							{/if}
-						</div>
-					</div>
-
-					<div class="info-card">
-						<div class="info-header">
-							<h4>🧾 Accountant Tasks</h4>
-						</div>
-						<div class="completion-info">
-							<p>As the Accountant, you need to:</p>
-							<ul>
-								<li>Enter payment details into Purchase ERP system</li>
-								<li>Process the original bill documentation</li>
-								<li>Update ERP reference number</li>
-								<li>Confirm all financial records are accurate</li>
-							</ul>
-							<p><strong>Note:</strong> You can only complete this task after the Inventory Manager has uploaded the original bill.</p>
-						</div>
-					</div>
-				</div>
+				{/if}
 
 			{:else}
-				<!-- Other Roles (warehouse_handler, etc.) -->
-				<div class="other-role-info">
-					{#if receivingRecord}
-						<div class="info-card">
-							<div class="info-header">
-								<h4>📋 Receiving Record Details</h4>
-							</div>
-							<div class="details-grid">
-								<div class="detail-row">
-									<span class="detail-label">Branch:</span>
-									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Vendor:</span>
-									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Amount:</span>
-									<span class="detail-value">{receivingRecord.bill_amount}</span>
-								</div>
-								<div class="detail-row">
-									<span class="detail-label">Bill Number:</span>
-									<span class="detail-value">{receivingRecord.bill_number}</span>
-								</div>
-							</div>
-						</div>
-					{/if}
-
-					<div class="info-card">
-						<div class="info-header">
-							<h4>✅ Task Completion</h4>
-						</div>
-						<div class="completion-info">
-							<p>Mark this task as completed when you have finished your {taskDetails?.role_type} responsibilities for this receiving record.</p>
-						</div>
-					</div>
-				</div>
+				<p class="minimal-note">Mark as completed when finished.</p>
 			{/if}
 		</div>
 
@@ -1371,12 +1000,10 @@
 
 <style>
 	.mobile-inventory-completion {
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
-		overflow-x: hidden;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
+		padding: 0;
+		padding-bottom: 0.5rem;
 	}
 
 	.loading-state,
@@ -1385,9 +1012,9 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		text-align: center;
-		min-height: 50vh;
+		min-height: 30vh;
 	}
 
 	.loading-spinner {
@@ -1405,39 +1032,19 @@
 		margin-bottom: 1rem;
 	}
 
-	.header-section {
-		background: white;
-		padding: 1.5rem;
-		border-bottom: 1px solid #E5E7EB;
-	}
-
-	.header-section h1 {
-		margin: 0 0 0.5rem 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #1F2937;
-	}
-
-	.task-title {
-		margin: 0;
-		font-size: 0.875rem;
-		color: #6B7280;
-		font-weight: 500;
-	}
-
 	.task-info-section,
 	.form-section {
 		background: white;
-		margin: 1rem;
-		padding: 1.5rem;
-		border-radius: 12px;
+		margin: 0.5rem 0.6rem;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
 		border: 1px solid #E5E7EB;
 	}
 
 	.task-info-section h3,
 	.form-section h3 {
-		margin: 0 0 1rem 0;
-		font-size: 1rem;
+		margin: 0 0 0.5rem 0;
+		font-size: 0.88rem;
 		font-weight: 600;
 		color: #1F2937;
 	}
@@ -1445,37 +1052,37 @@
 	.info-grid {
 		display: grid;
 		grid-template-columns: 1fr;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.info-item {
 		display: flex;
 		justify-content: space-between;
-		padding: 0.75rem;
+		padding: 0.45rem 0.6rem;
 		background: #F9FAFB;
-		border-radius: 8px;
+		border-radius: 6px;
 		border: 1px solid #E5E7EB;
 	}
 
 	.info-item label {
 		font-weight: 500;
 		color: #374151;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 	}
 
 	.info-item span {
 		color: #1F2937;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 	}
 
 	.message {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 1rem 1.5rem;
-		margin: 1rem;
-		border-radius: 12px;
-		font-size: 0.875rem;
+		gap: 0.45rem;
+		padding: 0.55rem 0.85rem;
+		margin: 0.5rem 0.6rem;
+		border-radius: 8px;
+		font-size: 0.8rem;
 		font-weight: 500;
 	}
 
@@ -1491,58 +1098,104 @@
 		border: 1px solid #BBF7D0;
 	}
 
-	.requirement-item {
-		margin-bottom: 1.5rem;
-		padding: 1rem;
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		background: #F9FAFB;
-	}
-
-	.requirement-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.75rem;
-	}
-
-	.requirement-label {
-		font-weight: 500;
-		font-size: 0.875rem;
-	}
-
-	.requirement-label.required {
-		color: #DC2626;
-	}
-
 	.requirement-checkbox {
 		width: 20px;
 		height: 20px;
-		accent-color: #10B981;
 		cursor: pointer;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
 		border: 2px solid #10B981;
 		border-radius: 4px;
+		background: white;
+		position: relative;
+		flex-shrink: 0;
 	}
 
-	.input-section {
-		margin-top: 0.75rem;
+	.requirement-checkbox:checked {
+		background: #10B981;
+		border-color: #10B981;
+	}
+
+	/* Minimal requirement row */
+	.req-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.25rem;
+	}
+
+	.req-label {
+		font-weight: 500;
+		font-size: 0.8rem;
+		color: #374151;
+	}
+
+	.req-label.required {
+		color: #DC2626;
+	}
+
+	.req-label.status-ok {
+		color: #059669;
+	}
+
+	.req-label.status-fail {
+		color: #DC2626;
+	}
+
+	.status-ready {
+		padding: 0.35rem 0.6rem;
+		background: #F0FDF4;
+		color: #059669;
+		border: 1px solid #BBF7D0;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-weight: 500;
+		margin-top: 0.35rem;
+	}
+
+	.status-waiting {
+		padding: 0.35rem 0.6rem;
+		background: #FFFBEB;
+		color: #D97706;
+		border: 1px solid #FED7AA;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-weight: 500;
+		margin-top: 0.35rem;
+	}
+
+	.status-error-msg {
+		padding: 0.35rem 0.6rem;
+		background: #FEF2F2;
+		color: #DC2626;
+		border: 1px solid #FECACA;
+		border-radius: 6px;
+		font-size: 0.72rem;
+		margin-top: 0.25rem;
+	}
+
+	.minimal-note {
+		margin: 0;
+		font-size: 0.78rem;
+		color: #6B7280;
 	}
 
 	.erp-input,
 	.notes-textarea {
 		width: 100%;
-		padding: 0.75rem;
-		border: 2px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		padding: 0.45rem 0.55rem;
+		border: 1.5px solid #D1D5DB;
+		border-radius: 6px;
+		font-size: 0.8rem;
 		background: white;
 		transition: border-color 0.2s;
 		resize: vertical;
-		min-height: 2.5rem;
+		min-height: 2.2rem;
 	}
 
 	.notes-textarea {
-		min-height: 80px;
+		min-height: 50px;
 		font-family: inherit;
 	}
 
@@ -1554,7 +1207,7 @@
 	}
 
 	.upload-section {
-		margin-top: 0.75rem;
+		margin-top: 0.3rem;
 	}
 
 	.file-input {
@@ -1564,17 +1217,16 @@
 	.upload-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
+		gap: 0.3rem;
+		padding: 0.4rem 0.75rem;
 		background: #3B82F6;
 		color: white;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		border-radius: 6px;
+		font-size: 0.78rem;
 		font-weight: 500;
 		cursor: pointer;
 		transition: background 0.2s;
 		border: none;
-		text-decoration: none;
 	}
 
 	.upload-btn:hover {
@@ -1585,22 +1237,22 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.75rem;
+		padding: 0.35rem 0.5rem;
 		background: white;
-		border: 2px solid #10B981;
-		border-radius: 8px;
-		margin-top: 0.75rem;
+		border: 1.5px solid #10B981;
+		border-radius: 6px;
+		margin-top: 0.3rem;
 	}
 
 	.file-info {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		color: #059669;
 	}
 
 	.file-name {
-		font-size: 0.875rem;
+		font-size: 0.78rem;
 		font-weight: 500;
 	}
 
@@ -1609,23 +1261,78 @@
 		color: white;
 		border: none;
 		border-radius: 50%;
-		width: 24px;
-		height: 24px;
+		width: 22px;
+		height: 22px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: background 0.2s;
+		font-size: 0.7rem;
 	}
 
-	.remove-file:hover {
-		background: #DC2626;
+	.photo-preview {
+		position: relative;
+		display: inline-block;
+		margin-top: 0.3rem;
+	}
+
+	.preview-image {
+		width: 100%;
+		max-width: 160px;
+		height: 110px;
+		object-fit: cover;
+		border-radius: 6px;
+		border: 1px solid #E5E7EB;
+	}
+
+	.remove-photo {
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		background: #EF4444;
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 22px;
+		height: 22px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		font-size: 0.7rem;
+	}
+
+	.photos-grid {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-top: 0.35rem;
+	}
+
+	.dep-photo {
+		cursor: pointer;
+		text-align: center;
+	}
+
+	.dep-photo-img {
+		width: 100px;
+		height: 70px;
+		object-fit: cover;
+		border-radius: 6px;
+		border: 1px solid #E5E7EB;
+	}
+
+	.dep-photo-label {
+		display: block;
+		font-size: 0.68rem;
+		color: #6B7280;
+		margin-top: 0.15rem;
 	}
 
 	.actions {
 		display: flex;
-		gap: 1rem;
-		padding: 1.5rem;
+		gap: 0.6rem;
+		padding: 0.6rem 0.85rem;
 		background: white;
 		border-top: 1px solid #E5E7EB;
 		position: sticky;
@@ -1635,18 +1342,18 @@
 	.cancel-btn,
 	.complete-btn {
 		flex: 1;
-		padding: 1rem 1.5rem;
-		border-radius: 12px;
+		padding: 0.6rem 0.85rem;
+		border-radius: 8px;
 		font-weight: 600;
-		font-size: 0.875rem;
+		font-size: 0.82rem;
 		cursor: pointer;
 		transition: all 0.2s;
 		border: none;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		min-height: 48px;
+		gap: 0.4rem;
+		min-height: 40px;
 	}
 
 	.cancel-btn {
@@ -1690,12 +1397,12 @@
 		background: #3B82F6;
 		color: white;
 		border: none;
-		border-radius: 8px;
-		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		padding: 0.5rem 0.85rem;
 		font-weight: 500;
 		cursor: pointer;
 		transition: background 0.2s;
-		margin-top: 1rem;
+		margin-top: 0.5rem;
 	}
 
 	.back-btn:hover {
@@ -1712,7 +1419,7 @@
 	@media (max-width: 640px) {
 		.task-info-section,
 		.form-section {
-			margin: 0.75rem;
+			margin: 0.4rem 0.6rem;
 		}
 
 		.actions {
@@ -1728,212 +1435,11 @@
 	/* Safe area handling */
 	@supports (padding: max(0px)) {
 		.actions {
-			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+			padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
 		}
 	}
 
-	/* Purchase Manager Styles */
-	.purchase-manager-info {
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.info-card {
-		background: #ffffff;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		padding: 1.5rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-	}
-
-	.info-header {
-		margin-bottom: 1rem;
-	}
-
-	.info-header h4 {
-		margin: 0;
-		font-size: 1rem;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.details-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.detail-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.5rem 0;
-		border-bottom: 1px solid #f3f4f6;
-	}
-
-	.detail-row:last-child {
-		border-bottom: none;
-	}
-
-	.detail-label {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: #6b7280;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.detail-value {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: #374151;
-		text-align: right;
-	}
-
-	.requirements-checklist {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.requirement-check {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.75rem;
-		padding: 1rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		transition: all 0.2s ease;
-	}
-
-	.requirement-check.check-success {
-		background: #f0fdf4;
-		border-color: #bbf7d0;
-	}
-
-	.requirement-check.check-error {
-		background: #fef2f2;
-		border-color: #fecaca;
-	}
-
-	.check-icon {
-		font-size: 1.125rem;
-		flex-shrink: 0;
-		margin-top: 0.125rem;
-	}
-
-	.check-content {
-		flex: 1;
-	}
-
-	.check-content strong {
-		display: block;
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 0.25rem;
-	}
-
-	.check-content p {
-		margin: 0;
-		font-size: 0.8125rem;
-		line-height: 1.4;
-	}
-
-	.status-success {
-		color: #059669;
-		font-weight: 500;
-	}
-
-	.status-error {
-		color: #dc2626;
-		font-weight: 500;
-	}
-
-	.ready-indicator {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 1rem;
-		background: #f0fdf4;
-		border: 1px solid #bbf7d0;
-		border-radius: 8px;
-		color: #059669;
-		margin-top: 1rem;
-	}
-
-	.ready-indicator svg {
-		flex-shrink: 0;
-	}
-
-	.info-header h4 {
-		margin: 0;
-		font-size: 16px;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.requirements-checklist {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		margin-bottom: 1rem;
-	}
-
-	.requirement-check {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		padding: 12px;
-		background: #f8fafc;
-		border: 1px solid #e2e8f0;
-		border-radius: 8px;
-	}
-
-	.check-icon {
-		font-size: 18px;
-		flex-shrink: 0;
-		margin-top: 2px;
-	}
-
-	.check-content {
-		flex: 1;
-	}
-
-	.check-content strong {
-		display: block;
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 4px;
-	}
-
-	.check-content p {
-		margin: 0;
-		font-size: 13px;
-		color: #6b7280;
-		line-height: 1.4;
-	}
-
-	.info-note {
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-		padding: 12px;
-		background: #eff6ff;
-		border: 1px solid #dbeafe;
-		border-radius: 6px;
-		font-size: 13px;
-		color: #1e40af;
-		line-height: 1.4;
-	}
-
-	.info-note svg {
-		flex-shrink: 0;
-		margin-top: 1px;
-	}
+	/* Photo viewer styles */
 
 	/* Mobile Popup Modal Styles */
 	.mobile-popup-overlay {
@@ -1976,8 +1482,8 @@
 	.popup-header {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		padding: 1.5rem 1.5rem 1rem 1.5rem;
+		gap: 10px;
+		padding: 0.75rem 0.85rem 0.5rem 0.85rem;
 		border-bottom: 1px solid #f3f4f6;
 	}
 
@@ -2017,33 +1523,33 @@
 
 	.popup-title {
 		margin: 0;
-		font-size: 1.125rem;
+		font-size: 0.95rem;
 		font-weight: 600;
 		flex: 1;
 	}
 
 	.popup-body {
-		padding: 1rem 1.5rem;
+		padding: 0.5rem 0.85rem;
 	}
 
 	.popup-message {
 		margin: 0;
-		font-size: 0.875rem;
-		line-height: 1.5;
+		font-size: 0.8rem;
+		line-height: 1.4;
 		color: #6b7280;
 	}
 
 	.popup-actions {
-		padding: 1rem 1.5rem 1.5rem 1.5rem;
+		padding: 0.5rem 0.85rem 0.75rem 0.85rem;
 		display: flex;
 		gap: 0.75rem;
 		justify-content: flex-end;
 	}
 
 	.popup-btn {
-		padding: 0.5rem 1.5rem;
+		padding: 0.4rem 1rem;
 		border-radius: 6px;
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		font-weight: 500;
 		border: none;
 		cursor: pointer;
@@ -2064,248 +1570,7 @@
 		transform: translateY(1px);
 	}
 
-	/* New Role-Specific Styles */
-	.shelf-stocker-info,
-	.supervisor-info,
-	.other-role-info {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.photo-requirement {
-		padding: 1rem;
-	}
-
-	.requirement-description {
-		margin: 0 0 1rem 0;
-		font-size: 0.875rem;
-		color: #6b7280;
-		line-height: 1.5;
-	}
-
-	.upload-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background 0.2s ease;
-		justify-content: center;
-		width: 100%;
-	}
-
-	.upload-btn:hover {
-		background: #2563eb;
-	}
-
-	.upload-btn:disabled {
-		background: #9ca3af;
-		cursor: not-allowed;
-	}
-
-	.photo-preview {
-		position: relative;
-		display: inline-block;
-		margin-top: 1rem;
-	}
-
-	.preview-image {
-		width: 100%;
-		max-width: 300px;
-		height: 200px;
-		object-fit: cover;
-		border-radius: 8px;
-		border: 2px solid #e5e7eb;
-	}
-
-	.remove-photo {
-		position: absolute;
-		top: -8px;
-		right: -8px;
-		background: #ef4444;
-		color: white;
-		border: none;
-		border-radius: 50%;
-		width: 24px;
-		height: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		transition: background 0.2s ease;
-	}
-
-	.remove-photo:hover {
-		background: #dc2626;
-	}
-
-	.dependency-status {
-		padding: 1rem;
-	}
-
-	.dependency-success,
-	.dependency-waiting {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 1rem;
-		border-radius: 8px;
-		font-size: 0.875rem;
-	}
-
-	.dependency-success {
-		background: #f0fdf4;
-		border: 1px solid #bbf7d0;
-		color: #059669;
-	}
-
-	.dependency-waiting {
-		background: #fffbeb;
-		border: 1px solid #fed7aa;
-		color: #d97706;
-	}
-
-	.dependency-photos {
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.dependency-photo {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.photo-role-title {
-		margin: 0;
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.dependency-photo-img {
-		width: 100%;
-		max-width: 300px;
-		height: 150px;
-		object-fit: cover;
-		border-radius: 8px;
-		border: 2px solid #e5e7eb;
-	}
-
-	.completion-info {
-		padding: 1rem;
-	}
-
-	.completion-info p {
-		margin: 0;
-		font-size: 0.875rem;
-		color: #6b7280;
-		line-height: 1.5;
-	}
-
-	/* Accountant-specific styles */
-	.dependency-status {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.dependency-success {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		color: #16a34a;
-		background: #f0fdf4;
-		padding: 8px 12px;
-		border-radius: 6px;
-		border: 1px solid #86efac;
-	}
-
-	.dependency-waiting {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		color: #ca8a04;
-		background: #fefce8;
-		padding: 8px 12px;
-		border-radius: 6px;
-		border: 1px solid #fbbf24;
-	}
-
-	.error-message {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		color: #dc2626;
-		background: #fef2f2;
-		padding: 8px 12px;
-		border-radius: 6px;
-		border: 1px solid #fca5a5;
-		margin-top: 4px;
-	}
-
-	.accountant-info .completion-info ul {
-		margin: 8px 0;
-		padding-left: 20px;
-	}
-
-	.accountant-info .completion-info li {
-		margin: 4px 0;
-		color: #6b7280;
-	}
-
-	.other-role-info .completion-info {
-		color: #6b7280;
-	}
-
-	/* Photo viewer styles */
-	.photo-container {
-		position: relative;
-		cursor: pointer;
-		border-radius: 8px;
-		overflow: hidden;
-		transition: transform 0.2s ease;
-	}
-
-	.photo-container:hover {
-		transform: scale(1.02);
-	}
-
-	.photo-container:active {
-		transform: scale(0.98);
-	}
-
-	.photo-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.4);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		opacity: 0;
-		transition: opacity 0.2s ease;
-		color: white;
-		font-size: 0.75rem;
-		text-align: center;
-		gap: 4px;
-	}
-
-	.photo-container:hover .photo-overlay {
-		opacity: 1;
-	}
+	/* Photo viewer modal */
 
 	.photo-viewer-overlay {
 		position: fixed;

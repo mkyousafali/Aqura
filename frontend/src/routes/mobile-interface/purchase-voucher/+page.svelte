@@ -623,10 +623,9 @@
 
 <style>
 	.mobile-pv-manager {
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
-		padding-bottom: 5rem;
+		padding-bottom: 4rem;
 	}
 
 	.loading-state {
@@ -634,7 +633,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 2rem;
+		padding: 1.5rem 0.5rem;
 		color: #6B7280;
 	}
 
@@ -648,10 +647,10 @@
 	}
 
 	.spinner.large {
-		width: 40px;
-		height: 40px;
-		border-width: 3px;
-		margin-bottom: 1rem;
+		width: 28px;
+		height: 28px;
+		border-width: 2px;
+		margin-bottom: 0.5rem;
 	}
 
 	@keyframes spin {
@@ -661,18 +660,18 @@
 	.status-cards {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
-		padding: 1rem;
+		gap: 0.4rem;
+		padding: 0.5rem;
 	}
 
 	.status-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		border-radius: 6px;
+		padding: 0.5rem;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 		cursor: pointer;
 		transition: all 0.2s;
-		border-left: 4px solid transparent;
+		border-left: 3px solid transparent;
 	}
 
 	.status-card:active {
@@ -699,12 +698,12 @@
 	.card-header {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 0.75rem;
+		gap: 0.4rem;
+		margin-bottom: 0.35rem;
 	}
 
 	.card-icon {
-		font-size: 1.5rem;
+		font-size: 1.1rem;
 	}
 
 	.card-info {
@@ -713,33 +712,33 @@
 
 	.card-info h3 {
 		margin: 0;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
 		color: #374151;
 	}
 
 	.card-count {
-		font-size: 1.5rem;
+		font-size: 1.1rem;
 		font-weight: 700;
 		color: #1F2937;
 	}
 
 	.expand-icon {
 		color: #9CA3AF;
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 	}
 
 	.value-summary,
 	.branch-breakdown {
 		border-top: 1px solid #E5E7EB;
-		padding-top: 0.75rem;
+		padding-top: 0.35rem;
 	}
 
 	.value-item {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0.5rem 0;
+		padding: 0.25rem 0;
 		border-bottom: 1px solid #F3F4F6;
 	}
 
@@ -750,10 +749,10 @@
 	.value-label {
 		font-weight: 600;
 		color: #374151;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.15rem;
 		flex-direction: row;
 	}
 
@@ -785,7 +784,7 @@
 		align-items: center;
 		flex-wrap: wrap;
 		color: #6B7280;
-		font-size: 0.75rem;
+		font-size: 0.68rem;
 	}
 
 	:global([dir="rtl"]) .value-count {
@@ -793,7 +792,7 @@
 	}
 
 	.branch-section {
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.branch-section:last-child {
@@ -801,8 +800,8 @@
 	}
 
 	.branch-section h4 {
-		margin: 0 0 0.5rem 0;
-		font-size: 0.75rem;
+		margin: 0 0 0.2rem 0;
+		font-size: 0.68rem;
 		font-weight: 600;
 		color: #3B82F6;
 		text-transform: uppercase;
@@ -811,22 +810,22 @@
 
 	.no-data {
 		color: #9CA3AF;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		text-align: center;
-		padding: 1rem 0;
+		padding: 0.4rem 0;
 		margin: 0;
 	}
 
 	.breakdown-details {
 		display: flex;
-		gap: 1rem;
-		padding: 0.25rem 0 0.5rem 0;
-		margin-left: 1rem;
+		gap: 0.4rem;
+		padding: 0.15rem 0 0.3rem 0;
+		margin-left: 0.5rem;
 	}
 
 	.detail-item {
-		font-size: 0.7rem;
-		padding: 0.25rem 0.5rem;
+		font-size: 0.65rem;
+		padding: 0.15rem 0.35rem;
 		border-radius: 4px;
 	}
 
@@ -843,11 +842,11 @@
 	.book-count {
 		background: #E0E7FF;
 		color: #3730A3;
-		padding: 0.125rem 0.375rem;
-		border-radius: 4px;
-		font-size: 0.7rem;
+		padding: 0.1rem 0.25rem;
+		border-radius: 3px;
+		font-size: 0.65rem;
 		font-weight: 600;
-		margin-right: 0.25rem;
+		margin-right: 0.2rem;
 	}
 
 	:global([dir="rtl"]) .book-count {

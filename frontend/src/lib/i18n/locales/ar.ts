@@ -439,6 +439,7 @@ export const arabicLocale: LocaleData = {
           nextStep: "الخطوة التالية",
           assignTasks: "تخصيص المهام",
           assigning: "جاري التخصيص...",
+          confirm: "تأكيد",
         },
         // Priority and Status translations
         priorities: {

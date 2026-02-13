@@ -229,6 +229,13 @@
 		
 		return now > deadline;
 	}
+
+	/** Convert URLs in text to clickable button links */
+	function linkifyText(text) {
+		if (!text) return '';
+		const urlRegex = /(https?:\/\/[^\s<>"]+)/g;
+		return text.replace(urlRegex, '<br/><a href="$1" target="_blank" rel="noopener noreferrer" class="url-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View Clearance Certificate</a>');
+	}
 </script>
 
 <svelte:head>
@@ -239,140 +246,68 @@
 	{#if isLoading}
 		<div class="loading-state">
 			<div class="loading-spinner"></div>
-			<p>Loading task details...</p>
+			<p>Loading...</p>
 		</div>
 	{:else if !task || !assignment}
 		<div class="error-state">
-			<div class="error-icon">
-				<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-					<circle cx="12" cy="12" r="10"/>
-					<line x1="12" y1="8" x2="12" y2="12"/>
-					<line x1="12" y1="16" x2="12.01" y2="16"/>
-				</svg>
-			</div>
-			<h2>Task Not Found</h2>
-			<p>This task doesn't exist or you don't have access to it.</p>
-			<button class="back-btn-error" on:click={() => goto('/mobile-interface/tasks')}>
-				Back to Tasks
-			</button>
+			<p>Task not found or not accessible.</p>
+			<button class="back-btn-error" on:click={() => goto('/mobile-interface/tasks')}>← Back</button>
 		</div>
 	{:else}
-		<!-- Content -->
-		<div class="content-section">
-			<!-- Task Header Card -->
-			<div class="task-header-card" class:overdue={isOverdue(assignment.deadline_date, assignment.deadline_time)}>
-				<div class="task-title-section">
-					<h2>{task.title}</h2>
-					<div class="task-badges">
-						<span class="priority-badge" style="background-color: {getPriorityColor(task.priority)}15; color: {getPriorityColor(task.priority)}">
-							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-							</svg>
-							{task.priority?.toUpperCase()} PRIORITY
-						</span>
-						<span class="status-badge" style="background-color: {getStatusColor(assignment.status)}15; color: {getStatusColor(assignment.status)}">
-							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								{#if assignment.status === 'completed'}
-									<polyline points="20,6 9,17 4,12"/>
-								{:else if assignment.status === 'in_progress'}
-									<circle cx="12" cy="12" r="10"/>
-									<polyline points="12,6 12,12 16,14"/>
-								{:else}
-									<circle cx="12" cy="12" r="10"/>
-								{/if}
-							</svg>
-							{getStatusDisplayText(assignment.status)}
-						</span>
-					</div>
-				</div>
-				
+		<!-- Header -->
+		<div class="task-header">
+			<h2>{task.title}</h2>
+			<div class="task-badges">
+				<span class="priority-badge" style="background-color: {getPriorityColor(task.priority)}15; color: {getPriorityColor(task.priority)}">
+					{task.priority?.toUpperCase()} PRIORITY
+				</span>
+				<span class="status-badge" style="background-color: {getStatusColor(assignment.status)}15; color: {getStatusColor(assignment.status)}">
+					{getStatusDisplayText(assignment.status)}
+				</span>
 				{#if isOverdue(assignment.deadline_date, assignment.deadline_time) && assignment.status !== 'completed'}
-					<div class="overdue-indicator">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<circle cx="12" cy="12" r="10"/>
-							<line x1="12" y1="8" x2="12" y2="12"/>
-							<line x1="12" y1="16" x2="12.01" y2="16"/>
-						</svg>
-						<span>OVERDUE</span>
-					</div>
+					<span class="overdue-badge">OVERDUE</span>
 				{/if}
 			</div>
+		</div>
 
-			<!-- Task Description -->
-			<div class="info-card">
-				<h3>Description</h3>
-				<p class="task-description">{task.description || 'No description provided.'}</p>
-			</div>
+			<!-- Description -->
+			{#if task.description}
+				<div class="info-card">
+					<h3>Description</h3>
+					<p class="task-description">{@html linkifyText(task.description)}</p>
+				</div>
+			{/if}
 
-			<!-- Task Timeline -->
+			<!-- Timeline -->
 			<div class="info-card">
 				<h3>Timeline</h3>
 				<div class="timeline-grid">
-					<div class="timeline-item">
-						<div class="timeline-icon created">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<line x1="12" y1="5" x2="12" y2="19"/>
-								<line x1="5" y1="12" x2="19" y2="12"/>
-							</svg>
-						</div>
-						<div class="timeline-content">
-							<div class="timeline-title">Task Created</div>
-							<div class="timeline-time">{formatDateTime(task.created_at)}</div>
-							<div class="timeline-person">By {task.created_by_name || 'Unknown'}</div>
-						</div>
+					<div class="tl-row">
+						<span class="tl-label">Created</span>
+						<span class="tl-value">{formatDateTime(task.created_at)}</span>
+						<span class="tl-sub">by {task.created_by_name || 'Unknown'}</span>
 					</div>
-
-					<div class="timeline-item">
-						<div class="timeline-icon assigned">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-								<circle cx="9" cy="7" r="4"/>
-								<path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-								<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-							</svg>
-						</div>
-						<div class="timeline-content">
-							<div class="timeline-title">Assigned to You</div>
-							<div class="timeline-time">{formatDateTime(assignment.assigned_at)}</div>
-							<div class="timeline-person">By {assignment.assigned_by_name || 'Unknown'}</div>
-						</div>
+					<div class="tl-row">
+						<span class="tl-label">Assigned</span>
+						<span class="tl-value">{formatDateTime(assignment.assigned_at)}</span>
+						<span class="tl-sub">by {assignment.assigned_by_name || 'Unknown'}</span>
 					</div>
-
 					{#if assignment.deadline_date}
-						<div class="timeline-item">
-							<div class="timeline-icon deadline" class:overdue={isOverdue(assignment.deadline_date, assignment.deadline_time)}>
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<circle cx="12" cy="12" r="10"/>
-									<polyline points="12,6 12,12 16,14"/>
-								</svg>
-							</div>
-							<div class="timeline-content">
-								<div class="timeline-title">Due Date</div>
-								<div class="timeline-time">{formatDate(assignment.deadline_date)}</div>
-								{#if assignment.deadline_time}
-									<div class="timeline-person">at {formatTime(assignment.deadline_time)}</div>
-								{/if}
-							</div>
+						<div class="tl-row" class:overdue-text={isOverdue(assignment.deadline_date, assignment.deadline_time)}>
+							<span class="tl-label">Due</span>
+							<span class="tl-value">{formatDate(assignment.deadline_date)}{assignment.deadline_time ? ' at ' + formatTime(assignment.deadline_time) : ''}</span>
 						</div>
 					{/if}
-
 					{#if assignment.completed_at}
-						<div class="timeline-item">
-							<div class="timeline-icon completed">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<polyline points="20,6 9,17 4,12"/>
-								</svg>
-							</div>
-							<div class="timeline-content">
-								<div class="timeline-title">Completed</div>
-								<div class="timeline-time">{formatDateTime(assignment.completed_at)}</div>
-							</div>
+						<div class="tl-row">
+							<span class="tl-label" style="color: #059669;">Done</span>
+							<span class="tl-value">{formatDateTime(assignment.completed_at)}</span>
 						</div>
 					{/if}
 				</div>
 			</div>
 
-			<!-- Task Attachments -->
+			<!-- Attachments -->
 			{#if taskAttachments.length > 0}
 				<div class="info-card">
 					<h3>Attachments ({taskAttachments.length})</h3>
@@ -380,25 +315,14 @@
 						{#each taskAttachments as attachment}
 							<div class="attachment-item">
 								<div class="attachment-info">
-									<div class="attachment-icon">
-										{getFileIcon(attachment.fileType)}
-									</div>
+									<span class="att-icon">{getFileIcon(attachment.fileType)}</span>
 									<div class="attachment-details">
-										<div class="attachment-name">{attachment.fileName}</div>
-										<div class="attachment-meta">
-											<span class="attachment-size">{formatFileSize(attachment.fileSize)}</span>
-											{#if attachment.uploadedBy}
-												<span class="attachment-by">• by {attachment.uploadedBy}</span>
-											{/if}
-										</div>
+										<span class="att-name">{attachment.fileName}</span>
+										<span class="att-meta">{formatFileSize(attachment.fileSize)}</span>
 									</div>
 								</div>
-								<button 
-									class="download-btn"
-									on:click={() => downloadAttachment(attachment)}
-									title="Download {attachment.fileName}"
-								>
-									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<button class="download-btn" on:click={() => downloadAttachment(attachment)} title="Download">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 										<polyline points="7,10 12,15 17,10"/>
 										<line x1="12" y1="15" x2="12" y2="3"/>
@@ -409,63 +333,28 @@
 					</div>
 				</div>
 			{/if}
-		</div>
 
-		<!-- Action Buttons -->
+		<!-- Actions -->
 		{#if assignment.status !== 'completed' && assignment.status !== 'cancelled' && assignment.assigned_to_user_id === currentUserData?.id}
 			<div class="action-section">
 				<div class="action-buttons">
 					{#if assignment.status === 'assigned'}
-						<button 
-							class="action-btn start-btn" 
-							on:click={() => updateAssignmentStatus('in_progress')}
-							disabled={isUpdating}
-						>
-							{#if isUpdating}
-								<div class="btn-spinner"></div>
-							{:else}
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<polygon points="5,3 19,12 5,21"/>
-								</svg>
-							{/if}
-							Start Task
+						<button class="action-btn start-btn" on:click={() => updateAssignmentStatus('in_progress')} disabled={isUpdating}>
+							{#if isUpdating}<div class="btn-spinner"></div>{:else}Start Task{/if}
 						</button>
 					{/if}
-
 					{#if assignment.status === 'in_progress' || assignment.status === 'assigned'}
-						<button 
-							class="action-btn complete-btn" 
-							on:click={() => updateAssignmentStatus('completed')}
-							disabled={isUpdating}
-						>
-							{#if isUpdating}
-								<div class="btn-spinner"></div>
-							{:else}
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<polyline points="20,6 9,17 4,12"/>
-								</svg>
-							{/if}
-							Mark Complete
+						<button class="action-btn complete-btn" on:click={() => updateAssignmentStatus('completed')} disabled={isUpdating}>
+							{#if isUpdating}<div class="btn-spinner"></div>{:else}Mark Complete{/if}
 						</button>
 					{/if}
 				</div>
 			</div>
 		{:else}
 			<div class="completion-section">
-				<div class="completion-message">
-					<div class="completion-icon">
-						<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<polyline points="20,6 9,17 4,12"/>
-						</svg>
-					</div>
-					<h3>Task {assignment.status === 'completed' ? 'Completed' : 'Cancelled'}</h3>
-					<p>
-						{#if assignment.status === 'completed'}
-							Great job! This task has been marked as completed.
-						{:else}
-							This task has been cancelled and is no longer active.
-						{/if}
-					</p>
+				<div class="completion-msg">
+					<span class="completion-icon">✓</span>
+					<span>Task {assignment.status === 'completed' ? 'Completed' : 'Cancelled'}</span>
 				</div>
 			</div>
 		{/if}
@@ -474,12 +363,10 @@
 
 <style>
 	.mobile-task-detail {
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
-		overflow-x: hidden;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
+		padding: 0;
+		padding-bottom: 0.5rem;
 	}
 
 	/* Loading & Error States */
@@ -489,64 +376,38 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		text-align: center;
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 40vh;
 		color: #6B7280;
+		font-size: 0.82rem;
 	}
 
 	.loading-spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #E5E7EB;
-		border-top: 3px solid #3B82F6;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #E5E7EB;
+		border-top: 2px solid #3B82F6;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
-	}
-
-	.error-icon {
-		width: 80px;
-		height: 80px;
-		background: #FEE2E2;
-		color: #DC2626;
-		border-radius: 20px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin-bottom: 1.5rem;
-	}
-
-	.error-state h2 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #374151;
-		margin: 0 0 0.5rem 0;
+		margin-bottom: 0.5rem;
 	}
 
 	.error-state p {
-		font-size: 1rem;
+		font-size: 0.8rem;
 		color: #6B7280;
-		margin: 0 0 2rem 0;
-		line-height: 1.5;
+		margin: 0 0 0.75rem 0;
 	}
 
 	.back-btn-error {
-		padding: 0.75rem 1.5rem;
+		padding: 0.4rem 0.8rem;
 		background: #3B82F6;
 		color: white;
 		border: none;
-		border-radius: 12px;
-		font-size: 1rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
 		font-weight: 500;
 		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-	}
-
-	.back-btn-error:hover {
-		background: #2563EB;
 	}
 
 	@keyframes spin {
@@ -556,199 +417,133 @@
 	}
 
 	/* Content */
-	.content-section {
-		padding: 1.5rem;
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	/* Task Header Card */
-	.task-header-card {
+	.task-header {
 		background: white;
-		border-radius: 16px;
-		padding: 1.5rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		border: 2px solid transparent;
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #E5E7EB;
 	}
 
-	.task-header-card.overdue {
-		border-color: #FEE2E2;
-		background: linear-gradient(to right, #FEF2F2, white);
-	}
-
-	.task-title-section h2 {
-		font-size: 1.5rem;
-		font-weight: 700;
+	.task-header h2 {
+		font-size: 0.88rem;
+		font-weight: 600;
 		color: #1F2937;
-		margin: 0 0 1rem 0;
+		margin: 0 0 0.3rem 0;
 		line-height: 1.3;
 	}
 
 	.task-badges {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: 0.3rem;
 	}
 
 	.priority-badge,
 	.status-badge {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
-		font-size: 0.75rem;
+		gap: 0.2rem;
+		font-size: 0.65rem;
 		font-weight: 600;
-		padding: 0.375rem 0.75rem;
-		border-radius: 8px;
+		padding: 0.15rem 0.45rem;
+		border-radius: 4px;
 		text-transform: uppercase;
 	}
 
-	.overdue-indicator {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
+	.overdue-badge {
 		background: #FEE2E2;
 		color: #DC2626;
-		padding: 0.75rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
+		font-size: 0.65rem;
 		font-weight: 700;
-		text-align: center;
-		min-width: 80px;
-	}
-
-	.overdue-indicator span {
-		margin-top: 0.25rem;
+		padding: 0.15rem 0.45rem;
+		border-radius: 4px;
 	}
 
 	/* Info Cards */
 	.info-card {
 		background: white;
-		border-radius: 16px;
-		padding: 1.5rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		margin: 0.4rem 0.6rem;
+		padding: 0.5rem 0.7rem;
+		border-radius: 6px;
+		border: 1px solid #E5E7EB;
 	}
 
 	.info-card h3 {
-		font-size: 1.1rem;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #1F2937;
-		margin: 0 0 1rem 0;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+		margin: 0 0 0.35rem 0;
 	}
 
 	.task-description {
-		font-size: 1rem;
+		font-size: 0.78rem;
 		color: #4B5563;
-		line-height: 1.6;
+		line-height: 1.4;
 		margin: 0;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		white-space: pre-wrap;
+		max-width: 100%;
+	}
+
+	.task-description :global(.url-btn) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-top: 0.3rem;
+		padding: 0.3rem 0.6rem;
+		background: #3B82F6;
+		color: white;
+		border-radius: 5px;
+		font-size: 0.74rem;
+		font-weight: 500;
+		text-decoration: none;
+		transition: background 0.2s;
+	}
+
+	.task-description :global(.url-btn:hover) {
+		background: #2563EB;
 	}
 
 	/* Timeline */
 	.timeline-grid {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.3rem;
 	}
 
-	.timeline-item {
+	.tl-row {
 		display: flex;
-		align-items: flex-start;
-		gap: 1rem;
-	}
-
-	.timeline-icon {
-		width: 32px;
-		height: 32px;
-		border-radius: 8px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.timeline-icon.created {
-		background: #DBEAFE;
-		color: #3B82F6;
-	}
-
-	.timeline-icon.assigned {
-		background: #FEF3C7;
-		color: #F59E0B;
-	}
-
-	.timeline-icon.deadline {
-		background: #F3E8FF;
-		color: #8B5CF6;
-	}
-
-	.timeline-icon.deadline.overdue {
-		background: #FEE2E2;
-		color: #DC2626;
-	}
-
-	.timeline-icon.completed {
-		background: #D1FAE5;
-		color: #10B981;
-	}
-
-	.timeline-content {
-		flex: 1;
-	}
-
-	.timeline-title {
-		font-size: 1rem;
-		font-weight: 600;
-		color: #1F2937;
-		margin-bottom: 0.25rem;
-	}
-
-	.timeline-time {
-		font-size: 0.875rem;
-		color: #6B7280;
-		margin-bottom: 0.125rem;
-	}
-
-	.timeline-person {
-		font-size: 0.75rem;
-		color: #9CA3AF;
-	}
-
-	/* Details Grid */
-	.details-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.detail-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.75rem 0;
+		align-items: baseline;
+		gap: 0.4rem;
+		padding: 0.2rem 0;
 		border-bottom: 1px solid #F3F4F6;
+		flex-wrap: wrap;
 	}
 
-	.detail-item:last-child {
+	.tl-row:last-child {
 		border-bottom: none;
 	}
 
-	.detail-label {
-		font-size: 0.875rem;
-		color: #6B7280;
+	.tl-label {
 		font-weight: 500;
+		color: #6B7280;
+		font-size: 0.76rem;
+		min-width: 55px;
 	}
 
-	.detail-value {
-		font-size: 0.875rem;
+	.tl-value {
+		font-size: 0.78rem;
 		color: #1F2937;
-		font-weight: 600;
+	}
+
+	.tl-sub {
+		font-size: 0.68rem;
+		color: #9CA3AF;
+	}
+
+	.overdue-text .tl-label,
+	.overdue-text .tl-value {
+		color: #DC2626;
 	}
 
 	/* Action Section */
@@ -757,14 +552,12 @@
 		bottom: 0;
 		background: white;
 		border-top: 1px solid #E5E7EB;
-		padding: 1.5rem;
-		padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
-		box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+		padding: 0.5rem 0.7rem;
 	}
 
 	.action-buttons {
 		display: flex;
-		gap: 1rem;
+		gap: 0.5rem;
 	}
 
 	.action-btn {
@@ -772,16 +565,14 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		padding: 1rem 1.5rem;
+		gap: 0.3rem;
+		padding: 0.5rem 0.7rem;
 		border: none;
-		border-radius: 12px;
-		font-size: 1rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-		min-height: 48px;
+		min-height: 36px;
 	}
 
 	.start-btn {
@@ -789,30 +580,19 @@
 		color: white;
 	}
 
-	.start-btn:hover:not(:disabled) {
-		background: #D97706;
-		transform: translateY(-1px);
-	}
-
 	.complete-btn {
 		background: #10B981;
 		color: white;
 	}
 
-	.complete-btn:hover:not(:disabled) {
-		background: #059669;
-		transform: translateY(-1px);
-	}
-
 	.action-btn:disabled {
 		opacity: 0.7;
 		cursor: not-allowed;
-		transform: none;
 	}
 
 	.btn-spinner {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		border: 2px solid transparent;
 		border-top: 2px solid currentColor;
 		border-radius: 50%;
@@ -821,121 +601,62 @@
 
 	/* Completion Section */
 	.completion-section {
-		padding: 1.5rem;
-		padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+		padding: 0.5rem 0.7rem;
 	}
 
-	.completion-message {
-		background: white;
-		border-radius: 16px;
-		padding: 2rem;
-		text-align: center;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	.completion-msg {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		background: #F0FDF4;
+		border: 1px solid #BBF7D0;
+		padding: 0.5rem 0.7rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		color: #059669;
+		font-weight: 500;
 	}
 
 	.completion-icon {
-		width: 64px;
-		height: 64px;
-		background: #D1FAE5;
-		color: #10B981;
-		border-radius: 16px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin: 0 auto 1rem;
-	}
-
-	.completion-message h3 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #1F2937;
-		margin: 0 0 0.5rem 0;
-	}
-
-	.completion-message p {
 		font-size: 1rem;
-		color: #6B7280;
-		margin: 0;
-		line-height: 1.5;
+		color: #10B981;
 	}
 
-	/* Responsive adjustments */
-	@media (max-width: 480px) {
-		.page-header {
-			padding: 1rem;
-			padding-top: calc(1rem + env(safe-area-inset-top));
-		}
-
-		.content-section {
-			padding: 1rem;
-			gap: 1rem;
-		}
-
-		.task-header-card {
-			padding: 1rem;
-			flex-direction: column;
-			gap: 1rem;
-		}
-
-		.task-title-section h2 {
-			font-size: 1.25rem;
-		}
-
-		.action-section {
-			padding: 1rem;
-			padding-bottom: calc(1rem + env(safe-area-inset-bottom));
-		}
-
-		.action-buttons {
-			flex-direction: column;
-		}
-	}
-
-	/* Safe area handling */
+	/* Responsive */
 	@supports (padding: max(0px)) {
-		.page-header {
-			padding-top: max(1rem, env(safe-area-inset-top));
-		}
-
 		.action-section,
 		.completion-section {
-			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+			padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 		}
 	}
 
-	/* Attachments Styles */
+	/* Attachments */
 	.attachments-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.35rem;
 	}
 
 	.attachment-item {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 1rem;
+		padding: 0.4rem 0.5rem;
 		background: #F8FAFC;
 		border: 1px solid #E2E8F0;
-		border-radius: 8px;
-		transition: all 0.2s ease;
-	}
-
-	.attachment-item:hover {
-		background: #F1F5F9;
-		border-color: #CBD5E1;
+		border-radius: 6px;
 	}
 
 	.attachment-info {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		flex: 1;
 		min-width: 0;
 	}
 
-	.attachment-icon {
-		font-size: 1.5rem;
+	.att-icon {
+		font-size: 1rem;
 		flex-shrink: 0;
 	}
 
@@ -944,51 +665,37 @@
 		min-width: 0;
 	}
 
-	.attachment-name {
-		font-size: 0.875rem;
+	.att-name {
+		display: block;
+		font-size: 0.76rem;
 		font-weight: 500;
 		color: #1F2937;
-		margin-bottom: 0.25rem;
 		word-break: break-word;
 		line-height: 1.3;
 	}
 
-	.attachment-meta {
-		font-size: 0.75rem;
+	.att-meta {
+		display: block;
+		font-size: 0.68rem;
 		color: #6B7280;
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	.attachment-size {
-		font-weight: 500;
-	}
-
-	.attachment-by {
-		opacity: 0.8;
 	}
 
 	.download-btn {
 		background: #3B82F6;
 		color: white;
 		border: none;
-		border-radius: 6px;
-		padding: 0.5rem;
+		border-radius: 4px;
+		padding: 0.3rem;
 		cursor: pointer;
-		transition: all 0.2s ease;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
 	}
 
-	.download-btn:hover {
-		background: #2563EB;
-		transform: scale(1.05);
-	}
-
-	.download-btn:active {
-		transform: scale(0.95);
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 </style>

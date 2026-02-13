@@ -431,6 +431,7 @@ export const englishLocale: LocaleData = {
           nextStep: "Next Step",
           assignTasks: "Assign Tasks",
           assigning: "Assigning...",
+          confirm: "Confirm",
         },
         // Priority and Status translations
         priorities: {

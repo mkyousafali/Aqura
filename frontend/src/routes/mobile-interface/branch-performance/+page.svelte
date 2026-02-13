@@ -242,7 +242,7 @@
 	<div class="page-header">
 		<h1>{getTranslation('mobile.dashboardContent.branchPerformance.title')}</h1>
 		<button class="refresh-btn" on:click={loadBranchPerformance} disabled={branchPerformance.loading}>
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
 			</svg>
 		</button>
@@ -378,31 +378,35 @@
 
 <style>
 	.branch-performance-page {
-		padding: 1rem;
+		padding: 0;
+		padding-bottom: 0.5rem;
 		background: #F8FAFC;
-		min-height: 100vh;
+		min-height: 100%;
 	}
 
 	.page-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 1.5rem;
+		padding: 0.4rem 0.6rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+		margin-bottom: 0;
 	}
 
 	.page-header h1 {
 		margin: 0;
-		font-size: 1.5rem;
+		font-size: 0.88rem;
 		color: #1F2937;
-		font-weight: 700;
+		font-weight: 600;
 	}
 
 	.refresh-btn {
-		width: 40px;
-		height: 40px;
+		width: 30px;
+		height: 30px;
 		background: #3B82F6;
 		border: none;
-		border-radius: 8px;
+		border-radius: 5px;
 		color: white;
 		cursor: pointer;
 		display: flex;
@@ -425,9 +429,10 @@
 		background: #FEE2E2;
 		border: 1px solid #FECACA;
 		color: #DC2626;
-		padding: 1rem;
-		border-radius: 8px;
-		margin-bottom: 1rem;
+		padding: 0.4rem 0.6rem;
+		border-radius: 5px;
+		margin: 0.4rem 0.6rem;
+		font-size: 0.78rem;
 	}
 
 	.loading-container {
@@ -435,18 +440,19 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 3rem 1rem;
+		padding: 2rem 1rem;
 		color: #6B7280;
+		font-size: 0.82rem;
 	}
 
 	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #E5E7EB;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #E5E7EB;
 		border-top-color: #3B82F6;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	@keyframes spin {
@@ -456,46 +462,48 @@
 	}
 
 	.performance-section {
-		margin-bottom: 2rem;
+		margin-bottom: 0.4rem;
+		padding: 0.4rem 0.6rem;
 	}
 
 	.performance-section h2 {
-		font-size: 1.125rem;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #1F2937;
-		margin: 0 0 1rem 0;
+		margin: 0 0 0.4rem 0;
 	}
 
 	.branch-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 1rem;
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 0.4rem;
 	}
 
 	.branch-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		border-radius: 6px;
+		padding: 0.5rem;
+		border: 1px solid #E5E7EB;
 		transition: all 0.2s ease;
 	}
 
 	.branch-card:hover {
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-		transform: translateY(-2px);
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+		transform: translateY(-1px);
 	}
 
 	.branch-name {
-		margin: 0 0 1rem 0;
-		font-size: 1rem;
+		margin: 0 0 0.3rem 0;
+		font-size: 0.76rem;
 		font-weight: 600;
 		color: #1F2937;
+		line-height: 1.3;
 	}
 
 	.pie-chart-container {
-		width: 120px;
-		height: 120px;
-		margin: 0 auto 1rem;
+		width: 85px;
+		height: 85px;
+		margin: 0 auto 0.3rem;
 	}
 
 	.pie-chart {
@@ -504,32 +512,32 @@
 	}
 
 	.pie-percent {
-		font-size: 18px;
+		font-size: 16px;
 		font-weight: 700;
 		fill: #1F2937;
 	}
 
 	.pie-label {
-		font-size: 10px;
+		font-size: 8px;
 		fill: #6B7280;
 	}
 
 	.pie-empty {
-		font-size: 11px;
+		font-size: 9px;
 		fill: #9CA3AF;
 	}
 
 	.branch-stats {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.2rem;
 	}
 
 	.stat-item {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.875rem;
+		gap: 0.3rem;
+		font-size: 0.7rem;
 		color: #4B5563;
 	}
 
@@ -542,8 +550,8 @@
 	}
 
 	.stat-dot {
-		width: 8px;
-		height: 8px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
 		flex-shrink: 0;
 	}

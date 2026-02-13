@@ -628,8 +628,6 @@
 	}
 	
 	function closeAllDropdowns() {
-		showIncidentTypeDropdown = false;
-		showBranchDropdown = false;
 		showViolationDropdown = false;
 		showEmployeeDropdown = false;
 	}
@@ -646,12 +644,6 @@
 			</div>
 		{:else}
 			<div class="form-container">
-				<!-- Page Title -->
-				<div class="page-header">
-					<h1>{$currentLocale === 'ar' ? '📋 الإبلاغ عن حادثة' : '📋 Report Incident'}</h1>
-					<p class="subtitle">{$currentLocale === 'ar' ? 'الإبلاغ عن حوادث العمل والمخالفات' : 'Report workplace incidents and violations'}</p>
-				</div>
-				
 				<!-- Error Message -->
 				{#if errorMessage}
 					<div class="alert error-alert">
@@ -665,103 +657,46 @@
 				<!-- Incident Type Selection -->
 				<div class="form-group">
 					<label>{$currentLocale === 'ar' ? 'نوع الحادثة *' : 'Incident Type *'}</label>
-					<div class="dropdown-container" on:click|stopPropagation>
-						<button 
-							type="button"
-							class="dropdown-trigger"
-							on:click={() => { showIncidentTypeDropdown = !showIncidentTypeDropdown; showBranchDropdown = false; showViolationDropdown = false; showEmployeeDropdown = false; }}
-						>
-							{#if selectedIncidentType}
-								<span class="selected-value">
-									<span class="type-code">{selectedIncidentType.id}</span>
-									{$currentLocale === 'ar' ? selectedIncidentType.incident_type_ar : selectedIncidentType.incident_type_en}
-								</span>
-								<button type="button" class="clear-btn" on:click|stopPropagation={() => { selectedIncidentType = null; incidentTypeSearch = ''; }}>×</button>
-							{:else}
-								<span class="placeholder">{$currentLocale === 'ar' ? 'اختر نوع الحادثة...' : 'Select incident type...'}</span>
-								<span class="dropdown-arrow">▼</span>
-							{/if}
-						</button>
-						
-						{#if showIncidentTypeDropdown}
-							<div class="dropdown-menu">
-								<input 
-									type="text"
-									class="dropdown-search"
-									placeholder={$currentLocale === 'ar' ? 'بحث...' : 'Search...'}
-									bind:value={incidentTypeSearch}
-									on:click|stopPropagation
-								/>
-								<div class="dropdown-options">
-									{#each filteredIncidentTypes as type}
-										<button 
-											type="button"
-											class="dropdown-option"
-											on:click={() => { selectedIncidentType = type; showIncidentTypeDropdown = false; incidentTypeSearch = ''; }}
-										>
-											<span class="type-code">{type.id}</span>
-											{$currentLocale === 'ar' ? type.incident_type_ar : type.incident_type_en}
-										</button>
-									{/each}
-									{#if filteredIncidentTypes.length === 0}
-										<div class="no-results">{$currentLocale === 'ar' ? 'لا توجد نتائج' : 'No results'}</div>
-									{/if}
-								</div>
-							</div>
+					<button 
+						type="button"
+						class="dropdown-trigger"
+						on:click|stopPropagation={() => { showIncidentTypeDropdown = true; showBranchDropdown = false; showViolationDropdown = false; showEmployeeDropdown = false; incidentTypeSearch = ''; }}
+					>
+						{#if selectedIncidentType}
+							<span class="selected-value">
+								<span class="type-code">{selectedIncidentType.id}</span>
+								{$currentLocale === 'ar' ? selectedIncidentType.incident_type_ar : selectedIncidentType.incident_type_en}
+							</span>
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span class="clear-btn" on:click|stopPropagation={() => { selectedIncidentType = null; incidentTypeSearch = ''; }}>×</span>
+						{:else}
+							<span class="placeholder">{$currentLocale === 'ar' ? 'اختر نوع الحادثة...' : 'Select incident type...'}</span>
+							<span class="dropdown-arrow">▼</span>
 						{/if}
-					</div>
+					</button>
 				</div>
 				
 				<!-- Branch Selection -->
 				<div class="form-group">
 					<label>{$currentLocale === 'ar' ? 'الفرع *' : 'Branch *'}</label>
-					<div class="dropdown-container" on:click|stopPropagation>
-						<button 
-							type="button"
-							class="dropdown-trigger"
-							on:click={() => { showBranchDropdown = !showBranchDropdown; showIncidentTypeDropdown = false; showViolationDropdown = false; showEmployeeDropdown = false; }}
-						>
-							{#if selectedBranch}
-								<span class="selected-value">
-									{$currentLocale === 'ar' 
-										? `${selectedBranch.name_ar || selectedBranch.name_en} - ${selectedBranch.location_ar || selectedBranch.location_en}`
-										: `${selectedBranch.name_en} - ${selectedBranch.location_en}`}
-								</span>
-								<button type="button" class="clear-btn" on:click|stopPropagation={() => { selectedBranch = null; branchSearch = ''; }}>×</button>
-							{:else}
-								<span class="placeholder">{$currentLocale === 'ar' ? 'اختر الفرع...' : 'Select branch...'}</span>
-								<span class="dropdown-arrow">▼</span>
-							{/if}
-						</button>
-						
-						{#if showBranchDropdown}
-							<div class="dropdown-menu">
-								<input 
-									type="text"
-									class="dropdown-search"
-									placeholder={$currentLocale === 'ar' ? 'بحث...' : 'Search...'}
-									bind:value={branchSearch}
-									on:click|stopPropagation
-								/>
-								<div class="dropdown-options">
-									{#each filteredBranches as branch}
-										<button 
-											type="button"
-											class="dropdown-option"
-											on:click={() => { selectedBranch = branch; showBranchDropdown = false; branchSearch = ''; }}
-										>
-											{$currentLocale === 'ar' 
-												? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}`
-												: `${branch.name_en} - ${branch.location_en}`}
-										</button>
-									{/each}
-									{#if filteredBranches.length === 0}
-										<div class="no-results">{$currentLocale === 'ar' ? 'لا توجد نتائج' : 'No results'}</div>
-									{/if}
-								</div>
-							</div>
+					<button 
+						type="button"
+						class="dropdown-trigger"
+						on:click|stopPropagation={() => { showBranchDropdown = true; showIncidentTypeDropdown = false; showViolationDropdown = false; showEmployeeDropdown = false; branchSearch = ''; }}
+					>
+						{#if selectedBranch}
+							<span class="selected-value">
+								{$currentLocale === 'ar' 
+									? `${selectedBranch.name_ar || selectedBranch.name_en} - ${selectedBranch.location_ar || selectedBranch.location_en}`
+									: `${selectedBranch.name_en} - ${selectedBranch.location_en}`}
+							</span>
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span class="clear-btn" on:click|stopPropagation={() => { selectedBranch = null; branchSearch = ''; }}>×</span>
+						{:else}
+							<span class="placeholder">{$currentLocale === 'ar' ? 'اختر الفرع...' : 'Select branch...'}</span>
+							<span class="dropdown-arrow">▼</span>
 						{/if}
-					</div>
+					</button>
 				</div>
 				
 				<!-- Employee Incident Fields (IN2) -->
@@ -1009,6 +944,79 @@
 	</div>
 </div>
 
+<!-- Incident Type Popup -->
+{#if showIncidentTypeDropdown}
+	<div class="popup-overlay" on:click={() => { showIncidentTypeDropdown = false; incidentTypeSearch = ''; }}>
+		<div class="popup-panel" on:click|stopPropagation dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+			<div class="popup-header">
+				<h3>{$currentLocale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}</h3>
+				<button type="button" class="popup-close" on:click={() => { showIncidentTypeDropdown = false; incidentTypeSearch = ''; }}>✕</button>
+			</div>
+			<div class="popup-search">
+				<input 
+					type="text"
+					placeholder={$currentLocale === 'ar' ? 'بحث...' : 'Search...'}
+					bind:value={incidentTypeSearch}
+				/>
+			</div>
+			<div class="popup-list">
+				{#each filteredIncidentTypes as type}
+					<button 
+						type="button"
+						class="popup-option"
+						class:selected={selectedIncidentType?.id === type.id}
+						on:click={() => { selectedIncidentType = type; showIncidentTypeDropdown = false; incidentTypeSearch = ''; }}
+					>
+						<span class="type-code">{type.id}</span>
+						<span>{$currentLocale === 'ar' ? type.incident_type_ar : type.incident_type_en}</span>
+						{#if selectedIncidentType?.id === type.id}<span class="check-mark">✓</span>{/if}
+					</button>
+				{/each}
+				{#if filteredIncidentTypes.length === 0}
+					<div class="popup-no-results">{$currentLocale === 'ar' ? 'لا توجد نتائج' : 'No results'}</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Branch Popup -->
+{#if showBranchDropdown}
+	<div class="popup-overlay" on:click={() => { showBranchDropdown = false; branchSearch = ''; }}>
+		<div class="popup-panel" on:click|stopPropagation dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+			<div class="popup-header">
+				<h3>{$currentLocale === 'ar' ? 'اختر الفرع' : 'Select Branch'}</h3>
+				<button type="button" class="popup-close" on:click={() => { showBranchDropdown = false; branchSearch = ''; }}>✕</button>
+			</div>
+			<div class="popup-search">
+				<input 
+					type="text"
+					placeholder={$currentLocale === 'ar' ? 'بحث...' : 'Search...'}
+					bind:value={branchSearch}
+				/>
+			</div>
+			<div class="popup-list">
+				{#each filteredBranches as branch}
+					<button 
+						type="button"
+						class="popup-option"
+						class:selected={selectedBranch?.id === branch.id}
+						on:click={() => { selectedBranch = branch; showBranchDropdown = false; branchSearch = ''; }}
+					>
+						<span>{$currentLocale === 'ar' 
+							? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}`
+							: `${branch.name_en} - ${branch.location_en}`}</span>
+						{#if selectedBranch?.id === branch.id}<span class="check-mark">✓</span>{/if}
+					</button>
+				{/each}
+				{#if filteredBranches.length === 0}
+					<div class="popup-no-results">{$currentLocale === 'ar' ? 'لا توجد نتائج' : 'No results'}</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
 <!-- Alert Modal -->
 {#if showAlertModal}
 	<div class="modal-overlay" on:click={closeAlert}>
@@ -1039,13 +1047,13 @@
 
 <style>
 	.mobile-page {
-		min-height: 100vh;
-		background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
-		padding-bottom: 5rem;
+		min-height: 100%;
+		background: #F8FAFC;
+		padding: 0;
 	}
 	
 	.mobile-content {
-		padding: 1rem;
+		padding: 0;
 		max-width: 100%;
 	}
 	
@@ -1054,14 +1062,16 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		min-height: 50vh;
-		gap: 1rem;
+		min-height: 40vh;
+		gap: 0.5rem;
+		font-size: 0.82rem;
+		color: #6B7280;
 	}
 	
 	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #e2e8f0;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #e2e8f0;
 		border-top-color: #3b82f6;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
@@ -1073,37 +1083,17 @@
 	
 	.form-container {
 		background: white;
-		border-radius: 1rem;
-		padding: 1.25rem;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-	}
-	
-	.page-header {
-		text-align: center;
-		margin-bottom: 1.5rem;
-		padding-bottom: 1rem;
-		border-bottom: 2px solid #e2e8f0;
-	}
-	
-	.page-header h1 {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #1e293b;
-		margin: 0;
-	}
-	
-	.page-header .subtitle {
-		font-size: 0.875rem;
-		color: #64748b;
-		margin-top: 0.25rem;
+		border-radius: 0;
+		padding: 0.5rem 0.6rem;
+		box-shadow: none;
 	}
 	
 	.alert {
 		display: flex;
-		gap: 0.75rem;
-		padding: 0.75rem;
-		border-radius: 0.5rem;
-		margin-bottom: 1rem;
+		gap: 0.4rem;
+		padding: 0.4rem 0.5rem;
+		border-radius: 5px;
+		margin-bottom: 0.5rem;
 	}
 	
 	.error-alert {
@@ -1112,40 +1102,40 @@
 	}
 	
 	.alert-icon {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 	}
 	
 	.alert-content p {
 		margin: 0;
 		color: #dc2626;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 	
 	.form-group {
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 	
 	.form-group label {
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 600;
 		color: #374151;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.2rem;
 	}
 	
 	.form-group .helper-text {
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		color: #64748b;
-		margin: -0.25rem 0 0.5rem 0;
+		margin: -0.1rem 0 0.3rem 0;
 	}
 	
 	.form-input,
 	.form-textarea {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #d1d5db;
-		border-radius: 0.5rem;
-		font-size: 1rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		transition: border-color 0.2s, box-shadow 0.2s;
 		box-sizing: border-box;
 	}
@@ -1154,12 +1144,12 @@
 	.form-textarea:focus {
 		outline: none;
 		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 	
 	.form-textarea {
 		resize: vertical;
-		min-height: 80px;
+		min-height: 60px;
 	}
 	
 	/* Dropdown Styles */
@@ -1169,15 +1159,15 @@
 	
 	.dropdown-trigger {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #d1d5db;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		background: white;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		cursor: pointer;
-		font-size: 1rem;
+		font-size: 0.78rem;
 		text-align: start;
 	}
 	
@@ -1193,23 +1183,24 @@
 		color: #1f2937;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		flex: 1;
+		font-size: 0.76rem;
 	}
 	
 	.type-code {
 		background: #3b82f6;
 		color: white;
-		padding: 0.125rem 0.375rem;
-		border-radius: 0.25rem;
-		font-size: 0.75rem;
+		padding: 0.1rem 0.25rem;
+		border-radius: 3px;
+		font-size: 0.66rem;
 		font-weight: 600;
 		font-family: monospace;
 	}
 	
 	.dropdown-arrow {
 		color: #9ca3af;
-		font-size: 0.75rem;
+		font-size: 0.62rem;
 	}
 	
 	.clear-btn {
@@ -1217,9 +1208,9 @@
 		color: white;
 		border: none;
 		border-radius: 50%;
-		width: 20px;
-		height: 20px;
-		font-size: 0.875rem;
+		width: 16px;
+		height: 16px;
+		font-size: 0.7rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -1234,40 +1225,40 @@
 		right: 0;
 		background: white;
 		border: 1px solid #d1d5db;
-		border-radius: 0.5rem;
-		box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+		border-radius: 5px;
+		box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 		z-index: 100;
-		margin-top: 0.25rem;
-		max-height: 250px;
+		margin-top: 0.15rem;
+		max-height: 200px;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
 	}
 	
 	.dropdown-search {
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: none;
 		border-bottom: 1px solid #e5e7eb;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		outline: none;
 	}
 	
 	.dropdown-options {
 		overflow-y: auto;
-		max-height: 200px;
+		max-height: 160px;
 	}
 	
 	.dropdown-option {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: none;
 		background: white;
 		text-align: start;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		border-bottom: 1px solid #f3f4f6;
 	}
 	
@@ -1285,29 +1276,29 @@
 	
 	.emp-id {
 		color: #6b7280;
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		font-family: monospace;
 	}
 	
 	.no-results {
-		padding: 1rem;
+		padding: 0.5rem;
 		text-align: center;
 		color: #9ca3af;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 	
 	/* Attachment Styles */
 	.attachment-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
+		gap: 0.35rem;
+		margin-bottom: 0.35rem;
 	}
 	
 	.attachment-item {
 		position: relative;
 		background: #f3f4f6;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		overflow: hidden;
 		aspect-ratio: 1;
 		display: flex;
@@ -1323,7 +1314,7 @@
 	}
 	
 	.file-icon {
-		font-size: 2rem;
+		font-size: 1.2rem;
 	}
 	
 	.file-name {
@@ -1343,15 +1334,15 @@
 	
 	.remove-attachment {
 		position: absolute;
-		top: 0.25rem;
-		right: 0.25rem;
-		width: 1.25rem;
-		height: 1.25rem;
+		top: 0.15rem;
+		right: 0.15rem;
+		width: 1rem;
+		height: 1rem;
 		background: #ef4444;
 		color: white;
 		border: none;
 		border-radius: 50%;
-		font-size: 0.75rem;
+		font-size: 0.6rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -1361,23 +1352,24 @@
 	/* Attachment Buttons Container */
 	.attachment-buttons {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.4rem;
 		flex-wrap: wrap;
 	}
 	
 	.camera-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
+		gap: 0.3rem;
+		padding: 0.35rem 0.6rem;
 		background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
 		border: none;
-		border-radius: 0.5rem;
+		border-radius: 5px;
 		color: white;
 		font-weight: 600;
+		font-size: 0.74rem;
 		cursor: pointer;
 		transition: all 0.2s;
-		box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+		box-shadow: 0 1px 4px rgba(220, 38, 38, 0.3);
 	}
 	
 	.camera-btn:hover {
@@ -1392,13 +1384,14 @@
 	.upload-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
+		gap: 0.3rem;
+		padding: 0.35rem 0.6rem;
 		background: #f0f9ff;
-		border: 2px dashed #3b82f6;
-		border-radius: 0.5rem;
+		border: 1px dashed #3b82f6;
+		border-radius: 5px;
 		color: #3b82f6;
 		font-weight: 500;
+		font-size: 0.74rem;
 		cursor: pointer;
 		transition: all 0.2s;
 	}
@@ -1409,25 +1402,26 @@
 	
 	/* Submit Button */
 	.submit-section {
-		margin-top: 1.5rem;
-		padding-top: 1rem;
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
 		border-top: 1px solid #e5e7eb;
 	}
 	
 	.submit-btn {
 		width: 100%;
-		padding: 1rem;
+		padding: 0.5rem;
 		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
 		color: white;
 		border: none;
-		border-radius: 0.75rem;
-		font-size: 1rem;
+		border-radius: 6px;
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
+		min-height: 36px;
 		transition: transform 0.2s, box-shadow 0.2s;
 	}
 	
@@ -1464,37 +1458,37 @@
 	
 	.modal-content {
 		background: white;
-		border-radius: 1rem;
-		padding: 1.5rem;
-		max-width: 320px;
+		border-radius: 8px;
+		padding: 1rem;
+		max-width: 280px;
 		width: 100%;
 		text-align: center;
 	}
 	
 	.modal-icon {
-		font-size: 3rem;
-		margin-bottom: 0.75rem;
+		font-size: 2rem;
+		margin-bottom: 0.4rem;
 	}
 	
 	.modal-content h3 {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 		color: #1e293b;
-		margin: 0 0 0.5rem;
+		margin: 0 0 0.3rem;
 	}
 	
 	.modal-content p {
 		color: #64748b;
-		margin: 0 0 1.25rem;
-		font-size: 0.875rem;
+		margin: 0 0 0.75rem;
+		font-size: 0.78rem;
 	}
 	
 	.modal-btn {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		border: none;
-		border-radius: 0.5rem;
-		font-size: 1rem;
+		border-radius: 5px;
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
 		background: #e5e7eb;
@@ -1504,6 +1498,131 @@
 	.modal-btn.success {
 		background: #22c55e;
 		color: white;
+	}
+	
+	/* Popup Selection Modal */
+	.popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: calc(3.6rem + env(safe-area-inset-bottom));
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 999;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+	}
+	
+	.popup-panel {
+		background: white;
+		width: 100%;
+		max-height: 70vh;
+		border-radius: 12px 12px 0 0;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		animation: slideUp 0.2s ease-out;
+	}
+	
+	@keyframes slideUp {
+		from { transform: translateY(100%); }
+		to { transform: translateY(0); }
+	}
+	
+	.popup-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.6rem 0.8rem;
+		border-bottom: 1px solid #e5e7eb;
+		flex-shrink: 0;
+	}
+	
+	.popup-header h3 {
+		margin: 0;
+		font-size: 0.88rem;
+		font-weight: 700;
+		color: #1e293b;
+	}
+	
+	.popup-close {
+		background: #f1f5f9;
+		border: none;
+		border-radius: 50%;
+		width: 24px;
+		height: 24px;
+		font-size: 0.7rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #64748b;
+	}
+	
+	.popup-search {
+		padding: 0.4rem 0.6rem;
+		border-bottom: 1px solid #e5e7eb;
+		flex-shrink: 0;
+	}
+	
+	.popup-search input {
+		width: 100%;
+		padding: 0.4rem 0.5rem;
+		border: 1px solid #d1d5db;
+		border-radius: 5px;
+		font-size: 0.78rem;
+		outline: none;
+		box-sizing: border-box;
+	}
+	
+	.popup-search input:focus {
+		border-color: #3b82f6;
+	}
+	
+	.popup-list {
+		overflow-y: auto;
+		flex: 1;
+		-webkit-overflow-scrolling: touch;
+	}
+	
+	.popup-option {
+		width: 100%;
+		padding: 0.5rem 0.8rem;
+		border: none;
+		border-bottom: 1px solid #f3f4f6;
+		background: white;
+		text-align: start;
+		cursor: pointer;
+		font-size: 0.78rem;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		color: #1f2937;
+	}
+	
+	.popup-option:active {
+		background: #f0f9ff;
+	}
+	
+	.popup-option.selected {
+		background: #eff6ff;
+		color: #2563eb;
+		font-weight: 600;
+	}
+	
+	.check-mark {
+		margin-inline-start: auto;
+		color: #2563eb;
+		font-weight: 700;
+		font-size: 0.82rem;
+	}
+	
+	.popup-no-results {
+		padding: 1rem;
+		text-align: center;
+		color: #9ca3af;
+		font-size: 0.76rem;
 	}
 	
 	/* RTL Support */
@@ -1522,32 +1641,32 @@
 	
 	/* Employee Details Card (like desktop) */
 	.employee-details-card {
-		margin-top: 0.5rem;
+		margin-top: 0.3rem;
 	}
 	
 	.employee-details-card .card-label {
 		display: block;
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		font-weight: 700;
 		color: #475569;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 	
 	.employee-details-card .details-row {
 		background: #f0fdf4;
 		border: 1px solid #bbf7d0;
-		border-radius: 0.5rem;
-		padding: 0.75rem 1rem;
+		border-radius: 5px;
+		padding: 0.4rem 0.5rem;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		flex-wrap: wrap;
 	}
 	
 	.employee-details-card .emp-code {
-		font-size: 0.75rem;
+		font-size: 0.68rem;
 		font-weight: 700;
 		color: #16a34a;
 	}
@@ -1557,13 +1676,13 @@
 	}
 	
 	.employee-details-card .emp-name-display {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 500;
 		color: #1e293b;
 	}
 	
 	.employee-details-card .id-number {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		font-weight: 700;
 		color: #15803d;
 	}

@@ -437,6 +437,13 @@
 		return deadline ? deadline < now : false;
 	}
 
+	/** Convert URLs in text to clickable button links */
+	function linkifyText(text) {
+		if (!text) return '';
+		const urlRegex = /(https?:\/\/[^\s<>"]+)/g;
+		return text.replace(urlRegex, '<br/><a href="$1" target="_blank" rel="noopener noreferrer" class="url-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View Clearance Certificate</a>');
+	}
+
 	// Reactive statements
 	$: {
 		searchTerm, statusFilter, priorityFilter;
@@ -593,7 +600,7 @@
 						</div>
 
 						{#if assignment.task?.description}
-							<p class="task-description">{assignment.task.description}</p>
+							<p class="task-description">{@html linkifyText(assignment.task.description)}</p>
 						{/if}
 
 						<div class="assignment-details">
@@ -644,7 +651,7 @@
 						{#if assignment.notes}
 							<div class="assignment-notes">
 								<span class="notes-label">{getTranslation('mobile.assignmentsContent.taskDetails.notes')}</span>
-								<p class="notes-text">{assignment.notes}</p>
+								<p class="notes-text">{@html linkifyText(assignment.notes)}</p>
 							</div>
 						{/if}
 
@@ -721,17 +728,17 @@
 
 <style>
 	.mobile-assignments {
-		min-height: 100vh;
-		min-height: 100dvh;
+		min-height: 100%;
 		background: #F8FAFC;
 		display: flex;
 		flex-direction: column;
-		padding-bottom: 5rem; /* Space for bottom nav */
+		padding: 0;
+		padding-bottom: 0.5rem;
 	}
 
 	/* Statistics */
 	.stats-section {
-		padding: 1rem 1.5rem;
+		padding: 0.4rem 0.6rem;
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
 	}
@@ -739,13 +746,13 @@
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(5, 1fr);
-		gap: 0.75rem;
+		gap: 0.35rem;
 	}
 
 	.stat-card {
 		text-align: center;
-		padding: 0.75rem 0.5rem;
-		border-radius: 8px;
+		padding: 0.35rem 0.25rem;
+		border-radius: 5px;
 		border: 1px solid #E5E7EB;
 	}
 
@@ -756,36 +763,36 @@
 	.stat-card.overdue { background: #FEF2F2; border-color: #FECACA; }
 
 	.stat-number {
-		font-size: 1.25rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 		color: #1F2937;
 	}
 
 	.stat-label {
-		font-size: 0.75rem;
+		font-size: 0.62rem;
 		color: #6B7280;
-		margin-top: 0.25rem;
+		margin-top: 0.1rem;
 	}
 
 	/* Filters */
 	.floating-filter-btn {
 		position: fixed;
-		bottom: 6rem;
-		right: 1.5rem;
+		bottom: 4.5rem;
+		right: 0.75rem;
 		background: #4F46E5;
 		color: white;
 		border: none;
-		border-radius: 24px;
-		padding: 0.75rem 1.25rem;
+		border-radius: 20px;
+		padding: 0.4rem 0.8rem;
 		font-weight: 600;
-		font-size: 0.875rem;
-		box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+		font-size: 0.74rem;
+		box-shadow: 0 3px 8px rgba(79, 70, 229, 0.4);
 		cursor: pointer;
 		z-index: 50;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		transition: all 0.3s ease;
+		gap: 0.3rem;
+		transition: all 0.2s ease;
 	}
 
 	.floating-filter-btn:hover {
@@ -805,34 +812,34 @@
 	.filters-section {
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
-		padding: 1rem 1.5rem;
+		padding: 0.5rem 0.6rem;
 	}
 
 	.search-box {
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.search-input {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 1rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 	}
 
 	.filter-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
+		gap: 0.4rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.filter-select {
-		padding: 0.75rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
+		border-radius: 5px;
 		background: white;
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 	}
 
 	/* RTL Support for select dropdown arrow */
@@ -844,49 +851,49 @@
 
 	/* Show Completed Toggle */
 	.toggle-section {
-		margin: 0.8rem 0;
-		padding: 0.6rem 0.8rem;
+		margin: 0.3rem 0;
+		padding: 0.35rem 0.5rem;
 		background: #F9FAFB;
-		border-radius: 8px;
+		border-radius: 5px;
 	}
 
 	.toggle-label {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
+		gap: 0.4rem;
 		cursor: pointer;
 		user-select: none;
 	}
 
 	.toggle-checkbox {
-		width: 18px;
-		height: 18px;
+		width: 15px;
+		height: 15px;
 		cursor: pointer;
 		accent-color: #3B82F6;
 	}
 
 	.toggle-text {
-		font-size: 0.8rem;
+		font-size: 0.74rem;
 		color: #374151;
 		font-weight: 500;
 	}
 
 	.clear-filters-btn {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.4rem;
 		background: #F3F4F6;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
+		border-radius: 5px;
 		color: #374151;
 		font-weight: 500;
+		font-size: 0.76rem;
 		cursor: pointer;
 	}
 
 	/* Content */
 	.assignments-content {
 		flex: 1;
-		padding: 1rem 1.5rem;
-		overflow-y: auto;
+		padding: 0.4rem 0.6rem;
 	}
 
 	.loading-state, .empty-state {
@@ -895,8 +902,9 @@
 		align-items: center;
 		justify-content: center;
 		text-align: center;
-		padding: 4rem 2rem;
+		padding: 2rem 1rem;
 		color: #6B7280;
+		font-size: 0.82rem;
 	}
 
 	/* Skeleton Loading */
@@ -909,8 +917,8 @@
 	.skeleton-card {
 		background: white;
 		border: 1px solid #E5E7EB;
-		border-radius: 12px;
-		padding: 1rem;
+		border-radius: 6px;
+		padding: 0.5rem;
 		animation: pulse 1.5s ease-in-out infinite;
 	}
 
@@ -972,14 +980,16 @@
 
 	.empty-state svg {
 		color: #9CA3AF;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
+		width: 40px;
+		height: 40px;
 	}
 
 	.empty-state h3 {
-		font-size: 1.125rem;
+		font-size: 0.88rem;
 		font-weight: 600;
 		color: #374151;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 
 	/* Assignment Cards */
@@ -990,10 +1000,10 @@
 	.assignment-card {
 		background: white;
 		border: 1px solid #E5E7EB;
-		border-radius: 12px;
-		padding: 1rem;
-		margin-bottom: 1rem;
-		transition: all 0.3s ease;
+		border-radius: 6px;
+		padding: 0.5rem 0.6rem;
+		margin-bottom: 0.4rem;
+		transition: all 0.2s ease;
 	}
 
 	.assignment-card.overdue {
@@ -1005,30 +1015,31 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-start;
-		margin-bottom: 0.75rem;
-		gap: 0.75rem;
+		margin-bottom: 0.3rem;
+		gap: 0.4rem;
 	}
 
 	.task-title {
-		font-size: 1.125rem;
+		font-size: 0.82rem;
 		font-weight: 600;
 		color: #1F2937;
 		flex: 1;
 		margin: 0;
+		line-height: 1.3;
 	}
 
 	.task-title-section {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.2rem;
 		flex: 1;
 	}
 
 	.task-type-badge {
-		font-size: 0.7rem;
+		font-size: 0.62rem;
 		font-weight: 600;
-		padding: 0.2rem 0.4rem;
-		border-radius: 4px;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
 		text-transform: none;
 		width: fit-content;
 	}
@@ -1047,17 +1058,17 @@
 	}
 
 	.priority-badge, .overdue-badge, .status-badge, .quick-task-badge {
-		font-size: 0.75rem;
+		font-size: 0.62rem;
 		font-weight: 600;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
+		padding: 0.12rem 0.35rem;
+		border-radius: 3px;
 		text-align: center;
 	}
 
 	.quick-task-badge {
 		background: #F3E8FF;
 		color: #7C3AED;
-		font-size: 0.625rem;
+		font-size: 0.58rem;
 	}
 
 	.overdue-badge {
@@ -1067,34 +1078,59 @@
 
 	.task-description {
 		color: #6B7280;
-		font-size: 0.875rem;
-		margin: 0 0 1rem 0;
-		line-height: 1.5;
+		font-size: 0.74rem;
+		margin: 0 0 0.4rem 0;
+		line-height: 1.4;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		white-space: pre-wrap;
+		max-width: 100%;
+	}
+
+	.task-description :global(.url-btn),
+	.notes-text :global(.url-btn) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-top: 0.3rem;
+		padding: 0.3rem 0.6rem;
+		background: #3B82F6;
+		color: white;
+		border-radius: 5px;
+		font-size: 0.74rem;
+		font-weight: 500;
+		text-decoration: none;
+		transition: background 0.2s;
+	}
+
+	.task-description :global(.url-btn:hover),
+	.notes-text :global(.url-btn:hover) {
+		background: #2563EB;
 	}
 
 	.assignment-details {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
+		gap: 0.3rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.detail-item {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.1rem;
 	}
 
 	.detail-label {
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		font-weight: 500;
 		color: #6B7280;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.3px;
 	}
 
 	.detail-value {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		color: #1F2937;
 		font-weight: 500;
 	}
@@ -1102,22 +1138,22 @@
 	.assignment-notes {
 		background: #F9FAFB;
 		border: 1px solid #E5E7EB;
-		border-radius: 6px;
-		padding: 0.75rem;
+		border-radius: 5px;
+		padding: 0.4rem 0.5rem;
 	}
 
 	.quick-task-info {
 		background: #F3E8FF;
 		border: 1px solid #E5E7EB;
-		border-radius: 6px;
-		padding: 0.75rem;
-		margin-top: 1rem;
+		border-radius: 5px;
+		padding: 0.4rem 0.5rem;
+		margin-top: 0.4rem;
 	}
 
 	.quick-detail {
 		display: flex;
 		justify-content: space-between;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 
 	.quick-detail:last-child {
@@ -1125,32 +1161,32 @@
 	}
 
 	.quick-label {
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		font-weight: 600;
 		color: #7C3AED;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.3px;
 	}
 
 	.quick-value {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		color: #5B21B6;
 		font-weight: 500;
 		text-transform: capitalize;
 	}
 
 	.notes-label {
-		font-size: 0.75rem;
+		font-size: 0.66rem;
 		font-weight: 600;
 		color: #374151;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.3px;
 	}
 
 	.notes-text {
-		font-size: 0.875rem;
+		font-size: 0.76rem;
 		color: #6B7280;
-		margin: 0.25rem 0 0 0;
+		margin: 0.15rem 0 0 0;
 		line-height: 1.4;
 	}
 
@@ -1158,14 +1194,14 @@
 	.mobile-footer {
 		background: white;
 		border-top: 1px solid #E5E7EB;
-		padding: 0.75rem 1.5rem;
+		padding: 0.35rem 0.6rem;
 		margin-top: auto;
 	}
 
 	.footer-stats {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.75rem;
+		font-size: 0.68rem;
 		color: #6B7280;
 	}
 
@@ -1173,40 +1209,40 @@
 	@media (max-width: 480px) {
 		.stats-grid {
 			grid-template-columns: repeat(3, 1fr);
-			gap: 0.5rem;
+			gap: 0.3rem;
 		}
 
 		.stat-card {
-			padding: 0.5rem 0.25rem;
+			padding: 0.3rem 0.2rem;
 		}
 
 		.stat-number {
-			font-size: 1rem;
+			font-size: 0.82rem;
 		}
 
 		.stat-label {
-			font-size: 0.625rem;
+			font-size: 0.58rem;
 		}
 
 		.assignment-details {
 			grid-template-columns: 1fr;
-			gap: 0.5rem;
+			gap: 0.3rem;
 		}
 	}
 
 	/* Attachments Styles */
 	.attachments-section {
-		margin-top: 1rem;
-		padding-top: 1rem;
+		margin-top: 0.4rem;
+		padding-top: 0.4rem;
 		border-top: 1px solid #E5E7EB;
 	}
 
 	.attachments-header {
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.3rem;
 	}
 
 	.attachments-label {
-		font-size: 0.875rem;
+		font-size: 0.74rem;
 		color: #374151;
 		font-weight: 500;
 	}
@@ -1214,7 +1250,7 @@
 	.attachments-grid {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.75rem;
+		gap: 0.4rem;
 	}
 
 	.attachment-item {
@@ -1227,11 +1263,11 @@
 	}
 
 	.attachment-thumbnail {
-		width: 80px;
-		height: 80px;
+		width: 60px;
+		height: 60px;
 		object-fit: cover;
-		border-radius: 8px;
-		border: 2px solid #E5E7EB;
+		border-radius: 5px;
+		border: 1px solid #E5E7EB;
 		cursor: pointer;
 		transition: transform 0.2s;
 	}
@@ -1266,16 +1302,16 @@
 	.file-attachment {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem;
+		gap: 0.35rem;
+		padding: 0.4rem 0.5rem;
 		background: #F3F4F6;
-		border-radius: 8px;
+		border-radius: 5px;
 		border: 1px solid #E5E7EB;
-		min-width: 200px;
+		min-width: 160px;
 	}
 
 	.file-icon {
-		font-size: 1.5rem;
+		font-size: 1rem;
 		flex-shrink: 0;
 	}
 
@@ -1286,20 +1322,21 @@
 
 	.file-name {
 		display: block;
-		font-size: 0.875rem;
+		font-size: 0.74rem;
 		color: #374151;
 		font-weight: 500;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.15rem;
 		word-break: break-word;
+		line-height: 1.3;
 	}
 
 	.download-file-btn {
 		background: #3B82F6;
 		color: white;
 		border: none;
-		padding: 0.25rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.75rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.68rem;
 		cursor: pointer;
 		transition: background-color 0.2s;
 	}
