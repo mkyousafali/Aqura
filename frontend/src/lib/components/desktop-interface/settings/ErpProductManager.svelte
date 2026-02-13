@@ -1,0 +1,638 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { _ as t, locale } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
+	import { get } from 'svelte/store';
+
+	interface ErpProduct {
+		id?: number;
+		barcode: string;
+		auto_barcode: string;
+		parent_barcode: string;
+		product_name_en: string;
+		product_name_ar: string;
+		unit_name: string;
+		unit_qty: number;
+		is_base_unit: boolean;
+		synced_at?: string;
+	}
+
+	interface ServerSettings {
+		serverIp: string;
+		databaseName: string;
+		username: string;
+		password: string;
+	}
+
+	// State
+	let supabase: any;
+	let activeTab: string = 'settings';
+	let loading = false;
+	let syncing = false;
+	let testingConnection = false;
+	let connectionStatus: { success: boolean; message: string; counts?: any } | null = null;
+	let syncStatus: { success: boolean; message: string } | null = null;
+	let products: ErpProduct[] = [];
+	let searchBarcode = '';
+	let searchName = '';
+	let showBaseOnly = false;
+	let totalSynced = 0;
+	let totalFiltered = 0;
+	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Server settings  
+	let settings: ServerSettings = {
+		serverIp: '',
+		databaseName: '',
+		username: '',
+		password: ''
+	};
+
+	// Saved settings from erp_connections
+	let savedConfigs: any[] = [];
+	let selectedConfigId: string = '';
+	let configLoadError: string = '';
+
+	// Tabs
+	const tabs = [
+		{ id: 'settings', label: 'Server Settings', labelAr: 'إعدادات الخادم', icon: '⚙️' },
+		{ id: 'products', label: 'Synced Products', labelAr: 'المنتجات المتزامنة', icon: '📦' }
+	];
+
+	// Pagination (server-side)
+	let currentPage = 1;
+	let pageSize = 50;
+	$: totalPages = Math.ceil(totalFiltered / pageSize);
+
+	// Debounced search - triggers server-side query
+	function onSearchChange() {
+		if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+		searchDebounceTimer = setTimeout(() => {
+			currentPage = 1;
+			loadSyncedProducts();
+		}, 400);
+	}
+
+	function onFilterChange() {
+		currentPage = 1;
+		loadSyncedProducts();
+	}
+
+	function goToPage(page: number) {
+		currentPage = page;
+		loadSyncedProducts();
+	}
+
+	onMount(async () => {
+		const { supabase: client } = await import('$lib/utils/supabase');
+		supabase = client;
+		await loadSavedConfigs();
+		await loadSyncedProducts();
+	});
+
+	async function loadSavedConfigs() {
+		try {
+			configLoadError = '';
+			const { data, error } = await supabase
+				.from('erp_connections')
+				.select('*')
+				.order('branch_name');
+			
+			if (error) {
+				configLoadError = error.message || 'Failed to load saved connections';
+				console.error('Error loading ERP configs:', error);
+				return;
+			}
+			savedConfigs = data || [];
+
+			// Auto-select first config if available
+			if (savedConfigs.length > 0 && !selectedConfigId) {
+				selectConfig(savedConfigs[0]);
+			}
+		} catch (err: any) {
+			configLoadError = err.message || 'Failed to load saved connections';
+			console.error('Error loading ERP configs:', err);
+		}
+	}
+
+	function selectConfig(config: any) {
+		selectedConfigId = config.id;
+		settings.serverIp = config.server_ip || '';
+		settings.databaseName = config.database_name || '';
+		settings.username = config.username || '';
+		settings.password = config.password || '';
+		connectionStatus = null;
+	}
+
+	async function testConnection() {
+		if (!settings.serverIp || !settings.databaseName || !settings.username || !settings.password) {
+			connectionStatus = { success: false, message: 'Please fill in all server settings' };
+			return;
+		}
+
+		testingConnection = true;
+		connectionStatus = null;
+
+		try {
+			const response = await fetch('/api/erp-products', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'test',
+					...settings
+				})
+			});
+
+			const result = await response.json();
+			connectionStatus = { success: result.success, message: result.message, counts: result.counts || null };
+		} catch (err: any) {
+			connectionStatus = { success: false, message: `Error: ${err.message}` };
+		} finally {
+			testingConnection = false;
+		}
+	}
+
+	async function syncProducts() {
+		if (!settings.serverIp || !settings.databaseName || !settings.username || !settings.password) {
+			syncStatus = { success: false, message: 'Please configure server settings first' };
+			return;
+		}
+
+		syncing = true;
+		syncStatus = null;
+
+		try {
+			// Step 1: Fetch products from SQL Server via API
+			const response = await fetch('/api/erp-products', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'sync',
+					...settings
+				})
+			});
+
+			const result = await response.json();
+			
+			if (!result.success) {
+				syncStatus = { success: false, message: result.error || 'Failed to fetch products from ERP' };
+				return;
+			}
+
+			const fetchedProducts: ErpProduct[] = result.products;
+			syncStatus = { success: true, message: `Fetched ${fetchedProducts.length} barcodes. Inserting...` };
+
+			// Step 2: Insert in batches
+			const batchSize = 500;
+			let newCount = 0;
+			
+			for (let i = 0; i < fetchedProducts.length; i += batchSize) {
+				const batch = fetchedProducts.slice(i, i + batchSize);
+				
+				const { data: insertData, error: insertError } = await supabase
+					.from('erp_synced_products')
+					.insert(batch)
+					.select('id');
+
+				if (insertError) {
+					console.error(`Error inserting batch ${i}:`, insertError);
+				} else {
+					const insertedInBatch = insertData?.length || 0;
+					newCount += insertedInBatch;
+				}
+
+				syncStatus = { 
+					success: true, 
+					message: `Inserting... ${i + batch.length}/${fetchedProducts.length} (${newCount} inserted)` 
+				};
+			}
+
+			syncStatus = { 
+				success: true, 
+				message: `✅ Sync complete! ${newCount} barcodes synced from ${result.baseProductsCount} products.` 
+			};
+
+			// Reload synced products
+			totalSynced = 0; // reset so it re-fetches total
+			await loadSyncedProducts();
+			activeTab = 'products';
+
+		} catch (err: any) {
+			syncStatus = { success: false, message: `Error: ${err.message}` };
+		} finally {
+			syncing = false;
+		}
+	}
+
+	async function loadSyncedProducts() {
+		try {
+			loading = true;
+			const from = (currentPage - 1) * pageSize;
+			const to = from + pageSize - 1;
+
+			let query = supabase
+				.from('erp_synced_products')
+				.select('*', { count: 'exact' });
+
+			// Server-side filters
+			if (searchBarcode.trim()) {
+				const bc = searchBarcode.trim();
+				query = query.or(`barcode.ilike.%${bc}%,auto_barcode.ilike.%${bc}%`);
+			}
+			if (searchName.trim()) {
+				const nm = searchName.trim();
+				query = query.or(`product_name_en.ilike.%${nm}%,product_name_ar.ilike.%${nm}%`);
+			}
+			if (showBaseOnly) {
+				query = query.eq('is_base_unit', true);
+			}
+
+			const { data, error, count } = await query
+				.order('id')
+				.range(from, to);
+
+			if (error) throw error;
+			products = data || [];
+			totalFiltered = count || 0;
+
+			// Get total count (unfiltered) only on first load
+			if (totalSynced === 0) {
+				const { count: total } = await supabase
+					.from('erp_synced_products')
+					.select('id', { count: 'exact', head: true });
+				totalSynced = total || 0;
+			}
+		} catch (err: any) {
+			console.error('Error loading synced products:', err);
+		} finally {
+			loading = false;
+		}
+	}
+
+	$: isRtl = $locale === 'ar';
+</script>
+
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans text-slate-800" dir={isRtl ? 'rtl' : 'ltr'}>
+	<!-- Header -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">🏭</span>
+			<h2 class="text-lg font-bold text-slate-800 m-0">
+				{isRtl ? 'مدير منتجات ERP' : 'ERP Product Manager'}
+			</h2>
+		</div>
+		<div class="flex items-center gap-3">
+			<span class="text-xs font-semibold bg-blue-100 text-blue-600 px-3 py-1 rounded-full">
+				📦 {totalSynced.toLocaleString()} {isRtl ? 'باركود' : 'barcodes'}
+			</span>
+		</div>
+	</div>
+
+	<!-- Tabs -->
+	<div class="flex gap-2 px-6 py-3 bg-white border-b border-slate-100">
+		{#each tabs as tab}
+			<button
+				class="flex items-center gap-2 px-4 py-2.5 font-bold rounded-xl transition-all text-xs border-none cursor-pointer {activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}"
+				on:click={() => activeTab = tab.id}
+			>
+				<span>{tab.icon}</span>
+				<span>{isRtl ? tab.labelAr : tab.label}</span>
+			</button>
+		{/each}
+	</div>
+
+	<!-- Settings Tab -->
+	{#if activeTab === 'settings'}
+		<div class="flex-1 overflow-y-auto p-5 animate-in">
+			<!-- Config Load Error -->
+			{#if configLoadError}
+				<div class="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl text-sm">
+					<span class="text-red-600">
+						❌ {isRtl ? 'خطأ في تحميل الاتصالات:' : 'Error loading connections:'} {configLoadError}
+					</span>
+				</div>
+			{/if}
+
+			<!-- Saved Configurations -->
+			{#if savedConfigs.length > 0}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-4">
+					<h3 class="text-base font-bold text-slate-800 mb-4">
+						🔌 {isRtl ? 'الاتصالات المحفوظة' : 'Saved ERP Connections'}
+					</h3>
+					<div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+						{#each savedConfigs as config}
+							<button
+								class="flex flex-col gap-1 p-3 border-2 rounded-xl cursor-pointer transition-all text-start {selectedConfigId === config.id ? 'border-blue-600 bg-blue-50' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}"
+								on:click={() => selectConfig(config)}
+							>
+								<span class="font-bold text-blue-600 text-sm">{config.branch_name}</span>
+								<span class="text-xs text-slate-500 font-mono">{config.server_ip}</span>
+								<span class="text-[11px] text-slate-400">{config.database_name}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Server Settings Form -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-4">
+				<h3 class="text-base font-bold text-slate-800 mb-4">
+					⚙️ {isRtl ? 'إعدادات الخادم' : 'Server Settings'}
+				</h3>
+				<div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-slate-500">
+							🖥️ {isRtl ? 'عنوان IP للخادم' : 'Server IP'}
+						</label>
+						<input
+							type="text"
+							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
+							bind:value={settings.serverIp}
+							placeholder="192.168.0.3"
+						/>
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-slate-500">
+							🗄️ {isRtl ? 'اسم قاعدة البيانات' : 'Database Name'}
+						</label>
+						<input
+							type="text"
+							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
+							bind:value={settings.databaseName}
+							placeholder="URBAN2_2025"
+						/>
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-slate-500">
+							👤 {isRtl ? 'اسم المستخدم' : 'Username'}
+						</label>
+						<input
+							type="text"
+							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
+							bind:value={settings.username}
+							placeholder="sa"
+						/>
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-slate-500">
+							🔒 {isRtl ? 'كلمة المرور' : 'Password'}
+						</label>
+						<input
+							type="password"
+							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
+							bind:value={settings.password}
+							placeholder="••••••••"
+						/>
+					</div>
+				</div>
+
+				<!-- Action Buttons -->
+				<div class="flex gap-3 mt-5 flex-wrap">
+					<button
+						class="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-sm shadow-lg shadow-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed border-none cursor-pointer"
+						on:click={testConnection}
+						disabled={testingConnection}
+					>
+						{#if testingConnection}
+							<span class="spinner"></span>
+							{isRtl ? 'جاري الاختبار...' : 'Testing...'}
+						{:else}
+							🔗 {isRtl ? 'اختبار الاتصال' : 'Test Connection'}
+						{/if}
+					</button>
+
+					<button
+						class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all text-sm shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed border-none cursor-pointer"
+						on:click={syncProducts}
+						disabled={syncing}
+					>
+						{#if syncing}
+							<span class="spinner"></span>
+							{isRtl ? 'جاري المزامنة...' : 'Syncing...'}
+						{:else}
+							🔄 {isRtl ? 'مزامنة المنتجات' : 'Sync Products'}
+						{/if}
+					</button>
+				</div>
+
+				<!-- Connection Status -->
+				{#if connectionStatus}
+					<div class="mt-4 p-3 rounded-xl text-sm {connectionStatus.success ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}">
+						<span class={connectionStatus.success ? 'text-emerald-700' : 'text-red-600'}>
+							{connectionStatus.success ? '✅' : '❌'} {connectionStatus.message}
+						</span>
+					</div>
+					{#if connectionStatus.counts}
+						<div class="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 mt-3">
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.totalProducts?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'منتجات' : 'Products'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.totalBatches?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'دفعات' : 'Batches'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.manualBarcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود يدوي' : 'Manual Barcodes'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.autoBarcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود تلقائي' : 'Auto Barcodes'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.unit2Barcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود وحدة 2' : 'Unit2 Barcodes'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.unit3Barcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود وحدة 3' : 'Unit3 Barcodes'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.unitBarcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود وحدات' : 'Unit Barcodes'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.extraBarcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود إضافي' : 'Extra Barcodes'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
+								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.totalAll?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'إجمالي صفوف الجداول' : 'Total Table Rows'}</span>
+							</div>
+							<div class="flex flex-col items-center p-3 bg-emerald-50 border border-emerald-300 rounded-xl">
+								<span class="text-2xl font-bold text-emerald-600">{connectionStatus.counts.uniqueBarcodes?.toLocaleString()}</span>
+								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود فريد (سيتم مزامنته)' : 'Unique Barcodes (will sync)'}</span>
+							</div>
+						</div>
+					{/if}
+				{/if}
+
+				<!-- Sync Status -->
+				{#if syncStatus}
+					<div class="mt-4 p-3 rounded-xl text-sm {syncStatus.success ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}">
+						<span class={syncStatus.success ? 'text-emerald-700' : 'text-red-600'}>
+							{syncStatus.message}
+						</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Products Tab -->
+	{#if activeTab === 'products'}
+		<div class="flex-1 overflow-y-auto p-5 flex flex-col animate-in">
+			<!-- Search & Filters -->
+			<div class="flex gap-3 items-center flex-wrap mb-3">
+				<div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex-1 min-w-[200px] focus-within:border-blue-500 transition-colors">
+					<span class="text-sm">🔍</span>
+					<input
+						type="text"
+						class="flex-1 bg-transparent border-none text-slate-800 text-xs font-medium outline-none"
+						bind:value={searchBarcode}
+						on:input={onSearchChange}
+						placeholder={isRtl ? 'بحث بالباركود...' : 'Search by barcode...'}
+					/>
+					{#if searchBarcode}
+						<button class="bg-slate-200 border-none text-slate-500 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer text-[10px] hover:bg-slate-300" on:click={() => { searchBarcode = ''; onFilterChange(); }}>✕</button>
+					{/if}
+				</div>
+				<div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex-1 min-w-[200px] focus-within:border-blue-500 transition-colors">
+					<span class="text-sm">📝</span>
+					<input
+						type="text"
+						class="flex-1 bg-transparent border-none text-slate-800 text-xs font-medium outline-none"
+						bind:value={searchName}
+						on:input={onSearchChange}
+						placeholder={isRtl ? 'بحث بالاسم...' : 'Search by product name...'}
+					/>
+					{#if searchName}
+						<button class="bg-slate-200 border-none text-slate-500 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer text-[10px] hover:bg-slate-300" on:click={() => { searchName = ''; onFilterChange(); }}>✕</button>
+					{/if}
+				</div>
+				<label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer whitespace-nowrap font-medium">
+					<input type="checkbox" class="accent-blue-600" bind:checked={showBaseOnly} on:change={onFilterChange} />
+					<span>{isRtl ? 'الوحدات الأساسية فقط' : 'Base units only'}</span>
+				</label>
+				<span class="text-xs text-slate-500 whitespace-nowrap px-3 py-1 bg-slate-100 rounded-full font-semibold">
+					{totalFiltered.toLocaleString()} / {totalSynced.toLocaleString()}
+				</span>
+			</div>
+
+			<!-- Products Table -->
+			{#if loading}
+				<div class="flex flex-col items-center justify-center gap-3 py-16 text-slate-400">
+					<span class="spinner large"></span>
+					<span>{isRtl ? 'جاري التحميل...' : 'Loading...'}</span>
+				</div>
+			{:else if products.length === 0}
+				<div class="flex flex-col items-center justify-center gap-2 py-16 text-slate-400">
+					<span class="text-5xl">📭</span>
+					<p>{isRtl ? 'لا توجد منتجات متزامنة' : 'No synced products found'}</p>
+					<p class="text-xs text-slate-400">{isRtl ? 'اذهب لإعدادات الخادم وقم بالمزامنة' : 'Go to Server Settings and sync products'}</p>
+				</div>
+			{:else}
+				<div class="overflow-auto flex-1 rounded-xl border border-slate-200">
+					<table class="w-full border-collapse text-xs">
+						<thead class="sticky top-0 z-10">
+							<tr>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap w-[50px]">#</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[130px]">{isRtl ? 'الباركود' : 'Barcode'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[100px]">{isRtl ? 'باركود تلقائي' : 'Auto Barcode'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[130px]">{isRtl ? 'باركود الأساس' : 'Parent Barcode'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[200px]">{isRtl ? 'الاسم (إنجليزي)' : 'Name (English)'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[200px]">{isRtl ? 'الاسم (عربي)' : 'Name (Arabic)'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-start font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap min-w-[80px]">{isRtl ? 'الوحدة' : 'Unit'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-blue-700 border-r border-blue-500 whitespace-nowrap w-[60px]">{isRtl ? 'الكمية' : 'Qty'}</th>
+								<th class="bg-blue-600 text-white px-3 py-2.5 text-center font-bold border-b-2 border-blue-700 whitespace-nowrap w-[50px]">{isRtl ? 'أساسي' : 'Base'}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each products as product, index}
+								<tr class="transition-colors duration-150 {product.is_base_unit ? 'bg-emerald-50 hover:bg-emerald-100' : index % 2 === 0 ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/50 hover:bg-slate-100'}">
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center text-slate-500">{(currentPage - 1) * pageSize + index + 1}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 font-mono text-xs text-slate-700">{product.barcode}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 font-mono text-xs text-slate-500">{product.auto_barcode || '-'}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 font-mono text-xs text-slate-500">{product.parent_barcode || '-'}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-slate-700">{product.product_name_en || '-'}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-slate-700" dir="rtl">{product.product_name_ar || '-'}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-slate-600 font-medium">{product.unit_name || '-'}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center text-slate-600">{product.unit_qty}</td>
+									<td class="px-3 py-2 border-b border-slate-200 text-center">
+										{#if product.is_base_unit}
+											<span class="bg-emerald-500 text-white rounded-full w-[22px] h-[22px] inline-flex items-center justify-center text-xs font-bold">✓</span>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+
+				<!-- Pagination -->
+				{#if totalPages > 1}
+					<div class="flex items-center justify-center gap-2 py-3">
+						<button
+							class="bg-white border border-slate-200 text-slate-600 rounded-xl px-3 py-1.5 cursor-pointer text-sm transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+							disabled={currentPage === 1}
+							on:click={() => goToPage(1)}
+						>⏮</button>
+						<button
+							class="bg-white border border-slate-200 text-slate-600 rounded-xl px-3 py-1.5 cursor-pointer text-sm transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+							disabled={currentPage === 1}
+							on:click={() => goToPage(currentPage - 1)}
+						>◀</button>
+						<span class="text-xs text-slate-500 px-2 font-medium">
+							{currentPage} / {totalPages}
+						</span>
+						<button
+							class="bg-white border border-slate-200 text-slate-600 rounded-xl px-3 py-1.5 cursor-pointer text-sm transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+							disabled={currentPage === totalPages}
+							on:click={() => goToPage(currentPage + 1)}
+						>▶</button>
+						<button
+							class="bg-white border border-slate-200 text-slate-600 rounded-xl px-3 py-1.5 cursor-pointer text-sm transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+							disabled={currentPage === totalPages}
+							on:click={() => goToPage(totalPages)}
+						>⏭</button>
+					</div>
+				{/if}
+			{/if}
+		</div>
+	{/if}
+</div>
+
+<style>
+	/* Spinner */
+	.spinner {
+		display: inline-block;
+		width: 16px;
+		height: 16px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: white;
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+
+	.spinner.large {
+		width: 32px;
+		height: 32px;
+		border-width: 3px;
+		border-color: rgba(100, 116, 139, 0.3);
+		border-top-color: #3b82f6;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	.animate-in {
+		animation: fadeIn 0.2s ease-out;
+	}
+</style>
