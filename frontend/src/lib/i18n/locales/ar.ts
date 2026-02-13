@@ -82,6 +82,8 @@ export const arabicLocale: LocaleData = {
       poRequests: "طلبات الشراء",
       stockRequests: "طلبات المخزون",
       btRequests: "طلبات النقل",
+      nearExpiryRequests: "تقارير قرب الانتهاء",
+      customerProductRequests: "طلبات العملاء",
       tasks: "المهام",
       notification: "الإشعارات",
       media: "الوسائط",
@@ -199,6 +201,8 @@ export const arabicLocale: LocaleData = {
       dailyChecklistManager: "مدير قائمة التحقق اليومية",
       incidentManager: "إدارة الحوادث",
       productRequest: "طالب المنتجات",
+      nearExpiry: "قرب انتهاء الصلاحية",
+      customerProductRequest: "طلب منتج عميل",
       assignTasks: "تعيين المهام",
       createTask: "إنشاء مهمة",
       completeTask: "إكمال المهمة",
@@ -214,6 +218,9 @@ export const arabicLocale: LocaleData = {
         assignments: "التكليفات",
         purchaseVoucher: "القسائم",
         aiChat: "أكورا",
+        stock: "المخزون",
+        posPending: "POS معلق",
+        posClosed: "POS مغلق",
       },
       // Error messages
       error: {

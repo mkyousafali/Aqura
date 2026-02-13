@@ -80,6 +80,8 @@ export const englishLocale: LocaleData = {
       poRequests: "PO Requests",
       stockRequests: "Stock Requests",
       btRequests: "BT Requests",
+      nearExpiryRequests: "Near Expiry Reports",
+      customerProductRequests: "Customer Requests",
       tasks: "Tasks",
       notification: "Notification",
       media: "Media",
@@ -192,6 +194,8 @@ export const englishLocale: LocaleData = {
       dailyChecklistManager: "Daily Checklist Manager",
       incidentManager: "Incident Manager",
       productRequest: "Products Requestor",
+      nearExpiry: "Near Expiry Date",
+      customerProductRequest: "Customer Request",
       assignTasks: "Assign Tasks",
       createTask: "Create Task",
       completeTask: "Complete Task",
@@ -207,6 +211,9 @@ export const englishLocale: LocaleData = {
         assignments: "Assignments",
         purchaseVoucher: "Voucher",
         aiChat: "Aqura",
+        stock: "Stock",
+        posPending: "POS Pending",
+        posClosed: "POS Closed",
       },
       // Error messages
       error: {

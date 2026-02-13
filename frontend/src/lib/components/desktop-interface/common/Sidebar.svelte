@@ -128,6 +128,8 @@
 	import PORequestsList from '$lib/components/desktop-interface/master/stock/PORequestsList.svelte';
 	import StockRequestsList from '$lib/components/desktop-interface/master/stock/StockRequestsList.svelte';
 	import BTRequestsList from '$lib/components/desktop-interface/master/stock/BTRequestsList.svelte';
+	import NearExpiryRequestsList from '$lib/components/desktop-interface/master/stock/NearExpiryRequestsList.svelte';
+	import CustomerProductRequestsList from '$lib/components/desktop-interface/master/stock/CustomerProductRequestsList.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -303,11 +305,16 @@
 		
 		window.addEventListener('online', handleOnline);
 		window.addEventListener('offline', handleOffline);
+
+		// Listen for open-near-expiry-requests event from NearExpiryManager
+		const handleOpenNearExpiryRequests = () => openNearExpiryRequestsList();
+		window.addEventListener('open-near-expiry-requests', handleOpenNearExpiryRequests);
 		
 		// Cleanup on unmount
 		return () => {
 			window.removeEventListener('online', handleOnline);
 			window.removeEventListener('offline', handleOffline);
+			window.removeEventListener('open-near-expiry-requests', handleOpenNearExpiryRequests);
 		};
 	});
 
@@ -1967,6 +1974,50 @@ function openApprovalCenter() {
 			position: { 
 				x: 180 + (Math.random() * 100),
 				y: 180 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openNearExpiryRequestsList() {
+		collapseAllMenus();
+		const windowId = generateWindowId('near-expiry-requests');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Near Expiry Reports #${instanceNumber}`,
+			component: NearExpiryRequestsList,
+			icon: '⏰',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 200 + (Math.random() * 100),
+				y: 200 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openCustomerProductRequestsList() {
+		collapseAllMenus();
+		const windowId = generateWindowId('customer-product-requests');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Customer Requests #${instanceNumber}`,
+			component: CustomerProductRequestsList,
+			icon: '🛍️',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 220 + (Math.random() * 100),
+				y: 220 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -4398,6 +4449,22 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openBTRequestsList}>
 								<span class="menu-icon">🔄</span>
 								<span class="menu-text">{t('nav.btRequests') || 'BT Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_NEAR_EXPIRY_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openNearExpiryRequestsList}>
+								<span class="menu-icon">⏰</span>
+								<span class="menu-text">{t('nav.nearExpiryRequests') || 'Near Expiry Reports'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_CUSTOMER_PRODUCT_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCustomerProductRequestsList}>
+								<span class="menu-icon">🛍️</span>
+								<span class="menu-text">{t('nav.customerProductRequests') || 'Customer Requests'}</span>
 							</button>
 						</div>
 					{/if}

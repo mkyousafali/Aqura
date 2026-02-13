@@ -76,7 +76,7 @@ export const GET: RequestHandler = async () => {
 			},
 			STOCK: {
 				DASHBOARD: [],
-				MANAGE: ['STOCK_PO_REQUESTS', 'STOCK_STOCK_REQUESTS', 'STOCK_BT_REQUESTS'],
+				MANAGE: ['STOCK_PO_REQUESTS', 'STOCK_STOCK_REQUESTS', 'STOCK_BT_REQUESTS', 'STOCK_NEAR_EXPIRY_REQUESTS', 'STOCK_CUSTOMER_PRODUCT_REQUESTS'],
 				OPERATIONS: ['STOCK_PRODUCT_REQUEST'],
 				REPORTS: []
 			},
@@ -203,7 +203,9 @@ export const GET: RequestHandler = async () => {
 			STOCK_PRODUCT_REQUEST: 'Product Request',
 			STOCK_PO_REQUESTS: 'PO Requests',
 			STOCK_STOCK_REQUESTS: 'Stock Requests',
-			STOCK_BT_REQUESTS: 'BT Requests'
+			STOCK_BT_REQUESTS: 'BT Requests',
+			STOCK_NEAR_EXPIRY_REQUESTS: 'Near Expiry Reports',
+			STOCK_CUSTOMER_PRODUCT_REQUESTS: 'Customer Requests'
 		};
 
 		// Actual button code mappings (for Controls section)
