@@ -1007,6 +1007,13 @@
 			icon: '📤',
 			color: 'red',
 			handler: onExportForEntry
+		},
+		{
+			id: 'reports',
+			label: 'Near Expiry Reports',
+			icon: '⏰',
+			color: 'red',
+			handler: () => window.dispatchEvent(new CustomEvent('open-near-expiry-requests'))
 		}
 	];
 

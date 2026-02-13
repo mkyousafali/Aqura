@@ -49,8 +49,11 @@
 	// Emergencies Menu state
 	let showEmergenciesMenu = false;
 	
+	// Stock Menu state
+	let showStockMenu = false;
+	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ18';
+	let mobileVersion = 'AQ19';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
@@ -599,6 +602,7 @@
 		if (path === '/mobile-interface/my-checklist' || path === '/mobile-interface/my-checklist/') return getTranslation('hr.dailyChecklist.myDailyChecklist');
 		if (path === '/mobile-interface/ai-chat' || path === '/mobile-interface/ai-chat/') return getTranslation('mobile.bottomNav.aiChat');
 		if (path === '/mobile-interface/product-request' || path === '/mobile-interface/product-request/') return getTranslation('mobile.productRequest');
+		if (path === '/mobile-interface/near-expiry' || path === '/mobile-interface/near-expiry/') return getTranslation('mobile.nearExpiry');
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -857,7 +861,7 @@
 		<nav class="bottom-nav">
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
+				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
 					{#if taskCount > 0}
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
@@ -907,7 +911,7 @@
 
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showHRMenu = false; showTasksMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
 					{#if incidentCount > 0}
 						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
 					{/if}
@@ -951,7 +955,7 @@
 
 			<!-- Human Resources Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showTasksMenu = false; showEmergenciesMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -987,8 +991,51 @@
 				{/if}
 			</div>
 
+			<!-- Stock Menu Button -->
+			<div class="nav-item-menu-container">
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/customer-product-request')}>
+					<div class="nav-icon">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+						</svg>
+					</div>
+					<span class="nav-label">{getTranslation('mobile.bottomNav.stock')}</span>
+				</button>
+				
+				<!-- Stock Submenu -->
+				{#if showStockMenu}
+					<div class="stock-submenu-overlay" on:click={() => showStockMenu = false}></div>
+					<div class="stock-submenu">
+						<a href="/mobile-interface/product-request" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/product-request')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+								<polyline points="14 2 14 8 20 8"/>
+								<line x1="12" y1="18" x2="12" y2="12"/>
+								<line x1="9" y1="15" x2="15" y2="15"/>
+							</svg>
+							<span>{getTranslation('mobile.productRequest')}</span>
+						</a>
+						<a href="/mobile-interface/near-expiry" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/near-expiry')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<circle cx="12" cy="12" r="10"/>
+								<polyline points="12 6 12 12 16 14"/>
+							</svg>
+							<span>{getTranslation('mobile.nearExpiry')}</span>
+						</a>
+						<a href="/mobile-interface/customer-product-request" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/customer-product-request')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+								<circle cx="8.5" cy="7" r="4"/>
+								<path d="M20 8v6M23 11h-6"/>
+							</svg>
+							<span>{getTranslation('mobile.customerProductRequest')}</span>
+						</a>
+					</div>
+				{/if}
+			</div>
+
 			<!-- AI Chat Button -->
-			<a href="/mobile-interface/ai-chat" class="nav-item ai-chat-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/ai-chat')} on:click={() => { showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }}>
+			<a href="/mobile-interface/ai-chat" class="nav-item ai-chat-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/ai-chat')} on:click={() => { showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
 				<div class="nav-icon ai-chat-icon">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -2047,6 +2094,90 @@
 
 	.nav-item.tasks-btn.active .nav-icon {
 		color: #3B82F6;
+	}
+
+	/* Stock Submenu Styles */
+	.stock-submenu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 95;
+	}
+
+	.stock-submenu {
+		position: fixed;
+		bottom: 3.8rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 -2px 16px rgba(245, 158, 11, 0.2);
+		min-width: 180px;
+		max-width: calc(100vw - 32px);
+		z-index: 100;
+		overflow: hidden;
+		animation: slideUp 0.2s ease;
+		border: 1px solid rgba(245, 158, 11, 0.2);
+	}
+
+	:global([dir="rtl"]) .stock-submenu {
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.stock-submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		color: #374151;
+		text-decoration: none;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		width: 100%;
+		text-align: left;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.stock-submenu-item:last-child {
+		border-bottom: none;
+	}
+
+	.stock-submenu-item:hover {
+		background: rgba(245, 158, 11, 0.05);
+		color: #F59E0B;
+	}
+
+	.stock-submenu-item.active {
+		background: rgba(245, 158, 11, 0.1);
+		color: #D97706;
+		font-weight: 600;
+	}
+
+	.stock-submenu-item svg {
+		flex-shrink: 0;
+		color: #F59E0B;
+	}
+
+	.nav-item.stock-menu-btn {
+		color: #6B7280;
+	}
+
+	.nav-item.stock-menu-btn:hover {
+		color: #F59E0B;
+		background: rgba(245, 158, 11, 0.05);
+	}
+
+	.nav-item.stock-menu-btn.active {
+		color: #F59E0B;
+	}
+
+	.nav-item.stock-menu-btn.active .nav-icon {
+		color: #F59E0B;
 	}
 
 	.mobile-error {

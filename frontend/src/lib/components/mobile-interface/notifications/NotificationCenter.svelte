@@ -18,9 +18,11 @@
 	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
-	// Auto-load notifications when currentUser becomes available
-	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading) {
-		loadNotifications();
+	// Auto-load notifications when currentUser becomes available (after initial mount)
+	let hasAttemptedInitialLoad = false;
+	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading && hasAttemptedInitialLoad) {
+		console.log('🔄 [Mobile NotificationCenter] Reactive: User available, auto-loading notifications');
+		forceRefreshNotifications(false);
 	}
 
 	// Push notification state
@@ -358,19 +360,17 @@
 	}
 
 	// Reactive statement to load notifications when user is available
-	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading) {
-		console.log('🔄 [Mobile NotificationCenter] Reactive: User available, loading notifications');
-		loadNotifications();
-	}
+	// (handled by the reactive at the top with hasAttemptedInitialLoad guard)
 
 	// Load notifications on mount
-	onMount(async () => {
+	onMount(() => {
 		console.log('🔔 [Mobile NotificationCenter] onMount called, user:', $currentUser?.id);
 		
-		// Force load notifications even if user not immediately available
-		// The forceRefreshNotifications will handle it
+		// Fire notification loading immediately — don't await, let Phase 1 show instantly
 		console.log('🔔 [Mobile NotificationCenter] Force loading notifications from onMount');
-		await forceRefreshNotifications(false); // Not silent, show loading
+		forceRefreshNotifications(false).then(() => {
+			hasAttemptedInitialLoad = true;
+		});
 		
 		// Listen for refresh events from the global header
 		const handleRefresh = () => {
@@ -423,20 +423,54 @@
 			const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, currentPage, pageSize);
 			console.log('📥 [Mobile NotificationCenter] Received', apiNotifications.length, 'notifications from API');
 			
-			allNotifications = await transformNotificationData(apiNotifications);
-			console.log('✅ [Mobile NotificationCenter] Transformed to', allNotifications.length, 'notifications');
+			// ⚡ PHASE 1: Show notifications INSTANTLY with basic data (no attachments)
+			allNotifications = apiNotifications.map(notification => ({
+				id: notification.id,
+				title: notification.title,
+				message: notification.message,
+				type: notification.type,
+				timestamp: formatTimestamp(notification.created_at),
+				read: notification.is_read || false,
+				priority: notification.priority,
+				createdBy: notification.created_by_name,
+				target_users: notification.target_users,
+				target_type: notification.target_type,
+				targetBranch: 'all',
+				status: notification.status,
+				readCount: notification.read_count,
+				totalRecipients: notification.total_recipients,
+				metadata: notification.metadata || {},
+				image_url: null,
+				attachments: []
+			}));
+			isLoading = false; // Show notifications immediately!
+			console.log('⚡ [Mobile NotificationCenter] Phase 1: Showing', allNotifications.length, 'notifications instantly');
 			
 			hasMoreNotifications = apiNotifications.length === pageSize;
+			
+			// ⚡ PHASE 2: Lazy-load attachments in background (only for unread)
+			const unreadApi = apiNotifications.filter(n => !n.is_read);
+			console.log(`⚡ [Mobile NotificationCenter] Phase 2: Loading attachments for ${unreadApi.length} unread in background`);
+			
+			Promise.all([
+				unreadApi.length > 0 ? transformNotificationData(unreadApi) : Promise.resolve([]),
+				loadUserCache()
+			]).then(([transformed]) => {
+				const transformedIds = new Set(transformed.map((n: any) => n.id));
+				allNotifications = [
+					...transformed,
+					...allNotifications.filter(n => !transformedIds.has(n.id))
+				];
+				console.log('✅ [Mobile NotificationCenter] Phase 2: Attachments loaded for', transformed.length, 'unread notifications');
+			}).catch(err => {
+				console.error('⚠️ [Mobile NotificationCenter] Background attachment loading failed:', err);
+			});
 
 		} catch (error) {
 			console.error('❌ [Mobile Notification] Error loading notifications:', error);
 			errorMessage = 'Failed to load notifications. Please try again.';
-		} finally {
 			isLoading = false;
 		}
-		
-		// Load user cache for displaying usernames
-		await loadUserCache();
 	}
 
 	// Load more notifications (infinite scroll)
@@ -578,46 +612,54 @@
 			errorMessage = '';
 			currentPage = 0;
 			
-			if (!silent) {
-				
-			}
+			const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user', currentPage, pageSize);
 			
-			if (isAdminOrMaster) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user', currentPage, pageSize);
-				allNotifications = await transformNotificationData(apiNotifications);
-				hasMoreNotifications = apiNotifications.length === pageSize;
-			} else if ($currentUser?.id) {
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id, currentPage, pageSize);
-				allNotifications = userNotifications.map(notification => ({
-					id: notification.notification_id,
-					title: notification.title,
-					message: notification.message,
-					type: notification.type,
-					content: notification.message,
-					metadata: notification.metadata || {},
-					read: notification.is_read,
-					timestamp: formatTimestamp(notification.created_at),
-					createdBy: notification.created_by_name,
-					attachments: notification.attachments || []
-				}));
-				hasMoreNotifications = userNotifications.length === pageSize;
-			}
+			// ⚡ PHASE 1: Show notifications INSTANTLY with basic data
+			allNotifications = apiNotifications.map(notification => ({
+				id: notification.id,
+				title: notification.title,
+				message: notification.message,
+				type: notification.type,
+				timestamp: formatTimestamp(notification.created_at),
+				read: notification.is_read || false,
+				priority: notification.priority,
+				createdBy: notification.created_by_name,
+				target_users: notification.target_users,
+				target_type: notification.target_type,
+				targetBranch: 'all',
+				status: notification.status,
+				readCount: notification.read_count,
+				totalRecipients: notification.total_recipients,
+				metadata: notification.metadata || {},
+				image_url: null,
+				attachments: []
+			}));
+			hasMoreNotifications = apiNotifications.length === pageSize;
+			isLoading = false; // Always show immediately regardless of silent
+			console.log('⚡ [Mobile NotificationCenter] Phase 1: Showing', allNotifications.length, 'notifications instantly');
 			
-			if (!silent) {
-				
-			}
-			
-			// Reload user cache after refresh (always silent)
-			await loadUserCache();
+			// ⚡ PHASE 2: Lazy-load attachments in background (only for unread)
+			const unreadApi = apiNotifications.filter(n => !n.is_read);
+			Promise.all([
+				unreadApi.length > 0 ? transformNotificationData(unreadApi) : Promise.resolve([]),
+				loadUserCache()
+			]).then(([transformed]) => {
+				const transformedIds = new Set(transformed.map((n: any) => n.id));
+				allNotifications = [
+					...transformed,
+					...allNotifications.filter(n => !transformedIds.has(n.id))
+				];
+				console.log('✅ [Mobile NotificationCenter] Phase 2: Attachments loaded for', transformed.length, 'unread');
+			}).catch(err => {
+				console.error('⚠️ [Mobile NotificationCenter] Background attachment loading failed:', err);
+			});
 		} catch (error) {
+			console.error('❌ [Mobile Notification] Error force refreshing notifications:', error);
 			if (!silent) {
-				console.error('❌ [Mobile Notification] Error force refreshing notifications:', error);
 				errorMessage = 'Failed to refresh notifications. Please try again.';
 			}
 		} finally {
-			if (!silent) {
-				isLoading = false;
-			}
+			isLoading = false; // Always ensure loading is cleared
 		}
 	}
 
@@ -625,7 +667,7 @@
 	$: notifications = allNotifications;
 
 	let filterType = 'all';
-	let showUnreadOnly = false; // Show all notifications by default
+	let showUnreadOnly = true; // Show only unread by default (matches desktop)
 
 	// Computed filtered notifications
 	$: filteredNotifications = notifications.filter(notification => {
@@ -829,6 +871,31 @@
 			}
 			return 'Unknown User';
 		}
+	}
+
+	// Split message into text parts and URL parts
+	function splitMessageParts(message: string): { type: 'text' | 'url'; value: string }[] {
+		if (!message) return [];
+		const urlRegex = /(https?:\/\/[^\s]+)/g;
+		const parts: { type: 'text' | 'url'; value: string }[] = [];
+		let lastIndex = 0;
+		let match;
+		while ((match = urlRegex.exec(message)) !== null) {
+			if (match.index > lastIndex) {
+				parts.push({ type: 'text', value: message.slice(lastIndex, match.index) });
+			}
+			parts.push({ type: 'url', value: match[1] });
+			lastIndex = match.index + match[0].length;
+		}
+		if (lastIndex < message.length) {
+			parts.push({ type: 'text', value: message.slice(lastIndex) });
+		}
+		return parts;
+	}
+
+	function isImageUrl(url: string): boolean {
+		const lower = url.toLowerCase();
+		return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(lower) || lower.includes('supabase') && lower.includes('storage');
 	}
 
 	// Image modal functions
@@ -1151,18 +1218,45 @@
 		try {
 			if (document.hidden) return;
 			
-			const previousNotifications = [...allNotifications];
-			
 			// All users get the same notification format
 			if ($currentUser?.id) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id);
-				const newNotifications = await transformNotificationData(apiNotifications);
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, 0, pageSize);
 				
-				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
-					allNotifications = newNotifications;
-					// Update cache if notifications changed
-					await loadUserCache();
-				}
+				// Phase 1: Show basic data instantly
+				allNotifications = apiNotifications.map(notification => ({
+					id: notification.id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					timestamp: formatTimestamp(notification.created_at),
+					read: notification.is_read || false,
+					priority: notification.priority,
+					createdBy: notification.created_by_name,
+					target_users: notification.target_users,
+					target_type: notification.target_type,
+					targetBranch: 'all',
+					status: notification.status,
+					readCount: notification.read_count,
+					totalRecipients: notification.total_recipients,
+					metadata: notification.metadata || {},
+					image_url: null,
+					attachments: []
+				}));
+				
+				// Phase 2: Load attachments for unread only (background)
+				const unreadApi = apiNotifications.filter(n => !n.is_read);
+				Promise.all([
+					unreadApi.length > 0 ? transformNotificationData(unreadApi) : Promise.resolve([]),
+					loadUserCache()
+				]).then(([transformed]) => {
+					const transformedIds = new Set(transformed.map((n: any) => n.id));
+					allNotifications = [
+						...transformed,
+						...allNotifications.filter(n => !transformedIds.has(n.id))
+					];
+				}).catch(err => {
+					console.warn('⚠️ Silent refresh attachment loading failed:', err);
+				});
 			}
 		} catch (error) {
 			console.warn('Silent notification refresh failed:', error);
@@ -1371,7 +1465,17 @@
 							</div>
 							
 							<div class="notification-message">
-								{notification.message}
+								{#each splitMessageParts(notification.message) as part}
+									{#if part.type === 'url'}
+										{#if isImageUrl(part.value)}
+											<button class="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold rounded-lg border border-purple-200 cursor-pointer transition-all" on:click|stopPropagation={() => openImageModal(part.value)}>🖼️ View Image</button>
+										{:else}
+											<a href={part.value} target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded-lg border border-blue-200 cursor-pointer transition-all no-underline" on:click|stopPropagation>🔗 Open Link</a>
+										{/if}
+									{:else}
+										{part.value}
+									{/if}
+								{/each}
 							</div>
 							
 							<!-- Notification Image/Attachments Display -->

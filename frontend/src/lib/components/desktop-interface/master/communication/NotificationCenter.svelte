@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -42,7 +42,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Notification data from API
 	let allNotifications: any[] = [];
 	let previousNotificationIds: Set<string> = new Set();
-	let isLoading = false;
+	let isLoading = true;
+	let loadingProgress = 0;
+	let loadingStep = 'Connecting...';
 	let errorMessage = '';
 
 	// Image modal
@@ -54,6 +56,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		if (apiNotifications.length === 0) {
 			return [];
 		}
+
+		loadingProgress = 40;
+		loadingStep = 'Preparing notifications...';
 
 		// First, prepare all notifications with basic data
 		const transformedNotifications = apiNotifications.map(notification => ({
@@ -76,61 +81,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			attachments: []
 		}));
 
-		// Batch load all attachments at once (much more efficient)
-		try {
-			const notificationIds = apiNotifications.map(n => n.id);
-			console.log(`🖼️ [Notification] Batch loading attachments for ${notificationIds.length} notifications`);
-			
-			// Get all attachments for all notifications in one query
-			const allAttachmentsResult = await db.notificationAttachments.getBatchByNotificationIds(notificationIds);
-			
-			if (allAttachmentsResult.error) {
-				console.warn(`⚠️ [Notification] Error fetching attachments, continuing without them:`, allAttachmentsResult.error);
-			}
-			
-			if (allAttachmentsResult.data && allAttachmentsResult.data.length > 0) {
-				// Group attachments by notification_id
-				const attachmentsByNotification = allAttachmentsResult.data.reduce((acc, att) => {
-					if (!acc[att.notification_id]) {
-						acc[att.notification_id] = [];
-					}
-					acc[att.notification_id].push({
-						...att,
-						fileUrl: att.file_path && att.file_path.startsWith('http') 
-							? att.file_path 
-							: `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
-						fileName: att.file_name,
-						fileSize: att.file_size,
-						fileType: att.file_type,
-						uploadedAt: att.created_at,
-						uploadedBy: att.uploaded_by
-					});
-					return acc;
-				}, {});
-				
-				// Assign attachments to their respective notifications
-				transformedNotifications.forEach(transformed => {
-					const notificationAttachments = attachmentsByNotification[transformed.id] || [];
-					transformed.attachments = notificationAttachments;
-					
-					// Set the first image as the primary image_url for backward compatibility
-					const firstImage = notificationAttachments.find(att => att.file_type && att.file_type.startsWith('image/'));
-					if (firstImage) {
-						transformed.image_url = firstImage.fileUrl;
-					}
-				});
-				
-				console.log(`✅ [Notification] Batch loaded ${allAttachmentsResult.data.length} attachments for ${notificationIds.length} notifications`);
-			} else {
-				console.log(`📭 [Notification] No attachments found for any notifications`);
-			}
-		} catch (error) {
-			console.warn(`❌ [Notification] Failed to batch load attachments:`, error);
-			// Continue without attachments - don't crash the notification center
-		}
+		// ⚡ Load notification attachments AND task attachments in PARALLEL
+		const notificationIds = apiNotifications.map(n => n.id);
 
-		// Handle task attachments (batch load for performance)
-		// Collect all task IDs first
+		// Collect task IDs upfront so we can fire both requests at once
 		const taskIds = transformedNotifications
 			.filter(transformed => {
 				const notification = apiNotifications.find(n => n.id === transformed.id);
@@ -141,77 +95,88 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				return notification.metadata.task_id;
 			});
 
-		// Batch load all task attachments if we have any task IDs
-		if (taskIds.length > 0) {
-			try {
+		// Fire both attachment queries in parallel
+		loadingProgress = 55;
+		loadingStep = 'Loading attachments...';
+		const [notifAttachResult, taskAttachResult] = await Promise.allSettled([
+			// 1) Notification attachments
+			(async () => {
+				if (notificationIds.length === 0) return null;
+				console.log(`🖼️ [Notification] Batch loading attachments for ${notificationIds.length} notifications`);
+				return db.notificationAttachments.getBatchByNotificationIds(notificationIds);
+			})(),
+			// 2) Task attachments – chunks fired in parallel
+			(async () => {
+				if (taskIds.length === 0) return [];
 				console.log(`🖼️ [Notification] Batch loading task attachments for ${taskIds.length} tasks`);
-				
-				// Query all task attachments in chunks to avoid URL length limits
-				let taskAttachments = [];
-				const CHUNK_SIZE = 25; // Use smaller chunks to avoid URL limits
-				
+				const CHUNK_SIZE = 25;
+				const chunks: string[][] = [];
 				for (let i = 0; i < taskIds.length; i += CHUNK_SIZE) {
-					const chunk = taskIds.slice(i, i + CHUNK_SIZE);
-					try {
-						const { data, error } = await supabase
-							.from('task_images')
-							.select('*')
-							.in('task_id', chunk);
-						
-						if (error) {
-							console.warn(`⚠️ [Notification] Error fetching task attachments for chunk, continuing:`, error);
-						}
-						
-						if (data) {
-							taskAttachments.push(...data);
-						}
-					} catch (chunkError) {
-						console.warn(`⚠️ [Notification] Exception fetching task attachment chunk:`, chunkError);
-						// Continue with next chunk even if this one fails
-					}
+					chunks.push(taskIds.slice(i, i + CHUNK_SIZE));
 				}
+				const results = await Promise.allSettled(
+					chunks.map(chunk => supabase.from('task_images').select('*').in('task_id', chunk))
+				);
+				const combined: any[] = [];
+				for (const r of results) {
+					if (r.status === 'fulfilled' && r.value.data) combined.push(...r.value.data);
+				}
+				return combined;
+			})()
+		]);
 
-				if (taskAttachments && taskAttachments.length > 0) {
-					// Group attachments by task_id
-					const attachmentsByTaskId = taskAttachments.reduce((acc, attachment) => {
-						if (!acc[attachment.task_id]) {
-							acc[attachment.task_id] = [];
-						}
-						acc[attachment.task_id].push({
-							id: attachment.id,
-							fileName: attachment.file_name || 'Unknown File',
-							fileSize: attachment.file_size || 0,
-							fileType: attachment.file_type || 'application/octet-stream',
-							fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-								? attachment.file_path 
-								: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-							downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-								? attachment.file_path 
-								: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-							uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
-							uploadedAt: attachment.created_at
-						});
-						return acc;
-					}, {});
-					
-					// Assign task attachments to their respective notifications
-					for (const transformed of transformedNotifications) {
-						const notification = apiNotifications.find(n => n.id === transformed.id);
-						if (notification?.metadata?.task_id) {
-							const taskAttachmentsForNotification = attachmentsByTaskId[notification.metadata.task_id] || [];
-							transformed.attachments = [...transformed.attachments, ...taskAttachmentsForNotification];
-						}
-					}
-					
-					console.log(`✅ [Notification] Batch loaded ${taskAttachments.length} task attachments`);
-				} else {
-					console.log(`📭 [Notification] No task attachments found`);
-				}
-			} catch (error) {
-				console.warn(`❌ [Notification] Exception during batch task attachment loading:`, error);
-				// Continue without task attachments
-			}
+		// Apply notification attachments
+		loadingProgress = 75;
+		loadingStep = 'Processing attachments...';
+		if (notifAttachResult.status === 'fulfilled' && notifAttachResult.value?.data?.length) {
+			const attachmentsByNotification = notifAttachResult.value.data.reduce((acc: any, att: any) => {
+				if (!acc[att.notification_id]) acc[att.notification_id] = [];
+				acc[att.notification_id].push({
+					...att,
+					fileUrl: att.file_path?.startsWith('http') ? att.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
+					fileName: att.file_name, fileSize: att.file_size, fileType: att.file_type,
+					uploadedAt: att.created_at, uploadedBy: att.uploaded_by
+				});
+				return acc;
+			}, {} as Record<string, any[]>);
+			transformedNotifications.forEach(transformed => {
+				const notifAtts = attachmentsByNotification[transformed.id] || [];
+				transformed.attachments = notifAtts;
+				const firstImage = notifAtts.find((a: any) => a.fileType?.startsWith('image/'));
+				if (firstImage) transformed.image_url = firstImage.fileUrl;
+			});
+			console.log(`✅ [Notification] Loaded ${notifAttachResult.value.data.length} notification attachments`);
 		}
+
+		// Apply task attachments
+		if (taskAttachResult.status === 'fulfilled' && taskAttachResult.value?.length) {
+			const taskAttachments = taskAttachResult.value;
+			const attachmentsByTaskId = taskAttachments.reduce((acc: any, attachment: any) => {
+				if (!acc[attachment.task_id]) acc[attachment.task_id] = [];
+				acc[attachment.task_id].push({
+					id: attachment.id,
+					fileName: attachment.file_name || 'Unknown File',
+					fileSize: attachment.file_size || 0,
+					fileType: attachment.file_type || 'application/octet-stream',
+					fileUrl: attachment.file_path?.startsWith('http') ? attachment.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+					downloadUrl: attachment.file_path?.startsWith('http') ? attachment.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+					uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
+					uploadedAt: attachment.created_at
+				});
+				return acc;
+			}, {} as Record<string, any[]>);
+			for (const transformed of transformedNotifications) {
+				const notification = apiNotifications.find(n => n.id === transformed.id);
+				if (notification?.metadata?.task_id) {
+					const taskAtts = attachmentsByTaskId[notification.metadata.task_id] || [];
+					transformed.attachments = [...transformed.attachments, ...taskAtts];
+				}
+			}
+			console.log(`✅ [Notification] Loaded ${taskAttachments.length} task attachments`);
+		}
+
+		loadingProgress = 90;
+		loadingStep = 'Finalizing...';
 
 		return transformedNotifications;
 	}
@@ -347,21 +312,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	// Load notifications on mount
-	onMount(async () => {
+	onMount(() => {
 		console.log('🔔 [Desktop NotificationCenter] onMount called, activeUser:', activeUser?.id);
 		
-		// Check push notification support and status
+		// Check push notification support in background (don't block notification loading)
 		pushSupported = isPushSupported();
 		if (pushSupported && activeUser) {
-			pushEnabled = await hasActiveSubscription();
+			hasActiveSubscription().then(result => { pushEnabled = result; }).catch(() => {});
 		}
 
-		// Force load notifications - use forceRefreshNotifications like mobile
+		// Fire notification loading immediately — don't await, let Phase 1 show instantly
 		console.log('🔔 [Desktop NotificationCenter] Force loading notifications from onMount');
-		await forceRefreshNotifications();
-		
-		// Mark that we've attempted initial load, so reactive statement can work
-		hasAttemptedInitialLoad = true;
+		forceRefreshNotifications().then(() => {
+			hasAttemptedInitialLoad = true;
+		});
 	});
 
 	// Toggle push notifications
@@ -395,20 +359,70 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		try {
 			isLoading = true;
+			loadingProgress = 0;
+			loadingStep = 'Connecting...';
 			errorMessage = '';
+			await tick();
 			
 			console.log('📥 [Desktop NotificationCenter] Fetching notifications for user:', activeUser?.id);
 			
 			// Store previous notification IDs to detect new ones
 			const previousIds = new Set(allNotifications.map(n => n.id));
 			
+			loadingProgress = 10;
+			loadingStep = 'Fetching notifications...';
+			
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				console.log('👑 [NotificationCenter] Loading as admin/master');
 				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
 				console.log('📥 [Desktop NotificationCenter] Received', apiNotifications.length, 'notifications from API');
-				allNotifications = await transformNotificationData(apiNotifications);
-				console.log('✅ [Desktop NotificationCenter] Transformed to', allNotifications.length, 'notifications');
+				
+				// ⚡ PHASE 1: Show notifications INSTANTLY with basic data (no attachments)
+				const mapBasic = (notification: any) => ({
+					id: notification.id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					timestamp: formatTimestamp(notification.created_at),
+					read: notification.is_read || false,
+					priority: notification.priority,
+					createdBy: notification.created_by_name,
+					target_users: notification.target_users,
+					target_type: notification.target_type,
+					targetBranch: 'all',
+					status: notification.status,
+					readCount: notification.read_count,
+					totalRecipients: notification.total_recipients,
+					metadata: notification.metadata || {},
+					image_url: null,
+					attachments: []
+				});
+				allNotifications = apiNotifications.map(mapBasic);
+				isLoading = false; // Show notifications immediately!
+				loadingProgress = 100;
+				loadingStep = 'Done!';
+				console.log('⚡ [Desktop NotificationCenter] Phase 1: Showing', allNotifications.length, 'notifications instantly');
+				
+				// ⚡ PHASE 2: Lazy-load attachments in background (only for unread)
+				const unreadApi = apiNotifications.filter(n => !n.is_read);
+				console.log(`⚡ [Desktop NotificationCenter] Phase 2: Loading attachments for ${unreadApi.length} unread in background`);
+				
+				// Fire attachment loading + user cache in parallel, non-blocking
+				Promise.all([
+					unreadApi.length > 0 ? transformNotificationData(unreadApi) : Promise.resolve([]),
+					loadUserCache()
+				]).then(([transformed]) => {
+					// Merge transformed unread (with attachments) back into allNotifications
+					const transformedIds = new Set(transformed.map((n: any) => n.id));
+					allNotifications = [
+						...transformed,
+						...allNotifications.filter(n => !transformedIds.has(n.id))
+					];
+					console.log('✅ [Desktop NotificationCenter] Phase 2: Attachments loaded for', transformed.length, 'unread notifications');
+				}).catch(err => {
+					console.error('⚠️ [Desktop NotificationCenter] Background attachment loading failed:', err);
+				});
 			} else if (activeUser?.id) {
 				// Regular users see only their targeted notifications
 				console.log('👤 [NotificationCenter] Loading as regular user');
@@ -438,24 +452,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					isNewNotification(n)
 				);
 				
-				console.log(`🔍 [NotificationCenter] Checking for new notifications:`, {
-					totalNotifications: allNotifications.length,
-					previousCount: previousIds.size,
-					newNotificationsFound: newNotifications.length,
-					newNotificationIds: newNotifications.map(n => n.id),
-					soundManagerAvailable: !!notificationSoundManager
-				});
-				
 				// Play sound for new notifications
 				for (const notification of newNotifications) {
-					console.log(`🔊 [NotificationCenter] Attempting to play sound for notification:`, {
-						id: notification.id,
-						title: notification.title,
-						type: notification.type,
-						priority: notification.priority,
-						timestamp: notification.timestamp
-					});
-					
 					if (notificationSoundManager) {
 						try {
 							await notificationSoundManager.playNotificationSound({
@@ -468,24 +466,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								read: notification.read,
 								soundEnabled: true
 							});
-							console.log(`✅ [NotificationCenter] Sound played successfully for: ${notification.title}`);
 						} catch (error) {
-							console.error(`❌ [NotificationCenter] Failed to play sound for ${notification.title}:`, error);
+							console.error(`❌ [NotificationCenter] Failed to play sound:`, error);
 						}
-					} else {
-						console.warn(`⚠️ [NotificationCenter] Sound manager not available`);
 					}
 				}
-				
-				if (newNotifications.length > 0) {
-					console.log(`🔊 [NotificationCenter] Processed ${newNotifications.length} new notifications for sound`);
-				}
-			} else {
-				console.log(`🔍 [NotificationCenter] Initial load - no sound playing (${allNotifications.length} notifications loaded)`);
 			}
 			
-			// Load user cache after notifications are loaded
-			await loadUserCache();
+			// User cache already loaded in parallel above
+			loadingProgress = 100;
+			loadingStep = 'Done!';
 		} catch (error) {
 			console.error('Error loading notifications:', error);
 			errorMessage = 'Failed to load notifications. Please try again.';
@@ -497,10 +487,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Force refresh function that clears cache and reloads notifications
 	async function forceRefreshNotifications() {
 		try {
-			isLoading = true;
 			errorMessage = '';
-			
-			console.log('🔄 [Desktop NotificationCenter] Force refreshing notifications, user:', activeUser?.id);
 			
 			// Check if user is available
 			if (!activeUser?.id) {
@@ -509,9 +496,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				return;
 			}
 			
-			// Clear the current notifications array and user cache
-			allNotifications = [];
-			userCache = {};
+			// Only show loading spinner if we have no existing data
+			if (allNotifications.length === 0) {
+				isLoading = true;
+				loadingProgress = 0;
+				loadingStep = 'Connecting...';
+			}
+			
+			console.log('🔄 [Desktop NotificationCenter] Force refreshing notifications, user:', activeUser?.id);
 			
 			// Force clear any browser cache by adding timestamp to requests
 			if (isAdminOrMaster) {
@@ -519,13 +511,52 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.log('👑 [Desktop NotificationCenter] Loading as admin/master');
 				const apiNotifications = await notificationManagement.getAllNotifications(activeUser.id, 0, 30);
 				console.log('📥 [Desktop NotificationCenter] Received', apiNotifications.length, 'notifications');
-				console.log('🔍 [Desktop NotificationCenter] First notification is_read:', apiNotifications[0]?.is_read);
-				allNotifications = await transformNotificationData(apiNotifications);
-				console.log('✅ [Desktop NotificationCenter] Transformed to', allNotifications.length, 'notifications');
-				console.log('🔍 [Desktop NotificationCenter] First transformed read:', allNotifications[0]?.read);
 				
-				// Load user cache after getting notifications
-				await loadUserCache();
+				// ⚡ PHASE 1: Show notifications INSTANTLY with basic data (no attachments)
+				const mapBasic = (notification: any) => ({
+					id: notification.id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					timestamp: formatTimestamp(notification.created_at),
+					read: notification.is_read || false,
+					priority: notification.priority,
+					createdBy: notification.created_by_name,
+					target_users: notification.target_users,
+					target_type: notification.target_type,
+					targetBranch: 'all',
+					status: notification.status,
+					readCount: notification.read_count,
+					totalRecipients: notification.total_recipients,
+					metadata: notification.metadata || {},
+					image_url: null,
+					attachments: []
+				});
+				allNotifications = apiNotifications.map(mapBasic);
+				isLoading = false; // Show notifications immediately!
+				loadingProgress = 100;
+				loadingStep = 'Done!';
+				console.log('⚡ [Desktop NotificationCenter] Phase 1: Showing', allNotifications.length, 'notifications instantly');
+				
+				// ⚡ PHASE 2: Lazy-load attachments in background (only for unread)
+				const unreadApi = apiNotifications.filter(n => !n.is_read);
+				console.log(`⚡ [Desktop NotificationCenter] Phase 2: Loading attachments for ${unreadApi.length} unread in background`);
+				
+				// Fire attachment loading + user cache in parallel, non-blocking
+				Promise.all([
+					unreadApi.length > 0 ? transformNotificationData(unreadApi) : Promise.resolve([]),
+					loadUserCache()
+				]).then(([transformed]) => {
+					// Merge transformed unread (with attachments) back into allNotifications
+					const transformedIds = new Set(transformed.map((n: any) => n.id));
+					allNotifications = [
+						...transformed,
+						...allNotifications.filter(n => !transformedIds.has(n.id))
+					];
+					console.log('✅ [Desktop NotificationCenter] Phase 2: Attachments loaded for', transformed.length, 'unread notifications');
+				}).catch(err => {
+					console.error('⚠️ [Desktop NotificationCenter] Background attachment loading failed:', err);
+				});
 			} else if (activeUser?.id) {
 				console.log('👤 [Desktop NotificationCenter] Loading as regular user');
 				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
@@ -651,6 +682,31 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			case 'low': return 'priority-low';
 			default: return 'priority-medium';
 		}
+	}
+
+	// Split message into text parts and URL parts
+	function splitMessageParts(message: string): { type: 'text' | 'url'; value: string }[] {
+		if (!message) return [];
+		const urlRegex = /(https?:\/\/[^\s]+)/g;
+		const parts: { type: 'text' | 'url'; value: string }[] = [];
+		let lastIndex = 0;
+		let match;
+		while ((match = urlRegex.exec(message)) !== null) {
+			if (match.index > lastIndex) {
+				parts.push({ type: 'text', value: message.slice(lastIndex, match.index) });
+			}
+			parts.push({ type: 'url', value: match[1] });
+			lastIndex = match.index + match[0].length;
+		}
+		if (lastIndex < message.length) {
+			parts.push({ type: 'text', value: message.slice(lastIndex) });
+		}
+		return parts;
+	}
+
+	function isImageUrl(url: string): boolean {
+		const lower = url.toLowerCase();
+		return /\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(lower) || lower.includes('supabase') && lower.includes('storage');
 	}
 
 	// Image modal functions
@@ -924,24 +980,59 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Only refresh if user is not actively interacting with the page
 			if (document.hidden) return;
 			
-			const previousNotifications = [...allNotifications];
-			
 			if (isAdminOrMaster) {
-				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
-				const newNotifications = await transformNotificationData(apiNotifications);
+				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user', 0, 30);
 				
-				// Only update if there are actual changes
-				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
-					allNotifications = newNotifications;
-				}
+				// Phase 1: Show basic data instantly
+				allNotifications = apiNotifications.map(notification => ({
+					id: notification.id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					timestamp: formatTimestamp(notification.created_at),
+					read: notification.is_read || false,
+					priority: notification.priority,
+					createdBy: notification.created_by_name,
+					target_users: notification.target_users,
+					target_type: notification.target_type,
+					targetBranch: 'all',
+					status: notification.status,
+					readCount: notification.read_count,
+					totalRecipients: notification.total_recipients,
+					metadata: notification.metadata || {},
+					image_url: null,
+					attachments: []
+				}));
+				
+				// Phase 2: Load attachments for unread only (background)
+				const unreadApi = apiNotifications.filter(n => !n.is_read);
+				Promise.all([
+					unreadApi.length > 0 ? transformNotificationData(unreadApi) : Promise.resolve([]),
+					loadUserCache()
+				]).then(([transformed]) => {
+					const transformedIds = new Set(transformed.map((n: any) => n.id));
+					allNotifications = [
+						...transformed,
+						...allNotifications.filter(n => !transformedIds.has(n.id))
+					];
+				}).catch(err => {
+					console.warn('⚠️ Silent refresh attachment loading failed:', err);
+				});
 			} else if (activeUser?.id) {
 				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
-				const newNotifications = await transformNotificationData(userNotifications);
-				
-				// Only update if there are actual changes
-				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
-					allNotifications = newNotifications;
-				}
+				allNotifications = userNotifications.map(notification => ({
+					id: notification.notification_id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					timestamp: formatTimestamp(notification.created_at),
+					read: notification.is_read || false,
+					priority: notification.priority,
+					createdBy: notification.created_by_name,
+					targetUsers: 'user-specific',
+					targetBranch: 'user-specific',
+					recipientId: notification.recipient_id
+				}));
 			}
 		} catch (error) {
 			// Silent fail - don't show errors during background refresh
@@ -1006,9 +1097,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	<!-- Loading State -->
 	{#if isLoading}
-		<div class="loading-state">
-			<div class="loading-spinner"></div>
-			<p>Loading notifications...</p>
+		<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;min-height:200px;gap:16px;">
+			<style>
+				@keyframes notif-spin {
+					0% { transform: rotate(0deg); }
+					100% { transform: rotate(360deg); }
+				}
+			</style>
+			<div style="width:48px;height:48px;border:4px solid #e5e7eb;border-top:4px solid #10b981;border-radius:50%;animation:notif-spin 0.8s linear infinite;"></div>
+			<div style="text-align:center;">
+				<div style="font-size:22px;font-weight:800;color:#10b981;margin-bottom:4px;">{loadingProgress}%</div>
+				<div style="font-size:13px;color:#6b7280;font-weight:500;">{loadingStep || 'Loading...'}</div>
+			</div>
+			<div style="width:200px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;">
+				<div style="height:100%;background:#10b981;border-radius:3px;transition:width 0.3s ease;width:{loadingProgress}%;"></div>
+			</div>
 		</div>
 	{:else}
 		<!-- Filters -->
@@ -1089,7 +1192,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								</div>
 							</div>
 							<div class="notification-message">
-								{notification.message}
+								{#each splitMessageParts(notification.message) as part}
+									{#if part.type === 'url'}
+										{#if isImageUrl(part.value)}
+											<button class="inline-flex items-center gap-1 px-2.5 py-1 my-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-lg border border-purple-200 cursor-pointer transition-all" on:click|stopPropagation={() => openImageModal(part.value)}>🖼️ View Image</button>
+										{:else}
+											<a href={part.value} target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2.5 py-1 my-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 cursor-pointer transition-all no-underline" on:click|stopPropagation>🔗 Open Link</a>
+										{/if}
+									{:else}
+										{part.value}
+									{/if}
+								{/each}
 							</div>
 							
 							<!-- Target Users Display -->
@@ -1390,25 +1503,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.retry-btn:hover {
 		background: #b91c1c;
-	}
-
-	.loading-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 300px;
-		color: #6b7280;
-	}
-
-	.loading-spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #f3f4f6;
-		border-top: 3px solid #10b981;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 16px;
 	}
 
 	@keyframes spin {
