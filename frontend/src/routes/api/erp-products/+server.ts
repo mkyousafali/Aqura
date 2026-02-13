@@ -3,12 +3,14 @@ import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const { action, serverIp, databaseName, username, password } = await request.json();
+		const { action, serverIp, databaseName, username, password, erpBranchId, appBranchId, barcode, newExpiryDate } = await request.json();
 
 		if (action === 'test') {
 			return await testConnection(serverIp, databaseName, username, password);
 		} else if (action === 'sync') {
-			return await syncProducts(serverIp, databaseName, username, password);
+			return await syncProducts(serverIp, databaseName, username, password, erpBranchId, appBranchId);
+		} else if (action === 'update-expiry') {
+			return await updateExpiryDate(serverIp, databaseName, username, password, barcode, newExpiryDate);
 		}
 
 		return json({ error: 'Invalid action' }, { status: 400 });
@@ -85,7 +87,7 @@ async function testConnection(serverIp: string, databaseName: string, username: 
 	}
 }
 
-async function syncProducts(serverIp: string, databaseName: string, username: string, password: string) {
+async function syncProducts(serverIp: string, databaseName: string, username: string, password: string, erpBranchId?: number, appBranchId?: number) {
 	try {
 		const sql = await import('mssql');
 		
@@ -104,7 +106,7 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 
 		const pool = await sql.default.connect(config);
 
-		// Step 1: Get all products from ProductBatches (manual AND auto barcodes)
+		// Step 1: Get all products from ProductBatches (manual AND auto barcodes) + ExpiryDate & BranchID
 		const baseProductsResult = await pool.request().query(`
 			SELECT 
 				pb.ProductBatchID,
@@ -113,6 +115,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 				pb.MannualBarcode,
 				pb.Unit2Barcode,
 				pb.Unit3Barcode,
+				pb.ExpiryDate,
+				pb.BranchID,
 				p.ProductName,
 				p.ItemNameinSecondLanguage
 			FROM ProductBatches pb
@@ -150,6 +154,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 				ISNULL(u.UnitName, '') as UnitName,
 				pb.MannualBarcode,
 				pb.AutoBarcode,
+				pb.ExpiryDate,
+				pb.BranchID,
 				p.ProductName,
 				p.ItemNameinSecondLanguage
 			FROM ProductBarcodes pbc
@@ -165,6 +171,56 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 		// Step 4: Build flat list of all barcodes with product info
 		const products: any[] = [];
 		const addedBarcodes = new Set<string>(); // Track to avoid duplicates
+
+		// Build a map: barcode -> array of {branch_id, erp_branch_id, expiry_date}
+		// A single barcode can appear in multiple ProductBatches rows (different branches)
+		const expiryMap = new Map<string, any[]>();
+
+		function addExpiryEntry(barcode: string, expiryDate: any, erpBranchIdFromRow: any) {
+			if (!barcode) return;
+			const expStr = expiryDate ? new Date(expiryDate).toISOString().split('T')[0] : null;
+			if (!expStr || expStr === '1900-01-01' || expStr === '2000-01-01') return; // skip placeholder dates
+			const entry: any = {
+				expiry_date: expStr
+			};
+			// If we know the ERP branch ID from the erp_connections config, use it
+			if (appBranchId) entry.branch_id = appBranchId;
+			if (erpBranchId) entry.erp_branch_id = erpBranchId;
+			// Also store the row-level BranchID from ERP for reference
+			if (erpBranchIdFromRow != null) entry.erp_row_branch_id = Number(erpBranchIdFromRow);
+
+			if (!expiryMap.has(barcode)) expiryMap.set(barcode, []);
+			// Avoid duplicate entries for same branch+expiry
+			const existing = expiryMap.get(barcode)!;
+			const isDup = existing.some((e: any) => e.expiry_date === expStr && e.branch_id === entry.branch_id);
+			if (!isDup) existing.push(entry);
+		}
+
+		// Pre-populate expiryMap from all base products
+		for (const bp of baseProducts) {
+			const manualBC = String(bp.MannualBarcode || '').trim();
+			const autoBC = String(bp.AutoBarcode || '').trim();
+			const unit2BC = String(bp.Unit2Barcode || '').trim();
+			const unit3BC = String(bp.Unit3Barcode || '').trim();
+			// All barcodes from a ProductBatches row share the same ExpiryDate
+			if (manualBC) addExpiryEntry(manualBC, bp.ExpiryDate, bp.BranchID);
+			if (autoBC) addExpiryEntry(autoBC, bp.ExpiryDate, bp.BranchID);
+			if (unit2BC) addExpiryEntry(unit2BC, bp.ExpiryDate, bp.BranchID);
+			if (unit3BC) addExpiryEntry(unit3BC, bp.ExpiryDate, bp.BranchID);
+		}
+		// Also from unit barcodes
+		for (const u of allUnits) {
+			const unitBC = String(u.BarCode || '').trim();
+			if (!unitBC) continue;
+			// Find parent batch to get expiry
+			const parentBatch = baseProducts.find((bp: any) => String(bp.ProductBatchID) === String(u.ProductBatchID));
+			if (parentBatch) addExpiryEntry(unitBC, parentBatch.ExpiryDate, parentBatch.BranchID);
+		}
+		// And from extra barcodes
+		for (const eb of extraBarcodes) {
+			const ebBC = String(eb.Barcode || '').trim();
+			if (ebBC) addExpiryEntry(ebBC, eb.ExpiryDate, eb.BranchID);
+		}
 
 		// Pre-group units by ProductBatchID for O(1) lookup
 		const unitsByBatchId = new Map<string, any[]>();
@@ -200,7 +256,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 					product_name_ar: bp.ItemNameinSecondLanguage || '',
 					unit_name: matchedUnit ? matchedUnit.UnitName : (baseUnit ? baseUnit.UnitName : ''),
 					unit_qty: matchedUnit ? (parseFloat(matchedUnit.MultiFactor) || 1) : 1,
-					is_base_unit: true
+					is_base_unit: true,
+					expiry_dates: expiryMap.get(manualBC) || []
 				});
 				addedBarcodes.add(manualBC);
 			}
@@ -220,7 +277,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 						product_name_ar: bp.ItemNameinSecondLanguage || '',
 						unit_name: matchedUnit ? matchedUnit.UnitName : (baseUnit ? baseUnit.UnitName : ''),
 						unit_qty: matchedUnit ? (parseFloat(matchedUnit.MultiFactor) || 1) : 1,
-						is_base_unit: true
+						is_base_unit: true,
+						expiry_dates: expiryMap.get(autoBC) || []
 					});
 				}
 				// Always mark as added so it won't appear again from unit/extra barcodes
@@ -239,7 +297,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 					product_name_ar: bp.ItemNameinSecondLanguage || '',
 					unit_name: matchedUnit ? matchedUnit.UnitName : '',
 					unit_qty: matchedUnit ? (parseFloat(matchedUnit.MultiFactor) || 1) : 1,
-					is_base_unit: false
+					is_base_unit: false,
+					expiry_dates: expiryMap.get(unit2BC) || []
 				});
 				addedBarcodes.add(unit2BC);
 			}
@@ -256,7 +315,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 					product_name_ar: bp.ItemNameinSecondLanguage || '',
 					unit_name: matchedUnit ? matchedUnit.UnitName : '',
 					unit_qty: matchedUnit ? (parseFloat(matchedUnit.MultiFactor) || 1) : 1,
-					is_base_unit: false
+					is_base_unit: false,
+					expiry_dates: expiryMap.get(unit3BC) || []
 				});
 				addedBarcodes.add(unit3BC);
 			}
@@ -275,7 +335,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 					product_name_ar: bp.ItemNameinSecondLanguage || '',
 					unit_name: unit.UnitName || '',
 					unit_qty: parseFloat(unit.MultiFactor) || 1,
-					is_base_unit: parseFloat(unit.MultiFactor) === 1
+					is_base_unit: parseFloat(unit.MultiFactor) === 1,
+					expiry_dates: expiryMap.get(unitBC) || []
 				});
 				addedBarcodes.add(unitBC);
 			}
@@ -294,7 +355,8 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 				product_name_ar: eb.ItemNameinSecondLanguage || '',
 				unit_name: eb.UnitName || '',
 				unit_qty: 1,
-				is_base_unit: false
+				is_base_unit: false,
+				expiry_dates: expiryMap.get(ebBC) || []
 			});
 			addedBarcodes.add(ebBC);
 		}
@@ -311,6 +373,85 @@ async function syncProducts(serverIp: string, databaseName: string, username: st
 		return json({
 			success: false,
 			error: error.message || 'Failed to sync products'
+		}, { status: 500 });
+	}
+}
+
+async function updateExpiryDate(serverIp: string, databaseName: string, username: string, password: string, barcode: string, newExpiryDate: string) {
+	try {
+		const sql = await import('mssql');
+
+		const config: any = {
+			user: username,
+			password: password,
+			server: serverIp,
+			database: databaseName,
+			options: {
+				encrypt: false,
+				trustServerCertificate: true
+			},
+			connectionTimeout: 15000,
+			requestTimeout: 15000
+		};
+
+		const pool = await sql.default.connect(config);
+
+		// Find ProductBatchID(s) that match this barcode across all barcode columns
+		const findResult = await pool.request()
+			.input('barcode', sql.default.NVarChar, barcode)
+			.query(`
+				SELECT DISTINCT pb.ProductBatchID
+				FROM ProductBatches pb
+				WHERE pb.MannualBarcode = @barcode
+				   OR CAST(pb.AutoBarcode AS NVARCHAR(100)) = @barcode
+				   OR pb.Unit2Barcode = @barcode
+				   OR pb.Unit3Barcode = @barcode
+				UNION
+				SELECT DISTINCT pu.ProductBatchID
+				FROM ProductUnits pu
+				WHERE pu.BarCode = @barcode
+				UNION
+				SELECT DISTINCT pbc.ProductBatchID
+				FROM ProductBarcodes pbc
+				WHERE pbc.Barcode = @barcode
+			`);
+
+		const batchIds = findResult.recordset.map((r: any) => r.ProductBatchID);
+
+		if (batchIds.length === 0) {
+			await pool.close();
+			return json({ success: false, error: `Barcode ${barcode} not found in ERP` });
+		}
+
+		// Update ExpiryDate for all matching ProductBatches rows
+		const idList = batchIds.map((id: any) => `'${id}'`).join(',');
+
+		// Convert yyyy-mm-dd to yyyymmdd (SQL Server unambiguous format 112)
+		const safeDateStr = newExpiryDate.replace(/-/g, '');
+		console.log('Updating ERP expiry:', { barcode, newExpiryDate, safeDateStr, batchIds: idList });
+		const updateResult = await pool.request()
+			.input('newExpiry', sql.default.NVarChar, safeDateStr)
+			.query(`UPDATE ProductBatches SET ExpiryDate = CONVERT(datetime, @newExpiry, 112) WHERE ProductBatchID IN (${idList})`);
+
+		// Verify the update
+		const verifyResult = await pool.request()
+			.query(`SELECT ProductBatchID, ExpiryDate FROM ProductBatches WHERE ProductBatchID IN (${idList})`);
+		console.log('ERP expiry after update:', verifyResult.recordset);
+
+		await pool.close();
+
+		return json({
+			success: true,
+			updatedRows: updateResult.rowsAffected[0],
+			batchIds,
+			verifiedDates: verifyResult.recordset,
+			message: `Updated ${updateResult.rowsAffected[0]} batch(es) in ERP`
+		});
+	} catch (error: any) {
+		console.error('Update expiry error:', error);
+		return json({
+			success: false,
+			error: error.message || 'Failed to update expiry in ERP'
 		}, { status: 500 });
 	}
 }
