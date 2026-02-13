@@ -5,11 +5,31 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ43.16.10.10</p>
-		<p class="version-details">Desktop: 43 | Mobile: 16 | Cashier: 10 | Customer: 10</p>
+		<p class="version-title">Version AQ44.17.11.11</p>
+		<p class="version-details">Desktop: 44 | Mobile: 17 | Cashier: 11 | Customer: 11</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ Product Request System — PO/ST/BT with Approval Workflow</h3>
+		<p class="change-description">Complete product request system for Purchase Orders (PO), Stock Transfers (ST), and Branch Transfers (BT) with mobile creation, desktop management, quick task integration, notifications, and document management.</p>
+		<div class="change-details">
+			<h4>February 13, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Mobile — Product Request Creation:</b> Full mobile form with PO/ST/BT tabs, barcode scanning, product photo capture, branch and manager selection, item list with quantities, and XLSX import/export support.</li>
+				<li>✅ <b>Desktop — Product Request Management:</b> Three dedicated list views (PORequestsList, StockRequestsList, BTRequestsList) integrated into sidebar. Table view with From/To Branch, Requester, Manager, Items, Status, Date, Docs, and Approve/Reject columns.</li>
+				<li>✅ <b>Desktop — Request Detail View:</b> Expandable detail panel with item table, product photos with lightbox, availability checkboxes, and available quantity editing.</li>
+				<li>✅ <b>BT Approval Workflow:</b> Approval popup with Inventory Manager (IM) selector. Auto-preselects default IM from branch_default_positions table. Creates a Quick Task for the selected IM to upload the transfer document.</li>
+				<li>✅ <b>Document Upload Restriction:</b> Only the assigned Inventory Manager can upload/update BT documents. All other users see View-only access. IM assignment tracked via quick_task_assignments.</li>
+				<li>✅ <b>Task Completion Blocking:</b> IM cannot complete BT quick task until document_url exists in product_request_bt table. Enforced on both desktop and mobile completion flows.</li>
+				<li>✅ <b>Notifications:</b> Accept/reject sends real-time notification to the requester with status: 'published' for immediate visibility. DB trigger auto-creates notification_recipients from target_users array.</li>
+				<li>✅ <b>Quick Task Integration:</b> Auto-creates follow-up and process quick tasks on request creation. Auto-completes related quick tasks when request is accepted or rejected.</li>
+				<li>✅ <b>Authorization:</b> Accept/reject buttons visible only to the target_user_id (assigned receiver), preventing unauthorized actions.</li>
+				<li>✅ <b>Database:</b> 10 migration files — product_request_po/st/bt tables with RLS, product-request-photos storage bucket, stock-documents storage bucket, document_url columns, and quick_tasks linkage columns (product_request_id, product_request_type).</li>
+			</ul>
+		</div>
+		</div>
+
+		<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ Finance — Asset Manager (Complete Feature)</h3>
 		<p class="change-description">Full asset management system with 5 tabs: Add Asset, Download Template, Import Assets, Manage Assets, and Manage Categories/Sub Categories.</p>
 		<div class="change-details">
