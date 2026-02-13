@@ -134,10 +134,12 @@ export class NotificationManagementService {
         const from = page * pageSize;
         const to = from + pageSize - 1;
 
-        const { data, error } = await supabase
-          .from("notification_recipients")
-          .select(
-            `
+        // ⚡ Fire BOTH queries in parallel — read states for this user + notifications
+        const [recipientsResult, readStatesResult] = await Promise.all([
+          supabase
+            .from("notification_recipients")
+            .select(
+              `
 						notification_id,
 						user_id,
 						created_at,
@@ -158,44 +160,36 @@ export class NotificationManagementService {
 							target_users
 						)
 					`,
-          )
-          .eq("user_id", userId)
-          .eq("notifications.status", "published")
-          .order("created_at", { ascending: false, foreignTable: "notifications" })
-          .range(from, to);
+            )
+            .eq("user_id", userId)
+            .eq("notifications.status", "published")
+            .order("created_at", { ascending: false, foreignTable: "notifications" })
+            .range(from, to),
+          // Fetch ALL read states for this user (small per-user dataset)
+          supabase
+            .from("notification_read_states")
+            .select("notification_id, is_read, read_at")
+            .eq("user_id", userId)
+        ]);
 
+        const { data, error } = recipientsResult;
         if (error) {
           throw error;
         }
 
-        // ✅ Fetch read states in batches - only for returned notifications
+        // Build read states map from parallel query
         const readStatesMap = new Map<
           string,
           { is_read: boolean; read_at?: string }
         >();
 
-        if (data && data.length > 0) {
-          const notificationIds = data.map(d => d.notification_id);
-          
-          try {
-            // Batch read states query - only for these specific notifications
-            const { data: readStates, error: readError } = await supabase
-              .from("notification_read_states")
-              .select("notification_id, is_read, read_at")
-              .eq("user_id", userId)
-              .in("notification_id", notificationIds);
-
-            if (!readError && readStates) {
-              readStates.forEach((state) => {
-                readStatesMap.set(state.notification_id, {
-                  is_read: state.is_read,
-                  read_at: state.read_at,
-                });
-              });
-            }
-          } catch (readError) {
-            console.warn("⚠️ Could not fetch read states, continuing without:", readError);
-          }
+        if (readStatesResult.data) {
+          readStatesResult.data.forEach((state) => {
+            readStatesMap.set(state.notification_id, {
+              is_read: state.is_read,
+              read_at: state.read_at,
+            });
+          });
         }
 
         // Transform data to match NotificationItem interface
@@ -269,33 +263,28 @@ export class NotificationManagementService {
         throw error;
       }
 
-      // Fetch read states only for returned notifications
+      // Fetch ALL read states for this user (small per-user dataset, no long URLs)
       const readStatesMap = new Map<
         string,
         { is_read: boolean; read_at?: string }
       >();
 
-      if (data && data.length > 0) {
-        const notificationIds = data.map(d => d.notification_id);
+      try {
+        const { data: readStates, error: readError } = await supabase
+          .from("notification_read_states")
+          .select("notification_id, is_read, read_at")
+          .eq("user_id", userId);
 
-        try {
-          const { data: readStates, error: readError } = await supabase
-            .from("notification_read_states")
-            .select("notification_id, is_read, read_at")
-            .eq("user_id", userId)
-            .in("notification_id", notificationIds);
-
-          if (!readError && readStates) {
-            readStates.forEach((state) => {
-              readStatesMap.set(state.notification_id, {
-                is_read: state.is_read,
-                read_at: state.read_at,
-              });
+        if (!readError && readStates) {
+          readStates.forEach((state) => {
+            readStatesMap.set(state.notification_id, {
+              is_read: state.is_read,
+              read_at: state.read_at,
             });
-          }
-        } catch (readError) {
-          console.warn("⚠️ Could not fetch read states, continuing without:", readError);
+          });
         }
+      } catch (readError) {
+        console.warn("⚠️ Could not fetch read states, continuing without:", readError);
       }
 
       // Transform data to match UserNotificationItem interface
@@ -316,6 +305,9 @@ export class NotificationManagementService {
             created_at: notification.created_at,
             created_by_name: notification.created_by_name,
             recipient_id: recipient.user_id,
+            metadata: (notification as any).metadata || {},
+            task_id: (notification as any).task_id,
+            task_assignment_id: (notification as any).task_assignment_id,
           };
         }) || [];
 
@@ -651,6 +643,29 @@ export class NotificationManagementService {
         throw error;
       }
 
+      // Remove recipient row so notification never shows again for this user
+      const { error: deleteError } = await supabase
+        .from("notification_recipients")
+        .delete()
+        .eq("notification_id", notificationId)
+        .eq("user_id", userId);
+
+      if (deleteError) {
+        console.warn("⚠️ Failed to delete recipient row:", deleteError);
+      }
+
+      // If no recipients remain, delete the notification itself
+      const { count } = await supabase
+        .from("notification_recipients")
+        .select("*", { count: "exact", head: true })
+        .eq("notification_id", notificationId);
+
+      if (count === 0) {
+        await supabase.from("notification_read_states").delete().eq("notification_id", notificationId);
+        await supabase.from("notification_attachments").delete().eq("notification_id", notificationId);
+        await supabase.from("notifications").delete().eq("id", notificationId);
+      }
+
       return { success: true };
     } catch (error) {
       console.error("Error marking notification as read:", error);
@@ -731,6 +746,31 @@ export class NotificationManagementService {
 
       if (upsertError) {
         throw upsertError;
+      }
+
+      // Remove all recipient rows so notifications never show again for this user
+      const { error: deleteError } = await supabase
+        .from("notification_recipients")
+        .delete()
+        .eq("user_id", userId)
+        .in("notification_id", notificationIds);
+
+      if (deleteError) {
+        console.warn("⚠️ Failed to delete recipient rows:", deleteError);
+      }
+
+      // Check each notification for remaining recipients and delete orphaned ones
+      for (const notificationId of notificationIds) {
+        const { count } = await supabase
+          .from("notification_recipients")
+          .select("*", { count: "exact", head: true })
+          .eq("notification_id", notificationId);
+
+        if (count === 0) {
+          await supabase.from("notification_read_states").delete().eq("notification_id", notificationId);
+          await supabase.from("notification_attachments").delete().eq("notification_id", notificationId);
+          await supabase.from("notifications").delete().eq("id", notificationId);
+        }
       }
 
       return { success: true };
