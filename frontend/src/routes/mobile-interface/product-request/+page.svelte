@@ -482,19 +482,23 @@
 			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
 				<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
 			</svg>
-			<span>{$currentLocale === 'ar' ? 'إضافة منتج للطلب' : 'Add Product to Request'}</span>
+			<span>{$currentLocale === 'ar' ? 'إضافة منتجات' : 'Add Products'}</span>
 		</button>
-		{#if items.length > 0}
+	</div>
+
+	<!-- Fixed bottom Save & Send button -->
+	{#if items.length > 0}
+		<div class="fixed-bottom-bar">
 			<button type="button" class="save-btn" on:click={openSavePopup}>
 				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
 					<polyline points="17 21 17 13 7 13 7 21"/>
 					<polyline points="7 3 7 8 15 8"/>
 				</svg>
-				<span>{$currentLocale === 'ar' ? 'حفظ وإرسال الطلب' : 'Save & Send Request'}</span>
+				<span>{$currentLocale === 'ar' ? 'حفظ وإرسال' : 'Save & Send'}</span>
 			</button>
-		{/if}
-	</div>
+		</div>
+	{/if}
 
 	<!-- Items table -->
 	{#if items.length > 0}
@@ -509,7 +513,10 @@
 						<th></th>
 					</tr>
 				</thead>
-				<tbody>
+			</table>
+			<div class="table-scroll">
+				<table class="items-table">
+					<tbody>
 					{#each items as item, i}
 						<tr>
 							<td>{item.barcode || '—'}</td>
@@ -528,7 +535,8 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+				</table>
+			</div>
 		</div>
 	{/if}
 
@@ -736,9 +744,30 @@
 
 <style>
 	.product-request-page {
-		padding: 0.5rem;
+		padding: 0;
+		padding-bottom: 4.5rem;
 		min-height: 100%;
 		background: #F8FAFC;
+		display: flex;
+		flex-direction: column;
+		height: 100vh;
+		overflow: hidden;
+	}
+
+	/* Fixed bottom bar for Save & Send */
+	.fixed-bottom-bar {
+		position: fixed;
+		bottom: 3.6rem;
+		left: 0;
+		right: 0;
+		display: flex;
+		justify-content: center;
+		padding: 0.5rem 1rem;
+		background: transparent;
+		backdrop-filter: none;
+		border-top: none;
+		z-index: 999;
+		box-shadow: none;
 	}
 
 	/* Items table */
@@ -746,14 +775,24 @@
 		background: white;
 		border-radius: 8px;
 		overflow: hidden;
-		margin-bottom: 0.5rem;
+		margin: 0 0.5rem 0.5rem;
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
 	}
 
 	.items-table {
 		width: 100%;
 		border-collapse: collapse;
 		font-size: 0.75rem;
+	}
+
+	.items-table thead {
+		position: sticky;
+		top: 0;
+		z-index: 2;
 	}
 
 	.items-table th {
@@ -764,6 +803,13 @@
 		text-align: start;
 		white-space: nowrap;
 		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.table-scroll {
+		flex: 1;
+		overflow-y: auto;
+		min-height: 0;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.items-table td {
@@ -805,7 +851,9 @@
 	.top-actions {
 		display: flex;
 		gap: 0.5rem;
-		margin-bottom: 0.5rem;
+		padding: 0.5rem;
+		background: #F8FAFC;
+		flex-shrink: 0;
 	}
 
 	/* Add button */
@@ -835,20 +883,32 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.5rem;
-		padding: 0.5rem 1rem;
+		padding: 0.75rem 2rem;
 		background: #10B981;
 		color: white;
 		border: none;
-		border-radius: 8px;
+		border-radius: 10px;
 		cursor: pointer;
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-		font-size: 0.85rem;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+		font-size: 0.95rem;
 		font-weight: 600;
 		white-space: nowrap;
+		min-width: 200px;
+		animation: heartbeat 2.5s ease-in-out infinite;
+	}
+
+	@keyframes heartbeat {
+		0% { transform: scale(1); }
+		14% { transform: scale(1.03); }
+		28% { transform: scale(1); }
+		42% { transform: scale(1.03); }
+		56% { transform: scale(1); }
+		100% { transform: scale(1); }
 	}
 
 	.save-btn:active {
 		background: #059669;
+		animation: none;
 	}
 
 	/* Modal */
