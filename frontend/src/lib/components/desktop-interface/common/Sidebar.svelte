@@ -124,6 +124,10 @@
 	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
 	import PushNotificationSettings from '$lib/components/common/PushNotificationSettings.svelte';
 	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
+	import ProductRequestDesktop from '$lib/components/desktop-interface/master/stock/ProductRequestDesktop.svelte';
+	import PORequestsList from '$lib/components/desktop-interface/master/stock/PORequestsList.svelte';
+	import StockRequestsList from '$lib/components/desktop-interface/master/stock/StockRequestsList.svelte';
+	import BTRequestsList from '$lib/components/desktop-interface/master/stock/BTRequestsList.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -160,6 +164,11 @@
 	let showNotificationsManageSubmenu = false;
 	let showNotificationsOperationsSubmenu = false;
 	let showNotificationsReportsSubmenu = false;
+	let showStockSubmenu = false;
+	let showStockDashboardSubmenu = false;
+	let showStockManageSubmenu = false;
+	let showStockOperationsSubmenu = false;
+	let showStockReportsSubmenu = false;
 	let showControlsSubmenu = false;
 	let showControlsDashboardSubmenu = false;
 	let showControlsManageSubmenu = false;
@@ -260,6 +269,7 @@
 		'ASSIGN_ROLES': 'nav.assignRoles', 'ERP_CONNECTIONS': 'nav.erpConnections',
 		'INTERFACE_ACCESS': 'nav.interfaceAccess', 'CREATE_TASK_TEMPLATE': 'nav.createTaskTemplate',
 		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates',
+		'STOCK_PRODUCT_REQUEST': 'nav.productRequest',
 	};
 
 	/** Get translated button name from button_code */
@@ -1853,6 +1863,10 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 		showControlsOperationsSubmenu = false;
 		showControlsReportsSubmenu = false;
+		showStockDashboardSubmenu = false;
+		showStockManageSubmenu = false;
+		showStockOperationsSubmenu = false;
+		showStockReportsSubmenu = false;
 		showUserDashboardSubmenu = false;
 		showUserManageSubmenu = false;
 		showUserOperationsSubmenu = false;
@@ -1869,6 +1883,96 @@ function openApprovalCenter() {
 		showTasksSubmenu = false;
 		showNotificationsSubmenu = false;
 		showUserSubmenu = false;
+		showStockSubmenu = false;
+	}
+
+	// Open Product Request Desktop window
+	function openProductRequestDesktop() {
+		collapseAllMenus();
+		const windowId = generateWindowId('product-request');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Product Request #${instanceNumber}`,
+			component: ProductRequestDesktop,
+			icon: '📋',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 120 + (Math.random() * 100),
+				y: 120 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openPORequestsList() {
+		collapseAllMenus();
+		const windowId = generateWindowId('po-requests');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `PO Requests #${instanceNumber}`,
+			component: PORequestsList,
+			icon: '🛒',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 140 + (Math.random() * 100),
+				y: 140 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openStockRequestsList() {
+		collapseAllMenus();
+		const windowId = generateWindowId('stock-requests');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Stock Requests #${instanceNumber}`,
+			component: StockRequestsList,
+			icon: '📦',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 160 + (Math.random() * 100),
+				y: 160 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openBTRequestsList() {
+		collapseAllMenus();
+		const windowId = generateWindowId('bt-requests');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `BT Requests #${instanceNumber}`,
+			component: BTRequestsList,
+			icon: '🔄',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 180 + (Math.random() * 100),
+				y: 180 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	function openReceiving() {
@@ -4205,6 +4309,157 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Stock Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showStockSubmenu = !showStockSubmenu}
+		>
+			<span class="section-icon">📦</span>
+			<span class="section-text">{t('nav.stock') || 'Stock'}</span>
+			<span class="arrow" class:expanded={showStockSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Stock Submenu - Inline below Stock button -->
+	{#if showStockSubmenu}
+		<div class="submenu-inline stock-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showStockDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showStockDashboardSubmenu = true;
+						}
+					}}
+					title={t('nav.dashboard')}
+				>
+					
+					<span class="menu-text">{t('nav.dashboard')}</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showStockDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showStockManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showStockManageSubmenu = true;
+						}
+					}}
+					title={t('nav.manage')}
+				>
+					
+					<span class="menu-text">{t('nav.manage')}</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showStockManageSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('STOCK_PO_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPORequestsList}>
+								<span class="menu-icon">🛒</span>
+								<span class="menu-text">{t('nav.poRequests') || 'PO Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_STOCK_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openStockRequestsList}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">{t('nav.stockRequests') || 'Stock Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_BT_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBTRequestsList}>
+								<span class="menu-icon">🔄</span>
+								<span class="menu-text">{t('nav.btRequests') || 'BT Requests'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showStockOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showStockOperationsSubmenu = true;
+						}
+					}}
+					title={t('nav.operations')}
+				>
+					
+					<span class="menu-text">{t('nav.operations')}</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showStockOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('STOCK_PRODUCT_REQUEST')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductRequestDesktop}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('nav.productRequest') || 'Product Request'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showStockReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showStockReportsSubmenu = true;
+						}
+					}}
+					title={t('nav.reports')}
+				>
+					
+					<span class="menu-text">{t('nav.reports')}</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showStockReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
 				</div>
 			{/if}
 		</div>

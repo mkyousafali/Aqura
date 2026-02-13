@@ -104,6 +104,26 @@
 				console.error('Error checking incident status:', err);
 			}
 		}
+
+		// Check if this is a product request task that requires accept/reject first
+		if ((task.issue_type === 'product_request_follow_up' || task.issue_type === 'product_request_process') && task.product_request_id && task.product_request_type) {
+			try {
+				const reqType = task.product_request_type;
+				const tableName = reqType === 'PO' ? 'product_request_po' : reqType === 'ST' ? 'product_request_st' : 'product_request_bt';
+				const { data: reqData, error } = await supabase
+					.from(tableName)
+					.select('status')
+					.eq('id', task.product_request_id)
+					.single();
+
+				if (!error && reqData && reqData.status === 'pending') {
+					alert('⚠️ Cannot complete this task until the product request is accepted or rejected.\n\nلا يمكن إكمال هذه المهمة حتى يتم قبول أو رفض طلب المنتج.');
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking product request status:', err);
+			}
+		}
 		
 		// For Quick Tasks, we use a simplified completion process similar to MyTasksView
 		if (confirm('Are you sure you want to mark this Quick Task as completed?\n\nهل أنت متأكد أنك تريد وضع علامة مكتملة على هذه المهمة السريعة؟')) {

@@ -53,7 +53,9 @@
 		'IMPORT_CUSTOMERS': '👥', 'MANAGE_PRODUCTS': '🎁', 'OVER_DUES': '⏰',
 		'USER_PERMISSIONS': '🔐', 'USERS': '👤', 'CREATE_USER_ROLES': '👥',
 		'ASSIGN_ROLES': '🎯', 'ERP_CONNECTIONS': '🔌', 'INTERFACE_ACCESS': '🔧',
-		'CREATE_TASK_TEMPLATE': '✨', 'VIEW_TASK_TEMPLATES': '📋'
+		'CREATE_TASK_TEMPLATE': '✨', 'VIEW_TASK_TEMPLATES': '📋',
+		'STOCK_PRODUCT_REQUEST': '📋',
+		'STOCK_PO_REQUESTS': '🛒', 'STOCK_STOCK_REQUESTS': '📦', 'STOCK_BT_REQUESTS': '🔄'
 	};
 
 	let mounted = false;
@@ -186,7 +188,11 @@
 		'ERP_CONNECTIONS': 'nav.erpConnections',
 		'INTERFACE_ACCESS': 'nav.interfaceAccess',
 		'CREATE_TASK_TEMPLATE': 'nav.createTaskTemplate',
-		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates'
+		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates',
+		'STOCK_PRODUCT_REQUEST': 'nav.productRequest',
+		'STOCK_PO_REQUESTS': 'nav.poRequests',
+		'STOCK_STOCK_REQUESTS': 'nav.stockRequests',
+		'STOCK_BT_REQUESTS': 'nav.btRequests'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {
@@ -441,7 +447,7 @@
 			<div class="welcome-container">
 				<div class="welcome-card">
 					<div class="logo-section">
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ43.16.10.10</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ44.17.11.11</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

@@ -457,6 +457,53 @@
 				console.error('Error checking incident status:', err);
 			}
 		}
+
+		// Check if this is a product request task that requires accept/reject first
+		if ((taskDetails?.issue_type === 'product_request_follow_up' || taskDetails?.issue_type === 'product_request_process') && taskDetails?.product_request_id && taskDetails?.product_request_type) {
+			try {
+				const tableName = taskDetails.product_request_type === 'PO' ? 'product_request_po' : taskDetails.product_request_type === 'ST' ? 'product_request_st' : 'product_request_bt';
+				const { data: reqData, error } = await supabase
+					.from(tableName)
+					.select('status')
+					.eq('id', taskDetails.product_request_id)
+					.single();
+
+				if (!error && reqData && reqData.status === 'pending') {
+					errorMessage = 'Cannot complete this task until the product request is accepted or rejected. / لا يمكن إكمال هذه المهمة حتى يتم قبول أو رفض طلب المنتج.';
+					notifications.add({
+						type: 'error',
+						message: 'Product request must be accepted or rejected first. / يجب قبول أو رفض طلب المنتج أولاً.',
+						duration: 4000
+					});
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking product request status:', err);
+			}
+		}
+
+		// Check if BT process task requires document_url to be uploaded first
+		if (taskDetails?.issue_type === 'product_request_process' && taskDetails?.product_request_type === 'BT' && taskDetails?.product_request_id) {
+			try {
+				const { data: btData, error } = await supabase
+					.from('product_request_bt')
+					.select('document_url')
+					.eq('id', taskDetails.product_request_id)
+					.single();
+
+				if (!error && btData && (!btData.document_url || btData.document_url.trim() === '')) {
+					errorMessage = 'Cannot complete this task until the BT document is uploaded. / لا يمكن إكمال هذه المهمة حتى يتم رفع مستند النقل الفرعي.';
+					notifications.add({
+						type: 'error',
+						message: 'BT document must be uploaded first. / يجب رفع مستند النقل الفرعي أولاً.',
+						duration: 4000
+					});
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking BT document_url:', err);
+			}
+		}
 		
 		isSubmitting = true;
 		errorMessage = '';
