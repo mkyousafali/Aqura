@@ -452,6 +452,7 @@
 					if (barcodes.length > 0) {
 						modalBarcode = barcodes[0].rawValue;
 						stopScan();
+						lookupProductName(modalBarcode);
 					}
 				} catch (_) {}
 			}, 300);
@@ -462,6 +463,28 @@
 		if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
 		if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
 		scanning = false;
+	}
+
+	// Lookup product name from erp_synced_products by barcode
+	let lookingUpProduct = false;
+	async function lookupProductName(barcode: string) {
+		if (!barcode || barcode.trim().length < 3) return;
+		lookingUpProduct = true;
+		try {
+			const { data, error } = await supabase
+				.from('erp_synced_products')
+				.select('product_name_en, product_name_ar')
+				.eq('barcode', barcode.trim())
+				.limit(1)
+				.maybeSingle();
+			if (!error && data) {
+				const name = $currentLocale === 'ar' && data.product_name_ar
+					? data.product_name_ar
+					: data.product_name_en || data.product_name_ar || '';
+				if (name) modalProductName = name;
+			}
+		} catch (_) {}
+		lookingUpProduct = false;
 	}
 
 	function handlePhoto(event: Event) {
@@ -658,7 +681,8 @@
 					<div class="form-group">
 						<label>{getTranslation('mobile.productRequestContent.barcode')}</label>
 						<div class="barcode-input-row">
-							<input type="text" bind:value={modalBarcode} class="form-input" placeholder={getTranslation('mobile.productRequestContent.barcodePlaceholder')} inputmode="numeric" />
+							<input type="text" bind:value={modalBarcode} class="form-input" placeholder={getTranslation('mobile.productRequestContent.barcodePlaceholder')} inputmode="numeric" on:change={() => lookupProductName(modalBarcode)} />
+							{#if lookingUpProduct}<span class="barcode-lookup-spinner">⏳</span>{/if}
 							<button type="button" class="scan-btn" on:click={scanning ? stopScan : startScan} title={getTranslation('mobile.productRequestContent.scan')}>
 								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
