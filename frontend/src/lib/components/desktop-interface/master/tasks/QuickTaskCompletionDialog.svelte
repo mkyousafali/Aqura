@@ -40,7 +40,9 @@
 						priority,
 						issue_type,
 						price_tag,
-						incident_id
+						incident_id,
+						product_request_id,
+						product_request_type
 					)
 				`)
 				.eq('id', assignmentId)
@@ -130,6 +132,44 @@
 				}
 			} catch (err) {
 				console.error('Error checking incident status:', err);
+			}
+		}
+
+		// Check if this is a product request task that requires accept/reject first
+		if ((assignment?.quick_tasks?.issue_type === 'product_request_follow_up' || assignment?.quick_tasks?.issue_type === 'product_request_process') && assignment?.quick_tasks?.product_request_id && assignment?.quick_tasks?.product_request_type) {
+			try {
+				const reqType = assignment.quick_tasks.product_request_type;
+				const tableName = reqType === 'PO' ? 'product_request_po' : reqType === 'ST' ? 'product_request_st' : 'product_request_bt';
+				const { data: reqData, error } = await supabase
+					.from(tableName)
+					.select('status')
+					.eq('id', assignment.quick_tasks.product_request_id)
+					.single();
+
+				if (!error && reqData && reqData.status === 'pending') {
+					alert('⚠️ Cannot complete this task until the product request is accepted or rejected.\n\nلا يمكن إكمال هذه المهمة حتى يتم قبول أو رفض طلب المنتج.');
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking product request status:', err);
+			}
+		}
+
+		// Check if BT process task requires document_url to be uploaded first
+		if (assignment?.quick_tasks?.issue_type === 'product_request_process' && assignment?.quick_tasks?.product_request_type === 'BT' && assignment?.quick_tasks?.product_request_id) {
+			try {
+				const { data: btData, error } = await supabase
+					.from('product_request_bt')
+					.select('document_url')
+					.eq('id', assignment.quick_tasks.product_request_id)
+					.single();
+
+				if (!error && btData && (!btData.document_url || btData.document_url.trim() === '')) {
+					alert('⚠️ Cannot complete this task until the BT document is uploaded. Please upload the document first.\n\nلا يمكن إكمال هذه المهمة حتى يتم رفع مستند النقل الفرعي. يرجى رفع المستند أولاً.');
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking BT document_url:', err);
 			}
 		}
 		

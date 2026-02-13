@@ -74,6 +74,12 @@ export const GET: RequestHandler = async () => {
 				OPERATIONS: ['EMPLOYEE_FILES', 'FINGERPRINT_TRANSACTIONS', 'PROCESS_FINGERPRINT', 'SALARY_AND_WAGE', 'SHIFT_AND_DAY_OFF', 'LEAVES_AND_VACATIONS', 'DISCIPLINE', 'INCIDENT_MANAGER', 'REPORT_INCIDENT', 'DAILY_CHECKLIST_MANAGER', 'LEAVE_REQUEST'],
 				REPORTS: ['BIOMETRIC_DATA', 'EXPORT_BIOMETRIC_DATA']
 			},
+			STOCK: {
+				DASHBOARD: [],
+				MANAGE: ['STOCK_PO_REQUESTS', 'STOCK_STOCK_REQUESTS', 'STOCK_BT_REQUESTS'],
+				OPERATIONS: ['STOCK_PRODUCT_REQUEST'],
+				REPORTS: []
+			},
 			TASKS: {
 				DASHBOARD: ['TASK_MASTER'],
 				MANAGE: ['CREATE_TASK', 'VIEW_TASKS'],
@@ -193,7 +199,11 @@ export const GET: RequestHandler = async () => {
 			NORMAL_PAPER_MANAGER: 'Normal Paper Manager',
 			ONE_DAY_OFFER_MANAGER: 'One Day Offer Manager',
 			DAILY_CHECKLIST_MANAGER: 'Daily Checklist Manager',
-			MY_DAILY_CHECKLIST: 'My Daily Checklist'
+			MY_DAILY_CHECKLIST: 'My Daily Checklist',
+			STOCK_PRODUCT_REQUEST: 'Product Request',
+			STOCK_PO_REQUESTS: 'PO Requests',
+			STOCK_STOCK_REQUESTS: 'Stock Requests',
+			STOCK_BT_REQUESTS: 'BT Requests'
 		};
 
 		// Actual button code mappings (for Controls section)

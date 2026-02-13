@@ -188,7 +188,9 @@
 						status,
 						created_at,
 						deadline_datetime,
-						assigned_by
+						assigned_by,
+						product_request_id,
+						product_request_type
 					),
 					assigned_user:users!quick_task_assignments_assigned_to_user_id_fkey (
 						id,

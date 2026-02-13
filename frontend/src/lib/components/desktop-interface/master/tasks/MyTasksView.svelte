@@ -276,7 +276,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					const quickTaskIds = activeQuickTasks.map(a => a.quick_task_id);
 					const { data: qtDetails } = await supabase
 						.from('quick_tasks')
-						.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by, incident_id')
+						.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by, incident_id, issue_type, product_request_id, product_request_type')
 						.in('id', quickTaskIds);
 
 					const qtMap = {};
@@ -309,7 +309,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 							require_erp_reference: false,
 							images: [],
 							task_type: 'quick_task',
-							incident_id: qt.incident_id
+							issue_type: qt.issue_type,
+							incident_id: qt.incident_id,
+							product_request_id: qt.product_request_id,
+							product_request_type: qt.product_request_type
 						};
 					});
 
