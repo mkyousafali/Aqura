@@ -5,15 +5,35 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ44.17.11.11</p>
-		<p class="version-details">Desktop: 44 | Mobile: 17 | Cashier: 11 | Customer: 11</p>
+		<p class="version-title">Version AQ45.19.12.12</p>
+		<p class="version-details">Desktop: 45 | Mobile: 19 | Cashier: 12 | Customer: 12</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ Customer Product Requests, Near Expiry Reports & Notification Auto-Cleanup</h3>
+		<p class="change-description">New customer product request and near expiry reporting systems with mobile submission pages, desktop management dashboards, OCR scanning, and automatic notification lifecycle management.</p>
+		<div class="change-details">
+			<h4>February 13, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Mobile — Customer Product Request:</b> New mobile page for staff to submit customer product requests. Includes product name input, camera photo capture, file upload, Google Image Search integration, purchasing manager auto-selection from branch_default_positions, and item list with send functionality.</li>
+				<li>✅ <b>Mobile — Near Expiry Reports:</b> New mobile page for reporting near-expiry products. Features barcode scanner (BarcodeDetector API), OCR date scanning via Google Cloud Vision API, step-by-step date picker (Year → Month → Day), photo capture, report title with auto-generation, branch selection with inventory manager lookup, and Save & Send workflow.</li>
+				<li>✅ <b>Desktop — Customer Requests List:</b> New CustomerProductRequestsList component with flat item table view, product image thumbnails with lightbox, status filter dropdown, Review/Resolve/Dismiss action buttons, "Mark as Arrived" with notification to requester, Excel export and Print functionality.</li>
+				<li>✅ <b>Desktop — Near Expiry Reports List:</b> New NearExpiryRequestsList component with master-detail view. List view shows report title, branch, reporter, manager, item count, status, and date. Detail view with items table (barcode, expiry date DD-MM-YYYY, photos), branch/reporter/manager info cards, notes section, Excel export and Print.</li>
+				<li>✅ <b>OCR Text Recognition:</b> Added camera-based OCR scanning to product request page for product name recognition using Google Cloud Vision TEXT_DETECTION. Amber scan button, camera overlay with guide box, selectable detected text lines popup with rescan option.</li>
+				<li>✅ <b>Quick Task Integration:</b> Both customer requests and near expiry reports auto-create quick tasks for assigned managers. Tasks auto-complete when request is reviewed/resolved/dismissed.</li>
+				<li>✅ <b>Notifications:</b> Status change notifications sent to requester/reporter with bilingual EN/AR messages. Arrived product notifications with product name and image URL.</li>
+				<li>✅ <b>Notification Auto-Cleanup:</b> When a user marks a notification as read, their notification_recipients row is deleted. When ALL recipients have read (zero remaining), the entire notification is auto-deleted from notifications, notification_read_states, and notification_attachments tables — keeping the database clean.</li>
+				<li>✅ <b>Database:</b> 3 SQL migrations — customer_product_requests table with RLS and indexes, near_expiry_reports table with RLS, indexes, and updated_at trigger, and title column addition to near_expiry_reports.</li>
+				<li>✅ <b>UI/UX:</b> Products dashboard modernized with barcode/name search bars, serial numbers, green/orange color scheme, progressive loading. Sidebar language switch (EN/AR electric toggle). Checklist branch_id fix for both mobile and desktop.</li>
+			</ul>
+		</div>
+		</div>
+
+		<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ Product Request System — PO/ST/BT with Approval Workflow</h3>
 		<p class="change-description">Complete product request system for Purchase Orders (PO), Stock Transfers (ST), and Branch Transfers (BT) with mobile creation, desktop management, quick task integration, notifications, and document management.</p>
 		<div class="change-details">
-			<h4>February 13, 2026 (Latest):</h4>
+			<h4>February 13, 2026:</h4>
 			<ul>
 				<li>✅ <b>Mobile — Product Request Creation:</b> Full mobile form with PO/ST/BT tabs, barcode scanning, product photo capture, branch and manager selection, item list with quantities, and XLSX import/export support.</li>
 				<li>✅ <b>Desktop — Product Request Management:</b> Three dedicated list views (PORequestsList, StockRequestsList, BTRequestsList) integrated into sidebar. Table view with From/To Branch, Requester, Manager, Items, Status, Date, Docs, and Approve/Reject columns.</li>
