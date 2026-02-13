@@ -50,7 +50,7 @@
 	let showEmergenciesMenu = false;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ17';
+	let mobileVersion = 'AQ18';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
@@ -777,7 +777,6 @@
 							{/if}
 						</div>
 					</a>
-					<span class="mobile-version-badge">{mobileVersion}</span>
 					{#if $page.url.pathname.startsWith('/mobile-interface/notifications')}
 						<button class="header-nav-btn refresh-btn" on:click={handleNotificationRefresh} aria-label={getTranslation('nav.refreshNotifications')}>
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={isRefreshing}>
@@ -846,6 +845,14 @@
 				</svg>
 				<span class="menu-item-text">{getTranslation('mobile.logout')}</span>
 			</button>
+			<div class="menu-item menu-version-item">
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="10"/>
+					<line x1="12" y1="16" x2="12" y2="12"/>
+					<line x1="12" y1="8" x2="12.01" y2="8"/>
+				</svg>
+				<span class="menu-item-text">{mobileVersion}</span>
+			</div>
 		</div>
 	{/if}
 	
@@ -1190,19 +1197,17 @@
 		white-space: nowrap;
 	}
 
-	.mobile-version-badge {
-		font-size: 0.65rem;
-		font-weight: 600;
-		opacity: 0.85;
-		color: white;
-		background: rgba(255, 255, 255, 0.15);
-		padding: 0.25rem 0.6rem;
-		border-radius: 8px;
-		backdrop-filter: blur(10px);
-		white-space: nowrap;
-		border: 1px solid rgba(255, 255, 255, 0.2);
+	.menu-version-item {
+		background: rgba(59, 130, 246, 0.6) !important;
+		cursor: default !important;
+		pointer-events: none;
 		font-family: 'Courier New', monospace;
 		letter-spacing: 0.5px;
+	}
+
+	.menu-version-item:hover {
+		transform: none !important;
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
 	}
 
 	.user-info {

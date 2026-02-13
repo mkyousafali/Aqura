@@ -105,20 +105,20 @@ if (fs.existsSync(loginPagePath)) {
   console.log('✅ Updated Login Screen version display');
 }
 
-// Update Mobile Interface layout with new version
+// Update Mobile Interface layout with new version (shown in top bar hamburger menu)
 const mobileLayoutPath = path.join(__dirname, '..', 'frontend', 'src', 'routes', 'mobile-interface', '+layout.svelte');
 
 if (fs.existsSync(mobileLayoutPath)) {
   let mobileLayoutContent = fs.readFileSync(mobileLayoutPath, 'utf-8');
   
-  // Update mobile version (format: AQ8 from AQ23.8.3.3, extract the mobile number)
+  // Update mobile version variable (format: AQ8 from AQ23.8.3.3, extract the mobile number)
   mobileLayoutContent = mobileLayoutContent.replace(
     /let mobileVersion = 'AQ\d+';/,
     `let mobileVersion = 'AQ${mobile}';`
   );
   
   fs.writeFileSync(mobileLayoutPath, mobileLayoutContent, 'utf-8');
-  console.log('✅ Updated Mobile Interface version display');
+  console.log('✅ Updated Mobile Interface version display (top bar menu)');
 }
 
 // Update Customer Interface TopBar with new version
