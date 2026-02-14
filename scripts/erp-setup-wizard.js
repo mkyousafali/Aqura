@@ -597,6 +597,8 @@ async function buildProductList(erpBranchId, appBranchId, cacheKey) {
       const existing = expiryMap.get(barcode);
       if (!existing.some(e => e.expiry_date === expStr && e.branch_id === entry.branch_id)) existing.push(entry);
     }
+    const baseProductByBatchId = new Map();
+    for (const bp of baseProducts) { baseProductByBatchId.set(String(bp.ProductBatchID), bp); }
     for (const bp of baseProducts) {
       ['MannualBarcode','AutoBarcode','Unit2Barcode','Unit3Barcode'].forEach(k => {
         const bc = String(bp[k] || '').trim(); if (bc) addExpiryEntry(bc, bp.ExpiryDate, bp.BranchID);
@@ -604,7 +606,7 @@ async function buildProductList(erpBranchId, appBranchId, cacheKey) {
     }
     for (const u of allUnits) {
       const bc = String(u.BarCode || '').trim(); if (!bc) continue;
-      const parent = baseProducts.find(bp => String(bp.ProductBatchID) === String(u.ProductBatchID));
+      const parent = baseProductByBatchId.get(String(u.ProductBatchID));
       if (parent) addExpiryEntry(bc, parent.ExpiryDate, parent.BranchID);
     }
     for (const eb of extraBarcodes) { const bc = String(eb.Barcode || '').trim(); if (bc) addExpiryEntry(bc, eb.ExpiryDate, eb.BranchID); }
