@@ -224,20 +224,16 @@
 		searchError = '';
 		searchResults = [];
 		try {
-			const apiKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
-			const cx = import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID || '';
-			const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=10`;
-			const resp = await fetch(url);
-			if (!resp.ok) throw new Error('Search failed');
+			const resp = await fetch('/api/google-search', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ query: searchQuery.trim() })
+			});
 			const data = await resp.json();
-			if (data.items) {
-				searchResults = data.items.map((item: any) => ({
-					url: item.link,
-					thumbnail: item.image?.thumbnailLink || item.link,
-					title: item.title || ''
-				}));
-			}
-			if (searchResults.length === 0) {
+			if (!resp.ok) throw new Error(data.error || 'Search failed');
+			if (data.images && data.images.length > 0) {
+				searchResults = data.images;
+			} else {
 				searchError = $currentLocale === 'ar' ? 'لا توجد نتائج' : 'No results found';
 			}
 		} catch (err: any) {
