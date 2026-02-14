@@ -4,6 +4,7 @@
 	import * as XLSX from 'xlsx';
 	import JsBarcode from 'jsbarcode';
 	import ExcelJS from 'exceljs';
+	import JSZip from 'jszip';
 	
 	let activeOffers: any[] = [];
 	let selectedOfferId: string | null = null;
@@ -930,6 +931,61 @@
 			return `${offerType.replace(/\s+/g, '')}${formatEndDate(selectedOffer.end_date)}`;
 		}
 		return offerType;
+	}
+
+	// Generate short filename for per-offer-type Excel files
+	// e.g. "3 pcs No Limit" → "3pcNL161826", "Single No Limit" → "sngNL161826"
+	// "Single 1 pcs Limit" → "sng1pcLM161826", "FOC 2+1" → "FOC2p1_161826"
+	function getShortOfferTypeFileName(offerType: string, offer: any): string {
+		let dateSuffix = '';
+		if (offer?.start_date && offer?.end_date) {
+			const start = new Date(offer.start_date);
+			const end = new Date(offer.end_date);
+			const startDD = String(start.getDate()).padStart(2, '0');
+			const endDD = String(end.getDate()).padStart(2, '0');
+			const year = String(end.getFullYear()).slice(-2);
+			dateSuffix = `${startDD}${endDD}${year}`;
+		}
+
+		let shortName = '';
+
+		if (offerType === 'Not Applicable') {
+			shortName = 'NA';
+		} else if (offerType.startsWith('FOC')) {
+			// "FOC 2+1" → "FOC2p1"
+			const match = offerType.match(/FOC\s+(\d+)\+(\d+)/);
+			if (match) {
+				shortName = `FOC${match[1]}p${match[2]}`;
+			} else {
+				shortName = 'FOC';
+			}
+		} else if (offerType.startsWith('Single')) {
+			if (offerType.includes('No Limit')) {
+				// "Single No Limit" → "sngNL"
+				shortName = 'sngNL';
+			} else {
+				// "Single 5 pcs Limit" → "sng5pcLM"
+				const match = offerType.match(/Single\s+(\d+)\s+pcs\s+Limit/);
+				if (match) {
+					shortName = `sng${match[1]}pcLM`;
+				} else {
+					shortName = 'sngLM';
+				}
+			}
+		} else {
+			// "3 pcs No Limit" → "3pcNL", "3 pcs 6 Limit" → "3pc6LM"
+			const matchNL = offerType.match(/^(\d+)\s+pcs\s+No\s+Limit/);
+			const matchLM = offerType.match(/^(\d+)\s+pcs\s+(\d+)\s+Limit/);
+			if (matchNL) {
+				shortName = `${matchNL[1]}pcNL`;
+			} else if (matchLM) {
+				shortName = `${matchLM[1]}pc${matchLM[2]}LM`;
+			} else {
+				shortName = offerType.replace(/[^a-z0-9]/gi, '');
+			}
+		}
+
+		return `${shortName}${dateSuffix}`;
 	}
 	
 	
@@ -2350,6 +2406,91 @@
 		link.download = `${fileName}.xlsx`;
 		link.click();
 		URL.revokeObjectURL(url);
+
+		// --- Also export separate Excel files per offer type, bundled in a ZIP ---
+		try {
+			const zip = new JSZip();
+			const selectedOffer2 = getSelectedOffer();
+			const folderName = selectedOffer2
+				? `${selectedOffer2.template_name || ''}_${selectedOffer2.offer_name?.name_en || 'Offer'}`.replace(/\s+/g, '_')
+				: 'Offer_Export';
+			const folder = zip.folder(folderName);
+
+			// Group products by offer type
+			const groupedByType: Record<string, any[]> = {};
+			for (const product of selectedProducts) {
+				const offerType = getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price);
+				if (!groupedByType[offerType]) groupedByType[offerType] = [];
+				groupedByType[offerType].push(product);
+			}
+
+			for (const [offerType, products] of Object.entries(groupedByType)) {
+				const wb = new ExcelJS.Workbook();
+				const ws = wb.addWorksheet(offerType.substring(0, 31)); // Excel sheet name max 31 chars
+
+				const sampleQty = products[0]?.offer_qty || 1;
+
+				if (sampleQty === 1) {
+					// 2 columns: Barcode, Price
+					ws.addRow(['Barcode', 'Price']);
+					for (const p of products) {
+						const totalOfferPrice = p.total_offer_price || ((p.offer_price || 0) * (p.offer_qty || 1));
+						ws.addRow([p.barcode, totalOfferPrice]);
+					}
+				} else {
+					// 2 columns: Barcode, Price (divided value)
+					ws.addRow(['Barcode', 'Price']);
+					for (const p of products) {
+						const totalOfferPrice = p.total_offer_price || ((p.offer_price || 0) * (p.offer_qty || 1));
+						const qty = p.offer_qty || 1;
+						// Round to 6 decimals first to fix floating point (e.g. 19.95/3 = 6.649999... → 6.65)
+						const divided = qty > 0 ? Math.round((totalOfferPrice / qty) * 1000000) / 1000000 : 0;
+						// Check if result fits exactly in 2 decimals
+						const rounded2 = Math.round(divided * 100) / 100;
+						let entryAmount;
+						if (Math.abs(divided - rounded2) < 0.00001) {
+							entryAmount = rounded2;
+						} else {
+							// Truncate to 3 decimals, then remove last digit = 2 decimals truncated
+							const raw3 = Math.floor(divided * 1000) / 1000;
+							entryAmount = Math.floor(raw3 * 100) / 100;
+						}
+						const row = ws.addRow([p.barcode, entryAmount]);
+						row.getCell(2).numFmt = '0.00';
+					}
+				}
+
+				// Style header
+				ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+				ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
+
+				// Auto-fit columns
+				ws.columns.forEach(column => {
+					let maxLen = 0;
+					column.eachCell({ includeEmpty: true }, cell => {
+						const len = cell.value ? cell.value.toString().length : 0;
+						if (len > maxLen) maxLen = len;
+					});
+					column.width = Math.min(Math.max(maxLen + 2, 12), 40);
+				});
+
+				const buf = await wb.xlsx.writeBuffer();
+				// Generate short filename: e.g. 3pcNL161826, sngNL161826, sng1pcLM161826, FOC2p1_161826
+				const shortName = getShortOfferTypeFileName(offerType, selectedOffer2);
+				folder?.file(`${shortName}.xlsx`, buf);
+			}
+
+			// Generate and download zip
+			const zipBlob = await zip.generateAsync({ type: 'blob' });
+			const zipUrl = URL.createObjectURL(zipBlob);
+			const zipLink = document.createElement('a');
+			zipLink.href = zipUrl;
+			zipLink.download = `${folderName}_Entry_Files.zip`;
+			zipLink.click();
+			URL.revokeObjectURL(zipUrl);
+		} catch (zipError) {
+			console.error('Error generating per-offer-type exports:', zipError);
+		}
 	}
 
 	// Export for Design (sorted by page + order, all columns except image)
