@@ -571,15 +571,18 @@ app.post('/test', authenticate, async (req, res) => {
   } catch (err) { pool = null; res.json({ success: false, message: 'Connection failed: ' + err.message }); }
 });
 
-app.post('/sync', authenticate, async (req, res) => {
-  try {
-    const { erpBranchId, appBranchId } = req.body;
+let syncCache = null; let syncCacheTime = 0; const SYNC_CACHE_TTL = 300000; let syncBuildingPromise = null;
+
+async function buildProductList(erpBranchId, appBranchId, cacheKey) {
     const p = await getPool();
-    const baseProductsResult = await p.request().query("SELECT pb.ProductBatchID, pb.ProductID, pb.AutoBarcode, pb.MannualBarcode, pb.Unit2Barcode, pb.Unit3Barcode, pb.ExpiryDate, pb.BranchID, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBatches pb INNER JOIN Products p ON pb.ProductID = p.ProductID WHERE (pb.MannualBarcode IS NOT NULL AND pb.MannualBarcode != '') OR (pb.AutoBarcode IS NOT NULL AND pb.AutoBarcode != '') OR (pb.Unit2Barcode IS NOT NULL AND pb.Unit2Barcode != '') OR (pb.Unit3Barcode IS NOT NULL AND pb.Unit3Barcode != '')");
+    const branchFilter = erpBranchId ? " AND pb.BranchID = " + parseInt(erpBranchId) : "";
+    console.log("[sync-build] erpBranchId=" + (erpBranchId || "ALL") + ", filter:" + (branchFilter || "NONE"));
+    const baseProductsResult = await p.request().query("SELECT pb.ProductBatchID, pb.ProductID, pb.AutoBarcode, pb.MannualBarcode, pb.Unit2Barcode, pb.Unit3Barcode, pb.ExpiryDate, pb.BranchID, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBatches pb INNER JOIN Products p ON pb.ProductID = p.ProductID WHERE ((pb.MannualBarcode IS NOT NULL AND pb.MannualBarcode != '') OR (pb.AutoBarcode IS NOT NULL AND pb.AutoBarcode != '') OR (pb.Unit2Barcode IS NOT NULL AND pb.Unit2Barcode != '') OR (pb.Unit3Barcode IS NOT NULL AND pb.Unit3Barcode != ''))" + branchFilter);
     const baseProducts = baseProductsResult.recordset;
-    const unitsResult = await p.request().query("SELECT pu.ProductBatchID, pu.UnitID, pu.MultiFactor, ISNULL(pu.BarCode, '') as BarCode, pu.Sprice, u.UnitName FROM ProductUnits pu INNER JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID ORDER BY pu.ProductBatchID, pu.MultiFactor");
+    console.log('[sync-build] Got ' + baseProducts.length + ' base products');
+    const unitsResult = await p.request().query("SELECT pu.ProductBatchID, pu.UnitID, pu.MultiFactor, ISNULL(pu.BarCode, '') as BarCode, pu.Sprice, u.UnitName FROM ProductUnits pu INNER JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID WHERE 1=1" + branchFilter + " ORDER BY pu.ProductBatchID, pu.MultiFactor");
     const allUnits = unitsResult.recordset;
-    const extraBarcodesResult = await p.request().query("SELECT pbc.ProductBatchID, pbc.Barcode, pbc.UnitID, ISNULL(u.UnitName, '') as UnitName, pb.MannualBarcode, pb.AutoBarcode, pb.ExpiryDate, pb.BranchID, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBarcodes pbc INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pbc.UnitID = u.UnitID WHERE pbc.Barcode IS NOT NULL AND pbc.Barcode != ''");
+    const extraBarcodesResult = await p.request().query("SELECT pbc.ProductBatchID, pbc.Barcode, pbc.UnitID, ISNULL(u.UnitName, '') as UnitName, pb.MannualBarcode, pb.AutoBarcode, pb.ExpiryDate, pb.BranchID, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBarcodes pbc INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pbc.UnitID = u.UnitID WHERE pbc.Barcode IS NOT NULL AND pbc.Barcode != ''" + branchFilter);
     const extraBarcodes = extraBarcodesResult.recordset;
     const products = []; const addedBarcodes = new Set(); const expiryMap = new Map();
     function addExpiryEntry(barcode, expiryDate, erpBranchIdFromRow) {
@@ -623,7 +626,34 @@ app.post('/sync', authenticate, async (req, res) => {
       for (const unit of pu) { const ubc = String(unit.BarCode||'').trim(); if (!ubc || addedBarcodes.has(ubc)) continue; products.push({ barcode: ubc, auto_barcode: autoBC, parent_barcode: parentBarcode, product_name_en: bp.ProductName||'', product_name_ar: bp.ItemNameinSecondLanguage||'', unit_name: unit.UnitName||'', unit_qty: parseFloat(unit.MultiFactor)||1, is_base_unit: parseFloat(unit.MultiFactor)===1, expiry_dates: expiryMap.get(ubc)||[] }); addedBarcodes.add(ubc); }
     }
     for (const eb of extraBarcodes) { const ebc = String(eb.Barcode||'').trim(); if (!ebc || addedBarcodes.has(ebc)) continue; products.push({ barcode: ebc, auto_barcode: String(eb.AutoBarcode||'').trim(), parent_barcode: String(eb.MannualBarcode||'').trim(), product_name_en: eb.ProductName||'', product_name_ar: eb.ItemNameinSecondLanguage||'', unit_name: eb.UnitName||'', unit_qty: 1, is_base_unit: false, expiry_dates: expiryMap.get(ebc)||[] }); addedBarcodes.add(ebc); }
-    res.json({ success: true, products, totalProducts: products.length, baseProductsCount: baseProducts.length, message: 'Fetched ' + products.length + ' barcodes from ' + baseProducts.length + ' products' });
+    syncCache = { key: cacheKey, products }; syncCacheTime = Date.now();
+    console.log('[sync-build] Built and cached ' + products.length + ' products');
+    return products;
+}
+
+app.post('/sync', authenticate, async (req, res) => {
+  try {
+    const { erpBranchId, appBranchId, limit, offset } = req.body;
+    const fetchLimit = parseInt(limit) || 0;
+    const fetchOffset = parseInt(offset) || 0;
+    const cacheKey = (erpBranchId || 'ALL') + '-' + (appBranchId || 'N/A');
+    const now = Date.now();
+    if (syncCache && syncCache.key === cacheKey && (now - syncCacheTime) < SYNC_CACHE_TTL) {
+      const products = syncCache.products;
+      const totalCount = products.length;
+      if (fetchLimit > 0) {
+        const sliced = products.slice(fetchOffset, fetchOffset + fetchLimit);
+        const hasMore = (fetchOffset + fetchLimit) < totalCount;
+        return res.json({ success: true, products: sliced, totalCount, hasMore, offset: fetchOffset, limit: fetchLimit, message: 'Batch: ' + sliced.length + ' of ' + totalCount });
+      } else {
+        return res.json({ success: true, products, totalProducts: totalCount, totalCount, hasMore: false, baseProductsCount: totalCount, message: 'Fetched ' + totalCount + ' barcodes' });
+      }
+    }
+    if (syncBuildingPromise) {
+      return res.json({ success: true, status: 'building', retry: true, message: 'Building product list from SQL... please wait' });
+    }
+    syncBuildingPromise = buildProductList(erpBranchId, appBranchId, cacheKey).then(function() { syncBuildingPromise = null; console.log('[sync] Async build complete!'); }).catch(function(err) { syncBuildingPromise = null; console.error('[sync] Build FAILED:', err.message); });
+    return res.json({ success: true, status: 'building', retry: true, message: 'Started building product list... retry in a few seconds' });
   } catch (err) { pool = null; console.error('Sync error:', err); res.status(500).json({ success: false, error: err.message }); }
 });
 

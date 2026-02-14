@@ -140,13 +140,23 @@ app.post('/test', authenticate, async (req, res) => {
   }
 });
 
-// Sync products - fetch all barcodes with product info
-app.post('/sync', authenticate, async (req, res) => {
-  try {
-    const { erpBranchId, appBranchId } = req.body;
+// In-memory cache for batch sync (avoids re-running SQL for each batch)
+let syncCache = null;
+let syncCacheTime = 0;
+const SYNC_CACHE_TTL = 300000; // 5 minutes
+let syncBuildingPromise = null; // tracks if a build is in progress
+
+// Background function to build product list from SQL
+async function buildProductList(erpBranchId, appBranchId, cacheKey) {
     const p = await getPool();
 
-    // Get all products from ProductBatches
+    // Build branch filter - if erpBranchId is provided, only sync that branch's products
+    const branchFilter = erpBranchId ? `AND pb.BranchID = ${parseInt(erpBranchId)}` : '';
+    const branchFilterWhere = erpBranchId ? `WHERE pb.BranchID = ${parseInt(erpBranchId)}` : '';
+
+    console.log(`[sync-build] erpBranchId=${erpBranchId || 'ALL'}, appBranchId=${appBranchId || 'N/A'}, filter: ${branchFilter || 'NONE'}`);
+
+    // Get products from ProductBatches (filtered by branch if provided)
     const baseProductsResult = await p.request().query(`
       SELECT 
         pb.ProductBatchID, pb.ProductID, pb.AutoBarcode, pb.MannualBarcode,
@@ -154,24 +164,28 @@ app.post('/sync', authenticate, async (req, res) => {
         p.ProductName, p.ItemNameinSecondLanguage
       FROM ProductBatches pb
       INNER JOIN Products p ON pb.ProductID = p.ProductID
-      WHERE (pb.MannualBarcode IS NOT NULL AND pb.MannualBarcode != '')
+      WHERE ((pb.MannualBarcode IS NOT NULL AND pb.MannualBarcode != '')
          OR (pb.AutoBarcode IS NOT NULL AND pb.AutoBarcode != '')
          OR (pb.Unit2Barcode IS NOT NULL AND pb.Unit2Barcode != '')
-         OR (pb.Unit3Barcode IS NOT NULL AND pb.Unit3Barcode != '')
+         OR (pb.Unit3Barcode IS NOT NULL AND pb.Unit3Barcode != ''))
+      ${branchFilter}
     `);
     const baseProducts = baseProductsResult.recordset;
+    console.log(`[sync-build] Got ${baseProducts.length} base products from SQL`);
 
-    // Get ALL units from ProductUnits
+    // Get units only for the filtered batches
     const unitsResult = await p.request().query(`
       SELECT pu.ProductBatchID, pu.UnitID, pu.MultiFactor,
         ISNULL(pu.BarCode, '') as BarCode, pu.Sprice, u.UnitName
       FROM ProductUnits pu
       INNER JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID
+      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
+      WHERE 1=1 ${branchFilter}
       ORDER BY pu.ProductBatchID, pu.MultiFactor
     `);
     const allUnits = unitsResult.recordset;
 
-    // Get extra barcodes from ProductBarcodes table
+    // Get extra barcodes only for the filtered batches
     const extraBarcodesResult = await p.request().query(`
       SELECT pbc.ProductBatchID, pbc.Barcode, pbc.UnitID,
         ISNULL(u.UnitName, '') as UnitName,
@@ -182,6 +196,7 @@ app.post('/sync', authenticate, async (req, res) => {
       INNER JOIN Products p ON pb.ProductID = p.ProductID
       LEFT JOIN UnitOfMeasures u ON pbc.UnitID = u.UnitID
       WHERE pbc.Barcode IS NOT NULL AND pbc.Barcode != ''
+      ${branchFilter}
     `);
     const extraBarcodes = extraBarcodesResult.recordset;
 
@@ -327,10 +342,71 @@ app.post('/sync', authenticate, async (req, res) => {
       addedBarcodes.add(ebBC);
     }
 
-    res.json({
-      success: true, products, totalProducts: products.length,
-      baseProductsCount: baseProducts.length,
-      message: `Fetched ${products.length} barcodes from ${baseProducts.length} products`
+    // Cache the full product list
+    syncCache = { key: cacheKey, products };
+    syncCacheTime = Date.now();
+    console.log(`[sync-build] Built and cached ${products.length} products`);
+    return products;
+}
+
+// Sync products - fetch barcodes with product info (supports limit/offset batching)
+// First call triggers async build and returns immediately. Client retries until cache is ready.
+app.post('/sync', authenticate, async (req, res) => {
+  try {
+    const { erpBranchId, appBranchId, limit, offset } = req.body;
+    const fetchLimit = parseInt(limit) || 0;   // 0 = no limit (return all)
+    const fetchOffset = parseInt(offset) || 0;
+    const cacheKey = `${erpBranchId || 'ALL'}-${appBranchId || 'N/A'}`;
+    const now = Date.now();
+
+    // 1) If cache is valid, return from it
+    if (syncCache && syncCache.key === cacheKey && (now - syncCacheTime) < SYNC_CACHE_TTL) {
+      const products = syncCache.products;
+      const totalCount = products.length;
+      console.log(`[sync] Serving from cache (${totalCount} items, age: ${Math.round((now - syncCacheTime) / 1000)}s)`);
+
+      if (fetchLimit > 0) {
+        const sliced = products.slice(fetchOffset, fetchOffset + fetchLimit);
+        const hasMore = (fetchOffset + fetchLimit) < totalCount;
+        return res.json({
+          success: true, products: sliced, totalCount, hasMore,
+          offset: fetchOffset, limit: fetchLimit,
+          message: `Batch ${Math.floor(fetchOffset / fetchLimit) + 1}: ${sliced.length} of ${totalCount}`
+        });
+      } else {
+        return res.json({
+          success: true, products, totalProducts: totalCount,
+          totalCount, hasMore: false,
+          baseProductsCount: totalCount,
+          message: `Fetched ${totalCount} barcodes`
+        });
+      }
+    }
+
+    // 2) If build is already in progress, tell client to retry
+    if (syncBuildingPromise) {
+      console.log(`[sync] Build in progress, telling client to retry...`);
+      return res.json({
+        success: true, status: 'building', retry: true,
+        message: 'Building product list from SQL... please wait'
+      });
+    }
+
+    // 3) Start building in background, return immediately
+    console.log(`[sync] Starting async build for ${cacheKey}...`);
+    syncBuildingPromise = buildProductList(erpBranchId, appBranchId, cacheKey)
+      .then(() => {
+        syncBuildingPromise = null;
+        console.log(`[sync] Async build complete!`);
+      })
+      .catch(err => {
+        syncBuildingPromise = null;
+        console.error(`[sync] Async build FAILED:`, err.message);
+      });
+
+    return res.json({
+      success: true, status: 'building', retry: true,
+      message: 'Started building product list from SQL... please retry in a few seconds'
     });
   } catch (err) {
     pool = null;
