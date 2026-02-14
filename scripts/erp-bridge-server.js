@@ -219,6 +219,12 @@ async function buildProductList(erpBranchId, appBranchId, cacheKey) {
       if (!isDup) existing.push(entry);
     }
 
+    // Build a fast lookup map for base products by batch ID (avoids O(n*m) .find() loops)
+    const baseProductByBatchId = new Map();
+    for (const bp of baseProducts) {
+      baseProductByBatchId.set(String(bp.ProductBatchID), bp);
+    }
+
     // Pre-populate expiryMap
     for (const bp of baseProducts) {
       const manualBC = String(bp.MannualBarcode || '').trim();
@@ -233,7 +239,7 @@ async function buildProductList(erpBranchId, appBranchId, cacheKey) {
     for (const u of allUnits) {
       const unitBC = String(u.BarCode || '').trim();
       if (!unitBC) continue;
-      const parentBatch = baseProducts.find(bp => String(bp.ProductBatchID) === String(u.ProductBatchID));
+      const parentBatch = baseProductByBatchId.get(String(u.ProductBatchID));
       if (parentBatch) addExpiryEntry(unitBC, parentBatch.ExpiryDate, parentBatch.BranchID);
     }
     for (const eb of extraBarcodes) {
