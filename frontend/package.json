@@ -64,7 +64,6 @@
     "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",
     "jsbarcode": "^3.12.1",
-    "jszip": "^3.10.1",
     "lottie-web": "^5.13.0",
     "lucide-svelte": "^0.447.0",
     "mssql": "^12.1.1",
