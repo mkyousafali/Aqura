@@ -4,7 +4,27 @@ import { GOOGLE_API_KEY, GOOGLE_SEARCH_ENGINE_ID } from '$env/static/private';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const { barcode, productNameEn, productNameAr } = await request.json();
+		const body = await request.json();
+		const { barcode, productNameEn, productNameAr, query } = body;
+
+		// Simple query mode (used by mobile customer product request)
+		if (query) {
+			if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID) {
+				return json({ error: 'Google API not configured' }, { status: 500 });
+			}
+			const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&searchType=image&num=10`;
+			const response = await fetch(url);
+			const data = await response.json();
+			if (!response.ok) {
+				return json({ error: data.error?.message || 'Search failed' }, { status: response.status });
+			}
+			const images = data.items?.map((item: any) => ({
+				url: item.link,
+				thumbnail: item.image?.thumbnailLink || item.link,
+				title: item.title || ''
+			})) || [];
+			return json({ images });
+		}
 
 		if (!barcode) {
 			return json({ error: 'Barcode is required' }, { status: 400 });
