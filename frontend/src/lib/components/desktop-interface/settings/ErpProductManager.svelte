@@ -165,61 +165,87 @@
 		syncStatus = null;
 
 		try {
-			// Step 1: Fetch products from SQL Server via API
-			const response = await fetch('/api/erp-products', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					action: 'sync',
-					tunnelUrl: settings.tunnelUrl,
-					erpBranchId: selectedConfig?.erp_branch_id || null,
-					appBranchId: selectedConfig?.branch_id || null
-				})
-			});
-
-			const result = await response.json();
-			
-			if (!result.success) {
-				syncStatus = { success: false, message: result.error || 'Failed to fetch products from ERP' };
-				return;
-			}
-
-			const fetchedProducts: ErpProduct[] = result.products;
-			syncStatus = { success: true, message: `Fetched ${fetchedProducts.length} barcodes. Inserting...` };
-
-			// Step 2: Insert/upsert in batches using RPC for expiry merge
-			const batchSize = 200;
+			const FETCH_BATCH_SIZE = 20000; // Fetch from bridge in chunks of 20K
+			const UPSERT_BATCH_SIZE = 200;   // Upsert to Supabase in chunks of 200
 			let newCount = 0;
 			let updatedCount = 0;
-			
-			for (let i = 0; i < fetchedProducts.length; i += batchSize) {
-				const batch = fetchedProducts.slice(i, i + batchSize);
-				
-				const { data: rpcResult, error: rpcError } = await supabase
-					.rpc('upsert_erp_products_with_expiry', {
-						p_products: batch
-					});
+			let totalFetched = 0;
+			let totalProducts = 0;
+			let batchNumber = 0;
+			let hasMore = true;
 
-				if (rpcError) {
-					console.error(`Error upserting batch ${i}:`, rpcError);
-				} else if (rpcResult) {
-					newCount += rpcResult.inserted || 0;
-					updatedCount += rpcResult.updated || 0;
+			while (hasMore) {
+				batchNumber++;
+				syncStatus = { success: true, message: `📦 Fetching batch ${batchNumber} (offset: ${totalFetched})...` };
+
+				// Step 1: Fetch products from bridge in chunks
+				const response = await fetch('/api/erp-products', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						action: 'sync',
+						tunnelUrl: settings.tunnelUrl,
+						erpBranchId: selectedConfig?.erp_branch_id || null,
+						appBranchId: selectedConfig?.branch_id || null,
+						limit: FETCH_BATCH_SIZE,
+						offset: totalFetched
+					})
+				});
+
+				const result = await response.json();
+
+				if (!result.success) {
+					syncStatus = { success: false, message: result.error || 'Failed to fetch products from ERP' };
+					return;
 				}
 
-				syncStatus = { 
-					success: true, 
-					message: `Syncing... ${i + batch.length}/${fetchedProducts.length} (${newCount} new, ${updatedCount} updated)` 
-				};
+				// Handle async build - bridge is building the product list in background
+				if (result.retry === true) {
+					syncStatus = { success: true, message: `⏳ ${result.message || 'Building product list from SQL...'} (retrying in 5s)` };
+					await new Promise(r => setTimeout(r, 5000));
+					batchNumber--; // retry same batch
+					continue;
+				}
+
+				const fetchedProducts: ErpProduct[] = result.products;
+				totalProducts = result.totalCount || fetchedProducts.length;
+				totalFetched += fetchedProducts.length;
+
+				syncStatus = { success: true, message: `📦 Batch ${batchNumber}: Fetched ${fetchedProducts.length} products (${totalFetched}/${totalProducts}). Upserting...` };
+
+				// Step 2: Upsert this batch to Supabase
+				for (let i = 0; i < fetchedProducts.length; i += UPSERT_BATCH_SIZE) {
+					const batch = fetchedProducts.slice(i, i + UPSERT_BATCH_SIZE);
+
+					const { data: rpcResult, error: rpcError } = await supabase
+						.rpc('upsert_erp_products_with_expiry', {
+							p_products: batch
+						});
+
+					if (rpcError) {
+						console.error(`Error upserting batch ${i}:`, rpcError);
+					} else if (rpcResult) {
+						newCount += rpcResult.inserted || 0;
+						updatedCount += rpcResult.updated || 0;
+					}
+
+					syncStatus = {
+						success: true,
+						message: `⏳ Batch ${batchNumber}: ${i + batch.length}/${fetchedProducts.length} upserted (${totalFetched}/${totalProducts} total, ${newCount} new, ${updatedCount} updated)`
+					};
+				}
+
+				// Check if there are more products to fetch
+				hasMore = result.hasMore === true;
 			}
 
-			syncStatus = { 
-				success: true, 
-				message: `✅ Sync complete! ${newCount} new + ${updatedCount} updated barcodes from ${result.baseProductsCount} products.` 
+			syncStatus = {
+				success: true,
+				message: `✅ Sync complete! ${totalFetched} products synced (${newCount} new + ${updatedCount} updated) in ${batchNumber} batch(es).`
 			};
 
 			// Reload synced products
-			totalSynced = 0; // reset so it re-fetches total
+			totalSynced = 0;
 			await loadSyncedProducts();
 			activeTab = 'products';
 
