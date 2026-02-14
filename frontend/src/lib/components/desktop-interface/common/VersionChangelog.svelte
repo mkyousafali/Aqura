@@ -5,11 +5,31 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ46.19.12.13</p>
-		<p class="version-details">Desktop: 46 | Mobile: 19 | Cashier: 12 | Customer: 13</p>
+		<p class="version-title">Version AQ46.20.12.13</p>
+		<p class="version-details">Desktop: 46 | Mobile: 20 | Cashier: 12 | Customer: 13</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ Comprehensive Arabic Translation for Mobile Interface</h3>
+		<p class="change-description">Full Arabic (RTL) translation across 20+ mobile pages including approval center, notifications, assignments, tasks, POS closed boxes, receiving tasks, and more. Bilingual helpers, relative time display, status badge translations, and employee name localization.</p>
+		<div class="change-details">
+			<h4>February 15, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Approval Center — Full Arabic:</b> All labels, badges, buttons, modals, toasts, empty states translated. Status badges (Pending/Approved/Rejected) show in Arabic. Requester and employee names display Arabic names from hr_employee_master. Day-off reasons show in correct language. Relative time display ("3 days ago" / "منذ 3 يوم") for date fields.</li>
+				<li>✅ <b>Notifications — Full Arabic:</b> Notification list page, detail page, and create notification page fully translated with RTL support. Date formatting, empty states, and action buttons all bilingual.</li>
+				<li>✅ <b>Assignments Page — Arabic:</b> Task assignments page with translated headers, status indicators, and action buttons.</li>
+				<li>✅ <b>Tasks System — Arabic:</b> Tasks list, task detail, and task completion pages translated. Camera/file upload buttons, done confirmations, and status labels all bilingual.</li>
+				<li>✅ <b>POS Closed Boxes — Arabic:</b> Closed box details page with translated financial labels, date formatting, and branch information.</li>
+				<li>✅ <b>Mobile Layout — Arabic:</b> Navigation, header, bottom bar, and menu items translated. RTL direction attribute applied globally based on locale.</li>
+				<li>✅ <b>i18n Locale Files:</b> 133+ new translation keys added to both en.ts and ar.ts locale files covering all mobile interface strings.</li>
+				<li>✅ <b>Date Formatting Fix:</b> Changed Arabic date locale from ar-SA (Hijri calendar) to ar-EG (Gregorian) across all mobile pages. Saudi timezone (Asia/Riyadh) applied consistently.</li>
+				<li>✅ <b>Notification Management:</b> Updated notificationManagement.ts utility with bilingual support for push notification text and notification handling.</li>
+				<li>✅ <b>Additional Pages:</b> Quick tasks, receiving tasks, my-checklist, my-products, incident manager, AI chat, and POS pending pages updated with i18n support.</li>
+			</ul>
+		</div>
+		</div>
+
+		<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ ERP Auto-Sync Edge Function, Setup Wizard Enhancements & Security Fix</h3>
 		<p class="change-description">Automated ERP product synchronization via Supabase Edge Function with pg_cron scheduling, enhanced setup wizard with edit/reinstall capability, ERP Product Manager UI cleanup, and hardcoded API key removal.</p>
 		<div class="change-details">
