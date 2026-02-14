@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getTranslation } from '$lib/i18n';
 	import { currentLocale } from '$lib/i18n';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -19,6 +19,7 @@
 		product_name_ar: string;
 		parent_barcode: string | null;
 		expiry_dates: any[];
+		managed_by: any[];
 	}
 
 	// Branch & connection state
@@ -44,6 +45,14 @@
 	let saving = false;
 	let saveSuccess = false;
 	let saveError = '';
+
+	// Mine/Claim state
+	let claiming = false;
+	let claimSuccess = false;
+	let claimError = '';
+	let employeeId: string | null = null;
+	let employeeName: string = '';
+	let managerNames: Record<string, string> = {};
 
 	// Date picker state (Year → Month → Day) - matches near-expiry page
 	let selectedYear = '';
@@ -97,6 +106,39 @@
 	$: isRtl = $currentLocale === 'ar';
 	$: selectedConfig = branches.find(b => b.branch_id === selectedBranchId) || null;
 	$: currentExpiry = getExpiryForBranch(product, selectedBranchId);
+	$: alreadyClaimed = isAlreadyClaimed(product, employeeId);
+	$: daysLeft = (() => {
+		if (!currentExpiry) return null;
+		// currentExpiry is dd-mm-yyyy
+		const parts = currentExpiry.split('-');
+		if (parts.length !== 3) return null;
+		const expDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		return Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+	})();
+
+	function isAlreadyClaimed(p: ProductResult | null, empId: string | null): boolean {
+		if (!p || !p.managed_by || !empId) return false;
+		return p.managed_by.some((m: any) => m.employee_id === empId);
+	}
+
+	async function resolveManagerNames(managers: any[]) {
+		if (!managers || managers.length === 0) return;
+		const ids = managers.map((m: any) => m.employee_id).filter((id: string) => id && !managerNames[id]);
+		if (ids.length === 0) return;
+		const { data } = await supabase
+			.from('hr_employee_master')
+			.select('id, name_en, name_ar')
+			.in('id', ids);
+		if (data) {
+			const updated = { ...managerNames };
+			for (const emp of data) {
+				updated[emp.id] = isRtl ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.name_ar || emp.id);
+			}
+			managerNames = updated;
+		}
+	}
 
 	function getExpiryForBranch(p: ProductResult | null, branchId: number | null): string | null {
 		if (!p || !p.expiry_dates || !branchId) return null;
@@ -112,7 +154,25 @@
 
 	onMount(async () => {
 		await loadBranches();
+		await loadEmployeeId();
 	});
+
+	async function loadEmployeeId() {
+		if (!$currentUser?.id) return;
+		try {
+			const { data, error } = await supabase
+				.from('hr_employee_master')
+				.select('id, name_en, name_ar')
+				.eq('user_id', $currentUser.id)
+				.maybeSingle();
+			if (!error && data) {
+				employeeId = data.id;
+				employeeName = isRtl ? (data.name_ar || data.name_en || '') : (data.name_en || data.name_ar || '');
+			}
+		} catch (err) {
+			console.error('Error loading employee ID:', err);
+		}
+	}
 
 	onDestroy(() => {
 		stopScan();
@@ -129,13 +189,36 @@
 			if (error) throw error;
 			branches = data || [];
 
+			// Fetch actual branch names from branches table
+			if (branches.length > 0) {
+				const branchIds = branches.map(b => b.branch_id);
+				const { data: branchData } = await supabase
+					.from('branches')
+					.select('id, name_en, name_ar, location_en, location_ar')
+					.in('id', branchIds);
+				if (branchData) {
+					const branchMap = new Map(branchData.map(b => [Number(b.id), b]));
+					branches = branches.map(b => {
+						const info = branchMap.get(b.branch_id);
+						if (info) {
+							const name = isRtl ? (info.name_ar || info.name_en) : (info.name_en || info.name_ar);
+							const loc = isRtl ? (info.location_ar || info.location_en || '') : (info.location_en || info.location_ar || '');
+							b.branch_name = loc ? `${name} - ${loc}` : name;
+						}
+						return b;
+					});
+				}
+			}
+
 			// Default to user's branch
 			const userBranchId = $currentUser?.branch_id ? Number($currentUser.branch_id) : null;
 			if (userBranchId && branches.some(b => b.branch_id === userBranchId)) {
 				selectedBranchId = userBranchId;
+				await tick();
 				await testConnection();
 			} else if (branches.length > 0) {
 				selectedBranchId = branches[0].branch_id;
+				await tick();
 				await testConnection();
 			}
 		} catch (err) {
@@ -161,7 +244,7 @@
 			const result = await response.json();
 			if (result.success) {
 				connectionStatus = 'ok';
-				connectionMessage = isRtl ? 'متصل ✅' : 'Connected ✅';
+				connectionMessage = isRtl ? 'متصل' : 'Connected';
 			} else {
 				connectionStatus = 'fail';
 				connectionMessage = result.error || (isRtl ? 'فشل الاتصال' : 'Connection failed');
@@ -236,7 +319,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('erp_synced_products')
-				.select('barcode, product_name_en, product_name_ar, parent_barcode, expiry_dates')
+				.select('barcode, product_name_en, product_name_ar, parent_barcode, expiry_dates, managed_by')
 				.eq('barcode', bc.trim())
 				.limit(1)
 				.maybeSingle();
@@ -245,6 +328,9 @@
 				lookupError = isRtl ? 'لم يتم العثور على المنتج' : 'Product not found';
 			} else {
 				product = data;
+				if (data.managed_by && data.managed_by.length > 0) {
+					resolveManagerNames(data.managed_by);
+				}
 			}
 		} catch (err: any) {
 			lookupError = err.message || 'Lookup error';
@@ -256,6 +342,96 @@
 	function getProductName(p: ProductResult): string {
 		if (isRtl && p.product_name_ar) return p.product_name_ar;
 		return p.product_name_en || p.product_name_ar || '';
+	}
+
+	// Clear product and reset for next scan
+	function clearProduct() {
+		product = null;
+		barcode = '';
+		lookupError = '';
+		saveSuccess = false;
+		saveError = '';
+		claimSuccess = false;
+		claimError = '';
+		newExpiryDate = '';
+		selectedYear = '';
+		selectedMonth = '';
+		selectedDay = '';
+		showDatePopup = false;
+	}
+
+	// --- Claim product (Mine) ---
+	async function claimProduct() {
+		if (!product || !employeeId || !selectedBranchId) return;
+		claiming = true;
+		claimError = '';
+		claimSuccess = false;
+
+		try {
+			const newEntry = {
+				employee_id: employeeId,
+				branch_id: selectedBranchId,
+				claimed_at: new Date().toISOString()
+			};
+
+			// Update product managed_by - add to existing array
+			const currentManaged: any[] = product.managed_by ? [...product.managed_by] : [];
+			const alreadyExists = currentManaged.some((m: any) => m.employee_id === employeeId && m.branch_id === selectedBranchId);
+			if (alreadyExists) {
+				claimError = isRtl ? 'أنت تدير هذا المنتج بالفعل' : 'You already manage this product';
+				claiming = false;
+				return;
+			}
+			currentManaged.push(newEntry);
+
+			const { error } = await supabase
+				.from('erp_synced_products')
+				.update({ managed_by: currentManaged })
+				.eq('barcode', product.barcode);
+
+			if (error) throw error;
+
+			// Update local state
+			product = { ...product, managed_by: currentManaged };
+			// Add current employee name to cache
+			if (employeeId && employeeName) {
+				managerNames = { ...managerNames, [employeeId]: employeeName };
+			} else if (employeeId) {
+				resolveManagerNames(currentManaged);
+			}
+			claimSuccess = true;
+		} catch (err: any) {
+			claimError = err.message || 'Error';
+		} finally {
+			claiming = false;
+		}
+	}
+
+	// --- Unclaim product ---
+	async function unclaimProduct() {
+		if (!product || !employeeId) return;
+		claiming = true;
+		claimError = '';
+		claimSuccess = false;
+
+		try {
+			const currentManaged: any[] = product.managed_by ? [...product.managed_by] : [];
+			const filtered = currentManaged.filter((m: any) => !(m.employee_id === employeeId && m.branch_id === selectedBranchId));
+
+			const { error } = await supabase
+				.from('erp_synced_products')
+				.update({ managed_by: filtered })
+				.eq('barcode', product.barcode);
+
+			if (error) throw error;
+
+			product = { ...product, managed_by: filtered };
+			claimSuccess = true;
+		} catch (err: any) {
+			claimError = err.message || 'Error';
+		} finally {
+			claiming = false;
+		}
 	}
 
 	// --- Change expiry date ---
@@ -364,12 +540,6 @@
 </script>
 
 <div class="page-container" dir={isRtl ? 'rtl' : 'ltr'}>
-	<!-- Header -->
-	<div class="page-header">
-		<span class="header-icon">📅</span>
-		<h1>{isRtl ? 'إدارة تواريخ الصلاحية' : 'Expiry Date Manager'}</h1>
-	</div>
-
 	<!-- Branch Selection -->
 	<div class="section-card">
 		<label class="field-label">{isRtl ? 'الفرع' : 'Branch'}</label>
@@ -441,15 +611,78 @@
 					<span class="expiry-value" class:no-date={!currentExpiry}>
 						{currentExpiry || (isRtl ? 'غير محدد' : 'Not set')}
 					</span>
+					{#if daysLeft !== null}
+						<span class="days-left-badge"
+							class:days-expired={daysLeft <= 0}
+							class:days-critical={daysLeft > 0 && daysLeft <= 3}
+							class:days-warning={daysLeft > 3 && daysLeft <= 7}
+							class:days-soon={daysLeft > 7 && daysLeft <= 14}
+							class:days-safe={daysLeft > 14}
+						>
+							{#if daysLeft < 0}
+								{isRtl ? `منتهي منذ ${Math.abs(daysLeft)} يوم` : `Expired ${Math.abs(daysLeft)} ${Math.abs(daysLeft) === 1 ? 'day' : 'days'} ago`}
+							{:else if daysLeft === 0}
+								{isRtl ? 'ينتهي اليوم' : 'Expires today'}
+							{:else}
+								{isRtl ? `متبقي ${daysLeft} يوم` : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} remaining`}
+							{/if}
+						</span>
+					{/if}
 				</div>
 
-				<button class="change-btn" on:click={openDatePopup}>
-					📅 {isRtl ? 'تغيير تاريخ الصلاحية' : 'Change Expiry Date'}
-				</button>
+				<div class="action-buttons-row">
+					<button class="change-btn" on:click={openDatePopup}>
+						📅 {isRtl ? 'تغيير الصلاحية' : 'Change Expiry'}
+					</button>
+					<button class="mine-btn" class:mine-btn-claimed={alreadyClaimed} on:click={claimProduct} disabled={claiming || !employeeId || alreadyClaimed}>
+						{#if claiming}
+							<span class="save-spinner">⏳</span>
+						{:else if alreadyClaimed}
+							✅ {isRtl ? 'لي' : 'Mine'}
+						{:else}
+							🙋 {isRtl ? 'لي' : 'Mine'}
+						{/if}
+					</button>
+					<button class="clear-btn" on:click={clearProduct}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+						{isRtl ? 'التالي' : 'Next'}
+					</button>
+				</div>
+
+				<!-- Managed by list -->
+				{#if product.managed_by && product.managed_by.length > 0}
+					<div class="managed-by-row">
+						<span class="managed-by-label">👥</span>
+						{#each product.managed_by as manager}
+							<span class="managed-by-tag" class:managed-by-me={manager.employee_id === employeeId}>
+								{managerNames[manager.employee_id] || manager.employee_id}
+							</span>
+						{/each}
+						{#if product.managed_by.some((m) => m.employee_id === employeeId)}
+							<button class="unclaim-inline-btn" on:click={unclaimProduct} disabled={claiming}>
+								{claiming ? '...' : (isRtl ? 'إلغاء' : 'Unclaim')}
+							</button>
+						{/if}
+					</div>
+				{/if}
+
+				{#if claimSuccess}
+					<div class="success-msg">
+						✅ {isRtl ? 'تم التحديث' : 'Updated'}
+					</div>
+				{/if}
+				{#if claimError}
+					<div class="error-msg">{claimError}</div>
+				{/if}
 
 				{#if saveSuccess}
 					<div class="success-msg">
 						✅ {isRtl ? 'تم التحديث بنجاح' : 'Updated successfully'}
+						<button class="next-after-save" on:click={clearProduct}>
+							➡️ {isRtl ? 'المنتج التالي' : 'Next Product'}
+						</button>
 					</div>
 				{/if}
 				{#if saveError}
@@ -591,53 +824,34 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 100%;
-		background: #F0FDF4;
-		padding: 0.75rem;
+		background: #F8FAFC;
+		padding: 0.5rem 0.6rem;
 		padding-bottom: 5rem;
-		gap: 0.75rem;
-	}
-
-	.page-header {
-		display: flex;
-		align-items: center;
 		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		background: linear-gradient(135deg, #065F46, #047857);
-		border-radius: 12px;
-		color: white;
-	}
-
-	.header-icon {
-		font-size: 1.5rem;
-	}
-
-	.page-header h1 {
-		font-size: 1.1rem;
-		font-weight: 700;
-		margin: 0;
 	}
 
 	.section-card {
 		background: white;
-		border-radius: 12px;
-		padding: 0.85rem;
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+		border-radius: 6px;
+		padding: 0.5rem 0.6rem;
+		box-shadow: none;
+		border: 1px solid #E5E7EB;
 	}
 
 	.field-label {
 		display: block;
-		font-size: 0.78rem;
+		font-size: 0.76rem;
 		font-weight: 600;
 		color: #374151;
-		margin-bottom: 0.3rem;
+		margin-bottom: 0.2rem;
 	}
 
 	.field-select {
 		width: 100%;
-		padding: 0.5rem 0.65rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 0.85rem;
+		border-radius: 5px;
+		font-size: 0.82rem;
 		background: white;
 		color: #111827;
 		appearance: auto;
@@ -645,12 +859,12 @@
 
 	.field-input {
 		width: 100%;
-		padding: 0.45rem 0.6rem;
+		padding: 0.4rem 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 0.85rem;
+		border-radius: 5px;
+		font-size: 0.82rem;
 		box-sizing: border-box;
-		height: 2.2rem;
+		height: 2rem;
 	}
 
 	.field-input:focus {
@@ -663,14 +877,14 @@
 	.connection-status {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
-		margin-top: 0.5rem;
-		font-size: 0.78rem;
+		gap: 0.3rem;
+		margin-top: 0.3rem;
+		font-size: 0.72rem;
 	}
 
 	.status-dot {
-		width: 10px;
-		height: 10px;
+		width: 8px;
+		height: 8px;
 		border-radius: 50%;
 		flex-shrink: 0;
 	}
@@ -708,11 +922,11 @@
 	}
 
 	.retry-btn {
-		padding: 0.15rem 0.5rem;
+		padding: 0.1rem 0.4rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 6px;
+		border-radius: 4px;
 		background: #F9FAFB;
-		font-size: 0.72rem;
+		font-size: 0.68rem;
 		cursor: pointer;
 		color: #374151;
 	}
@@ -720,7 +934,7 @@
 	/* Barcode row */
 	.barcode-input-row {
 		display: flex;
-		gap: 0.35rem;
+		gap: 0.25rem;
 		align-items: stretch;
 	}
 
@@ -732,14 +946,14 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0 0.6rem;
+		padding: 0 0.5rem;
 		background: #047857;
 		color: white;
 		border: none;
-		border-radius: 8px;
+		border-radius: 5px;
 		cursor: pointer;
 		flex-shrink: 0;
-		height: 2.2rem;
+		height: 2rem;
 	}
 
 	.scan-btn:active {
@@ -750,13 +964,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0 0.5rem;
+		padding: 0 0.4rem;
 		background: #F59E0B;
 		border: none;
-		border-radius: 8px;
+		border-radius: 5px;
 		cursor: pointer;
-		font-size: 1rem;
-		height: 2.2rem;
+		font-size: 0.9rem;
+		height: 2rem;
 		flex-shrink: 0;
 	}
 
@@ -782,43 +996,43 @@
 
 	/* Product card */
 	.product-card {
-		border: 2px solid #D1FAE5;
-		background: #ECFDF5;
+		border: 1px solid #D1FAE5;
+		background: #F0FDF4;
 	}
 
 	.product-name {
-		font-size: 1rem;
+		font-size: 0.88rem;
 		font-weight: 700;
 		color: #065F46;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.15rem;
 	}
 
 	.product-barcode {
-		font-size: 0.78rem;
+		font-size: 0.72rem;
 		color: #6B7280;
 		font-family: monospace;
-		margin-bottom: 0.65rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.expiry-row {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.55rem 0.65rem;
+		gap: 0.3rem;
+		padding: 0.4rem 0.5rem;
 		background: white;
-		border-radius: 8px;
+		border-radius: 5px;
 		border: 1px solid #D1D5DB;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.expiry-label {
-		font-size: 0.8rem;
+		font-size: 0.74rem;
 		font-weight: 600;
 		color: #374151;
 	}
 
 	.expiry-value {
-		font-size: 0.9rem;
+		font-size: 0.82rem;
 		font-weight: 700;
 		color: #B45309;
 		font-family: monospace;
@@ -830,41 +1044,193 @@
 		font-weight: 400;
 	}
 
+	.days-left-badge {
+		padding: 0.1rem 0.4rem;
+		border-radius: 5px;
+		font-size: 0.68rem;
+		font-weight: 700;
+		white-space: nowrap;
+		margin-inline-start: auto;
+	}
+	.days-expired { background: #FEE2E2; color: #991B1B; }
+	.days-critical { background: #FEE2E2; color: #991B1B; }
+	.days-warning { background: #FEF3C7; color: #92400E; }
+	.days-soon { background: #FEF9C3; color: #854D0E; }
+	.days-safe { background: #D1FAE5; color: #065F46; }
+
+	.action-buttons-row {
+		display: flex;
+		gap: 0.35rem;
+	}
+
 	.change-btn {
-		width: 100%;
-		padding: 0.65rem;
+		flex: 1;
+		padding: 0.45rem;
 		background: linear-gradient(135deg, #F59E0B, #D97706);
 		color: white;
 		border: none;
-		border-radius: 10px;
-		font-size: 0.9rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		font-weight: 700;
 		cursor: pointer;
-		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+		box-shadow: none;
+		text-align: center;
 	}
 
 	.change-btn:active {
 		background: linear-gradient(135deg, #D97706, #B45309);
 	}
 
-	.success-msg {
-		margin-top: 0.5rem;
-		padding: 0.45rem 0.65rem;
+	.clear-btn {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.2rem;
+		padding: 0.45rem;
+		background: linear-gradient(135deg, #6366F1, #4F46E5);
+		color: white;
+		border: none;
+		border-radius: 5px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+		box-shadow: none;
+	}
+
+	.clear-btn:active {
+		background: linear-gradient(135deg, #4F46E5, #4338CA);
+	}
+
+	.next-after-save {
+		display: block;
+		width: 100%;
+		margin-top: 0.3rem;
+		padding: 0.4rem;
+		background: #047857;
+		color: white;
+		border: none;
+		border-radius: 5px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.next-after-save:active {
+		background: #065F46;
+	}
+
+	/* Mine button */
+	.mine-btn {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.15rem;
+		padding: 0.45rem;
+		background: linear-gradient(135deg, #3B82F6, #2563EB);
+		color: white;
+		border: none;
+		border-radius: 5px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+		box-shadow: none;
+	}
+
+	.mine-btn:active {
+		background: linear-gradient(135deg, #2563EB, #1D4ED8);
+	}
+
+	.mine-btn-claimed {
+		background: linear-gradient(135deg, #10B981, #059669);
+	}
+
+	.mine-btn-claimed:active {
+		background: linear-gradient(135deg, #059669, #047857);
+	}
+
+	.mine-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+	}
+
+	.managed-by-row {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-top: 0.3rem;
+		padding: 0.25rem 0.4rem;
+		background: #F8FAFC;
+		border: 1px solid #E2E8F0;
+		border-radius: 5px;
+		flex-wrap: wrap;
+	}
+
+	.managed-by-label {
+		font-size: 0.72rem;
+		line-height: 1;
+	}
+
+	.managed-by-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.15rem 0.45rem;
+		background: #E2E8F0;
+		color: #334155;
+		border-radius: 5px;
+		font-size: 0.68rem;
+		font-weight: 600;
+		border: 1px solid #CBD5E1;
+	}
+
+	.managed-by-me {
 		background: #D1FAE5;
 		color: #065F46;
-		border-radius: 8px;
-		font-size: 0.8rem;
+		border-color: #6EE7B7;
+	}
+
+	.unclaim-inline-btn {
+		margin-inline-start: auto;
+		padding: 0.15rem 0.45rem;
+		background: #FEE2E2;
+		color: #991B1B;
+		border: 1px solid #FECACA;
+		border-radius: 5px;
+		font-size: 0.62rem;
+		font-weight: 700;
+		cursor: pointer;
+		white-space: nowrap;
+		line-height: 1;
+	}
+
+	.unclaim-inline-btn:active {
+		background: #FECACA;
+	}
+
+	.unclaim-inline-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.success-msg {
+		margin-top: 0.35rem;
+		padding: 0.35rem 0.5rem;
+		background: #D1FAE5;
+		color: #065F46;
+		border-radius: 5px;
+		font-size: 0.74rem;
 		font-weight: 600;
 		text-align: center;
 	}
 
 	.error-msg {
-		margin-top: 0.4rem;
-		padding: 0.4rem 0.6rem;
+		margin-top: 0.3rem;
+		padding: 0.3rem 0.5rem;
 		background: #FEE2E2;
 		color: #991B1B;
-		border-radius: 8px;
-		font-size: 0.78rem;
+		border-radius: 5px;
+		font-size: 0.72rem;
 		font-weight: 500;
 	}
 
@@ -1144,12 +1510,12 @@
 
 	.btn-cancel {
 		flex: 1;
-		padding: 0.55rem;
+		padding: 0.45rem;
 		background: #F3F4F6;
 		color: #374151;
 		border: 1px solid #D1D5DB;
-		border-radius: 8px;
-		font-size: 0.85rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		font-weight: 600;
 		cursor: pointer;
 	}
@@ -1160,12 +1526,12 @@
 
 	.btn-save {
 		flex: 1;
-		padding: 0.55rem;
+		padding: 0.45rem;
 		background: #047857;
 		color: white;
 		border: none;
-		border-radius: 8px;
-		font-size: 0.85rem;
+		border-radius: 5px;
+		font-size: 0.78rem;
 		font-weight: 700;
 		cursor: pointer;
 		display: flex;

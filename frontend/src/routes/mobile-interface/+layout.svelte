@@ -603,6 +603,8 @@
 		if (path === '/mobile-interface/ai-chat' || path === '/mobile-interface/ai-chat/') return getTranslation('mobile.bottomNav.aiChat');
 		if (path === '/mobile-interface/product-request' || path === '/mobile-interface/product-request/') return getTranslation('mobile.productRequest');
 		if (path === '/mobile-interface/near-expiry' || path === '/mobile-interface/near-expiry/') return getTranslation('mobile.nearExpiry');
+		if (path === '/mobile-interface/expiry-manager' || path === '/mobile-interface/expiry-manager/') return locale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager';
+		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -993,7 +995,7 @@
 
 			<!-- Stock Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') }>
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/my-products') }>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -1031,6 +1033,13 @@
 								<path d="M15 15l2 2 4-4"/>
 							</svg>
 							<span>{$currentLocale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager'}</span>
+						</a>
+						<a href="/mobile-interface/my-products" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/my-products')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+								<circle cx="12" cy="7" r="4"/>
+							</svg>
+							<span>{$currentLocale === 'ar' ? 'منتجاتي' : 'My Products'}</span>
 						</a>
 	
 					</div>
