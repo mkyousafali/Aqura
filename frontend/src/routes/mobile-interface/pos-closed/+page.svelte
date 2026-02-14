@@ -6,6 +6,7 @@
 
 	let currentUserData = null;
 	let closedBoxes = [];
+	let totalCount = 0;
 	let isLoading = true;
 
 	// Helper function to get translations
@@ -32,6 +33,22 @@
 
 	async function loadClosedBoxes() {
 		try {
+			// Get full count first
+			const { count, error: countError } = await supabase
+				.from('box_operations')
+				.select('id', { count: 'exact', head: true })
+				.eq('user_id', currentUserData.id)
+				.eq('status', 'completed');
+
+			if (!countError) {
+				totalCount = count || 0;
+			}
+
+			// Load only last 3 days of data
+			const threeDaysAgo = new Date();
+			threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+			threeDaysAgo.setHours(0, 0, 0, 0);
+
 			const { data, error } = await supabase
 				.from('box_operations')
 				.select(`
@@ -40,8 +57,8 @@
 				`)
 				.eq('user_id', currentUserData.id)
 				.eq('status', 'completed')
-				.order('end_time', { ascending: false })
-				.limit(50);
+				.gte('end_time', threeDaysAgo.toISOString())
+				.order('end_time', { ascending: false });
 
 			if (error) throw error;
 
@@ -74,7 +91,8 @@
 			day: 'numeric', 
 			year: 'numeric',
 			hour: '2-digit',
-			minute: '2-digit'
+			minute: '2-digit',
+			timeZone: 'Asia/Riyadh'
 		});
 	}
 
@@ -106,8 +124,7 @@
 
 <div class="pos-closed-page">
 	<div class="page-header">
-		<h1>? {getTranslation('boxOperations.posClosed')}</h1>
-		<p>{closedBoxes.length} {getTranslation('boxOperations.completedBoxes')}</p>
+		<p>{getTranslation('boxOperations.youHave')} {totalCount} {getTranslation('boxOperations.completedBoxesInTotal')} <span class="header-info">• {getTranslation('boxOperations.showingLast3Days')}</span></p>
 	</div>
 
 	{#if isLoading}
@@ -121,8 +138,8 @@
 				<rect x="3" y="3" width="18" height="18" rx="2"/>
 				<path d="M9 12l2 2 4-4"/>
 			</svg>
-			<h3>{getTranslation('boxOperations.noClosedBoxes')}</h3>
-			<p>{getTranslation('boxOperations.noClosedBoxesDesc')}</p>
+			<h3>{getTranslation('boxOperations.noClosedBoxesLast3')}</h3>
+			<p>{getTranslation('boxOperations.noClosedBoxesLast3Desc')}</p>
 		</div>
 	{:else}
 		<div class="boxes-list">
@@ -201,6 +218,12 @@
 		font-size: 0.875rem;
 		color: #6B7280;
 		margin: 0;
+	}
+
+	.header-info {
+		font-size: 0.75rem;
+		color: #9CA3AF;
+		font-style: italic;
 	}
 
 	.loading-container {

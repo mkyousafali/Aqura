@@ -1035,40 +1035,47 @@ export class NotificationManagementService {
       // Handle different formats of assignedBy - could be UUID, username, or employee name
       let assignedByUsername = assignedBy;
       let assignedByUserName = assignedByName;
+      let assignedByNameEn = assignedByName;
+      let assignedByNameAr = assignedByName;
 
-      if (assignedBy.includes("-")) {
-        // It's a UUID, we need to get the username
-        const { data: userData, error: userError } = await supabase
+      // Try to get employee names from hr_employee_master
+      const assignerUserId = assignedBy.includes("-") ? assignedBy : null;
+      
+      if (assignerUserId) {
+        // It's a UUID - look up in hr_employee_master first
+        const { data: empData } = await supabase
+          .from("hr_employee_master")
+          .select("name_en, name_ar, user_id")
+          .eq("user_id", assignerUserId)
+          .maybeSingle();
+        
+        if (empData) {
+          assignedByNameEn = empData.name_en || assignedByName;
+          assignedByNameAr = empData.name_ar || empData.name_en || assignedByName;
+          assignedByUserName = empData.name_en || assignedByName;
+        }
+
+        // Also get username for created_by field
+        const { data: userData } = await supabase
           .from("users")
           .select("username")
-          .eq("id", assignedBy)
+          .eq("id", assignerUserId)
           .maybeSingle();
 
-        if (userError) {
-          console.error(
-            "❌ [NotificationManagement] Database error finding user for UUID:",
-            assignedBy,
-            userError,
-          );
-          // Fallback to using the provided name
-          assignedByUsername = assignedByName || "Admin";
-        } else if (!userData) {
-          console.error(
-            "❌ [NotificationManagement] Could not find user for UUID:",
-            assignedBy,
-          );
-          // Fallback to using the provided name
-          assignedByUsername = assignedByName || "Admin";
-        } else {
+        if (userData) {
           assignedByUsername = userData.username;
-          assignedByUserName = userData.username;
+          if (!empData) {
+            assignedByUserName = userData.username;
+            assignedByNameEn = userData.username;
+            assignedByNameAr = userData.username;
+          }
         }
       } else {
         // assignedBy might be username or employee name
         // First try to find by username
         const { data: usernameData, error: usernameError } = await supabase
           .from("users")
-          .select("username")
+          .select("id, username")
           .eq("username", assignedBy)
           .maybeSingle();
 
@@ -1080,52 +1087,23 @@ export class NotificationManagementService {
           );
         }
 
-        if (!usernameData) {
-          // Try to find by employee name
-          console.log(
-            "🔍 [NotificationManagement] User not found by username, trying by employee name:",
-            assignedBy,
-          );
-          const { data: employeeData, error: employeeError } = await supabase
-            .from("users")
-            .select(
-              `
-							username,
-							hr_employees!inner(name)
-						`,
-            )
-            .ilike("hr_employees.name", assignedBy)
-            .maybeSingle();
-
-          if (employeeError) {
-            console.error(
-              "❌ [NotificationManagement] Database error finding user by employee name:",
-              assignedBy,
-              employeeError,
-            );
-            // Use fallback
-            assignedByUsername = assignedByName || assignedBy;
-          } else if (!employeeData) {
-            console.log(
-              "⚠️ [NotificationManagement] User not found by employee name, using fallback:",
-              assignedBy,
-            );
-            // Use fallback
-            assignedByUsername = assignedByName || assignedBy;
-          } else {
-            assignedByUsername = employeeData.username;
-            assignedByUserName =
-              employeeData.hr_employees?.name || employeeData.username;
-            console.log(
-              "✅ [NotificationManagement] Found user by employee name:",
-              assignedBy,
-              "-> username:",
-              assignedByUsername,
-            );
-          }
-        } else {
+        if (usernameData) {
           assignedByUsername = usernameData.username;
           assignedByUserName = usernameData.username;
+          // Try to get employee names from hr_employee_master
+          const { data: empData } = await supabase
+            .from("hr_employee_master")
+            .select("name_en, name_ar")
+            .eq("user_id", usernameData.id)
+            .maybeSingle();
+          if (empData) {
+            assignedByNameEn = empData.name_en || usernameData.username;
+            assignedByNameAr = empData.name_ar || empData.name_en || usernameData.username;
+            assignedByUserName = empData.name_en || usernameData.username;
+          }
+        } else {
+          // Use fallback
+          assignedByUsername = assignedByName || assignedBy;
         }
       }
 
@@ -1149,10 +1127,25 @@ export class NotificationManagementService {
           ? `Assigned by ${assignedByUserName} to ${assignedToNames.join(", ")}`
           : `Assigned by ${assignedByUserName}`;
 
-      // Create notification data with task details in message
+      // Extract bilingual task title parts (may contain " | " separator)
+      let titleEn = taskTitle;
+      let titleAr = taskTitle;
+      if (taskTitle.includes(' | ')) {
+        const parts = taskTitle.split(' | ');
+        titleEn = parts[0].trim();
+        titleAr = parts[1]?.trim() || titleEn;
+      }
+
+      // Create bilingual notification title and message
+      const bilingualTitle = `New Task Assigned: ${titleEn} | مهمة جديدة: ${titleAr}`;
+      const deadlineStr = deadline ? new Date(deadline).toLocaleDateString() : "";
+      const msgEn = `You have been assigned a new task: "${titleEn}" by ${assignedByNameEn}${deadline ? ` with deadline: ${deadlineStr}` : ""}${notes ? `\n\nNotes: ${notes}` : ""}${taskData?.require_photo_upload ? "\n📷 Photo upload required" : ""}${taskData?.require_erp_reference ? "\n📋 ERP reference required" : ""}`;
+      const msgAr = `تم تعيين مهمة جديدة لك: "${titleAr}" بواسطة ${assignedByNameAr}${deadline ? ` - الموعد النهائي: ${deadlineStr}` : ""}${notes ? `\n\nملاحظات: ${notes}` : ""}${taskData?.require_photo_upload ? "\n📷 مطلوب رفع صورة" : ""}${taskData?.require_erp_reference ? "\n📋 مطلوب مرجع ERP" : ""}`;
+
+      // Create notification data with bilingual task details
       const notificationData: CreateNotificationRequest = {
-        title: `New Task Assigned: ${taskTitle}`,
-        message: `You have been assigned a new task: "${taskTitle}" by ${assignedByUserName}${deadline ? ` with deadline: ${new Date(deadline).toLocaleDateString()}` : ""}${notes ? `\n\nNotes: ${notes}` : ""}${taskData?.require_photo_upload ? "\n📷 Photo upload required" : ""}${taskData?.require_erp_reference ? "\n📋 ERP reference required" : ""}`,
+        title: bilingualTitle,
+        message: `${msgEn} --- ${msgAr}`,
         type: "task_assigned",
         priority: "medium",
         target_type: "specific_users",

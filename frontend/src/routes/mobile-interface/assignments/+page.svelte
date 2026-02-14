@@ -7,7 +7,8 @@
 	import { locale, getTranslation } from '$lib/i18n';
 
 	// Data
-	let assignments = [];
+	let allAssignments = []; // Full dataset for stats
+	let assignments = []; // Display dataset (filtered by showCompleted)
 	let filteredAssignments = [];
 	let totalStats = {
 		total: 0,
@@ -168,7 +169,11 @@
 					),
 					assigned_user:users!task_assignments_assigned_to_user_id_fkey (
 						id,
-						username
+						username,
+						hr_employee_master!hr_employee_master_user_id_fkey (
+							name_en,
+							name_ar
+						)
 					)
 				`)
 				.eq('assigned_by', $currentUser.id)
@@ -194,17 +199,18 @@
 					),
 					assigned_user:users!quick_task_assignments_assigned_to_user_id_fkey (
 						id,
-						username
+						username,
+						hr_employee_master!hr_employee_master_user_id_fkey (
+							name_en,
+							name_ar
+						)
 					)
 				`)
 				.eq('quick_task.assigned_by', $currentUser.id)
 				.order('created_at', { ascending: false });
 
-			// Only exclude completed if showCompleted is false
-			if (!showCompleted) {
-				regularQuery.neq('status', 'completed');
-				quickQuery.neq('status', 'completed');
-			}
+			// Always load all assignments for accurate stats
+			// Filtering of completed is done in applyFilters()
 
 			// Parallel loading for better performance
 			const [regularResult, quickResult] = await Promise.all([
@@ -262,27 +268,28 @@
 
 			// Combine both types of assignments
 			// Only include assignments where current user is the assigner
-			assignments = [...regularAssignments, ...quickAssignments].filter(assignment => {
+			allAssignments = [...regularAssignments, ...quickAssignments].filter(assignment => {
 				const assignedBy = assignment.assigned_by || assignment.quick_task?.assigned_by;
 				
 				// Must be assigned BY current user (includes self-assigned)
 				return assignedBy === $currentUser.id;
 			});
 			
-			console.log('Total assignments loaded:', assignments.length);
+			console.log('Total assignments loaded:', allAssignments.length);
 			console.log('Logged user ID:', $currentUser.id);
-			console.log('Sample assignment:', assignments[0]);
+			console.log('Sample assignment:', allAssignments[0]);
 			
 			// Sort by creation date (newest first)
-			assignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+			allAssignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
 			
 			// Load attachments for all assignments (in parallel)
+			assignments = allAssignments;
 			await loadAssignmentAttachments();
 			
-			// Calculate statistics
+			// Calculate statistics from ALL assignments (always accurate)
 			calculateStats();
 			
-			// Apply initial filters
+			// Apply display filters (including showCompleted)
 			applyFilters();
 
 		} catch (error) {
@@ -298,14 +305,15 @@
 	}
 
 	function calculateStats() {
-		totalStats.total = assignments.length;
-		totalStats.completed = assignments.filter(a => a.status === 'completed').length;
-		totalStats.in_progress = assignments.filter(a => a.status === 'in_progress').length;
-		totalStats.assigned = assignments.filter(a => a.status === 'assigned' || a.status === 'pending').length;
+		totalStats.total = allAssignments.length;
+		totalStats.completed = allAssignments.filter(a => a.status === 'completed').length;
+		totalStats.in_progress = allAssignments.filter(a => a.status === 'in_progress').length;
+		// Pending = all non-completed assignments (assigned to others, not yet done)
+		totalStats.assigned = allAssignments.filter(a => a.status !== 'completed' && a.status !== 'in_progress').length;
 		
 		// Calculate overdue
 		const now = new Date();
-		totalStats.overdue = assignments.filter(a => {
+		totalStats.overdue = allAssignments.filter(a => {
 			if (a.status === 'completed') return false;
 			
 			let deadline = null;
@@ -328,12 +336,17 @@
 	}
 
 	function applyFilters() {
-		filteredAssignments = assignments.filter(assignment => {
+		filteredAssignments = allAssignments.filter(assignment => {
+			// Hide completed unless toggle is on
+			if (!showCompleted && assignment.status === 'completed') {
+				return false;
+			}
+
 			// Search filter
 			if (searchTerm) {
 				const searchLower = searchTerm.toLowerCase();
 				const taskTitle = assignment.task?.title?.toLowerCase() || '';
-				const userName = assignment.assigned_user?.username?.toLowerCase() || '';
+				const userName = getEmployeeName(assignment.assigned_user)?.toLowerCase() || '';
 				
 				if (!taskTitle.includes(searchLower) && !userName.includes(searchLower)) {
 					return false;
@@ -369,7 +382,33 @@
 	function formatDate(dateString) {
 		if (!dateString) return getTranslation('mobile.assignmentsContent.taskDetails.noDeadline');
 		const date = new Date(dateString);
-		return date.toLocaleDateString();
+		const dd = String(date.getDate()).padStart(2, '0');
+		const mm = String(date.getMonth() + 1).padStart(2, '0');
+		const yyyy = date.getFullYear();
+		return `${dd}-${mm}-${yyyy}`;
+	}
+
+	/** Format assigned date as time ago */
+	function formatTimeAgo(dateString) {
+		if (!dateString) return '';
+		const date = new Date(dateString);
+		const now = new Date();
+		const diffMs = now.getTime() - date.getTime();
+		const isAr = $locale === 'ar';
+		
+		const totalMinutes = Math.floor(diffMs / 60000);
+		const totalHours = Math.floor(totalMinutes / 60);
+		const days = Math.floor(totalHours / 24);
+		const hours = totalHours % 24;
+		const mins = totalMinutes % 60;
+		
+		if (days > 0) {
+			return isAr ? `منذ ${days} يوم ${hours} ساعة` : `${days}d ${hours}h ago`;
+		} else if (hours > 0) {
+			return isAr ? `منذ ${hours} ساعة ${mins} دقيقة` : `${hours}h ${mins}m ago`;
+		} else {
+			return isAr ? `منذ ${mins} دقيقة` : `${mins}m ago`;
+		}
 	}
 
 	function formatDateTime(dateString, timeString) {
@@ -378,9 +417,70 @@
 		if (timeString) {
 			const [hours, minutes] = timeString.split(':');
 			date.setHours(parseInt(hours), parseInt(minutes));
-			return date.toLocaleString();
 		}
-		return date.toLocaleDateString();
+		const dd = String(date.getDate()).padStart(2, '0');
+		const mm = String(date.getMonth() + 1).padStart(2, '0');
+		const yyyy = date.getFullYear();
+		const hh = String(date.getHours()).padStart(2, '0');
+		const min = String(date.getMinutes()).padStart(2, '0');
+		const hasTime = timeString || (date.getHours() !== 0 || date.getMinutes() !== 0);
+		return hasTime ? `${dd}-${mm}-${yyyy}, ${hh}:${min}` : `${dd}-${mm}-${yyyy}`;
+	}
+
+	/** Format deadline as remaining time or overdue duration in Saudi timezone */
+	function formatDeadline(dateString, timeString) {
+		if (!dateString) return { text: getTranslation('mobile.assignmentsContent.taskDetails.noDeadline'), isOverdue: false };
+		
+		const deadline = new Date(dateString);
+		if (timeString) {
+			const [hours, minutes] = timeString.split(':');
+			deadline.setHours(parseInt(hours), parseInt(minutes));
+		}
+		
+		const now = new Date();
+		const diffMs = deadline.getTime() - now.getTime();
+		const isAr = $locale === 'ar';
+		
+		// Format date in Saudi timezone
+		const saOpts = { timeZone: 'Asia/Riyadh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
+		const saDate = deadline.toLocaleString('en-GB', saOpts).replace(',', '');
+		
+		if (diffMs > 0) {
+			// Future - show remaining
+			const totalMinutes = Math.floor(diffMs / 60000);
+			const totalHours = Math.floor(totalMinutes / 60);
+			const days = Math.floor(totalHours / 24);
+			const hours = totalHours % 24;
+			const mins = totalMinutes % 60;
+			
+			let remaining = '';
+			if (days > 0) {
+				remaining = isAr ? `${days} يوم ${hours} ساعة` : `${days}d ${hours}h left`;
+			} else if (hours > 0) {
+				remaining = isAr ? `${hours} ساعة ${mins} دقيقة` : `${hours}h ${mins}m left`;
+			} else {
+				remaining = isAr ? `${mins} دقيقة متبقية` : `${mins}m left`;
+			}
+			return { text: remaining, isOverdue: false };
+		} else {
+			// Past - show overdue
+			const overMs = Math.abs(diffMs);
+			const totalMinutes = Math.floor(overMs / 60000);
+			const totalHours = Math.floor(totalMinutes / 60);
+			const days = Math.floor(totalHours / 24);
+			const hours = totalHours % 24;
+			const mins = totalMinutes % 60;
+			
+			let overdue = '';
+			if (days > 0) {
+				overdue = isAr ? `متأخر ${days} يوم ${hours} ساعة` : `Overdue ${days}d ${hours}h`;
+			} else if (hours > 0) {
+				overdue = isAr ? `متأخر ${hours} ساعة ${mins} دقيقة` : `Overdue ${hours}h ${mins}m`;
+			} else {
+				overdue = isAr ? `متأخر ${mins} دقيقة` : `Overdue ${mins}m`;
+			}
+			return { text: overdue, isOverdue: true };
+		}
 	}
 
 	function getStatusColor(status) {
@@ -437,6 +537,49 @@
 		return deadline ? deadline < now : false;
 	}
 
+	/** Get the localized employee name from hr_employee_master, fallback to username */
+	function getEmployeeName(assignedUser) {
+		if (!assignedUser) return getTranslation('mobile.assignmentsContent.taskDetails.unknownTask');
+		const emp = assignedUser.hr_employee_master;
+		// hr_employee_master is an array from the join (one-to-one via unique constraint)
+		const empData = Array.isArray(emp) ? emp[0] : emp;
+		if (empData) {
+			if ($locale === 'ar' && empData.name_ar) return empData.name_ar;
+			if ($locale !== 'ar' && empData.name_en) return empData.name_en;
+			// Fallback to whichever name exists
+			return empData.name_en || empData.name_ar || assignedUser.username || 'Unknown';
+		}
+		return assignedUser.username || 'Unknown';
+	}
+
+	/** Extract the correct language portion from bilingual text.
+	 * Title format: "English | العربية" (pipe separator)
+	 * Description format: "English\n---\nالعربية" (line separator)
+	 */
+	function getLocalizedContent(text) {
+		if (!text) return '';
+		const currentLocale = $locale;
+		
+		// Check for title format: "English | العربية"
+		if (text.includes(' | ')) {
+			const parts = text.split(' | ');
+			if (parts.length === 2) {
+				return currentLocale === 'ar' ? parts[1].trim() : parts[0].trim();
+			}
+		}
+		
+		// Check for description format: "English\n---\nالعربية" or "English\n----\nالعربية"
+		const descSeparator = text.match(/\n-{3,}\n/);
+		if (descSeparator) {
+			const parts = text.split(descSeparator[0]);
+			if (parts.length === 2) {
+				return currentLocale === 'ar' ? parts[1].trim() : parts[0].trim();
+			}
+		}
+		
+		return text;
+	}
+
 	/** Convert URLs in text to clickable button links */
 	function linkifyText(text) {
 		if (!text) return '';
@@ -450,9 +593,9 @@
 		applyFilters();
 	}
 
-	// Reload data when showCompleted changes
+	// Re-filter when showCompleted changes (no need to reload from DB)
 	$: if (showCompleted !== undefined) {
-		loadMyAssignments();
+		applyFilters();
 	}
 </script>
 
@@ -533,7 +676,7 @@
 				<div class="toggle-section">
 					<label class="toggle-label">
 						<input type="checkbox" bind:checked={showCompleted} class="toggle-checkbox" />
-						<span class="toggle-text">Show completed assignments</span>
+						<span class="toggle-text">{getTranslation('mobile.assignmentsContent.search.showCompleted')}</span>
 					</label>
 				</div>
 
@@ -579,15 +722,12 @@
 					<div class="assignment-card" class:overdue={isOverdue(assignment)}>
 						<div class="card-header">
 							<div class="task-title-section">
-								<h3 class="task-title">{assignment.task?.title || getTranslation('mobile.assignmentsContent.taskDetails.unknownTask')}</h3>
+								<h3 class="task-title">{getLocalizedContent(assignment.task?.title) || getTranslation('mobile.assignmentsContent.taskDetails.unknownTask')}</h3>
 								{#if assignment.task_type === 'quick_task'}
 									<span class="task-type-badge quick-task">{getTranslation('mobile.assignmentsContent.taskDetails.quickTask')}</span>
 								{/if}
 							</div>
 							<div class="card-badges">
-								{#if assignment.task_type === 'quick_task'}
-									<span class="quick-task-badge">{getTranslation('mobile.assignmentsContent.taskDetails.quickBadge')}</span>
-								{/if}
 								{#if assignment.task?.priority}
 									<span class="priority-badge {getPriorityColor(assignment.task.priority)}">
 										{getTranslation(`mobile.assignmentsContent.priorities.${assignment.task.priority.toLowerCase()}`)}
@@ -600,33 +740,38 @@
 						</div>
 
 						{#if assignment.task?.description}
-							<p class="task-description">{@html linkifyText(assignment.task.description)}</p>
+							<p class="task-description">{@html linkifyText(getLocalizedContent(assignment.task.description))}</p>
 						{/if}
 
 						<div class="assignment-details">
 							<div class="detail-item">
 								<span class="detail-label">{getTranslation('mobile.assignmentsContent.taskDetails.assignedTo')}</span>
-								<span class="detail-value">{assignment.assigned_user?.username || 'Unknown User'}</span>
+								<span class="detail-value">{getEmployeeName(assignment.assigned_user)}</span>
 							</div>
 							<div class="detail-item">
-								<span class="detail-label">Status:</span>
+								<span class="detail-label">{getTranslation('mobile.assignmentsContent.taskDetails.status')}</span>
 								<span class="status-badge {getStatusColor(assignment.status)}">
 									{getStatusDisplayText(assignment.status)}
 								</span>
 							</div>
 							<div class="detail-item">
-								<span class="detail-label">Assigned:</span>
-								<span class="detail-value">{formatDate(assignment.assigned_at)}</span>
+								<span class="detail-label">{getTranslation('mobile.assignmentsContent.taskDetails.assignedDate')}</span>
+								<span class="detail-value">{formatTimeAgo(assignment.assigned_at)}</span>
 							</div>
 							<div class="detail-item">
 								<span class="detail-label">{getTranslation('mobile.assignmentsContent.taskDetails.deadline')}</span>
-								<span class="detail-value">
-									{#if assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime}
-										{new Date(assignment.task.deadline_datetime).toLocaleString()}
-									{:else}
-										{formatDateTime(assignment.deadline_date, assignment.deadline_time)}
-									{/if}
-								</span>
+								{#if assignment.status !== 'completed'}
+									{@const dl = assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime
+										? formatDeadline(assignment.task.deadline_datetime)
+										: formatDeadline(assignment.deadline_date, assignment.deadline_time)}
+									<span class="detail-value" class:overdue-text={dl.isOverdue} class:remaining-text={!dl.isOverdue && dl.text !== getTranslation('mobile.assignmentsContent.taskDetails.noDeadline')}>
+										{dl.text}
+									</span>
+								{:else}
+									<span class="detail-value">
+										{formatDate(assignment.deadline_date || assignment.task?.deadline_datetime)}
+									</span>
+								{/if}
 							</div>
 						</div>
 
@@ -642,7 +787,7 @@
 								{#if assignment.task?.issue_type}
 									<div class="quick-detail">
 										<span class="quick-label">{getTranslation('mobile.assignmentsContent.taskDetails.issueType')}</span>
-										<span class="quick-value">{assignment.task.issue_type}</span>
+										<span class="quick-value">{getTranslation(`mobile.quickTaskContent.issueTypes.${assignment.task.issue_type}`) || assignment.task.issue_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
 									</div>
 								{/if}
 							</div>
@@ -1133,6 +1278,16 @@
 		font-size: 0.76rem;
 		color: #1F2937;
 		font-weight: 500;
+	}
+
+	.detail-value.overdue-text {
+		color: #DC2626;
+		font-weight: 600;
+	}
+
+	.detail-value.remaining-text {
+		color: #059669;
+		font-weight: 600;
 	}
 
 	.assignment-notes {

@@ -4,6 +4,7 @@
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db } from '$lib/utils/supabase';
 	import { locale, getTranslation } from '$lib/i18n';
+	import { notifications } from '$lib/stores/notifications';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -668,7 +669,7 @@ goto(`/mobile-interface/tasks/${task.id}/complete`);
 			return;
 		}
 
-		const confirmed = confirm(
+		const confirmed = window.confirm(
 			`Are you sure you want to mark this receiving task as completed?\n\nRole: ${task.title}\nBranch: ${task.branch_name || 'N/A'}`
 		);
 
@@ -701,11 +702,11 @@ goto(`/mobile-interface/tasks/${task.id}/complete`);
 			const result = await response.json();
 			console.log('✅ [Mobile Tasks] API Success Response:', result);
 
-			alert('Receiving task completed successfully!');
+			notifications.add({ type: 'success', message: 'Receiving task completed successfully!' });
 			await loadTasks();
 		} catch (error) {
 			console.error('Error completing receiving task:', error);
-			alert(`Error: ${error.message}`);
+			notifications.add({ type: 'error', message: `Error: ${error.message}` });
 		}
 	}
 
@@ -930,32 +931,6 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 				bind:value={searchTerm}
 				class="search-input"
 			/>
-		</div>
-
-		<div class="filter-chips">
-			<select bind:value={filterStatus} class="filter-select">
-				<option value="active">Active Tasks</option>
-				<option value="all">{getTranslation('mobile.tasksContent.filters.allStatus')}</option>
-				<option value="pending">{getTranslation('mobile.tasksContent.filters.pending')}</option>
-				<option value="in_progress">{getTranslation('mobile.tasksContent.filters.inProgress')}</option>
-				<option value="completed">{getTranslation('mobile.tasksContent.filters.completed')}</option>
-				<option value="cancelled">{getTranslation('mobile.tasksContent.filters.cancelled')}</option>
-			</select>
-
-			<select bind:value={filterPriority} class="filter-select">
-				<option value="all">{getTranslation('mobile.tasksContent.filters.allPriority')}</option>
-				<option value="high">{getTranslation('mobile.tasksContent.filters.high')}</option>
-				<option value="medium">{getTranslation('mobile.tasksContent.filters.medium')}</option>
-				<option value="low">{getTranslation('mobile.tasksContent.filters.low')}</option>
-			</select>
-		</div>
-
-		<!-- Show Completed Toggle -->
-		<div class="toggle-section">
-			<label class="toggle-label">
-				<input type="checkbox" bind:checked={showCompleted} class="toggle-checkbox" />
-				<span class="toggle-text">Show completed tasks</span>
-			</label>
 		</div>
 
 		<div class="results-count">

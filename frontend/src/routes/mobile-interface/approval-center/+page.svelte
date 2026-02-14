@@ -31,6 +31,10 @@
 	let confirmAction = null; // 'approve' or 'reject'
 	let pendingRequisitionId = null;
 	let rejectionReason = '';
+
+	// Day-off approval modal state
+	let showDayOffApproveModal = false;
+	let dayOffCheckedDates = {}; // id -> checked (boolean)
 	
 	// Reactive: Check if user can approve SELECTED item
 	$: canApproveSelected = selectedRequisition 
@@ -68,7 +72,7 @@
 			
 			// Check if user is logged in
 			if (!$currentUser?.id) {
-				notifications.add({ type: 'error', message: 'Please login to access the approval center' });
+				notifications.add({ type: 'error', message: t('Please login to access the approval center', 'يرجى تسجيل الدخول للوصول إلى مركز الموافقات') });
 				goto('/mobile-interface/login');
 				return;
 			}
@@ -307,8 +311,8 @@
 		if (dayOffError) {
 			console.error('❌ Error loading day off requests for approval:', dayOffError);
 		} else {
-			dayOffRequests = dayOffData || [];
-			console.log('✅ Day off requests for approval:', dayOffRequests.length, dayOffRequests);
+			dayOffRequests = groupDayOffRequests(dayOffData || []);
+			console.log('✅ Day off requests for approval (grouped):', dayOffRequests.length);
 		}
 		
 		// Process my created day off requests
@@ -316,8 +320,39 @@
 		if (myDayOffError) {
 			console.error('❌ Error loading my day off requests:', myDayOffError);
 		} else {
-			myDayOffRequests = myDayOffData || [];
-			console.log('✅ My day off requests:', myDayOffRequests.length, myDayOffRequests);
+			myDayOffRequests = groupDayOffRequests(myDayOffData || []);
+			console.log('✅ My day off requests (grouped):', myDayOffRequests.length);
+		}
+
+		// Lookup employee names (name_ar, name_en) for requesters across vendor payments & day-off
+		{
+			const requesterUserIds = [
+				...vendorPayments.map(v => v.requester?.id),
+				...dayOffRequests.map(d => d.requester?.id),
+			].filter(Boolean);
+			const uniqueRequesterIds = [...new Set(requesterUserIds)];
+			if (uniqueRequesterIds.length > 0) {
+				const { data: empData } = await supabase
+					.from('hr_employee_master')
+					.select('user_id, name_en, name_ar')
+					.in('user_id', uniqueRequesterIds);
+				if (empData) {
+					const empMap = {};
+					empData.forEach(e => { empMap[e.user_id] = e; });
+					vendorPayments = vendorPayments.map(v => {
+						if (v.requester?.id && empMap[v.requester.id]) {
+							return { ...v, requester: { ...v.requester, name_en: empMap[v.requester.id].name_en, name_ar: empMap[v.requester.id].name_ar } };
+						}
+						return v;
+					});
+					dayOffRequests = dayOffRequests.map(d => {
+						if (d.requester?.id && empMap[d.requester.id]) {
+							return { ...d, requester: { ...d.requester, name_en: empMap[d.requester.id].name_en, name_ar: empMap[d.requester.id].name_ar } };
+						}
+						return d;
+					});
+				}
+			}
 		}
 		
 		// Initialize empty arrays for historical data (will load on demand)
@@ -346,7 +381,7 @@
 		loadHistoricalData();
 	} catch (err) {
 		console.error('Error loading requisitions:', err);
-		notifications.add({ type: 'error', message: 'Error loading requisitions: ' + err.message });
+		notifications.add({ type: 'error', message: t('Error loading requisitions: ', 'خطأ في تحميل الطلبات: ') + err.message });
 	} finally {
 		loading = false;
 	}
@@ -508,6 +543,47 @@ async function loadHistoricalData() {
 	}
 }
 
+	// Group day-off records that belong to the same leave request (same employee + same requested_at timestamp)
+	function groupDayOffRequests(dayOffs) {
+		const groups = new Map();
+		for (const d of dayOffs) {
+			// Truncate timestamp to minute level so batch inserts with slightly different seconds still group together
+			let approvalMinute = '';
+			if (d.approval_requested_at) {
+				const dt = new Date(d.approval_requested_at);
+				approvalMinute = `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}-${dt.getHours()}-${dt.getMinutes()}`;
+			}
+			// Group by employee_id + approval time (minute) + reason (same batch submission)
+			const key = `${d.employee_id}_${approvalMinute}_${d.day_off_reason_id || ''}`;
+			if (!groups.has(key)) {
+				groups.set(key, []);
+			}
+			groups.get(key).push(d);
+		}
+		
+		const grouped = [];
+		for (const [key, records] of groups) {
+			// Sort records by date
+			records.sort((a, b) => (a.day_off_date || '').localeCompare(b.day_off_date || ''));
+			
+			const first = records[0];
+			const last = records[records.length - 1];
+			
+			grouped.push({
+				...first,
+				// Add grouped info
+				_grouped: true,
+				_allIds: records.map(r => r.id),
+				_allDates: records.map(r => r.day_off_date),
+				_dateFrom: first.day_off_date,
+				_dateTo: last.day_off_date,
+				_dayCount: records.length
+			});
+		}
+		
+		return grouped;
+	}
+
 	function filterRequisitions() {
 		if (activeSection === 'approvals') {
 			// Filter approvals assigned to me
@@ -645,6 +721,145 @@ async function loadHistoricalData() {
 		showConfirmModal = true;
 	}
 
+	// Open day-off approve modal with all dates pre-checked
+	function openDayOffApproveModal(req) {
+		selectedRequisition = req;
+		dayOffCheckedDates = {};
+		const allIds = req._allIds || [req.id];
+		const allDates = req._allDates || [req.day_off_date];
+		for (let i = 0; i < allIds.length; i++) {
+			dayOffCheckedDates[allIds[i]] = true;
+		}
+		showDayOffApproveModal = true;
+	}
+
+	// Reject day-off instantly (all days, no popup)
+	async function rejectDayOffInstant(req) {
+		if (isProcessing) return;
+		selectedRequisition = req;
+		try {
+			isProcessing = true;
+			const { supabase } = await import('$lib/utils/supabase');
+			const idsToReject = req._allIds || [req.id];
+			const { error: updateError } = await supabase
+				.from('day_off')
+				.update({
+					approval_status: 'rejected',
+					approval_approved_by: $currentUser.id,
+					approval_approved_at: new Date().toISOString(),
+					rejection_reason: 'Rejected by approver'
+				})
+				.in('id', idsToReject);
+
+			if (updateError) throw updateError;
+
+			// Send notification
+			try {
+				if (req.approval_requested_by) {
+					const dateInfo = req._dayCount > 1
+						? `from ${req._dateFrom} to ${req._dateTo} (${req._dayCount} days)`
+						: `for ${req.day_off_date}`;
+					await notificationService.createNotification({
+						title: 'Leave Request Rejected',
+						message: `Your leave request ${dateInfo} has been rejected.\n\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [req.approval_requested_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+				}
+			} catch (notifError) {
+				console.error('⚠️ Failed to send rejection notification:', notifError);
+			}
+
+			notifications.add({ type: 'success', message: t('Leave request rejected.', 'تم رفض طلب الإجازة.') });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error rejecting day off:', err);
+			notifications.add({ type: 'error', message: t('Failed to reject leave request.', 'فشل في رفض طلب الإجازة.') });
+		} finally {
+			isProcessing = false;
+			selectedRequisition = null;
+		}
+	}
+
+	// Confirm day-off approval (approve checked, reject unchecked)
+	async function confirmDayOffApproval() {
+		if (!selectedRequisition || isProcessing) return;
+		try {
+			isProcessing = true;
+			const { supabase } = await import('$lib/utils/supabase');
+			const allIds = selectedRequisition._allIds || [selectedRequisition.id];
+			const approvedIds = allIds.filter(id => dayOffCheckedDates[id]);
+			const rejectedIds = allIds.filter(id => !dayOffCheckedDates[id]);
+
+			// Approve checked days
+			if (approvedIds.length > 0) {
+				const { error } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'approved',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString()
+					})
+					.in('id', approvedIds);
+				if (error) throw error;
+			}
+
+			// Reject unchecked days
+			if (rejectedIds.length > 0) {
+				const { error } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'rejected',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString(),
+						rejection_reason: 'Partially rejected by approver'
+					})
+					.in('id', rejectedIds);
+				if (error) throw error;
+			}
+
+			// Send notification
+			try {
+				if (selectedRequisition.approval_requested_by) {
+					let message = '';
+					if (rejectedIds.length === 0) {
+						const dateInfo = approvedIds.length > 1
+							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${approvedIds.length} days)`
+							: `for ${selectedRequisition.day_off_date}`;
+						message = `Your leave request ${dateInfo} has been approved!\n\nApproved by: ${$currentUser?.username}`;
+					} else {
+						message = `Your leave request has been partially approved.\n\n✅ Approved: ${approvedIds.length} day(s)\n❌ Rejected: ${rejectedIds.length} day(s)\n\nApproved/Rejected by: ${$currentUser?.username}`;
+					}
+					await notificationService.createNotification({
+						title: rejectedIds.length === 0 ? 'Leave Request Approved' : 'Leave Request Partially Approved',
+						message,
+						type: 'assignment_approved',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [selectedRequisition.approval_requested_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+				}
+			} catch (notifError) {
+				console.error('⚠️ Failed to send notification:', notifError);
+			}
+
+			const msg = rejectedIds.length === 0
+				? t('Leave request approved!', 'تمت الموافقة على طلب الإجازة!')
+				: `${t('Leave', 'إجازة')}: ${approvedIds.length} ${t('approved', 'موافق')}, ${rejectedIds.length} ${t('rejected', 'مرفوض')}.`;
+			notifications.add({ type: 'success', message: msg });
+			showDayOffApproveModal = false;
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error processing day off approval:', err);
+			notifications.add({ type: 'error', message: t('Failed to process leave request.', 'فشل في معالجة طلب الإجازة.') });
+		} finally {
+			isProcessing = false;
+			selectedRequisition = null;
+		}
+	}
+
 	// Cancel confirmation
 	function cancelConfirm() {
 		showConfirmModal = false;
@@ -660,7 +875,7 @@ async function loadHistoricalData() {
 			await approveRequisition();
 		} else if (confirmAction === 'reject') {
 			if (!rejectionReason.trim()) {
-				notifications.add({ type: 'error', message: 'Please provide a reason for rejection' });
+			notifications.add({ type: 'error', message: t('Please provide a reason for rejection', 'يرجى تقديم سبب للرفض') });
 				return;
 			}
 			showConfirmModal = false;
@@ -746,7 +961,7 @@ async function loadHistoricalData() {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Payment schedule approved and moved to expense scheduler!' });
+				notifications.add({ type: 'success', message: t('Payment schedule approved and moved to expense scheduler!', 'تمت الموافقة على جدول الدفع ونقله إلى جدولة المصروفات!') });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Approve vendor payment
 				const { data: paymentData, error: fetchError } = await supabase
@@ -785,9 +1000,10 @@ async function loadHistoricalData() {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Vendor payment approved successfully!' });
+				notifications.add({ type: 'success', message: t('Vendor payment approved successfully!', 'تمت الموافقة على دفع المورد بنجاح!') });
 			} else if (selectedRequisition.item_type === 'day_off') {
-				// Approve day off request
+				// Approve day off request (all records in group)
+				const idsToUpdate = selectedRequisition._allIds || [selectedRequisition.id];
 				const { error: updateError } = await supabase
 					.from('day_off')
 					.update({
@@ -795,16 +1011,19 @@ async function loadHistoricalData() {
 						approval_approved_by: $currentUser.id,
 						approval_approved_at: new Date().toISOString()
 					})
-					.eq('id', selectedRequisition.id);
+					.in('id', idsToUpdate);
 
 				if (updateError) throw updateError;
 
 				// Send notification to the requester
 				try {
 					if (selectedRequisition.approval_requested_by) {
+						const dateInfo = selectedRequisition._dayCount > 1
+							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${selectedRequisition._dayCount} days)`
+							: `for ${selectedRequisition.day_off_date}`;
 						await notificationService.createNotification({
 							title: 'Leave Request Approved',
-							message: `Your leave request for ${selectedRequisition.day_off_date} has been approved!\n\nApproved by: ${$currentUser?.username}`,
+							message: `Your leave request ${dateInfo} has been approved!\n\nApproved by: ${$currentUser?.username}`,
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -816,7 +1035,7 @@ async function loadHistoricalData() {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Leave request approved successfully!' });
+				notifications.add({ type: 'success', message: t('Leave request approved successfully!', 'تمت الموافقة على طلب الإجازة بنجاح!') });
 			} else {
 				// Update regular requisition
 				const { error } = await supabase
@@ -878,7 +1097,7 @@ async function loadHistoricalData() {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-		notifications.add({ type: 'success', message: 'Requisition approved successfully!' });
+		notifications.add({ type: 'success', message: t('Requisition approved successfully!', 'تمت الموافقة على الطلب بنجاح!') });
 	}
 
 	// Remove from pending lists without reloading
@@ -897,7 +1116,7 @@ async function loadHistoricalData() {
 	closeDetail();
 } catch (err) {
 	console.error('Error approving:', err);
-	notifications.add({ type: 'error', message: 'Error approving: ' + err.message });
+	notifications.add({ type: 'error', message: t('Error approving: ', 'خطأ في الموافقة: ') + err.message });
 } finally {
 	isProcessing = false;
 }
@@ -936,7 +1155,7 @@ async function rejectRequisition(reason) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Payment schedule rejected.' });
+				notifications.add({ type: 'success', message: t('Payment schedule rejected.', 'تم رفض جدول الدفع.') });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Reject vendor payment
 				const { data: paymentData, error: fetchError } = await supabase
@@ -975,9 +1194,10 @@ async function rejectRequisition(reason) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Vendor payment rejected.' });
+				notifications.add({ type: 'success', message: t('Vendor payment rejected.', 'تم رفض دفع المورد.') });
 			} else if (selectedRequisition.item_type === 'day_off') {
-				// Reject day off request
+				// Reject day off request (all records in group)
+				const idsToUpdate = selectedRequisition._allIds || [selectedRequisition.id];
 				const { error: updateError } = await supabase
 					.from('day_off')
 					.update({
@@ -986,16 +1206,19 @@ async function rejectRequisition(reason) {
 						approval_approved_at: new Date().toISOString(),
 						rejection_reason: reason
 					})
-					.eq('id', selectedRequisition.id);
+					.in('id', idsToUpdate);
 
 				if (updateError) throw updateError;
 
 				// Send notification to the requester
 				try {
 					if (selectedRequisition.approval_requested_by) {
+						const dateInfo = selectedRequisition._dayCount > 1
+							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${selectedRequisition._dayCount} days)`
+							: `for ${selectedRequisition.day_off_date}`;
 						await notificationService.createNotification({
 							title: 'Leave Request Rejected',
-							message: `Your leave request for ${selectedRequisition.day_off_date} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
+							message: `Your leave request ${dateInfo} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
 							type: 'assignment_rejected',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1007,7 +1230,7 @@ async function rejectRequisition(reason) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Leave request rejected.' });
+				notifications.add({ type: 'success', message: t('Leave request rejected.', 'تم رفض طلب الإجازة.') });
 			} else {
 				// Update regular requisition
 				const { error } = await supabase
@@ -1038,7 +1261,7 @@ async function rejectRequisition(reason) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Requisition rejected.' });
+				notifications.add({ type: 'success', message: t('Requisition rejected.', 'تم رفض الطلب.') });
 			}
 
 			// Remove from pending lists without reloading
@@ -1056,20 +1279,31 @@ async function rejectRequisition(reason) {
 			closeDetail();
 		} catch (err) {
 			console.error('Error rejecting:', err);
-			notifications.add({ type: 'error', message: 'Error rejecting: ' + err.message });
+			notifications.add({ type: 'error', message: t('Error rejecting: ', 'خطأ في الرفض: ') + err.message });
 		} finally {
 			isProcessing = false;
 		}
 	}
 
 	function formatDate(dateString) {
-		if (!dateString) return 'N/A';
-		return new Date(dateString).toLocaleDateString('en-US', {
+		if (!dateString) return t('N/A', 'غير متوفر');
+		return new Date(dateString).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', {
 			year: 'numeric',
 			month: 'short',
 			day: 'numeric',
 			hour: '2-digit',
-			minute: '2-digit'
+			minute: '2-digit',
+			timeZone: 'Asia/Riyadh'
+		});
+	}
+
+	function formatDateOnly(dateString) {
+		if (!dateString) return t('N/A', 'غير متوفر');
+		return new Date(dateString).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			timeZone: 'Asia/Riyadh'
 		});
 	}
 
@@ -1077,13 +1311,45 @@ async function rejectRequisition(reason) {
 		if (!amount) return '0.00';
 		return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 	}
+
+	// Bilingual helper
+	$: isAr = $locale === 'ar';
+	function t(en, ar) { return isAr ? ar : en; }
+	function translateStatus(status) {
+		if (!status) return t('PENDING', 'قيد الانتظار');
+		const map = {
+			'pending': t('PENDING', 'قيد الانتظار'),
+			'approved': t('APPROVED', 'موافق'),
+			'rejected': t('REJECTED', 'مرفوض'),
+			'sent_for_approval': t('SENT FOR APPROVAL', 'مرسل للموافقة'),
+		};
+		return map[status.toLowerCase()] || status.toUpperCase();
+	}
+
+	function timeAgo(dateString) {
+		if (!dateString) return t('N/A', 'غير متوفر');
+		const now = new Date();
+		const date = new Date(dateString);
+		const diffMs = now - date;
+		const diffSec = Math.floor(diffMs / 1000);
+		const diffMin = Math.floor(diffSec / 60);
+		const diffHr = Math.floor(diffMin / 60);
+		const diffDays = Math.floor(diffHr / 24);
+
+		if (diffDays === 0) {
+			if (diffSec < 60) return t('Just now', 'الآن');
+			if (diffMin < 60) return isAr ? `منذ ${diffMin} دقيقة` : `${diffMin}m ago`;
+			return isAr ? `منذ ${diffHr} ساعة` : `${diffHr}h ago`;
+		}
+		return isAr ? `منذ ${diffDays} يوم` : `${diffDays} days ago`;
+	}
 </script>
 
-<div class="mobile-approval-center">
+<div class="mobile-approval-center" dir={isAr ? 'rtl' : 'ltr'}>
 	{#if loading}
 		<div class="loading">
 			<div class="spinner"></div>
-			<p>Loading requisitions...</p>
+			<p>{t('Loading requisitions...', 'جاري تحميل الطلبات...')}</p>
 		</div>
 	{:else}
 		<!-- Section Tabs -->
@@ -1092,7 +1358,7 @@ async function rejectRequisition(reason) {
 				class="tab-button {activeSection === 'approvals' ? 'active' : ''}"
 				on:click={() => { activeSection = 'approvals'; filterRequisitions(); }}
 			>
-				📋 Approvals for Me
+				📋 {t('Approvals for Me', 'الموافقات لي')}
 				{#if stats.pending > 0}
 					<span class="badge">{stats.pending}</span>
 				{/if}
@@ -1101,7 +1367,7 @@ async function rejectRequisition(reason) {
 				class="tab-button {activeSection === 'my_requests' ? 'active' : ''}"
 				on:click={() => { activeSection = 'my_requests'; filterRequisitions(); }}
 			>
-				📝 My Requests
+				📝 {t('My Requests', 'طلباتي')}
 				{#if myStats.pending > 0}
 					<span class="badge">{myStats.pending}</span>
 				{/if}
@@ -1152,12 +1418,12 @@ async function rejectRequisition(reason) {
 			{#if activeSection === 'approvals' && filteredRequisitions.length === 0}
 				<div class="empty-state">
 					<div class="empty-icon">📋</div>
-					<p>No approvals assigned to you</p>
+					<p>{t('No approvals assigned to you', 'لا توجد موافقات مخصصة لك')}</p>
 				</div>
 			{:else if activeSection === 'my_requests' && filteredMyRequests.length === 0}
 				<div class="empty-state">
 					<div class="empty-icon">📋</div>
-					<p>You haven't created any requests yet</p>
+					<p>{t("You haven't created any requests yet", 'لم تقم بإنشاء أي طلبات بعد')}</p>
 				</div>
 			{:else}
 				{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
@@ -1170,28 +1436,28 @@ async function rejectRequisition(reason) {
 							<!-- Expense Requisition Card -->
 							<div class="req-header">
 								<div class="req-number">{req.requisition_number}</div>
-								<div class="status-badge status-{req.status}">{req.status}</div>
+								<div class="status-badge status-{req.status}">{translateStatus(req.status)}</div>
 							</div>
 							<div class="req-info">
 								<div class="info-row">
-									<span class="label">Branch:</span>
+									<span class="label">{t('Branch', 'الفرع')}:</span>
 									<span class="value">{req.branch_name}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">{activeSection === 'approvals' ? 'Generated by:' : 'Approver:'}</span>
-									<span class="value">👤 {activeSection === 'approvals' ? req.created_by_username : (req.approver_name || 'Not Assigned')}</span>
+									<span class="label">{activeSection === 'approvals' ? t('Generated by', 'أنشأ بواسطة') : t('Approver', 'المعتمد')}:</span>
+									<span class="value">👤 {activeSection === 'approvals' ? req.created_by_username : (req.approver_name || t('Not Assigned', 'غير معين'))}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Amount:</span>
+									<span class="label">{t('Amount', 'المبلغ')}:</span>
 									<span class="value amount">SAR {formatAmount(req.amount)}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Due Date:</span>
+									<span class="label">{t('Due Date', 'تاريخ الاستحقاق')}:</span>
 									<span class="value">{req.due_date ? formatDate(req.due_date) : '-'}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Date:</span>
-									<span class="value">{formatDate(req.created_at)}</span>
+									<span class="label">{t('Date', 'التاريخ')}:</span>
+									<span class="value">{timeAgo(req.created_at)}</span>
 								</div>
 							</div>
 						{:else if req.item_type === 'payment_schedule'}
@@ -1200,126 +1466,136 @@ async function rejectRequisition(reason) {
 								<div class="req-number">
 									<span class="schedule-badge">📅 {req.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
 								</div>
-								<div class="status-badge status-{req.approval_status || 'pending'}">{(req.approval_status || 'pending').toUpperCase()}</div>
+								<div class="status-badge status-{req.approval_status || 'pending'}">{translateStatus(req.approval_status || 'pending')}</div>
 							</div>
 							<div class="req-info">
 								<div class="info-row">
-									<span class="label">Branch:</span>
+									<span class="label">{t('Branch', 'الفرع')}:</span>
 									<span class="value">{req.branch_name}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">{activeSection === 'approvals' ? 'Generated by:' : 'Approver:'}</span>
-									<span class="value">👤 {activeSection === 'approvals' ? (req.creator?.username || 'Unknown') : (req.approver?.username || 'Not Assigned')}</span>
+									<span class="label">{activeSection === 'approvals' ? t('Generated by', 'أنشأ بواسطة') : t('Approver', 'المعتمد')}:</span>
+									<span class="value">👤 {activeSection === 'approvals' ? (req.creator?.username || t('Unknown', 'غير معروف')) : (req.approver?.username || t('Not Assigned', 'غير معين'))}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Category:</span>
+									<span class="label">{t('Category', 'الفئة')}:</span>
 									<span class="value">{req.expense_category_name_en}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">C/O User:</span>
-									<span class="value">👤 {req.co_user_name || 'System'}</span>
+									<span class="label">{t('C/O User', 'مستخدم C/O')}:</span>
+									<span class="value">👤 {req.co_user_name || t('System', 'النظام')}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Amount:</span>
+									<span class="label">{t('Amount', 'المبلغ')}:</span>
 									<span class="value amount">SAR {formatAmount(req.amount)}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Due Date:</span>
+									<span class="label">{t('Due Date', 'تاريخ الاستحقاق')}:</span>
 									<span class="value due-date">{req.due_date ? formatDate(req.due_date) : '-'}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Date:</span>
-									<span class="value">{formatDate(req.created_at)}</span>
+									<span class="label">{t('Date', 'التاريخ')}:</span>
+									<span class="value">{timeAgo(req.created_at)}</span>
 								</div>
 							</div>
 						{:else if req.item_type === 'vendor_payment'}
 							<!-- Vendor Payment Card -->
 							<div class="req-header">
 								<div class="req-number">
-									<span class="schedule-badge vendor-payment">💰 VENDOR PAYMENT</span>
-									<div class="bill-number">Bill: {req.bill_number}</div>
+									<span class="schedule-badge vendor-payment">💰 {t('VENDOR PAYMENT', 'دفع مورد')}</span>
+									<div class="bill-number">{t('Bill', 'فاتورة')}: {req.bill_number}</div>
 								</div>
-								<div class="status-badge status-pending">SENT FOR APPROVAL</div>
+								<div class="status-badge status-pending">{t('SENT FOR APPROVAL', 'مرسل للموافقة')}</div>
 							</div>
 							<div class="req-info">
 								<div class="info-row">
-									<span class="label">Vendor:</span>
+									<span class="label">{t('Vendor', 'المورد')}:</span>
 									<span class="value">{req.vendor_name}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Branch:</span>
+									<span class="label">{t('Branch', 'الفرع')}:</span>
 									<span class="value">{req.branch_name}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Requested by:</span>
-									<span class="value">👤 {req.requester?.username || 'Unknown User'}</span>
+									<span class="label">{t('Requested by', 'طلب بواسطة')}:</span>
+									<span class="value">👤 {isAr ? (req.requester?.name_ar || req.requester?.name_en || req.requester?.username || t('Unknown User', 'مستخدم غير معروف')) : (req.requester?.name_en || req.requester?.username || t('Unknown User', 'مستخدم غير معروف'))}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Amount:</span>
+									<span class="label">{t('Amount', 'المبلغ')}:</span>
 									<span class="value amount">SAR {formatAmount(req.final_bill_amount || req.bill_amount)}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Payment Method:</span>
-									<span class="value">{req.payment_method?.replace(/_/g, ' ') || 'N/A'}</span>
+									<span class="label">{t('Payment Method', 'طريقة الدفع')}:</span>
+									<span class="value">{req.payment_method?.replace(/_/g, ' ') || t('N/A', 'غير متوفر')}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Due Date:</span>
+									<span class="label">{t('Due Date', 'تاريخ الاستحقاق')}:</span>
 									<span class="value due-date">{req.due_date ? formatDate(req.due_date) : '-'}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Requested:</span>
-									<span class="value">{formatDate(req.approval_requested_at)}</span>
+									<span class="label">{t('Requested on', 'تاريخ الطلب')}:</span>
+									<span class="value">{timeAgo(req.approval_requested_at)}</span>
 								</div>
 							</div>
 						{:else if req.item_type === 'day_off'}
 							<!-- Day Off Request Card -->
 							<div class="req-header">
 								<div class="req-number">
-									<span class="schedule-badge day-off">📅 DAY OFF</span>
+									<span class="schedule-badge day-off">📅 {t('DAY OFF', 'إجازة')} {#if req._dayCount > 1}({req._dayCount} {t('days', 'أيام')}){/if}</span>
 								</div>
-								<div class="status-badge status-{req.approval_status}">{req.approval_status?.toUpperCase() || 'PENDING'}</div>
+								<div class="status-badge status-{req.approval_status}">{translateStatus(req.approval_status)}</div>
 							</div>
 							<div class="req-info">
 								<div class="info-row">
-									<span class="label">Employee:</span>
-									<span class="value">👤 {req.employee ? (req.employee.name_en || req.employee.name_ar || 'N/A') : 'N/A'}</span>
+									<span class="label">{t('Employee', 'الموظف')}:</span>
+									<span class="value">👤 {req.employee ? (isAr ? (req.employee.name_ar || req.employee.name_en || t('N/A', 'غير متوفر')) : (req.employee.name_en || req.employee.name_ar || t('N/A', 'غير متوفر'))) : t('N/A', 'غير متوفر')}</span>
 								</div>
 								{#if activeSection === 'approvals'}
 									<div class="info-row">
-										<span class="label">Requested by:</span>
-										<span class="value">👤 {req.requester?.username || 'Unknown User'}</span>
+										<span class="label">{t('Requested by', 'طلب بواسطة')}:</span>
+										<span class="value">👤 {isAr ? (req.requester?.name_ar || req.requester?.name_en || req.requester?.username || t('Unknown User', 'مستخدم غير معروف')) : (req.requester?.name_en || req.requester?.username || t('Unknown User', 'مستخدم غير معروف'))}</span>
 									</div>
 								{/if}
 								<div class="info-row">
-									<span class="label">Reason:</span>
-									<span class="value">{req.reason ? (req.reason[$locale === 'en' ? 'reason_en' : 'reason_ar'] || 'N/A') : 'No reason'}</span>
+									<span class="label">{t('Reason', 'السبب')}:</span>
+									<span class="value">{req.reason ? (req.reason[$locale === 'en' ? 'reason_en' : 'reason_ar'] || t('N/A', 'غير متوفر')) : t('No reason', 'بدون سبب')}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Day Off Date:</span>
-									<span class="value">{req.day_off_date ? formatDate(req.day_off_date) : '-'}</span>
+									<span class="label">{req._dayCount > 1 ? t('From', 'من') + ':' : t('Day Off Date', 'تاريخ الإجازة') + ':'}</span>
+									<span class="value">{req._dateFrom ? formatDateOnly(req._dateFrom) : '-'}</span>
 								</div>
+								{#if req._dayCount > 1}
+									<div class="info-row">
+										<span class="label">{t('To', 'إلى')}:</span>
+										<span class="value">{req._dateTo ? formatDateOnly(req._dateTo) : '-'}</span>
+									</div>
+									<div class="info-row">
+										<span class="label">{t('Total Days', 'إجمالي الأيام')}:</span>
+										<span class="value">{req._dayCount} {t('days', 'أيام')}</span>
+									</div>
+								{/if}
 								{#if req.is_deductible_on_salary}
 									<div class="info-row">
-										<span class="label">Deductible:</span>
-										<span class="value">💰 Yes</span>
+										<span class="label">{t('Deductible', 'خصم من الراتب')}:</span>
+										<span class="value">💰 {t('Yes', 'نعم')}</span>
 									</div>
 								{/if}
 								{#if req.document_url}
 									<div class="info-row">
-										<span class="label">Document:</span>
+										<span class="label">{t('Document', 'المستند')}:</span>
 										<span class="value">
 											<button 
 												class="btn-view-doc"
 												on:click={() => window.open(req.document_url, '_blank')}
-												title="Click to view document">
-												📄 View Document
+												title={t('Click to view document', 'اضغط لعرض المستند')}>
+												📄 {t('View Document', 'عرض المستند')}
 											</button>
 										</span>
 									</div>
 								{/if}
 								<div class="info-row">
-									<span class="label">Requested:</span>
-									<span class="value">{formatDate(req.approval_requested_at)}</span>
+									<span class="label">{t('Requested on', 'تاريخ الطلب')}:</span>
+									<span class="value">{timeAgo(req.approval_requested_at)}</span>
 								</div>
 							</div>
 						{/if}
@@ -1332,12 +1608,21 @@ async function rejectRequisition(reason) {
 					      (req.item_type === 'day_off' && req.approval_status === 'pending')) && 
 					     activeSection === 'approvals' && userCanApprove}
 						<div class="card-actions">
-							<button class="btn-approve-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
-								✅ Accept
-							</button>
-							<button class="btn-reject-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
-								❌ Reject
-							</button>
+							{#if req.item_type === 'day_off'}
+								<button class="btn-approve-card" on:click|stopPropagation={() => openDayOffApproveModal(req)} disabled={isProcessing}>
+									✅ {t('Accept', 'قبول')}
+								</button>
+								<button class="btn-reject-card" on:click|stopPropagation={() => rejectDayOffInstant(req)} disabled={isProcessing}>
+									❌ {t('Reject', 'رفض')}
+								</button>
+							{:else}
+								<button class="btn-approve-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+									✅ {t('Accept', 'قبول')}
+								</button>
+								<button class="btn-reject-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+									❌ {t('Reject', 'رفض')}
+								</button>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -1352,7 +1637,7 @@ async function rejectRequisition(reason) {
 	<div class="modal-overlay" on:click={closeDetail}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>Requisition Details</h2>
+				<h2>{t('Requisition Details', 'تفاصيل الطلب')}</h2>
 				<button class="close-btn" on:click={closeDetail}>✕</button>
 			</div>
 
@@ -1361,44 +1646,44 @@ async function rejectRequisition(reason) {
 					<!-- Requisition Details -->
 					<div class="detail-section">
 						<div class="detail-item">
-							<span class="label">Requisition #:</span>
+							<span class="label">{t('Requisition #', 'رقم الطلب')}:</span>
 							<span class="value">{selectedRequisition.requisition_number}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Branch:</span>
+							<span class="label">{t('Branch', 'الفرع')}:</span>
 							<span class="value">{selectedRequisition.branch_name}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Generated by:</span>
+							<span class="label">{t('Generated by', 'أنشأ بواسطة')}:</span>
 							<span class="value">{selectedRequisition.created_by_username}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Requester:</span>
+							<span class="label">{t('Requester', 'مقدم الطلب')}:</span>
 							<span class="value">{selectedRequisition.requester_name}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Category:</span>
+							<span class="label">{t('Category', 'الفئة')}:</span>
 							<span class="value">{selectedRequisition.expense_category_name_en}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Amount:</span>
+							<span class="label">{t('Amount', 'المبلغ')}:</span>
 							<span class="value amount-large">SAR {formatAmount(selectedRequisition.amount)}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Payment Type:</span>
+							<span class="label">{t('Payment Type', 'نوع الدفع')}:</span>
 							<span class="value">{selectedRequisition.payment_type}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Status:</span>
-							<span class="status-badge status-{selectedRequisition.status}">{selectedRequisition.status}</span>
+							<span class="label">{t('Status', 'الحالة')}:</span>
+							<span class="status-badge status-{selectedRequisition.status}">{translateStatus(selectedRequisition.status)}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Date:</span>
-							<span class="value">{formatDate(selectedRequisition.created_at)}</span>
+							<span class="label">{t('Date', 'التاريخ')}:</span>
+							<span class="value">{timeAgo(selectedRequisition.created_at)}</span>
 						</div>
 						{#if selectedRequisition.description}
 							<div class="detail-item full-width">
-								<span class="label">Description:</span>
+								<span class="label">{t('Description', 'الوصف')}:</span>
 								<span class="value">{selectedRequisition.description}</span>
 							</div>
 						{/if}
@@ -1407,72 +1692,72 @@ async function rejectRequisition(reason) {
 					<!-- Payment Schedule Details -->
 					<div class="detail-section">
 						<div class="detail-item">
-							<span class="label">Schedule Type:</span>
+							<span class="label">{t('Schedule Type', 'نوع الجدول')}:</span>
 							<span class="value">
 								<span class="schedule-badge">📅 {selectedRequisition.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
 							</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Branch:</span>
+							<span class="label">{t('Branch', 'الفرع')}:</span>
 							<span class="value">{selectedRequisition.branch_name}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Category:</span>
+							<span class="label">{t('Category', 'الفئة')}:</span>
 							<span class="value">{selectedRequisition.expense_category_name_en}</span>
 						</div>
 						{#if selectedRequisition.co_user_name}
 							<div class="detail-item">
-								<span class="label">C/O User:</span>
+								<span class="label">{t('C/O User', 'مستخدم C/O')}:</span>
 								<span class="value">👤 {selectedRequisition.co_user_name}</span>
 							</div>
 						{/if}
 						<div class="detail-item">
-							<span class="label">Approver:</span>
+							<span class="label">{t('Approver', 'المعتمد')}:</span>
 							<span class="value">{selectedRequisition.approver_name}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Created By:</span>
-							<span class="value">{selectedRequisition.creator?.username || 'Unknown'}</span>
+							<span class="label">{t('Created By', 'أنشأ بواسطة')}:</span>
+							<span class="value">{selectedRequisition.creator?.username || t('Unknown', 'غير معروف')}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Amount:</span>
+							<span class="label">{t('Amount', 'المبلغ')}:</span>
 							<span class="value amount-large">SAR {formatAmount(selectedRequisition.amount)}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Payment Method:</span>
-							<span class="value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</span>
+							<span class="label">{t('Payment Method', 'طريقة الدفع')}:</span>
+							<span class="value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || t('N/A', 'غير متوفر')}</span>
 						</div>
 						{#if selectedRequisition.bill_type}
 							<div class="detail-item">
-								<span class="label">Bill Type:</span>
+								<span class="label">{t('Bill Type', 'نوع الفاتورة')}:</span>
 								<span class="value">{selectedRequisition.bill_type.replace(/_/g, ' ')}</span>
 							</div>
 						{/if}
 						{#if selectedRequisition.bill_number}
 							<div class="detail-item">
-								<span class="label">Bill Number:</span>
+								<span class="label">{t('Bill Number', 'رقم الفاتورة')}:</span>
 								<span class="value">{selectedRequisition.bill_number}</span>
 							</div>
 						{/if}
 						{#if selectedRequisition.due_date}
 							<div class="detail-item">
-								<span class="label">Due Date:</span>
+								<span class="label">{t('Due Date', 'تاريخ الاستحقاق')}:</span>
 								<span class="value">{formatDate(selectedRequisition.due_date)}</span>
 							</div>
 						{/if}
 						<div class="detail-item">
-							<span class="label">Status:</span>
+							<span class="label">{t('Status', 'الحالة')}:</span>
 							<span class="status-badge status-{selectedRequisition.approval_status || 'pending'}">
-								{(selectedRequisition.approval_status || 'pending').toUpperCase()}
+								{translateStatus(selectedRequisition.approval_status || 'pending')}
 							</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Date:</span>
-							<span class="value">{formatDate(selectedRequisition.created_at)}</span>
+							<span class="label">{t('Date', 'التاريخ')}:</span>
+							<span class="value">{timeAgo(selectedRequisition.created_at)}</span>
 						</div>
 						{#if selectedRequisition.description}
 							<div class="detail-item full-width">
-								<span class="label">Description:</span>
+								<span class="label">{t('Description', 'الوصف')}:</span>
 								<span class="value">{selectedRequisition.description}</span>
 							</div>
 						{/if}
@@ -1481,54 +1766,54 @@ async function rejectRequisition(reason) {
 					<!-- Vendor Payment Details -->
 					<div class="detail-section">
 						<div class="detail-item">
-							<span class="label">Payment Type:</span>
-							<span class="schedule-badge vendor-payment">💰 VENDOR PAYMENT</span>
+							<span class="label">{t('Payment Type', 'نوع الدفع')}:</span>
+							<span class="schedule-badge vendor-payment">💰 {t('VENDOR PAYMENT', 'دفع مورد')}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Bill Number:</span>
+							<span class="label">{t('Bill Number', 'رقم الفاتورة')}:</span>
 							<span class="value">{selectedRequisition.bill_number}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Vendor Name:</span>
+							<span class="label">{t('Vendor Name', 'اسم المورد')}:</span>
 							<span class="value">{selectedRequisition.vendor_name}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Branch:</span>
+							<span class="label">{t('Branch', 'الفرع')}:</span>
 							<span class="value">{selectedRequisition.branch_name}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Requested by:</span>
-							<span class="value">👤 {selectedRequisition.requester?.username || 'Unknown User'}</span>
+							<span class="label">{t('Requested by', 'طلب بواسطة')}:</span>
+							<span class="value">👤 {isAr ? (selectedRequisition.requester?.name_ar || selectedRequisition.requester?.name_en || selectedRequisition.requester?.username || t('Unknown User', 'مستخدم غير معروف')) : (selectedRequisition.requester?.name_en || selectedRequisition.requester?.username || t('Unknown User', 'مستخدم غير معروف'))}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Bill Amount:</span>
+							<span class="label">{t('Bill Amount', 'مبلغ الفاتورة')}:</span>
 							<span class="value amount-large">SAR {formatAmount(selectedRequisition.bill_amount)}</span>
 						</div>
 						{#if selectedRequisition.final_bill_amount && selectedRequisition.final_bill_amount !== selectedRequisition.bill_amount}
 							<div class="detail-item">
-								<span class="label">Final Amount:</span>
+								<span class="label">{t('Final Amount', 'المبلغ النهائي')}:</span>
 								<span class="value amount-large">SAR {formatAmount(selectedRequisition.final_bill_amount)}</span>
 							</div>
 						{/if}
 						<div class="detail-item">
-							<span class="label">Payment Method:</span>
-							<span class="value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</span>
+							<span class="label">{t('Payment Method', 'طريقة الدفع')}:</span>
+							<span class="value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || t('N/A', 'غير متوفر')}</span>
 						</div>
 						{#if selectedRequisition.bill_date}
 							<div class="detail-item">
-								<span class="label">Bill Date:</span>
+								<span class="label">{t('Bill Date', 'تاريخ الفاتورة')}:</span>
 								<span class="value">{formatDate(selectedRequisition.bill_date)}</span>
 							</div>
 						{/if}
 						{#if selectedRequisition.due_date}
 							<div class="detail-item">
-								<span class="label">Due Date:</span>
+								<span class="label">{t('Due Date', 'تاريخ الاستحقاق')}:</span>
 								<span class="value">{formatDate(selectedRequisition.due_date)}</span>
 							</div>
 						{/if}
 						{#if selectedRequisition.bank_name}
 							<div class="detail-item">
-								<span class="label">Bank Name:</span>
+								<span class="label">{t('Bank Name', 'اسم البنك')}:</span>
 								<span class="value">{selectedRequisition.bank_name}</span>
 							</div>
 						{/if}
@@ -1539,16 +1824,16 @@ async function rejectRequisition(reason) {
 							</div>
 						{/if}
 						<div class="detail-item">
-							<span class="label">Status:</span>
-							<span class="status-badge status-pending">SENT FOR APPROVAL</span>
+							<span class="label">{t('Status', 'الحالة')}:</span>
+							<span class="status-badge status-pending">{t('SENT FOR APPROVAL', 'مرسل للموافقة')}</span>
 						</div>
 						<div class="detail-item">
-							<span class="label">Requested Date:</span>
-							<span class="value">{formatDate(selectedRequisition.approval_requested_at)}</span>
+							<span class="label">{t('Requested on', 'تاريخ الطلب')}:</span>
+							<span class="value">{timeAgo(selectedRequisition.approval_requested_at)}</span>
 						</div>
 						{#if selectedRequisition.approval_notes}
 							<div class="detail-item full-width">
-								<span class="label">Notes:</span>
+								<span class="label">{t('Notes', 'ملاحظات')}:</span>
 								<span class="value">{selectedRequisition.approval_notes}</span>
 							</div>
 						{/if}
@@ -1556,11 +1841,11 @@ async function rejectRequisition(reason) {
 				{/if}
 
 				{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status)) || (selectedRequisition.item_type === 'vendor_payment' && selectedRequisition.approval_status === 'sent_for_approval')}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? t('payment schedule', 'جدول الدفع') : selectedRequisition.item_type === 'vendor_payment' ? t('vendor payment', 'دفع مورد') : t('requisition', 'طلب')}
 					{#if !canApproveSelected}
 						<div class="permission-notice">
-							ℹ️ You do not have permission to approve or reject this {itemTypeName}.
-							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? 'Only the assigned approver can approve this payment.' : 'Please contact your administrator for approval permissions.'}</small>
+							ℹ️ {t('You do not have permission to approve or reject this', 'ليس لديك صلاحية للموافقة أو رفض هذا')} {itemTypeName}.
+							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? t('Only the assigned approver can approve this payment.', 'فقط المعتمد المعين يمكنه الموافقة على هذا الدفع.') : t('Please contact your administrator for approval permissions.', 'يرجى التواصل مع المسؤول للحصول على صلاحيات الموافقة.')}</small>
 						</div>
 					{/if}
 					<div class="action-buttons">
@@ -1568,23 +1853,23 @@ async function rejectRequisition(reason) {
 							class="btn-approve" 
 							on:click={() => openConfirmModal('approve')} 
 							disabled={isProcessing || !canApproveSelected}
-							title={!canApproveSelected ? 'You need approval permissions' : 'Approve this ' + itemTypeName}
+							title={!canApproveSelected ? t('You need approval permissions', 'تحتاج صلاحيات الموافقة') : t('Approve this', 'الموافقة على هذا') + ' ' + itemTypeName}
 						>
-							✅ Approve
+							✅ {t('Approve', 'موافقة')}
 						</button>
 						<button 
 							class="btn-reject" 
 							on:click={() => openConfirmModal('reject')} 
 							disabled={isProcessing || !canApproveSelected}
-							title={!canApproveSelected ? 'You need approval permissions' : 'Reject this ' + itemTypeName}
+							title={!canApproveSelected ? t('You need approval permissions', 'تحتاج صلاحيات الموافقة') : t('Reject this', 'رفض هذا') + ' ' + itemTypeName}
 						>
-							❌ Reject
+							❌ {t('Reject', 'رفض')}
 						</button>
 					</div>
 				{:else}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? t('payment schedule', 'جدول الدفع') : selectedRequisition.item_type === 'vendor_payment' ? t('vendor payment', 'دفع مورد') : selectedRequisition.item_type === 'day_off' ? t('day off request', 'طلب إجازة') : t('requisition', 'طلب')}
 					<div class="status-info">
-						This {itemTypeName} has been {selectedRequisition.status || selectedRequisition.approval_status}
+						{t('This', 'هذا')} {itemTypeName} {t('has been', 'تم')} {translateStatus(selectedRequisition.status || selectedRequisition.approval_status)}
 					</div>
 				{/if}
 			</div>
@@ -1592,29 +1877,66 @@ async function rejectRequisition(reason) {
 	</div>
 {/if}
 
+<!-- Day Off Approve Modal (date checkboxes) -->
+{#if showDayOffApproveModal && selectedRequisition}
+<div class="confirm-overlay" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+	<div class="confirm-modal dayoff-modal" on:click|stopPropagation>
+		<h3 class="confirm-title">✅ {t('Approve Leave Request', 'الموافقة على طلب الإجازة')}</h3>
+		<p class="confirm-message" style="margin-bottom: 0.75rem;">
+			<strong>{selectedRequisition.employee ? (isAr ? (selectedRequisition.employee.name_ar || selectedRequisition.employee.name_en || t('N/A', 'غير متوفر')) : (selectedRequisition.employee.name_en || selectedRequisition.employee.name_ar || t('N/A', 'غير متوفر'))) : t('N/A', 'غير متوفر')}</strong>
+			— {selectedRequisition.reason ? (isAr ? (selectedRequisition.reason.reason_ar || selectedRequisition.reason.reason_en || '') : (selectedRequisition.reason.reason_en || selectedRequisition.reason.reason_ar || '')) : ''}
+		</p>
+		<p class="confirm-message" style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
+			{t('Uncheck any days you want to reject', 'ألغِ تحديد الأيام التي تريد رفضها')}
+		</p>
+		<div class="dayoff-dates-list">
+			{#each (selectedRequisition._allIds || [selectedRequisition.id]) as dayId, i}
+				{@const dayDate = (selectedRequisition._allDates || [selectedRequisition.day_off_date])[i]}
+				<label class="dayoff-date-row" class:unchecked={!dayOffCheckedDates[dayId]}>
+					<input type="checkbox" bind:checked={dayOffCheckedDates[dayId]} />
+					<span class="dayoff-date-text">{formatDateOnly(dayDate)}</span>
+				</label>
+			{/each}
+		</div>
+		<div class="confirm-actions" style="margin-top: 1rem;">
+			<button class="btn-confirm-cancel" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+				{t('Cancel', 'إلغاء')}
+			</button>
+			<button 
+				class="btn-confirm-ok approve" 
+				on:click={confirmDayOffApproval}
+				disabled={isProcessing || Object.values(dayOffCheckedDates).every(v => !v)}
+			>
+				{isProcessing ? t('Processing...', 'جاري المعالجة...') : `${t('Accept', 'قبول')} (${Object.values(dayOffCheckedDates).filter(v => v).length})`}
+			</button>
+		</div>
+	</div>
+</div>
+{/if}
+
 <!-- Confirmation Modal -->
 {#if showConfirmModal}
 <div class="confirm-overlay" on:click={cancelConfirm}>
 	<div class="confirm-modal" on:click|stopPropagation>
 		<h3 class="confirm-title">
-			{confirmAction === 'approve' ? '✅ Confirm Approval' : '❌ Confirm Rejection'}
+			{confirmAction === 'approve' ? '✅ ' + t('Confirm Approval', 'تأكيد الموافقة') : '❌ ' + t('Confirm Rejection', 'تأكيد الرفض')}
 		</h3>
 		
 		<p class="confirm-message">
 			{#if confirmAction === 'approve'}
-				Are you sure you want to approve this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition?.item_type === 'day_off' ? 'day off request' : 'requisition'}?
+				{t('Are you sure you want to approve this', 'هل أنت متأكد من الموافقة على هذا')} {selectedRequisition?.item_type === 'payment_schedule' ? t('payment schedule', 'جدول الدفع') : selectedRequisition?.item_type === 'vendor_payment' ? t('vendor payment', 'دفع مورد') : selectedRequisition?.item_type === 'day_off' ? t('day off request', 'طلب إجازة') : t('requisition', 'الطلب')}؟
 			{:else}
-				Are you sure you want to reject this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition?.item_type === 'day_off' ? 'day off request' : 'requisition'}?
+				{t('Are you sure you want to reject this', 'هل أنت متأكد من رفض هذا')} {selectedRequisition?.item_type === 'payment_schedule' ? t('payment schedule', 'جدول الدفع') : selectedRequisition?.item_type === 'vendor_payment' ? t('vendor payment', 'دفع مورد') : selectedRequisition?.item_type === 'day_off' ? t('day off request', 'طلب إجازة') : t('requisition', 'الطلب')}؟
 			{/if}
 		</p>
 		
 		{#if confirmAction === 'reject'}
 			<div class="form-group">
-				<label for="rejection-reason" class="form-label">Reason for Rejection *</label>
+				<label for="rejection-reason" class="form-label">{t('Reason for Rejection', 'سبب الرفض')} *</label>
 				<textarea
 					id="rejection-reason"
 					bind:value={rejectionReason}
-					placeholder="Please provide a detailed reason for rejection..."
+					placeholder={t('Please provide a detailed reason for rejection...', 'يرجى تقديم سبب مفصل للرفض...')}
 					rows="4"
 					class="rejection-textarea"
 				></textarea>
@@ -1623,7 +1945,7 @@ async function rejectRequisition(reason) {
 		
 		<div class="confirm-actions">
 			<button class="btn-confirm-cancel" on:click={cancelConfirm}>
-				Cancel
+				{t('Cancel', 'إلغاء')}
 			</button>
 			<button 
 				class="btn-confirm-ok" 
@@ -1632,7 +1954,7 @@ async function rejectRequisition(reason) {
 				on:click={confirmActionHandler}
 				disabled={confirmAction === 'reject' && !rejectionReason.trim()}
 			>
-				{confirmAction === 'approve' ? 'Approve' : 'Reject'}
+				{confirmAction === 'approve' ? t('Approve', 'موافقة') : t('Reject', 'رفض')}
 			</button>
 		</div>
 	</div>
@@ -2151,6 +2473,54 @@ async function rejectRequisition(reason) {
 		width: 100%;
 		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 		animation: modalSlideIn 0.2s ease-out;
+	}
+
+	.dayoff-modal {
+		max-height: 80vh;
+		overflow-y: auto;
+	}
+
+	.dayoff-dates-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		max-height: 50vh;
+		overflow-y: auto;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		padding: 0.5rem;
+	}
+
+	.dayoff-date-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.4rem 0.5rem;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: background 0.15s;
+		font-size: 0.85rem;
+	}
+
+	.dayoff-date-row:hover {
+		background: #f0f9ff;
+	}
+
+	.dayoff-date-row.unchecked {
+		background: #fef2f2;
+		text-decoration: line-through;
+		color: #9ca3af;
+	}
+
+	.dayoff-date-row input[type="checkbox"] {
+		width: 18px;
+		height: 18px;
+		accent-color: #10b981;
+		cursor: pointer;
+	}
+
+	.dayoff-date-text {
+		flex: 1;
 	}
 
 	@keyframes modalSlideIn {

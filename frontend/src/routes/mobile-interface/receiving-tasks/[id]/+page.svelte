@@ -94,7 +94,8 @@
 			weekday: 'long',
 			year: 'numeric',
 			month: 'long',
-			day: 'numeric'
+			day: 'numeric',
+			timeZone: 'Asia/Riyadh'
 		});
 	}
 
@@ -108,7 +109,8 @@
 			year: 'numeric',
 			hour: 'numeric',
 			minute: '2-digit',
-			hour12: true
+			hour12: true,
+			timeZone: 'Asia/Riyadh'
 		});
 	}
 
@@ -123,13 +125,15 @@
 			weekday: 'short',
 			month: 'short',
 			day: 'numeric',
-			year: 'numeric'
+			year: 'numeric',
+			timeZone: 'Asia/Riyadh'
 		});
 		
 		const timeStr = dueDate.toLocaleTimeString('en-US', {
 			hour: 'numeric',
 			minute: '2-digit',
-			hour12: true
+			hour12: true,
+			timeZone: 'Asia/Riyadh'
 		});
 		
 		let remainingStr = '';

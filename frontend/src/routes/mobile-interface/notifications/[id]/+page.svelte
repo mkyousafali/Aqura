@@ -44,7 +44,7 @@
 
 	function formatTimestamp(timestamp: string) {
 		const date = new Date(timestamp);
-		return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+		return date.toLocaleDateString('en-US', { timeZone: 'Asia/Riyadh' }) + ' ' + date.toLocaleTimeString('en-US', { timeZone: 'Asia/Riyadh' });
 	}
 
 	function getNotificationIcon(type: string) {

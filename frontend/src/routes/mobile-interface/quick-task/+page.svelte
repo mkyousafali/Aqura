@@ -4,6 +4,7 @@
 	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { locale, getTranslation, currentLocale } from '$lib/i18n';
+	import { notifications } from '$lib/stores/notifications';
 
 	// State management
 	let loading = true;
@@ -388,7 +389,7 @@
 
 	async function assignTask() {
 		if (!taskTitle || !selectedBranch || selectedUsers.length === 0 || !issueType || !priority) {
-			alert('Please fill in all required fields and select at least one user.');
+			notifications.add({ type: 'error', message: 'Please fill in all required fields and select at least one user.' });
 			return;
 		}
 
@@ -416,7 +417,7 @@
 			.select()
 			.single();			if (taskError) {
 				console.error('Error creating task:', taskError);
-				alert('Error creating task. Please try again.');
+				notifications.add({ type: 'error', message: 'Error creating task. Please try again.' });
 				return;
 			}
 
@@ -501,7 +502,7 @@
 			.insert(assignments)
 			.select();			if (assignmentError) {
 				console.error('Error creating assignments:', assignmentError);
-				alert('Error assigning task to users. Please try again.');
+				notifications.add({ type: 'error', message: 'Error assigning task to users. Please try again.' });
 				return;
 			}
 			
@@ -510,7 +511,7 @@
 
 			if (assignmentError) {
 				console.error('Error creating assignments:', assignmentError);
-				alert('Error assigning task to users. Please try again.');
+				notifications.add({ type: 'error', message: 'Error assigning task to users. Please try again.' });
 				return;
 			}
 
@@ -541,7 +542,7 @@
 
 		} catch (error) {
 			console.error('Error assigning task:', error);
-			alert('Error assigning task. Please try again.');
+			notifications.add({ type: 'error', message: 'Error assigning task. Please try again.' });
 		} finally {
 			isSubmitting = false;
 		}
@@ -605,7 +606,7 @@
 					id: Date.now() + Math.random()
 				}];
 			} else {
-				alert(`File type not supported: ${file.name}`);
+				notifications.add({ type: 'error', message: `File type not supported: ${file.name}` });
 			}
 		});
 		// Reset file input so same file can be selected again
