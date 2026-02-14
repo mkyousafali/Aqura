@@ -45,6 +45,7 @@
 		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
 		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'BUTTON_GENERATOR': '🔨', 'THEME_MANAGER': '🎨',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
+		'ERP_PRODUCT_MANAGER': '🏭',
 		// Additional DB button codes
 		'UPLOAD_EMPLOYEES': '📤', 'WARNING_MASTER': '⚠️', 'SALARY_WAGE_MANAGEMENT': '💰',
 		'CONTACT_MANAGEMENT': '📇', 'DOCUMENT_MANAGEMENT': '📑', 'BIOMETRIC_DATA': '👆',
@@ -57,7 +58,8 @@
 		'STOCK_PRODUCT_REQUEST': '📋',
 		'STOCK_PO_REQUESTS': '🛒', 'STOCK_STOCK_REQUESTS': '📦', 'STOCK_BT_REQUESTS': '🔄',
 		'STOCK_NEAR_EXPIRY_REQUESTS': '⏰',
-		'STOCK_CUSTOMER_PRODUCT_REQUESTS': '🛍️'
+		'STOCK_CUSTOMER_PRODUCT_REQUESTS': '🛍️',
+		'STOCK_ERP_PRODUCTS': '🏭'
 	};
 
 	let mounted = false;
@@ -166,6 +168,7 @@
 		'THEME_MANAGER': 'nav.themeManager',
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
 		'LEAVE_REQUEST': 'nav.leaveRequest',
+		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
 		// Additional DB button codes (aliases / alternate codes)
 		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees',
 		'WARNING_MASTER': 'nav.warningMaster',
@@ -196,7 +199,8 @@
 		'STOCK_STOCK_REQUESTS': 'nav.stockRequests',
 		'STOCK_BT_REQUESTS': 'nav.btRequests',
 		'STOCK_NEAR_EXPIRY_REQUESTS': 'nav.nearExpiryRequests',
-		'STOCK_CUSTOMER_PRODUCT_REQUESTS': 'nav.customerProductRequests'
+		'STOCK_CUSTOMER_PRODUCT_REQUESTS': 'nav.customerProductRequests',
+		'STOCK_ERP_PRODUCTS': 'nav.erpProducts'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {
@@ -451,7 +455,7 @@
 			<div class="welcome-container">
 				<div class="welcome-card">
 					<div class="logo-section">
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ45.19.12.12</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ46.19.12.12</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

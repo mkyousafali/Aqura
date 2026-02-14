@@ -77,7 +77,7 @@ export const GET: RequestHandler = async () => {
 			STOCK: {
 				DASHBOARD: [],
 				MANAGE: ['STOCK_PO_REQUESTS', 'STOCK_STOCK_REQUESTS', 'STOCK_BT_REQUESTS', 'STOCK_NEAR_EXPIRY_REQUESTS', 'STOCK_CUSTOMER_PRODUCT_REQUESTS'],
-				OPERATIONS: ['STOCK_PRODUCT_REQUEST'],
+				OPERATIONS: ['STOCK_PRODUCT_REQUEST', 'STOCK_ERP_PRODUCTS'],
 				REPORTS: []
 			},
 			TASKS: {
@@ -100,7 +100,7 @@ export const GET: RequestHandler = async () => {
 			},
 			CONTROLS: {
 				DASHBOARD: [],
-				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE'],
+				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE', 'ERP_PRODUCT_MANAGER'],
 				OPERATIONS: [],
 				REPORTS: []
 			}
@@ -205,7 +205,8 @@ export const GET: RequestHandler = async () => {
 			STOCK_STOCK_REQUESTS: 'Stock Requests',
 			STOCK_BT_REQUESTS: 'BT Requests',
 			STOCK_NEAR_EXPIRY_REQUESTS: 'Near Expiry Reports',
-			STOCK_CUSTOMER_PRODUCT_REQUESTS: 'Customer Requests'
+			STOCK_CUSTOMER_PRODUCT_REQUESTS: 'Customer Requests',
+			STOCK_ERP_PRODUCTS: 'ERP Products'
 		};
 
 		// Actual button code mappings (for Controls section)
@@ -217,7 +218,8 @@ export const GET: RequestHandler = async () => {
 			BUTTON_ACCESS_CONTROL: 'Button Access Control',
 			BUTTON_GENERATOR: 'Button Generator',
 			THEME_MANAGER: 'Theme Manager',
-			AI_CHAT_GUIDE: 'AI Chat Guide'
+			AI_CHAT_GUIDE: 'AI Chat Guide',
+			ERP_PRODUCT_MANAGER: 'ERP Product Manager'
 		};
 
 		// Merge both mappings

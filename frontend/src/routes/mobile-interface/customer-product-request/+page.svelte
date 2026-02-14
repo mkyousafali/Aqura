@@ -224,8 +224,8 @@
 		searchError = '';
 		searchResults = [];
 		try {
-			const apiKey = 'AIzaSyD-paiiQ8AcoOVvB_59AFu2kM_LJMqMnv0';
-			const cx = 'a4b279612d92f4367';
+			const apiKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
+			const cx = import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID || '';
 			const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=10`;
 			const resp = await fetch(url);
 			if (!resp.ok) throw new Error('Search failed');
