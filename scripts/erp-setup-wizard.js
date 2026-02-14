@@ -675,7 +675,11 @@ app.post('/update-expiry', authenticate, async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('ERP Bridge API running on port ' + PORT + ' | DB: ' + SQL_DATABASE);
+  console.log('\\n========================================');
+  console.log('  ERP Bridge API Server');
+  console.log('  Port: ' + PORT);
+  console.log('  Database: ' + SQL_DATABASE);
+  console.log('========================================\\n');
 });
 `;
 }

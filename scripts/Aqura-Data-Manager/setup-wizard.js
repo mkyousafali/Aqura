@@ -643,19 +643,36 @@ app.post('/sync', authenticate, async (req, res) => {
     if (syncCache && syncCache.key === cacheKey && (now - syncCacheTime) < SYNC_CACHE_TTL) {
       const products = syncCache.products;
       const totalCount = products.length;
+      console.log('[sync] Serving from cache (' + totalCount + ' items, age: ' + Math.round((now - syncCacheTime) / 1000) + 's)');
       if (fetchLimit > 0) {
         const sliced = products.slice(fetchOffset, fetchOffset + fetchLimit);
         const hasMore = (fetchOffset + fetchLimit) < totalCount;
-        return res.json({ success: true, products: sliced, totalCount, hasMore, offset: fetchOffset, limit: fetchLimit, message: 'Batch: ' + sliced.length + ' of ' + totalCount });
+        return res.json({ success: true, products: sliced, totalCount, hasMore, offset: fetchOffset, limit: fetchLimit, message: 'Batch ' + (Math.floor(fetchOffset / fetchLimit) + 1) + ': ' + sliced.length + ' of ' + totalCount });
       } else {
         return res.json({ success: true, products, totalProducts: totalCount, totalCount, hasMore: false, baseProductsCount: totalCount, message: 'Fetched ' + totalCount + ' barcodes' });
       }
     }
     if (syncBuildingPromise) {
+      console.log('[sync] Build in progress...');
       return res.json({ success: true, status: 'building', retry: true, message: 'Building product list from SQL... please wait' });
     }
+    console.log('[sync] Starting async build for ' + cacheKey + '...');
     syncBuildingPromise = buildProductList(erpBranchId, appBranchId, cacheKey).then(function() { syncBuildingPromise = null; console.log('[sync] Async build complete!'); }).catch(function(err) { syncBuildingPromise = null; console.error('[sync] Build FAILED:', err.message); });
     return res.json({ success: true, status: 'building', retry: true, message: 'Started building product list... retry in a few seconds' });
+  } catch (err) { pool = null; console.error('Sync error:', err); res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.post('/update-expiry', authenticate, async (req, res) => {
+  try {
+    const { barcode, newExpiryDate } = req.body;
+    const p = await getPool();
+    const findResult = await p.request()
+      .input('barcode', sql.NVarChar, barcode)
+      .query("SELECT DISTINCT pb.ProductBatchID FROM ProductBatches pb WHERE pb.MannualBarcode = @barcode OR CAST(pb.AutoBarcode AS NVARCHAR(100)) = @barcode OR pb.Unit2Barcode = @barcode OR pb.Unit3Barcode = @barcode UNION SELECT DISTINCT pu.ProductBatchID FROM ProductUnits pu WHERE pu.BarCode = @barcode UNION SELECT DISTINCT pbc.ProductBatchID FROM ProductBarcodes pbc WHERE pbc.Barcode = @barcode");
+    const batchIds = findResult.recordset.map(r => r.ProductBatchID);
+    if (batchIds.length === 0) {
+      return res.json({ success: false, error: 'Barcode ' + barcode + ' not found in ERP' });
+    }
     const idList = batchIds.map(id => "'" + id + "'").join(',');
     const safeDateStr = newExpiryDate.replace(/-/g, '');
     const updateResult = await p.request().input('newExpiry', sql.NVarChar, safeDateStr).query("UPDATE ProductBatches SET ExpiryDate = CONVERT(datetime, @newExpiry, 112) WHERE ProductBatchID IN (" + idList + ")");
@@ -665,7 +682,11 @@ app.post('/sync', authenticate, async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('ERP Bridge API running on port ' + PORT + ' | DB: ' + SQL_DATABASE);
+  console.log('\\n========================================');
+  console.log('  ERP Bridge API Server');
+  console.log('  Port: ' + PORT);
+  console.log('  Database: ' + SQL_DATABASE);
+  console.log('========================================\\n');
 });
 `;
 }
