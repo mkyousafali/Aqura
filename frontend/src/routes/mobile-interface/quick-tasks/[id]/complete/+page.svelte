@@ -211,7 +211,8 @@
 			return new Date(dateString).toLocaleDateString('en-US', {
 				year: 'numeric',
 				month: 'short',
-				day: 'numeric'
+				day: 'numeric',
+				timeZone: 'Asia/Riyadh'
 			});
 		} catch {
 			return 'Invalid date';
@@ -223,7 +224,8 @@
 		try {
 			return new Date(datetimeString).toLocaleTimeString('en-US', {
 				hour: '2-digit',
-				minute: '2-digit'
+				minute: '2-digit',
+				timeZone: 'Asia/Riyadh'
 			});
 		} catch {
 			return '';

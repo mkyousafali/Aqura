@@ -27,6 +27,9 @@
 	let approvalCount = 0;
 	let incidentCount = 0;
 	
+	// Employee display name from hr_employee_master
+	let employeeName = '';
+	
 	// Global header notification count (separate from bottom nav)
 	let headerNotificationCount = 0;
 	
@@ -53,10 +56,16 @@
 	let showStockMenu = false;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ19';
+	let mobileVersion = 'AQ20';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
+
+	// Reset employee name when locale changes so it re-fetches with correct language
+	$: if ($currentLocale) {
+		employeeName = '';
+		if (currentUserData) loadBadgeCounts(true);
+	}
 
 	onMount(() => {
 		// CRITICAL: Set maximum timeout to prevent infinite loading
@@ -205,6 +214,21 @@
 		if (!currentUserData) return;
 
 		try {
+			// Load employee display name from hr_employee_master
+			if (!employeeName) {
+				const { data: empData } = await supabase
+					.from('hr_employee_master')
+					.select('name_en, name_ar')
+					.eq('user_id', currentUserData.id)
+					.maybeSingle();
+				if (empData) {
+					const isArabic = $currentLocale === 'ar';
+					employeeName = isArabic
+						? (empData.name_ar || empData.name_en || '')
+						: (empData.name_en || empData.name_ar || '');
+				}
+			}
+
 			// Check PV Manager permission
 			const { data: pvPermissions } = await supabase
 				.from('button_permissions')
@@ -334,34 +358,42 @@
 			}
 		}
 
-		// Load unread notification count and assignment counts in parallel
+		// Load assignment counts (tasks assigned BY the user to others)
 		try {
-			const [notificationsResult, assignmentsResult, quickAssignmentsResult] = await Promise.all([
-				notificationManagement.getUserNotifications(currentUserData.id),
-				
-				// Load incomplete assignment count (tasks assigned BY the user)
-				supabase
-					.from('task_assignments')
-					.select('id', { count: 'exact', head: true })
-					.eq('assigned_by', currentUserData.id)
-					.in('status', ['assigned', 'in_progress', 'pending'])
-					.neq('status', 'completed')
-					.neq('status', 'cancelled'),
-				
-				// Quick task assignments
-				supabase
-					.from('quick_task_assignments')
-					.select(`
-						id,
-						quick_task:quick_tasks!inner(assigned_by)
-					`, { count: 'exact', head: true })
-					.eq('quick_task.assigned_by', currentUserData.id)
-					.in('status', ['assigned', 'in_progress', 'pending'])
-					.neq('status', 'completed')
-					.neq('status', 'cancelled')
-			]);
+			const { count: regularCount } = await supabase
+				.from('task_assignments')
+				.select('id', { count: 'exact', head: true })
+				.eq('assigned_by', currentUserData.id)
+				.neq('status', 'completed')
+				.neq('status', 'cancelled');
 
-			// Handle notifications
+			// Get quick tasks created/assigned by this user
+			const { data: myQuickTasks } = await supabase
+				.from('quick_tasks')
+				.select('id')
+				.eq('assigned_by', currentUserData.id);
+
+			let quickCount = 0;
+			if (myQuickTasks && myQuickTasks.length > 0) {
+				const quickTaskIds = myQuickTasks.map(qt => qt.id);
+				const { count } = await supabase
+					.from('quick_task_assignments')
+					.select('id', { count: 'exact', head: true })
+					.in('quick_task_id', quickTaskIds)
+					.neq('status', 'completed')
+					.neq('status', 'cancelled');
+				quickCount = count || 0;
+			}
+
+			assignmentCount = (regularCount || 0) + quickCount;
+		} catch (e) {
+			console.warn('Error loading assignment counts:', e);
+		}
+
+		// Load unread notification count
+		try {
+			const notificationsResult = await notificationManagement.getUserNotifications(currentUserData.id);
+
 			if (notificationsResult && notificationsResult.length > 0) {
 				const newNotificationCount = notificationsResult.filter(n => !n.is_read).length;
 				
@@ -398,12 +430,9 @@
 				headerNotificationCount = 0;
 			}
 
-			// Handle assignment counts
-			assignmentCount = (assignmentsResult.count || 0) + (quickAssignmentsResult.count || 0);
-
 		} catch (error) {
 			if (!silent) {
-				console.error('Error loading notification and assignment counts:', error);
+				console.error('Error loading notification counts:', error);
 			}
 			previousNotificationCount = notificationCount;
 			notificationCount = 0;
@@ -751,7 +780,7 @@
 					</button>
 					<div class="user-details">
 						<h1>{pageTitle}</h1>
-						<p>{currentUserData?.name || currentUserData?.username || 'User'}</p>
+						<p>{employeeName || currentUserData?.name || currentUserData?.username || 'User'}</p>
 					</div>
 				</div>
 				<div class="header-actions">
@@ -886,6 +915,9 @@
 								<rect x="9" y="7" width="6" height="5"/>
 							</svg>
 							<span>{getTranslation('mobile.bottomNav.tasks')}</span>
+							{#if taskCount > 0}
+								<span class="submenu-badge">{taskCount > 99 ? '99+' : taskCount}</span>
+							{/if}
 						</a>
 						<a href="/mobile-interface/assignments" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/assignments')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

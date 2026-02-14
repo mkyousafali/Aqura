@@ -26,8 +26,8 @@
 	let employeeCode: string | null = null; // Store employee code for realtime subscription
 	
 	// Computed formatted time and date based on current locale
-	$: formattedTime = currentTime.toLocaleTimeString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' });
-	$: formattedDate = currentTime.toLocaleDateString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+	$: formattedTime = currentTime.toLocaleTimeString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' });
+	$: formattedDate = currentTime.toLocaleDateString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Riyadh' });
 	
 	// Punch/Fingerprint Data - Store last 2 punches
 	let punches = {
@@ -98,7 +98,7 @@
 		const [h, m] = time.split(':').map(Number);
 		const timeDate = new Date(2000, 0, 1, h, m);
 		const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-		return timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: true });
+		return timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' });
 	}
 
 	/** Format shift_date (YYYY-MM-DD) as "DayName DD-MM-YYYY" (locale-aware) */
@@ -106,8 +106,8 @@
 		if (!dateStr) return '';
 		const d = new Date(dateStr + 'T00:00:00');
 		const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-		const dayName = d.toLocaleDateString(locale, { weekday: 'short' });
-		const formatted = d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
+		const dayName = d.toLocaleDateString(locale, { weekday: 'short', timeZone: 'Asia/Riyadh' });
+		const formatted = d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh' });
 		// Rearrange to DD-MM-YYYY with dashes
 		const parts = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(d);
 		const dd = parts.find(p => p.type === 'day')?.value;
@@ -561,7 +561,7 @@
 								// Use locale-aware formatting
 								const timeDate = new Date(2000, 0, 1, hour, parseInt(minute, 10));
 								const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-								formattedTime = timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+								formattedTime = timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' });
 							} catch (e) {
 								console.error('Error formatting time:', e);
 							}
@@ -573,7 +573,7 @@
 							try {
 								const dateObj = new Date(formattedDate);
 								const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-								formattedDate = dateObj.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+								formattedDate = dateObj.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Riyadh' });
 							} catch (e) {
 								console.error('Error formatting date:', e);
 							}
@@ -757,7 +757,7 @@
 		} else if (diffInDays < 7) {
 			return `${Math.floor(diffInDays)}d ago`;
 		} else {
-			return date.toLocaleDateString();
+			return date.toLocaleDateString('en-US', { timeZone: 'Asia/Riyadh' });
 		}
 	}
 	function logout() {

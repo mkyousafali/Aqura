@@ -4,6 +4,8 @@
 	import { page } from '$app/stores';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db } from '$lib/utils/supabase';
+	import { locale, getTranslation } from '$lib/i18n';
+	import { notifications } from '$lib/stores/notifications';
 
 	let currentUserData = null;
 	let task = null;
@@ -34,7 +36,7 @@
 			document.body.removeChild(link);
 		} catch (error) {
 			console.error('Download error:', error);
-			alert('Failed to download attachment. Please try again.');
+			notifications.add({ type: 'error', message: 'Failed to download attachment. Please try again.' });
 		}
 	}
 
@@ -136,37 +138,29 @@
 			
 		} catch (error) {
 			console.error('Error updating task status:', error);
-			alert('Failed to update task status. Please try again.');
+			notifications.add({ type: 'error', message: 'Failed to update task status. Please try again.' });
 		} finally {
 			isUpdating = false;
 		}
 	}
 
 	function formatDate(dateString) {
-		if (!dateString) return 'Not set';
+		if (!dateString) return getTranslation('mobile.taskDetailsPage.notSet');
 		const date = new Date(dateString);
-		return date.toLocaleDateString('en-US', {
-			weekday: 'long',
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		});
+		const dd = String(date.getDate()).padStart(2, '0');
+		const mm = String(date.getMonth() + 1).padStart(2, '0');
+		const yyyy = date.getFullYear();
+		return `${dd}-${mm}-${yyyy}`;
 	}
 
 	function formatTime(timeString) {
-		if (!timeString) return 'Not set';
+		if (!timeString) return getTranslation('mobile.taskDetailsPage.notSet');
 		const [hours, minutes] = timeString.split(':');
-		const date = new Date();
-		date.setHours(parseInt(hours), parseInt(minutes));
-		return date.toLocaleTimeString('en-US', {
-			hour: 'numeric',
-			minute: '2-digit',
-			hour12: true
-		});
+		return `${hours}:${minutes}`;
 	}
 
 	function formatDateTime(dateString) {
-		if (!dateString) return 'Unknown';
+		if (!dateString) return getTranslation('mobile.taskDetailsPage.unknown');
 		const date = new Date(dateString);
 		const now = new Date();
 		const diffMs = now.getTime() - date.getTime();
@@ -174,14 +168,17 @@
 		
 		if (diffHours < 1) {
 			const diffMinutes = Math.floor(diffMs / (1000 * 60));
-			return diffMinutes < 1 ? 'Just now' : `${diffMinutes} minutes ago`;
+			return diffMinutes < 1 ? getTranslation('mobile.taskDetailsPage.justNow') : `${diffMinutes} ${getTranslation('mobile.taskDetailsPage.minutesAgo')}`;
 		} else if (diffHours < 24) {
-			return `${diffHours} hours ago`;
+			return `${diffHours} ${getTranslation('mobile.taskDetailsPage.hoursAgo')}`;
 		} else {
 			const diffDays = Math.floor(diffHours / 24);
-			if (diffDays === 1) return 'Yesterday';
-			if (diffDays < 7) return `${diffDays} days ago`;
-			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+			if (diffDays === 1) return getTranslation('mobile.taskDetailsPage.yesterday');
+			if (diffDays < 7) return `${diffDays} ${getTranslation('mobile.taskDetailsPage.daysAgo')}`;
+			const dd = String(date.getDate()).padStart(2, '0');
+			const mm = String(date.getMonth() + 1).padStart(2, '0');
+			const yyyy = date.getFullYear();
+			return `${dd}-${mm}-${yyyy}`;
 		}
 	}
 
@@ -206,13 +203,13 @@
 
 	function getStatusDisplayText(status) {
 		switch (status) {
-			case 'assigned': return 'PENDING';
-			case 'in_progress': return 'IN PROGRESS';
-			case 'completed': return 'COMPLETED';
-			case 'cancelled': return 'CANCELLED';
-			case 'escalated': return 'ESCALATED';
-			case 'reassigned': return 'REASSIGNED';
-			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
+			case 'assigned': return getTranslation('mobile.assignmentsContent.statuses.assigned');
+			case 'in_progress': return getTranslation('mobile.assignmentsContent.statuses.inProgress');
+			case 'completed': return getTranslation('mobile.assignmentsContent.statuses.completed');
+			case 'cancelled': return getTranslation('mobile.assignmentsContent.statuses.cancelled');
+			case 'escalated': return getTranslation('mobile.assignmentsContent.statuses.escalated');
+			case 'reassigned': return getTranslation('mobile.assignmentsContent.statuses.reassigned');
+			default: return status?.replace('_', ' ') || getTranslation('mobile.taskDetailsPage.unknown');
 		}
 	}
 
@@ -236,36 +233,58 @@
 		const urlRegex = /(https?:\/\/[^\s<>"]+)/g;
 		return text.replace(urlRegex, '<br/><a href="$1" target="_blank" rel="noopener noreferrer" class="url-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View Clearance Certificate</a>');
 	}
+
+	/** Extract the correct language portion from bilingual text */
+	function getLocalizedContent(text) {
+		if (!text) return '';
+		const currentLocale = $locale;
+		// Title format: "English | العربية"
+		if (text.includes(' | ')) {
+			const parts = text.split(' | ');
+			if (parts.length === 2) {
+				return currentLocale === 'ar' ? parts[1].trim() : parts[0].trim();
+			}
+		}
+		// Description format: "English\n---\nالعربية"
+		const descSeparator = text.match(/\n-{3,}\n/);
+		if (descSeparator) {
+			const parts = text.split(descSeparator[0]);
+			if (parts.length === 2) {
+				return currentLocale === 'ar' ? parts[1].trim() : parts[0].trim();
+			}
+		}
+		return text;
+	}
 </script>
 
 <svelte:head>
-	<title>{task ? task.title : 'Task Details'} - Aqura Mobile</title>
+	<title>{task ? getLocalizedContent(task.title) : getTranslation('mobile.taskDetailsPage.title')} - Aqura Mobile</title>
 </svelte:head>
 
 <div class="mobile-task-detail">
 	{#if isLoading}
 		<div class="loading-state">
 			<div class="loading-spinner"></div>
-			<p>Loading...</p>
+			<p>{getTranslation('mobile.taskDetailsPage.loading')}</p>
 		</div>
 	{:else if !task || !assignment}
 		<div class="error-state">
-			<p>Task not found or not accessible.</p>
-			<button class="back-btn-error" on:click={() => goto('/mobile-interface/tasks')}>← Back</button>
+			<p>{getTranslation('mobile.taskDetailsPage.notFound')}</p>
+			<button class="back-btn-error" on:click={() => goto('/mobile-interface/tasks')}>{getTranslation('mobile.taskDetailsPage.back')}</button>
 		</div>
 	{:else}
 		<!-- Header -->
 		<div class="task-header">
-			<h2>{task.title}</h2>
+			<h2>{getLocalizedContent(task.title)}</h2>
 			<div class="task-badges">
 				<span class="priority-badge" style="background-color: {getPriorityColor(task.priority)}15; color: {getPriorityColor(task.priority)}">
-					{task.priority?.toUpperCase()} PRIORITY
+					{getTranslation(`mobile.assignmentsContent.priorities.${task.priority?.toLowerCase()}`)} {getTranslation('mobile.taskDetailsPage.priority')}
 				</span>
 				<span class="status-badge" style="background-color: {getStatusColor(assignment.status)}15; color: {getStatusColor(assignment.status)}">
 					{getStatusDisplayText(assignment.status)}
 				</span>
 				{#if isOverdue(assignment.deadline_date, assignment.deadline_time) && assignment.status !== 'completed'}
-					<span class="overdue-badge">OVERDUE</span>
+					<span class="overdue-badge">{getTranslation('mobile.taskDetailsPage.overdue')}</span>
 				{/if}
 			</div>
 		</div>
@@ -273,34 +292,34 @@
 			<!-- Description -->
 			{#if task.description}
 				<div class="info-card">
-					<h3>Description</h3>
-					<p class="task-description">{@html linkifyText(task.description)}</p>
+					<h3>{getTranslation('mobile.taskDetailsPage.description')}</h3>
+					<p class="task-description">{@html linkifyText(getLocalizedContent(task.description))}</p>
 				</div>
 			{/if}
 
 			<!-- Timeline -->
 			<div class="info-card">
-				<h3>Timeline</h3>
+				<h3>{getTranslation('mobile.taskDetailsPage.timeline')}</h3>
 				<div class="timeline-grid">
 					<div class="tl-row">
-						<span class="tl-label">Created</span>
+						<span class="tl-label">{getTranslation('mobile.taskDetailsPage.created')}</span>
 						<span class="tl-value">{formatDateTime(task.created_at)}</span>
-						<span class="tl-sub">by {task.created_by_name || 'Unknown'}</span>
+						<span class="tl-sub">{getTranslation('mobile.taskDetailsPage.by')} {task.created_by_name || getTranslation('mobile.taskDetailsPage.unknown')}</span>
 					</div>
 					<div class="tl-row">
-						<span class="tl-label">Assigned</span>
+						<span class="tl-label">{getTranslation('mobile.taskDetailsPage.assigned')}</span>
 						<span class="tl-value">{formatDateTime(assignment.assigned_at)}</span>
-						<span class="tl-sub">by {assignment.assigned_by_name || 'Unknown'}</span>
+						<span class="tl-sub">{getTranslation('mobile.taskDetailsPage.by')} {assignment.assigned_by_name || getTranslation('mobile.taskDetailsPage.unknown')}</span>
 					</div>
 					{#if assignment.deadline_date}
 						<div class="tl-row" class:overdue-text={isOverdue(assignment.deadline_date, assignment.deadline_time)}>
-							<span class="tl-label">Due</span>
-							<span class="tl-value">{formatDate(assignment.deadline_date)}{assignment.deadline_time ? ' at ' + formatTime(assignment.deadline_time) : ''}</span>
+							<span class="tl-label">{getTranslation('mobile.taskDetailsPage.due')}</span>
+							<span class="tl-value">{formatDate(assignment.deadline_date)}{assignment.deadline_time ? ' ' + getTranslation('mobile.taskDetailsPage.at') + ' ' + formatTime(assignment.deadline_time) : ''}</span>
 						</div>
 					{/if}
 					{#if assignment.completed_at}
 						<div class="tl-row">
-							<span class="tl-label" style="color: #059669;">Done</span>
+							<span class="tl-label" style="color: #059669;">{getTranslation('mobile.taskDetailsPage.done')}</span>
 							<span class="tl-value">{formatDateTime(assignment.completed_at)}</span>
 						</div>
 					{/if}
@@ -310,7 +329,7 @@
 			<!-- Attachments -->
 			{#if taskAttachments.length > 0}
 				<div class="info-card">
-					<h3>Attachments ({taskAttachments.length})</h3>
+					<h3>{getTranslation('mobile.taskDetailsPage.attachments')} ({taskAttachments.length})</h3>
 					<div class="attachments-list">
 						{#each taskAttachments as attachment}
 							<div class="attachment-item">
@@ -340,12 +359,12 @@
 				<div class="action-buttons">
 					{#if assignment.status === 'assigned'}
 						<button class="action-btn start-btn" on:click={() => updateAssignmentStatus('in_progress')} disabled={isUpdating}>
-							{#if isUpdating}<div class="btn-spinner"></div>{:else}Start Task{/if}
+							{#if isUpdating}<div class="btn-spinner"></div>{:else}{getTranslation('mobile.taskDetailsPage.startTask')}{/if}
 						</button>
 					{/if}
 					{#if assignment.status === 'in_progress' || assignment.status === 'assigned'}
 						<button class="action-btn complete-btn" on:click={() => updateAssignmentStatus('completed')} disabled={isUpdating}>
-							{#if isUpdating}<div class="btn-spinner"></div>{:else}Mark Complete{/if}
+							{#if isUpdating}<div class="btn-spinner"></div>{:else}{getTranslation('mobile.taskDetailsPage.markComplete')}{/if}
 						</button>
 					{/if}
 				</div>
@@ -354,7 +373,7 @@
 			<div class="completion-section">
 				<div class="completion-msg">
 					<span class="completion-icon">✓</span>
-					<span>Task {assignment.status === 'completed' ? 'Completed' : 'Cancelled'}</span>
+					<span>{assignment.status === 'completed' ? getTranslation('mobile.taskDetailsPage.taskCompleted') : getTranslation('mobile.taskDetailsPage.taskCancelled')}</span>
 				</div>
 			</div>
 		{/if}

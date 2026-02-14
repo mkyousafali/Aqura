@@ -6,6 +6,7 @@
 	import { speakWithGoogleTTS, stopSpeaking, getVoicesForLocale, getSelectedVoiceId, setSelectedVoiceId, loadVoicePreferences, type VoiceOption } from '$lib/utils/ttsService';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { notifications } from '$lib/stores/notifications';
 	import { fly, fade } from 'svelte/transition';
 
 	let messages: ChatMessage[] = [];
@@ -166,7 +167,7 @@
 
 		const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 		if (!SpeechRecognition) {
-			alert(isArabic ? 'المتصفح لا يدعم التعرف على الصوت' : 'Browser does not support speech recognition');
+			notifications.add({ type: 'error', message: isArabic ? 'المتصفح لا يدعم التعرف على الصوت' : 'Browser does not support speech recognition' });
 			return;
 		}
 
@@ -255,7 +256,7 @@
 			const yesterday = new Date(saudiNow);
 			yesterday.setDate(yesterday.getDate() - 1);
 			const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-			const yesterdayDisplay = yesterday.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+			const yesterdayDisplay = yesterday.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Riyadh' });
 
 			const currentMonthStart = `${saudiNow.getFullYear()}-${String(saudiNow.getMonth() + 1).padStart(2, '0')}-01`;
 			const currentMonthEnd = yesterdayStr;
@@ -266,7 +267,7 @@
 			const lastMonthEnd = `${lastMonthSameDayDate.getFullYear()}-${String(lastMonthSameDayDate.getMonth() + 1).padStart(2, '0')}-${String(lastMonthSameDayDate.getDate()).padStart(2, '0')}`;
 
 			const sameDateLastMonthStr = lastMonthEnd;
-			const sameDateLastMonthDisplay = lastMonthSameDayDate.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+			const sameDateLastMonthDisplay = lastMonthSameDayDate.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Riyadh' });
 
 			const [yesterdayRes, currentMonthRes, lastMonthRes] = await Promise.all([
 				supabase.from('erp_daily_sales').select('*').eq('sale_date', yesterdayStr),
@@ -352,7 +353,7 @@
 			lines.push(isArabic ? `📈 الإجمالي: ${fmt(yesterdayTotal)} ${cur}` : `📈 Total: ${fmt(yesterdayTotal)} ${cur}`);
 
 			lines.push('');
-			const currentMonthName = saudiNow.toLocaleString(isArabic ? 'ar-SA' : 'en-US', { month: 'long' });
+			const currentMonthName = saudiNow.toLocaleString(isArabic ? 'ar-SA' : 'en-US', { month: 'long', timeZone: 'Asia/Riyadh' });
 			lines.push(isArabic
 				? `📅 متوسط المبيعات اليومية (${currentMonthName}): ${fmt(currentMonthAvg)} ${cur}`
 				: `📅 Current Month Daily Average (${currentMonthName}): ${fmt(currentMonthAvg)} ${cur}`);
@@ -360,7 +361,7 @@
 				? `   (${currentMonthDays} يوم، إجمالي: ${fmt(currentMonthTotal)} ${cur})`
 				: `   (${currentMonthDays} days, total: ${fmt(currentMonthTotal)} ${cur})`);
 
-			const lastMonthName = lastMonthDate.toLocaleString(isArabic ? 'ar-SA' : 'en-US', { month: 'long' });
+			const lastMonthName = lastMonthDate.toLocaleString(isArabic ? 'ar-SA' : 'en-US', { month: 'long', timeZone: 'Asia/Riyadh' });
 			lines.push(isArabic
 				? `📅 متوسط المبيعات اليومية (${lastMonthName} ١-${yesterday.getDate()}): ${fmt(lastMonthAvg)} ${cur}`
 				: `📅 Last Month Daily Average (${lastMonthName} 1-${yesterday.getDate()}): ${fmt(lastMonthAvg)} ${cur}`);

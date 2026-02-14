@@ -70,7 +70,8 @@
 		return d.toLocaleDateString(isRtl ? 'ar-SA' : 'en-US', {
 			year: 'numeric',
 			month: 'short',
-			day: 'numeric'
+			day: 'numeric',
+			timeZone: 'Asia/Riyadh'
 		});
 	}
 

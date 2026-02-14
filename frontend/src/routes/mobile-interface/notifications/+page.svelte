@@ -6,12 +6,73 @@
 	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
+	import { currentLocale, localeData } from '$lib/i18n';
 	import {
 		isPushSupported,
 		hasActiveSubscription,
 		subscribeToPushNotifications,
 		unsubscribeFromPushNotifications
 	} from '$lib/utils/pushNotifications';
+
+	// ── i18n helper ──
+	function getTranslation(keyPath: string): string {
+		const data = $localeData;
+		if (!data?.translations) return keyPath;
+		const keys = keyPath.split('.');
+		let current: any = data.translations;
+		for (const key of keys) {
+			if (current && typeof current === 'object' && key in current) {
+				current = current[key];
+			} else {
+				return keyPath;
+			}
+		}
+		return typeof current === 'string' ? current : keyPath;
+	}
+
+	function t(key: string): string {
+		return getTranslation(`mobile.notificationsContent.${key}`);
+	}
+
+	// ── Bilingual content helper ──
+	// Notification titles use patterns like "English Title | عنوان عربي"
+	// or "English Title / عنوان عربي"
+	// Messages may use " --- " or "\n---\n" separator
+	function getLocalizedText(text: string): string {
+		if (!text) return '';
+		const locale = $currentLocale;
+		
+		// Try pipe separator first (most common for titles)
+		if (text.includes(' | ')) {
+			const parts = text.split(' | ');
+			if (parts.length === 2) {
+				return locale === 'ar' ? parts[1].trim() : parts[0].trim();
+			}
+		}
+		
+		// Try slash separator
+		if (text.includes(' / ')) {
+			const parts = text.split(' / ');
+			if (parts.length === 2) {
+				// Check if second part contains Arabic
+				const hasArabic = /[\u0600-\u06FF]/.test(parts[1]);
+				if (hasArabic) {
+					return locale === 'ar' ? parts[1].trim() : parts[0].trim();
+				}
+			}
+		}
+		
+		// Try triple dash separator (for messages)
+		if (text.includes(' --- ') || text.includes('\n---\n')) {
+			const separator = text.includes('\n---\n') ? '\n---\n' : ' --- ';
+			const parts = text.split(separator);
+			if (parts.length === 2) {
+				return locale === 'ar' ? parts[1].trim() : parts[0].trim();
+			}
+		}
+		
+		return text;
+	}
 
 	// ── State ──
 	$: userId = $currentUser?.id;
@@ -115,24 +176,23 @@
 			isLoading = false;
 			hasMoreNotifications = apiNotifications.length === pageSize;
 
-			// Phase 2: Load attachments in background for unread only
+			// Phase 2: Load employee names + attachments in background
+			const bgTasks: Promise<any>[] = [loadUserCache()];
 			const unreadApi = apiNotifications.filter(n => !n.is_read);
 			if (unreadApi.length > 0) {
-				Promise.all([
-					loadAttachments(unreadApi),
-					loadUserCache()
-				]).then(([transformed]) => {
+				bgTasks.push(loadAttachments(unreadApi).then(transformed => {
 					if (transformed.length > 0) {
 						const ids = new Set(transformed.map((n: any) => n.id));
 						allNotifications = [...transformed, ...allNotifications.filter(n => !ids.has(n.id))];
 					}
-				}).catch(err => {
-					console.warn('Background attachment loading failed:', err);
-				});
+				}));
 			}
+			Promise.all(bgTasks).catch(err => {
+				console.warn('Background loading failed:', err);
+			});
 		} catch (error) {
 			console.error('Error loading notifications:', error);
-			errorMessage = 'Failed to load notifications. Please try again.';
+			errorMessage = t('failedToLoad');
 			isLoading = false;
 		}
 	}
@@ -168,18 +228,17 @@
 			const apiNotifications = await notificationManagement.getUserNotifications(userId, 0, pageSize);
 			allNotifications = apiNotifications.map(mapBasic);
 
+			const bgTasks: Promise<any>[] = [loadUserCache()];
 			const unreadApi = apiNotifications.filter(n => !n.is_read);
 			if (unreadApi.length > 0) {
-				Promise.all([
-					loadAttachments(unreadApi),
-					loadUserCache()
-				]).then(([transformed]) => {
+				bgTasks.push(loadAttachments(unreadApi).then(transformed => {
 					if (transformed.length > 0) {
 						const ids = new Set(transformed.map((n: any) => n.id));
 						allNotifications = [...transformed, ...allNotifications.filter(n => !ids.has(n.id))];
 					}
-				}).catch(() => {});
+				}));
 			}
+			Promise.all(bgTasks).catch(() => {});
 		} catch {
 			// Silent fail
 		}
@@ -197,6 +256,7 @@
 			read: notification.is_read || false,
 			priority: notification.priority,
 			createdBy: notification.created_by_name,
+			created_by: notification.created_by,
 			target_users: notification.target_users,
 			target_type: notification.target_type,
 			status: notification.status,
@@ -292,10 +352,15 @@
 	}
 
 	// ── User Cache ──
+	// Employee name cache: user_id -> { name_en, name_ar }
+	let employeeNameCache: Record<string, { name_en: string; name_ar: string }> = {};
+
 	async function loadUserCache() {
 		try {
 			const userIds = new Set<string>();
 			for (const n of allNotifications) {
+				// Collect created_by user IDs
+				if (n.created_by) userIds.add(n.created_by);
 				const m = n.metadata || {};
 				if (m.assigned_to) userIds.add(m.assigned_to);
 				let targets = n.target_users;
@@ -306,14 +371,27 @@
 			if (userIds.size === 0) return;
 			const ids = Array.from(userIds);
 
-			const { data: employees } = await supabase.from('hr_employees').select('id, name, employee_id').in('id', ids);
+			// Load employee names from hr_employee_master (locale-aware)
+			const { data: employees } = await supabase
+				.from('hr_employee_master')
+				.select('user_id, name_en, name_ar')
+				.in('user_id', ids);
+			
 			if (employees) {
 				for (const e of employees) {
-					if (e.name) userCache[e.id] = e.name;
-					else if (e.employee_id) userCache[e.id] = `Employee ${e.employee_id}`;
+					employeeNameCache[e.user_id] = {
+						name_en: e.name_en || '',
+						name_ar: e.name_ar || ''
+					};
+					// Also populate old userCache for getTargetUsersDisplay
+					const displayName = $currentLocale === 'ar'
+						? (e.name_ar || e.name_en || '')
+						: (e.name_en || e.name_ar || '');
+					if (displayName) userCache[e.user_id] = displayName;
 				}
 			}
 
+			// Fallback to users table for any missing
 			const missing = ids.filter(id => !userCache[id]);
 			if (missing.length > 0) {
 				const { data: users } = await supabase.from('users').select('id, username').in('id', missing);
@@ -321,6 +399,18 @@
 					for (const u of users) { if (u.username) userCache[u.id] = u.username; }
 				}
 			}
+
+			// Update createdBy names in allNotifications with employee names
+			allNotifications = allNotifications.map(n => {
+				if (n.created_by && employeeNameCache[n.created_by]) {
+					const emp = employeeNameCache[n.created_by];
+					const name = $currentLocale === 'ar'
+						? (emp.name_ar || emp.name_en || n.createdBy)
+						: (emp.name_en || emp.name_ar || n.createdBy);
+					return { ...n, createdBy: name };
+				}
+				return n;
+			});
 		} catch {}
 	}
 
@@ -332,11 +422,11 @@
 		const diffMins = Math.floor(diffMs / 60000);
 		const diffHours = Math.floor(diffMins / 60);
 		const diffDays = Math.floor(diffHours / 24);
-		if (diffMins < 1) return 'Just now';
-		if (diffMins < 60) return `${diffMins}m ago`;
-		if (diffHours < 24) return `${diffHours}h ago`;
-		if (diffDays < 7) return `${diffDays}d ago`;
-		return date.toLocaleDateString();
+		if (diffMins < 1) return t('justNow');
+		if (diffMins < 60) return t('minutesAgo').replace('{count}', String(diffMins));
+		if (diffHours < 24) return t('hoursAgo').replace('{count}', String(diffHours));
+		if (diffDays < 7) return t('daysAgo').replace('{count}', String(diffDays));
+		return date.toLocaleDateString($currentLocale === 'ar' ? 'ar-SA' : 'en-US', { timeZone: 'Asia/Riyadh' });
 	}
 
 	function getNotificationIcon(type: string) {
@@ -472,24 +562,24 @@
 	}
 </script>
 
-<div class="notification-page">
+<div class="notification-page" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 	<!-- Header Bar -->
 	<div class="top-bar">
 		<div class="top-bar-left">
-			<span class="top-title">🔔 Notifications</span>
+			<span class="top-title">🔔 {t('notifications')}</span>
 			<span class="unread-pill">{unreadCount}</span>
 		</div>
 		<div class="top-bar-right">
 			{#if pushSupported}
-				<button class="icon-btn" class:push-on={pushEnabled} on:click={togglePushNotifications} disabled={pushLoading} title={pushEnabled ? 'Push On' : 'Push Off'}>
+				<button class="icon-btn" class:push-on={pushEnabled} on:click={togglePushNotifications} disabled={pushLoading} title={pushEnabled ? t('pushOn') : t('pushOff')}>
 					{pushEnabled ? '🔔' : '🔕'}
 				</button>
 			{/if}
 			{#if unreadCount > 0}
-				<button class="text-btn" on:click={markAllAsRead}>✓ Read All</button>
+				<button class="text-btn" on:click={markAllAsRead}>{t('readAll')}</button>
 			{/if}
 			{#if isAdminOrMaster}
-				<button class="text-btn create" on:click={openCreateNotification}>+ New</button>
+				<button class="text-btn create" on:click={openCreateNotification}>{t('newNotification')}</button>
 			{/if}
 		</div>
 	</div>
@@ -497,14 +587,14 @@
 	<!-- Filters -->
 	<div class="filter-bar">
 		<select bind:value={filterType} class="filter-select">
-			<option value="all">All</option>
-			<option value="success">Success</option>
-			<option value="warning">Warning</option>
-			<option value="error">Error</option>
-			<option value="info">Info</option>
-			<option value="announcement">Announce</option>
-			<option value="task_assigned">Tasks</option>
-			<option value="approval_request">Approvals</option>
+			<option value="all">{t('filterAll')}</option>
+			<option value="success">{t('filterSuccess')}</option>
+			<option value="warning">{t('filterWarning')}</option>
+			<option value="error">{t('filterError')}</option>
+			<option value="info">{t('filterInfo')}</option>
+			<option value="announcement">{t('filterAnnouncement')}</option>
+			<option value="task_assigned">{t('filterTasks')}</option>
+			<option value="approval_request">{t('filterApprovals')}</option>
 		</select>
 
 	</div>
@@ -513,7 +603,7 @@
 	{#if errorMessage}
 		<div class="error-bar">
 			<span>❌ {errorMessage}</span>
-			<button on:click={loadNotifications}>Retry</button>
+			<button on:click={loadNotifications}>{t('retry')}</button>
 		</div>
 	{/if}
 
@@ -521,13 +611,13 @@
 	{#if isLoading}
 		<div class="loading-container">
 			<div class="spinner"></div>
-			<span>Loading notifications...</span>
+			<span>{t('loadingNotifications')}</span>
 		</div>
 	{:else if filteredNotifications.length === 0}
 		<div class="empty-state">
 			<div class="empty-icon">🔔</div>
-			<h3>No notifications</h3>
-			<p>All caught up! No unread notifications.</p>
+			<h3>{t('noNotifications')}</h3>
+			<p>{t('noUnreadNotifications')}</p>
 		</div>
 	{:else}
 		<!-- Notification List -->
@@ -544,36 +634,33 @@
 					<div class="notif-top">
 						<span class="notif-icon">{getNotificationIcon(notification.type)}</span>
 						<div class="notif-info">
-							<div class="notif-title">{notification.title}</div>
+							<div class="notif-title">{getLocalizedText(notification.title)}</div>
 							<div class="notif-meta">
-								<span class="notif-time">{notification.timestamp}</span>
+								<span class="notif-time">{formatTimestamp(notification.raw_created_at || '')}</span>
 								{#if notification.createdBy}
 									<span class="notif-creator">• {notification.createdBy}</span>
 								{/if}
 								{#if isAdminOrMaster && notification.readCount !== undefined}
-									<span class="notif-read-stats">• {notification.readCount}/{notification.totalRecipients} read</span>
+									<span class="notif-read-stats">• {notification.readCount}/{notification.totalRecipients} {t('read')}</span>
 								{/if}
 							</div>
 						</div>
 						<!-- Action buttons -->
 						<div class="notif-actions">
 							{#if !notification.read}
-								<button class="act-btn" on:click|stopPropagation={() => markAsRead(notification.id)} title="Mark as read">👁️</button>
-							{/if}
-							{#if isAdminOrMaster}
-								<button class="act-btn del" on:click|stopPropagation={() => deleteNotification(notification.id)} title="Delete">🗑️</button>
+								<button class="act-btn" on:click|stopPropagation={() => markAsRead(notification.id)} title={t('markAsRead')}>👁️</button>
 							{/if}
 						</div>
 					</div>
 
 					<!-- Message text -->
 					<div class="notif-message">
-						{#each splitMessageParts(notification.message) as part}
+						{#each splitMessageParts(getLocalizedText(notification.message)) as part}
 							{#if part.type === 'url'}
 								{#if isImageUrl(part.value)}
-									<button class="inline-link img-link" on:click|stopPropagation={() => openImageModal(part.value)}>🖼️ View Image</button>
+									<button class="inline-link img-link" on:click|stopPropagation={() => openImageModal(part.value)}>🖼️ {t('viewImage')}</button>
 								{:else}
-									<a href={part.value} target="_blank" rel="noopener noreferrer" class="inline-link" on:click|stopPropagation>🔗 Open Link</a>
+									<a href={part.value} target="_blank" rel="noopener noreferrer" class="inline-link" on:click|stopPropagation>🔗 {t('openLink')}</a>
 								{/if}
 							{:else}
 								{part.value}
@@ -596,7 +683,7 @@
 					{#if notification.image_url || (notification.attachments && notification.attachments.length > 0)}
 						<div class="notif-attachments">
 							{#if notification.image_url}
-								<button class="img-thumb" on:click|stopPropagation={() => openImageModal(notification.image_url)} title="View image">
+								<button class="img-thumb" on:click|stopPropagation={() => openImageModal(notification.image_url)} title={t('viewImage')}>
 									<img src={notification.image_url} alt="Notification" loading="lazy" on:error={(e) => { e.currentTarget.parentElement.style.display = 'none'; }} />
 									<div class="img-overlay">🔍</div>
 								</button>
@@ -624,12 +711,12 @@
 			{#if isLoadingMore}
 				<div class="loading-more">
 					<div class="spinner small"></div>
-					<span>Loading more...</span>
+					<span>{t('loadingMore')}</span>
 				</div>
 			{/if}
 
 			{#if !hasMoreNotifications && filteredNotifications.length > 0}
-				<div class="end-message">No more notifications</div>
+				<div class="end-message">{t('noMoreNotifications')}</div>
 			{/if}
 		</div>
 	{/if}
@@ -640,7 +727,7 @@
 	<div class="image-modal-overlay" on:click={closeImageModal}>
 		<div class="image-modal-content" on:click|stopPropagation>
 			<button class="image-modal-close" on:click={closeImageModal}>✕</button>
-			<img src={selectedImageUrl} alt="Full size" />
+			<img src={selectedImageUrl} alt={t('viewImage')} />
 		</div>
 	</div>
 {/if}
@@ -845,7 +932,7 @@
 		position: relative;
 		background: white;
 		border-radius: 10px;
-		border-left: 4px solid #10b981;
+		border-inline-start: 4px solid #10b981;
 		margin-bottom: 8px;
 		padding: 12px;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -854,14 +941,14 @@
 
 	.notif-card.read {
 		opacity: 0.7;
-		border-left-color: #d1d5db;
+		border-inline-start-color: #d1d5db;
 		background: #fafafa;
 	}
 
-	.notif-card.border-red-500 { border-left-color: #ef4444; }
-	.notif-card.border-orange-500 { border-left-color: #f97316; }
-	.notif-card.border-yellow-400 { border-left-color: #facc15; }
-	.notif-card.border-gray-300 { border-left-color: #d1d5db; }
+	.notif-card.border-red-500 { border-inline-start-color: #ef4444; }
+	.notif-card.border-orange-500 { border-inline-start-color: #f97316; }
+	.notif-card.border-yellow-400 { border-inline-start-color: #facc15; }
+	.notif-card.border-gray-300 { border-inline-start-color: #d1d5db; }
 
 	.notif-card.unread.border-red-500 { background: #fef2f2; }
 
@@ -948,7 +1035,7 @@
 		line-height: 1.5;
 		color: #475569;
 		margin-top: 6px;
-		padding-left: 28px;
+		padding-inline-start: 28px;
 		word-break: break-word;
 	}
 
@@ -979,7 +1066,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding-left: 28px;
+		padding-inline-start: 28px;
 		margin-top: 6px;
 		font-size: 12px;
 		color: #64748b;
@@ -998,7 +1085,7 @@
 	/* ── Attachments ── */
 	.notif-attachments {
 		margin-top: 8px;
-		padding-left: 28px;
+		padding-inline-start: 28px;
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
@@ -1051,7 +1138,7 @@
 	.unread-dot {
 		position: absolute;
 		top: 12px;
-		right: 12px;
+		inset-inline-end: 12px;
 		width: 8px;
 		height: 8px;
 		background: #10b981;

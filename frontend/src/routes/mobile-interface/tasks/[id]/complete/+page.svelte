@@ -5,6 +5,18 @@
     import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
     import { supabase, db } from '$lib/utils/supabase';
     import { notifications } from '$lib/stores/notifications';
+    import { locale, getTranslation } from '$lib/i18n';
+
+    const t = (key: string) => getTranslation(`mobile.taskCompletionPage.${key}`);
+
+    // Get localized content from bilingual strings
+    function getLocalizedContent(text: string | null | undefined, type: 'title' | 'description' = 'title'): string {
+        if (!text) return '';
+        const separator = type === 'title' ? '|' : '\n---\n';
+        const parts = text.split(separator);
+        if (parts.length < 2) return text.trim();
+        return $locale === 'ar' ? parts[1].trim() : parts[0].trim();
+    }
 
     // Get task ID from URL params
     let taskId = '';
@@ -116,7 +128,7 @@
             isLoading = true;
             
             if (!taskId || taskId === 'unknown' || taskId === 'null') {
-                errorMessage = 'Invalid task ID';
+                errorMessage = t('invalidTaskId');
                 return;
             }
             
@@ -176,42 +188,42 @@
                 
                 // Fetch assigned by user name
                 if (assignmentDetails.assigned_by) {
-                    const assignedByResult = await db.users.getById(assignmentDetails.assigned_by);
-                    if (assignedByResult.data) {
-                        if (assignedByResult.data.employee_id) {
-                            const employeeResult = await db.employees.getById(assignedByResult.data.employee_id);
-                            if (employeeResult.data && employeeResult.data.name) {
-                                assignedByUserName = employeeResult.data.name;
-                            } else {
-                                assignedByUserName = assignedByResult.data.username || assignmentDetails.assigned_by_name || 'Unknown User';
-                            }
+                    const { data: byUser } = await supabase
+                        .from('users')
+                        .select('username, hr_employee_master!hr_employee_master_user_id_fkey (name_en, name_ar)')
+                        .eq('id', assignmentDetails.assigned_by)
+                        .single();
+                    if (byUser) {
+                        const emp = byUser.hr_employee_master?.[0] || byUser.hr_employee_master;
+                        if (emp) {
+                            assignedByUserName = $locale === 'ar' ? (emp.name_ar || emp.name_en || byUser.username) : (emp.name_en || byUser.username);
                         } else {
-                            assignedByUserName = assignedByResult.data.username || assignmentDetails.assigned_by_name || 'Unknown User';
+                            assignedByUserName = byUser.username || assignmentDetails.assigned_by_name || '';
                         }
                     } else {
-                        assignedByUserName = assignmentDetails.assigned_by_name || 'Unknown User';
+                        assignedByUserName = assignmentDetails.assigned_by_name || '';
                     }
                 }
                 
                 // Fetch assigned to user name
                 if (assignmentDetails.assigned_to_user_id) {
-                    const assignedToResult = await db.users.getById(assignmentDetails.assigned_to_user_id);
-                    if (assignedToResult.data) {
-                        if (assignedToResult.data.employee_id) {
-                            const employeeResult = await db.employees.getById(assignedToResult.data.employee_id);
-                            if (employeeResult.data && employeeResult.data.name) {
-                                assignedToUserName = employeeResult.data.name;
-                            } else {
-                                assignedToUserName = assignedToResult.data.username || 'Unknown User';
-                            }
+                    const { data: toUser } = await supabase
+                        .from('users')
+                        .select('username, hr_employee_master!hr_employee_master_user_id_fkey (name_en, name_ar)')
+                        .eq('id', assignmentDetails.assigned_to_user_id)
+                        .single();
+                    if (toUser) {
+                        const emp = toUser.hr_employee_master?.[0] || toUser.hr_employee_master;
+                        if (emp) {
+                            assignedToUserName = $locale === 'ar' ? (emp.name_ar || emp.name_en || toUser.username) : (emp.name_en || toUser.username);
                         } else {
-                            assignedToUserName = assignedToResult.data.username || 'Unknown User';
+                            assignedToUserName = toUser.username || '';
                         }
                     } else {
-                        assignedToUserName = 'Unknown User';
+                        assignedToUserName = '';
                     }
                 } else {
-                    assignedToUserName = 'Not assigned to specific user';
+                    assignedToUserName = '';
                 }
                 
                 // Start the live countdown timer
@@ -220,7 +232,7 @@
             
         } catch (error) {
             console.error('Error loading task details:', error);
-            errorMessage = 'Failed to load task details';
+            errorMessage = t('failedToLoad');
         } finally {
             isLoading = false;
         }
@@ -228,24 +240,25 @@
 
     // Date and time utility functions
     function formatDate(dateString: string): string {
-        if (!dateString) return 'Not set';
+        if (!dateString) return t('notSet');
         try {
-            return new Date(dateString).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-            });
+            const d = new Date(dateString);
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}-${month}-${year}`;
         } catch {
-            return 'Invalid date';
+            return t('invalidDate');
         }
     }
 
     function formatTime(datetimeString: string): string {
         if (!datetimeString) return '';
         try {
-            return new Date(datetimeString).toLocaleTimeString('en-US', {
+            return new Date(datetimeString).toLocaleTimeString($locale === 'ar' ? 'ar-SA' : 'en-US', {
                 hour: '2-digit',
-                minute: '2-digit'
+                minute: '2-digit',
+                timeZone: 'Asia/Riyadh'
             });
         } catch {
             return '';
@@ -271,12 +284,12 @@
             const diffDays = Math.floor(diffHours / 24);
             
             if (diffDays > 0) {
-                return `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+                return `${diffDays} ${diffDays !== 1 ? t('days') : t('day')}`;
             } else {
-                return `${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
+                return `${diffHours} ${diffHours !== 1 ? t('hours') : t('hour')}`;
             }
         } catch {
-            return 'Unknown';
+            return '';
         }
     }
 
@@ -288,7 +301,7 @@
             const diffMs = deadline.getTime() - now.getTime();
             
             if (diffMs <= 0) {
-                return 'Overdue';
+                return t('overdueBy');
             }
             
             const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -297,20 +310,20 @@
             
             let timeString = '';
             if (days > 0) {
-                timeString += `${days} day${days !== 1 ? 's' : ''}`;
+                timeString += `${days} ${days !== 1 ? t('days') : t('day')}`;
             }
             if (hours > 0) {
                 if (timeString) timeString += ', ';
-                timeString += `${hours} hour${hours !== 1 ? 's' : ''}`;
+                timeString += `${hours} ${hours !== 1 ? t('hours') : t('hour')}`;
             }
             if (minutes > 0 || timeString === '') {
                 if (timeString) timeString += ', ';
-                timeString += `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+                timeString += `${minutes} ${minutes !== 1 ? t('minutes') : t('minute')}`;
             }
             
             return timeString;
         } catch {
-            return 'Unknown';
+            return '';
         }
     }
 
@@ -383,7 +396,7 @@
             console.error('Download error:', error);
             notifications.add({
                 type: 'error',
-                message: 'Failed to download file',
+                message: t('downloadFailed'),
                 duration: 3000
             });
         }
@@ -395,12 +408,12 @@
         
         if (file) {
             if (!file.type.startsWith('image/')) {
-                errorMessage = 'Please select a valid image file';
+                errorMessage = t('invalidImageFile');
                 return;
             }
             
             if (file.size > 5 * 1024 * 1024) {
-                errorMessage = 'Image file must be less than 5MB';
+                errorMessage = t('imageTooLarge');
                 return;
             }
             
@@ -531,11 +544,11 @@
                 }
             }
             
-            successMessage = 'Task completed successfully!';
+            successMessage = t('successMessage');
             
             notifications.add({
                 type: 'success',
-                message: 'Task completed successfully!',
+                message: t('successMessage'),
                 duration: 3000
             });
             
@@ -545,11 +558,11 @@
             
         } catch (error) {
             console.error('Error submitting completion:', error);
-            errorMessage = error.message || 'Failed to complete task';
+            errorMessage = error.message || t('failedMessage');
             
             notifications.add({
                 type: 'error',
-                message: 'Failed to complete task. Please try again.',
+                message: t('failedMessage'),
                 duration: 4000
             });
         } finally {
@@ -559,14 +572,14 @@
 </script>
 
 <svelte:head>
-    <title>Complete Task - Aqura Mobile</title>
+    <title>{t('pageTitle')}</title>
 </svelte:head>
 
 <div class="mobile-task-completion">
     {#if isLoading}
         <div class="loading-state">
             <div class="loading-spinner"></div>
-            <p>Loading task details...</p>
+            <p>{t('loading')}</p>
         </div>
     {:else if !taskDetails}
         <div class="error-state">
@@ -577,8 +590,8 @@
                     <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
             </div>
-            <h2>Task Not Found</h2>
-            <p>This task doesn't exist or you don't have access to it.</p>
+            <h2>{t('taskNotFound')}</h2>
+            <p>{t('taskNotFoundDesc')}</p>
         </div>
     {:else if !assignmentDetails || assignmentDetails.assigned_to_user_id !== currentUserData?.id}
         <div class="error-state">
@@ -587,11 +600,11 @@
                     <path d="M18.364 5.636L12 12m0 0l-6.364 6.364M12 12l6.364 6.364M12 12L5.636 5.636"/>
                 </svg>
             </div>
-            <h2>Access Denied</h2>
-            <p>This task is not assigned to you. Only assigned users can complete tasks.</p>
+            <h2>{t('accessDenied')}</h2>
+            <p>{t('accessDeniedDesc')}</p>
             <div class="error-actions">
                 <button class="back-btn" on:click={() => goto('/mobile-interface/tasks')}>
-                    ← Back to Tasks
+                    {t('backToTasks')}
                 </button>
             </div>
         </div>
@@ -599,12 +612,12 @@
         <!-- Task Details Section -->
         <div class="task-details-section">
             <div class="details-header">
-                <h3>📋 Task Details</h3>
+                <h3>{t('taskDetails')}</h3>
                 <button 
                     class="toggle-btn"
                     on:click={() => showTaskDetails = !showTaskDetails}
                 >
-                    {showTaskDetails ? '▼' : '▶'} {showTaskDetails ? 'Hide' : 'Show'} Details
+                    {showTaskDetails ? '▼' : '▶'} {showTaskDetails ? t('hideDetails') : t('showDetails')}
                 </button>
             </div>
 
@@ -612,46 +625,46 @@
                 <div class="details-content">
                     <div class="detail-grid">
                         <div class="detail-item">
-                            <label>📝 Title:</label>
-                            <span class="value">{taskDetails.title}</span>
+                            <label>{t('titleLabel')}</label>
+                            <span class="value">{getLocalizedContent(taskDetails.title)}</span>
                         </div>
                         
                         <div class="detail-item">
-                            <label>🎯 Priority:</label>
+                            <label>{t('priorityLabel')}</label>
                             <span class="priority-badge {getPriorityColor(taskDetails.priority)}">
-                                {taskDetails.priority?.toUpperCase() || 'MEDIUM'}
+                                {getTranslation(`mobile.assignmentsContent.priorities.${taskDetails.priority?.toLowerCase() || 'medium'}`)}
                             </span>
                         </div>
                         
                         <div class="detail-item">
-                            <label>📅 Created:</label>
+                            <label>{t('createdLabel')}</label>
                             <span class="value">{formatDate(taskDetails.created_at)}</span>
                         </div>
                         
                         <div class="detail-item">
-                            <label>⏰ Deadline:</label>
+                            <label>{t('deadlineLabel')}</label>
                             <span class="value">
                                 {#if assignmentDetails?.deadline_datetime}
-                                    {formatDate(assignmentDetails.deadline_datetime)} at {formatTime(assignmentDetails.deadline_datetime)}
+                                    {formatDate(assignmentDetails.deadline_datetime)} {t('at')} {formatTime(assignmentDetails.deadline_datetime)}
                                 {:else if assignmentDetails?.deadline_date}
                                     {formatDate(assignmentDetails.deadline_date)}
                                     {#if assignmentDetails?.deadline_time}
-                                        at {assignmentDetails.deadline_time}
+                                        {t('at')} {assignmentDetails.deadline_time}
                                     {/if}
                                 {:else}
-                                    No deadline set
+                                    {t('noDeadlineSet')}
                                 {/if}
                             </span>
                         </div>
 
                         {#if assignmentDetails?.deadline_datetime || assignmentDetails?.deadline_date}
                             <div class="detail-item">
-                                <label>⚠️ Status:</label>
+                                <label>{t('statusLabel')}</label>
                                 <span class="value {isOverdue(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date) ? 'overdue' : 'on-time'}">
                                     {#if isOverdue(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
-                                        Overdue by {getOverdueTime(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
+                                        {t('overdueBy')} {getOverdueTime(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
                                     {:else}
-                                        {liveCountdown} remaining
+                                        {liveCountdown} {t('remaining')}
                                     {/if}
                                 </span>
                             </div>
@@ -659,12 +672,12 @@
 
                         {#if assignmentDetails}
                             <div class="detail-item">
-                                <label>📌 Assigned to:</label>
+                                <label>{t('assignedToLabel')}</label>
                                 <span class="value">{assignedToUserName}</span>
                             </div>
                             
                             <div class="detail-item">
-                                <label>👤 Assigned by:</label>
+                                <label>{t('assignedByLabel')}</label>
                                 <span class="value">{assignedByUserName}</span>
                             </div>
                         {/if}
@@ -672,21 +685,21 @@
 
                     {#if taskDetails.description}
                         <div class="description-block">
-                            <label>📄 Description:</label>
-                            <div class="description-text">{taskDetails.description}</div>
+                            <label>{t('descriptionLabel')}</label>
+                            <div class="description-text">{getLocalizedContent(taskDetails.description, 'description')}</div>
                         </div>
                     {/if}
 
                     {#if assignmentDetails?.notes}
                         <div class="description-block">
-                            <label>📝 Assignment Notes:</label>
-                            <div class="description-text">{assignmentDetails.notes}</div>
+                            <label>{t('assignmentNotesLabel')}</label>
+                            <div class="description-text">{getLocalizedContent(assignmentDetails.notes, 'description')}</div>
                         </div>
                     {/if}
 
                     {#if taskImages.length > 0}
                         <div class="images-section">
-                            <label>🖼️ Task Images:</label>
+                            <label>{t('taskImagesLabel')}</label>
                             <div class="images-grid">
                                 {#each taskImages as image}
                                     <div class="image-item" on:click={() => openImageModal(image.image_url)} role="button" tabindex="0">
@@ -699,7 +712,7 @@
 
                     {#if taskAttachments.length > 0}
                         <div class="attachments-section">
-                            <label>📎 Task Files:</label>
+                            <label>{t('taskFilesLabel')}</label>
                             <div class="attachments-list">
                                 {#each taskAttachments as attachment}
                                     <div class="attachment-item">
@@ -734,7 +747,7 @@
         <!-- Progress Bar -->
         <div class="progress-section">
             <div class="progress-label">
-                Completion Progress: {completionProgress}%
+                {t('completionProgress')}: {completionProgress}%
             </div>
             <div class="progress-bar">
                 <div class="progress-fill" style="width: {completionProgress}%"></div>
@@ -758,12 +771,12 @@
 
         <!-- Completion Requirements -->
         <div class="requirements-section">
-            <h4>Completion Requirements:</h4>
+            <h4>{t('completionRequirements')}</h4>
             
             {#if resolvedRequireTaskFinished}
                 <div class="requirement-item">
                     <div class="requirement-header">
-                        <span class="requirement-label required">Task Finished (Required)</span>
+                        <span class="requirement-label required">{t('taskFinishedRequired')}</span>
                         <input
                             type="checkbox"
                             bind:checked={completionData.task_finished_completed}
@@ -777,7 +790,7 @@
             {#if resolvedRequirePhotoUpload}
                 <div class="requirement-item">
                     <div class="requirement-header">
-                        <span class="requirement-label required">📷 Upload Photo (Required)</span>
+                        <span class="requirement-label required">{t('uploadPhotoRequired')}</span>
                     </div>
                     
                     {#if !photoPreview}
@@ -795,7 +808,7 @@
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                                 </svg>
-                                Choose Photo
+                                {t('choosePhoto')}
                             </label>
                         </div>
                     {:else}
@@ -814,14 +827,14 @@
             {#if resolvedRequireErpReference}
                 <div class="requirement-item">
                     <div class="requirement-header">
-                        <span class="requirement-label required">🔢 ERP Reference (Required)</span>
+                        <span class="requirement-label required">{t('erpReferenceRequired')}</span>
                     </div>
                     
                     <div class="input-section">
                         <input
                             type="text"
                             bind:value={completionData.erp_reference_number}
-                            placeholder="Enter ERP reference number"
+                            placeholder={t('erpReferencePlaceholder')}
                             disabled={isSubmitting}
                             class="erp-input"
                             required
@@ -832,13 +845,13 @@
             
             <div class="requirement-item">
                 <div class="requirement-header">
-                    <span class="requirement-label">📝 Additional Notes (Optional)</span>
+                    <span class="requirement-label">{t('additionalNotesOptional')}</span>
                 </div>
                 
                 <div class="input-section">
                     <textarea
                         bind:value={completionData.completion_notes}
-                        placeholder="Add any additional notes about the task completion..."
+                        placeholder={t('notesPlaceholder')}
                         disabled={isSubmitting}
                         class="notes-textarea"
                     ></textarea>
@@ -849,7 +862,7 @@
         <!-- Actions -->
         <div class="actions">
             <button class="cancel-btn" on:click={() => goto('/mobile-interface/tasks')} disabled={isSubmitting}>
-                Cancel
+                {t('cancel')}
             </button>
             <button 
                 class="complete-btn" 
@@ -859,9 +872,9 @@
             >
                 {#if isSubmitting}
                     <div class="btn-spinner"></div>
-                    Completing...
+                    {t('completing')}
                 {:else}
-                    Complete Task
+                    {t('completeTask')}
                 {/if}
             </button>
         </div>

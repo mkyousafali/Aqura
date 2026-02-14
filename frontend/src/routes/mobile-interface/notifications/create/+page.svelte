@@ -123,27 +123,36 @@
 	async function loadUsers() {
 		try {
 			isLoadingUsers = true;
+			const isArabic = $currentLocale === 'ar';
 			
-			// Get users with employee information, position, and branch details
+			// Step 1: Load employee master data with position info
+			const { data: empMasterData } = await supabase
+				.from('hr_employee_master')
+				.select('id, user_id, name_en, name_ar, current_position_id, hr_positions(position_title_en, position_title_ar)');
+			
+			// Build a map: user_id -> employee master record
+			const empMap = new Map<string, { name_en: string; name_ar: string; position_en: string; position_ar: string }>();
+			if (empMasterData) {
+				for (const emp of empMasterData) {
+					if (emp.user_id) {
+						const pos = emp.hr_positions as any;
+						empMap.set(emp.user_id, {
+							name_en: emp.name_en || '',
+							name_ar: emp.name_ar || '',
+							position_en: pos?.position_title_en || '',
+							position_ar: pos?.position_title_ar || ''
+						});
+					}
+				}
+			}
+			
+			// Step 2: Load users with branch info
 			const { data: users, error } = await supabase
 				.from('users')
 				.select(`
 					id,
 					username,
-					employee_id,
 					branch_id,
-					hr_employees!users_employee_id_fkey(
-						id,
-						name,
-						employee_id,
-						branch_id,
-						hr_position_assignments(
-							id,
-							position_id,
-							is_current,
-							hr_positions(position_title_en, position_title_ar)
-						)
-					),
 					branches(
 						id,
 						name_en
@@ -156,31 +165,28 @@
 				throw error;
 			}
 
-			// Transform users data with proper relationships
+			// Step 3: Merge user + employee master data
 			allUsers = users?.map(user => {
-				const employee = user.hr_employees;
+				const emp = empMap.get(user.id);
 				const branch = user.branches;
 				
-				// Get current position assignment
-				const currentPosition = employee?.hr_position_assignments?.find(
-					assignment => assignment.is_current === true
-				);
-				
-				// Use Arabic position title if current locale is Arabic, otherwise use English
-				const isArabic = $currentLocale === 'ar';
-				const positionTitle = currentPosition?.hr_positions 
-					? (isArabic ? currentPosition.hr_positions.position_title_ar : currentPosition.hr_positions.position_title_en)
+				// Use locale-aware employee name and position
+				const employeeName = emp 
+					? (isArabic ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar))
+					: null;
+				const positionName = emp
+					? (isArabic ? (emp.position_ar || emp.position_en) : (emp.position_en || emp.position_ar))
 					: null;
 				
 				return {
 					id: user.id,
 					username: user.username,
-					employee_name: employee?.name || null,
-					employee_id: employee?.employee_id || null,
-					position_name: positionTitle || null,
-					role_type: 'Employee', // Default role type since column doesn't exist
+					employee_name: employeeName || null,
+					employee_id: null,
+					position_name: positionName || null,
+					role_type: 'Employee',
 					branch_id: user.branch_id?.toString() || null,
-					branch_name: branch?.name_en || 'Unknown Branch'
+					branch_name: branch?.name_en || ''
 				};
 			}) || [];
 
@@ -199,7 +205,7 @@
 					position_name: null,
 					role_type: 'Employee',
 					branch_id: null,
-					branch_name: 'Unknown Branch'
+					branch_name: ''
 				}));
 				updateFilteredUsers();
 			} catch (fallbackError) {
@@ -468,13 +474,13 @@
 						<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
 						<circle cx="12" cy="13" r="4"/>
 					</svg>
-					<span>{getTranslation('mobile.createNotificationContent.publish') === 'Publish' ? 'Camera' : 'كاميرا'}</span>
+					<span>{getTranslation('mobile.createNotificationContent.camera')}</span>
 				</button>
 				<button type="button" class="attach-btn" on:click={() => fileInput?.click()}>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
 					</svg>
-					<span>{getTranslation('mobile.createNotificationContent.publish') === 'Publish' ? 'File' : 'ملف'}</span>
+					<span>{getTranslation('mobile.createNotificationContent.file')}</span>
 				</button>
 			</div>
 
@@ -567,9 +573,9 @@
 								/>
 								<div class="user-info">
 									<div class="user-name">{user.employee_name || user.username}</div>
-									<div class="user-details">
-										{user.username} • {user.position_name || user.role_type}
-									</div>
+									{#if user.position_name}
+										<div class="user-details">{user.position_name}</div>
+									{/if}
 								</div>
 							</label>
 						{/each}
@@ -586,7 +592,7 @@
 					<span class="selected-count-text">{notificationData.target_users.length} {getTranslation('mobile.createNotificationContent.userSelected')}</span>
 				{/if}
 				<button type="button" class="popup-done-btn" on:click={() => showUserPopup = false}>
-					✓ {getTranslation('mobile.createNotificationContent.publish') === 'Publish' ? 'Done' : 'تم'}
+					✓ {getTranslation('mobile.createNotificationContent.done')}
 				</button>
 			</div>
 		</div>
@@ -595,7 +601,8 @@
 
 <style>
 	.mobile-create-notification {
-		min-height: 100%;
+		min-height: 100vh;
+		min-height: 100dvh;
 		background: #F8FAFC;
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -609,7 +616,7 @@
 		gap: 0.4rem;
 		padding: 0.5rem;
 		margin: 0.4rem;
-		border-radius: 5px;
+		border-radius: 8px;
 		font-size: 0.76rem;
 	}
 
@@ -629,14 +636,16 @@
 		padding: 0.4rem;
 		max-width: 600px;
 		margin: 0 auto;
+		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
 	}
 
 	.form-section {
 		background: white;
-		border-radius: 6px;
+		border-radius: 8px;
 		padding: 0.5rem;
 		margin-bottom: 0.5rem;
 		border: 1px solid #E5E7EB;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 	}
 
 	.section-title {
@@ -668,7 +677,7 @@
 		width: 100%;
 		padding: 0.4rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 5px;
+		border-radius: 6px;
 		font-size: 0.78rem;
 		transition: border-color 0.2s;
 	}
@@ -676,7 +685,7 @@
 	.form-input:focus, .form-textarea:focus, .form-select:focus, .search-input:focus {
 		outline: none;
 		border-color: #3B82F6;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	/* Audience trigger button */
@@ -687,7 +696,7 @@
 		gap: 0.5rem;
 		padding: 0.5rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 5px;
+		border-radius: 6px;
 		background: white;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -869,9 +878,9 @@
 		background: linear-gradient(135deg, #3B82F6, #2563EB);
 		color: white;
 		border: none;
-		border-radius: 5px;
+		border-radius: 6px;
 		font-size: 0.76rem;
-		font-weight: 500;
+		font-weight: 600;
 		cursor: pointer;
 		min-height: 34px;
 	}
@@ -902,7 +911,7 @@
 		gap: 0.3rem;
 		padding: 0.35rem 0.6rem;
 		border: 1px solid #D1D5DB;
-		border-radius: 5px;
+		border-radius: 6px;
 		background: white;
 		color: #374151;
 		font-size: 0.72rem;
@@ -984,9 +993,9 @@
 	.reset-btn, .submit-btn {
 		flex: 1;
 		padding: 0.5rem 0.75rem;
-		border-radius: 5px;
+		border-radius: 6px;
 		font-size: 0.78rem;
-		font-weight: 500;
+		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
 		min-height: 36px;

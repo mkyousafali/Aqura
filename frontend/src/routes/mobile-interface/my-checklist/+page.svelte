@@ -4,6 +4,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import { localeData } from '$lib/i18n';
+	import { notifications } from '$lib/stores/notifications';
 	import { 
 		getSaudiArabiaTime, 
 		getSaudiDayOfWeek,
@@ -92,7 +93,7 @@
 				const selectedAnswer = selectedAnswers[assignment.id]?.[question.id];
 				
 				if (!selectedAnswer) {
-					alert('Please answer all questions before submitting');
+					notifications.add({ type: 'error', message: 'Please answer all questions before submitting' });
 					submittingId = '';
 					return;
 				}
@@ -150,11 +151,11 @@
 			remarksValues[assignment.id] = {};
 			otherValues[assignment.id] = {};
 			
-			alert('✓ Checklist submitted successfully!');
+			notifications.add({ type: 'success', message: 'Checklist submitted successfully!' });
 			submittingId = '';
 		} catch (err: any) {
 			console.error('Error submitting checklist:', err);
-			alert('Error submitting checklist: ' + err.message);
+			notifications.add({ type: 'error', message: 'Error submitting checklist: ' + err.message });
 			submittingId = '';
 		}
 	}

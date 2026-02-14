@@ -6,6 +6,7 @@
 	import { get } from 'svelte/store';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
+	import { notifications } from '$lib/stores/notifications';
 
 	let loading = true;
 	let incident: any = null;
@@ -155,7 +156,8 @@
 			month: 'short',
 			day: 'numeric',
 			hour: '2-digit',
-			minute: '2-digit'
+			minute: '2-digit',
+			timeZone: 'Asia/Riyadh'
 		});
 	}
 
@@ -198,10 +200,10 @@
 			if (error) throw error;
 
 			await loadIncident();
-			alert($currentLocale === 'ar' ? '✅ تم مطالبة الحادثة بنجاح' : '✅ Incident claimed successfully');
+			notifications.add({ type: 'success', message: $currentLocale === 'ar' ? 'تم مطالبة الحادثة بنجاح' : 'Incident claimed successfully' });
 		} catch (err) {
 			console.error('Error claiming incident:', err);
-			alert($currentLocale === 'ar' ? '❌ خطأ في مطالبة الحادثة' : '❌ Error claiming incident');
+			notifications.add({ type: 'error', message: $currentLocale === 'ar' ? 'خطأ في مطالبة الحادثة' : 'Error claiming incident' });
 		} finally {
 			claimingIncident = false;
 		}

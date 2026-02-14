@@ -68,7 +68,8 @@ const date = new Date(dateString);
 	const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
 	return date.toLocaleDateString(locale, { 
 hour: '2-digit',
-minute: '2-digit'
+minute: '2-digit',
+timeZone: 'Asia/Riyadh'
 });
 }
 
