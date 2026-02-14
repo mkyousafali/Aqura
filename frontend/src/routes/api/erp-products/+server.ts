@@ -105,18 +105,35 @@ async function proxySync(baseUrl: string, erpBranchId?: number, appBranchId?: nu
 
 async function proxyUpdateExpiry(baseUrl: string, barcode: string, newExpiryDate: string) {
 	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 30000);
+
 		const resp = await fetch(`${baseUrl}/update-expiry`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
 				'x-api-secret': BRIDGE_API_SECRET
 			},
-			body: JSON.stringify({ barcode, newExpiryDate })
+			body: JSON.stringify({ barcode, newExpiryDate }),
+			signal: controller.signal
 		});
+		clearTimeout(timeout);
+
+		// Check if response is HTML (Cloudflare error page)
+		const contentType = resp.headers.get('content-type') || '';
+		if (!contentType.includes('application/json')) {
+			const text = await resp.text();
+			console.error('Bridge update-expiry returned non-JSON:', text.substring(0, 200));
+			return json({ success: false, error: 'Bridge returned an error page. Please try again.' }, { status: 502 });
+		}
+
 		const data = await resp.json();
 		return json(data, { status: resp.ok ? 200 : 500 });
 	} catch (error: any) {
 		console.error('Bridge update-expiry error:', error);
+		if (error.name === 'AbortError') {
+			return json({ success: false, error: 'Bridge timed out. The server may be busy — please try again.' }, { status: 504 });
+		}
 		return json({ success: false, error: `Bridge unreachable: ${error.message}` }, { status: 500 });
 	}
 }
