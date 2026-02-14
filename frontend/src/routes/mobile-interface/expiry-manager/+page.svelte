@@ -9,10 +9,7 @@
 		id: string;
 		branch_id: number;
 		branch_name: string;
-		server_ip: string;
-		database_name: string;
-		username: string;
-		password: string;
+		tunnel_url: string;
 		erp_branch_id: number;
 	}
 
@@ -126,7 +123,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('erp_connections')
-				.select('id, branch_id, branch_name, server_ip, database_name, username, password, erp_branch_id')
+				.select('id, branch_id, branch_name, tunnel_url, erp_branch_id')
 				.eq('is_active', true)
 				.order('branch_name');
 			if (error) throw error;
@@ -158,10 +155,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'test',
-					serverIp: selectedConfig.server_ip,
-					databaseName: selectedConfig.database_name,
-					username: selectedConfig.username,
-					password: selectedConfig.password
+					tunnelUrl: selectedConfig.tunnel_url
 				})
 			});
 			const result = await response.json();
@@ -309,16 +303,13 @@
 		saveSuccess = false;
 
 		try {
-			// 1. Update SQL Server (ERP)
+			// 1. Update SQL Server (ERP) via bridge
 			const response = await fetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'update-expiry',
-					serverIp: selectedConfig.server_ip,
-					databaseName: selectedConfig.database_name,
-					username: selectedConfig.username,
-					password: selectedConfig.password,
+					tunnelUrl: selectedConfig.tunnel_url,
 					barcode: product.barcode,
 					newExpiryDate
 				})

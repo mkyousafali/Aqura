@@ -19,10 +19,7 @@
 	}
 
 	interface ServerSettings {
-		serverIp: string;
-		databaseName: string;
-		username: string;
-		password: string;
+		tunnelUrl: string;
 	}
 
 	// State
@@ -51,10 +48,7 @@
 
 	// Server settings  
 	let settings: ServerSettings = {
-		serverIp: '',
-		databaseName: '',
-		username: '',
-		password: ''
+		tunnelUrl: ''
 	};
 
 	// Saved settings from erp_connections
@@ -126,10 +120,7 @@
 
 	function selectConfig(config: any) {
 		selectedConfigId = config.id;
-		settings.serverIp = config.server_ip || '';
-		settings.databaseName = config.database_name || '';
-		settings.username = config.username || '';
-		settings.password = config.password || '';
+		settings.tunnelUrl = config.tunnel_url || '';
 		connectionStatus = null;
 	}
 
@@ -137,8 +128,8 @@
 	$: selectedConfig = savedConfigs.find(c => c.id === selectedConfigId) || null;
 
 	async function testConnection() {
-		if (!settings.serverIp || !settings.databaseName || !settings.username || !settings.password) {
-			connectionStatus = { success: false, message: 'Please fill in all server settings' };
+		if (!settings.tunnelUrl) {
+			connectionStatus = { success: false, message: 'No tunnel URL configured for this branch' };
 			return;
 		}
 
@@ -151,7 +142,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'test',
-					...settings
+					tunnelUrl: settings.tunnelUrl
 				})
 			});
 
@@ -165,8 +156,8 @@
 	}
 
 	async function syncProducts() {
-		if (!settings.serverIp || !settings.databaseName || !settings.username || !settings.password) {
-			syncStatus = { success: false, message: 'Please configure server settings first' };
+		if (!settings.tunnelUrl) {
+			syncStatus = { success: false, message: 'No tunnel URL configured for this branch' };
 			return;
 		}
 
@@ -180,7 +171,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'sync',
-					...settings,
+					tunnelUrl: settings.tunnelUrl,
 					erpBranchId: selectedConfig?.erp_branch_id || null,
 					appBranchId: selectedConfig?.branch_id || null
 				})
@@ -312,10 +303,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'test',
-					serverIp: config.server_ip,
-					databaseName: config.database_name,
-					username: config.username,
-					password: config.password
+					tunnelUrl: config.tunnel_url
 				})
 			});
 			const result = await response.json();
@@ -358,16 +346,13 @@
 		savingExpiry = true;
 
 		try {
-			// 1. Update SQL Server (ERP)
+			// 1. Update SQL Server (ERP) via bridge
 			const response = await fetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					action: 'update-expiry',
-					serverIp: config.server_ip,
-					databaseName: config.database_name,
-					username: config.username,
-					password: config.password,
+					tunnelUrl: config.tunnel_url,
 					barcode: product.barcode,
 					newExpiryDate
 				})
@@ -487,12 +472,10 @@
 					<div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
 						{#each savedConfigs as config}
 							<button
-								class="flex flex-col gap-1 p-3 border-2 rounded-xl cursor-pointer transition-all text-start {selectedConfigId === config.id ? 'border-blue-600 bg-blue-50' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}"
+								class="flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all text-center {selectedConfigId === config.id ? 'border-blue-600 bg-blue-50' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}"
 								on:click={() => selectConfig(config)}
 							>
 								<span class="font-bold text-blue-600 text-sm">{config.branch_name}</span>
-								<span class="text-xs text-slate-500 font-mono">{config.server_ip}</span>
-								<span class="text-[11px] text-slate-400">{config.database_name}</span>
 							</button>
 						{/each}
 					</div>
@@ -504,49 +487,16 @@
 				<h3 class="text-base font-bold text-slate-800 mb-4">
 					⚙️ {isRtl ? 'إعدادات الخادم' : 'Server Settings'}
 				</h3>
-				<div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+				<div class="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
 					<div class="flex flex-col gap-1.5">
 						<label class="text-xs font-bold text-slate-500">
-							🖥️ {isRtl ? 'عنوان IP للخادم' : 'Server IP'}
+							🌐 {isRtl ? 'رابط النفق' : 'Tunnel URL'}
 						</label>
 						<input
 							type="text"
 							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
-							bind:value={settings.serverIp}
-							placeholder="192.168.0.3"
-						/>
-					</div>
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-bold text-slate-500">
-							🗄️ {isRtl ? 'اسم قاعدة البيانات' : 'Database Name'}
-						</label>
-						<input
-							type="text"
-							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
-							bind:value={settings.databaseName}
-							placeholder="URBAN2_2025"
-						/>
-					</div>
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-bold text-slate-500">
-							👤 {isRtl ? 'اسم المستخدم' : 'Username'}
-						</label>
-						<input
-							type="text"
-							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
-							bind:value={settings.username}
-							placeholder="sa"
-						/>
-					</div>
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-bold text-slate-500">
-							🔒 {isRtl ? 'كلمة المرور' : 'Password'}
-						</label>
-						<input
-							type="password"
-							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
-							bind:value={settings.password}
-							placeholder="••••••••"
+							bind:value={settings.tunnelUrl}
+							placeholder="https://erp-branch3.urbanaqura.com"
 						/>
 					</div>
 				</div>
@@ -587,50 +537,6 @@
 							{connectionStatus.success ? '✅' : '❌'} {connectionStatus.message}
 						</span>
 					</div>
-					{#if connectionStatus.counts}
-						<div class="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 mt-3">
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.totalProducts?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'منتجات' : 'Products'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.totalBatches?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'دفعات' : 'Batches'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.manualBarcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود يدوي' : 'Manual Barcodes'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.autoBarcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود تلقائي' : 'Auto Barcodes'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.unit2Barcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود وحدة 2' : 'Unit2 Barcodes'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.unit3Barcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود وحدة 3' : 'Unit3 Barcodes'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.unitBarcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود وحدات' : 'Unit Barcodes'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.extraBarcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود إضافي' : 'Extra Barcodes'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-white border border-slate-200 rounded-xl">
-								<span class="text-xl font-bold text-blue-600">{connectionStatus.counts.totalAll?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'إجمالي صفوف الجداول' : 'Total Table Rows'}</span>
-							</div>
-							<div class="flex flex-col items-center p-3 bg-emerald-50 border border-emerald-300 rounded-xl">
-								<span class="text-2xl font-bold text-emerald-600">{connectionStatus.counts.uniqueBarcodes?.toLocaleString()}</span>
-								<span class="text-[11px] text-slate-500 mt-1 text-center">{isRtl ? 'باركود فريد (سيتم مزامنته)' : 'Unique Barcodes (will sync)'}</span>
-							</div>
-						</div>
-					{/if}
 				{/if}
 
 				<!-- Sync Status -->
