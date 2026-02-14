@@ -5,15 +5,32 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ45.19.12.12</p>
-		<p class="version-details">Desktop: 45 | Mobile: 19 | Cashier: 12 | Customer: 12</p>
+		<p class="version-title">Version AQ46.19.12.13</p>
+		<p class="version-details">Desktop: 46 | Mobile: 19 | Cashier: 12 | Customer: 13</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ ERP Auto-Sync Edge Function, Setup Wizard Enhancements & Security Fix</h3>
+		<p class="change-description">Automated ERP product synchronization via Supabase Edge Function with pg_cron scheduling, enhanced setup wizard with edit/reinstall capability, ERP Product Manager UI cleanup, and hardcoded API key removal.</p>
+		<div class="change-details">
+			<h4>February 14, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>ERP Auto-Sync Edge Function:</b> New <code>auto-sync-erp</code> Supabase Edge Function that automatically syncs ERP products from branch servers to Supabase. Syncs one branch per invocation using round-robin selection (picks branch with oldest last sync). Handles 74K+ products per branch in ~46 seconds with batch upserts of 200.</li>
+				<li>✅ <b>pg_cron Scheduling:</b> Three cron jobs running every 20 minutes (:00, :20, :40) — each branch synced approximately once per hour. Self-healing: failed branches (offline servers) are gracefully skipped and retried on next cycle.</li>
+				<li>✅ <b>Sync Logging:</b> New <code>erp_sync_logs</code> table tracks every sync invocation with branch details, product counts (fetched/inserted/updated), duration, and trigger source (pg_cron vs manual).</li>
+				<li>✅ <b>Setup Wizard — Edit & Reinstall:</b> Existing branch configurations can now be edited without starting from scratch. Wizard detects <code>config.json</code> on startup and pre-fills all fields (database name, server IP, SQL password, tunnel token). Uninstalls old services before reinstalling with new config.</li>
+				<li>✅ <b>ERP Product Manager UI Cleanup:</b> Removed 10 statistics cards grid (Products, Batches, Barcodes, etc.) from the ERP Product Manager dashboard. Simplified saved connection cards to show only branch name.</li>
+				<li>✅ <b>Security Fix:</b> Removed hardcoded Google API key and Search Engine ID from customer product request page. Now reads from <code>VITE_GOOGLE_API_KEY</code> and <code>VITE_GOOGLE_SEARCH_ENGINE_ID</code> environment variables.</li>
+				<li>✅ <b>Database Migrations:</b> 4 SQL migrations — erp_synced_products table, expiry_dates column addition, tunnel_url column for erp_connections, and erp_sync_logs table with RLS.</li>
+			</ul>
+		</div>
+		</div>
+
+		<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ Customer Product Requests, Near Expiry Reports & Notification Auto-Cleanup</h3>
 		<p class="change-description">New customer product request and near expiry reporting systems with mobile submission pages, desktop management dashboards, OCR scanning, and automatic notification lifecycle management.</p>
 		<div class="change-details">
-			<h4>February 13, 2026 (Latest):</h4>
+			<h4>February 13, 2026:</h4>
 			<ul>
 				<li>✅ <b>Mobile — Customer Product Request:</b> New mobile page for staff to submit customer product requests. Includes product name input, camera photo capture, file upload, Google Image Search integration, purchasing manager auto-selection from branch_default_positions, and item list with send functionality.</li>
 				<li>✅ <b>Mobile — Near Expiry Reports:</b> New mobile page for reporting near-expiry products. Features barcode scanner (BarcodeDetector API), OCR date scanning via Google Cloud Vision API, step-by-step date picker (Year → Month → Day), photo capture, report title with auto-generation, branch selection with inventory manager lookup, and Save & Send workflow.</li>
