@@ -2425,59 +2425,37 @@
 			}
 
 			for (const [offerType, products] of Object.entries(groupedByType)) {
-				const wb = new ExcelJS.Workbook();
-				const ws = wb.addWorksheet(offerType.substring(0, 31)); // Excel sheet name max 31 chars
-
 				const sampleQty = products[0]?.offer_qty || 1;
 
+				// Build CSV content: Barcode, Price
+				let csvLines = ['Barcode,Price'];
+
 				if (sampleQty === 1) {
-					// 2 columns: Barcode, Price
-					ws.addRow(['Barcode', 'Price']);
 					for (const p of products) {
 						const totalOfferPrice = p.total_offer_price || ((p.offer_price || 0) * (p.offer_qty || 1));
-						ws.addRow([p.barcode, totalOfferPrice]);
+						csvLines.push(`${p.barcode},${totalOfferPrice}`);
 					}
 				} else {
-					// 2 columns: Barcode, Price (divided value)
-					ws.addRow(['Barcode', 'Price']);
 					for (const p of products) {
 						const totalOfferPrice = p.total_offer_price || ((p.offer_price || 0) * (p.offer_qty || 1));
 						const qty = p.offer_qty || 1;
-						// Round to 6 decimals first to fix floating point (e.g. 19.95/3 = 6.649999... → 6.65)
 						const divided = qty > 0 ? Math.round((totalOfferPrice / qty) * 1000000) / 1000000 : 0;
-						// Check if result fits exactly in 2 decimals
 						const rounded2 = Math.round(divided * 100) / 100;
 						let entryAmount;
 						if (Math.abs(divided - rounded2) < 0.00001) {
-							entryAmount = rounded2;
+							entryAmount = rounded2.toFixed(2);
 						} else {
-							// Truncate to 3 decimals, then remove last digit = 2 decimals truncated
 							const raw3 = Math.floor(divided * 1000) / 1000;
-							entryAmount = Math.floor(raw3 * 100) / 100;
+							entryAmount = (Math.floor(raw3 * 100) / 100).toFixed(2);
 						}
-						const row = ws.addRow([p.barcode, entryAmount]);
-						row.getCell(2).numFmt = '0.00';
+						csvLines.push(`${p.barcode},${entryAmount}`);
 					}
 				}
 
-				// Style header
-				ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-				ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
-
-				// Auto-fit columns
-				ws.columns.forEach(column => {
-					let maxLen = 0;
-					column.eachCell({ includeEmpty: true }, cell => {
-						const len = cell.value ? cell.value.toString().length : 0;
-						if (len > maxLen) maxLen = len;
-					});
-					column.width = Math.min(Math.max(maxLen + 2, 12), 40);
-				});
-
-				const buf = await wb.xlsx.writeBuffer();
-				// Generate short filename: e.g. 3pcNL161826, sngNL161826, sng1pcLM161826, FOC2p1_161826
+				const csvContent = csvLines.join('\n');
 				const shortName = getShortOfferTypeFileName(offerType, selectedOffer2);
-				folder?.file(`${shortName}.xlsx`, buf);
+				// Each offer type gets its own subfolder with the short name, file is "offers.csv"
+				folder?.file(`${shortName}/offers.csv`, csvContent);
 			}
 
 			// Generate and download zip
