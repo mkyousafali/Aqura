@@ -18,6 +18,15 @@
 	let singleVoucherMode = 'new'; // 'new' or 'existing'
 	let selectedExistingBook = '';
 	let subscription;
+	let bookSearchQuery = '';
+	let showBookDropdown = false;
+
+	$: filteredBooks = existingBooks.filter(book => {
+		if (!bookSearchQuery) return true;
+		const q = bookSearchQuery.toLowerCase();
+		return book.id.toLowerCase().includes(q) || 
+			(book.book_number && book.book_number.toString().toLowerCase().includes(q));
+	});
 
 	onMount(() => {
 		setupRealtimeSubscriptions();
@@ -82,14 +91,34 @@
 			const { data, error } = await supabase
 				.from('purchase_vouchers')
 				.select('id, book_number')
-				.order('created_at', { ascending: false })
-				.limit(100);
+				.order('created_at', { ascending: false });
 			if (!error) {
 				existingBooks = data || [];
 			}
 		} catch (error) {
 			console.error('Error loading existing books:', error);
 		}
+	}
+
+	function selectBook(book) {
+		selectedExistingBook = book.id;
+		bookSearchQuery = `${book.id} - Book ${book.book_number}`;
+		showBookDropdown = false;
+	}
+
+	function handleBookSearchFocus() {
+		showBookDropdown = true;
+	}
+
+	function handleBookSearchBlur() {
+		// Delay to allow click on dropdown item
+		setTimeout(() => { showBookDropdown = false; }, 200);
+	}
+
+	function clearBookSelection() {
+		selectedExistingBook = '';
+		bookSearchQuery = '';
+		showBookDropdown = true;
 	}
 
 	async function handleSaveBook() {
@@ -308,6 +337,7 @@
 			serialNumber = '';
 			singleVoucherValue = '';
 			selectedExistingBook = '';
+			bookSearchQuery = '';
 			singleVoucherMode = 'new';
 			showAddSingleVoucherForm = false;
 		} catch (error) {
@@ -447,14 +477,41 @@
 					/>
 				</div>
 			{:else}
-				<div class="form-group">
+				<div class="form-group searchable-dropdown">
 					<label for="existingBook">Select Book</label>
-					<select id="existingBook" bind:value={selectedExistingBook} class="form-input">
-						<option value="">-- Select Existing Book --</option>
-						{#each existingBooks as book (book.id)}
-							<option value={book.id}>{book.id} - Book {book.book_number}</option>
-						{/each}
-					</select>
+					<div class="search-input-wrapper">
+						<input
+							id="existingBook"
+							type="text"
+							placeholder="Search voucher books..."
+							bind:value={bookSearchQuery}
+							on:focus={handleBookSearchFocus}
+							on:blur={handleBookSearchBlur}
+							class="form-input"
+							autocomplete="off"
+						/>
+						{#if selectedExistingBook}
+							<button class="clear-btn" on:click={clearBookSelection} type="button">&times;</button>
+						{/if}
+					</div>
+					{#if showBookDropdown}
+						<div class="dropdown-list">
+							{#if filteredBooks.length === 0}
+								<div class="dropdown-empty">No books found</div>
+							{:else}
+								{#each filteredBooks as book (book.id)}
+									<button
+										class="dropdown-item" 
+										class:selected={selectedExistingBook === book.id}
+										on:mousedown|preventDefault={() => selectBook(book)}
+										type="button"
+									>
+										{book.id} - Book {book.book_number}
+									</button>
+								{/each}
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -622,5 +679,80 @@
 	.cancel-button:hover {
 		background: #4b5563;
 		box-shadow: 0 4px 12px rgba(107, 114, 128, 0.4);
+	}
+
+	.searchable-dropdown {
+		position: relative;
+	}
+
+	.search-input-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+	}
+
+	.search-input-wrapper .form-input {
+		padding-right: 32px;
+	}
+
+	.clear-btn {
+		position: absolute;
+		right: 8px;
+		background: none;
+		border: none;
+		font-size: 1.2rem;
+		color: #94a3b8;
+		cursor: pointer;
+		padding: 2px 6px;
+		line-height: 1;
+	}
+
+	.clear-btn:hover {
+		color: #ef4444;
+	}
+
+	.dropdown-list {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		max-height: 240px;
+		overflow-y: auto;
+		background: white;
+		border: 1px solid #cbd5e1;
+		border-top: none;
+		border-radius: 0 0 6px 6px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		z-index: 50;
+	}
+
+	.dropdown-item {
+		width: 100%;
+		padding: 10px 12px;
+		text-align: left;
+		background: none;
+		border: none;
+		border-bottom: 1px solid #f1f5f9;
+		cursor: pointer;
+		font-size: 0.9rem;
+		color: #334155;
+		transition: background 0.15s;
+	}
+
+	.dropdown-item:hover {
+		background: #f0f9ff;
+	}
+
+	.dropdown-item.selected {
+		background: #eff6ff;
+		color: #2563eb;
+		font-weight: 600;
+	}
+
+	.dropdown-empty {
+		padding: 12px;
+		text-align: center;
+		color: #94a3b8;
+		font-size: 0.9rem;
 	}
 </style>
