@@ -1,36 +1,44 @@
-const sql = require('mssql');
+const http = require('http');
 
-const config = {
-  server: '192.168.0.3',
-  database: 'URBAN2_2025',
-  user: 'sa',
-  password: 'Polosys*123',
-  options: {
-    encrypt: false,
-    trustServerCertificate: true
-  }
-};
+function queryBridge(path, body = {}) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const options = {
+      hostname: '192.168.0.3',
+      port: 3333,
+      path: path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-secret': 'aqura-erp-bridge-2026',
+        'Content-Length': data.length
+      }
+    };
+    const req = http.request(options, (res) => {
+      let result = '';
+      res.on('data', chunk => result += chunk);
+      res.on('end', () => resolve(JSON.parse(result)));
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
 
 async function main() {
   try {
-    const pool = await sql.connect(config);
+    // Use the /test endpoint to verify connection
+    const test = await queryBridge('/test');
+    console.log('Database connection:', test.message);
+    console.log('Total Products:', test.counts.totalProducts);
+    console.log('Total Batches:', test.counts.totalBatches);
+    console.log('Unique Barcodes:', test.counts.uniqueBarcodes);
     
-    const barcode = '5285000398608';
-
-    // Get expiry from ProductBatches using ProductBatchID from ProductUnits
-    const result = await pool.request().query(`
-      SELECT pb.ProductBatchID, pb.ProductID, pb.MannualBarcode, pb.AutoBarcode,
-             pb.ExpiryDate, pb.MfgDate, pb.BatchNo, pb.Stock, pb.BranchID,
-             pb.StdSalesPrice, pb.MRP,
-             pu.BarCode, pu.MultiFactor, pu.UnitID,
-             vw.ProductName
-      FROM ProductUnits pu
-      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
-      LEFT JOIN VW_PRODUCTPRICE1 vw ON vw.Barcode = pu.BarCode
-      WHERE pu.BarCode = '${barcode}'
-    `);
-    console.log('=== Product Expiry Details ===');
-    console.log(JSON.stringify(result.recordset, null, 2));
+    // Unfortunately the bridge doesn't support custom SQL queries
+    // We can only use the fixed endpoints: /health, /test, /sync, /update-expiry
+    console.log('\n--- NOTE ---');
+    console.log('The ERP bridge API does not support custom SQL queries.');
+    console.log('To count tables, we need to add a temporary endpoint to the bridge.');
     
     process.exit(0);
   } catch (e) {

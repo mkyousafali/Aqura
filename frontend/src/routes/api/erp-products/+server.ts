@@ -32,6 +32,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			return await proxySync(baseUrl, erpBranchId, appBranchId, limit, offset);
 		} else if (action === 'update-expiry') {
 			return await proxyUpdateExpiry(baseUrl, barcode, newExpiryDate);
+		} else if (action === 'price-check') {
+			return await proxyPriceCheck(baseUrl, barcode, erpBranchId);
+		} else if (action === 'query') {
+			const { sql } = body;
+			return await proxyQuery(baseUrl, sql);
 		}
 
 		return json({ error: 'Invalid action' }, { status: 400 });
@@ -133,6 +138,59 @@ async function proxyUpdateExpiry(baseUrl: string, barcode: string, newExpiryDate
 		console.error('Bridge update-expiry error:', error);
 		if (error.name === 'AbortError') {
 			return json({ success: false, error: 'Bridge timed out. The server may be busy — please try again.' }, { status: 504 });
+		}
+		return json({ success: false, error: `Bridge unreachable: ${error.message}` }, { status: 500 });
+	}
+}
+
+async function proxyQuery(baseUrl: string, sql: string) {
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 30000);
+
+		const resp = await fetch(`${baseUrl}/query`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', 'x-api-secret': BRIDGE_API_SECRET },
+			body: JSON.stringify({ sql }),
+			signal: controller.signal
+		});
+		clearTimeout(timeout);
+
+		const contentType = resp.headers.get('content-type') || '';
+		if (!contentType.includes('application/json')) {
+			return json({ success: false, error: 'Bridge returned non-JSON response' }, { status: 502 });
+		}
+
+		const data = await resp.json();
+		return json(data, { status: resp.ok ? 200 : 500 });
+	} catch (error: any) {
+		console.error('Bridge query error:', error);
+		if (error.name === 'AbortError') {
+			return json({ success: false, error: 'Bridge timed out' }, { status: 504 });
+		}
+		return json({ success: false, error: `Bridge unreachable: ${error.message}` }, { status: 500 });
+	}
+}
+
+async function proxyPriceCheck(baseUrl: string, barcode: string, erpBranchId?: number) {
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 15000);
+
+		// Single round-trip to bridge — all SQL done server-side
+		const resp = await fetch(`${baseUrl}/price-check`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', 'x-api-secret': BRIDGE_API_SECRET },
+			body: JSON.stringify({ barcode, erpBranchId }),
+			signal: controller.signal
+		});
+		clearTimeout(timeout);
+		const data = await resp.json();
+		return json(data, { status: data.success ? 200 : 404 });
+	} catch (error: any) {
+		console.error('Bridge price-check error:', error);
+		if (error.name === 'AbortError') {
+			return json({ success: false, error: 'Bridge timed out' }, { status: 504 });
 		}
 		return json({ success: false, error: `Bridge unreachable: ${error.message}` }, { status: 500 });
 	}

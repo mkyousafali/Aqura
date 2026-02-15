@@ -132,6 +132,7 @@
 	import NearExpiryRequestsList from '$lib/components/desktop-interface/master/stock/NearExpiryRequestsList.svelte';
 	import CustomerProductRequestsList from '$lib/components/desktop-interface/master/stock/CustomerProductRequestsList.svelte';
 	import ErpProductsList from '$lib/components/desktop-interface/master/stock/ErpProductsList.svelte';
+	import OfferCostManager from '$lib/components/desktop-interface/master/stock/OfferCostManager.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -276,6 +277,7 @@
 		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates',
 		'STOCK_PRODUCT_REQUEST': 'nav.productRequest',
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
+		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
 	};
 
 	/** Get translated button name from button_code */
@@ -1805,6 +1807,7 @@ function openApprovalCenter() {
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
+			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
 		};
 
 		const action = actionMap[buttonCode];
@@ -1933,6 +1936,28 @@ function openApprovalCenter() {
 			title: `ERP Products #${instanceNumber}`,
 			component: ErpProductsList,
 			icon: '🏭',
+			size: { width: 1400, height: 800 },
+			position: { 
+				x: 120 + (Math.random() * 100),
+				y: 120 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openOfferCostManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('offer-cost-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.offerCostManager')} #${instanceNumber}`,
+			component: OfferCostManager,
+			icon: '💰',
 			size: { width: 1400, height: 800 },
 			position: { 
 				x: 120 + (Math.random() * 100),
@@ -4520,6 +4545,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+				{#if isButtonAllowed('STOCK_OFFER_COST_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openOfferCostManager}>
+							<span class="menu-icon">💰</span>
+							<span class="menu-text">{t('nav.offerCostManager')}</span>
+						</button>
+					</div>
+				{/if}
 				</div>
 			{/if}
 

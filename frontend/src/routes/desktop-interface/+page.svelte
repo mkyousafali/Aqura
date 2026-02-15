@@ -59,7 +59,8 @@
 		'STOCK_PO_REQUESTS': '🛒', 'STOCK_STOCK_REQUESTS': '📦', 'STOCK_BT_REQUESTS': '🔄',
 		'STOCK_NEAR_EXPIRY_REQUESTS': '⏰',
 		'STOCK_CUSTOMER_PRODUCT_REQUESTS': '🛍️',
-		'STOCK_ERP_PRODUCTS': '🏭'
+		'STOCK_ERP_PRODUCTS': '🏭',
+		'STOCK_OFFER_COST_MANAGER': ''
 	};
 
 	let mounted = false;
@@ -200,7 +201,8 @@
 		'STOCK_BT_REQUESTS': 'nav.btRequests',
 		'STOCK_NEAR_EXPIRY_REQUESTS': 'nav.nearExpiryRequests',
 		'STOCK_CUSTOMER_PRODUCT_REQUESTS': 'nav.customerProductRequests',
-		'STOCK_ERP_PRODUCTS': 'nav.erpProducts'
+		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
+		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {
@@ -455,7 +457,7 @@
 			<div class="welcome-container">
 				<div class="welcome-card">
 					<div class="logo-section">
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ46.20.12.13</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ47.21.13.14</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

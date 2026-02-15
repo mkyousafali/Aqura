@@ -466,6 +466,195 @@ app.post('/update-expiry', authenticate, async (req, res) => {
   }
 });
 
+// Temporary: Read-only SQL query endpoint (SELECT only)
+app.post('/query', authenticate, async (req, res) => {
+  try {
+    const { sql: queryText } = req.body;
+    if (!queryText || typeof queryText !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing sql parameter' });
+    }
+    // Safety: only allow SELECT statements
+    const trimmed = queryText.trim().toUpperCase();
+    if (!trimmed.startsWith('SELECT')) {
+      return res.status(403).json({ success: false, error: 'Only SELECT queries are allowed' });
+    }
+    const p = await getPool();
+    const result = await p.request().query(queryText);
+    res.json({ success: true, recordset: result.recordset, rowCount: result.recordset.length });
+  } catch (err) {
+    pool = null;
+    console.error('Query error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ========== PRICE CHECK — single round-trip endpoint ==========
+// Does all barcode lookup + offer detection in one call (all SQL local)
+app.post('/price-check', authenticate, async (req, res) => {
+  try {
+    const { barcode, erpBranchId } = req.body;
+    if (!barcode) return res.status(400).json({ success: false, error: 'Missing barcode' });
+
+    const p = await getPool();
+    const safeBarcode = barcode.replace(/'/g, "''");
+    const branchFilter = erpBranchId ? `AND pb.BranchID = ${parseInt(erpBranchId)}` : '';
+
+    let productName = '', productNameAr = '', unitPrice = 0, unitName = '', multiFactor = 1, batchId = null, foundBarcode = barcode;
+
+    // ---------- Step 1: Find product by barcode ----------
+
+    // 1a) ProductUnits
+    const r1 = await p.request().query(`
+      SELECT pu.BarCode, pu.ProductBatchID, MAX(pu.Sprice) AS Sprice, pu.MultiFactor,
+        u.UnitName, p.ProductName, p.ItemNameinSecondLanguage
+      FROM ProductUnits pu
+      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
+      INNER JOIN Products p ON pb.ProductID = p.ProductID
+      LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID
+      WHERE pu.BarCode = '${safeBarcode}' ${branchFilter}
+      GROUP BY pu.BarCode, pu.ProductBatchID, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage
+    `);
+
+    if (r1.recordset.length > 0) {
+      const row = r1.recordset[0];
+      productName = row.ProductName || '';
+      productNameAr = row.ItemNameinSecondLanguage || '';
+      unitPrice = row.Sprice || 0;
+      unitName = row.UnitName || '';
+      multiFactor = row.MultiFactor || 1;
+      batchId = row.ProductBatchID;
+      foundBarcode = row.BarCode || barcode;
+    }
+
+    // 1b) ProductBarcodes
+    if (!batchId) {
+      const r2 = await p.request().query(`
+        SELECT DISTINCT TOP 1 pbc.ProductBatchID
+        FROM ProductBarcodes pbc
+        INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID
+        WHERE pbc.Barcode = '${safeBarcode}' ${branchFilter}
+      `);
+      if (r2.recordset.length > 0) batchId = r2.recordset[0].ProductBatchID;
+    }
+
+    // 1c) ProductBatches direct columns
+    if (!batchId) {
+      const r3 = await p.request().query(`
+        SELECT TOP 1 pb.ProductBatchID, pb.StdSalesPrice, p.ProductName, p.ItemNameinSecondLanguage
+        FROM ProductBatches pb
+        INNER JOIN Products p ON pb.ProductID = p.ProductID
+        WHERE (pb.MannualBarcode = '${safeBarcode}' OR CAST(pb.AutoBarcode AS NVARCHAR(100)) = '${safeBarcode}'
+           OR pb.Unit2Barcode = '${safeBarcode}' OR pb.Unit3Barcode = '${safeBarcode}') ${branchFilter}
+      `);
+      if (r3.recordset.length > 0) {
+        const row = r3.recordset[0];
+        batchId = row.ProductBatchID;
+        productName = row.ProductName || '';
+        productNameAr = row.ItemNameinSecondLanguage || '';
+        unitPrice = row.StdSalesPrice || 0;
+      }
+    }
+
+    if (!batchId) {
+      return res.json({ success: false, error: 'Barcode not found in ERP' });
+    }
+
+    // If we found batchId from step 1b/1c but don't have unit price yet, get it
+    if (!unitPrice || !productName) {
+      const rUnits = await p.request().query(`
+        SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName,
+          p.ProductName, p.ItemNameinSecondLanguage
+        FROM ProductUnits pu
+        INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
+        INNER JOIN Products p ON pb.ProductID = p.ProductID
+        LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID
+        WHERE pu.ProductBatchID = ${parseInt(String(batchId))} AND pu.MultiFactor = 1
+        GROUP BY pu.BarCode, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage
+      `);
+      if (rUnits.recordset.length > 0) {
+        const row = rUnits.recordset[0];
+        if (!productName) productName = row.ProductName || '';
+        if (!productNameAr) productNameAr = row.ItemNameinSecondLanguage || '';
+        if (!unitPrice) unitPrice = row.Sprice || 0;
+        if (!unitName) unitName = row.UnitName || '';
+        if (row.BarCode) foundBarcode = row.BarCode;
+      }
+    }
+
+    // StdSalesPrice fallback when unit price is still 0
+    if (!unitPrice) {
+      const rFb = await p.request().query(`SELECT StdSalesPrice FROM ProductBatches WHERE ProductBatchID = ${parseInt(String(batchId))}`);
+      if (rFb.recordset.length > 0) unitPrice = rFb.recordset[0].StdSalesPrice || 0;
+    }
+
+    // ---------- Step 2: Find active offers (all 3 sources in parallel) ----------
+    const bId = parseInt(String(batchId));
+    const spBranch = erpBranchId ? `AND sp.BranchID = ${parseInt(String(erpBranchId))}` : '';
+    const qdBranch = erpBranchId ? `AND qd.BranchID = ${parseInt(String(erpBranchId))}` : '';
+    const gobBranch = erpBranchId ? `AND g.BranchID = ${parseInt(String(erpBranchId))}` : '';
+
+    const [offerR1, offerR2, offerR3] = await Promise.all([
+      p.request().query(`
+        SELECT TOP 1 sp.SalesPrice, s.SchemeName, s.SchemeType, s.QtyLimit, s.FreeQty, s.DateFrom, s.DateTo
+        FROM SpecialPriceScheme sp INNER JOIN Schemes s ON sp.SchemeID = s.SchemeID
+        WHERE sp.ProductBatchID = ${bId} ${spBranch} AND s.SchemeStatus = 'Active'
+          AND GETDATE() BETWEEN s.DateFrom AND s.DateTo
+        ORDER BY sp.SalesPrice ASC
+      `),
+      p.request().query(`
+        SELECT TOP 1 qd.QtyLimit, qd.FreeQty, s.SchemeName, s.SchemeType,
+          s.QtyLimit AS SchemeQtyLimit, s.FreeQty AS SchemeFreeQty, s.DateFrom, s.DateTo
+        FROM QuantityDiscountScheme qd INNER JOIN Schemes s ON qd.SchemeID = s.SchemeID
+        WHERE qd.ProductBatchID = ${bId} ${qdBranch} AND s.SchemeStatus = 'Active'
+          AND GETDATE() BETWEEN s.DateFrom AND s.DateTo
+      `),
+      p.request().query(`
+        SELECT TOP 1 g.RangeFrom, g.RangeTo, g.SpecialPrice, g.Quantity
+        FROM GiftOnBilling g
+        WHERE g.GiftProductBatchID = ${bId} ${gobBranch} AND g.RangeFrom > 0
+        ORDER BY g.RangeFrom ASC
+      `)
+    ]);
+
+    let offer = null;
+
+    if (offerR1.recordset.length > 0) {
+      const row = offerR1.recordset[0];
+      offer = {
+        scheme_name: row.SchemeName || '', scheme_type: row.SchemeType || '',
+        scheme_price: row.SalesPrice, qty_limit: row.QtyLimit || 0,
+        free_qty: row.FreeQty || 0, date_from: row.DateFrom || '', date_to: row.DateTo || ''
+      };
+    } else if (offerR2.recordset.length > 0) {
+      const row = offerR2.recordset[0];
+      offer = {
+        scheme_name: row.SchemeName || '', scheme_type: row.SchemeType || '',
+        scheme_price: 0, qty_limit: row.SchemeQtyLimit || row.QtyLimit || 0,
+        free_qty: row.SchemeFreeQty || row.FreeQty || 0,
+        date_from: row.DateFrom || '', date_to: row.DateTo || ''
+      };
+    } else if (offerR3.recordset.length > 0) {
+      const row = offerR3.recordset[0];
+      offer = {
+        scheme_name: 'Gift on Billing', scheme_type: 'Gift on Billing',
+        scheme_price: row.SpecialPrice || 0, qty_limit: row.Quantity || 1,
+        free_qty: 0, date_from: '', date_to: '',
+        range_from: row.RangeFrom || 0, range_to: row.RangeTo || 0
+      };
+    }
+
+    res.json({
+      success: true, productName, productNameAr,
+      prices: [{ barcode: foundBarcode, sprice: unitPrice, multi_factor: multiFactor, unit_name: unitName }],
+      offer
+    });
+  } catch (err) {
+    pool = null;
+    console.error('Price-check error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n========================================`);

@@ -108,6 +108,29 @@ const WIZARD_HTML = `<!DOCTYPE html>
   .test-result { margin-top: 8px; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
   .test-result.ok { background: rgba(16,185,129,0.1); border: 1px solid #059669; color: #10b981; }
   .test-result.fail { background: rgba(239,68,68,0.1); border: 1px solid #dc2626; color: #ef4444; }
+
+  /* Service Panel */
+  .svc-panel { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-top: 14px; }
+  .svc-panel h3 { font-size: 14px; color: #e2e8f0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .svc-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #1e293b; border-radius: 8px; margin-bottom: 8px; }
+  .svc-row:last-child { margin-bottom: 0; }
+  .svc-info { display: flex; align-items: center; gap: 10px; }
+  .svc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .svc-dot.running { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+  .svc-dot.stopped { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+  .svc-dot.checking { background: #f59e0b; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  .svc-name { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+  .svc-status { font-size: 11px; color: #94a3b8; }
+  .svc-actions { display: flex; gap: 6px; }
+  .svc-btn { padding: 5px 12px; border-radius: 6px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .svc-btn.start { background: #059669; color: #fff; }
+  .svc-btn.start:hover { background: #10b981; }
+  .svc-btn.stop { background: #dc2626; color: #fff; }
+  .svc-btn.stop:hover { background: #ef4444; }
+  .svc-btn.restart { background: #2563eb; color: #fff; }
+  .svc-btn.restart:hover { background: #3b82f6; }
+  .svc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -143,6 +166,36 @@ const WIZARD_HTML = `<!DOCTYPE html>
           <li>Cloudflare Tunnel token (from the Cloudflare dashboard)</li>
         </ul>
       </div>
+      <!-- Service Status Panel -->
+      <div id="svc-panel" class="svc-panel hidden">
+        <h3>🖥️ Service Status</h3>
+        <div class="svc-row">
+          <div class="svc-info">
+            <div class="svc-dot checking" id="svc-dot-bridge"></div>
+            <div><div class="svc-name">Bridge API</div><div class="svc-status" id="svc-status-bridge">Checking...</div></div>
+          </div>
+          <div class="svc-actions">
+            <button class="svc-btn start" onclick="svcAction('bridge','start')" id="svc-btn-bridge-start" disabled>▶ Start</button>
+            <button class="svc-btn stop" onclick="svcAction('bridge','stop')" id="svc-btn-bridge-stop" disabled>■ Stop</button>
+            <button class="svc-btn restart" onclick="svcAction('bridge','restart')" id="svc-btn-bridge-restart" disabled>↻ Restart</button>
+          </div>
+        </div>
+        <div class="svc-row">
+          <div class="svc-info">
+            <div class="svc-dot checking" id="svc-dot-tunnel"></div>
+            <div><div class="svc-name">Cloudflare Tunnel</div><div class="svc-status" id="svc-status-tunnel">Checking...</div></div>
+          </div>
+          <div class="svc-actions">
+            <button class="svc-btn start" onclick="svcAction('tunnel','start')" id="svc-btn-tunnel-start" disabled>▶ Start</button>
+            <button class="svc-btn stop" onclick="svcAction('tunnel','stop')" id="svc-btn-tunnel-stop" disabled>■ Stop</button>
+            <button class="svc-btn restart" onclick="svcAction('tunnel','restart')" id="svc-btn-tunnel-restart" disabled>↻ Restart</button>
+          </div>
+        </div>
+        <div style="text-align:right; margin-top: 8px;">
+          <button class="btn btn-secondary btn-small" onclick="refreshServiceStatus()" id="svc-refresh-btn">🔄 Refresh</button>
+        </div>
+      </div>
+
       <div id="existing-config-box" class="hidden" style="background:#0f172a; border-radius:10px; padding:14px; margin-top:12px; border: 1px solid #f59e0b;">
         <p style="font-size:14px; color:#f59e0b; font-weight:600;">&#128295; Existing Configuration Found!</p>
         <div id="existing-config-details" style="margin-top:8px; font-size:12px; color:#94a3b8; line-height:1.8;"></div>
@@ -383,7 +436,17 @@ async function runSetup() {
   // Step 6: Install cloudflared service
   addLog('Installing Cloudflare Tunnel service...', 'working');
   r = await api('setup-step', { step: 'install-tunnel', ...cfg });
-  addLog(r.success ? (r.skipped ? 'Tunnel service already installed' : 'Tunnel service installed!') : 'Error: ' + r.error, r.success ? 'success' : 'error');
+  if (r.success) {
+    if (r.skipped) {
+      addLog('Tunnel service already installed', 'success');
+    } else if (r.protocol === 'http2') {
+      addLog('Tunnel installed with HTTP/2 (QUIC was blocked by network)', 'success');
+    } else {
+      addLog('Tunnel service installed!', 'success');
+    }
+  } else {
+    addLog('Error: ' + r.error, 'error');
+  }
   
   // Step 7: Install bridge API service
   addLog('Installing Bridge API as Windows service...', 'working');
@@ -458,6 +521,56 @@ function freshSetup() {
   showStep(1);
 }
 
+// Service control functions
+function updateSvcUI(service, running) {
+  const dot = document.getElementById('svc-dot-' + service);
+  const status = document.getElementById('svc-status-' + service);
+  const startBtn = document.getElementById('svc-btn-' + service + '-start');
+  const stopBtn = document.getElementById('svc-btn-' + service + '-stop');
+  const restartBtn = document.getElementById('svc-btn-' + service + '-restart');
+  dot.className = 'svc-dot ' + (running ? 'running' : 'stopped');
+  status.textContent = running ? 'Running' : 'Stopped';
+  startBtn.disabled = running;
+  stopBtn.disabled = !running;
+  restartBtn.disabled = !running;
+}
+
+async function refreshServiceStatus() {
+  const btn = document.getElementById('svc-refresh-btn');
+  btn.disabled = true; btn.textContent = '⏳ Checking...';
+  try {
+    const result = await api('status', {});
+    updateSvcUI('bridge', result.bridgeRunning);
+    updateSvcUI('tunnel', result.tunnelRunning);
+  } catch (e) {
+    console.error('Status check failed:', e);
+  }
+  btn.disabled = false; btn.textContent = '🔄 Refresh';
+}
+
+async function svcAction(service, action) {
+  const btns = ['start','stop','restart'].map(a => document.getElementById('svc-btn-' + service + '-' + a));
+  btns.forEach(b => b.disabled = true);
+  const dot = document.getElementById('svc-dot-' + service);
+  const status = document.getElementById('svc-status-' + service);
+  dot.className = 'svc-dot checking';
+  status.textContent = action === 'start' ? 'Starting...' : action === 'stop' ? 'Stopping...' : 'Restarting...';
+  try {
+    const result = await api('service-control', { service, action });
+    if (result.success) {
+      updateSvcUI(service, result.running);
+    } else {
+      status.textContent = 'Error: ' + (result.error || 'Failed');
+      dot.className = 'svc-dot stopped';
+      btns.forEach(b => b.disabled = false);
+    }
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+    dot.className = 'svc-dot stopped';
+    btns.forEach(b => b.disabled = false);
+  }
+}
+
 // Auto-check for existing configuration on page load
 (async function() {
   try {
@@ -465,6 +578,11 @@ function freshSetup() {
     const data = await res.json();
     if (data.exists && data.config) {
       existingConfig = data.config;
+      // Show service panel
+      document.getElementById('svc-panel').classList.remove('hidden');
+      updateSvcUI('bridge', existingConfig.bridgeRunning);
+      updateSvcUI('tunnel', existingConfig.tunnelRunning);
+
       var box = document.getElementById('existing-config-box');
       var details = document.getElementById('existing-config-details');
       box.classList.remove('hidden');
@@ -473,11 +591,7 @@ function freshSetup() {
         '<div>\ud83d\uddc4\ufe0f <strong>Database:</strong> ' + (existingConfig.dbName || 'N/A') + ' @ ' + (existingConfig.sqlServer || 'localhost') + '</div>' +
         '<div>\ud83c\udf10 <strong>Subdomain:</strong> ' + (existingConfig.subdomain || 'N/A') + '.urbanaqura.com</div>' +
         '<div>\ud83d\udd0c <strong>Port:</strong> ' + (existingConfig.port || 3333) + '</div>' +
-        '<div>\ud83d\udcc5 <strong>Setup Date:</strong> ' + (existingConfig.setupDate || 'N/A') + '</div>' +
-        '<div style="margin-top:6px;">' +
-        '\ud83d\udd0c Bridge: <span style="color:' + (existingConfig.bridgeRunning ? '#10b981' : '#ef4444') + ';">' + (existingConfig.bridgeRunning ? '\u25cf Running' : '\u25cf Stopped') + '</span> | ' +
-        '\ud83c\udf10 Tunnel: <span style="color:' + (existingConfig.tunnelRunning ? '#10b981' : '#ef4444') + ';">' + (existingConfig.tunnelRunning ? '\u25cf Running' : '\u25cf Stopped') + '</span>' +
-        '</div>';
+        '<div>\ud83d\udcc5 <strong>Setup Date:</strong> ' + (existingConfig.setupDate || 'N/A') + '</div>';
     }
   } catch (e) { console.log('No existing config:', e); }
 })();
@@ -681,6 +795,100 @@ app.post('/update-expiry', authenticate, async (req, res) => {
   } catch (err) { pool = null; console.error('Update expiry error:', err); res.status(500).json({ success: false, error: err.message }); }
 });
 
+// Read-only SQL query endpoint (SELECT only)
+app.post('/query', authenticate, async (req, res) => {
+  try {
+    const { sql: queryText } = req.body;
+    if (!queryText || typeof queryText !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing sql parameter' });
+    }
+    const trimmed = queryText.trim().toUpperCase();
+    if (!trimmed.startsWith('SELECT')) {
+      return res.status(403).json({ success: false, error: 'Only SELECT queries are allowed' });
+    }
+    const p = await getPool();
+    const result = await p.request().query(queryText);
+    res.json({ success: true, recordset: result.recordset, rowCount: result.recordset.length });
+  } catch (err) { pool = null; console.error('Query error:', err); res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Price Check — single round-trip endpoint (barcode lookup + offers in one call)
+app.post('/price-check', authenticate, async (req, res) => {
+  try {
+    const { barcode, erpBranchId } = req.body;
+    if (!barcode) return res.status(400).json({ success: false, error: 'Missing barcode' });
+    const p = await getPool();
+    const safeBarcode = barcode.replace(/'/g, "''");
+    const branchFilter = erpBranchId ? " AND pb.BranchID = " + parseInt(erpBranchId) : "";
+    let productName = '', productNameAr = '', unitPrice = 0, unitName = '', multiFactor = 1, batchId = null, foundBarcode = barcode;
+
+    // 1a) ProductUnits
+    const r1 = await p.request().query("SELECT pu.BarCode, pu.ProductBatchID, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.BarCode = '" + safeBarcode + "'" + branchFilter + " GROUP BY pu.BarCode, pu.ProductBatchID, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
+    if (r1.recordset.length > 0) {
+      var row = r1.recordset[0];
+      productName = row.ProductName || ''; productNameAr = row.ItemNameinSecondLanguage || '';
+      unitPrice = row.Sprice || 0; unitName = row.UnitName || '';
+      multiFactor = row.MultiFactor || 1; batchId = row.ProductBatchID; foundBarcode = row.BarCode || barcode;
+    }
+    // 1b) ProductBarcodes
+    if (!batchId) {
+      var r2 = await p.request().query("SELECT DISTINCT TOP 1 pbc.ProductBatchID FROM ProductBarcodes pbc INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID WHERE pbc.Barcode = '" + safeBarcode + "'" + branchFilter);
+      if (r2.recordset.length > 0) batchId = r2.recordset[0].ProductBatchID;
+    }
+    // 1c) ProductBatches direct columns
+    if (!batchId) {
+      var r3 = await p.request().query("SELECT TOP 1 pb.ProductBatchID, pb.StdSalesPrice, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBatches pb INNER JOIN Products p ON pb.ProductID = p.ProductID WHERE (pb.MannualBarcode = '" + safeBarcode + "' OR CAST(pb.AutoBarcode AS NVARCHAR(100)) = '" + safeBarcode + "' OR pb.Unit2Barcode = '" + safeBarcode + "' OR pb.Unit3Barcode = '" + safeBarcode + "')" + branchFilter);
+      if (r3.recordset.length > 0) {
+        var row3 = r3.recordset[0];
+        batchId = row3.ProductBatchID; productName = row3.ProductName || '';
+        productNameAr = row3.ItemNameinSecondLanguage || ''; unitPrice = row3.StdSalesPrice || 0;
+      }
+    }
+    if (!batchId) return res.json({ success: false, error: 'Barcode not found in ERP' });
+
+    // Fill missing info from ProductUnits if batchId found via 1b/1c
+    if (!unitPrice || !productName) {
+      var rU = await p.request().query("SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.ProductBatchID = " + parseInt(String(batchId)) + " AND pu.MultiFactor = 1 GROUP BY pu.BarCode, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
+      if (rU.recordset.length > 0) {
+        var rowU = rU.recordset[0];
+        if (!productName) productName = rowU.ProductName || '';
+        if (!productNameAr) productNameAr = rowU.ItemNameinSecondLanguage || '';
+        if (!unitPrice) unitPrice = rowU.Sprice || 0;
+        if (!unitName) unitName = rowU.UnitName || '';
+        if (rowU.BarCode) foundBarcode = rowU.BarCode;
+      }
+    }
+    // StdSalesPrice fallback
+    if (!unitPrice) {
+      var rFb = await p.request().query("SELECT StdSalesPrice FROM ProductBatches WHERE ProductBatchID = " + parseInt(String(batchId)));
+      if (rFb.recordset.length > 0) unitPrice = rFb.recordset[0].StdSalesPrice || 0;
+    }
+
+    // 2) Active offers (all 3 sources in parallel)
+    var bId = parseInt(String(batchId));
+    var spB = erpBranchId ? " AND sp.BranchID = " + parseInt(String(erpBranchId)) : "";
+    var qdB = erpBranchId ? " AND qd.BranchID = " + parseInt(String(erpBranchId)) : "";
+    var gobB = erpBranchId ? " AND g.BranchID = " + parseInt(String(erpBranchId)) : "";
+    var results = await Promise.all([
+      p.request().query("SELECT TOP 1 sp.SalesPrice, s.SchemeName, s.SchemeType, s.QtyLimit, s.FreeQty, s.DateFrom, s.DateTo FROM SpecialPriceScheme sp INNER JOIN Schemes s ON sp.SchemeID = s.SchemeID WHERE sp.ProductBatchID = " + bId + spB + " AND s.SchemeStatus = 'Active' AND GETDATE() BETWEEN s.DateFrom AND s.DateTo ORDER BY sp.SalesPrice ASC"),
+      p.request().query("SELECT TOP 1 qd.QtyLimit, qd.FreeQty, s.SchemeName, s.SchemeType, s.QtyLimit AS SchemeQtyLimit, s.FreeQty AS SchemeFreeQty, s.DateFrom, s.DateTo FROM QuantityDiscountScheme qd INNER JOIN Schemes s ON qd.SchemeID = s.SchemeID WHERE qd.ProductBatchID = " + bId + qdB + " AND s.SchemeStatus = 'Active' AND GETDATE() BETWEEN s.DateFrom AND s.DateTo"),
+      p.request().query("SELECT TOP 1 g.RangeFrom, g.RangeTo, g.SpecialPrice, g.Quantity FROM GiftOnBilling g WHERE g.GiftProductBatchID = " + bId + gobB + " AND g.RangeFrom > 0 ORDER BY g.RangeFrom ASC")
+    ]);
+    var offer = null;
+    if (results[0].recordset.length > 0) {
+      var o = results[0].recordset[0];
+      offer = { scheme_name: o.SchemeName||'', scheme_type: o.SchemeType||'', scheme_price: o.SalesPrice, qty_limit: o.QtyLimit||0, free_qty: o.FreeQty||0, date_from: o.DateFrom||'', date_to: o.DateTo||'' };
+    } else if (results[1].recordset.length > 0) {
+      var o2 = results[1].recordset[0];
+      offer = { scheme_name: o2.SchemeName||'', scheme_type: o2.SchemeType||'', scheme_price: 0, qty_limit: o2.SchemeQtyLimit||o2.QtyLimit||0, free_qty: o2.SchemeFreeQty||o2.FreeQty||0, date_from: o2.DateFrom||'', date_to: o2.DateTo||'' };
+    } else if (results[2].recordset.length > 0) {
+      var o3 = results[2].recordset[0];
+      offer = { scheme_name: 'Gift on Billing', scheme_type: 'Gift on Billing', scheme_price: o3.SpecialPrice||0, qty_limit: o3.Quantity||1, free_qty: 0, date_from: '', date_to: '', range_from: o3.RangeFrom||0, range_to: o3.RangeTo||0 };
+    }
+    res.json({ success: true, productName: productName, productNameAr: productNameAr, prices: [{ barcode: foundBarcode, sprice: unitPrice, multi_factor: multiFactor, unit_name: unitName }], offer: offer });
+  } catch (err) { pool = null; console.error('Price-check error:', err); res.status(500).json({ success: false, error: err.message }); }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log('\\n========================================');
   console.log('  ERP Bridge API Server');
@@ -789,11 +997,41 @@ svc.uninstall();
       if (check.success && check.stdout.includes('RUNNING')) {
         return { success: true, skipped: true };
       }
-      // Install with token
-      const r = await runCmd(`"${CLOUDFLARED_PATH}" service install ${cfg.tunnelToken}`, 'C:\\');
-      // Verify
-      const verify = await runCmd('sc query cloudflared', 'C:\\');
-      return { success: verify.stdout.includes('RUNNING') || verify.stdout.includes('START_PENDING'), error: r.error };
+
+      // Try 1: Install with default QUIC protocol
+      await runCmd(`"${CLOUDFLARED_PATH}" service install ${cfg.tunnelToken}`, 'C:\\');
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for tunnel to connect
+
+      // Test if tunnel actually connected by checking Cloudflare edge
+      let tunnelWorks = false;
+      if (cfg.tunnelUrl) {
+        try {
+          const testUrl = cfg.tunnelUrl.replace(/\/$/, '') + '/health';
+          const testResult = await runCmd(`curl -s -o NUL -w "%{http_code}" --max-time 10 "${testUrl}"`, 'C:\\');
+          tunnelWorks = testResult.success && testResult.stdout.trim() === '200';
+        } catch (e) { /* ignore test errors */ }
+      }
+
+      if (!tunnelWorks) {
+        // QUIC might be blocked - try HTTP/2 fallback
+        // Uninstall QUIC version
+        await runCmd('sc stop cloudflared', 'C:\\');
+        await runCmd(`"${CLOUDFLARED_PATH}" service uninstall`, 'C:\\');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Reinstall with --protocol http2 (uses TCP/443, works through any firewall)
+        await runCmd(`"${CLOUDFLARED_PATH}" --protocol http2 service install ${cfg.tunnelToken}`, 'C:\\');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        const verify = await runCmd('sc query cloudflared', 'C:\\');
+        return { 
+          success: verify.stdout.includes('RUNNING') || verify.stdout.includes('START_PENDING'), 
+          protocol: 'http2',
+          note: 'QUIC was blocked, installed with HTTP/2 fallback'
+        };
+      }
+
+      return { success: true, protocol: 'quic' };
     } catch (e) { return { success: false, error: e.message }; }
   }
 
@@ -910,6 +1148,36 @@ async function handleStatus(cfg) {
 }
 
 // ============================================================
+// SERVICE CONTROL — Start/Stop/Restart services
+// ============================================================
+async function handleServiceControl(data) {
+  const { service, action } = data;
+  const serviceName = service === 'bridge' ? 'ERP Bridge API' : 'cloudflared';
+  
+  try {
+    if (action === 'start') {
+      await runCmd(`sc start "${serviceName}"`, 'C:\\');
+    } else if (action === 'stop') {
+      await runCmd(`sc stop "${serviceName}"`, 'C:\\');
+    } else if (action === 'restart') {
+      await runCmd(`sc stop "${serviceName}"`, 'C:\\');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await runCmd(`sc start "${serviceName}"`, 'C:\\');
+    } else {
+      return { success: false, error: 'Unknown action: ' + action };
+    }
+    
+    // Wait a moment then check status
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const check = await runCmd(`sc query "${serviceName}"`, 'C:\\');
+    const running = check.stdout.includes('RUNNING');
+    return { success: true, running };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
 // CHECK EXISTING CONFIG
 // ============================================================
 async function handleCheckConfig() {
@@ -957,6 +1225,7 @@ const server = http.createServer(async (req, res) => {
       else if (endpoint === 'setup-step') result = await handleSetupStep(data);
       else if (endpoint === 'status') result = await handleStatus(data);
       else if (endpoint === 'check-config') result = await handleCheckConfig();
+      else if (endpoint === 'service-control') result = await handleServiceControl(data);
       else result = { error: 'Unknown endpoint' };
       
       res.writeHead(200, { 'Content-Type': 'application/json' });
