@@ -67,7 +67,8 @@
 		'STOCK_CUSTOMER_PRODUCT_REQUESTS': '🛍️',
 		'STOCK_ERP_PRODUCTS': '🏭',
 		'STOCK_OFFER_COST_MANAGER': '',
-		'STOCK_PRODUCT_CLAIM_MANAGER': '👤'
+		'STOCK_PRODUCT_CLAIM_MANAGER': '👤',
+		'STOCK_EXPIRY_CONTROL': '📅'
 	};
 
 	let mounted = false;
@@ -210,7 +211,8 @@
 		'STOCK_CUSTOMER_PRODUCT_REQUESTS': 'nav.customerProductRequests',
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
-		'STOCK_PRODUCT_CLAIM_MANAGER': 'nav.productClaimManager'
+		'STOCK_PRODUCT_CLAIM_MANAGER': 'nav.productClaimManager',
+		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {
@@ -474,7 +476,7 @@
 								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
 							</span>
 						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ48.22.14.15</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ49.22.14.15</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

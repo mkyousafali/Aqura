@@ -134,6 +134,7 @@
 	import ErpProductsList from '$lib/components/desktop-interface/master/stock/ErpProductsList.svelte';
 	import OfferCostManager from '$lib/components/desktop-interface/master/stock/OfferCostManager.svelte';
 	import ProductClaimManager from '$lib/components/desktop-interface/master/stock/ProductClaimManager.svelte';
+	import ExpiryControl from '$lib/components/desktop-interface/master/stock/ExpiryControl.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -279,6 +280,7 @@
 		'STOCK_PRODUCT_REQUEST': 'nav.productRequest',
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
+		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl',
 	};
 
 	/** Get translated button name from button_code */
@@ -1809,6 +1811,7 @@ function openApprovalCenter() {
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
 			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
+			'STOCK_EXPIRY_CONTROL': openExpiryControl,
 		};
 
 		const action = actionMap[buttonCode];
@@ -2118,6 +2121,27 @@ function openApprovalCenter() {
 			position: { 
 				x: 220 + (Math.random() * 100),
 				y: 220 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openExpiryControl() {
+		collapseAllMenus();
+		const windowId = generateWindowId('expiry-control');
+		
+		openWindow({
+			id: windowId,
+			title: t('nav.expiryControl'),
+			component: ExpiryControl,
+			icon: '📅',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 230 + (Math.random() * 100),
+				y: 230 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -4622,6 +4646,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openProductClaimManager}>
 								<span class="menu-icon">👤</span>
 								<span class="menu-text">{t('nav.productClaimManager') || 'Product Claim Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_EXPIRY_CONTROL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openExpiryControl}>
+								<span class="menu-icon">📅</span>
+								<span class="menu-text">{t('nav.expiryControl') || 'Expiry Control'}</span>
 							</button>
 						</div>
 					{/if}
