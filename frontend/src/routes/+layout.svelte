@@ -700,13 +700,16 @@
 						
 						// Handle service worker updates
 						registration.addEventListener('updatefound', () => {
-							console.log('� PWA update found');
+							console.log('🔔 PWA update found');
 							const newWorker = registration.installing;
 							if (newWorker) {
 								newWorker.addEventListener('statechange', () => {
 									if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-										console.log('🆕 New PWA version available');
-										showUpdatePrompt = true;
+										console.log('🆕 New PWA version available - badge updated (no popup)');
+										// Only update the store badge, don't show popup modal
+										// User can click the update button on the logo card when ready
+										updateAvailable.set(true);
+										triggerUpdate.set(handlePWAUpdate);
 									}
 								});
 							}
