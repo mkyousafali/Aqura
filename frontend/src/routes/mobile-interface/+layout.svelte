@@ -10,6 +10,12 @@
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
+	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+
+	async function handleUpdateClick() {
+		const fn = $triggerUpdate;
+		if (fn) await fn();
+	}
 
 	// Mobile-specific layout state
 	let currentUserData = null;
@@ -785,6 +791,27 @@
 					</div>
 				</div>
 				<div class="header-actions">
+					{#if $updateAvailable}
+						<button class="header-nav-btn update-btn" on:click={handleUpdateClick} aria-label={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'} title={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}>
+							<div class="nav-icon-container">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+									<path d="M3 3v5h5"/>
+									<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+									<path d="M16 16h5v5"/>
+								</svg>
+								<span class="update-dot"></span>
+							</div>
+						</button>
+					{:else}
+						<span class="header-nav-btn uptodate-btn" title={$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}>
+							<div class="nav-icon-container">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M20 6L9 17l-5-5"/>
+								</svg>
+							</div>
+						</span>
+					{/if}
 					<a href="/mobile-interface" class="header-nav-btn" class:active={$page.url.pathname === '/mobile-interface'} aria-label={getTranslation('mobile.home')}>
 						<div class="nav-icon-container">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1540,6 +1567,35 @@
 		background: rgba(255, 255, 255, 0.2);
 		transform: scale(1.05);
 		color: white;
+	}
+
+	.update-btn {
+		background: rgba(34, 197, 94, 0.25) !important;
+		border-color: rgba(34, 197, 94, 0.5) !important;
+		animation: pulse-update 2s ease-in-out infinite;
+	}
+
+	.uptodate-btn {
+		background: rgba(255, 255, 255, 0.08) !important;
+		border-color: rgba(255, 255, 255, 0.15) !important;
+		opacity: 0.6;
+		cursor: default;
+	}
+
+	.update-dot {
+		position: absolute;
+		top: -2px;
+		right: -2px;
+		width: 6px;
+		height: 6px;
+		background: #22c55e;
+		border-radius: 50%;
+		border: 1px solid rgba(0, 0, 0, 0.3);
+	}
+
+	@keyframes pulse-update {
+		0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+		50% { box-shadow: 0 0 6px 2px rgba(34, 197, 94, 0.3); }
 	}
 
 	.nav-icon-container {

@@ -4,6 +4,12 @@
   import { onMount } from 'svelte';
   import { cartCount } from '$lib/stores/cart.js';
   import { t } from '$lib/i18n';
+  import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+
+  async function handleUpdateClick() {
+    const fn = $triggerUpdate;
+    if (fn) await fn();
+  }
 
   let currentLanguage = 'ar';
   let notificationCount = 0;
@@ -97,6 +103,15 @@
         </button>
       {/if}
       <span class="version-badge">{customerVersion}</span>
+      {#if $updateAvailable}
+        <button class="customer-update-btn update-available" on:click={handleUpdateClick} title={currentLanguage === 'ar' ? 'تحديث متاح' : 'Update Available'}>
+          🔄
+        </button>
+      {:else}
+        <span class="customer-update-btn up-to-date" title={currentLanguage === 'ar' ? 'محدّث' : 'Up to Date'}>
+          ✅
+        </span>
+      {/if}
     </div>
     
     <!-- Right side actions -->
@@ -210,6 +225,32 @@
     padding: 0.25rem 0.5rem;
     border-radius: 6px;
     letter-spacing: 0.5px;
+  }
+
+  .customer-update-btn {
+    border-radius: 6px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+    border: none;
+  }
+
+  .customer-update-btn.update-available {
+    background: #dcfce7;
+    border: 1px solid #86efac;
+    cursor: pointer;
+    animation: pulse-update 2s ease-in-out infinite;
+  }
+
+  .customer-update-btn.up-to-date {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  @keyframes pulse-update {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 6px 2px rgba(34, 197, 94, 0.3); }
   }
   
   .top-actions {

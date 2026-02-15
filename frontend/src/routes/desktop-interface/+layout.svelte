@@ -21,6 +21,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
+	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	// import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import { themeStore } from '$lib/stores/themeStore';
@@ -49,6 +50,14 @@
 	let showUpdatePrompt = false;
 	let needRefresh;
 	let updateServiceWorker;
+
+	// Sync local showUpdatePrompt with global store
+	$: {
+		updateAvailable.set(showUpdatePrompt);
+		if (showUpdatePrompt) {
+			triggerUpdate.set(handlePWAUpdate);
+		}
+	}
 	
 	// Popout mode detection
 	let isPopoutMode = false;
@@ -688,9 +697,13 @@
 						});
 						
 						// Handle controller change (when new SW takes control)
+						// Only reload when user explicitly chose to update (not automatically)
 						navigator.serviceWorker.addEventListener('controllerchange', () => {
-							console.log('🔄 PWA Service Worker controller changed');
-							window.location.reload();
+							console.log('🔄 PWA Service Worker controller changed — user-initiated update');
+							// Reload only if user clicked update (showUpdatePrompt was dismissed)
+							if (!showUpdatePrompt) {
+								window.location.reload();
+							}
 						});
 						
 						// Set up update function

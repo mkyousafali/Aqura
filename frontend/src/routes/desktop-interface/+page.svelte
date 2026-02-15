@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
-	import { localeData, t } from '$lib/i18n';
+	import { localeData, t, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { favoritesStore, favoriteButtonCodes, favoritesPanelOpen } from '$lib/stores/favorites';
@@ -10,6 +10,12 @@
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import WelcomeWindow from '$lib/components/common/WelcomeWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
+	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+
+	async function handleUpdateClick() {
+		const fn = $triggerUpdate;
+		if (fn) await fn();
+	}
 
 	// Icon mapping for sidebar buttons (used when saving favorites)
 	const buttonIconMap: Record<string, string> = {
@@ -457,6 +463,15 @@
 			<div class="welcome-container">
 				<div class="welcome-card">
 					<div class="logo-section">
+						{#if $updateAvailable}
+							<button class="update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
+								🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
+							</button>
+						{:else}
+							<span class="update-badge up-to-date">
+								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
+							</span>
+						{/if}
 						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ48.22.14.15</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
@@ -792,6 +807,45 @@
 
 	.version-badge:hover {
 		background: rgba(255, 255, 255, 0.35);
+	}
+
+	.update-badge {
+		position: absolute;
+		top: 10px;
+		left: 12px;
+		border-radius: 12px;
+		padding: 3px 10px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		transition: all 0.3s;
+		z-index: 2;
+		letter-spacing: 0.5px;
+		border: none;
+	}
+
+	.update-badge.update-available {
+		background: rgba(34, 197, 94, 0.25);
+		color: #bbf7d0;
+		border: 1px solid rgba(34, 197, 94, 0.5);
+		cursor: pointer;
+		animation: pulse-update 2s ease-in-out infinite;
+	}
+
+	.update-badge.update-available:hover {
+		background: rgba(34, 197, 94, 0.45);
+		transform: scale(1.05);
+	}
+
+	.update-badge.up-to-date {
+		background: rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.7);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		cursor: default;
+	}
+
+	@keyframes pulse-update {
+		0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+		50% { box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.3); }
 	}
 
 	@keyframes fadeIn {

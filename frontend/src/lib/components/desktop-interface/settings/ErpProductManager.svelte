@@ -56,10 +56,16 @@
 	let selectedConfigId: string = '';
 	let configLoadError: string = '';
 
+	// Edge function logs
+	let edgeLogs: any[] = [];
+	let logsLoading = false;
+	let logsFilter: string = '';
+
 	// Tabs
 	const tabs = [
 		{ id: 'settings', label: 'Server Settings', labelAr: 'إعدادات الخادم', icon: '⚙️' },
-		{ id: 'products', label: 'Synced Products', labelAr: 'المنتجات المتزامنة', icon: '📦' }
+		{ id: 'products', label: 'Synced Products', labelAr: 'المنتجات المتزامنة', icon: '📦' },
+		{ id: 'logs', label: 'Edge Function Logs', labelAr: 'سجلات الوظائف', icon: '📋' }
 	];
 
 	// Pagination (server-side)
@@ -81,6 +87,12 @@
 		loadSyncedProducts();
 	}
 
+	// Reactive: filtered edge logs
+	$: filteredLogs = edgeLogs.filter(log => {
+		if (!logsFilter) return true;
+		return log.jobname.toLowerCase().includes(logsFilter.toLowerCase());
+	});
+
 	function goToPage(page: number) {
 		currentPage = page;
 		loadSyncedProducts();
@@ -92,6 +104,44 @@
 		await loadSavedConfigs();
 		await loadSyncedProducts();
 	});
+
+	async function loadEdgeLogs() {
+		logsLoading = true;
+		try {
+			const { data, error } = await supabase.rpc('get_edge_function_logs', { p_limit: 200 });
+			if (error) throw error;
+			edgeLogs = data || [];
+		} catch (err: any) {
+			console.error('Error loading edge function logs:', err);
+		} finally {
+			logsLoading = false;
+		}
+	}
+
+	function formatLogTime(ts: string): string {
+		if (!ts) return '-';
+		const d = new Date(ts);
+		// Convert to Saudi time
+		return d.toLocaleString('en-GB', { 
+			day: '2-digit', month: '2-digit', year: 'numeric',
+			hour: '2-digit', minute: '2-digit', second: '2-digit',
+			hour12: true, timeZone: 'Asia/Riyadh'
+		});
+	}
+
+	function getJobIcon(jobname: string): string {
+		if (jobname.includes('fingerprint')) return '👆';
+		if (jobname.includes('attendance')) return '📊';
+		if (jobname.includes('erp') || jobname.includes('sync')) return '🏭';
+		return '⚡';
+	}
+
+	function getStatusBadge(status: string): { color: string; label: string } {
+		if (status === 'succeeded') return { color: 'bg-emerald-100 text-emerald-700', label: '✅ Success' };
+		if (status === 'failed') return { color: 'bg-red-100 text-red-700', label: '❌ Failed' };
+		if (status === 'running') return { color: 'bg-blue-100 text-blue-700', label: '⏳ Running' };
+		return { color: 'bg-slate-100 text-slate-600', label: status };
+	}
 
 	async function loadSavedConfigs() {
 		try {
@@ -469,7 +519,7 @@
 		{#each tabs as tab}
 			<button
 				class="flex items-center gap-2 px-4 py-2.5 font-bold rounded-xl transition-all text-xs border-none cursor-pointer {activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}"
-				on:click={() => activeTab = tab.id}
+				on:click={() => { activeTab = tab.id; if (tab.id === 'logs' && edgeLogs.length === 0) loadEdgeLogs(); }}
 			>
 				<span>{tab.icon}</span>
 				<span>{isRtl ? tab.labelAr : tab.label}</span>
@@ -746,6 +796,114 @@
 						>⏭</button>
 					</div>
 				{/if}
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Logs Tab -->
+	{#if activeTab === 'logs'}
+		<div class="flex-1 overflow-y-auto p-5 flex flex-col animate-in">
+			<!-- Controls -->
+			<div class="flex gap-3 items-center flex-wrap mb-4">
+				<button
+					class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all text-sm shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed border-none cursor-pointer"
+					on:click={loadEdgeLogs}
+					disabled={logsLoading}
+				>
+					{#if logsLoading}
+						<span class="spinner"></span>
+						{isRtl ? 'جاري التحميل...' : 'Loading...'}
+					{:else}
+						🔄 {isRtl ? 'تحديث السجلات' : 'Refresh Logs'}
+					{/if}
+				</button>
+
+				<!-- Filter by job -->
+				<div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 min-w-[200px] focus-within:border-blue-500 transition-colors">
+					<span class="text-sm">🔍</span>
+					<input
+						type="text"
+						class="flex-1 bg-transparent border-none text-slate-800 text-xs font-medium outline-none"
+						bind:value={logsFilter}
+						placeholder={isRtl ? 'تصفية حسب اسم الوظيفة...' : 'Filter by job name...'}
+					/>
+					{#if logsFilter}
+						<button class="bg-slate-200 border-none text-slate-500 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer text-[10px] hover:bg-slate-300" on:click={() => logsFilter = ''}>✕</button>
+					{/if}
+				</div>
+
+				<!-- Quick filters -->
+				<div class="flex gap-1.5">
+					<button class="px-3 py-1.5 text-xs font-bold rounded-lg border-none cursor-pointer transition-all {logsFilter === '' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" on:click={() => logsFilter = ''}>
+						{isRtl ? 'الكل' : 'All'}
+					</button>
+					<button class="px-3 py-1.5 text-xs font-bold rounded-lg border-none cursor-pointer transition-all {logsFilter === 'fingerprint' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" on:click={() => logsFilter = 'fingerprint'}>
+						👆 Fingerprints
+					</button>
+					<button class="px-3 py-1.5 text-xs font-bold rounded-lg border-none cursor-pointer transition-all {logsFilter === 'attendance' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" on:click={() => logsFilter = 'attendance'}>
+						📊 Attendance
+					</button>
+					<button class="px-3 py-1.5 text-xs font-bold rounded-lg border-none cursor-pointer transition-all {logsFilter === 'erp' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" on:click={() => logsFilter = 'erp'}>
+						🏭 ERP Sync
+					</button>
+				</div>
+
+				<span class="text-xs text-slate-500 whitespace-nowrap px-3 py-1 bg-slate-100 rounded-full font-semibold">
+					{filteredLogs.length} {isRtl ? 'سجل' : 'logs'}
+				</span>
+			</div>
+
+			<!-- Logs Table -->
+			{#if logsLoading}
+				<div class="flex flex-col items-center justify-center gap-3 py-16 text-slate-400">
+					<span class="spinner large"></span>
+					<span>{isRtl ? 'جاري التحميل...' : 'Loading logs...'}</span>
+				</div>
+			{:else if edgeLogs.length === 0}
+				<div class="flex flex-col items-center justify-center gap-2 py-16 text-slate-400">
+					<span class="text-5xl">📋</span>
+					<p>{isRtl ? 'لا توجد سجلات' : 'No logs yet'}</p>
+					<p class="text-xs">{isRtl ? 'اضغط تحديث السجلات لتحميلها' : 'Click Refresh Logs to load'}</p>
+				</div>
+			{:else}
+				<div class="overflow-auto flex-1 rounded-xl border border-slate-200">
+					<table class="w-full border-collapse text-xs">
+						<thead class="sticky top-0 z-10">
+							<tr>
+								<th class="bg-slate-700 text-white px-3 py-2.5 text-center font-bold border-b-2 border-slate-800 border-r border-slate-600 whitespace-nowrap w-[50px]">#</th>
+								<th class="bg-slate-700 text-white px-3 py-2.5 text-start font-bold border-b-2 border-slate-800 border-r border-slate-600 whitespace-nowrap min-w-[200px]">{isRtl ? 'اسم الوظيفة' : 'Job Name'}</th>
+								<th class="bg-slate-700 text-white px-3 py-2.5 text-center font-bold border-b-2 border-slate-800 border-r border-slate-600 whitespace-nowrap w-[110px]">{isRtl ? 'الحالة' : 'Status'}</th>
+								<th class="bg-slate-700 text-white px-3 py-2.5 text-center font-bold border-b-2 border-slate-800 border-r border-slate-600 whitespace-nowrap min-w-[170px]">{isRtl ? 'وقت البدء' : 'Start Time'}</th>
+								<th class="bg-slate-700 text-white px-3 py-2.5 text-center font-bold border-b-2 border-slate-800 border-r border-slate-600 whitespace-nowrap w-[90px]">{isRtl ? 'المدة' : 'Duration'}</th>
+								<th class="bg-slate-700 text-white px-3 py-2.5 text-start font-bold border-b-2 border-slate-800 whitespace-nowrap min-w-[200px]">{isRtl ? 'الرسالة' : 'Message'}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each filteredLogs as log, index}
+								{@const badge = getStatusBadge(log.status)}
+								<tr class="transition-colors duration-150 {index % 2 === 0 ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/50 hover:bg-slate-100'}">
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center text-slate-400">{index + 1}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100">
+										<div class="flex items-center gap-2">
+											<span>{getJobIcon(log.jobname)}</span>
+											<span class="font-bold text-slate-700">{log.jobname}</span>
+										</div>
+									</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center">
+										<span class="px-2 py-1 rounded-full text-[10px] font-bold {badge.color}">{badge.label}</span>
+									</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center font-mono text-slate-600">{formatLogTime(log.start_time)}</td>
+									<td class="px-3 py-2 border-b border-slate-200 border-r border-r-slate-100 text-center font-mono {log.duration_ms > 5000 ? 'text-amber-600 font-bold' : 'text-slate-500'}">
+										{log.duration_ms ? `${log.duration_ms.toFixed(1)}ms` : '-'}
+									</td>
+									<td class="px-3 py-2 border-b border-slate-200 text-slate-500 truncate max-w-[300px]" title={log.return_message || ''}>
+										{log.return_message || '-'}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 			{/if}
 		</div>
 	{/if}

@@ -24,6 +24,7 @@
 	// import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
+	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
@@ -44,6 +45,14 @@
 	let showUpdatePrompt = false;
 	let needRefresh;
 	let updateServiceWorker;
+
+	// Sync local showUpdatePrompt with global store
+	$: {
+		updateAvailable.set(showUpdatePrompt);
+		if (showUpdatePrompt) {
+			triggerUpdate.set(handlePWAUpdate);
+		}
+	}
 	
 	// Popout mode detection
 	let isPopoutMode = false;
@@ -706,15 +715,8 @@
 						// Handle controller change (when new SW takes control)
 						navigator.serviceWorker.addEventListener('controllerchange', () => {
 							console.log('🔄 PWA Service Worker controller changed');
-							
-							// Don't reload on sales report page to preserve real-time updates
-							const isSalesReportPage = typeof window !== 'undefined' && 
-								(window.location.pathname.includes('/master/finance') || 
-								 window.location.pathname.includes('sales-report'));
-							
-							if (isSalesReportPage) {
-								console.log('📊 On sales report page - skipping auto-reload to preserve real-time updates');
-							} else {
+							// Only reload if user explicitly chose to update (not auto)
+							if (!showUpdatePrompt) {
 								window.location.reload();
 							}
 						});
