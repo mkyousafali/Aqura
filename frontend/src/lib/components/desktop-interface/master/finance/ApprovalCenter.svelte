@@ -37,6 +37,10 @@
 	let pendingRequisitionId = null;
 	let rejectionReason = '';
 
+	// Day-off approval modal state
+	let showDayOffApproveModal = false;
+	let dayOffCheckedDates = {}; // id -> checked (boolean)
+
 	// Stats for approvals assigned to me
 	let stats = {
 		pending: 0,
@@ -434,8 +438,8 @@
 	if (dayOffRequestsError) {
 		console.error('❌ Error loading day off requests:', dayOffRequestsError);
 	} else {
-		dayOffRequests = dayOffRequestsData || [];
-		console.log('✅ Day off approval requests:', dayOffRequests.length, dayOffRequests);
+		dayOffRequests = groupDayOffRequests(dayOffRequestsData || []);
+		console.log('✅ Day off approval requests (grouped):', dayOffRequests.length);
 	}
 	
 	// Process my day off requests
@@ -443,8 +447,8 @@
 	if (myDayOffRequestsError) {
 		console.error('❌ Error loading my day off requests:', myDayOffRequestsError);
 	} else {
-		myDayOffRequests = myDayOffRequestsData || [];
-		console.log('✅ My day off requests:', myDayOffRequests.length, myDayOffRequests);
+		myDayOffRequests = groupDayOffRequests(myDayOffRequestsData || []);
+		console.log('✅ My day off requests (grouped):', myDayOffRequests.length);
 	}
 	
 	// Initialize empty arrays for historical data (will load on demand)
@@ -1090,7 +1094,8 @@ async function loadHistoricalData() {
 
 				notifications.add({ type: 'success', message: 'Purchase voucher approved successfully!' });
 			} else if (selectedRequisition.item_type === 'day_off') {
-				// Update day off status to approved
+				// Update day off status to approved (handle grouped requests)
+				const idsToApprove = selectedRequisition._allIds || [requisitionId];
 				const { error: updateError } = await supabase
 					.from('day_off')
 					.update({
@@ -1098,16 +1103,19 @@ async function loadHistoricalData() {
 						approval_approved_by: $currentUser.id,
 						approval_approved_at: new Date().toISOString()
 					})
-					.eq('id', requisitionId);
+					.in('id', idsToApprove);
 
 				if (updateError) throw updateError;
 
 				// Send notification to the requester
 				try {
 					if (selectedRequisition.approval_requested_by) {
+						const dateInfo = selectedRequisition._dayCount > 1
+							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${selectedRequisition._dayCount} days)`
+							: `for ${selectedRequisition.day_off_date}`;
 						await notificationService.createNotification({
 							title: 'Leave Request Approved',
-							message: `Your leave request for ${selectedRequisition.day_off_date} has been approved!\n\nApproved by: ${$currentUser?.username}`,
+							message: `Your leave request ${dateInfo} has been approved!\n\nApproved by: ${$currentUser?.username}`,
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1352,24 +1360,30 @@ async function loadHistoricalData() {
 
 				notifications.add({ type: 'warning', message: 'Purchase voucher rejected successfully!' });
 			} else if (selectedRequisition.item_type === 'day_off') {
-				// Update day off status to rejected
+				// Update day off status to rejected (handle grouped requests)
+				const idsToReject = selectedRequisition._allIds || [requisitionId];
 				const { error: updateError } = await supabase
 					.from('day_off')
 					.update({
 						approval_status: 'rejected',
 						rejection_reason: reason,
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString(),
 						updated_at: new Date().toISOString()
 					})
-					.eq('id', requisitionId);
+					.in('id', idsToReject);
 
 				if (updateError) throw updateError;
 
 				// Send notification to the requester
 				try {
 					if (selectedRequisition.approval_requested_by) {
+						const dateInfo = selectedRequisition._dayCount > 1
+							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${selectedRequisition._dayCount} days)`
+							: `for ${selectedRequisition.day_off_date}`;
 						await notificationService.createNotification({
 							title: 'Leave Request Rejected',
-							message: `Your leave request for ${selectedRequisition.day_off_date} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
+							message: `Your leave request ${dateInfo} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
 							type: 'assignment_rejected',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1469,6 +1483,194 @@ async function loadHistoricalData() {
 			hour: '2-digit',
 			minute: '2-digit'
 		});
+	}
+
+	function formatDateOnly(dateString) {
+		if (!dateString) return 'N/A';
+		return new Date(dateString).toLocaleDateString('en-US', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			timeZone: 'Asia/Riyadh'
+		});
+	}
+
+	// Group day-off requests by employee + submission time + reason (same batch)
+	function groupDayOffRequests(dayOffs) {
+		const groups = new Map();
+		for (const d of dayOffs) {
+			// Truncate timestamp to minute level so batch inserts with slightly different seconds still group together
+			let approvalMinute = '';
+			if (d.approval_requested_at) {
+				const dt = new Date(d.approval_requested_at);
+				approvalMinute = `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}-${dt.getHours()}-${dt.getMinutes()}`;
+			}
+			// Group by employee_id + approval time (minute) + reason (same batch submission)
+			const key = `${d.employee_id}_${approvalMinute}_${d.day_off_reason_id || ''}`;
+			if (!groups.has(key)) {
+				groups.set(key, []);
+			}
+			groups.get(key).push(d);
+		}
+		
+		const grouped = [];
+		for (const [key, records] of groups) {
+			// Sort records by date
+			records.sort((a, b) => (a.day_off_date || '').localeCompare(b.day_off_date || ''));
+			
+			const first = records[0];
+			const last = records[records.length - 1];
+			
+			grouped.push({
+				...first,
+				// Add grouped info
+				_grouped: true,
+				_allIds: records.map(r => r.id),
+				_allDates: records.map(r => r.day_off_date),
+				_dateFrom: first.day_off_date,
+				_dateTo: last.day_off_date,
+				_dayCount: records.length
+			});
+		}
+		
+		return grouped;
+	}
+
+	// Open day-off approve modal with all dates pre-checked
+	function openDayOffApproveModal(req) {
+		selectedRequisition = req;
+		dayOffCheckedDates = {};
+		const allIds = req._allIds || [req.id];
+		const allDates = req._allDates || [req.day_off_date];
+		for (let i = 0; i < allIds.length; i++) {
+			dayOffCheckedDates[allIds[i]] = true;
+		}
+		showDayOffApproveModal = true;
+	}
+
+	// Reject day-off instantly (all days, no popup)
+	async function rejectDayOffInstant(req) {
+		if (isProcessing) return;
+		selectedRequisition = req;
+		try {
+			isProcessing = true;
+			const idsToReject = req._allIds || [req.id];
+			const { error: updateError } = await supabase
+				.from('day_off')
+				.update({
+					approval_status: 'rejected',
+					approval_approved_by: $currentUser.id,
+					approval_approved_at: new Date().toISOString(),
+					rejection_reason: 'Rejected by approver'
+				})
+				.in('id', idsToReject);
+
+			if (updateError) throw updateError;
+
+			// Send notification
+			try {
+				if (req.approval_requested_by) {
+					const dateInfo = req._dayCount > 1
+						? `from ${req._dateFrom} to ${req._dateTo} (${req._dayCount} days)`
+						: `for ${req.day_off_date}`;
+					await notificationService.createNotification({
+						title: 'Leave Request Rejected',
+						message: `Your leave request ${dateInfo} has been rejected.\n\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [req.approval_requested_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+				}
+			} catch (notifError) {
+				console.error('⚠️ Failed to send rejection notification:', notifError);
+			}
+
+			notifications.add({ type: 'success', message: 'Leave request rejected.' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error rejecting day off:', err);
+			notifications.add({ type: 'error', message: 'Failed to reject leave request.' });
+		} finally {
+			isProcessing = false;
+			selectedRequisition = null;
+		}
+	}
+
+	// Confirm day-off approval (approve checked, reject unchecked)
+	async function confirmDayOffApproval() {
+		if (!selectedRequisition || isProcessing) return;
+		try {
+			isProcessing = true;
+			const allIds = selectedRequisition._allIds || [selectedRequisition.id];
+			const approvedIds = allIds.filter(id => dayOffCheckedDates[id]);
+			const rejectedIds = allIds.filter(id => !dayOffCheckedDates[id]);
+
+			// Approve checked days
+			if (approvedIds.length > 0) {
+				const { error } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'approved',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString()
+					})
+					.in('id', approvedIds);
+				if (error) throw error;
+			}
+
+			// Reject unchecked days
+			if (rejectedIds.length > 0) {
+				const { error } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'rejected',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString(),
+						rejection_reason: 'Partially rejected by approver'
+					})
+					.in('id', rejectedIds);
+				if (error) throw error;
+			}
+
+			// Send notification
+			try {
+				if (selectedRequisition.approval_requested_by) {
+					let message = '';
+					if (rejectedIds.length === 0) {
+						const dateInfo = approvedIds.length > 1
+							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${approvedIds.length} days)`
+							: `for ${selectedRequisition.day_off_date}`;
+						message = `Your leave request ${dateInfo} has been approved!\n\nApproved by: ${$currentUser?.username}`;
+					} else {
+						message = `Your leave request has been partially approved.\n\n✅ Approved: ${approvedIds.length} day(s)\n❌ Rejected: ${rejectedIds.length} day(s)\n\nApproved/Rejected by: ${$currentUser?.username}`;
+					}
+					await notificationService.createNotification({
+						title: rejectedIds.length === 0 ? 'Leave Request Approved' : 'Leave Request Partially Approved',
+						message,
+						type: 'assignment_approved',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [selectedRequisition.approval_requested_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+				}
+			} catch (notifError) {
+				console.error('⚠️ Failed to send notification:', notifError);
+			}
+
+			const msg = rejectedIds.length === 0
+				? 'Leave request approved!'
+				: `Leave: ${approvedIds.length} approved, ${rejectedIds.length} rejected.`;
+			notifications.add({ type: 'success', message: msg });
+			showDayOffApproveModal = false;
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error processing day off approval:', err);
+			notifications.add({ type: 'error', message: 'Failed to process leave request.' });
+		} finally {
+			isProcessing = false;
+			selectedRequisition = null;
+		}
 	}
 
 </script>
@@ -1846,9 +2048,9 @@ async function loadHistoricalData() {
 										{/if}
 									</td>
 								{:else if req.item_type === 'day_off'}
-									<!-- Day Off Request Row -->
+									<!-- Day Off Request Row (Grouped) -->
 									<td class="req-number">
-										<span class="schedule-badge day-off">📅 DAY OFF</span>
+										<span class="schedule-badge day-off">📅 DAY OFF {#if req._dayCount > 1}({req._dayCount} days){/if}</span>
 									</td>
 									<td>-</td>
 									<td>
@@ -1866,8 +2068,8 @@ async function loadHistoricalData() {
 									</td>
 									<td>
 										<div class="category-info">
-											<div>Day Off Request</div>
-											<div class="category-ar">طلب إجازة يوم</div>
+											<div>{req.reason ? (req.reason.reason_en || 'Day Off Request') : 'Day Off Request'}</div>
+											<div class="category-ar">{req.reason ? (req.reason.reason_ar || 'طلب إجازة يوم') : 'طلب إجازة يوم'}</div>
 										</div>
 									</td>
 									<td class="amount">-</td>
@@ -1877,17 +2079,23 @@ async function loadHistoricalData() {
 											{(req.approval_status || 'pending').toUpperCase()}
 										</span>
 									</td>
-									<td class="date due-date">{req.day_off_date ? formatDate(req.day_off_date) : '-'}</td>
+									<td class="date due-date">
+										{#if req._dayCount > 1}
+											{formatDateOnly(req._dateFrom)} → {formatDateOnly(req._dateTo)}
+										{:else}
+											{req.day_off_date ? formatDateOnly(req.day_off_date) : '-'}
+										{/if}
+									</td>
 									<td class="date">{formatDate(req.approval_requested_at)}</td>
 									<td class="action-buttons">
 										<button class="btn-view" on:click={() => openDetail(req)}>
 											👁️
 										</button>
 										{#if req.approval_status === 'pending' && activeSection === 'approvals' && userCanApprove}
-											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+											<button class="btn-approve-inline" on:click={() => openDayOffApproveModal(req)} disabled={isProcessing}>
 												✅
 											</button>
-											<button class="btn-reject-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+											<button class="btn-reject-inline" on:click={() => rejectDayOffInstant(req)} disabled={isProcessing}>
 												❌
 											</button>
 										{/if}
@@ -2353,7 +2561,7 @@ async function loadHistoricalData() {
 						</div>
 					</div>
 				{:else if selectedRequisition.item_type === 'day_off'}
-					<!-- Day Off Request Details -->
+					<!-- Day Off Request Details (Grouped) -->
 					<div class="detail-grid">
 						<div class="detail-item">
 							<label>Request Status</label>
@@ -2376,10 +2584,35 @@ async function loadHistoricalData() {
 							</div>
 						</div>
 
-						<div class="detail-item">
-							<label>Day Off Date</label>
-							<div class="detail-value">{selectedRequisition.day_off_date ? formatDate(selectedRequisition.day_off_date) : '-'}</div>
-						</div>
+						{#if selectedRequisition._dayCount > 1}
+							<div class="detail-item">
+								<label>Date Range</label>
+								<div class="detail-value">
+									{formatDateOnly(selectedRequisition._dateFrom)} → {formatDateOnly(selectedRequisition._dateTo)}
+								</div>
+							</div>
+							<div class="detail-item">
+								<label>Total Days</label>
+								<div class="detail-value">
+									📅 {selectedRequisition._dayCount} days
+								</div>
+							</div>
+							<div class="detail-item full-width">
+								<label>All Dates</label>
+								<div class="detail-value" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+									{#each (selectedRequisition._allDates || []) as dayDate}
+										<span style="background: #f0f7ff; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; border: 1px solid #dbeafe;">
+											{formatDateOnly(dayDate)}
+										</span>
+									{/each}
+								</div>
+							</div>
+						{:else}
+							<div class="detail-item">
+								<label>Day Off Date</label>
+								<div class="detail-value">{selectedRequisition.day_off_date ? formatDateOnly(selectedRequisition.day_off_date) : '-'}</div>
+							</div>
+						{/if}
 
 						<div class="detail-item">
 							<label>Reason</label>
@@ -2476,22 +2709,41 @@ async function loadHistoricalData() {
 							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? 'This schedule is assigned to a different approver.' : 'Please contact your administrator for approval permissions.'}</small>
 						</div>
 					{/if}
-					<button
-						class="btn-approve"
-						on:click={() => showApprovalConfirm(selectedRequisition.id)}
-						disabled={isProcessing || !canApproveThis}
-						title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
-					>
-						{isProcessing ? '⏳ Processing...' : '✅ Approve'}
-					</button>
-					<button
-						class="btn-reject"
-						on:click={() => showRejectionConfirm(selectedRequisition.id)}
-						disabled={isProcessing || !canApproveThis}
-						title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
-					>
-						{isProcessing ? '⏳ Processing...' : '❌ Reject'}
-					</button>
+					{#if selectedRequisition.item_type === 'day_off'}
+						<button
+							class="btn-approve"
+							on:click={() => { closeDetail(); openDayOffApproveModal(selectedRequisition); }}
+							disabled={isProcessing || !canApproveThis}
+							title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
+						>
+							{isProcessing ? '⏳ Processing...' : '✅ Approve'}
+						</button>
+						<button
+							class="btn-reject"
+							on:click={() => { closeDetail(); rejectDayOffInstant(selectedRequisition); }}
+							disabled={isProcessing || !canApproveThis}
+							title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
+						>
+							{isProcessing ? '⏳ Processing...' : '❌ Reject'}
+						</button>
+					{:else}
+						<button
+							class="btn-approve"
+							on:click={() => showApprovalConfirm(selectedRequisition.id)}
+							disabled={isProcessing || !canApproveThis}
+							title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
+						>
+							{isProcessing ? '⏳ Processing...' : '✅ Approve'}
+						</button>
+						<button
+							class="btn-reject"
+							on:click={() => showRejectionConfirm(selectedRequisition.id)}
+							disabled={isProcessing || !canApproveThis}
+							title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
+						>
+							{isProcessing ? '⏳ Processing...' : '❌ Reject'}
+						</button>
+					{/if}
 				{:else}
 					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
 					<div class="status-info">
@@ -2502,6 +2754,43 @@ async function loadHistoricalData() {
 			</div>
 		</div>
 	</div>
+{/if}
+
+<!-- Day Off Approve Modal (date checkboxes) -->
+{#if showDayOffApproveModal && selectedRequisition}
+<div class="confirm-overlay" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+	<div class="confirm-modal dayoff-modal" on:click|stopPropagation>
+		<h3 class="confirm-title">✅ Approve Leave Request</h3>
+		<p class="confirm-message" style="margin-bottom: 0.75rem;">
+			<strong>{selectedRequisition.employee ? (selectedRequisition.employee.name_en || selectedRequisition.employee.name_ar || 'N/A') : 'N/A'}</strong>
+			— {selectedRequisition.reason ? (selectedRequisition.reason.reason_en || selectedRequisition.reason.reason_ar || '') : ''}
+		</p>
+		<p class="confirm-message" style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
+			Uncheck any days you want to reject
+		</p>
+		<div class="dayoff-dates-list">
+			{#each (selectedRequisition._allIds || [selectedRequisition.id]) as dayId, i}
+				{@const dayDate = (selectedRequisition._allDates || [selectedRequisition.day_off_date])[i]}
+				<label class="dayoff-date-row" class:unchecked={!dayOffCheckedDates[dayId]}>
+					<input type="checkbox" bind:checked={dayOffCheckedDates[dayId]} />
+					<span class="dayoff-date-text">{formatDateOnly(dayDate)}</span>
+				</label>
+			{/each}
+		</div>
+		<div class="confirm-actions" style="margin-top: 1rem;">
+			<button class="btn-confirm-cancel" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+				Cancel
+			</button>
+			<button 
+				class="btn-confirm-ok approve" 
+				on:click={confirmDayOffApproval}
+				disabled={isProcessing || Object.values(dayOffCheckedDates).every(v => !v)}
+			>
+				{isProcessing ? 'Processing...' : `Accept (${Object.values(dayOffCheckedDates).filter(v => v).length})`}
+			</button>
+		</div>
+	</div>
+</div>
 {/if}
 
 <!-- Confirmation Modal -->
@@ -3472,5 +3761,51 @@ async function loadHistoricalData() {
 	border-top-color: white;
 	border-radius: 50%;
 	animation: spin 0.6s linear infinite;
+}
+
+/* Day Off Approve Modal */
+.dayoff-modal {
+	max-width: 480px;
+}
+
+.dayoff-dates-list {
+	max-height: 300px;
+	overflow-y: auto;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+	padding: 0.5rem;
+}
+
+.dayoff-date-row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: background 0.15s;
+	user-select: none;
+}
+
+.dayoff-date-row:hover {
+	background: #f0f7ff;
+}
+
+.dayoff-date-row.unchecked {
+	opacity: 0.5;
+	text-decoration: line-through;
+}
+
+.dayoff-date-row input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	accent-color: #10b981;
+	cursor: pointer;
+}
+
+.dayoff-date-text {
+	font-size: 0.95rem;
+	font-weight: 500;
+	color: #1e293b;
 }
 </style>
