@@ -689,11 +689,8 @@
 							if (newWorker) {
 								newWorker.addEventListener('statechange', () => {
 									if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-										console.log('🆕 New PWA version available - badge updated (no popup)');
-										// Only update the store badge, don't show popup modal
-										// User can click the update button on the logo card when ready
-										updateAvailable.set(true);
-										triggerUpdate.set(handlePWAUpdate);
+										console.log('🆕 New PWA version available - badge only, no popup');
+										showUpdatePrompt = true;
 									}
 								});
 							}
@@ -1163,40 +1160,7 @@
 						</div>
 					</div>
 				</div>
-			{/if}				<!-- PWA Update Prompt -->
-				{#if showUpdatePrompt}
-					<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-						<div class="max-w-md w-full mx-4">
-							<div class="bg-white rounded-lg shadow-xl">
-								<div class="p-6">
-									<div class="flex items-center justify-center mb-4">
-										<div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-											<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-											</svg>
-										</div>
-									</div>
-									<h3 class="text-lg font-semibold text-gray-900 text-center mb-2">Update Available</h3>
-									<p class="text-gray-600 text-center mb-6">A new version of Aqura is available. Update now to get the latest features and improvements.</p>
-									<div class="flex gap-3">
-										<button
-											on:click={dismissUpdate}
-											class="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
-										>
-											Later
-										</button>
-										<button
-											on:click={handlePWAUpdate}
-											class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-										>
-											Update Now
-										</button>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				{/if}
+			{/if}				<!-- PWA Update Prompt removed - update only via logo card badge -->
 			</div>
 			
 			<!-- Taskbar -->
