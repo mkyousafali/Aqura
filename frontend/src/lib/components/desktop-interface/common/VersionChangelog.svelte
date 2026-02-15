@@ -5,15 +5,37 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ46.20.12.13</p>
-		<p class="version-details">Desktop: 46 | Mobile: 20 | Cashier: 12 | Customer: 13</p>
+		<p class="version-title">Version AQ48.22.14.15</p>
+		<p class="version-details">Desktop: 48 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ Offer Cost Manager with Price Comparison, Mobile Price Checker & ERP Bridge Enhancements</h3>
+		<p class="change-description">New Offer Cost Manager for desktop with multi-branch ERP price comparison, barcode/name search, editable compared prices, and Quick Task price change workflow. New mobile Price Checker page with barcode scanning and offer detection. ERP Bridge enhanced with query and price-check endpoints plus service control panel.</p>
+		<div class="change-details">
+			<h4>February 16, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Offer Cost Manager — New Component:</b> Full-featured Price Comparison table that loads offer products and fetches cost/sales prices from all ERP branches in parallel. 6-location barcode search across ProductUnits, ProductBatches (Manual, Auto, Unit2, Unit3), and ProductBarcodes tables with ROW_NUMBER deduplication.</li>
+				<li>✅ <b>Search by Barcode:</b> Dedicated barcode search input (violet themed, mono font) — enter comma/space-separated barcodes to look up prices across all selected branches without needing an offer.</li>
+				<li>✅ <b>Search by Name:</b> Dedicated name search input (sky blue themed) — ILIKE search on product_name_en and product_name_ar in Supabase, limited to 100 results, then fetches ERP prices for matches.</li>
+				<li>✅ <b>Compared Prices Column:</b> Auto-calculates highest cost (with VAT) and highest sales price across branches. Double-click to edit and override values. Reactivity fix: creates new row object references so Svelte properly re-renders branch cells when overrides change.</li>
+				<li>✅ <b>Bidirectional Price Arrows:</b> Branch cells show ↓ red background when cost is lower than compared, ↑ orange background when higher. Sales price cells show ↓ yellow when lower, ↑ light yellow when higher. Green ✓ checkmark when prices match.</li>
+				<li>✅ <b>Send Price — Quick Tasks:</b> Per-row and Send All buttons create Quick Tasks assigned to each branch's inventory manager with barcode, product name, current vs. target price, and 24-hour deadline.</li>
+				<li>✅ <b>Branch Selector:</b> Checkbox dropdown to select which branches to compare. VAT percentage input (default 15%). All branches selected by default on mount.</li>
+				<li>✅ <b>Mobile Price Checker:</b> New mobile page at /mobile-interface/price-checker with branch selection, connection testing, barcode camera scanning (BarcodeDetector API), manual barcode entry, and rich product display with offer detection (Cash Discount, Buy N Get M Free, Gift on Billing, Qty offers). Scan history with up to 20 items.</li>
+				<li>✅ <b>ERP Bridge — Query Endpoint:</b> New /query endpoint on bridge server accepts read-only SELECT queries with safety validation. Proxied through /api/erp-products with query action.</li>
+				<li>✅ <b>ERP Bridge — Price-Check Endpoint:</b> New /price-check endpoint performs barcode lookup + active offer detection in a single round-trip. Searches ProductUnits → ProductBarcodes → ProductBatches, then checks SpecialPriceScheme, QuantityDiscountScheme, and GiftOnBilling tables in parallel.</li>
+				<li>✅ <b>Setup Wizard — Service Controls:</b> New Service Status panel with Start/Stop/Restart buttons for both Bridge API and Cloudflare Tunnel services. Real-time status indicators with running/stopped states. HTTP/2 fallback when QUIC protocol is blocked by network.</li>
+				<li>✅ <b>i18n Updates:</b> Added searchByBarcode and searchByName translation keys in both English and Arabic locale files.</li>
+			</ul>
+		</div>
+		</div>
+
+		<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ Comprehensive Arabic Translation for Mobile Interface</h3>
 		<p class="change-description">Full Arabic (RTL) translation across 20+ mobile pages including approval center, notifications, assignments, tasks, POS closed boxes, receiving tasks, and more. Bilingual helpers, relative time display, status badge translations, and employee name localization.</p>
 		<div class="change-details">
-			<h4>February 15, 2026 (Latest):</h4>
+			<h4>February 15, 2026:</h4>
 			<ul>
 				<li>✅ <b>Approval Center — Full Arabic:</b> All labels, badges, buttons, modals, toasts, empty states translated. Status badges (Pending/Approved/Rejected) show in Arabic. Requester and employee names display Arabic names from hr_employee_master. Day-off reasons show in correct language. Relative time display ("3 days ago" / "منذ 3 يوم") for date fields.</li>
 				<li>✅ <b>Notifications — Full Arabic:</b> Notification list page, detail page, and create notification page fully translated with RTL support. Date formatting, empty states, and action buttons all bilingual.</li>
