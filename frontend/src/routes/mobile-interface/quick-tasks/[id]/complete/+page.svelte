@@ -592,7 +592,7 @@
 			});
 			
 			setTimeout(() => {
-				goto('/mobile-interface/assignments');
+				goto('/mobile-interface/tasks');
 			}, 2000);
 			
 		} catch (error) {
@@ -642,7 +642,7 @@
 			<h2>Access Denied</h2>
 			<p>This quick task is not assigned to you. Only assigned users can complete tasks.</p>
 			<div class="error-actions">
-				<button class="back-btn" on:click={() => goto('/mobile-interface/assignments')}>
+				<button class="back-btn" on:click={() => goto('/mobile-interface/tasks')}>
 					← Back to Assignments
 				</button>
 			</div>
@@ -888,7 +888,7 @@
 
 		<!-- Actions -->
 		<div class="actions">
-			<button class="cancel-btn" on:click={() => goto('/mobile-interface/assignments')} disabled={isSubmitting}>
+			<button class="cancel-btn" on:click={() => goto('/mobile-interface/tasks')} disabled={isSubmitting}>
 				Cancel
 			</button>
 			<button 

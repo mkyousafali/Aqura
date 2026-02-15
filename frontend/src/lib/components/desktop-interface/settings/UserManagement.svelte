@@ -18,6 +18,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let branchFilter = '';
 	let statusFilter = '';
 
+	// Change Branch modal state
+	let showChangeBranchModal = false;
+	let changeBranchUser = null;
+	let selectedBranchId = '';
+	let changeBranchLoading = false;
+	let changeBranchError = '';
+
 	// Load data from database on mount
 	onMount(async () => {
 		await loadData();
@@ -199,6 +206,59 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		return employeeData.id || user.employee_code || null;
 	}
 
+	// Build branch lookup map for location info
+	$: branchLocationMap = new Map(branches.map(b => [b.id.toString(), { location_en: b.location_en, location_ar: b.location_ar }]));
+
+	// Open Change Branch modal
+	function openChangeBranch(user) {
+		changeBranchUser = user;
+		selectedBranchId = user.branch_id ? user.branch_id.toString() : '';
+		changeBranchError = '';
+		showChangeBranchModal = true;
+	}
+
+	// Save branch change
+	async function saveBranchChange() {
+		if (!changeBranchUser || !selectedBranchId) return;
+
+		changeBranchLoading = true;
+		changeBranchError = '';
+
+		try {
+			const branchIdNum = parseInt(selectedBranchId);
+
+			// 1. Update users table branch_id
+			const { error: userError } = await supabase
+				.from('users')
+				.update({ branch_id: branchIdNum })
+				.eq('id', changeBranchUser.id);
+
+			if (userError) {
+				throw new Error('Failed to update user branch: ' + userError.message);
+			}
+
+			// 2. Update hr_employee_master current_branch_id
+			const { error: empError } = await supabase
+				.from('hr_employee_master')
+				.update({ current_branch_id: branchIdNum })
+				.eq('user_id', changeBranchUser.id);
+
+			if (empError) {
+				console.warn('Could not update hr_employee_master:', empError.message);
+			}
+
+			// Close modal and reload data
+			showChangeBranchModal = false;
+			changeBranchUser = null;
+			await loadData();
+		} catch (err) {
+			console.error('Error changing branch:', err);
+			changeBranchError = err.message || 'Failed to change branch';
+		} finally {
+			changeBranchLoading = false;
+		}
+	}
+
 	// Filtered users based on search and filters
 	$: filteredUsers = users.filter(user => {
 		const employeeNameObj = getEmployeeNameFull(user);
@@ -352,7 +412,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{user.position_title || 'Not Assigned'}
 									</td>
 									<td class="branch-cell">
-										{user.branch_name || 'Not Assigned'}
+										{#if user.branch_name}
+											<div class="branch-info">
+												<div class="branch-name">{user.branch_name}</div>
+												{#if user.branch_id && branchLocationMap.has(user.branch_id.toString())}
+													<div class="branch-location">{branchLocationMap.get(user.branch_id.toString()).location_en}</div>
+													{#if branchLocationMap.get(user.branch_id.toString()).location_ar}
+														<div class="branch-location-ar">{branchLocationMap.get(user.branch_id.toString()).location_ar}</div>
+													{/if}
+												{/if}
+												<button class="change-branch-btn" on:click={() => openChangeBranch(user)}>Change Branch</button>
+											</div>
+										{:else}
+											<span class="not-assigned">Not Assigned</span>
+											<button class="change-branch-btn" on:click={() => openChangeBranch(user)}>Assign Branch</button>
+										{/if}
 									</td>
 									<td class="access-code-cell">
 										{#if user.quick_access_code}
@@ -426,6 +500,48 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</div>
 	{/if}
 </div>
+
+<!-- Change Branch Modal -->
+{#if showChangeBranchModal}
+	<div class="modal-overlay" on:click|self={() => showChangeBranchModal = false}>
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 class="modal-title">Change Branch</h3>
+				<button class="modal-close" on:click={() => showChangeBranchModal = false}>&times;</button>
+			</div>
+			<div class="modal-body">
+				<div class="user-info">
+					<div class="info-row">
+						<span class="info-label">User:</span>
+						<span class="info-value">{changeBranchUser?.username}</span>
+					</div>
+					<div class="info-row">
+						<span class="info-label">Current Branch:</span>
+						<span class="info-value">{changeBranchUser?.branch_name || 'Not Assigned'}</span>
+					</div>
+				</div>
+				<div class="form-group">
+					<label class="form-label" for="branch-select">Select New Branch</label>
+					<select id="branch-select" class="form-select" bind:value={selectedBranchId}>
+						<option value="">-- Select Branch --</option>
+						{#each branches as branch}
+							<option value={branch.id.toString()}>{branch.name_en} - {branch.location_en}</option>
+						{/each}
+					</select>
+				</div>
+				{#if changeBranchError}
+					<div class="change-branch-error">{changeBranchError}</div>
+				{/if}
+				<div class="modal-actions">
+					<button class="btn-cancel" on:click={() => showChangeBranchModal = false} disabled={changeBranchLoading}>Cancel</button>
+					<button class="btn-save" on:click={saveBranchChange} disabled={changeBranchLoading || !selectedBranchId}>
+						{changeBranchLoading ? 'Saving...' : 'Save'}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.user-management {
@@ -823,6 +939,127 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.not-assigned {
 		color: #9ca3af;
 		font-style: italic;
+	}
+
+	.branch-info {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.branch-name {
+		font-weight: 500;
+		color: #111827;
+		font-size: 14px;
+	}
+
+	.branch-location {
+		color: #6b7280;
+		font-size: 12px;
+	}
+
+	.branch-location-ar {
+		color: #6b7280;
+		font-size: 12px;
+		direction: rtl;
+	}
+
+	.change-branch-btn {
+		margin-top: 4px;
+		padding: 3px 8px;
+		font-size: 11px;
+		background: #eff6ff;
+		color: #2563eb;
+		border: 1px solid #bfdbfe;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 500;
+	}
+
+	.change-branch-btn:hover {
+		background: #dbeafe;
+		border-color: #93c5fd;
+	}
+
+	.form-group {
+		margin-bottom: 16px;
+	}
+
+	.form-label {
+		display: block;
+		font-weight: 600;
+		color: #374151;
+		margin-bottom: 6px;
+		font-size: 14px;
+	}
+
+	.form-select {
+		width: 100%;
+		padding: 10px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 14px;
+		background: white;
+		outline: none;
+		cursor: pointer;
+	}
+
+	.form-select:focus {
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.change-branch-error {
+		background: #fef2f2;
+		color: #dc2626;
+		padding: 8px 12px;
+		border-radius: 6px;
+		font-size: 13px;
+		margin-bottom: 16px;
+	}
+
+	.modal-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 12px;
+		margin-top: 16px;
+	}
+
+	.btn-cancel {
+		padding: 8px 20px;
+		border: 1px solid #d1d5db;
+		background: white;
+		color: #374151;
+		border-radius: 8px;
+		font-size: 14px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel:hover {
+		background: #f3f4f6;
+	}
+
+	.btn-save {
+		padding: 8px 20px;
+		border: none;
+		background: #3b82f6;
+		color: white;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-save:hover {
+		background: #2563eb;
+	}
+
+	.btn-save:disabled {
+		background: #93c5fd;
+		cursor: not-allowed;
 	}
 
 	.role-badge, .status-badge {

@@ -376,13 +376,13 @@ export class UserManagementService {
    * Get branches for dropdown
    */
   async getBranches(): Promise<
-    Array<{ id: number; name_en: string; name_ar: string; location_en: string }>
+    Array<{ id: number; name_en: string; name_ar: string; location_en: string; location_ar: string }>
   > {
     console.log("🔍 [UserManagement] Fetching branches...");
 
     const { data, error } = await supabase
       .from("branches")
-      .select("id, name_en, name_ar, location_en")
+      .select("id, name_en, name_ar, location_en, location_ar")
       .eq("is_active", true)
       .order("name_en");
 
