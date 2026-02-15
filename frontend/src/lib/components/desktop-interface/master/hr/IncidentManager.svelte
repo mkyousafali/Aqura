@@ -312,6 +312,20 @@
         
         return false;
     }
+
+    function isClaimedByAnyUser(incident: any): boolean {
+        // Returns true if the incident has been claimed by any user
+        if (incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved') {
+            return true;
+        }
+        if (incident.user_statuses) {
+            const userStatuses = typeof incident.user_statuses === 'string'
+                ? JSON.parse(incident.user_statuses)
+                : incident.user_statuses;
+            return Object.values(userStatuses).some((s: any) => s.status?.toLowerCase() === 'claimed');
+        }
+        return false;
+    }
     
     function hasWarningAction(incident: any): boolean {
         if (!incident.incidentActions || !Array.isArray(incident.incidentActions)) return false;
@@ -492,7 +506,7 @@
     }
     
     async function handleResolveIncident(incident: any) {
-        // Check if current user has claimed this incident
+        // Only claimer can resolve; resolved incidents are viewable by all via openResolutionModal
         if (!isClaimedByCurrentUser(incident)) {
             alert($locale === 'ar' ? 'يجب أن تطالب بالحادثة أولاً' : 'You must claim the incident first');
             return;
@@ -528,16 +542,16 @@
             closable: true,
             props: {
                 incident: incident,
-                viewMode: hasResolution,
+                viewMode: hasResolution || !isClaimedByCurrentUser(incident),
                 onResolved: () => loadIncidents()
             }
         });
     }
 
     function openInvestigationModal(incident: any) {
-        // Check if current user has claimed this incident
-        if (!isClaimedByCurrentUser(incident)) {
-            alert($locale === 'ar' ? 'يجب أن تطالب بالحادثة أولاً' : 'You must claim the incident first');
+        // Claimer can create; anyone can view if investigation exists
+        if (!isClaimedByCurrentUser(incident) && !incident.investigation_report) {
+            alert($locale === 'ar' ? 'يجب مطالبة الحادثة أولاً' : 'The incident must be claimed first');
             return;
         }
         
@@ -562,7 +576,7 @@
             props: {
                 violation: incident.warning_violation,
                 incident: incident,
-                viewMode: hasInvestigation,
+                viewMode: hasInvestigation || !isClaimedByCurrentUser(incident),
                 employees: incidents.reduce((empList: any[], inc) => {
                     const existingEmp = empList.find(e => e.id === inc.employee_id);
                     if (!existingEmp && inc.employeeName) {
@@ -582,14 +596,14 @@
     }
     
     function openWarningModal(incident: any) {
-        // Check if current user has claimed this incident
-        if (!isClaimedByCurrentUser(incident)) {
-            alert($locale === 'ar' ? 'يجب أن تطالب بالحادثة أولاً' : 'You must claim the incident first');
+        // Claimer can issue; anyone can view if warning exists
+        if (!isClaimedByCurrentUser(incident) && !hasWarningAction(incident)) {
+            alert($locale === 'ar' ? 'يجب مطالبة الحادثة أولاً' : 'The incident must be claimed first');
             return;
         }
         
         const existingWarning = getWarningAction(incident);
-        const isViewMode = !!existingWarning;
+        const isViewMode = !!existingWarning || !isClaimedByCurrentUser(incident);
         
         const windowId = `issue-warning-incident-${Date.now()}`;
         openWindow({
@@ -1214,16 +1228,16 @@
                                     </button>
                                     <button
                                         on:click={() => openInvestigationModal(incident)}
-                                        disabled={!isClaimedByCurrentUser(incident)}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'}"
+                                        disabled={!isClaimedByCurrentUser(incident) && !incident.investigation_report}
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && !incident.investigation_report ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'}"
                                         title={$locale === 'ar' ? (incident.investigation_report ? 'عرض التقرير' : 'التحقيق') : (incident.investigation_report ? 'View Report' : 'Investigation')}
                                     >
                                         {$locale === 'ar' ? (incident.investigation_report ? 'تقرير ✓' : 'تحقيق') : (incident.investigation_report ? 'Report ✓' : 'Investigate')}
                                     </button>
                                     <button
                                         on:click={() => openWarningModal(incident)}
-                                        disabled={!isClaimedByCurrentUser(incident)}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'}"
+                                        disabled={!isClaimedByCurrentUser(incident) && !hasWarningAction(incident)}
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && !hasWarningAction(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'}"
                                         title={hasWarningAction(incident) 
                                             ? ($locale === 'ar' ? 'عرض التحذير' : 'View Warning')
                                             : ($locale === 'ar' ? 'إصدار تحذير' : 'Issue warning')}
@@ -1234,8 +1248,8 @@
                                     </button>
                                     <button
                                         on:click={() => incident.resolution_status === 'resolved' ? openResolutionModal(incident) : handleResolveIncident(incident)}
-                                        disabled={!isClaimedByCurrentUser(incident)}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'}"
+                                        disabled={!isClaimedByCurrentUser(incident) && incident.resolution_status !== 'resolved'}
+                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && incident.resolution_status !== 'resolved' ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'}"
                                         title={incident.resolution_status === 'resolved' 
                                             ? ($locale === 'ar' ? 'عرض تقرير الحل' : 'View Resolution')
                                             : ($locale === 'ar' ? 'حل الحادثة' : 'Resolve incident')}

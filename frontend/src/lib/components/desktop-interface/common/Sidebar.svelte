@@ -133,6 +133,7 @@
 	import CustomerProductRequestsList from '$lib/components/desktop-interface/master/stock/CustomerProductRequestsList.svelte';
 	import ErpProductsList from '$lib/components/desktop-interface/master/stock/ErpProductsList.svelte';
 	import OfferCostManager from '$lib/components/desktop-interface/master/stock/OfferCostManager.svelte';
+	import ProductClaimManager from '$lib/components/desktop-interface/master/stock/ProductClaimManager.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -2091,6 +2092,28 @@ function openApprovalCenter() {
 			title: `Customer Requests #${instanceNumber}`,
 			component: CustomerProductRequestsList,
 			icon: '🛍️',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 220 + (Math.random() * 100),
+				y: 220 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openProductClaimManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('product-claim-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: t('nav.productClaimManager'),
+			component: ProductClaimManager,
+			icon: '👤',
 			size: { width: 1200, height: 800 },
 			position: { 
 				x: 220 + (Math.random() * 100),
@@ -4591,6 +4614,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openStockErpProducts}>
 								<span class="menu-icon">🏭</span>
 								<span class="menu-text">{t('nav.erpProducts') || 'ERP Products'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_PRODUCT_CLAIM_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductClaimManager}>
+								<span class="menu-icon">👤</span>
+								<span class="menu-text">{t('nav.productClaimManager') || 'Product Claim Manager'}</span>
 							</button>
 						</div>
 					{/if}

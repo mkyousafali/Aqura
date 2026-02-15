@@ -12,6 +12,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import NotificationCenter from '$lib/components/desktop-interface/master/communication/NotificationCenter.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
 	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
+	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
 	import { getSaudiDayOfWeek, isEmployeeDayOff, isAfterShiftStart, getShiftStartTime } from '$lib/utils/checklistHelpers';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -53,6 +54,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Pending checklist count
 	let pendingChecklistCount = 0;
 
+	// Unresolved incident count
+	let unresolvedIncidentCount = 0;
+
 	onMount(() => {
 		updateTime();
 		timeInterval = setInterval(updateTime, 1000);
@@ -72,11 +76,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		// Fetch initial pending checklist count
 		fetchPendingChecklistCount();
 		const checklistInterval = setInterval(fetchPendingChecklistCount, 60000);
+
+		// Fetch initial unresolved incident count
+		fetchUnresolvedIncidentCount();
+		const incidentInterval = setInterval(fetchUnresolvedIncidentCount, 60000);
 		
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
 			if (notificationInterval) clearInterval(notificationInterval);
 			if (checklistInterval) clearInterval(checklistInterval);
+			if (incidentInterval) clearInterval(incidentInterval);
 		};
 	});
 
@@ -319,6 +328,42 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
+	async function fetchUnresolvedIncidentCount() {
+		try {
+			const { count, error: countError } = await supabase
+				.from('incidents')
+				.select('*', { count: 'exact', head: true })
+				.neq('resolution_status', 'resolved');
+
+			if (countError) {
+				console.error('Error fetching incident count:', countError);
+				return;
+			}
+			unresolvedIncidentCount = count || 0;
+		} catch (err) {
+			console.error('Error fetching incident count:', err);
+		}
+	}
+
+	function openIncidentManagerWindow() {
+		const windowId = generateWindowId('incident-manager');
+		openWindow({
+			id: windowId,
+			title: 'Incident Manager',
+			component: IncidentManager,
+			icon: '⚠️',
+			size: { width: 1200, height: 700 },
+			position: { x: 100, y: 50 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+
+		// Refresh count after opening
+		setTimeout(fetchUnresolvedIncidentCount, 1000);
+	}
+
 	function openQuickNotifications() {
 		const windowId = generateWindowId('quick-notifications');
 		
@@ -520,6 +565,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<div class="quick-icon">📒</div>
 			{#if pendingChecklistCount > 0}
 				<div class="quick-badge">{pendingChecklistCount > 99 ? '99+' : pendingChecklistCount}</div>
+			{/if}
+		</button>
+
+		<!-- Incident Manager -->
+		<button 
+			class="quick-btn incident-btn"
+			on:click={openIncidentManagerWindow}
+			title="Incident Manager ({unresolvedIncidentCount} unresolved)"
+		>
+			<div class="quick-icon">⚠️</div>
+			{#if unresolvedIncidentCount > 0}
+				<div class="quick-badge">{unresolvedIncidentCount > 99 ? '99+' : unresolvedIncidentCount}</div>
 			{/if}
 		</button>
 	</div>
@@ -819,6 +876,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.checklist-btn .quick-badge {
 		background: #f97316;
+	}
+
+	.incident-btn {
+		background: rgba(239, 68, 68, 0.15) !important;
+	}
+
+	.incident-btn:hover {
+		background: rgba(239, 68, 68, 0.3) !important;
+	}
+
+	.incident-btn .quick-badge {
+		background: #ef4444;
+		animation: pulse 2s infinite;
 	}
 
 	.system-tray {

@@ -26,11 +26,15 @@
 	let error = '';
 
 	let userCache: Record<string, string> = {};
-	let branchCache: Record<number, string> = {};
+	let branchCache: Record<number, { name: string; location: string }> = {};
 
 	let lightboxUrl: string | null = null;
 	let filterStatus = 'all';
 	let arrivedSet: Set<string> = new Set();
+	let searchQuery = '';
+	let filterBranch = '';
+	let filterDateFrom = '';
+	let filterDateTo = '';
 
 	interface FlatItem {
 		requestId: string;
@@ -134,19 +138,25 @@
 			if (uncachedBranches.length > 0) {
 				const { data: branches } = await supabase
 					.from('branches')
-					.select('id, name_en, name_ar')
+					.select('id, name_en, name_ar, location_en, location_ar')
 					.in('id', uncachedBranches);
 				for (const b of branches || []) {
-					branchCache[b.id] = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+					const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+					const location = $locale === 'ar' ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
+					branchCache[b.id] = { name, location };
 				}
 			}
 
-			requests = rows.map(r => ({
-				...r,
-				requester_name: userCache[r.requester_user_id] || r.requester_user_id,
-				target_name: r.target_user_id ? (userCache[r.target_user_id] || r.target_user_id) : '—',
-				branch_name: r.branch_id ? (branchCache[r.branch_id] || '—') : '—'
-			}));
+			requests = rows.map(r => {
+				const branch = branchCache[r.branch_id];
+				const branchDisplay = branch ? (branch.location ? `${branch.name} — ${branch.location}` : branch.name) : '—';
+				return {
+					...r,
+					requester_name: userCache[r.requester_user_id] || r.requester_user_id,
+					target_name: r.target_user_id ? (userCache[r.target_user_id] || r.target_user_id) : '—',
+					branch_name: r.branch_id ? branchDisplay : '—'
+				};
+			});
 		} catch (err: any) {
 			console.error('Error loading customer requests:', err);
 			error = err?.message || 'Failed to load';
@@ -276,7 +286,46 @@
 		}
 	}
 
-	$: filteredRequests = filterStatus === 'all' ? requests : requests.filter(r => r.status === filterStatus);
+	$: branchOptions = [...new Set(requests.map(r => r.branch_name).filter(b => b && b !== '—'))] as string[];
+
+	$: filteredRequests = requests.filter(r => {
+		if (filterStatus !== 'all' && r.status !== filterStatus) return false;
+		if (filterBranch && r.branch_name !== filterBranch) return false;
+		if (filterDateFrom) {
+			const from = new Date(filterDateFrom);
+			if (new Date(r.created_at) < from) return false;
+		}
+		if (filterDateTo) {
+			const to = new Date(filterDateTo);
+			to.setHours(23, 59, 59, 999);
+			if (new Date(r.created_at) > to) return false;
+		}
+		if (searchQuery.trim()) {
+			const q = searchQuery.trim().toLowerCase();
+			const items = getItemsList(r.items);
+			const matchesItems = items.some(item =>
+				(item.product_name && item.product_name.toLowerCase().includes(q))
+			);
+			if (
+				!(r.requester_name?.toLowerCase().includes(q)) &&
+				!(r.target_name?.toLowerCase().includes(q)) &&
+				!(r.branch_name?.toLowerCase().includes(q)) &&
+				!(r.status?.toLowerCase().includes(q)) &&
+				!matchesItems
+			) return false;
+		}
+		return true;
+	});
+
+	function clearFilters() {
+		searchQuery = '';
+		filterStatus = 'all';
+		filterBranch = '';
+		filterDateFrom = '';
+		filterDateTo = '';
+	}
+
+	$: hasActiveFilters = searchQuery || filterStatus !== 'all' || filterBranch || filterDateFrom || filterDateTo;
 
 	$: flatItems = filteredRequests.flatMap(req => {
 		const items = getItemsList(req.items);
@@ -303,6 +352,10 @@
 			<span class="text-xs font-semibold bg-purple-100 text-purple-600 px-3 py-1 rounded-full">{flatItems.length}</span>
 		</div>
 		<div class="flex items-center gap-2">
+			<div class="relative min-w-[160px] max-w-[240px]">
+				<span class="absolute {$locale === 'ar' ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+				<input type="text" bind:value={searchQuery} placeholder={$locale === 'ar' ? 'بحث...' : 'Search...'} class="w-full {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all" />
+			</div>
 			<select bind:value={filterStatus} class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-400">
 				<option value="all">{$locale === 'ar' ? 'الكل' : 'All'}</option>
 				<option value="pending">{$locale === 'ar' ? 'معلق' : 'Pending'}</option>
@@ -310,6 +363,24 @@
 				<option value="resolved">{$locale === 'ar' ? 'تم الحل' : 'Resolved'}</option>
 				<option value="dismissed">{$locale === 'ar' ? 'مرفوض' : 'Dismissed'}</option>
 			</select>
+			<select bind:value={filterBranch} class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-400 min-w-[110px]">
+				<option value="">{$locale === 'ar' ? 'كل الفروع' : 'All Branches'}</option>
+				{#each branchOptions as branch}
+					<option value={branch}>{branch}</option>
+				{/each}
+			</select>
+			<div class="flex items-center gap-1">
+				<span class="text-[10px] text-slate-400 font-bold">{$locale === 'ar' ? 'من' : 'From'}</span>
+				<input type="date" bind:value={filterDateFrom} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer" />
+			</div>
+			<div class="flex items-center gap-1">
+				<span class="text-[10px] text-slate-400 font-bold">{$locale === 'ar' ? 'إلى' : 'To'}</span>
+				<input type="date" bind:value={filterDateTo} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer" />
+			</div>
+			{#if hasActiveFilters}
+				<button on:click={clearFilters} class="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all">✕ {$locale === 'ar' ? 'مسح' : 'Clear'}</button>
+			{/if}
+			<span class="text-[10px] text-slate-400 font-semibold">{flatItems.length}</span>
 			<button class="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-xs shadow-lg shadow-emerald-200" on:click={exportToExcel}>
 				<span>📥</span> Excel
 			</button>
