@@ -27,8 +27,63 @@
 
 	// Caches
 	let userCache: Record<string, string> = {};
-	let branchCache: Record<number, string> = {};
+	let branchCache: Record<number, { name: string; location: string }> = {};
 	let imageCache: Record<string, string> = {};
+
+	// Search & Filters
+	let searchQuery = '';
+	let filterStatus = '';
+	let filterBranch = '';
+	let filterDateFrom = '';
+	let filterDateTo = '';
+
+	// Derived: unique branches for dropdown
+	$: branchOptions = [...new Set(requests.map(r => r.branch_name).filter(Boolean))] as string[];
+
+	// Derived: filtered requests
+	$: filteredRequests = requests.filter(r => {
+		// Status filter
+		if (filterStatus && r.status !== filterStatus) return false;
+		// Branch filter
+		if (filterBranch && r.branch_name !== filterBranch) return false;
+		// Date range
+		if (filterDateFrom) {
+			const from = new Date(filterDateFrom);
+			if (new Date(r.created_at) < from) return false;
+		}
+		if (filterDateTo) {
+			const to = new Date(filterDateTo);
+			to.setHours(23, 59, 59, 999);
+			if (new Date(r.created_at) > to) return false;
+		}
+		// Search
+		if (searchQuery.trim()) {
+			const q = searchQuery.trim().toLowerCase();
+			const items = getItemsList(r.items);
+			const matchesItems = items.some(item =>
+				(item.barcode && item.barcode.toLowerCase().includes(q)) ||
+				(item.product_name && item.product_name.toLowerCase().includes(q))
+			);
+			if (
+				!(r.requester_name?.toLowerCase().includes(q)) &&
+				!(r.target_name?.toLowerCase().includes(q)) &&
+				!(r.branch_name?.toLowerCase().includes(q)) &&
+				!(r.status?.toLowerCase().includes(q)) &&
+				!matchesItems
+			) return false;
+		}
+		return true;
+	});
+
+	function clearFilters() {
+		searchQuery = '';
+		filterStatus = '';
+		filterBranch = '';
+		filterDateFrom = '';
+		filterDateTo = '';
+	}
+
+	$: hasActiveFilters = searchQuery || filterStatus || filterBranch || filterDateFrom || filterDateTo;
 
 	// Detail view
 	let selectedRequest: STRequest | null = null;
@@ -168,20 +223,26 @@
 			if (uncachedBranches.length > 0) {
 				const { data: branches } = await supabase
 					.from('branches')
-					.select('id, name_en, name_ar')
+					.select('id, name_en, name_ar, location_en, location_ar')
 					.in('id', uncachedBranches);
 				for (const b of branches || []) {
-					branchCache[b.id] = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+					const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+					const location = $locale === 'ar' ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
+					branchCache[b.id] = { name, location };
 				}
 			}
 
 			// Enrich rows
-			requests = rows.map(r => ({
-				...r,
-				requester_name: userCache[r.requester_user_id] || r.requester_user_id,
-				target_name: userCache[r.target_user_id] || r.target_user_id,
-				branch_name: branchCache[r.branch_id] || '—'
-			}));
+			requests = rows.map(r => {
+				const branch = branchCache[r.branch_id];
+				const branchDisplay = branch ? (branch.location ? `${branch.name} — ${branch.location}` : branch.name) : '—';
+				return {
+					...r,
+					requester_name: userCache[r.requester_user_id] || r.requester_user_id,
+					target_name: userCache[r.target_user_id] || r.target_user_id,
+					branch_name: branchDisplay
+				};
+			});
 			// Pre-cache images as blob URLs
 			cacheImages(requests);
 		} catch (err: any) {
@@ -489,6 +550,58 @@
 		{:else}
 			<!-- List View -->
 			<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-8 h-full flex flex-col overflow-hidden">
+				<!-- Search & Filters Bar -->
+				<div class="flex flex-wrap items-center gap-2 mb-4">
+					<!-- Search -->
+					<div class="relative flex-1 min-w-[180px] max-w-[320px]">
+						<span class="absolute {$locale === 'ar' ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+						<input
+							type="text"
+							bind:value={searchQuery}
+							placeholder={$locale === 'ar' ? 'بحث بالاسم، الفرع، الباركود...' : 'Search name, branch, barcode...'}
+							class="w-full {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all"
+						/>
+					</div>
+					<!-- Status Filter -->
+					<select bind:value={filterStatus} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer min-w-[110px]">
+						<option value="">{$locale === 'ar' ? 'كل الحالات' : 'All Status'}</option>
+						<option value="pending">{$locale === 'ar' ? 'قيد الانتظار' : 'Pending'}</option>
+						<option value="approved">{$locale === 'ar' ? 'مقبول' : 'Approved'}</option>
+						<option value="rejected">{$locale === 'ar' ? 'مرفوض' : 'Rejected'}</option>
+						<option value="completed">{$locale === 'ar' ? 'مكتمل' : 'Completed'}</option>
+					</select>
+					<!-- Branch Filter -->
+					<select bind:value={filterBranch} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer min-w-[120px]">
+						<option value="">{$locale === 'ar' ? 'كل الفروع' : 'All Branches'}</option>
+						{#each branchOptions as branch}
+							<option value={branch}>{branch}</option>
+						{/each}
+					</select>
+					<!-- Date From -->
+					<div class="flex items-center gap-1">
+						<span class="text-[10px] text-slate-400 font-bold">{$locale === 'ar' ? 'من' : 'From'}</span>
+						<input type="date" bind:value={filterDateFrom} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer" />
+					</div>
+					<!-- Date To -->
+					<div class="flex items-center gap-1">
+						<span class="text-[10px] text-slate-400 font-bold">{$locale === 'ar' ? 'إلى' : 'To'}</span>
+						<input type="date" bind:value={filterDateTo} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer" />
+					</div>
+					<!-- Clear Filters -->
+					{#if hasActiveFilters}
+						<button
+							on:click={clearFilters}
+							class="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all"
+						>
+							✕ {$locale === 'ar' ? 'مسح' : 'Clear'}
+						</button>
+					{/if}
+					<!-- Results count -->
+					<span class="text-[10px] text-slate-400 font-semibold {$locale === 'ar' ? 'mr-auto' : 'ml-auto'}">
+						{filteredRequests.length} / {requests.length}
+					</span>
+				</div>
+
 				{#if loading}
 					<div class="flex-1 flex flex-col items-center justify-center">
 						<div class="text-5xl mb-4 animate-bounce">📦</div>
@@ -502,7 +615,15 @@
 				{:else if requests.length === 0}
 					<div class="flex-1 flex flex-col items-center justify-center">
 						<div class="text-5xl mb-4">📭</div>
-						<p class="text-slate-500 font-semibold">No stock requests found</p>
+						<p class="text-slate-500 font-semibold">{$locale === 'ar' ? 'لا توجد طلبات مخزون' : 'No stock requests found'}</p>
+					</div>
+				{:else if filteredRequests.length === 0}
+					<div class="flex-1 flex flex-col items-center justify-center">
+						<div class="text-5xl mb-4">🔍</div>
+						<p class="text-slate-500 font-semibold">{$locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching results'}</p>
+						<button on:click={clearFilters} class="mt-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all">
+							{$locale === 'ar' ? 'مسح الفلاتر' : 'Clear Filters'}
+						</button>
 					</div>
 				{:else}
 					<div class="flex-1 overflow-auto">
@@ -522,7 +643,7 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each requests as req, i}
+								{#each filteredRequests as req, i}
 									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => selectedRequest = req}>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{req.branch_name}</td>

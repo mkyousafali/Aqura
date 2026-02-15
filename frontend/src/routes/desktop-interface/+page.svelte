@@ -66,7 +66,8 @@
 		'STOCK_NEAR_EXPIRY_REQUESTS': '⏰',
 		'STOCK_CUSTOMER_PRODUCT_REQUESTS': '🛍️',
 		'STOCK_ERP_PRODUCTS': '🏭',
-		'STOCK_OFFER_COST_MANAGER': ''
+		'STOCK_OFFER_COST_MANAGER': '',
+		'STOCK_PRODUCT_CLAIM_MANAGER': '👤'
 	};
 
 	let mounted = false;
@@ -208,7 +209,8 @@
 		'STOCK_NEAR_EXPIRY_REQUESTS': 'nav.nearExpiryRequests',
 		'STOCK_CUSTOMER_PRODUCT_REQUESTS': 'nav.customerProductRequests',
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
-		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager'
+		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
+		'STOCK_PRODUCT_CLAIM_MANAGER': 'nav.productClaimManager'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {

@@ -5,7 +5,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
-	import { locale } from '$lib/i18n';
+	import { locale, t } from '$lib/i18n';
 
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
@@ -56,6 +56,51 @@
 		rejected: 0,
 		total: 0
 	};
+
+	let currentUserEmployee = null; // {name_en, name_ar} from hr_employee_master
+
+	// Get display name from user object with nested hr_employee_master
+	function getDisplayName(userObj) {
+		if (!userObj) return t('approvalCenter.unknown');
+		const emp = userObj.hr_employee_master;
+		if (emp) {
+			if ($locale === 'ar' && emp.name_ar) return emp.name_ar;
+			if (emp.name_en) return emp.name_en;
+		}
+		return userObj.username || t('approvalCenter.unknown');
+	}
+
+	// Get the current user's display name from hr_employee_master
+	function getCurrentUserName() {
+		if (currentUserEmployee) {
+			if ($locale === 'ar' && currentUserEmployee.name_ar) return currentUserEmployee.name_ar;
+			if (currentUserEmployee.name_en) return currentUserEmployee.name_en;
+		}
+		return $currentUser?.username || t('approvalCenter.system');
+	}
+
+	// Get translated status text
+	function getStatusText(status) {
+		const s = (status || 'pending').toLowerCase();
+		if (s === 'pending') return t('approvalCenter.pending');
+		if (s === 'approved') return t('approvalCenter.approved');
+		if (s === 'rejected') return t('approvalCenter.rejected');
+		if (s === 'sent_for_approval') return t('approvalCenter.sentForApproval');
+		return status;
+	}
+
+	// Get locale-appropriate category name
+	function getCategoryName(nameEn, nameAr) {
+		if ($locale === 'ar' && nameAr) return nameAr;
+		return nameEn || t('approvalCenter.na');
+	}
+
+	// Get locale-appropriate employee name
+	function getEmployeeName(emp) {
+		if (!emp) return t('approvalCenter.na');
+		if ($locale === 'ar' && emp.name_ar) return emp.name_ar;
+		return emp.name_en || emp.name_ar || t('approvalCenter.na');
+	}
 
 	onMount(() => {
 		loadRequisitions();
@@ -118,7 +163,7 @@
 			
 			// Check if user is logged in
 			if (!$currentUser?.id) {
-				notifications.add({ type: 'error', message: 'Please login to access the approval center' });
+				notifications.add({ type: 'error', message: t('approvalCenter.notifPleaseLogin') });
 				loading = false;
 				return;
 			}
@@ -136,7 +181,7 @@
 
 	if (permsError) {
 		console.error('Error fetching approval permissions:', permsError);
-		notifications.add({ type: 'error', message: 'Error checking user permissions: ' + permsError.message });
+		notifications.add({ type: 'error', message: t('approvalCenter.notifPermError') + permsError.message });
 		loading = false;
 		return;
 	}
@@ -168,6 +213,14 @@
 	}
 
 	console.log('✅ Loading approval center for user:', $currentUser.username);
+
+	// Fetch current user's employee name from hr_employee_master
+	const { data: currentEmpData } = await supabase
+		.from('hr_employee_master')
+		.select('name_en, name_ar')
+		.eq('user_id', $currentUser.id)
+		.single();
+	if (currentEmpData) currentUserEmployee = currentEmpData;
 	
 	// Calculate date for filtering
 	const twoDaysFromNow = new Date();
@@ -204,7 +257,8 @@
 					*,
 					creator:users!created_by (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					)
 				`)
 				.eq('approval_status', 'pending')
@@ -221,7 +275,8 @@
 						*,
 						requester:users!approval_requested_by (
 							id,
-							username
+							username,
+							hr_employee_master(name_en, name_ar)
 						)
 					`)
 				.eq('approval_status', 'sent_for_approval')
@@ -238,7 +293,8 @@
 					*,
 					issued_by_user:users!purchase_voucher_items_issued_by_fkey (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					),
 					stock_location_branch:branches!purchase_voucher_items_stock_location_fkey (
 						id,
@@ -250,7 +306,8 @@
 					),
 					pending_person_user:users!purchase_voucher_items_pending_stock_person_fkey (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					)
 				`)
 				.eq('approval_status', 'pending')
@@ -274,7 +331,8 @@
 				*,
 				approver:users!approver_id (
 					id,
-					username
+					username,
+					hr_employee_master(name_en, name_ar)
 				)
 			`)
 		.eq('created_by', $currentUser.id)
@@ -289,7 +347,8 @@
 				*,
 			approver_user:users!purchase_voucher_items_approver_id_fkey (
 				id,
-				username
+				username,
+				hr_employee_master(name_en, name_ar)
 			)
 		`)
 		.eq('issued_by', $currentUser.id)
@@ -306,7 +365,8 @@
 					*,
 					requester:users!approval_requested_by (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					),
 					employee:hr_employee_master!employee_id (
 						id,
@@ -348,26 +408,27 @@
 		requisitions = requisitionsData || [];
 	}
 		
-		// Fetch usernames for requisitions if needed
+		// Fetch usernames + employee names for requisitions if needed
 		if (requisitions.length > 0) {
 			const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
 			
 			if (userIds.length > 0) {
 				const { data: usersData } = await supabase
 					.from('users')
-					.select('id, username')
+					.select('id, username, hr_employee_master(name_en, name_ar)')
 					.in('id', userIds);
 				
 				const userMap = {};
 				if (usersData) {
 					usersData.forEach(user => {
-						userMap[user.id] = user.username;
+						userMap[user.id] = user;
 					});
 				}
 				
 				requisitions = requisitions.map(req => ({
 					...req,
-					created_by_username: userMap[req.created_by] || req.created_by || 'Unknown'
+					created_by_user: userMap[req.created_by] || null,
+					created_by_username: userMap[req.created_by]?.username || req.created_by || t('approvalCenter.unknown')
 				}));
 			}
 		}
@@ -481,7 +542,7 @@
 		loadHistoricalData();
 	} catch (err) {
 		console.error('Error loading requisitions:', err);
-		notifications.add({ type: 'error', message: 'Error loading requisitions: ' + err.message });
+		notifications.add({ type: 'error', message: t('approvalCenter.notifLoadError') + err.message });
 	} finally {
 		loading = false;
 	}
@@ -527,7 +588,8 @@ async function loadHistoricalData() {
 					*,
 					approver:users!approver_id (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					)
 				`)
 				.eq('created_by', $currentUser.id)
@@ -543,7 +605,8 @@ async function loadHistoricalData() {
 					*,
 					creator:users!created_by (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					)
 				`)
 				.eq('approver_id', $currentUser.id)
@@ -559,7 +622,8 @@ async function loadHistoricalData() {
 					*,
 					creator:users!created_by (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					)
 				`)
 				.eq('approver_id', $currentUser.id)
@@ -592,7 +656,8 @@ async function loadHistoricalData() {
 					*,
 					approver:users!approver_id (
 						id,
-						username
+						username,
+						hr_employee_master(name_en, name_ar)
 					)
 				`)
 				.eq('created_by', $currentUser.id)
@@ -907,7 +972,7 @@ async function loadHistoricalData() {
 			await approveRequisition(pendingRequisitionId);
 		} else if (confirmAction === 'reject') {
 			if (!rejectionReason.trim()) {
-				notifications.add({ type: 'error', message: 'Please provide a reason for rejection' });
+				notifications.add({ type: 'error', message: t('approvalCenter.notifProvideReason') });
 				return;
 			}
 			showConfirmModal = false;
@@ -979,20 +1044,20 @@ async function loadHistoricalData() {
 				// Send notification to the creator
 				try {
 					await notificationService.createNotification({
-						title: 'Payment Schedule Approved',
-						message: `Your ${scheduleData.schedule_type.replace('_', ' ')} payment schedule has been approved!\n\nBranch: ${scheduleData.branch_name}\nCategory: ${scheduleData.expense_category_name_en}\nAmount: ${parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
+						title: t('approvalCenter.pushPaymentScheduleApprovedTitle'),
+						message: t('approvalCenter.pushPaymentScheduleApprovedMsg', { type: scheduleData.schedule_type.replace('_', ' '), branch: scheduleData.branch_name, category: getCategoryName(scheduleData.expense_category_name_en, scheduleData.expense_category_name_ar), amount: parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), approver: getCurrentUserName() }),
 						type: 'assignment_approved',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [scheduleData.created_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 					console.log('✅ Approval notification sent to creator:', scheduleData.created_by);
 				} catch (notifError) {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 					// Don't fail the whole operation if notification fails
 				}
 
-				notifications.add({ type: 'success', message: 'Payment schedule approved and moved to expense scheduler!' });
+				notifications.add({ type: 'success', message: t('approvalCenter.notifPaymentScheduleApproved') });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Approve vendor payment
 				const { data: paymentData, error: fetchError } = await supabase
@@ -1010,7 +1075,7 @@ async function loadHistoricalData() {
 						approval_status: 'approved',
 						approved_by: $currentUser?.id,
 						approved_at: new Date().toISOString(),
-						approval_notes: 'Approved from Approval Center'
+						approval_notes: t('approvalCenter.approvedFromCenter')
 					})
 					.eq('id', requisitionId);
 
@@ -1019,19 +1084,19 @@ async function loadHistoricalData() {
 				// Send notification to the requester
 				try {
 					await notificationService.createNotification({
-						title: 'Vendor Payment Approved',
-						message: `Your vendor payment has been approved!\n\nVendor: ${paymentData.vendor_name}\nBill Number: ${paymentData.bill_number}\nAmount: ${parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nBranch: ${paymentData.branch_name}\nApproved by: ${$currentUser?.username}`,
+						title: t('approvalCenter.pushVendorPaymentApprovedTitle'),
+						message: t('approvalCenter.pushVendorPaymentApprovedMsg', { vendor: paymentData.vendor_name, billNumber: paymentData.bill_number, amount: parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), branch: paymentData.branch_name, approver: getCurrentUserName() }),
 						type: 'assignment_approved',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [paymentData.approval_requested_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 					console.log('✅ Approval notification sent to requester:', paymentData.approval_requested_by);
 				} catch (notifError) {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Vendor payment approved successfully!' });
+				notifications.add({ type: 'success', message: t('approvalCenter.notifVendorPaymentApproved') });
 			} else if (selectedRequisition.item_type === 'purchase_voucher') {
 				// Approve purchase voucher
 				const updatePayload = {
@@ -1071,7 +1136,8 @@ async function loadHistoricalData() {
 
 				// Send notification
 				try {
-					const issueTypeLabel = isStockTransfer ? 'Stock Transfer' : 'Purchase Voucher';
+					const issueTypeLabel = isStockTransfer ? t('approvalCenter.pushStockTransferLabel') : t('approvalCenter.pushPurchaseVoucherLabel');
+					const descriptionLabel = isStockTransfer ? t('approvalCenter.pushStockTransfer') : t('approvalCenter.pushYourPurchaseVoucher');
 					// For stock transfer, notify the new stock person; for gift/sales, notify the issuer
 					const notifyUserId = isStockTransfer 
 						? selectedRequisition.pending_stock_person 
@@ -1079,20 +1145,20 @@ async function loadHistoricalData() {
 					
 					if (notifyUserId) {
 						await notificationService.createNotification({
-							title: `${issueTypeLabel} Approved`,
-							message: `${isStockTransfer ? 'Stock transfer' : 'Your purchase voucher'} has been approved!\n\nBook: ${selectedRequisition.purchase_voucher_id}\nSerial: #${selectedRequisition.serial_number}\nValue: SAR ${selectedRequisition.value}\nApproved by: ${$currentUser?.username}`,
+							title: t('approvalCenter.pushPurchaseVoucherApprovedTitle', { type: issueTypeLabel }),
+							message: t('approvalCenter.pushPurchaseVoucherApprovedMsg', { description: descriptionLabel, book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, approver: getCurrentUserName() }),
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
 							target_users: [notifyUserId]
-						}, $currentUser?.id || $currentUser?.username || 'System');
+						}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 						console.log('✅ Approval notification sent to:', notifyUserId);
 					}
 				} catch (notifError) {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Purchase voucher approved successfully!' });
+				notifications.add({ type: 'success', message: t('approvalCenter.notifPurchaseVoucherApproved') });
 			} else if (selectedRequisition.item_type === 'day_off') {
 				// Update day off status to approved (handle grouped requests)
 				const idsToApprove = selectedRequisition._allIds || [requisitionId];
@@ -1111,23 +1177,23 @@ async function loadHistoricalData() {
 				try {
 					if (selectedRequisition.approval_requested_by) {
 						const dateInfo = selectedRequisition._dayCount > 1
-							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${selectedRequisition._dayCount} days)`
-							: `for ${selectedRequisition.day_off_date}`;
+							? t('approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
+							: t('approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
 						await notificationService.createNotification({
-							title: 'Leave Request Approved',
-							message: `Your leave request ${dateInfo} has been approved!\n\nApproved by: ${$currentUser?.username}`,
+							title: t('approvalCenter.pushLeaveApprovedTitle'),
+							message: t('approvalCenter.pushLeaveApprovedMsg', { dateInfo, approver: getCurrentUserName() }),
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
 							target_users: [selectedRequisition.approval_requested_by]
-						}, $currentUser?.id || $currentUser?.username || 'System');
+						}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 						console.log('✅ Approval notification sent to requester:', selectedRequisition.approval_requested_by);
 					}
 				} catch (notifError) {
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				notifications.add({ type: 'success', message: 'Leave request approved successfully!' });
+				notifications.add({ type: 'success', message: t('approvalCenter.notifLeaveApproved') });
 			} else {
 				// Get the requisition data first
 				const { data: reqData, error: reqError } = await supabase
@@ -1190,13 +1256,13 @@ async function loadHistoricalData() {
 				try {
 					if (reqData) {
 						await notificationService.createNotification({
-							title: 'Expense Requisition Approved',
-							message: `Your expense requisition has been approved!\n\nRequisition: ${reqData.requisition_number}\nRequester: ${reqData.requester_name}\nBranch: ${reqData.branch_name}\nCategory: ${reqData.expense_category_name_en || 'N/A'}\nAmount: ${parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
+							title: t('approvalCenter.pushRequisitionApprovedTitle'),
+							message: t('approvalCenter.pushRequisitionApprovedMsg', { reqNumber: reqData.requisition_number, requester: reqData.requester_name, branch: reqData.branch_name, category: getCategoryName(reqData.expense_category_name_en, reqData.expense_category_name_ar), amount: parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), approver: getCurrentUserName() }),
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
 							target_users: [reqData.created_by]
-						}, $currentUser?.id || $currentUser?.username || 'System');
+						}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 						console.log('✅ Approval notification sent to creator:', reqData.created_by);
 					}
 				} catch (notifError) {
@@ -1204,7 +1270,7 @@ async function loadHistoricalData() {
 					// Don't fail the whole operation if notification fails
 				}
 
-				notifications.add({ type: 'success', message: 'Requisition approved and added to expense scheduler!' });
+				notifications.add({ type: 'success', message: t('approvalCenter.notifRequisitionApproved') });
 			}
 
 			// Remove from pending lists without reloading
@@ -1224,7 +1290,7 @@ async function loadHistoricalData() {
 			closeDetail();
 		} catch (err) {
 			console.error('Error approving:', err);
-			notifications.add({ type: 'error', message: 'Error approving: ' + err.message });
+			notifications.add({ type: 'error', message: t('approvalCenter.notifApproveError') + err.message });
 		} finally {
 			isProcessing = false;
 		}
@@ -1259,20 +1325,20 @@ async function loadHistoricalData() {
 				// Send notification to the creator
 				try {
 					await notificationService.createNotification({
-						title: 'Payment Schedule Rejected',
-						message: `Your ${scheduleData.schedule_type.replace('_', ' ')} payment schedule has been rejected.\n\nReason: ${reason}\n\nBranch: ${scheduleData.branch_name}\nCategory: ${scheduleData.expense_category_name_en}\nAmount: ${parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nRejected by: ${$currentUser?.username}`,
+						title: t('approvalCenter.pushPaymentScheduleRejectedTitle'),
+						message: t('approvalCenter.pushPaymentScheduleRejectedMsg', { type: scheduleData.schedule_type.replace('_', ' '), reason, branch: scheduleData.branch_name, category: getCategoryName(scheduleData.expense_category_name_en, scheduleData.expense_category_name_ar), amount: parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), rejector: getCurrentUserName() }),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [scheduleData.created_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 					console.log('✅ Rejection notification sent to creator:', scheduleData.created_by);
 				} catch (notifError) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 					// Don't fail the whole operation if notification fails
 				}
 				
-				notifications.add({ type: 'warning', message: 'Payment schedule rejected successfully!' });
+				notifications.add({ type: 'warning', message: t('approvalCenter.notifPaymentScheduleRejected') });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Reject vendor payment
 				const { data: paymentData, error: fetchError } = await supabase
@@ -1299,19 +1365,19 @@ async function loadHistoricalData() {
 				// Send notification to the requester
 				try {
 					await notificationService.createNotification({
-						title: 'Vendor Payment Rejected',
-						message: `Your vendor payment has been rejected.\n\nReason: ${reason}\n\nVendor: ${paymentData.vendor_name}\nBill Number: ${paymentData.bill_number}\nAmount: ${parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nBranch: ${paymentData.branch_name}\nRejected by: ${$currentUser?.username}`,
+						title: t('approvalCenter.pushVendorPaymentRejectedTitle'),
+						message: t('approvalCenter.pushVendorPaymentRejectedMsg', { reason, vendor: paymentData.vendor_name, billNumber: paymentData.bill_number, amount: parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), branch: paymentData.branch_name, rejector: getCurrentUserName() }),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [paymentData.approval_requested_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 					console.log('✅ Rejection notification sent to requester:', paymentData.approval_requested_by);
 				} catch (notifError) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'warning', message: 'Vendor payment rejected successfully!' });
+				notifications.add({ type: 'warning', message: t('approvalCenter.notifVendorPaymentRejected') });
 			} else if (selectedRequisition.item_type === 'purchase_voucher') {
 				// Reject purchase voucher
 				// Detect stock transfer by checking if pending fields exist (issue_type remains 'not issued' for stock transfers)
@@ -1337,7 +1403,8 @@ async function loadHistoricalData() {
 
 				// Send notification
 				try {
-					const issueTypeLabel = isStockTransfer ? 'Stock Transfer' : 'Purchase Voucher';
+					const issueTypeLabel = isStockTransfer ? t('approvalCenter.pushStockTransferLabel') : t('approvalCenter.pushPurchaseVoucherLabel');
+					const descriptionLabel = isStockTransfer ? t('approvalCenter.pushStockTransfer') : t('approvalCenter.pushYourPurchaseVoucher');
 					// For stock transfer, notify the new stock person (who was supposed to receive); for gift/sales, notify the issuer
 					const notifyUserId = isStockTransfer 
 						? selectedRequisition.pending_stock_person 
@@ -1345,20 +1412,20 @@ async function loadHistoricalData() {
 					
 					if (notifyUserId) {
 						await notificationService.createNotification({
-							title: `${issueTypeLabel} Rejected`,
-							message: `${isStockTransfer ? 'Stock transfer' : 'Your purchase voucher'} has been rejected.\n\nReason: ${reason}\n\nBook: ${selectedRequisition.purchase_voucher_id}\nSerial: #${selectedRequisition.serial_number}\nValue: SAR ${selectedRequisition.value}\nRejected by: ${$currentUser?.username}`,
+							title: t('approvalCenter.pushPurchaseVoucherRejectedTitle', { type: issueTypeLabel }),
+							message: t('approvalCenter.pushPurchaseVoucherRejectedMsg', { description: descriptionLabel, reason, book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, rejector: getCurrentUserName() }),
 							type: 'assignment_rejected',
 							priority: 'high',
 							target_type: 'specific_users',
 							target_users: [notifyUserId]
-						}, $currentUser?.id || $currentUser?.username || 'System');
+						}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 						console.log('✅ Rejection notification sent to:', notifyUserId);
 					}
 				} catch (notifError) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'warning', message: 'Purchase voucher rejected successfully!' });
+				notifications.add({ type: 'warning', message: t('approvalCenter.notifPurchaseVoucherRejected') });
 			} else if (selectedRequisition.item_type === 'day_off') {
 				// Update day off status to rejected (handle grouped requests)
 				const idsToReject = selectedRequisition._allIds || [requisitionId];
@@ -1379,28 +1446,28 @@ async function loadHistoricalData() {
 				try {
 					if (selectedRequisition.approval_requested_by) {
 						const dateInfo = selectedRequisition._dayCount > 1
-							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${selectedRequisition._dayCount} days)`
-							: `for ${selectedRequisition.day_off_date}`;
+							? t('approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
+							: t('approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
 						await notificationService.createNotification({
-							title: 'Leave Request Rejected',
-							message: `Your leave request ${dateInfo} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
+							title: t('approvalCenter.pushLeaveRejectedTitle'),
+							message: t('approvalCenter.pushLeaveRejectedMsg', { dateInfo, reason, rejector: getCurrentUserName() }),
 							type: 'assignment_rejected',
 							priority: 'high',
 							target_type: 'specific_users',
 							target_users: [selectedRequisition.approval_requested_by]
-						}, $currentUser?.id || $currentUser?.username || 'System');
+						}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 						console.log('✅ Rejection notification sent to requester:', selectedRequisition.approval_requested_by);
 					}
 				} catch (notifError) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				notifications.add({ type: 'warning', message: 'Leave request rejected successfully!' });
+				notifications.add({ type: 'warning', message: t('approvalCenter.notifLeaveRejected') });
 			} else {
 				// Get requisition data first
 				const { data: reqData, error: fetchError } = await supabase
 					.from('expense_requisitions')
-					.select('created_by, requisition_number, requester_name, amount, expense_category_name_en, branch_name')
+					.select('created_by, requisition_number, requester_name, amount, expense_category_name_en, expense_category_name_ar, branch_name')
 					.eq('id', requisitionId)
 					.single();
 
@@ -1420,20 +1487,20 @@ async function loadHistoricalData() {
 				// Send notification to the creator
 				try {
 					await notificationService.createNotification({
-						title: 'Expense Requisition Rejected',
-						message: `Your expense requisition has been rejected.\n\nReason: ${reason}\n\nRequisition: ${reqData.requisition_number}\nRequester: ${reqData.requester_name}\nBranch: ${reqData.branch_name}\nCategory: ${reqData.expense_category_name_en}\nAmount: ${parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nRejected by: ${$currentUser?.username}`,
+						title: t('approvalCenter.pushRequisitionRejectedTitle'),
+						message: t('approvalCenter.pushRequisitionRejectedMsg', { reason, reqNumber: reqData.requisition_number, requester: reqData.requester_name, branch: reqData.branch_name, category: getCategoryName(reqData.expense_category_name_en, reqData.expense_category_name_ar), amount: parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), rejector: getCurrentUserName() }),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [reqData.created_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 					console.log('✅ Rejection notification sent to creator:', reqData.created_by);
 				} catch (notifError) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 					// Don't fail the whole operation if notification fails
 				}
 
-				notifications.add({ type: 'warning', message: 'Requisition rejected successfully!' });
+				notifications.add({ type: 'warning', message: t('approvalCenter.notifRequisitionRejected') });
 			}
 
 			// Remove from pending lists without reloading
@@ -1453,7 +1520,7 @@ async function loadHistoricalData() {
 			closeDetail();
 		} catch (err) {
 			console.error('Error rejecting:', err);
-			notifications.add({ type: 'error', message: 'Error rejecting: ' + err.message });
+			notifications.add({ type: 'error', message: t('approvalCenter.notifRejectError') + err.message });
 		} finally {
 			isProcessing = false;
 		}
@@ -1469,14 +1536,16 @@ async function loadHistoricalData() {
 	}
 
 	function formatCurrency(amount) {
-		return new Intl.NumberFormat('en-SA', {
+		const loc = $locale === 'ar' ? 'ar-u-ca-gregory' : 'en-SA';
+		return new Intl.NumberFormat(loc, {
 			style: 'currency',
 			currency: 'SAR'
 		}).format(amount);
 	}
 
 	function formatDate(dateString) {
-		return new Date(dateString).toLocaleDateString('en-US', {
+		const loc = $locale === 'ar' ? 'ar-u-ca-gregory' : 'en-US';
+		return new Date(dateString).toLocaleDateString(loc, {
 			year: 'numeric',
 			month: 'short',
 			day: 'numeric',
@@ -1486,8 +1555,9 @@ async function loadHistoricalData() {
 	}
 
 	function formatDateOnly(dateString) {
-		if (!dateString) return 'N/A';
-		return new Date(dateString).toLocaleDateString('en-US', {
+		if (!dateString) return t('approvalCenter.na');
+		const loc = $locale === 'ar' ? 'ar-u-ca-gregory' : 'en-US';
+		return new Date(dateString).toLocaleDateString(loc, {
 			year: 'numeric',
 			month: 'short',
 			day: 'numeric',
@@ -1571,26 +1641,26 @@ async function loadHistoricalData() {
 			try {
 				if (req.approval_requested_by) {
 					const dateInfo = req._dayCount > 1
-						? `from ${req._dateFrom} to ${req._dateTo} (${req._dayCount} days)`
-						: `for ${req.day_off_date}`;
+						? t('approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
+						: t('approvalCenter.pushDateInfoFor', { date: req.day_off_date });
 					await notificationService.createNotification({
-						title: 'Leave Request Rejected',
-						message: `Your leave request ${dateInfo} has been rejected.\n\nRejected by: ${$currentUser?.username}`,
+						title: t('approvalCenter.pushLeaveRejectedTitle'),
+						message: t('approvalCenter.pushLeaveRejectedMsg', { dateInfo, reason: '', rejector: getCurrentUserName() }),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [req.approval_requested_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 				}
 			} catch (notifError) {
 				console.error('⚠️ Failed to send rejection notification:', notifError);
 			}
 
-			notifications.add({ type: 'success', message: 'Leave request rejected.' });
+			notifications.add({ type: 'success', message: t('approvalCenter.notifLeaveRejectedShort') });
 			await loadRequisitions();
 		} catch (err) {
 			console.error('Error rejecting day off:', err);
-			notifications.add({ type: 'error', message: 'Failed to reject leave request.' });
+			notifications.add({ type: 'error', message: t('approvalCenter.notifLeaveRejectFailed') });
 		} finally {
 			isProcessing = false;
 			selectedRequisition = null;
@@ -1627,7 +1697,7 @@ async function loadHistoricalData() {
 						approval_status: 'rejected',
 						approval_approved_by: $currentUser.id,
 						approval_approved_at: new Date().toISOString(),
-						rejection_reason: 'Partially rejected by approver'
+						rejection_reason: t('approvalCenter.partiallyRejected')
 					})
 					.in('id', rejectedIds);
 				if (error) throw error;
@@ -1639,34 +1709,34 @@ async function loadHistoricalData() {
 					let message = '';
 					if (rejectedIds.length === 0) {
 						const dateInfo = approvedIds.length > 1
-							? `from ${selectedRequisition._dateFrom} to ${selectedRequisition._dateTo} (${approvedIds.length} days)`
-							: `for ${selectedRequisition.day_off_date}`;
-						message = `Your leave request ${dateInfo} has been approved!\n\nApproved by: ${$currentUser?.username}`;
+							? t('approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: approvedIds.length })
+							: t('approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
+						message = t('approvalCenter.pushLeaveApprovedMsg', { dateInfo, approver: getCurrentUserName() });
 					} else {
-						message = `Your leave request has been partially approved.\n\n✅ Approved: ${approvedIds.length} day(s)\n❌ Rejected: ${rejectedIds.length} day(s)\n\nApproved/Rejected by: ${$currentUser?.username}`;
+						message = t('approvalCenter.pushLeavePartialMsg', { approved: approvedIds.length, rejected: rejectedIds.length, approver: getCurrentUserName() });
 					}
 					await notificationService.createNotification({
-						title: rejectedIds.length === 0 ? 'Leave Request Approved' : 'Leave Request Partially Approved',
+						title: rejectedIds.length === 0 ? t('approvalCenter.pushLeaveApprovedTitle') : t('approvalCenter.pushLeavePartialTitle'),
 						message,
 						type: 'assignment_approved',
 						priority: 'high',
 						target_type: 'specific_users',
 						target_users: [selectedRequisition.approval_requested_by]
-					}, $currentUser?.id || $currentUser?.username || 'System');
+					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
 				}
 			} catch (notifError) {
 				console.error('⚠️ Failed to send notification:', notifError);
 			}
 
 			const msg = rejectedIds.length === 0
-				? 'Leave request approved!'
-				: `Leave: ${approvedIds.length} approved, ${rejectedIds.length} rejected.`;
+				? t('approvalCenter.leaveApprovedMsg')
+				: t('approvalCenter.leavePartialMsg', { approved: approvedIds.length, rejected: rejectedIds.length });
 			notifications.add({ type: 'success', message: msg });
 			showDayOffApproveModal = false;
 			await loadRequisitions();
 		} catch (err) {
 			console.error('Error processing day off approval:', err);
-			notifications.add({ type: 'error', message: 'Failed to process leave request.' });
+			notifications.add({ type: 'error', message: t('approvalCenter.notifLeaveProcessFailed') });
 		} finally {
 			isProcessing = false;
 			selectedRequisition = null;
@@ -1676,18 +1746,13 @@ async function loadHistoricalData() {
 </script>
 
 <div class="approval-center">
-	<div class="header">
-		<h1 class="title">✅ Approval Center</h1>
-		<p class="subtitle">Review and approve expense requests</p>
-	</div>
-
 	<!-- Section Tabs -->
 	<div class="section-tabs">
 		<button 
 			class="tab-button {activeSection === 'approvals' ? 'active' : ''}"
 			on:click={() => { activeSection = 'approvals'; filterRequisitions(); }}
 		>
-			📋 Approvals Assigned to Me
+			📋 {t('approvalCenter.tabAssigned')}
 			{#if stats.pending > 0}
 				<span class="badge">{stats.pending}</span>
 			{/if}
@@ -1696,7 +1761,7 @@ async function loadHistoricalData() {
 			class="tab-button {activeSection === 'my_requests' ? 'active' : ''}"
 			on:click={() => { activeSection = 'my_requests'; filterRequisitions(); }}
 		>
-			📝 My Requests
+			📝 {t('approvalCenter.tabMyRequests')}
 			{#if myStats.pending > 0}
 				<span class="badge">{myStats.pending}</span>
 			{/if}
@@ -1710,7 +1775,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">⏳</div>
 				<div class="stat-content">
 					<div class="stat-value">{stats.pending}</div>
-					<div class="stat-label">Pending</div>
+					<div class="stat-label">{t('approvalCenter.pending')}</div>
 				</div>
 			</div>
 
@@ -1718,7 +1783,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">✅</div>
 				<div class="stat-content">
 					<div class="stat-value">{stats.approved}</div>
-					<div class="stat-label">Approved</div>
+					<div class="stat-label">{t('approvalCenter.approved')}</div>
 				</div>
 			</div>
 
@@ -1726,7 +1791,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">❌</div>
 				<div class="stat-content">
 					<div class="stat-value">{stats.rejected}</div>
-					<div class="stat-label">Rejected</div>
+					<div class="stat-label">{t('approvalCenter.rejected')}</div>
 				</div>
 			</div>
 
@@ -1734,7 +1799,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">📊</div>
 				<div class="stat-content">
 					<div class="stat-value">{stats.total}</div>
-					<div class="stat-label">Total</div>
+					<div class="stat-label">{t('approvalCenter.total')}</div>
 				</div>
 			</div>
 		{:else}
@@ -1742,7 +1807,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">⏳</div>
 				<div class="stat-content">
 					<div class="stat-value">{myStats.pending}</div>
-					<div class="stat-label">Pending</div>
+					<div class="stat-label">{t('approvalCenter.pending')}</div>
 				</div>
 			</div>
 
@@ -1750,7 +1815,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">✅</div>
 				<div class="stat-content">
 					<div class="stat-value">{myStats.approved}</div>
-					<div class="stat-label">Approved</div>
+					<div class="stat-label">{t('approvalCenter.approved')}</div>
 				</div>
 			</div>
 
@@ -1758,7 +1823,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">❌</div>
 				<div class="stat-content">
 					<div class="stat-value">{myStats.rejected}</div>
-					<div class="stat-label">Rejected</div>
+					<div class="stat-label">{t('approvalCenter.rejected')}</div>
 				</div>
 			</div>
 
@@ -1766,7 +1831,7 @@ async function loadHistoricalData() {
 				<div class="stat-icon">📊</div>
 				<div class="stat-content">
 					<div class="stat-value">{myStats.total}</div>
-					<div class="stat-label">Total</div>
+					<div class="stat-label">{t('approvalCenter.total')}</div>
 				</div>
 			</div>
 		{/if}
@@ -1774,24 +1839,26 @@ async function loadHistoricalData() {
 
 	<!-- Filters -->
 	<div class="filters">
-		<div class="filter-group">
-			<label>Status:</label>
-			<select bind:value={selectedStatus} on:change={filterRequisitions}>
-				<option value="all">All</option>
-				<option value="pending">Pending</option>
-				<option value="approved">Approved</option>
-				<option value="rejected">Rejected</option>
-			</select>
-		</div>
+		{#if activeSection === 'my_requests'}
+			<div class="filter-group">
+				<label>{t('approvalCenter.statusLabel')}</label>
+				<select bind:value={selectedStatus} on:change={filterRequisitions}>
+					<option value="all">{t('approvalCenter.all')}</option>
+					<option value="pending">{t('approvalCenter.pending')}</option>
+					<option value="approved">{t('approvalCenter.approved')}</option>
+					<option value="rejected">{t('approvalCenter.rejected')}</option>
+				</select>
+			</div>
+		{/if}
 		<div class="filter-group search">
 			<input
 				type="text"
 				bind:value={searchQuery}
 				on:input={filterRequisitions}
-				placeholder="🔍 Search by number, branch, requester, category..."
+				placeholder="🔍 {t('approvalCenter.searchPlaceholder')}"
 			/>
 		</div>
-		<button class="btn-refresh" on:click={loadRequisitions}>🔄 Refresh</button>
+		<button class="btn-refresh" on:click={loadRequisitions}>🔄 {t('approvalCenter.refresh')}</button>
 	</div>
 
 	<!-- Requisitions Table -->
@@ -1799,30 +1866,30 @@ async function loadHistoricalData() {
 		{#if loading}
 			<div class="loading">
 				<div class="spinner"></div>
-				<p>Loading requisitions...</p>
+				<p>{t('approvalCenter.loadingRequisitions')}</p>
 			</div>
 		{:else if (activeSection === 'approvals' && filteredRequisitions.length === 0) || (activeSection === 'my_requests' && filteredMyRequests.length === 0)}
 			<div class="empty-state">
 				<div class="empty-icon">📋</div>
-				<h3>No {activeSection === 'approvals' ? 'Approvals' : 'Requests'} Found</h3>
-				<p>There are no {activeSection === 'approvals' ? 'approvals' : 'requests'} matching your filters.</p>
+				<h3>{activeSection === 'approvals' ? t('approvalCenter.noApprovalsFound') : t('approvalCenter.noRequestsFound')}</h3>
+				<p>{activeSection === 'approvals' ? t('approvalCenter.noApprovalsMessage') : t('approvalCenter.noRequestsMessage')}</p>
 			</div>
 		{:else}
 			<div class="table-wrapper">
 				<table class="requisitions-table">
 					<thead>
 						<tr>
-							<th>Requisition #</th>
-							<th>Branch</th>
-							<th>Generated By</th>
-							<th>Requester</th>
-							<th>Category</th>
-							<th>Amount</th>
-							<th>Payment Type</th>
-							<th>Status</th>
-							<th>Due Date</th>
-							<th>Date</th>
-							<th>Actions</th>
+							<th>{t('approvalCenter.requisitionNumber')}</th>
+							<th>{t('approvalCenter.branch')}</th>
+							<th>{t('approvalCenter.generatedBy')}</th>
+							<th>{t('approvalCenter.requester')}</th>
+							<th>{t('approvalCenter.category')}</th>
+							<th>{t('approvalCenter.amount')}</th>
+							<th>{t('approvalCenter.paymentType')}</th>
+							<th>{t('approvalCenter.status')}</th>
+							<th>{t('approvalCenter.dueDate')}</th>
+							<th>{t('approvalCenter.date')}</th>
+							<th>{t('approvalCenter.actions')}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -1835,27 +1902,26 @@ async function loadHistoricalData() {
 									<td>
 										<div class="generated-by-info">
 											<div class="generated-by-name">
-												👤 {activeSection === 'approvals' ? (req.created_by_username || 'Unknown') : (req.approver_name || 'Not Assigned')}
+												👤 {activeSection === 'approvals' ? (req.created_by_user ? getDisplayName(req.created_by_user) : (req.created_by_username || t('approvalCenter.unknown'))) : (req.approver_name || t('approvalCenter.notAssigned'))}
 											</div>
 										</div>
 									</td>
 									<td>
 										<div class="requester-info">
 											<div class="requester-name">{req.requester_name}</div>
-											<div class="requester-id">ID: {req.requester_id}</div>
+											<div class="requester-id">{t('approvalCenter.idLabel')} {req.requester_id}</div>
 										</div>
 									</td>
 									<td>
 										<div class="category-info">
-											<div>{req.expense_category_name_en}</div>
-											<div class="category-ar">{req.expense_category_name_ar}</div>
+											<div>{getCategoryName(req.expense_category_name_en, req.expense_category_name_ar)}</div>
 										</div>
 									</td>
 									<td class="amount">{formatCurrency(req.amount)}</td>
 									<td class="payment-type">{req.payment_category.replace(/_/g, ' ')}</td>
 									<td>
 										<span class="status-badge {getStatusClass(req.status)}">
-											{req.status.toUpperCase()}
+											{getStatusText(req.status)}
 										</span>
 									</td>
 									<td class="date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
@@ -1876,31 +1942,30 @@ async function loadHistoricalData() {
 								{:else if req.item_type === 'payment_schedule'}
 									<!-- Payment Schedule Row -->
 									<td class="req-number">
-										<span class="schedule-badge">📅 {req.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
-										<div class="schedule-id">ID: {req.id}</div>
+										<span class="schedule-badge">📅 {req.schedule_type.replace(/_/g, ' ')}</span>
+										<div class="schedule-id">{t('approvalCenter.scheduleId')}: {req.id}</div>
 									</td>
 									<td>{req.branch_name}</td>
 									<td>
 										<div class="generated-by-info">
 											<div class="generated-by-name">
-												👤 {activeSection === 'approvals' ? (req.creator?.username || 'Unknown') : (req.approver?.username || 'Not Assigned')}
+												👤 {activeSection === 'approvals' ? getDisplayName(req.creator) : getDisplayName(req.approver)}
 											</div>
 										</div>
 									</td>
 									<td>
 										<div class="requester-info">
 											<div class="requester-name">{req.co_user_name || '-'}</div>
-											<div class="requester-id">C/O User</div>
+											<div class="requester-id">{t('approvalCenter.coUser')}</div>
 										</div>
 									</td>
 									<td>
 										<div class="category-info">
-											<div>{req.expense_category_name_en}</div>
-											<div class="category-ar">{req.expense_category_name_ar || ''}</div>
+											<div>{getCategoryName(req.expense_category_name_en, req.expense_category_name_ar)}</div>
 										</div>
 									</td>
 									<td class="amount">{formatCurrency(req.amount)}</td>
-									<td class="payment-type">{req.payment_method?.replace(/_/g, ' ') || 'N/A'}</td>
+									<td class="payment-type">{req.payment_method?.replace(/_/g, ' ') || t('approvalCenter.na')}</td>
 									<td>
 										<span class="status-badge {
 											req.approval_status === 'pending' ? 'status-pending' : 
@@ -1908,7 +1973,7 @@ async function loadHistoricalData() {
 											req.approval_status === 'rejected' ? 'status-rejected' : 
 											'status-pending'
 										}">
-											{(req.approval_status || 'pending').toUpperCase()}
+											{getStatusText(req.approval_status)}
 										</span>
 									</td>
 									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
@@ -1917,7 +1982,7 @@ async function loadHistoricalData() {
 										<button class="btn-view" on:click={() => openDetail(req)}>
 											👁️
 										</button>
-										{#if req.approval_status === 'pending' && activeSection === 'approvals' && userCanApprove}
+										{#if req.approval_status === 'pending' && activeSection === 'approvals' && userCanApprove}}
 											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
 												✅
 											</button>
@@ -1929,34 +1994,34 @@ async function loadHistoricalData() {
 								{:else if req.item_type === 'vendor_payment'}
 									<!-- Vendor Payment Row -->
 									<td class="req-number">
-										<span class="schedule-badge vendor-payment">💰 VENDOR PAYMENT</span>
-										<div class="schedule-id">Bill: {req.bill_number}</div>
+										<span class="schedule-badge vendor-payment">💰 {t('approvalCenter.vendorPayment')}</span>
+										<div class="schedule-id">{t('approvalCenter.billLabel')} {req.bill_number}</div>
 									</td>
 									<td>{req.branch_name}</td>
 									<td>
 										<div class="generated-by-info">
 											<div class="generated-by-name">
-												👤 {req.requester?.username || 'Unknown User'}
+												👤 {getDisplayName(req.requester)}
 											</div>
 										</div>
 									</td>
 									<td>
 										<div class="requester-info">
 											<div class="requester-name">{req.vendor_name}</div>
-											<div class="requester-id">Vendor</div>
+											<div class="requester-id">{t('approvalCenter.vendor')}</div>
 										</div>
 									</td>
 									<td>
 										<div class="category-info">
-											<div>Vendor Payment</div>
+											<div>{t('approvalCenter.catVendorPayment')}</div>
 											<div class="category-ar">دفعة المورد</div>
 										</div>
 									</td>
 									<td class="amount">{formatCurrency(req.final_bill_amount || req.bill_amount)}</td>
-									<td class="payment-type">{req.payment_method?.replace(/_/g, ' ') || 'N/A'}</td>
+									<td class="payment-type">{req.payment_method?.replace(/_/g, ' ') || t('approvalCenter.na')}</td>
 									<td>
 										<span class="status-badge status-pending">
-											SENT FOR APPROVAL
+											{t('approvalCenter.sentForApproval')}
 										</span>
 									</td>
 									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
@@ -1978,16 +2043,16 @@ async function loadHistoricalData() {
 									<!-- Purchase Voucher Row -->
 									<td class="req-number">
 										{#if req.issue_type === 'stock transfer'}
-											<span class="schedule-badge transfer">📦 STOCK TRANSFER</span>
+											<span class="schedule-badge transfer">📦 {t('approvalCenter.stockTransfer')}</span>
 										{:else if req.issue_type === 'gift'}
-											<span class="schedule-badge gift">🎁 GIFT</span>
+											<span class="schedule-badge gift">🎁 {t('approvalCenter.gift')}</span>
 										{:else if req.issue_type === 'sales'}
-											<span class="schedule-badge sales">💰 SALES</span>
+											<span class="schedule-badge sales">💰 {t('approvalCenter.sales')}</span>
 										{:else}
-											<span class="schedule-badge">🎟️ PURCHASE VOUCHER</span>
+											<span class="schedule-badge">🎟️ {t('approvalCenter.purchaseVoucher')}</span>
 										{/if}
-										<div class="schedule-id">Book: {req.purchase_voucher_id}</div>
-										<div class="schedule-id">Serial: #{req.serial_number}</div>
+										<div class="schedule-id">{t('approvalCenter.book')}: {req.purchase_voucher_id}</div>
+										<div class="schedule-id">{t('approvalCenter.serialNumber')}: #{req.serial_number}</div>
 									</td>
 									<td>
 										{req.stock_location_branch?.name_en || '-'}
@@ -1998,38 +2063,38 @@ async function loadHistoricalData() {
 									<td>
 										<div class="generated-by-info">
 											<div class="generated-by-name">
-												👤 {req.issued_by_user?.username || 'Unknown'}
+												👤 {getDisplayName(req.issued_by_user)}
 											</div>
 										</div>
 									</td>
 									<td>
 										<div class="requester-info">
 											<div class="requester-name">#{req.serial_number}</div>
-											<div class="requester-id">Serial Number</div>
+											<div class="requester-id">{t('approvalCenter.serialNumber')}</div>
 										</div>
 									</td>
 									<td>
 										<div class="category-info">
 											{#if req.issue_type === 'stock transfer'}
-												<div>Stock Transfer</div>
+												<div>{t('approvalCenter.catStockTransfer')}</div>
 												<div class="category-ar">تحويل المخزون</div>
 											{:else if req.issue_type === 'gift'}
-												<div>Gift Voucher</div>
+												<div>{t('approvalCenter.catGift')}</div>
 												<div class="category-ar">قسيمة هدية</div>
 											{:else if req.issue_type === 'sales'}
-												<div>Sales Voucher</div>
+												<div>{t('approvalCenter.catSales')}</div>
 												<div class="category-ar">قسيمة مبيعات</div>
 											{:else}
-												<div>Purchase Voucher</div>
+												<div>{t('approvalCenter.catPurchaseVoucher')}</div>
 												<div class="category-ar">قسيمة الشراء</div>
 											{/if}
 										</div>
 									</td>
 									<td class="amount">{formatCurrency(req.value)}</td>
-									<td class="payment-type">{req.status || 'Stocked'}</td>
+									<td class="payment-type">{req.status || t('approvalCenter.stocked')}</td>
 									<td>
 										<span class="status-badge {req.approval_status === 'pending' ? 'status-pending' : 'status-approved'}">
-											{(req.approval_status || 'pending').toUpperCase()}
+											{getStatusText(req.approval_status)}
 										</span>
 									</td>
 									<td class="date">-</td>
@@ -2050,33 +2115,33 @@ async function loadHistoricalData() {
 								{:else if req.item_type === 'day_off'}
 									<!-- Day Off Request Row (Grouped) -->
 									<td class="req-number">
-										<span class="schedule-badge day-off">📅 DAY OFF {#if req._dayCount > 1}({req._dayCount} days){/if}</span>
+										<span class="schedule-badge day-off">📅 {t('approvalCenter.dayOff')} {#if req._dayCount > 1}({req._dayCount} {t('approvalCenter.days')}){/if}</span>
 									</td>
 									<td>-</td>
 									<td>
 										<div class="generated-by-info">
 											<div class="generated-by-name">
-												👤 {activeSection === 'approvals' ? (req.requester?.username || 'Unknown') : 'My Request'}
+												👤 {activeSection === 'approvals' ? getDisplayName(req.requester) : t('approvalCenter.myRequest')}
 											</div>
 										</div>
 									</td>
 									<td>
 										<div class="requester-info">
-											<div class="requester-name">{req.employee ? (req.employee.name_en || req.employee.name_ar || 'N/A') : 'N/A'}</div>
-											<div class="requester-id">Employee</div>
+										<div class="requester-name">{getEmployeeName(req.employee)}</div>
+											<div class="requester-id">{t('approvalCenter.employee')}</div>
 										</div>
 									</td>
 									<td>
 										<div class="category-info">
-											<div>{req.reason ? (req.reason.reason_en || 'Day Off Request') : 'Day Off Request'}</div>
+											<div>{req.reason ? (req.reason.reason_en || t('approvalCenter.catDayOff')) : t('approvalCenter.catDayOff')}</div>
 											<div class="category-ar">{req.reason ? (req.reason.reason_ar || 'طلب إجازة يوم') : 'طلب إجازة يوم'}</div>
 										</div>
 									</td>
 									<td class="amount">-</td>
-									<td class="payment-type">{req.is_deductible_on_salary ? '💰 Deductible' : 'No Deduction'}</td>
+									<td class="payment-type">{req.is_deductible_on_salary ? '💰 ' + t('approvalCenter.yes') : t('approvalCenter.no')}</td>
 									<td>
 										<span class="status-badge status-{req.approval_status}">
-											{(req.approval_status || 'pending').toUpperCase()}
+											{getStatusText(req.approval_status)}
 										</span>
 									</td>
 									<td class="date due-date">
@@ -2115,7 +2180,7 @@ async function loadHistoricalData() {
 	<div class="modal-overlay" on:click={closeDetail}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>📄 {selectedRequisition.item_type === 'day_off' ? 'Leave Request Details' : selectedRequisition.item_type === 'purchase_voucher' ? 'Voucher Details' : 'Requisition Details'}</h2>
+				<h2>📄 {selectedRequisition.item_type === 'day_off' ? t('approvalCenter.leaveRequestDetails') : selectedRequisition.item_type === 'purchase_voucher' ? t('approvalCenter.voucherDetails') : t('approvalCenter.requisitionDetails')}</h2>
 				<button class="modal-close" on:click={closeDetail}>×</button>
 			</div>
 
@@ -2124,93 +2189,91 @@ async function loadHistoricalData() {
 					<!-- Requisition Details -->
 					<div class="detail-grid">
 						<div class="detail-item">
-							<label>Requisition Number</label>
+							<label>{t('approvalCenter.requisitionNumberLabel')}</label>
 							<div class="detail-value">{selectedRequisition.requisition_number}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Status</label>
+							<label>{t('approvalCenter.status')}</label>
 							<span class="status-badge {getStatusClass(selectedRequisition.status)}">
-								{selectedRequisition.status.toUpperCase()}
+								{getStatusText(selectedRequisition.status)}
 							</span>
 						</div>
 
 						<div class="detail-item">
-							<label>Branch</label>
+							<label>{t('approvalCenter.branch')}</label>
 							<div class="detail-value">{selectedRequisition.branch_name}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Approver</label>
-							<div class="detail-value">{selectedRequisition.approver_name || 'Not Assigned'}</div>
+							<label>{t('approvalCenter.approver')}</label>
+							<div class="detail-value">{selectedRequisition.approver_name || t('approvalCenter.notAssigned')}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Category</label>
+							<label>{t('approvalCenter.category')}</label>
 							<div class="detail-value">
-								{selectedRequisition.expense_category_name_en}
-								<br>
-								<span class="category-ar">{selectedRequisition.expense_category_name_ar}</span>
+								{getCategoryName(selectedRequisition.expense_category_name_en, selectedRequisition.expense_category_name_ar)}
 							</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Requester</label>
+							<label>{t('approvalCenter.requester')}</label>
 							<div class="detail-value">
 								{selectedRequisition.requester_name}
 								<br>
-								<small>ID: {selectedRequisition.requester_id}</small>
+								<small>{t('approvalCenter.idLabel')} {selectedRequisition.requester_id}</small>
 								<br>
-								<small>Contact: {selectedRequisition.requester_contact}</small>
+								<small>{t('approvalCenter.contact')}: {selectedRequisition.requester_contact}</small>
 							</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Amount</label>
+							<label>{t('approvalCenter.amount')}</label>
 							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.amount)}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>VAT Applicable</label>
-							<div class="detail-value">{selectedRequisition.vat_applicable ? 'Yes' : 'No'}</div>
+							<label>{t('approvalCenter.vatApplicable')}</label>
+							<div class="detail-value">{selectedRequisition.vat_applicable ? t('approvalCenter.yes') : t('approvalCenter.no')}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Payment Category</label>
+							<label>{t('approvalCenter.paymentCategory')}</label>
 							<div class="detail-value">{selectedRequisition.payment_category.replace(/_/g, ' ')}</div>
 						</div>
 
 						{#if selectedRequisition.credit_period}
 							<div class="detail-item">
-								<label>Credit Period</label>
-								<div class="detail-value">{selectedRequisition.credit_period} days</div>
+								<label>{t('approvalCenter.creditPeriod')}</label>
+								<div class="detail-value">{selectedRequisition.credit_period} {t('approvalCenter.days')}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.bank_name}
 							<div class="detail-item">
-								<label>Bank Name</label>
+								<label>{t('approvalCenter.bankName')}</label>
 								<div class="detail-value">{selectedRequisition.bank_name}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.iban}
 							<div class="detail-item">
-								<label>IBAN</label>
+								<label>{t('approvalCenter.iban')}</label>
 								<div class="detail-value">{selectedRequisition.iban}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.description}
 							<div class="detail-item full-width">
-								<label>Description</label>
+								<label>{t('approvalCenter.description')}</label>
 								<div class="detail-value description">{selectedRequisition.description}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.image_url}
 							<div class="detail-item full-width">
-								<label>Attachment</label>
+								<label>{t('approvalCenter.attachment')}</label>
 								<div class="detail-value">
 									<img src={selectedRequisition.image_url} alt="Requisition" class="attachment-image" />
 								</div>
@@ -2218,7 +2281,7 @@ async function loadHistoricalData() {
 						{/if}
 
 						<div class="detail-item">
-							<label>Created Date</label>
+							<label>{t('approvalCenter.createdDate')}</label>
 							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
 						</div>
 					</div>
@@ -2226,243 +2289,239 @@ async function loadHistoricalData() {
 					<!-- Payment Schedule Details -->
 					<div class="detail-grid">
 						<div class="detail-item">
-							<label>Schedule Type</label>
+							<label>{t('approvalCenter.scheduleType')}</label>
 							<div class="detail-value">
-								<span class="schedule-badge">{selectedRequisition.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
+								<span class="schedule-badge">{selectedRequisition.schedule_type.replace(/_/g, ' ')}</span>
 							</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Status</label>
+							<label>{t('approvalCenter.status')}</label>
 							<span class="status-badge {
 								selectedRequisition.approval_status === 'pending' ? 'status-pending' : 
 								selectedRequisition.approval_status === 'approved' ? 'status-approved' : 
 								selectedRequisition.approval_status === 'rejected' ? 'status-rejected' : 
 								'status-pending'
 							}">
-								{(selectedRequisition.approval_status || 'pending').toUpperCase()}
+								{getStatusText(selectedRequisition.approval_status)}
 							</span>
 						</div>
 
 						<div class="detail-item">
-							<label>Branch</label>
+							<label>{t('approvalCenter.branch')}</label>
 							<div class="detail-value">{selectedRequisition.branch_name}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Category</label>
+							<label>{t('approvalCenter.category')}</label>
 							<div class="detail-value">
-								{selectedRequisition.expense_category_name_en}
-								{#if selectedRequisition.expense_category_name_ar}
-									<br>
-									<span class="category-ar">{selectedRequisition.expense_category_name_ar}</span>
-								{/if}
+								{getCategoryName(selectedRequisition.expense_category_name_en, selectedRequisition.expense_category_name_ar)}
 							</div>
 						</div>
 
 						{#if selectedRequisition.co_user_name}
 							<div class="detail-item">
-								<label>C/O User</label>
+								<label>{t('approvalCenter.coUser')}</label>
 								<div class="detail-value">{selectedRequisition.co_user_name}</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Approver</label>
+							<label>{t('approvalCenter.approver')}</label>
 							<div class="detail-value">{selectedRequisition.approver_name}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Created By</label>
-							<div class="detail-value">{selectedRequisition.creator?.username || 'Unknown'}</div>
+							<label>{t('approvalCenter.createdBy')}</label>
+							<div class="detail-value">{getDisplayName(selectedRequisition.creator)}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Amount</label>
+							<label>{t('approvalCenter.amount')}</label>
 							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.amount)}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Payment Method</label>
-							<div class="detail-value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</div>
+							<label>{t('approvalCenter.paymentMethod')}</label>
+							<div class="detail-value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || t('approvalCenter.na')}</div>
 						</div>
 
 						{#if selectedRequisition.bill_type}
 							<div class="detail-item">
-								<label>Bill Type</label>
+								<label>{t('approvalCenter.billType')}</label>
 								<div class="detail-value">{selectedRequisition.bill_type.replace(/_/g, ' ')}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.bill_number}
 							<div class="detail-item">
-								<label>Bill Number</label>
+								<label>{t('approvalCenter.billNumber')}</label>
 								<div class="detail-value">{selectedRequisition.bill_number}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.bill_date}
 							<div class="detail-item">
-								<label>Bill Date</label>
+								<label>{t('approvalCenter.billDate')}</label>
 								<div class="detail-value">{formatDate(selectedRequisition.bill_date)}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.due_date}
 							<div class="detail-item">
-								<label>Due Date</label>
+								<label>{t('approvalCenter.dueDate')}</label>
 								<div class="detail-value">{formatDate(selectedRequisition.due_date)}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.credit_period}
 							<div class="detail-item">
-								<label>Credit Period</label>
-								<div class="detail-value">{selectedRequisition.credit_period} days</div>
+								<label>{t('approvalCenter.creditPeriod')}</label>
+								<div class="detail-value">{selectedRequisition.credit_period} {t('approvalCenter.days')}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.bank_name}
 							<div class="detail-item">
-								<label>Bank Name</label>
+								<label>{t('approvalCenter.bankName')}</label>
 								<div class="detail-value">{selectedRequisition.bank_name}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.iban}
 							<div class="detail-item">
-								<label>IBAN</label>
+								<label>{t('approvalCenter.iban')}</label>
 								<div class="detail-value">{selectedRequisition.iban}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.description}
 							<div class="detail-item full-width">
-								<label>Description</label>
+								<label>{t('approvalCenter.description')}</label>
 								<div class="detail-value description">{selectedRequisition.description}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.bill_file_url}
 							<div class="detail-item full-width">
-								<label>Bill Attachment</label>
+								<label>{t('approvalCenter.billAttachment')}</label>
 								<div class="detail-value">
 									<a href={selectedRequisition.bill_file_url} target="_blank" class="btn-view-file">
-										📄 View Bill File
+										📄 {t('approvalCenter.viewBillFile')}
 									</a>
 								</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Created Date</label>
+							<label>{t('approvalCenter.createdDate')}</label>
 							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Created By</label>
-							<div class="detail-value">{selectedRequisition.creator?.username || 'Unknown'}</div>
+							<label>{t('approvalCenter.createdBy')}</label>
+							<div class="detail-value">{getDisplayName(selectedRequisition.creator)}</div>
 						</div>
 					</div>
 				{:else if selectedRequisition.item_type === 'vendor_payment'}
 					<!-- Vendor Payment Details -->
 					<div class="detail-grid">
 						<div class="detail-item">
-							<label>Payment Type</label>
+							<label>{t('approvalCenter.paymentType')}</label>
 							<div class="detail-value">
-								<span class="schedule-badge vendor-payment">💰 VENDOR PAYMENT</span>
+								<span class="schedule-badge vendor-payment">💰 {t('approvalCenter.vendorPayment')}</span>
 							</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Status</label>
+							<label>{t('approvalCenter.status')}</label>
 							<span class="status-badge status-pending">
-								SENT FOR APPROVAL
+								{t('approvalCenter.sentForApproval')}
 							</span>
 						</div>
 
 						<div class="detail-item">
-							<label>Bill Number</label>
+							<label>{t('approvalCenter.billNumber')}</label>
 							<div class="detail-value">{selectedRequisition.bill_number}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Vendor Name</label>
+							<label>{t('approvalCenter.vendorName')}</label>
 							<div class="detail-value">{selectedRequisition.vendor_name}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Branch</label>
+							<label>{t('approvalCenter.branch')}</label>
 							<div class="detail-value">{selectedRequisition.branch_name}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Bill Amount</label>
+							<label>{t('approvalCenter.billAmount')}</label>
 							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.bill_amount)}</div>
 						</div>
 
 						{#if selectedRequisition.final_bill_amount && selectedRequisition.final_bill_amount !== selectedRequisition.bill_amount}
 							<div class="detail-item">
-								<label>Final Bill Amount</label>
+								<label>{t('approvalCenter.finalBillAmount')}</label>
 								<div class="detail-value amount-large">{formatCurrency(selectedRequisition.final_bill_amount)}</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Payment Method</label>
-							<div class="detail-value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</div>
+							<label>{t('approvalCenter.paymentMethod')}</label>
+							<div class="detail-value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || t('approvalCenter.na')}</div>
 						</div>
 
 						{#if selectedRequisition.bill_date}
 							<div class="detail-item">
-								<label>Bill Date</label>
+								<label>{t('approvalCenter.billDate')}</label>
 								<div class="detail-value">{formatDate(selectedRequisition.bill_date)}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.due_date}
 							<div class="detail-item">
-								<label>Due Date</label>
+								<label>{t('approvalCenter.dueDate')}</label>
 								<div class="detail-value">{formatDate(selectedRequisition.due_date)}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.original_due_date && selectedRequisition.original_due_date !== selectedRequisition.due_date}
 							<div class="detail-item">
-								<label>Original Due Date</label>
+								<label>{t('approvalCenter.originalDueDate')}</label>
 								<div class="detail-value">{formatDate(selectedRequisition.original_due_date)}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.bank_name}
 							<div class="detail-item">
-								<label>Bank Name</label>
+								<label>{t('approvalCenter.bankName')}</label>
 								<div class="detail-value">{selectedRequisition.bank_name}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.iban}
 							<div class="detail-item">
-								<label>IBAN</label>
+								<label>{t('approvalCenter.iban')}</label>
 								<div class="detail-value">{selectedRequisition.iban}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.priority}
 							<div class="detail-item">
-								<label>Priority</label>
+								<label>{t('approvalCenter.priority')}</label>
 								<div class="detail-value">{selectedRequisition.priority}</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Requested Date</label>
+							<label>{t('approvalCenter.requestedDate')}</label>
 							<div class="detail-value">{formatDate(selectedRequisition.approval_requested_at)}</div>
 						</div>
 
 						{#if selectedRequisition.approval_notes}
 							<div class="detail-item full-width">
-								<label>Notes</label>
+								<label>{t('approvalCenter.notes')}</label>
 								<div class="detail-value description">{selectedRequisition.approval_notes}</div>
 							</div>
 						{/if}
@@ -2471,92 +2530,92 @@ async function loadHistoricalData() {
 					<!-- Purchase Voucher Details -->
 					<div class="detail-grid">
 						<div class="detail-item">
-							<label>Request Type</label>
+							<label>{t('approvalCenter.requestType')}</label>
 							<div class="detail-value">
 								{#if selectedRequisition.issue_type === 'stock transfer'}
-									<span class="schedule-badge transfer">📦 STOCK TRANSFER</span>
+									<span class="schedule-badge transfer">📦 {t('approvalCenter.stockTransfer')}</span>
 								{:else if selectedRequisition.issue_type === 'gift'}
-									<span class="schedule-badge gift">🎁 GIFT</span>
+									<span class="schedule-badge gift">🎁 {t('approvalCenter.gift')}</span>
 								{:else if selectedRequisition.issue_type === 'sales'}
-									<span class="schedule-badge sales">💰 SALES</span>
+									<span class="schedule-badge sales">💰 {t('approvalCenter.sales')}</span>
 								{:else}
-									<span class="schedule-badge purchase-voucher">🧾 PURCHASE VOUCHER</span>
+									<span class="schedule-badge purchase-voucher">🧾 {t('approvalCenter.purchaseVoucher')}</span>
 								{/if}
 							</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Voucher Book ID</label>
-							<div class="detail-value">{selectedRequisition.purchase_voucher_id || 'N/A'}</div>
+							<label>{t('approvalCenter.voucherBookId')}</label>
+							<div class="detail-value">{selectedRequisition.purchase_voucher_id || t('approvalCenter.na')}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Serial Number</label>
-							<div class="detail-value amount-large">#{selectedRequisition.serial_number || 'N/A'}</div>
+							<label>{t('approvalCenter.serialNumber')}</label>
+							<div class="detail-value amount-large">#{selectedRequisition.serial_number || t('approvalCenter.na')}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Approval Status</label>
+							<label>{t('approvalCenter.approvalStatus')}</label>
 							<span class="status-badge {
 								selectedRequisition.approval_status === 'pending' ? 'status-pending' : 
 								selectedRequisition.approval_status === 'approved' ? 'status-approved' : 
 								selectedRequisition.approval_status === 'rejected' ? 'status-rejected' : 
 								'status-pending'
 							}">
-								{(selectedRequisition.approval_status || 'pending').toUpperCase()}
+								{getStatusText(selectedRequisition.approval_status)}
 							</span>
 						</div>
 
 						<div class="detail-item">
-							<label>Voucher Value</label>
+							<label>{t('approvalCenter.voucherValue')}</label>
 							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.value || 0)}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Current Stock</label>
-							<div class="detail-value">{selectedRequisition.stock ?? 'N/A'}</div>
+							<label>{t('approvalCenter.currentStock')}</label>
+							<div class="detail-value">{selectedRequisition.stock ?? t('approvalCenter.na')}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Current Location</label>
-							<div class="detail-value">{selectedRequisition.stock_location_branch?.name_en || 'N/A'}</div>
+							<label>{t('approvalCenter.currentLocation')}</label>
+							<div class="detail-value">{selectedRequisition.stock_location_branch?.name_en || t('approvalCenter.na')}</div>
 						</div>
 
 						{#if selectedRequisition.issue_type === 'stock transfer'}
 							<div class="detail-item">
-								<label>🔄 Transfer To Location</label>
+								<label>🔄 {t('approvalCenter.transferToLocation')}</label>
 								<div class="detail-value" style="color: #3182ce; font-weight: 600;">
-									{selectedRequisition.pending_location_branch?.name_en || 'N/A'}
+									{selectedRequisition.pending_location_branch?.name_en || t('approvalCenter.na')}
 								</div>
 							</div>
 
 							<div class="detail-item">
-								<label>🔄 Transfer To Person</label>
+								<label>🔄 {t('approvalCenter.transferToPerson')}</label>
 								<div class="detail-value" style="color: #3182ce; font-weight: 600;">
-									{selectedRequisition.pending_person_user?.username || 'N/A'}
+									{getDisplayName(selectedRequisition.pending_person_user)}
 								</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Requested By</label>
-							<div class="detail-value">{selectedRequisition.issued_by_user?.username || 'Unknown'}</div>
+							<label>{t('approvalCenter.requestedBy')}</label>
+							<div class="detail-value">{getDisplayName(selectedRequisition.issued_by_user)}</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Request Date</label>
-							<div class="detail-value">{selectedRequisition.issued_date ? formatDate(selectedRequisition.issued_date) : 'N/A'}</div>
+							<label>{t('approvalCenter.requestDate')}</label>
+							<div class="detail-value">{selectedRequisition.issued_date ? formatDate(selectedRequisition.issued_date) : t('approvalCenter.na')}</div>
 						</div>
 
 						{#if selectedRequisition.remarks}
 							<div class="detail-item full-width">
-								<label>Remarks</label>
+								<label>{t('approvalCenter.remarks')}</label>
 								<div class="detail-value description">{selectedRequisition.remarks}</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Created Date</label>
+							<label>{t('approvalCenter.createdDate')}</label>
 							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
 						</div>
 					</div>
@@ -2564,41 +2623,41 @@ async function loadHistoricalData() {
 					<!-- Day Off Request Details (Grouped) -->
 					<div class="detail-grid">
 						<div class="detail-item">
-							<label>Request Status</label>
+							<label>{t('approvalCenter.requestStatus')}</label>
 							<span class="status-badge status-{selectedRequisition.approval_status}">
-								{selectedRequisition.approval_status?.toUpperCase() || 'PENDING'}
+								{getStatusText(selectedRequisition.approval_status)}
 							</span>
 						</div>
 
 						<div class="detail-item">
-							<label>Employee</label>
+							<label>{t('approvalCenter.employee')}</label>
 							<div class="detail-value">
-								👤 {selectedRequisition.employee ? (selectedRequisition.employee.name_en || selectedRequisition.employee.name_ar || 'N/A') : 'N/A'}
+								👤 {getEmployeeName(selectedRequisition.employee)}
 							</div>
 						</div>
 
 						<div class="detail-item">
-							<label>Requested By</label>
+							<label>{t('approvalCenter.requestedBy')}</label>
 							<div class="detail-value">
-								👤 {selectedRequisition.requester?.username || 'Unknown User'}
+								👤 {getDisplayName(selectedRequisition.requester)}
 							</div>
 						</div>
 
 						{#if selectedRequisition._dayCount > 1}
 							<div class="detail-item">
-								<label>Date Range</label>
+								<label>{t('approvalCenter.dateRange')}</label>
 								<div class="detail-value">
 									{formatDateOnly(selectedRequisition._dateFrom)} → {formatDateOnly(selectedRequisition._dateTo)}
 								</div>
 							</div>
 							<div class="detail-item">
-								<label>Total Days</label>
+								<label>{t('approvalCenter.totalDays')}</label>
 								<div class="detail-value">
-									📅 {selectedRequisition._dayCount} days
+									📅 {selectedRequisition._dayCount} {t('approvalCenter.days')}
 								</div>
 							</div>
 							<div class="detail-item full-width">
-								<label>All Dates</label>
+								<label>{t('approvalCenter.allDates')}</label>
 								<div class="detail-value" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
 									{#each (selectedRequisition._allDates || []) as dayDate}
 										<span style="background: #f0f7ff; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; border: 1px solid #dbeafe;">
@@ -2609,15 +2668,15 @@ async function loadHistoricalData() {
 							</div>
 						{:else}
 							<div class="detail-item">
-								<label>Day Off Date</label>
+								<label>{t('approvalCenter.dayOffDate')}</label>
 								<div class="detail-value">{selectedRequisition.day_off_date ? formatDateOnly(selectedRequisition.day_off_date) : '-'}</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Reason</label>
+							<label>{t('approvalCenter.reason')}</label>
 							<div class="detail-value">
-								{selectedRequisition.reason ? (selectedRequisition.reason[$locale === 'en' ? 'reason_en' : 'reason_ar'] || 'N/A') : 'No reason'}
+								{selectedRequisition.reason ? (selectedRequisition.reason[$locale === 'en' ? 'reason_en' : 'reason_ar'] || t('approvalCenter.na')) : t('approvalCenter.na')}
 								{#if selectedRequisition.reason && selectedRequisition.reason.reason_en}
 									<br>
 									<small style="color: #666;">EN: {selectedRequisition.reason.reason_en}</small>
@@ -2631,59 +2690,59 @@ async function loadHistoricalData() {
 
 						{#if selectedRequisition.description}
 							<div class="detail-item full-width">
-								<label>📝 Description</label>
+								<label>📝 {t('approvalCenter.description')}</label>
 								<div class="detail-value description">{selectedRequisition.description}</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Deductible on Salary</label>
-							<div class="detail-value">{selectedRequisition.is_deductible_on_salary ? '💰 Yes' : 'No'}</div>
+							<label>{t('approvalCenter.deductibleOnSalary')}</label>
+							<div class="detail-value">{selectedRequisition.is_deductible_on_salary ? '💰 ' + t('approvalCenter.yes') : t('approvalCenter.no')}</div>
 						</div>
 
 						{#if selectedRequisition.document_url}
 							<div class="detail-item full-width">
-								<label>📎 Document Attached</label>
+								<label>📎 {t('approvalCenter.documentAttached')}</label>
 								<div class="detail-value">
 									<button 
 										class="btn-view-doc"
 										on:click={() => window.open(selectedRequisition.document_url, '_blank')}
 										title="Click to view document">
-										📄 View Document
+										📄 {t('approvalCenter.viewDocument')}
 									</button>
 									<br>
-									<small>Uploaded: {selectedRequisition.document_uploaded_at ? formatDate(selectedRequisition.document_uploaded_at) : 'N/A'}</small>
+									<small>{t('approvalCenter.uploaded')}: {selectedRequisition.document_uploaded_at ? formatDate(selectedRequisition.document_uploaded_at) : t('approvalCenter.na')}</small>
 								</div>
 							</div>
 						{/if}
 
 						<div class="detail-item">
-							<label>Requested On</label>
+							<label>{t('approvalCenter.requestedOn')}</label>
 							<div class="detail-value">{formatDate(selectedRequisition.approval_requested_at)}</div>
 						</div>
 
 						{#if selectedRequisition.approval_approved_at}
 							<div class="detail-item">
-								<label>Approved On</label>
+								<label>{t('approvalCenter.approvedOn')}</label>
 								<div class="detail-value">{formatDate(selectedRequisition.approval_approved_at)}</div>
 							</div>
 
 							<div class="detail-item">
-								<label>Approved By</label>
-								<div class="detail-value">👤 {selectedRequisition.approval_approved_by || 'System'}</div>
+								<label>{t('approvalCenter.approvedBy')}</label>
+								<div class="detail-value">👤 {selectedRequisition.approval_approved_by || t('approvalCenter.system')}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.approval_notes}
 							<div class="detail-item full-width">
-								<label>Approval Notes</label>
+								<label>{t('approvalCenter.approvalNotes')}</label>
 								<div class="detail-value description">{selectedRequisition.approval_notes}</div>
 							</div>
 						{/if}
 
 						{#if selectedRequisition.rejection_reason}
 							<div class="detail-item full-width">
-								<label style="color: #dc2626;">Rejection Reason</label>
+								<label style="color: #dc2626;">{t('approvalCenter.rejectionReason')}</label>
 								<div class="detail-value description" style="color: #dc2626;">{selectedRequisition.rejection_reason}</div>
 							</div>
 						{/if}
@@ -2702,11 +2761,11 @@ async function loadHistoricalData() {
 						: selectedRequisition.item_type === 'day_off'
 						? userCanApprove
 						: userCanApprove}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? t('approvalCenter.itemPaymentSchedule') : selectedRequisition.item_type === 'vendor_payment' ? t('approvalCenter.itemVendorPayment') : selectedRequisition.item_type === 'purchase_voucher' ? t('approvalCenter.itemPurchaseVoucher') : selectedRequisition.item_type === 'day_off' ? t('approvalCenter.itemDayOffRequest') : t('approvalCenter.itemRequisition')}
 					{#if !canApproveThis}
 						<div class="permission-notice">
-							ℹ️ You do not have permission to approve or reject this {itemTypeName}.
-							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? 'This schedule is assigned to a different approver.' : 'Please contact your administrator for approval permissions.'}</small>
+							ℹ️ {t('approvalCenter.noPermission')} {itemTypeName}.
+							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? t('approvalCenter.assignedDifferent') : t('approvalCenter.contactAdmin')}</small>
 						</div>
 					{/if}
 					{#if selectedRequisition.item_type === 'day_off'}
@@ -2714,43 +2773,43 @@ async function loadHistoricalData() {
 							class="btn-approve"
 							on:click={() => { closeDetail(); openDayOffApproveModal(selectedRequisition); }}
 							disabled={isProcessing || !canApproveThis}
-							title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
+							title={!canApproveThis ? t('approvalCenter.needPermissionApprove') : t('approvalCenter.approveThis')}
 						>
-							{isProcessing ? '⏳ Processing...' : '✅ Approve'}
+							{isProcessing ? '⏳ ' + t('approvalCenter.processing') : '✅ ' + t('approvalCenter.approve')}
 						</button>
 						<button
 							class="btn-reject"
 							on:click={() => { closeDetail(); rejectDayOffInstant(selectedRequisition); }}
 							disabled={isProcessing || !canApproveThis}
-							title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
+							title={!canApproveThis ? t('approvalCenter.needPermissionReject') : t('approvalCenter.rejectThis')}
 						>
-							{isProcessing ? '⏳ Processing...' : '❌ Reject'}
+							{isProcessing ? '⏳ ' + t('approvalCenter.processing') : '❌ ' + t('approvalCenter.reject')}
 						</button>
 					{:else}
 						<button
 							class="btn-approve"
 							on:click={() => showApprovalConfirm(selectedRequisition.id)}
 							disabled={isProcessing || !canApproveThis}
-							title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
+							title={!canApproveThis ? t('approvalCenter.needPermissionApprove') : t('approvalCenter.approveThis')}
 						>
-							{isProcessing ? '⏳ Processing...' : '✅ Approve'}
+							{isProcessing ? '⏳ ' + t('approvalCenter.processing') : '✅ ' + t('approvalCenter.approve')}
 						</button>
 						<button
 							class="btn-reject"
 							on:click={() => showRejectionConfirm(selectedRequisition.id)}
 							disabled={isProcessing || !canApproveThis}
-							title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
+							title={!canApproveThis ? t('approvalCenter.needPermissionReject') : t('approvalCenter.rejectThis')}
 						>
-							{isProcessing ? '⏳ Processing...' : '❌ Reject'}
+							{isProcessing ? '⏳ ' + t('approvalCenter.processing') : '❌ ' + t('approvalCenter.reject')}
 						</button>
 					{/if}
 				{:else}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? t('approvalCenter.itemPaymentSchedule') : selectedRequisition.item_type === 'vendor_payment' ? t('approvalCenter.itemVendorPayment') : selectedRequisition.item_type === 'purchase_voucher' ? t('approvalCenter.itemPurchaseVoucher') : selectedRequisition.item_type === 'day_off' ? t('approvalCenter.itemDayOffRequest') : t('approvalCenter.itemRequisition')}
 					<div class="status-info">
-						This {itemTypeName} has been {selectedRequisition.status || selectedRequisition.approval_status}
+						{t('approvalCenter.statusThis')} {itemTypeName} {t('approvalCenter.hasBeenStatus')} {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>
 				{/if}
-				<button class="btn-close" on:click={closeDetail}>Close</button>
+				<button class="btn-close" on:click={closeDetail}>{t('approvalCenter.close')}</button>
 			</div>
 		</div>
 	</div>
@@ -2760,13 +2819,13 @@ async function loadHistoricalData() {
 {#if showDayOffApproveModal && selectedRequisition}
 <div class="confirm-overlay" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
 	<div class="confirm-modal dayoff-modal" on:click|stopPropagation>
-		<h3 class="confirm-title">✅ Approve Leave Request</h3>
+		<h3 class="confirm-title">✅ {t('approvalCenter.approveLeaveRequest')}</h3>
 		<p class="confirm-message" style="margin-bottom: 0.75rem;">
-			<strong>{selectedRequisition.employee ? (selectedRequisition.employee.name_en || selectedRequisition.employee.name_ar || 'N/A') : 'N/A'}</strong>
-			— {selectedRequisition.reason ? (selectedRequisition.reason.reason_en || selectedRequisition.reason.reason_ar || '') : ''}
+			<strong>{getEmployeeName(selectedRequisition.employee)}</strong>
+			— {selectedRequisition.reason ? (selectedRequisition.reason[$locale === 'ar' ? 'reason_ar' : 'reason_en'] || selectedRequisition.reason.reason_en || '') : ''}
 		</p>
 		<p class="confirm-message" style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
-			Uncheck any days you want to reject
+		{t('approvalCenter.uncheckDaysToReject')}
 		</p>
 		<div class="dayoff-dates-list">
 			{#each (selectedRequisition._allIds || [selectedRequisition.id]) as dayId, i}
@@ -2779,14 +2838,14 @@ async function loadHistoricalData() {
 		</div>
 		<div class="confirm-actions" style="margin-top: 1rem;">
 			<button class="btn-confirm-cancel" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
-				Cancel
+				{t('approvalCenter.cancel')}
 			</button>
 			<button 
 				class="btn-confirm-ok approve" 
 				on:click={confirmDayOffApproval}
 				disabled={isProcessing || Object.values(dayOffCheckedDates).every(v => !v)}
 			>
-				{isProcessing ? 'Processing...' : `Accept (${Object.values(dayOffCheckedDates).filter(v => v).length})`}
+				{isProcessing ? t('approvalCenter.processing') : `${t('approvalCenter.accept')} (${Object.values(dayOffCheckedDates).filter(v => v).length})`}
 			</button>
 		</div>
 	</div>
@@ -2798,36 +2857,36 @@ async function loadHistoricalData() {
 <div class="confirm-overlay" on:click={cancelConfirm}>
 	<div class="confirm-modal" on:click|stopPropagation>
 		<h3 class="confirm-title">
-			{confirmAction === 'approve' ? '✅ Confirm Approval' : '❌ Confirm Rejection'}
+			{confirmAction === 'approve' ? '✅ ' + t('approvalCenter.confirmApproval') : '❌ ' + t('approvalCenter.confirmRejection')}
 		</h3>
 		
 		<p class="confirm-message">
 			{#if confirmAction === 'approve'}
-				Are you sure you want to approve this {
-					selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : 
-					selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 
-					selectedRequisition?.item_type === 'purchase_voucher' ? 'purchase voucher' :
-					selectedRequisition?.item_type === 'day_off' ? 'day off request' :
-					'requisition'
+				{t('approvalCenter.confirmApproveMsg')} {
+					selectedRequisition?.item_type === 'payment_schedule' ? t('approvalCenter.itemPaymentSchedule') : 
+					selectedRequisition?.item_type === 'vendor_payment' ? t('approvalCenter.itemVendorPayment') : 
+					selectedRequisition?.item_type === 'purchase_voucher' ? t('approvalCenter.itemPurchaseVoucher') :
+					selectedRequisition?.item_type === 'day_off' ? t('approvalCenter.itemDayOffRequest') :
+					t('approvalCenter.itemRequisition')
 				}?
 			{:else}
-				Are you sure you want to reject this {
-					selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : 
-					selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 
-					selectedRequisition?.item_type === 'purchase_voucher' ? 'purchase voucher' :
-					selectedRequisition?.item_type === 'day_off' ? 'day off request' :
-					'requisition'
+				{t('approvalCenter.confirmRejectMsg')} {
+					selectedRequisition?.item_type === 'payment_schedule' ? t('approvalCenter.itemPaymentSchedule') : 
+					selectedRequisition?.item_type === 'vendor_payment' ? t('approvalCenter.itemVendorPayment') : 
+					selectedRequisition?.item_type === 'purchase_voucher' ? t('approvalCenter.itemPurchaseVoucher') :
+					selectedRequisition?.item_type === 'day_off' ? t('approvalCenter.itemDayOffRequest') :
+					t('approvalCenter.itemRequisition')
 				}?
 			{/if}
 		</p>
 		
 		{#if confirmAction === 'reject'}
 			<div class="form-group">
-				<label for="rejection-reason" class="form-label">Reason for Rejection *</label>
+				<label for="rejection-reason" class="form-label">{t('approvalCenter.reasonForRejection')}</label>
 				<textarea
 					id="rejection-reason"
 					bind:value={rejectionReason}
-					placeholder="Please provide a detailed reason for rejection..."
+					placeholder={t('approvalCenter.rejectionPlaceholder')}
 					rows="4"
 					class="rejection-textarea"
 				></textarea>
@@ -2836,7 +2895,7 @@ async function loadHistoricalData() {
 		
 		<div class="confirm-actions">
 			<button class="btn-confirm-cancel" on:click={cancelConfirm}>
-				Cancel
+				{t('approvalCenter.cancel')}
 			</button>
 			<button 
 				class="btn-confirm-ok" 
@@ -2845,7 +2904,7 @@ async function loadHistoricalData() {
 				on:click={confirmActionHandler}
 				disabled={confirmAction === 'reject' && !rejectionReason.trim()}
 			>
-				{confirmAction === 'approve' ? 'Approve' : 'Reject'}
+				{confirmAction === 'approve' ? t('approvalCenter.approve') : t('approvalCenter.reject')}
 			</button>
 		</div>
 	</div>
@@ -2862,23 +2921,6 @@ async function loadHistoricalData() {
 		flex-direction: column;
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 		gap: 1.5rem;
-	}
-
-	.header {
-		text-align: center;
-	}
-
-	.title {
-		font-size: 2rem;
-		font-weight: 700;
-		color: #1e293b;
-		margin-bottom: 0.5rem;
-	}
-
-	.subtitle {
-		color: #64748b;
-		font-size: 1rem;
-		margin: 0;
 	}
 
 	/* Section Tabs */
@@ -2939,17 +2981,17 @@ async function loadHistoricalData() {
 	/* Stats Grid */
 	.stats-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 1rem;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.75rem;
 	}
 
 	.stat-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1.5rem;
+		border-radius: 10px;
+		padding: 0.75rem 1rem;
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.75rem;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 		transition: transform 0.2s, box-shadow 0.2s;
 	}
@@ -2960,12 +3002,12 @@ async function loadHistoricalData() {
 	}
 
 	.stat-card.clickable:hover {
-		transform: translateY(-4px);
+		transform: translateY(-2px);
 		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
 	}
 
 	.stat-card.clickable:active {
-		transform: translateY(-2px);
+		transform: translateY(-1px);
 		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 	}
 
@@ -2975,8 +3017,8 @@ async function loadHistoricalData() {
 	}
 
 	.stat-icon {
-		font-size: 2.5rem;
-		min-width: 60px;
+		font-size: 1.5rem;
+		min-width: 36px;
 		text-align: center;
 	}
 
@@ -2985,14 +3027,14 @@ async function loadHistoricalData() {
 	}
 
 	.stat-value {
-		font-size: 2rem;
+		font-size: 1.25rem;
 		font-weight: 700;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.1rem;
 	}
 
 	.stat-label {
 		color: #64748b;
-		font-size: 0.875rem;
+		font-size: 0.75rem;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 	}
@@ -3254,12 +3296,17 @@ async function loadHistoricalData() {
 		border-radius: 8px;
 		cursor: pointer;
 		font-size: 1.2rem;
-		font-weight: 600;
-		transition: background 0.2s;
+		font-weight: 700;
+		transition: all 0.2s;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.btn-view:hover {
 		background: #2563eb;
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+		transform: scale(1.05);
 	}
 
 	.btn-view-doc {
@@ -3301,7 +3348,7 @@ async function loadHistoricalData() {
 		border-radius: 8px;
 		cursor: pointer;
 		font-size: 1.2rem;
-		font-weight: 600;
+		font-weight: 900;
 		transition: all 0.2s;
 		display: inline-flex;
 		align-items: center;
@@ -3315,16 +3362,21 @@ async function loadHistoricalData() {
 
 	.btn-approve-inline:hover:not(:disabled) {
 		background: #059669;
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 		transform: scale(1.05);
 	}
 
 	.btn-reject-inline {
-		background: #ef4444;
-		color: white;
+		background: white;
+		color: #ef4444;
+		border: 1.5px solid #ef4444;
 	}
 
 	.btn-reject-inline:hover:not(:disabled) {
-		background: #dc2626;
+		background: #fef2f2;
+		color: #dc2626;
+		border-color: #dc2626;
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 		transform: scale(1.05);
 	}
 
@@ -3474,48 +3526,56 @@ async function loadHistoricalData() {
 	}
 
 	.btn-approve {
-		padding: 0.75rem 1.5rem;
+		padding: 0.5rem 1.5rem;
 		background: #10b981;
 		color: white;
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
-		font-weight: 600;
-		transition: background 0.2s;
+		font-weight: 900;
+		transition: all 0.2s;
+		transform: scale(1);
 	}
 
 	.btn-approve:hover:not(:disabled) {
 		background: #059669;
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+		transform: scale(1.05);
 	}
 
 	.btn-reject {
-		padding: 0.75rem 1.5rem;
-		background: #ef4444;
-		color: white;
-		border: none;
+		padding: 0.5rem 1.5rem;
+		background: white;
+		color: #ef4444;
+		border: 1.5px solid #ef4444;
 		border-radius: 8px;
 		cursor: pointer;
-		font-weight: 600;
-		transition: background 0.2s;
+		font-weight: 900;
+		transition: all 0.2s;
+		transform: scale(1);
 	}
 
 	.btn-reject:hover:not(:disabled) {
-		background: #dc2626;
+		background: #fef2f2;
+		color: #dc2626;
+		border-color: #dc2626;
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+		transform: scale(1.05);
 	}
 
 	.btn-close {
-		padding: 0.75rem 1.5rem;
-		background: #64748b;
-		color: white;
+		padding: 0.5rem 1.5rem;
+		background: #e2e8f0;
+		color: #475569;
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
 		font-weight: 600;
-		transition: background 0.2s;
+		transition: all 0.2s;
 	}
 
 	.btn-close:hover {
-		background: #475569;
+		background: #cbd5e1;
 	}
 
 	.btn-approve:disabled,
