@@ -56,7 +56,7 @@
 	let showStockMenu = false;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ21';
+	let mobileVersion = 'AQ22';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
