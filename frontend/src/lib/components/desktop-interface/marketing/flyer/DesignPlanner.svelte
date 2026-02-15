@@ -17,6 +17,7 @@
     product_name_en: string;
     product_name_ar: string;
     unit_name: string;
+    unit_name_ar: string;
     sales_price: number;
     offer_price: number;
     offer_qty: number;
@@ -70,6 +71,11 @@
     created_at: string;
   }
 
+  interface TemplateListItem {
+    id: string;
+    name: string;
+  }
+
   let offers: Offer[] = [];
   let selectedOfferId: string | null = null;
   let selectedOffer: Offer | null = null;
@@ -77,9 +83,11 @@
   let filteredProducts: Product[] = [];
   let isLoadingOffers = true;
   let isLoadingProducts = false;
-  let savedTemplates: SavedTemplate[] = [];
+  let templateList: TemplateListItem[] = [];
   let selectedTemplateId: string | null = null;
+  let selectedTemplate: SavedTemplate | null = null;
   let isLoadingTemplates = false;
+  let isLoadingSelectedTemplate = false;
   let serialCounter = 1;
   let searchQuery = '';
   let searchBy: 'barcode' | 'name_en' | 'name_ar' | 'serial' = 'barcode';
@@ -123,16 +131,47 @@
       isLoadingTemplates = true;
       const { data, error } = await supabase
         .from('shelf_paper_templates')
-        .select('*')
+        .select('id, name')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
-      savedTemplates = data || [];
+      templateList = data || [];
     } catch (error) {
       console.error('Error loading templates:', error);
     } finally {
       isLoadingTemplates = false;
+    }
+  }
+
+  async function loadSelectedTemplate(templateId: string) {
+    if (!templateId) {
+      selectedTemplate = null;
+      return;
+    }
+    try {
+      isLoadingSelectedTemplate = true;
+      const { data, error } = await supabase
+        .from('shelf_paper_templates')
+        .select('*')
+        .eq('id', templateId)
+        .single();
+      
+      if (error) throw error;
+      selectedTemplate = data;
+    } catch (error) {
+      console.error('Error loading selected template:', error);
+      selectedTemplate = null;
+    } finally {
+      isLoadingSelectedTemplate = false;
+    }
+  }
+
+  async function handleTemplateChange() {
+    if (selectedTemplateId) {
+      await loadSelectedTemplate(selectedTemplateId);
+    } else {
+      selectedTemplate = null;
     }
   }
 
@@ -189,9 +228,11 @@
         .select('id, name_en, name_ar');
       
       const unitMap = new Map();
+      const unitMapAr = new Map();
       if (unitsData) {
         unitsData.forEach(unit => {
           unitMap.set(unit.id, unit.name_en);
+          unitMapAr.set(unit.id, unit.name_ar || unit.name_en);
         });
       }
 
@@ -211,6 +252,7 @@
           product_name_en: productDetail?.product_name_en || '',
           product_name_ar: productDetail?.product_name_ar || '',
           unit_name: unitMap.get(productDetail?.unit_id) || '',
+          unit_name_ar: unitMapAr.get(productDetail?.unit_id) || '',
           sales_price: offerProduct.sales_price || 0,
           offer_price: offerProduct.offer_price || 0,
           offer_qty: offerProduct.offer_qty || 1,
@@ -726,11 +768,11 @@
       return;
     }
 
-    const template = savedTemplates.find(t => t.id === selectedTemplateId);
-    if (!template) {
-      alert('Template not found');
+    if (!selectedTemplate) {
+      alert('Template not loaded yet. Please wait...');
       return;
     }
+    const template = selectedTemplate;
 
     // If it's a variation group, fetch all variation images
     let variationImages: string[] = [];
@@ -828,7 +870,7 @@
             value = product.offer_qty ? product.offer_qty.toString() : '1';
             break;
           case 'limit_qty':
-            value = product.limit_qty ? 'لكل عميل: ' + product.limit_qty + '<br>For each customer: ' + product.limit_qty : '';
+            value = product.limit_qty ? 'لكل عميل ' + product.limit_qty + ' ' + (product.unit_name_ar || 'حبة') : '';
             break;
           case 'expire_date':
             const dateEnglish = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1010,11 +1052,11 @@
       return;
     }
 
-    const template = savedTemplates.find(t => t.id === selectedTemplateId);
-    if (!template) {
-      alert('Template not found');
+    if (!selectedTemplate) {
+      alert('Template not loaded yet. Please wait...');
       return;
     }
+    const template = selectedTemplate;
 
     // Filter products that have this specific size selected
     const productsForThisSize = products.filter(p => p.pdfSizes && p.pdfSizes.includes(targetSize));
@@ -1152,7 +1194,7 @@
               value = product.offer_qty ? product.offer_qty.toString() : '1';
               break;
             case 'limit_qty':
-              value = product.limit_qty ? 'لكل عميل: ' + product.limit_qty + '<br>For each customer: ' + product.limit_qty : '';
+              value = product.limit_qty ? 'لكل عميل ' + product.limit_qty + ' ' + (product.unit_name_ar || 'حبة') : '';
               break;
             case 'expire_date':
               const dateEnglish = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1348,19 +1390,20 @@
                 id="template-select"
                 bind:value={selectedTemplateId}
                 class="template-select"
-                disabled={isLoadingTemplates}
-                style={isLoadingTemplates ? 'opacity:0.5;pointer-events:none;' : ''}
+                disabled={isLoadingTemplates || isLoadingSelectedTemplate}
+                style={(isLoadingTemplates || isLoadingSelectedTemplate) ? 'opacity:0.5;pointer-events:none;' : ''}
+                on:change={handleTemplateChange}
               >
                 {#if isLoadingTemplates}
                   <option value={null}>Loading templates...</option>
                 {:else}
                   <option value={null}>-- No Template (Default Layout) --</option>
-                  {#each savedTemplates as template}
-                    <option value={template.id}>{template.name}</option>
+                  {#each templateList as tpl}
+                    <option value={tpl.id}>{tpl.name}</option>
                   {/each}
                 {/if}
               </select>
-              {#if isLoadingTemplates}
+              {#if isLoadingTemplates || isLoadingSelectedTemplate}
                 <span style="position:absolute;right:30px;top:50%;transform:translateY(-50%);display:inline-flex;">
                   <svg class="animate-spin" style="width:16px;height:16px;" fill="none" viewBox="0 0 24 24">
                     <circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -1369,7 +1412,9 @@
                 </span>
               {/if}
             </div>
-            {#if selectedTemplateId}
+            {#if isLoadingSelectedTemplate}
+              <span class="template-badge" style="background:#fef3c7;color:#92400e;">⏳ Loading template...</span>
+            {:else if selectedTemplateId && selectedTemplate}
               <span class="template-badge">✓ Template Selected</span>
               <div class="size-buttons-group" style="display:inline-flex;gap:8px;margin-left:12px;">
                 <button class="size-btn" on:click={() => generateSizePDF('a4')} title="Generate A4 PDFs for all selected products">
@@ -1623,7 +1668,7 @@
                       </div>
                     </td>
                     <td class="action-cell">
-                      {#if selectedTemplateId}
+                      {#if selectedTemplateId && selectedTemplate}
                         <button class="template-btn" on:click={() => generatePDFWithTemplate(product)} title="Generate using selected template">
                           Use Template
                         </button>
