@@ -457,7 +457,7 @@
 			<div class="welcome-container">
 				<div class="welcome-card">
 					<div class="logo-section">
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ47.21.13.14</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ48.22.14.15</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>
