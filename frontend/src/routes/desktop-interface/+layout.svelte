@@ -48,6 +48,7 @@
 	
 	// PWA update state
 	let showUpdatePrompt = false;
+	let userClickedUpdate = false;
 	let needRefresh;
 	let updateServiceWorker;
 
@@ -411,10 +412,11 @@
 	
 	// PWA update functions
 	async function handlePWAUpdate() {
-		console.log('PWA Update requested');
+		console.log('PWA Update requested by user');
 		console.log('Navigator online:', navigator.onLine);
 		console.log('UpdateServiceWorker available:', !!updateServiceWorker);
 		
+		userClickedUpdate = true;
 		showUpdatePrompt = false;
 		
 		// Multiple connectivity checks
@@ -697,12 +699,14 @@
 						});
 						
 						// Handle controller change (when new SW takes control)
-						// Only reload when user explicitly chose to update (not automatically)
+						// ONLY reload when user explicitly clicked the update button
 						navigator.serviceWorker.addEventListener('controllerchange', () => {
-							console.log('🔄 PWA Service Worker controller changed — user-initiated update');
-							// Reload only if user clicked update (showUpdatePrompt was dismissed)
-							if (!showUpdatePrompt) {
+							console.log('🔄 PWA Service Worker controller changed');
+							if (userClickedUpdate) {
+								console.log('✅ User-initiated update — reloading page');
 								window.location.reload();
+							} else {
+								console.log('⏭️ Auto update detected — NOT reloading (user did not click update)');
 							}
 						});
 						
