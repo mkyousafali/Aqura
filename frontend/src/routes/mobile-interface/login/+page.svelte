@@ -119,6 +119,17 @@
 			} else {
 				console.error('❌ [Mobile Login] Login failed:', result.error);
 				errorMessage = result.error || t('mobile.login.invalidCode');
+				// Clear digits and refocus first field on incorrect code
+				quickAccessDigits = ['', '', '', '', '', ''];
+				quickAccessCode = '';
+				quickAccessValid = false;
+				setTimeout(() => {
+					const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+					if (firstDigit) {
+						firstDigit.value = '';
+						firstDigit.focus();
+					}
+				}, 50);
 			}
 
 		} catch (error) {
@@ -139,6 +150,17 @@
 			} else {
 				errorMessage = t('mobile.login.loginFailedError');
 			}
+			// Clear digits and refocus first field on any error
+			quickAccessDigits = ['', '', '', '', '', ''];
+			quickAccessCode = '';
+			quickAccessValid = false;
+			setTimeout(() => {
+				const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+				if (firstDigit) {
+					firstDigit.value = '';
+					firstDigit.focus();
+				}
+			}, 50);
 		} finally {
 			// Ensure loading state is always reset
 			console.log('🔍 [Mobile Login] Resetting loading state');
@@ -181,6 +203,11 @@
 		}
 		
 		validateQuickAccess();
+		
+		// Auto-submit when all 6 digits are entered
+		if (quickAccessValid && quickAccessDigits.every(d => d !== '') && !isLoading) {
+			setTimeout(() => handleQuickAccessLogin(), 100);
+		}
 	}
 
 	function handleDigitKeydown(event: KeyboardEvent, index: number) {
@@ -306,7 +333,7 @@
 										id="digit-{index}"
 										type={showAccessCode ? 'text' : 'password'} 
 										class="digit-input"
-										class:error={!quickAccessValid && quickAccessDigits.some(d => d !== '')}
+										class:error={!quickAccessValid && quickAccessDigits.every(d => d !== '')}
 										bind:value={quickAccessDigits[index]}
 										on:input={(e) => handleDigitInput(e, index)}
 										on:keydown={(e) => handleDigitKeydown(e, index)}
@@ -328,7 +355,7 @@
 								{/if}
 							</button>
 						</div>
-						{#if !quickAccessValid && quickAccessDigits.some(d => d !== '')}
+						{#if !quickAccessValid && quickAccessDigits.every(d => d !== '')}
 							<span class="field-error">{t('mobile.login.invalidDigitError')}</span>
 						{/if}
 						</div>

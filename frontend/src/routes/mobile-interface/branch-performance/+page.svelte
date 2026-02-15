@@ -7,8 +7,7 @@
 	let currentUserData = null;
 	let branchPerformance = {
 		branches: [],
-		todayStats: [],
-		yesterdayStats: [],
+		dailyStats: [] as Array<{ label: string; dateStr: string; stats: Array<{ branchName: string; completed: number; pending: number; total: number }> }>,
 		loading: false,
 		error: ''
 	};
@@ -53,180 +52,137 @@
 			// Get today and yesterday dates in Saudi Arabia timezone (GMT+3)
 			// Create dates adjusted for Saudi timezone
 			const saudiNow = new Date(new Date().getTime() + (3 * 60 * 60 * 1000));
-			const today = saudiNow.toISOString().split('T')[0];
-			const yesterdaySaudi = new Date(saudiNow.getTime() - 86400000);
-			const yesterday = yesterdaySaudi.toISOString().split('T')[0];
 
-			// Get start and end times for today and yesterday in UTC
-			// Today starts at 00:00:00 Saudi time = 21:00:00 UTC (previous day)
-			// Today ends at 23:59:59 Saudi time = 20:59:59 UTC (same day)
-			const todayStartUTC = new Date(`${today}T00:00:00Z`);
-			todayStartUTC.setHours(todayStartUTC.getHours() - 3); // Subtract 3 hours for GMT+3
-			const todayEndUTC = new Date(`${today}T23:59:59Z`);
-			todayEndUTC.setHours(todayEndUTC.getHours() - 3);
+			// Build 7 days of date ranges (today + 6 previous days)
+			const days: Array<{ label: string; dateStr: string; startUTC: Date; endUTC: Date }> = [];
+			const isArabic = $localeData.code === 'ar';
+			
+			for (let i = 0; i < 7; i++) {
+				const dayDate = new Date(saudiNow.getTime() - i * 86400000);
+				const dateStr = dayDate.toISOString().split('T')[0];
+				
+				const startUTC = new Date(`${dateStr}T00:00:00Z`);
+				startUTC.setHours(startUTC.getHours() - 3);
+				const endUTC = new Date(`${dateStr}T23:59:59Z`);
+				endUTC.setHours(endUTC.getHours() - 3);
 
-			const yesterdayStartUTC = new Date(`${yesterday}T00:00:00Z`);
-			yesterdayStartUTC.setHours(yesterdayStartUTC.getHours() - 3);
-			const yesterdayEndUTC = new Date(`${yesterday}T23:59:59Z`);
-			yesterdayEndUTC.setHours(yesterdayEndUTC.getHours() - 3);
-
-		// Load stats for all branches
-		const allStatsPromises = branchPerformance.branches.map(async (branch) => {
-		const isArabic = $localeData.code === 'ar';
-		const branchName = isArabic ? branch.name_ar : branch.name_en;
-		const branchLocation = isArabic ? branch.location_ar : branch.location_en;
-		const branchDisplay = `${branchName} - ${branchLocation}`;
-		
-		try {
-			// Helper to safely execute queries
-			const safeQuery = async (query) => {
-				try {
-					const result = await query;
-					return result || { data: [], count: 0 };
-				} catch (err) {
-					console.warn(`Query error for branch ${branch.id}:`, err);
-					return { data: [], count: 0 };
-				}
-			};				// Fetch all three types of tasks for today and yesterday
-				const [todayReceiving, todayTasks, todayQuick, yesterdayReceiving, yesterdayTasks, yesterdayQuick] = await Promise.all([
-					// Today's receiving tasks
-					safeQuery(
-						supabase
-							.from('receiving_tasks')
-							.select('id, task_status, receiving_record_id')
-							.gte('created_at', todayStartUTC.toISOString())
-							.lt('created_at', todayEndUTC.toISOString())
-					),
-					// Today's task assignments
-					safeQuery(
-						supabase
-							.from('task_assignments')
-							.select('id, status, assigned_to_branch_id')
-							.eq('assigned_to_branch_id', branch.id)
-							.gte('assigned_at', todayStartUTC.toISOString())
-							.lt('assigned_at', todayEndUTC.toISOString())
-					),
-					// Today's quick tasks
-					safeQuery(
-						supabase
-							.from('quick_task_assignments')
-							.select('id, status, quick_task_id')
-							.gte('created_at', todayStartUTC.toISOString())
-							.lt('created_at', todayEndUTC.toISOString())
-					),
-					// Yesterday's receiving tasks
-					safeQuery(
-						supabase
-							.from('receiving_tasks')
-							.select('id, task_status, receiving_record_id')
-							.gte('created_at', yesterdayStartUTC.toISOString())
-							.lt('created_at', yesterdayEndUTC.toISOString())
-					),
-					// Yesterday's task assignments
-					safeQuery(
-						supabase
-							.from('task_assignments')
-							.select('id, status, assigned_to_branch_id')
-							.eq('assigned_to_branch_id', branch.id)
-							.gte('assigned_at', yesterdayStartUTC.toISOString())
-							.lt('assigned_at', yesterdayEndUTC.toISOString())
-					),
-					// Yesterday's quick tasks
-					safeQuery(
-						supabase
-							.from('quick_task_assignments')
-							.select('id, status, quick_task_id')
-							.gte('created_at', yesterdayStartUTC.toISOString())
-							.lt('created_at', yesterdayEndUTC.toISOString())
-					)
-				]);
-
-				// Get receiving records to map to branch
-				const receivingRecordIds = [
-					...(todayReceiving.data || []).map(r => r.receiving_record_id),
-					...(yesterdayReceiving.data || []).map(r => r.receiving_record_id)
-				].filter(Boolean);
-
-				const receivingRecordMap: Record<string, string> = {};
-				if (receivingRecordIds.length > 0) {
-					const { data: records } = await supabase
-						.from('receiving_records')
-						.select('id, branch_id')
-						.in('id', receivingRecordIds);
-					if (records) {
-						records.forEach((r: any) => {
-							receivingRecordMap[r.id] = r.branch_id;
-						});
-					}
+				let label: string;
+				if (i === 0) {
+					label = getTranslation('mobile.dashboardContent.branchPerformance.todayPerformance');
+				} else if (i === 1) {
+					label = getTranslation('mobile.dashboardContent.branchPerformance.yesterdayPerformance');
+				} else {
+					// Show formatted date for older days
+					const d = new Date(dateStr + 'T12:00:00');
+					label = d.toLocaleDateString(isArabic ? 'ar-SA' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 				}
 
-				// Get quick tasks to map to branch
-				const quickTaskIds = [
-					...(todayQuick.data || []).map(q => q.quick_task_id),
-					...(yesterdayQuick.data || []).map(q => q.quick_task_id)
-				].filter(Boolean);
-
-				const quickTaskMap: Record<string, string> = {};
-				if (quickTaskIds.length > 0) {
-					const { data: quickTasks } = await supabase
-						.from('quick_tasks')
-						.select('id, assigned_to_branch_id')
-						.in('id', quickTaskIds);
-					if (quickTasks) {
-						quickTasks.forEach((qt: any) => {
-							quickTaskMap[qt.id] = qt.assigned_to_branch_id;
-						});
-					}
-				}
-
-				// Calculate today's stats - filter by this branch only
-				const todayReceivingData = (todayReceiving.data || []).filter(r => receivingRecordMap[r.receiving_record_id] === branch.id);
-				const todayTasksData = todayTasks.data || [];
-				const todayQuickData = (todayQuick.data || []).filter(q => quickTaskMap[q.quick_task_id] === branch.id);
-
-				const todayReceivingCompleted = todayReceivingData.filter(r => r.task_status === 'completed').length;
-				const todayTasksCompleted = todayTasksData.filter(t => t.status === 'completed').length;
-				const todayQuickCompleted = todayQuickData.filter(q => q.status === 'completed').length;
-
-				const todayTotal = todayReceivingData.length + todayTasksData.length + todayQuickData.length;
-				const todayCompleted = todayReceivingCompleted + todayTasksCompleted + todayQuickCompleted;
-
-				// Calculate yesterday's stats - filter by this branch only
-				const yesterdayReceivingData = (yesterdayReceiving.data || []).filter(r => receivingRecordMap[r.receiving_record_id] === branch.id);
-				const yesterdayTasksData = yesterdayTasks.data || [];
-				const yesterdayQuickData = (yesterdayQuick.data || []).filter(q => quickTaskMap[q.quick_task_id] === branch.id);
-
-				const yesterdayReceivingCompleted = yesterdayReceivingData.filter(r => r.task_status === 'completed').length;
-				const yesterdayTasksCompleted = yesterdayTasksData.filter(t => t.status === 'completed').length;
-				const yesterdayQuickCompleted = yesterdayQuickData.filter(q => q.status === 'completed').length;
-
-				const yesterdayTotal = yesterdayReceivingData.length + yesterdayTasksData.length + yesterdayQuickData.length;
-				const yesterdayCompleted = yesterdayReceivingCompleted + yesterdayTasksCompleted + yesterdayQuickCompleted;
-
-				return {
-					today: {
-						branchName: branchDisplay,
-						completed: todayCompleted,
-						pending: todayTotal - todayCompleted,
-						total: todayTotal
-					},
-					yesterday: {
-						branchName: branchDisplay,
-						completed: yesterdayCompleted,
-						pending: yesterdayTotal - yesterdayCompleted,
-						total: yesterdayTotal
-					}
-				};
-			} catch (err) {
-				console.error(`Error loading stats for branch ${branch.id}:`, err);
-				return {
-					today: { branchName: branchDisplay, completed: 0, pending: 0, total: 0 },
-					yesterday: { branchName: branchDisplay, completed: 0, pending: 0, total: 0 }
-				};
+				days.push({ label, dateStr, startUTC, endUTC });
 			}
-		});			const allStats = await Promise.all(allStatsPromises);
-			branchPerformance.todayStats = allStats.map(s => s.today);
-			branchPerformance.yesterdayStats = allStats.map(s => s.yesterday);
+
+		// Fetch ALL receiving_records and quick_tasks for branch mapping (no filters - complete maps)
+		const [allRecordsResult, allQuickTasksResult] = await Promise.all([
+			supabase.from('receiving_records').select('id, branch_id'),
+			supabase.from('quick_tasks').select('id, assigned_to_branch_id')
+		]);
+
+		const recordBranchMap: Record<string, string> = {};
+		if (allRecordsResult.data) {
+			allRecordsResult.data.forEach((r: any) => {
+				recordBranchMap[r.id] = r.branch_id;
+			});
+		}
+
+		const quickTaskBranchMap: Record<string, string> = {};
+		if (allQuickTasksResult.data) {
+			allQuickTasksResult.data.forEach((qt: any) => {
+				quickTaskBranchMap[qt.id] = qt.assigned_to_branch_id;
+			});
+		}
+
+		// Fetch all 3 task types for all 7 days in parallel (21 queries)
+		const dayQueries = days.map(day => [
+			supabase.from('receiving_tasks')
+				.select('id, task_status, receiving_record_id')
+				.gte('created_at', day.startUTC.toISOString())
+				.lt('created_at', day.endUTC.toISOString()),
+			supabase.from('task_assignments')
+				.select('id, status, assigned_to_branch_id')
+				.gte('assigned_at', day.startUTC.toISOString())
+				.lt('assigned_at', day.endUTC.toISOString()),
+			supabase.from('quick_task_assignments')
+				.select('id, status, quick_task_id')
+				.gte('created_at', day.startUTC.toISOString())
+				.lt('created_at', day.endUTC.toISOString())
+		]);
+
+		const allResults = await Promise.all(dayQueries.flat());
+
+		// Helper: distribute tasks into per-branch stats
+		function buildBranchStatsMap(
+			receiving: any[],
+			tasks: any[],
+			quick: any[]
+		): Record<string, { completed: number; pending: number; total: number }> {
+			const statsMap: Record<string, { completed: number; pending: number; total: number }> = {};
+
+			const ensure = (branchId: string) => {
+				if (!statsMap[branchId]) {
+					statsMap[branchId] = { completed: 0, pending: 0, total: 0 };
+				}
+			};
+
+			receiving.forEach((item: any) => {
+				if (item.task_status === 'cancelled') return;
+				const branchId = recordBranchMap[item.receiving_record_id];
+				if (!branchId) return;
+				ensure(branchId);
+				statsMap[branchId].total++;
+				if (item.task_status === 'completed') statsMap[branchId].completed++;
+				else statsMap[branchId].pending++;
+			});
+
+			tasks.forEach((item: any) => {
+				if (item.status === 'cancelled') return;
+				const branchId = item.assigned_to_branch_id;
+				if (!branchId) return;
+				ensure(branchId);
+				statsMap[branchId].total++;
+				if (item.status === 'completed') statsMap[branchId].completed++;
+				else statsMap[branchId].pending++;
+			});
+
+			quick.forEach((item: any) => {
+				if (item.status === 'cancelled') return;
+				const branchId = quickTaskBranchMap[item.quick_task_id];
+				if (!branchId) return;
+				ensure(branchId);
+				statsMap[branchId].total++;
+				if (item.status === 'completed') statsMap[branchId].completed++;
+				else statsMap[branchId].pending++;
+			});
+
+			return statsMap;
+		}
+
+		// Build daily stats for each of the 7 days
+		branchPerformance.dailyStats = days.map((day, i) => {
+			const receiving = allResults[i * 3 + 0].data || [];
+			const tasks = allResults[i * 3 + 1].data || [];
+			const quick = allResults[i * 3 + 2].data || [];
+
+			const statsMap = buildBranchStatsMap(receiving, tasks, quick);
+
+			const stats = branchPerformance.branches.map((branch: any) => {
+				const branchName = isArabic ? branch.name_ar : branch.name_en;
+				const branchLocation = isArabic ? branch.location_ar : branch.location_en;
+				const branchDisplay = `${branchName} - ${branchLocation}`;
+				const s = statsMap[branch.id] || { completed: 0, pending: 0, total: 0 };
+				return { branchName: branchDisplay, ...s };
+			});
+
+			return { label: day.label, dateStr: day.dateStr, stats };
+		});
 
 			console.log('✅ Branch performance loaded successfully');
 		} catch (error) {
@@ -260,119 +216,67 @@
 			<p>{getTranslation('mobile.dashboardContent.branchPerformance.loadingData')}</p>
 		</div>
 	{:else}
-		<!-- Today's Performance -->
-		<section class="performance-section">
-			<h2>{getTranslation('mobile.dashboardContent.branchPerformance.todayPerformance')}</h2>
-			<div class="branch-grid">
-				{#each branchPerformance.todayStats.filter(s => s.total > 0) as stat}
-					<div class="branch-card">
-						<h3 class="branch-name">{stat.branchName}</h3>
-						<div class="pie-chart-container">
-							<svg viewBox="0 0 100 100" class="pie-chart">
-								{#if stat.total > 0}
-									{@const completedPercent = (stat.completed / stat.total) * 100}
-									{@const radius = 40}
-									{@const circumference = 2 * Math.PI * radius}
-									{@const completedOffset = circumference - (completedPercent / 100) * circumference}
-									
-									<!-- Background circle (not completed) -->
-									<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
-									
-									<!-- Completed arc -->
-									{#if completedPercent > 0}
-										<circle 
-											cx="50" 
-											cy="50" 
-											r="40" 
-											fill="none" 
-											stroke="#10B981" 
-											stroke-width="20"
-											stroke-dasharray={circumference}
-											stroke-dashoffset={completedOffset}
-											transform="rotate(-90 50 50)"
-										/>
-									{/if}
-									
-									<!-- Center text -->
-									<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
-									<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
-								{:else}
-									<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
-									<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
-								{/if}
-							</svg>
-						</div>
-						<div class="branch-stats">
-							<div class="stat-item completed">
-								<span class="stat-dot"></span>
-								<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
+		{#each branchPerformance.dailyStats as day}
+			{@const filteredStats = day.stats.filter(s => s.total > 0)}
+			{#if filteredStats.length > 0}
+				<section class="performance-section">
+					<h2>{day.label}</h2>
+					<div class="branch-grid">
+						{#each filteredStats as stat}
+							<div class="branch-card">
+								<h3 class="branch-name">{stat.branchName}</h3>
+								<div class="pie-chart-container">
+									<svg viewBox="0 0 100 100" class="pie-chart">
+										{#if stat.total > 0}
+											{@const completedPercent = (stat.completed / stat.total) * 100}
+											{@const radius = 40}
+											{@const circumference = 2 * Math.PI * radius}
+											{@const completedOffset = circumference - (completedPercent / 100) * circumference}
+											
+											<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
+											
+											{#if completedPercent > 0}
+												<circle 
+													cx="50" 
+													cy="50" 
+													r="40" 
+													fill="none" 
+													stroke="#10B981" 
+													stroke-width="20"
+													stroke-dasharray={circumference}
+													stroke-dashoffset={completedOffset}
+													transform="rotate(-90 50 50)"
+												/>
+											{/if}
+											
+											<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
+											<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
+										{:else}
+											<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
+											<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
+										{/if}
+									</svg>
+								</div>
+								<div class="branch-stats">
+									<div class="stat-item total">
+										<span class="stat-dot"></span>
+										<span>{stat.total} {getTranslation('mobile.dashboardContent.branchPerformance.total')}</span>
+									</div>
+									<div class="stat-item completed">
+										<span class="stat-dot"></span>
+										<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
+									</div>
+									<div class="stat-item pending">
+										<span class="stat-dot"></span>
+										<span>{stat.pending} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
+									</div>
+								</div>
 							</div>
-							<div class="stat-item pending">
-								<span class="stat-dot"></span>
-								<span>{stat.pending} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
-							</div>
-						</div>
+						{/each}
 					</div>
-				{/each}
-			</div>
-		</section>
-
-		<!-- Yesterday's Performance -->
-		<section class="performance-section">
-			<h2>{getTranslation('mobile.dashboardContent.branchPerformance.yesterdayPerformance')}</h2>
-			<div class="branch-grid">
-				{#each branchPerformance.yesterdayStats.filter(s => s.total > 0) as stat}
-					<div class="branch-card">
-						<h3 class="branch-name">{stat.branchName}</h3>
-						<div class="pie-chart-container">
-							<svg viewBox="0 0 100 100" class="pie-chart">
-								{#if stat.total > 0}
-									{@const completedPercent = (stat.completed / stat.total) * 100}
-									{@const radius = 40}
-									{@const circumference = 2 * Math.PI * radius}
-									{@const completedOffset = circumference - (completedPercent / 100) * circumference}
-									
-									<!-- Background circle (not completed) -->
-									<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
-									
-									<!-- Completed arc -->
-									{#if completedPercent > 0}
-										<circle 
-											cx="50" 
-											cy="50" 
-											r="40" 
-											fill="none" 
-											stroke="#10B981" 
-											stroke-width="20"
-											stroke-dasharray={circumference}
-											stroke-dashoffset={completedOffset}
-											transform="rotate(-90 50 50)"
-										/>
-									{/if}
-									
-									<!-- Center text -->
-									<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
-									<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
-								{:else}
-									<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
-									<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
-								{/if}
-							</svg>
-						</div>
-						<div class="branch-stats">
-							<div class="stat-item completed">
-								<span class="stat-dot"></span>
-								<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
-							</div>
-							<div class="stat-item pending">
-								<span class="stat-dot"></span>
-								<span>{stat.pending} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
-							</div>
-						</div>
-					</div>
-				{/each}
-			</div>
-		</section>
+				</section>
+			{/if}
+		{/each}
 	{/if}
 </div>
 
@@ -539,6 +443,14 @@
 		gap: 0.3rem;
 		font-size: 0.7rem;
 		color: #4B5563;
+	}
+
+	.stat-item.total .stat-dot {
+		background: #3B82F6;
+	}
+
+	.stat-item.total {
+		font-weight: 600;
 	}
 
 	.stat-item.completed .stat-dot {

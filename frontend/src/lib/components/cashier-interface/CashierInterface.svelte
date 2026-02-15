@@ -8,6 +8,12 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
 	import POS from '$lib/components/cashier-interface/POS.svelte';
+	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+
+	async function handleUpdateClick() {
+		const fn = $triggerUpdate;
+		if (fn) await fn();
+	}
 
 	const dispatch = createEventDispatcher();
 
@@ -93,10 +99,20 @@
 		<div class="desktop-background">
 			<div class="welcome-screen">
 				<div class="app-branding">
+					{#if $updateAvailable}
+						<button class="cashier-update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
+							🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
+						</button>
+					{:else}
+						<span class="cashier-update-badge up-to-date">
+							✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
+						</span>
+					{/if}
 					<div class="app-logo">
 						<img src="/icons/Aqura logo.png" alt="Aqura Logo" />
 					</div>
 					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
+					<span class="version-badge">{cashierVersion}</span>
 				</div>
 			</div>
 		</div>
@@ -185,8 +201,8 @@
 	}
 
 	.welcome-screen {
-		max-width: 800px;
-		width: 100%;
+		max-width: 600px;
+		width: 90%;
 	}
 
 	.app-branding {
@@ -194,12 +210,12 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		justify-content: center;
 		gap: 0;
 		padding: 3rem 2rem 2rem;
 		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
-		border-radius: 16px;
-		box-shadow: 0 25px 50px rgba(11, 18, 32, 0.1), 0 8px 32px rgba(107, 114, 128, 0.08);
-		border: 1px solid rgba(229, 231, 235, 0.8);
+		border-radius: 24px;
+		box-shadow: 0 25px 50px rgba(11, 18, 32, 0.1);
 		position: relative;
 		overflow: hidden;
 	}
@@ -270,5 +286,59 @@
 		opacity: 0.9;
 		font-weight: 300;
 		margin: 0;
+	}
+
+	.version-badge {
+		position: absolute;
+		top: 10px;
+		right: 12px;
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 12px;
+		padding: 3px 10px;
+		font-size: 0.7rem;
+		font-weight: 500;
+		z-index: 2;
+		letter-spacing: 0.5px;
+	}
+
+	.cashier-update-badge {
+		position: absolute;
+		top: 10px;
+		left: 12px;
+		border-radius: 12px;
+		padding: 3px 10px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		transition: all 0.3s;
+		z-index: 2;
+		letter-spacing: 0.5px;
+		border: none;
+	}
+
+	.cashier-update-badge.update-available {
+		background: rgba(34, 197, 94, 0.25);
+		color: #bbf7d0;
+		border: 1px solid rgba(34, 197, 94, 0.5);
+		cursor: pointer;
+		animation: pulse-update 2s ease-in-out infinite;
+	}
+
+	.cashier-update-badge.update-available:hover {
+		background: rgba(34, 197, 94, 0.45);
+		transform: scale(1.05);
+	}
+
+	.cashier-update-badge.up-to-date {
+		background: rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.7);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		cursor: default;
+	}
+
+	@keyframes pulse-update {
+		0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+		50% { box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.3); }
 	}
 </style>

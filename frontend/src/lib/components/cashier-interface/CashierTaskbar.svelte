@@ -241,7 +241,6 @@
 								<div class="menu-branch-name">{$currentLocale === 'ar' ? (branch?.name_ar || branch?.name_en) : (branch?.name_en || branch?.name_ar) || 'Branch'}</div>
 							</div>
 						</div>
-						<div class="menu-version">{cashierVersion}</div>
 					</div>
 					<div class="menu-divider"></div>
 

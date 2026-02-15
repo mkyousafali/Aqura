@@ -169,10 +169,32 @@
 				}, 1500);
 			} else {
 				errorMessage = result.error || 'Quick access login failed. Please try again.';
+				// Clear digits and refocus first field on incorrect code
+				quickAccessDigits = ['', '', '', '', '', ''];
+				quickAccessCode = '';
+				quickAccessValid = false;
+				setTimeout(() => {
+					const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+					if (firstDigit) {
+						firstDigit.value = '';
+						firstDigit.focus();
+					}
+				}, 50);
 			}
 
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Login failed. Please try again.';
+			// Clear digits and refocus first field on any error
+			quickAccessDigits = ['', '', '', '', '', ''];
+			quickAccessCode = '';
+			quickAccessValid = false;
+			setTimeout(() => {
+				const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
+				if (firstDigit) {
+					firstDigit.value = '';
+					firstDigit.focus();
+				}
+			}, 50);
 		} finally {
 			isLoading = false;
 		}
@@ -210,6 +232,11 @@
 		}
 		
 		validateQuickAccess();
+		
+		// Auto-submit when all 6 digits are entered
+		if (quickAccessValid && quickAccessDigits.every(d => d !== '') && !isLoading) {
+			setTimeout(() => handleQuickAccessLogin(), 100);
+		}
 	}
 
 	function handleDigitKeydown(event: KeyboardEvent, index: number) {
@@ -576,7 +603,7 @@
 														id="digit-{index}"
 														type={showAccessCode ? 'text' : 'password'} 
 														class="digit-input"
-														class:error={!quickAccessValid && quickAccessDigits.some(d => d !== '')}
+														class:error={!quickAccessValid && quickAccessDigits.every(d => d !== '')}
 														bind:value={quickAccessDigits[index]}
 														on:input={(e) => handleDigitInput(e, index)}
 														on:keydown={(e) => handleDigitKeydown(e, index)}
@@ -590,7 +617,7 @@
 													/>
 												{/each}
 											</div>
-											{#if !quickAccessValid && quickAccessDigits.some(d => d !== '')}
+											{#if !quickAccessValid && quickAccessDigits.every(d => d !== '')}
 												<span class="field-error">{t('common.enterValidSixDigitCode')}</span>
 											{/if}
 										</div>

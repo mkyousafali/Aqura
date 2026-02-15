@@ -27,14 +27,12 @@ if (workbox) {
 	console.error('[ServiceWorker] Workbox failed to load');
 }
 
-// Skip waiting and claim clients immediately for faster activation
+// Do NOT skipWaiting automatically — let the user choose when to update
+// skipWaiting is only called when user clicks "Update Now" via SKIP_WAITING message
 self.addEventListener('activate', event => {
   event.waitUntil(
     (async () => {
-      // Skip waiting to activate immediately
-      await self.skipWaiting();
-      
-      // Claim all clients immediately
+      // Claim all clients immediately (only for first-time installs)
       try {
         await self.clients.claim();
         console.log('[ServiceWorker] Successfully claimed clients');
