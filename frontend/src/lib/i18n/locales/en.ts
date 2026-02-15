@@ -85,6 +85,7 @@ export const englishLocale: LocaleData = {
       erpProducts: "ERP Products",
       offerCostManager: "Offer Cost Manager",
       productClaimManager: "Product Claim Manager",
+      expiryControl: "Expiry Control",
       tasks: "Tasks",
       notification: "Notification",
       media: "Media",

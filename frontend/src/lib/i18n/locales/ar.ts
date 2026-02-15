@@ -87,6 +87,7 @@ export const arabicLocale: LocaleData = {
       erpProducts: "منتجات ERP",
       offerCostManager: "مدير تكلفة العروض",
       productClaimManager: "مدير مطالبات المنتجات",
+      expiryControl: "التحكم بالصلاحية",
       tasks: "المهام",
       notification: "الإشعارات",
       media: "الوسائط",

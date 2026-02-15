@@ -1,19 +1,37 @@
 <script lang="ts">
-	export let onClose: () => void;
+export let onClose: () => void;
 </script>
 
 <div class="version-changelog-window">
-	<div class="window-content">
-		<div class="version-format">
-		<p class="version-title">Version AQ48.22.14.15</p>
-		<p class="version-details">Desktop: 48 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
-		</div>
+<div class="window-content">
+<div class="version-format">
+<p class="version-title">Version AQ49.22.14.15</p>
+<p class="version-details">Desktop: 49 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
+</div>
 
-		<div class="latest-change">
+<div class="latest-change">
+<h3>✨ Expiry Control System, Product Claim Manager & Enhanced Update Badge</h3>
+<p class="change-description">Complete Expiry Control management with multi-select bulk operations, new Product Claim Manager for branch inventory assignments, grouped day-off approvals, shelf paper enhancements, and a persistent update notification system.</p>
+<div class="change-details">
+<h4>February 16, 2026 (Latest):</h4>
+<ul>
+<li>✅ <b>Expiry Control — New Module:</b> High-performance expiry date management using materialized views. Four interactive tabs: <b>Quick Report</b> (15-day critical), <b>Near Expiry</b> (60-day warning), <b>All Products</b> (server-side searchable), and <b>Deleted Items</b> (with undo support).</li>
+<li>✅ <b>Multi-Select Bulk Tasks:</b> Added checkbox selection system to Quick Report and Near Expiry tables. Select all or individual items to send multiple tasks at once. Features a sticky floating action bar with selected count and clear/send buttons.</li>
+<li>✅ <b>Bulk Send Logic:</b> Updated task dispatcher to loop through selected products, creating individual localized Quick Tasks for assigned employees with priority auto-scaling based on days left.</li>
+<li>✅ <b>Product Claim Manager:</b> New tool for managing branch product assignments. Supports unclaiming, transferring between branches, and high-speed employee assignment workflows.</li>
+<li>✅ <b>Grouped Day-off Approvals:</b> Desktop Approval Center now groups day-off requests by date range, matching the mobile interface logic for consistent oversight.</li>
+<li>✅ <b>Shelf Paper — Lazy Loading:</b> Templates now lazy-load data on selection to improve performance. Added Arabic unit names to limit_qty displays.</li>
+<li>✅ <b>Global Update Badge:</b> New always-visible orange/red update badge in the sidebar across all interfaces. Auto-detects manual cache refreshes and service worker updates.</li>
+<li>✅ <b>PWA Update Reliability:</b> Removed high-friction modal popups. Added <code>userClickedUpdate</code> safety flag to prevent automatic reloads while users are in the middle of a task.</li>
+<li>✅ <b>UI/UX Enhancements:</b> Added info hints to Expiry tabs explaining the checkbox workflow. Corrected product name localization (EN/AR fallback) in task descriptions and popup info cards.</li>
+</ul>
+</div>
+</div>
+<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 		<h3>✨ Offer Cost Manager with Price Comparison, Mobile Price Checker & ERP Bridge Enhancements</h3>
 		<p class="change-description">New Offer Cost Manager for desktop with multi-branch ERP price comparison, barcode/name search, editable compared prices, and Quick Task price change workflow. New mobile Price Checker page with barcode scanning and offer detection. ERP Bridge enhanced with query and price-check endpoints plus service control panel.</p>
 		<div class="change-details">
-			<h4>February 16, 2026 (Latest):</h4>
+			<h4>February 16, 2026:</h4>
 			<ul>
 				<li>✅ <b>Offer Cost Manager — New Component:</b> Full-featured Price Comparison table that loads offer products and fetches cost/sales prices from all ERP branches in parallel. 6-location barcode search across ProductUnits, ProductBatches (Manual, Auto, Unit2, Unit3), and ProductBarcodes tables with ROW_NUMBER deduplication.</li>
 				<li>✅ <b>Search by Barcode:</b> Dedicated barcode search input (violet themed, mono font) — enter comma/space-separated barcodes to look up prices across all selected branches without needing an offer.</li>
