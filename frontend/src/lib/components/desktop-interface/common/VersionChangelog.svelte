@@ -5,15 +5,36 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ49.22.14.15</p>
-<p class="version-details">Desktop: 49 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
+<p class="version-title">Version AQ50.22.14.15</p>
+<p class="version-details">Desktop: 50 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
 </div>
 
 <div class="latest-change">
+<h3>✨ Branch Data Sync, Local Supabase Installer, iOS Barcode Fixes & Export Improvements</h3>
+<p class="change-description">New Branch Data Sync system for pushing cloud data to local branch Supabase instances. Full Aqura Branch Installer toolkit for setting up local servers. iOS barcode scanning fixes, export ZIP restructure, quick-task redirect fix, and user management enhancements.</p>
+<div class="change-details">
+<h4>February 16, 2026 (Latest):</h4>
+<ul>
+<li>✅ <b>Branch Data Sync — New System:</b> Complete cloud-to-local data push system in Storage Manager. Uses XHR-based requests to bypass SvelteKit fetch interceptors. Syncs 29 tables in FK-safe order with progress tracking, batch import (500 rows per batch), and detailed per-table status reporting.</li>
+<li>✅ <b>Branch Sync Config UI:</b> Add Branch, Edit, Remove, and Sync Now controls. Displays last sync time, table count, row count, and sync status badges (Synced/Failed/In Progress/Not synced). Stores config in cloud DB via <code>upsert_branch_sync_config</code> RPC.</li>
+<li>✅ <b>Local VM RPC Functions:</b> Created <code>clear_sync_tables</code> (TRUNCATE CASCADE with FK bypass) and <code>import_sync_batch</code> (INSERT ON CONFLICT DO UPDATE with dynamic PK detection) on local Supabase instances for reliable data replacement.</li>
+<li>✅ <b>Aqura Branch Installer:</b> New PowerShell installer toolkit (<code>Install-AquraBranch.ps1</code>) that sets up Hyper-V Ubuntu VM, installs Docker + Supabase, generates JWT keys, configures Kong gateway, and deploys schema. Includes <code>Sync-Schema.ps1</code>, <code>Build-Frontend.ps1</code>, and <code>Update-AquraBranch.ps1</code> utilities.</li>
+<li>✅ <b>iOS Barcode Scanning Fix:</b> Implemented canvas-based frame capture with dynamic <code>barcode-detector</code> polyfill import for iOS devices that lack native BarcodeDetector API support.</li>
+<li>✅ <b>Export Entry — ZIP Restructure:</b> Export ZIP now contains a Files folder with full-name XLSX files, plus a README.txt mapping short filenames to dates for easier navigation.</li>
+<li>✅ <b>Quick-Task Completion Redirect:</b> Fixed redirect after quick-task completion to navigate to the tasks page instead of staying on the current page.</li>
+<li>✅ <b>User Management — Branch Features:</b> Added branch location display and change-branch functionality to UserManagement component.</li>
+<li>✅ <b>BranchID Join Fixes:</b> Fixed BranchID join queries in setup wizard. Added reinstall protection and PriceVerifier warning improvements. Added PR Excel template download button.</li>
+<li>✅ <b>OfferProductSelector Fix:</b> Resolved duplicate barcode issue in offer product selection.</li>
+<li>✅ <b>Security Cleanup:</b> Removed temp files containing credentials from git tracking. Updated .gitignore with comprehensive security patterns for SQL dumps, SSH keys, and credential files.</li>
+</ul>
+</div>
+</div>
+
+<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 <h3>✨ Expiry Control System, Product Claim Manager & Enhanced Update Badge</h3>
 <p class="change-description">Complete Expiry Control management with multi-select bulk operations, new Product Claim Manager for branch inventory assignments, grouped day-off approvals, shelf paper enhancements, and a persistent update notification system.</p>
 <div class="change-details">
-<h4>February 16, 2026 (Latest):</h4>
+<h4>February 16, 2026:</h4>
 <ul>
 <li>✅ <b>Expiry Control — New Module:</b> High-performance expiry date management using materialized views. Four interactive tabs: <b>Quick Report</b> (15-day critical), <b>Near Expiry</b> (60-day warning), <b>All Products</b> (server-side searchable), and <b>Deleted Items</b> (with undo support).</li>
 <li>✅ <b>Multi-Select Bulk Tasks:</b> Added checkbox selection system to Quick Report and Near Expiry tables. Select all or individual items to send multiple tasks at once. Features a sticky floating action bar with selected count and clear/send buttons.</li>

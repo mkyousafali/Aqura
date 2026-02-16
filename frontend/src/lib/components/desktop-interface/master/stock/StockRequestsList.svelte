@@ -115,10 +115,14 @@
 			try {
 				const resp = await fetch(url);
 				if (resp.ok) {
-					const blob = await resp.blob();
-					imageCache[url] = URL.createObjectURL(blob);
+					try {
+						const blob = await resp.blob();
+						if (blob.size > 0) {
+							imageCache[url] = URL.createObjectURL(blob);
+						}
+					} catch { /* content-length mismatch or corrupt body */ }
 				}
-			} catch { /* skip failed images */ }
+			} catch { /* network error - skip */ }
 		});
 		await Promise.all(promises);
 		imageCache = imageCache; // trigger reactivity

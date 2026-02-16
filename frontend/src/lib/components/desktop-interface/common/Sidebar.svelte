@@ -94,6 +94,7 @@
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
+	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -1636,6 +1637,30 @@ function openApprovalCenter() {
 			position: { 
 				x: 150 + (Math.random() * 100), 
 				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsSubmenu = false;
+		showControlsManageSubmenu = false;
+	}
+
+	function openStorageManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('storage-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.storageManager')} #${instanceNumber}`,
+			component: StorageManager,
+			icon: '🗄️',
+			size: { width: 1200, height: 700 },
+			position: { 
+				x: 130 + (Math.random() * 100), 
+				y: 90 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -5306,6 +5331,14 @@ function openApprovalCenter() {
 							<span class="menu-text">{t('nav.erpProductManager')}</span>
 						</button>
 					</div>
+				{#if isButtonAllowed('STORAGE_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openStorageManager}>
+							<span class="menu-icon">🗄️</span>
+							<span class="menu-text">{t('nav.storageManager')}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}			<!-- Operations Subsection -->
 			<div class="submenu-item-container">

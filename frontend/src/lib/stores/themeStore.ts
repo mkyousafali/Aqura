@@ -188,7 +188,7 @@ function createThemeStore() {
 					.from('user_theme_assignments')
 					.select('theme_id')
 					.eq('user_id', userId)
-					.single();
+					.maybeSingle();
 
 				let themeData: any = null;
 

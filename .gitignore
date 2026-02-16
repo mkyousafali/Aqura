@@ -14,6 +14,16 @@ pnpm-debug.log*
 .env.production.local
 .env.production
 
+# Copilot instructions (contains server credentials)
+.github/copilot-instructions.md
+
+# Build output
+frontend/build/
+
+# Temporary SQL/script files (may contain credentials)
+temp_*
+test_branch_*
+
 # API Keys and Secrets
 *.key
 **/OPENAI_API_KEY*
@@ -92,6 +102,13 @@ frontend/generate-icons.ps1
 # Backup files
 *.bak
 *.backup
+
+# SSH keys (never commit)
+*.pem
+id_rsa*
+id_ed25519*
+authorized_keys
+known_hosts
 
 # Lock files (keep pnpm-lock.yaml for consistency)
 package-lock.json
