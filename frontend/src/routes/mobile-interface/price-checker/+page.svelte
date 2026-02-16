@@ -3,7 +3,6 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import { BarcodeDetector as BarcodeDetectorPolyfill } from 'barcode-detector';
 
 	interface BranchConfig {
 		id: string;
@@ -158,43 +157,104 @@
 	}
 
 	// --- Barcode scanning ---
+	let scanCanvas: HTMLCanvasElement | null = null;
+	let scanCtx: CanvasRenderingContext2D | null = null;
+	let barcodeDetector: any = null;
+
 	async function startScan() {
 		scanning = true;
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-			await new Promise(r => setTimeout(r, 50));
+			stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+			});
+			await new Promise(r => setTimeout(r, 100));
 			if (videoEl) {
 				videoEl.srcObject = stream;
 				await videoEl.play();
+				// Wait for video to actually start playing
+				await new Promise(r => setTimeout(r, 500));
+				await initDetector();
 				detectBarcode();
 			}
-		} catch (err) {
+		} catch (err: any) {
 			console.error('Camera access error:', err);
+			lookupError = 'Camera error: ' + (err.message || 'Access denied');
 			scanning = false;
 		}
 	}
 
-	function detectBarcode() {
-		// Use native BarcodeDetector if available (Chrome/Android), otherwise use polyfill (iOS/Safari)
+	async function initDetector() {
+		// Try native BarcodeDetector first (Chrome/Android)
 		// @ts-ignore
-		const DetectorClass = ('BarcodeDetector' in window) ? window.BarcodeDetector : BarcodeDetectorPolyfill;
-		const detector = new DetectorClass({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
-		scanInterval = setInterval(async () => {
-			if (!videoEl || videoEl.readyState < 2) return;
+		if ('BarcodeDetector' in window) {
 			try {
-				const barcodes = await detector.detect(videoEl);
+				// @ts-ignore
+				barcodeDetector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
+				console.log('[scan] Using native BarcodeDetector');
+				return;
+			} catch (e) {
+				console.warn('[scan] Native BarcodeDetector failed:', e);
+			}
+		}
+		// Fallback: dynamically import polyfill (avoids SSR issues)
+		try {
+			const { BarcodeDetector: Polyfill } = await import('barcode-detector');
+			barcodeDetector = new Polyfill({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
+			console.log('[scan] Using barcode-detector polyfill');
+		} catch (e) {
+			console.error('[scan] Failed to load barcode detector polyfill:', e);
+		}
+	}
+
+	function detectBarcode() {
+		if (!barcodeDetector) {
+			console.error('[scan] No barcode detector available');
+			lookupError = 'Barcode scanner not available on this device';
+			stopScan();
+			return;
+		}
+
+		// Create offscreen canvas for frame capture (needed for iOS Safari)
+		scanCanvas = document.createElement('canvas');
+		scanCtx = scanCanvas.getContext('2d');
+
+		scanInterval = setInterval(async () => {
+			if (!videoEl || videoEl.readyState < 2 || !scanCanvas || !scanCtx) return;
+			try {
+				// Capture video frame to canvas (works on all browsers including iOS Safari)
+				const vw = videoEl.videoWidth;
+				const vh = videoEl.videoHeight;
+				if (vw === 0 || vh === 0) return;
+				scanCanvas.width = vw;
+				scanCanvas.height = vh;
+				scanCtx.drawImage(videoEl, 0, 0, vw, vh);
+
+				// Try detect on canvas first, fallback to ImageData
+				let barcodes: any[] = [];
+				try {
+					barcodes = await barcodeDetector.detect(scanCanvas);
+				} catch (_) {
+					// Some polyfills need ImageData instead of canvas
+					try {
+						const imageData = scanCtx.getImageData(0, 0, vw, vh);
+						barcodes = await barcodeDetector.detect(imageData);
+					} catch (__) {}
+				}
+
 				if (barcodes.length > 0) {
 					barcode = barcodes[0].rawValue;
 					stopScan();
 					await lookupProduct(barcode);
 				}
 			} catch (_) {}
-		}, 300);
+		}, 400);
 	}
 
 	function stopScan() {
 		if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
 		if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+		scanCanvas = null;
+		scanCtx = null;
 		scanning = false;
 	}
 
