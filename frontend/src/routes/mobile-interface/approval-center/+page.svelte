@@ -77,297 +77,112 @@
 				return;
 			}
 
-	// Get current user's approval permissions from approval_permissions table
+	// Get all approval center data via single RPC call
 	const { supabase } = await import('$lib/utils/supabase');
-	const { data: approvalPerms, error: permsError } = await supabase
-		.from('approval_permissions')
-		.select('*')
-		.eq('user_id', $currentUser.id)
-		.eq('is_active', true)
-		.maybeSingle(); // Use maybeSingle to handle cases where user has no approval permissions
+	const { data: rpcResult, error: rpcError } = await supabase.rpc('get_approval_center_data', {
+		p_user_id: $currentUser.id
+	});
 
-	if (permsError) {
-		console.error('Error checking user permissions:', permsError);
-	}		// User can approve if ANY permission is enabled
-		if (approvalPerms) {
-			userCanApprove = 
-				approvalPerms.can_approve_requisitions ||
-				approvalPerms.can_approve_single_bill ||
-				approvalPerms.can_approve_multiple_bill ||
-				approvalPerms.can_approve_recurring_bill ||
-				approvalPerms.can_approve_vendor_payments ||
-				approvalPerms.can_approve_leave_requests;
-		} else {
-			userCanApprove = false;
-		}
-		console.log('👤 User approval permission:', userCanApprove);
+	if (rpcError) {
+		console.error('❌ RPC error:', rpcError);
+		notifications.add({ type: 'error', message: t('Error loading approval data', 'خطأ في تحميل بيانات الموافقات') });
+		loading = false;
+		return;
+	}
 
-		// Calculate date for filtering
-		const twoDaysFromNow = new Date();
-		twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
-		const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
-		
-		console.log('🔍 Loading pending items first for faster mobile display...');
-		
-		// Load only pending items first for faster initial display
-		const [
-			requisitionsResult,
-			schedulesResult,
-			vendorPaymentsResult,
-			myRequisitionsResult,
-			mySchedulesResult,
-			dayOffRequestsResult,
-			myDayOffRequestsResult
-		] = await Promise.all([
-			// 1. Requisitions where current user is approver (pending only)
-			supabase
-				.from('expense_requisitions')
-				.select('*')
-				.eq('approver_id', $currentUser.id)
-				.eq('status', 'pending')
-				.order('created_at', { ascending: false })
-				.limit(200),
-			
-			// 2. Payment schedules requiring approval (pending only)
-			supabase
-				.from('non_approved_payment_scheduler')
-				.select(`
-					*,
-					creator:users!created_by (
-						id,
-						username
-					)
-				`)
-				.eq('approval_status', 'pending')
-				.eq('approver_id', $currentUser.id)
-				.in('schedule_type', ['single_bill', 'multiple_bill'])
-				.order('created_at', { ascending: false })
-				.limit(200),
-			
-			// 3. Vendor payments requiring approval (only if user has permission and is assigned)
-			(approvalPerms && approvalPerms.can_approve_vendor_payments) ? 
-				supabase
-					.from('vendor_payment_schedule')
-					.select(`
-						*,
-						requester:users!approval_requested_by (
-							id,
-							username
-						)
-					`)
-					.eq('approval_status', 'sent_for_approval')
-					.eq('assigned_approver_id', $currentUser.id)  // Filter by assigned approver
-					.order('approval_requested_at', { ascending: false })
-					.limit(200) :
-				Promise.resolve({ data: [], error: null }),
-			
-			// 4. My created requisitions (pending only)
-			supabase
-				.from('expense_requisitions')
-				.select('*')
-				.eq('created_by', $currentUser.id)
-				.eq('status', 'pending')
-				.order('created_at', { ascending: false })
-				.limit(200),
-			
-			// 5. My created payment schedules (pending only)
-			supabase
-				.from('non_approved_payment_scheduler')
-				.select(`
-					*,
-					approver:users!approver_id (
-						id,
-						username
-					)
-				`)
-				.eq('created_by', $currentUser.id)
-				.eq('approval_status', 'pending')
-				.in('schedule_type', ['single_bill', 'multiple_bill'])
-				.order('created_at', { ascending: false })
-			.limit(200),
-			
-// 6. Day off requests requiring approval (if user has permission)
-		// Show ALL pending day-off requests to users with can_approve_leave_requests permission
-		(approvalPerms && approvalPerms.can_approve_leave_requests) ?
-			supabase
-				.from('day_off')
-				.select(`
-					*,
-					requester:users!approval_requested_by (
-						id,
-						username
-					),
-					employee:hr_employee_master!employee_id (
-						id,
-						name_en,
-						name_ar
-					),
-					reason:day_off_reasons!day_off_reason_id (
-						id,
-						reason_en,
-						reason_ar
-					)
-				`)
-				.eq('approval_status', 'pending')
-					.order('approval_requested_at', { ascending: false })
-					.limit(200) :
-				Promise.resolve({ data: [], error: null }),
-			
-			// 7. My day off requests (only where I am the requester - all statuses)
-			supabase
-				.from('day_off')
-				.select(`
-					*,
-					reason:day_off_reasons!day_off_reason_id (
-						id,
-						reason_en,
-						reason_ar
-					)
-				`)
-				.eq('approval_requested_by', $currentUser.id)
-				.order('approval_requested_at', { ascending: false })
-				.limit(200)
-	]);
-	
-	// Process requisitions result
-	const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
-	if (requisitionsError) {
-		console.error('❌ Error loading requisitions:', requisitionsError);
+	console.log('✅ Approval center RPC result received');
+
+	// Extract approval permissions
+	const approvalPerms = rpcResult.permissions || null;
+
+	if (approvalPerms) {
+		userCanApprove = 
+			approvalPerms.can_approve_requisitions ||
+			approvalPerms.can_approve_single_bill ||
+			approvalPerms.can_approve_multiple_bill ||
+			approvalPerms.can_approve_recurring_bill ||
+			approvalPerms.can_approve_vendor_payments ||
+			approvalPerms.can_approve_leave_requests;
 	} else {
-		requisitions = requisitionsData || [];
+		userCanApprove = false;
 	}
-	
-	// Fetch usernames for requisitions if needed
-	if (requisitions.length > 0) {
-		const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
-		
-		if (userIds.length > 0) {
-			const { data: usersData } = await supabase
-				.from('users')
-				.select('id, username')
-				.in('id', userIds);
-			
-			const userMap = {};
-			if (usersData) {
-				usersData.forEach(user => {
-					userMap[user.id] = user.username;
-				});
-			}
-			
-			requisitions = requisitions.map(req => ({
-				...req,
-				created_by_username: userMap[req.created_by] || req.created_by || 'Unknown'
-			}));
-		}
-	}
+	console.log('👤 User approval permission:', userCanApprove);
+
+	// Two days date for filtering
+	const twoDaysDate = rpcResult.two_days_date;
+
+	// Map requisitions + attach usernames
+	const userNamesMap = rpcResult.user_names || {};
+	requisitions = (rpcResult.requisitions || []).map(req => ({
+		...req,
+		created_by_username: userNamesMap[req.created_by]?.username || req.created_by || 'Unknown'
+	}));
 	console.log('✅ Loaded requisitions:', requisitions.length);
-	
-	// Process payment schedules result
-	const { data: schedulesData, error: schedulesError } = schedulesResult;
-	if (schedulesError) {
-		console.error('❌ Error loading payment schedules:', schedulesError);
-	} else {
-		// Filter single_bill by due date, show all multiple_bill
-		paymentSchedules = (schedulesData || []).filter(schedule => {
-			if (schedule.schedule_type === 'multiple_bill') {
-				return true;
+
+	// Payment schedules - filter single_bill by due date
+	paymentSchedules = (rpcResult.payment_schedules || []).filter(schedule => {
+		if (schedule.schedule_type === 'multiple_bill') return true;
+		return schedule.due_date && schedule.due_date <= twoDaysDate;
+	});
+	console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+
+	// Vendor payments - filter by amount limit
+	vendorPayments = (rpcResult.vendor_payments || []).filter(payment => {
+		if (!approvalPerms || !approvalPerms.can_approve_vendor_payments) return false;
+		const paymentAmount = payment.final_bill_amount || payment.bill_amount || 0;
+		if (approvalPerms.vendor_payment_amount_limit === 0) return true;
+		return approvalPerms.vendor_payment_amount_limit >= paymentAmount;
+	});
+	console.log('✅ Loaded vendor payments for approval:', vendorPayments.length);
+
+	// My created requisitions
+	myCreatedRequisitions = rpcResult.my_requisitions || [];
+	console.log('✅ My created requisitions:', myCreatedRequisitions.length);
+
+	// My created schedules
+	myCreatedSchedules = rpcResult.my_schedules || [];
+	console.log('✅ My created payment schedules:', myCreatedSchedules.length);
+
+	// Day off requests - apply employee names from RPC
+	const employeeNamesMap = rpcResult.employee_names || {};
+	{
+		let rawDayOffs = rpcResult.day_off_requests || [];
+		// Enrich requester with employee names
+		rawDayOffs = rawDayOffs.map(d => {
+			if (d.requester?.id && employeeNamesMap[d.requester.id]) {
+				return { ...d, requester: { ...d.requester, name_en: employeeNamesMap[d.requester.id].name_en, name_ar: employeeNamesMap[d.requester.id].name_ar } };
 			}
-			return schedule.due_date && schedule.due_date <= twoDaysDate;
+			return d;
 		});
-		console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+		dayOffRequests = groupDayOffRequests(rawDayOffs);
 	}
-		
-		// Process vendor payments result
-		const { data: vendorPaymentsData, error: vendorPaymentsError } = vendorPaymentsResult;
-		if (vendorPaymentsError) {
-			console.error('❌ Error loading vendor payments:', vendorPaymentsError);
-		} else {
-			// Filter by amount limit if set
-			vendorPayments = (vendorPaymentsData || []).filter(payment => {
-				if (!approvalPerms || !approvalPerms.can_approve_vendor_payments) return false;
-				const paymentAmount = payment.final_bill_amount || payment.bill_amount || 0;
-				if (approvalPerms.vendor_payment_amount_limit === 0) return true;
-				return approvalPerms.vendor_payment_amount_limit >= paymentAmount;
-			});
-			console.log('✅ Loaded vendor payments for approval:', vendorPayments.length);
-		}
-		
-		// Process my created requisitions
-		const { data: myReqData, error: myReqError } = myRequisitionsResult;
-		if (!myReqError && myReqData) {
-			myCreatedRequisitions = myReqData || [];
-			console.log('✅ My created requisitions:', myCreatedRequisitions.length);
-		}
-		
-		// Process my created schedules
-		const { data: mySchedulesData, error: mySchedulesError } = mySchedulesResult;
-		if (!mySchedulesError && mySchedulesData) {
-			myCreatedSchedules = mySchedulesData || [];
-			console.log('✅ My created payment schedules:', myCreatedSchedules.length);
-		}
-		
-		// Process day off requests requiring approval
-		const { data: dayOffData, error: dayOffError } = dayOffRequestsResult;
-		if (dayOffError) {
-			console.error('❌ Error loading day off requests for approval:', dayOffError);
-		} else {
-			dayOffRequests = groupDayOffRequests(dayOffData || []);
-			console.log('✅ Day off requests for approval (grouped):', dayOffRequests.length);
-		}
-		
-		// Process my created day off requests
-		const { data: myDayOffData, error: myDayOffError } = myDayOffRequestsResult;
-		if (myDayOffError) {
-			console.error('❌ Error loading my day off requests:', myDayOffError);
-		} else {
-			myDayOffRequests = groupDayOffRequests(myDayOffData || []);
-			console.log('✅ My day off requests (grouped):', myDayOffRequests.length);
-		}
+	console.log('✅ Day off requests for approval (grouped):', dayOffRequests.length);
 
-		// Lookup employee names (name_ar, name_en) for requesters across vendor payments & day-off
-		{
-			const requesterUserIds = [
-				...vendorPayments.map(v => v.requester?.id),
-				...dayOffRequests.map(d => d.requester?.id),
-			].filter(Boolean);
-			const uniqueRequesterIds = [...new Set(requesterUserIds)];
-			if (uniqueRequesterIds.length > 0) {
-				const { data: empData } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, name_en, name_ar')
-					.in('user_id', uniqueRequesterIds);
-				if (empData) {
-					const empMap = {};
-					empData.forEach(e => { empMap[e.user_id] = e; });
-					vendorPayments = vendorPayments.map(v => {
-						if (v.requester?.id && empMap[v.requester.id]) {
-							return { ...v, requester: { ...v.requester, name_en: empMap[v.requester.id].name_en, name_ar: empMap[v.requester.id].name_ar } };
-						}
-						return v;
-					});
-					dayOffRequests = dayOffRequests.map(d => {
-						if (d.requester?.id && empMap[d.requester.id]) {
-							return { ...d, requester: { ...d.requester, name_en: empMap[d.requester.id].name_en, name_ar: empMap[d.requester.id].name_ar } };
-						}
-						return d;
-					});
-				}
-			}
+	// My day off requests
+	myDayOffRequests = groupDayOffRequests(rpcResult.my_day_off_requests || []);
+	console.log('✅ My day off requests (grouped):', myDayOffRequests.length);
+
+	// Enrich vendor payments with employee names
+	vendorPayments = vendorPayments.map(v => {
+		if (v.requester?.id && employeeNamesMap[v.requester.id]) {
+			return { ...v, requester: { ...v.requester, name_en: employeeNamesMap[v.requester.id].name_en, name_ar: employeeNamesMap[v.requester.id].name_ar } };
 		}
-		
-		// Initialize empty arrays for historical data (will load on demand)
-		myApprovedSchedules = [];
-		approvedPaymentSchedules = [];
-		rejectedPaymentSchedules = [];
+		return v;
+	});
 
-		// Calculate stats (only pending for now, historical data will be loaded on demand)
-		stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length;
-		stats.approved = 0; // Will be loaded when user switches to approved tab
-		stats.rejected = 0; // Will be loaded when user switches to rejected tab
-		stats.total = stats.pending;
+	// Initialize empty arrays for historical data (will load on demand)
+	myApprovedSchedules = [];
+	approvedPaymentSchedules = [];
+	rejectedPaymentSchedules = [];
 
-		// Stats for my created requests (only pending initially)
-		myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length + myDayOffRequests.length;
+	// Calculate stats (only pending for now, historical data will be loaded on demand)
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length;
+	stats.approved = 0;
+	stats.rejected = 0;
+	stats.total = stats.pending;
+
+	// Stats for my created requests (only pending initially)
+	myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length + myDayOffRequests.length;
 		myStats.approved = 0; // Will be loaded on demand
 		myStats.rejected = 0; // Will be loaded on demand
 		myStats.total = myStats.pending;

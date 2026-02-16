@@ -175,156 +175,23 @@
 	
 
 
-	async function loadBoxOperationsCounts() {
-		try {
-			if (!currentUserData?.id) {
-				console.warn('⚠️ No user ID for box operations count');
-				return;
-			}
-			
-			console.log('📦 Loading box operations counts for user:', currentUserData.id);
-			
-			// Get pending to close count
-			const { count: pendingCount, error: pendingError } = await supabase
-				.from('box_operations')
-				.select('*', { count: 'exact', head: true })
-				.eq('user_id', currentUserData.id)
-				.eq('status', 'pending_close');
-			
-			if (pendingError) {
-				console.error('❌ Error loading pending to close count:', pendingError);
-			} else {
-				stats.pendingToClose = pendingCount || 0;
-				console.log('📦 Pending to close boxes:', stats.pendingToClose);
-			}
-			
-			// Get total completed count (all time)
-			const { count: completedCount, error: completedError } = await supabase
-				.from('box_operations')
-				.select('*', { count: 'exact', head: true })
-				.eq('user_id', currentUserData.id)
-				.eq('status', 'completed');
-			
-			if (completedError) {
-				console.error('❌ Error loading closed boxes count:', completedError);
-			} else {
-				stats.closedBoxes = completedCount || 0;
-				console.log('✅ Total closed boxes:', stats.closedBoxes);
-			}
-			
-			// Get in use count
-			const { count: inUseCount, error: inUseError } = await supabase
-				.from('box_operations')
-				.select('*', { count: 'exact', head: true })
-				.eq('user_id', currentUserData.id)
-				.eq('status', 'in_use');
-			
-			if (inUseError) {
-				console.error('❌ Error loading in use boxes count:', inUseError);
-			} else {
-				stats.inUseBoxes = inUseCount || 0;
-				console.log('🔄 In use boxes:', stats.inUseBoxes);
-			}
-			
-			console.log('📊 Final stats:', stats);
-		} catch (error) {
-			console.error('❌ Error loading box operations counts:', error);
+	// Compute pending checklists from RPC data
+	function computePendingChecklists(assignments: any[], submissionsToday: any[]) {
+		const submittedIds = new Set(submissionsToday.map((s: any) => s.checklist_id));
+		hasAssignedChecklists = assignments.length > 0;
+
+		const saudiDate = new Date(
+			new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+		);
+		const saToday = saudiDate.getDay();
+
+		let count = 0;
+		for (const a of assignments) {
+			if (submittedIds.has(a.checklist_id)) continue;
+			if (a.frequency_type === 'daily') count++;
+			if (a.frequency_type === 'weekly' && a.day_of_week === saToday) count++;
 		}
-	}
-	
-	async function loadPendingChecklistsCount() {
-		try {
-			if (!currentUserData?.id) {
-				console.warn('⚠️ No user ID for pending checklists count');
-				return;
-			}
-
-			console.log('📋 Loading pending checklists count for user:', currentUserData.id);
-
-			// Get employee ID for the current user
-			const { data: employeeData, error: empError } = await supabase
-				.from('hr_employee_master')
-				.select('id')
-				.eq('user_id', currentUserData.id)
-				.single();
-
-			if (empError || !employeeData) {
-				console.warn('⚠️ Employee record not found:', empError);
-				return;
-			}
-
-			const employeeId = employeeData.id;
-
-			// Get today's date (ISO format)
-			const today = new Date().toISOString().split('T')[0];
-
-			// Get checklists assigned to user
-			const { data: assignments, error: assignmentError } = await supabase
-				.from('employee_checklist_assignments')
-				.select('id, frequency_type, day_of_week, checklist_id')
-				.eq('assigned_to_user_id', currentUserData.id)
-				.is('deleted_at', null)
-				.eq('is_active', true);
-
-			if (assignmentError) {
-				console.error('❌ Error loading checklist assignments:', assignmentError);
-				return;
-			}
-
-			// Get today's submissions to exclude submitted checklists
-			const { data: submissions, error: submissionsError } = await supabase
-				.from('hr_checklist_operations')
-				.select('checklist_id')
-				.eq('employee_id', employeeId)
-				.eq('operation_date', today);
-
-			if (submissionsError) {
-				console.error('❌ Error loading submissions:', submissionsError);
-				return;
-			}
-
-			const submittedChecklistIds = new Set((submissions || []).map((s) => s.checklist_id));
-
-			// Check if user has any assigned checklists
-			hasAssignedChecklists = assignments && assignments.length > 0;
-
-			// Get today's day of week for weekly checklists
-			const today_date = new Date();
-			const saudiTimezone = 'Asia/Riyadh';
-			const saudiDate = new Date(
-				new Intl.DateTimeFormat('en-CA', {
-					timeZone: saudiTimezone,
-					year: 'numeric',
-					month: '2-digit',
-					day: '2-digit'
-				}).format(today_date)
-			);
-			const saToday = saudiDate.getDay();
-
-			// Count pending checklists
-			let pendingCount = 0;
-			if (assignments) {
-				for (const assignment of assignments) {
-					// Skip if already submitted today
-					if (submittedChecklistIds.has(assignment.checklist_id)) {
-						continue;
-					}
-					// Allow daily checklists
-					if (assignment.frequency_type === 'daily') {
-						pendingCount++;
-					}
-					// Allow weekly checklists for today
-					if (assignment.frequency_type === 'weekly' && assignment.day_of_week === saToday) {
-						pendingCount++;
-					}
-				}
-			}
-
-			stats.pendingChecklists = pendingCount;
-			console.log('📋 Pending checklists count:', stats.pendingChecklists);
-		} catch (error) {
-			console.error('❌ Error loading pending checklists count:', error);
-		}
+		stats.pendingChecklists = count;
 	}
 	
 	function handleViewOffer(event: CustomEvent) {
@@ -366,310 +233,160 @@
 	async function loadDashboardData() {
 		try {
 			const startTime = performance.now();
-			console.log('🔍 Loading mobile dashboard from Supabase...');
+			console.log('🔍 Loading mobile dashboard via RPC...');
 			
 			// Step 1: Get current user's UUID
 			const userUuid = currentUserData?.id;
-			console.log('👤 Step 1 - Current user UUID:', userUuid);
-			
 			if (!userUuid) {
 				console.warn('⚠️ Current user UUID not found');
-				punches = {
-					records: [],
-					loading: false,
-					error: 'User ID not found'
-				};
+				punches = { records: [], loading: false, error: 'User ID not found' };
 				return;
 			}
-		
-		// Step 2: Look up hr_employee_master record to get employee code mapping
-		console.log('🔍 Step 2 - Looking up employee record in hr_employee_master...');
-		const { data: employeeRecord, error: empError } = await supabase
-			.from('hr_employee_master')
-			.select('id, current_branch_id, employee_id_mapping')
-			.eq('user_id', userUuid)
-			.single();
-		
-		if (empError || !employeeRecord) {
-			console.warn('⚠️ Employee record not found:', empError);
-			punches = {
-				records: [],
-				loading: false,
-				error: 'Employee record not found'
-			};
-			return;
-		}
-		
-		console.log('👥 Step 2 - Employee record:', employeeRecord);
-		
-		// Step 3: Extract ALL employee codes from employee_id_mapping (across all branches)
-		console.log('🔍 Step 3 - Extracting all employee codes from mapping...');
-		const employeeIdMapping = employeeRecord.employee_id_mapping;
-		
-		let allEmployeeCodes = [];
-		if (typeof employeeIdMapping === 'string') {
-			const mappingObj = JSON.parse(employeeIdMapping);
-			allEmployeeCodes = Object.values(mappingObj) as string[];
-		} else {
-			allEmployeeCodes = Object.values(employeeIdMapping) as string[];
-		}
-		
-		if (!allEmployeeCodes || allEmployeeCodes.length === 0) {
-			console.warn('⚠️ No employee codes found in mapping');
-			punches = {
-				records: [],
-				loading: false,
-				error: 'No employee codes found'
-			};
-			return;
-		}
-		
-		console.log('🎯 Step 3 - Found employee codes across all branches:', allEmployeeCodes);
+			
+			// Step 2: Call single RPC for all dashboard data
+			attendanceLoading = true;
+			const { data: result, error: rpcError } = await supabase.rpc('get_mobile_dashboard_data', {
+				p_user_id: userUuid
+			});
 
-		// Step 3b: Trigger analyze-attendance edge function for this employee (fire-and-forget, don't block dashboard)
-		console.log('🔄 Step 3b - Triggering analyze-attendance edge function for employee:', employeeRecord.id);
-		supabase.functions.invoke('analyze-attendance', {
-			body: { employeeId: employeeRecord.id, rollingDays: 3 }
-		}).then(({ data: analyzeData, error: analyzeError }) => {
-			if (analyzeError) {
-				console.error('❌ analyze-attendance edge function error:', analyzeError);
-			} else {
-				console.log('✅ analyze-attendance completed:', analyzeData);
-				// Refresh attendance data after analysis completes
-				refreshAttendanceData(employeeRecord.id);
+			if (rpcError || !result) {
+				console.error('❌ RPC error:', rpcError);
+				punches = { records: [], loading: false, error: rpcError?.message || 'RPC failed' };
+				attendanceLoading = false;
+				return;
 			}
-		}).catch(err => {
-			console.error('❌ analyze-attendance invocation failed:', err);
-		});
-		
-		// Step 4: Load attendance analysis data for today and yesterday
-		console.log('🔍 Step 4 - Loading attendance analysis data...');
-		attendanceLoading = true;
-		try {
-			const today = new Date();
-			const yesterday = new Date(today);
-			yesterday.setDate(yesterday.getDate() - 1);
-			const todayStr = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
-			const yesterdayStr = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 
-			const { data: attData, error: attError } = await supabase
-				.from('hr_analysed_attendance_data')
-				.select('*')
-				.eq('employee_id', employeeRecord.id)
-				.in('shift_date', [todayStr, yesterdayStr])
-				.order('shift_date', { ascending: false });
+			console.log('✅ RPC result received:', result);
 
-			if (attError) {
-				console.error('Error loading attendance data:', attError);
-			} else if (attData) {
-				attendanceToday = attData.find(r => r.shift_date === todayStr) || null;
-				attendanceYesterday = attData.find(r => r.shift_date === yesterdayStr) || null;
-				console.log('✅ Step 4 - Today:', attendanceToday, 'Yesterday:', attendanceYesterday);
+			// Step 3: Map employee data
+			const employeeId = result.employee?.id;
+			const allEmployeeCodes: string[] = result.employee?.employee_codes || [];
+
+			if (!employeeId) {
+				punches = { records: [], loading: false, error: 'Employee record not found' };
+				attendanceLoading = false;
+				return;
 			}
-		} catch (e) {
-			console.error('Error in attendance data load:', e);
-		} finally {
+
+			// Step 4: Map attendance data
+			attendanceToday = result.attendance?.today || null;
+			attendanceYesterday = result.attendance?.yesterday || null;
 			attendanceLoading = false;
-		}
+			console.log('📅 Attendance - Today:', attendanceToday, 'Yesterday:', attendanceYesterday);
 
-		// Step 4b: Look up today's shift end time from shift tables (priority: special_shift_date_wise → special_shift_weekday → regular_shift)
-		try {
-			const todaySaudi = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
-			const todayWeekday = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Riyadh' })).getDay(); // 0=Sun, 5=Fri
+			// Step 5: Map shift info
+			if (result.shift_info) {
+				todayShiftInfo = result.shift_info;
+				console.log('⏰ Shift info:', todayShiftInfo);
+			}
 
-			// 1) Check special_shift_date_wise first
-			const { data: dateShift } = await supabase
-				.from('special_shift_date_wise')
-				.select('shift_end_time, shift_start_time, is_shift_overlapping_next_day')
-				.eq('employee_id', employeeRecord.id)
-				.eq('shift_date', todaySaudi)
-				.maybeSingle();
+			// Step 6: Map box operation counts
+			if (result.box_counts) {
+				stats.pendingToClose = result.box_counts.pending_close || 0;
+				stats.closedBoxes = result.box_counts.completed || 0;
+				stats.inUseBoxes = result.box_counts.in_use || 0;
+				console.log('📦 Box counts:', result.box_counts);
+			}
 
-			if (dateShift) {
-				todayShiftInfo = dateShift;
-				console.log('✅ Step 4b - Shift from special_shift_date_wise:', todayShiftInfo);
-			} else {
-				// 2) Check special_shift_weekday
-				const { data: weekdayShift } = await supabase
-					.from('special_shift_weekday')
-					.select('shift_end_time, shift_start_time, is_shift_overlapping_next_day')
-					.eq('employee_id', employeeRecord.id)
-					.eq('weekday', todayWeekday)
-					.maybeSingle();
+			// Step 7: Compute pending checklists from RPC data
+			computePendingChecklists(
+				result.checklists?.assignments || [],
+				result.checklists?.submissions_today || []
+			);
 
-				if (weekdayShift) {
-					todayShiftInfo = weekdayShift;
-					console.log('✅ Step 4b - Shift from special_shift_weekday:', todayShiftInfo);
-				} else {
-					// 3) Fallback to regular_shift (id = employee_id)
-					const { data: regShift } = await supabase
-						.from('regular_shift')
-						.select('shift_end_time, shift_start_time, is_shift_overlapping_next_day')
-						.eq('id', employeeRecord.id)
-						.maybeSingle();
-
-					if (regShift) {
-						todayShiftInfo = regShift;
-						console.log('✅ Step 4b - Shift from regular_shift:', todayShiftInfo);
-					} else {
-						console.warn('⚠️ Step 4b - No shift info found for employee');
+			// Step 8: Format and display punch records
+			const punchData = result.punches || [];
+			if (punchData.length > 0) {
+				const punchRecords = punchData.map((punch: any) => {
+					let formattedTime = punch.time || '';
+					if (formattedTime) {
+						try {
+							const [hours, minutes] = formattedTime.split(':').slice(0, 2);
+							const hour = parseInt(hours, 10);
+							const minute = minutes || '00';
+							const timeDate = new Date(2000, 0, 1, hour, parseInt(minute, 10));
+							const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
+							formattedTime = timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' });
+						} catch (e) {
+							console.error('Error formatting time:', e);
+						}
 					}
-				}
-			}
-		} catch (e) {
-			console.error('Error looking up shift info:', e);
-		}
-
-		// Step 5: Also load last 2 raw punches for backward compatibility
-		console.log('🔍 Step 5 - Searching fingerprint transactions for all branches...');
-		const { data: punchData, error: punchError } = await supabase
-			.from('hr_fingerprint_transactions')
-			.select('*')
-			.in('employee_id', allEmployeeCodes)
-			.order('date', { ascending: false })
-			.order('time', { ascending: false })
-			.limit(2);
-			
-			console.log('📊 Step 5 - Punch data:', punchData);
-			console.log('❌ Step 5 - Error:', punchError);
-			
-			if (punchError) {
-				console.error('Error loading punches:', punchError);
-				punches = {
-					records: [],
-					loading: false,
-					error: punchError.message
-				};
-				return;
-			}
-			
-		// Step 6: Display the last 2 punch records
-			if (punchData && punchData.length > 0) {
-				console.log('✅ Step 6 - Found', punchData.length, 'punch records');
-				
-				const punchRecords = punchData
-					.map(punch => {
-						// Convert time to locale-aware format
-						let formattedTime = punch.time || '';
-						if (formattedTime) {
-							try {
-								// Parse time string (HH:MM:SS or HH:MM)
-								const [hours, minutes] = formattedTime.split(':').slice(0, 2);
-								const hour = parseInt(hours, 10);
-								const minute = minutes || '00';
-								
-								// Use locale-aware formatting
-								const timeDate = new Date(2000, 0, 1, hour, parseInt(minute, 10));
-								const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-								formattedTime = timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' });
-							} catch (e) {
-								console.error('Error formatting time:', e);
-							}
+					let formattedDate = punch.date || '';
+					if (formattedDate) {
+						try {
+							const dateObj = new Date(formattedDate);
+							const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
+							formattedDate = dateObj.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Riyadh' });
+						} catch (e) {
+							console.error('Error formatting date:', e);
 						}
-						
-						// Format date with locale awareness
-						let formattedDate = punch.date || '';
-						if (formattedDate) {
-							try {
-								const dateObj = new Date(formattedDate);
-								const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-								formattedDate = dateObj.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Riyadh' });
-							} catch (e) {
-								console.error('Error formatting date:', e);
-							}
-						}
-						
-						// Map database columns to display format
-						const mappedPunch = {
-							time: formattedTime,
-							date: formattedDate,
-							status: punch.status === 'Check In' ? 'check-in' : 'check-out',
-							raw: punch
-						};
-						console.log('📍 Mapped punch:', mappedPunch);
-						return mappedPunch;
-					});
-				
-				console.log('✅ Step 6 - Displaying', punchRecords.length, 'punch records');
-				punches = {
-					records: punchRecords,
-					loading: false,
-					error: ''
-				};
+					}
+					return {
+						time: formattedTime,
+						date: formattedDate,
+						status: punch.status === 'Check In' ? 'check-in' : 'check-out',
+						raw: punch
+					};
+				});
+				punches = { records: punchRecords, loading: false, error: '' };
 			} else {
-				console.log('ℹ️ Step 6 - No punch records found');
-				punches = {
-					records: [],
-					loading: false,
-					error: ''
-				};
+				punches = { records: [], loading: false, error: '' };
 			}
-			
-			// Step 7: Setup real-time subscription for this employee's punches (all branches)
-			console.log('📡 Step 7 - Setting up real-time subscription for employee codes:', allEmployeeCodes);
+
+			// Step 9: Fire-and-forget analyze-attendance (uses employee ID from RPC)
+			supabase.functions.invoke('analyze-attendance', {
+				body: { employeeId, rollingDays: 3 }
+			}).then(({ data: analyzeData, error: analyzeError }) => {
+				if (analyzeError) {
+					console.error('❌ analyze-attendance error:', analyzeError);
+				} else {
+					console.log('✅ analyze-attendance completed:', analyzeData);
+					refreshAttendanceData(employeeId);
+				}
+			}).catch(err => {
+				console.error('❌ analyze-attendance failed:', err);
+			});
+
+			// Step 10: Setup real-time subscription for punches
 			if (unsubscribeFingerprint) {
-				console.log('🔌 Cleaning up previous subscription');
 				unsubscribeFingerprint();
 			}
-			
-			// Subscribe to all employee codes
-			unsubscribeFingerprint = realtimeService.subscribeToEmployeeFingerprintChangesMultiple(
-				allEmployeeCodes,
-				(payload) => {
-					console.log('🔔 Real-time punch update received:', payload);
-					
-					// Only process changes for today
-					const today = new Date().toISOString().split('T')[0];
-					const punchDate = payload.new?.date || payload.old?.date;
-					
-					if (punchDate !== today) {
-						console.log('⏭️ Punch is not for today, skipping');
-						return;
-					}
-					
-					if (payload.eventType === 'INSERT') {
-						// New punch record - format and add to display
-						const newPunch = payload.new;
-						let formattedTime = newPunch.time || '';
-						
-						if (formattedTime) {
-							try {
-								const [hours, minutes] = formattedTime.split(':').slice(0, 2);
-								const hour = parseInt(hours, 10);
-								const minute = minutes || '00';
-								const ampm = hour >= 12 ? 'PM' : 'AM';
-								const hour12 = hour % 12 || 12;
-								formattedTime = `${hour12.toString().padStart(2, '0')}:${minute} ${ampm}`;
-							} catch (e) {
-								console.error('Error formatting realtime punch time:', e);
+			if (allEmployeeCodes.length > 0) {
+				unsubscribeFingerprint = realtimeService.subscribeToEmployeeFingerprintChangesMultiple(
+					allEmployeeCodes,
+					(payload) => {
+						const today = new Date().toISOString().split('T')[0];
+						const punchDate = payload.new?.date || payload.old?.date;
+						if (punchDate !== today) return;
+
+						if (payload.eventType === 'INSERT') {
+							const newPunch = payload.new;
+							let formattedTime = newPunch.time || '';
+							if (formattedTime) {
+								try {
+									const [hours, minutes] = formattedTime.split(':').slice(0, 2);
+									const hour = parseInt(hours, 10);
+									const minute = minutes || '00';
+									const ampm = hour >= 12 ? 'PM' : 'AM';
+									const hour12 = hour % 12 || 12;
+									formattedTime = `${hour12.toString().padStart(2, '0')}:${minute} ${ampm}`;
+								} catch (e) {
+									console.error('Error formatting realtime punch time:', e);
+								}
 							}
+							const mappedNewPunch = {
+								time: formattedTime,
+								date: newPunch.date || '',
+								status: newPunch.status === 'Check In' ? 'check-in' : 'check-out',
+								raw: newPunch
+							};
+							punches.records = [mappedNewPunch, ...punches.records].slice(0, 2);
 						}
-						
-						const mappedNewPunch = {
-							time: formattedTime,
-							date: newPunch.date || '',
-							status: newPunch.status === 'Check In' ? 'check-in' : 'check-out',
-							raw: newPunch
-						};
-						
-						// Add to beginning of list and keep only last 2
-						punches.records = [mappedNewPunch, ...punches.records].slice(0, 2);
-						console.log('✅ Punch list updated in real-time:', punches.records);
 					}
-				}
-			);
-			
-			console.log('✅ Real-time subscription set up successfully');
-			
-			// Load box operations counts
-			await loadBoxOperationsCounts();
-			
-			// Load pending checklists count
-			await loadPendingChecklistsCount();
-			
-			// Set pending tasks to 0 for now (TODO: implement task loading)
+				);
+			}
+
 			stats.pendingTasks = 0;
-			
 			const endTime = performance.now();
 			console.log(`✅ Dashboard loaded in ${(endTime - startTime).toFixed(2)}ms`);
 			

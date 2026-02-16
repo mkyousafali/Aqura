@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { compressImage } from '$lib/utils/imageCompression';
 	import XLSX from 'xlsx-js-style';
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
 	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
@@ -506,14 +507,24 @@
 				// Import supabase here to avoid circular dependencies
 				const { supabase } = await import('$lib/utils/supabase');
 				
-				// Generate unique filename
-				const fileExt = file.name.split('.').pop();
+				// Compress image files before upload (skip PDFs)
+				let uploadFile = file;
+				let fileExt = file.name.split('.').pop();
+				if (file.type.startsWith('image/')) {
+					try {
+						const compressed = await compressImage(file);
+						const res = await fetch(compressed);
+						const blob = await res.blob();
+						uploadFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+						fileExt = 'jpg';
+					} catch { /* fallback to original */ }
+				}
 				const fileName = `${recordId}_original_bill_${Date.now()}.${fileExt}`;
 
 				// Upload file to original-bills storage bucket
 				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('original-bills')
-					.upload(fileName, file);
+					.upload(fileName, uploadFile);
 
 				if (uploadError) {
 					console.error('Error uploading file:', uploadError);
@@ -573,14 +584,24 @@
 				// Import supabase here to avoid circular dependencies
 				const { supabase } = await import('$lib/utils/supabase');
 				
-				// Generate unique filename with "updated" prefix
-				const fileExt = file.name.split('.').pop();
+				// Compress image files before upload (skip PDFs)
+				let uploadFile = file;
+				let fileExt = file.name.split('.').pop();
+				if (file.type.startsWith('image/')) {
+					try {
+						const compressed = await compressImage(file);
+						const res = await fetch(compressed);
+						const blob = await res.blob();
+						uploadFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+						fileExt = 'jpg';
+					} catch { /* fallback to original */ }
+				}
 				const fileName = `${recordId}_original_bill_updated_${Date.now()}.${fileExt}`;
 
 				// Upload file to original-bills storage bucket
 				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('original-bills')
-					.upload(fileName, file);
+					.upload(fileName, uploadFile);
 
 				if (uploadError) {
 					console.error('Error uploading updated file:', uploadError);
