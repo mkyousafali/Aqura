@@ -137,7 +137,6 @@ export const englishLocale: LocaleData = {
       aiChatGuide: "AI Chat Guide",
       themeManager: "Theme Manager",
       erpProductManager: "ERP Product Manager",
-      storageManager: "Storage Manager",
       createDepartment: "Create Department",
       createLevel: "Create Level",
       createPosition: "Create Position",
@@ -1610,7 +1609,6 @@ export const englishLocale: LocaleData = {
 
     // HR Master
     hr: {
-      days: "Days",
       employee: "Employee",
       employees: "Employees",
       employeeId: "Employee ID",
@@ -2471,7 +2469,6 @@ export const englishLocale: LocaleData = {
       print: "Print",
       printed: "Printed",
       cancel: "Cancel",
-      ok: "OK",
       close: "Close",
       start: "Start",
       starting: "Starting...",

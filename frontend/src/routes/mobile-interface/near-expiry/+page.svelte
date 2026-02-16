@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { compressImage } from '$lib/utils/imageCompression';
 	import { currentLocale } from '$lib/i18n';
 	import { onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
@@ -403,15 +404,17 @@
 	}
 
 	// --- Photo handling ---
-	function handlePhoto(event: Event) {
+	async function handlePhoto(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const file = target.files?.[0];
 		if (file) {
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				modalPhoto = e.target?.result as string;
-			};
-			reader.readAsDataURL(file);
+			try {
+				modalPhoto = await compressImage(file);
+			} catch {
+				const reader = new FileReader();
+				reader.onload = (e) => { modalPhoto = e.target?.result as string; };
+				reader.readAsDataURL(file);
+			}
 		}
 	}
 

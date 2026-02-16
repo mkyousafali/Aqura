@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { compressImage } from '$lib/utils/imageCompression';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -643,11 +644,13 @@
 			
 			photoFile = file;
 			
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				photoPreview = e.target?.result as string;
-			};
-			reader.readAsDataURL(file);
+			try {
+				photoPreview = await compressImage(file);
+			} catch {
+				const reader = new FileReader();
+				reader.onload = (e) => { photoPreview = e.target?.result as string; };
+				reader.readAsDataURL(file);
+			}
 			
 			console.log('📷 [Mobile] Photo selected:', file.name);
 		}
