@@ -83,16 +83,6 @@
         return true;
     });
     
-    // Utility: split array into chunks to avoid URL length limits
-    function chunkArray<T>(arr: T[], size: number): T[][] {
-        if (arr.length === 0) return [];
-        const chunks: T[][] = [];
-        for (let i = 0; i < arr.length; i += size) {
-            chunks.push(arr.slice(i, i + size));
-        }
-        return chunks;
-    }
-    
     function clearFilters() {
         filterIncidentType = '';
         filterBranch = '';
@@ -118,123 +108,55 @@
                 console.log('⚠️ No user in store');
             }
             
-            // Fetch all incidents with related data
-            const { data, error: fetchError } = await supabase
-                .from('incidents')
-                .select(`
-                    id,
-                    incident_type_id,
-                    employee_id,
-                    branch_id,
-                    violation_id,
-                    what_happened,
-                    witness_details,
-                    report_type,
-                    reports_to_user_ids,
-                    resolution_status,
-                    resolution_report,
-                    user_statuses,
-                    attachments,
-                    investigation_report,
-                    created_at,
-                    created_by,
-                    incident_types(id, incident_type_en, incident_type_ar),
-                    warning_violation(id, name_en, name_ar)
-                `)
-                .order('created_at', { ascending: false });
+            // Single RPC call replaces 5+ queries
+            const { data, error: rpcError } = await supabase.rpc('get_incident_manager_data');
             
-            if (fetchError) {
-                throw new Error(`Fetch error: ${fetchError.message}`);
+            if (rpcError) {
+                throw new Error(`RPC error: ${rpcError.message}`);
             }
             
-            if (!data || data.length === 0) {
+            const rows = data || [];
+            if (rows.length === 0) {
                 incidents = [];
                 isLoading = false;
                 return;
             }
             
-            // --- Batch all lookups instead of per-incident queries ---
-            
-            // 1. Collect all unique IDs needed
-            const allEmployeeIds = [...new Set(data.map(d => d.employee_id).filter(Boolean))] as string[];
-            const allBranchIds = [...new Set(data.map(d => d.branch_id).filter(Boolean))] as number[];
-            const allCreatedByIds = [...new Set(data.map(d => d.created_by).filter(Boolean))] as string[];
-            const allReportToIds = [...new Set(data.flatMap(d => 
-                Array.isArray(d.reports_to_user_ids) ? d.reports_to_user_ids : []
-            ).filter(Boolean))] as string[];
-            const allIncidentIds = data.map(d => d.id);
-            
-            // Merge all user_ids that need name lookup (created_by + reports_to)
-            const allUserIds = [...new Set([...allCreatedByIds, ...allReportToIds])] as string[];
-            
-            // 2. Fetch all data in parallel (batched)
-            const [empResult, branchResult, actionsResult] = await Promise.all([
-                // Employees by id (TEXT)
-                allEmployeeIds.length > 0
-                    ? supabase.from('hr_employee_master').select('id, name_en, name_ar').in('id', allEmployeeIds)
-                    : { data: [] as any[] },
-                // Branches
-                allBranchIds.length > 0
-                    ? supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').in('id', allBranchIds)
-                    : { data: [] as any[] },
-                // All incident actions at once
-                allIncidentIds.length > 0
-                    ? supabase.from('incident_actions').select('*').in('incident_id', allIncidentIds).order('created_at', { ascending: false })
-                    : { data: [] as any[] },
-            ]);
-            
-            // Users by user_id — batch in chunks of 30 to avoid URL length limits
-            const userChunks = chunkArray(allUserIds, 30);
-            const userResults = userChunks.length > 0
-                ? await Promise.all(userChunks.map(chunk =>
-                    supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', chunk)
-                ))
-                : [];
-            
-            // 3. Build lookup maps
-            const empMap = new Map((empResult.data || []).map((e: any) => [e.id, e]));
-            const branchMap = new Map((branchResult.data || []).map((b: any) => [b.id, b]));
-            const userMap = new Map<string, any>();
-            for (const r of userResults) {
-                for (const u of (r.data || [])) {
-                    userMap.set(u.user_id, u);
-                }
-            }
-            // Group actions by incident_id
-            const actionsMap = new Map<string, any[]>();
-            for (const a of (actionsResult.data || [])) {
-                if (!actionsMap.has(a.incident_id)) actionsMap.set(a.incident_id, []);
-                actionsMap.get(a.incident_id)!.push(a);
-            }
-            
-            // 4. Enrich incidents using lookup maps (synchronous, no extra queries)
-            const enrichedIncidents = data.map((incident) => {
+            // Map RPC results to enriched incidents
+            const enrichedIncidents = rows.map((inc: any) => {
                 // Employee name
-                const emp = (incident.employee_id ? empMap.get(incident.employee_id) : null) as any;
-                const employeeName = emp ? ($locale === 'ar' ? emp.name_ar : emp.name_en) : 'Unknown';
+                const employeeName = inc.employee_name_en
+                    ? ($locale === 'ar' ? (inc.employee_name_ar || inc.employee_name_en) : inc.employee_name_en)
+                    : 'Unknown';
                 
                 // Branch name
-                const branch = (incident.branch_id ? branchMap.get(incident.branch_id) : null) as any;
                 let branchName = 'Unknown';
-                if (branch) {
-                    const name = $locale === 'ar' ? branch.name_ar : branch.name_en;
-                    const location = $locale === 'ar' ? branch.location_ar : branch.location_en;
+                if (inc.branch_name_en) {
+                    const name = $locale === 'ar' ? (inc.branch_name_ar || inc.branch_name_en) : inc.branch_name_en;
+                    const location = $locale === 'ar' ? (inc.branch_location_ar || inc.branch_location_en) : inc.branch_location_en;
                     branchName = `${name} - ${location}`;
                 }
                 
+                // Reporter name
+                const reporterName = inc.reporter_name_en
+                    ? ($locale === 'ar' ? (inc.reporter_name_ar || inc.reporter_name_en) : inc.reporter_name_en)
+                    : 'Unknown';
+                
                 // Report-to user names with statuses
                 let reportToNames: any[] = [];
-                if (Array.isArray(incident.reports_to_user_ids) && incident.reports_to_user_ids.length > 0) {
-                    const userStatusesObj = typeof incident.user_statuses === 'string'
-                        ? JSON.parse(incident.user_statuses)
-                        : (incident.user_statuses || {});
-                    reportToNames = incident.reports_to_user_ids
+                const reportToUsers = inc.report_to_users || [];
+                if (Array.isArray(inc.reports_to_user_ids) && inc.reports_to_user_ids.length > 0 && reportToUsers.length > 0) {
+                    const userStatusesObj = typeof inc.user_statuses === 'string'
+                        ? JSON.parse(inc.user_statuses)
+                        : (inc.user_statuses || {});
+                    const userLookup = new Map(reportToUsers.map((u: any) => [u.user_id, u]));
+                    reportToNames = inc.reports_to_user_ids
                         .map((uid: string) => {
-                            const u = userMap.get(uid);
+                            const u = userLookup.get(uid);
                             if (!u) return null;
                             const statusData = userStatusesObj[uid] || {};
                             return {
-                                name: $locale === 'ar' ? u.name_ar : u.name_en,
+                                name: $locale === 'ar' ? (u.name_ar || u.name_en) : u.name_en,
                                 userId: uid,
                                 status: statusData.status || 'unknown'
                             };
@@ -242,15 +164,11 @@
                         .filter(Boolean);
                 }
                 
-                // Incident actions
-                const incidentActions = actionsMap.get(incident.id) || [];
-                
-                // Reporter name
-                const reporter = incident.created_by ? userMap.get(incident.created_by) : null;
-                const reporterName = reporter ? ($locale === 'ar' ? reporter.name_ar : reporter.name_en) : 'Unknown';
+                // Incident actions (already included from RPC)
+                const incidentActions = inc.incident_actions || [];
                 
                 return {
-                    ...incident,
+                    ...inc,
                     employeeName,
                     branchName,
                     reportToNames,
