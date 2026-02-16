@@ -60,6 +60,10 @@
 	// VAT percentage
 	let vatPercentage = 15;
 
+	// Data loaded state
+	let dataLoaded = false;
+	let savingData = false;
+
 	// Send state
 	let sendingRows: Set<number> = new Set();
 	let sentRows: Set<number> = new Set();
@@ -192,6 +196,7 @@
 		if (!selectedOfferId) return;
 		loadingProducts = true;
 		showComparison = true;
+		dataLoaded = false;
 		productRows = [];
 
 		try {
@@ -238,6 +243,7 @@
 
 			// 4. Fetch ERP prices for each branch in parallel
 			await fetchAllBranchPrices(barcodes);
+			dataLoaded = true;
 		} catch (err) {
 			console.error('Error loading offer products:', err);
 			loadingProducts = false;
@@ -247,145 +253,151 @@
 	async function fetchAllBranchPrices(barcodes: string[]) {
 		if (barcodes.length === 0 || selectedBranches.length === 0) return;
 
-		// Build IN clause for SQL
-		const barcodeList = barcodes.map(bc => `'${bc.replace(/'/g, "''")}'`).join(',');
-
-		// Query that searches barcodes across all ERP barcode locations:
-		// 1. ProductUnits.BarCode (primary)
-		// 2. ProductBatches.MannualBarcode (manual entry)
-		// 3. ProductBatches.AutoBarcode (auto-generated, integer → CAST)
-		// 4. ProductBatches.Unit2Barcode, Unit3Barcode (alternate units)
-		// 5. ProductBarcodes.Barcode (extra barcodes table)
-		// Note: No MultiFactor filter — the scanned barcode IS the unit we want
-		// Build per-branch SQL with BranchID filter
-		const buildSql = (erpBranchId: number | null) => {
-			const branchFilter = erpBranchId != null ? `AND pb.BranchID = ${erpBranchId}` : '';
-			return `
-			SELECT SearchBarcode, Sprice, Cost AS LandingCost, UnitName
-			FROM (
-				SELECT SearchBarcode, Sprice, Cost, UnitName,
-					ROW_NUMBER() OVER (PARTITION BY SearchBarcode ORDER BY BatchID DESC, CASE WHEN Sprice > 0 THEN 0 ELSE 1 END, Sprice ASC) AS rn
-				FROM (
-					SELECT pu.BarCode AS SearchBarcode,
-						pu.Sprice,
-						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) * pu.MultiFactor AS Cost,
-						pb.ProductBatchID AS BatchID,
-						(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um WHERE um.UnitID = pu.UnitID) AS UnitName
-					FROM ProductUnits pu
-					INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
-					WHERE pu.BarCode IN (${barcodeList}) ${branchFilter}
-
-					UNION ALL
-
-					SELECT pb.MannualBarcode AS SearchBarcode,
-						COALESCE(NULLIF(pb.StdSalesPrice, 0), (SELECT TOP 1 pu2.Sprice FROM ProductUnits pu2 WHERE pu2.ProductBatchID = pb.ProductBatchID AND pu2.Sprice > 0 ORDER BY pu2.MultiFactor)) AS Sprice,
-						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
-						pb.ProductBatchID AS BatchID,
-						(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um INNER JOIN ProductUnits pu4 ON pu4.UnitID = um.UnitID WHERE pu4.ProductBatchID = pb.ProductBatchID ORDER BY pu4.MultiFactor ASC) AS UnitName
-					FROM ProductBatches pb
-					WHERE pb.MannualBarcode IN (${barcodeList}) ${branchFilter}
-					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BarCode IN (${barcodeList}))
-
-					UNION ALL
-
-					SELECT CAST(pb.AutoBarcode AS NVARCHAR(100)) AS SearchBarcode,
-						(SELECT TOP 1 pu2.Sprice FROM ProductUnits pu2 WHERE pu2.ProductBatchID = pb.ProductBatchID AND pu2.Sprice > 0 ORDER BY pu2.MultiFactor) AS Sprice,
-						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
-						pb.ProductBatchID AS BatchID,
-						(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um INNER JOIN ProductUnits pu4 ON pu4.UnitID = um.UnitID WHERE pu4.ProductBatchID = pb.ProductBatchID ORDER BY pu4.MultiFactor ASC) AS UnitName
-					FROM ProductBatches pb
-					WHERE CAST(pb.AutoBarcode AS NVARCHAR(100)) IN (${barcodeList}) ${branchFilter}
-					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BarCode IN (${barcodeList}))
-					AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
-
-					UNION ALL
-
-					SELECT pb.Unit2Barcode AS SearchBarcode,
-						COALESCE(NULLIF(pb.StdSalesPrice, 0), (SELECT TOP 1 pu2.Sprice FROM ProductUnits pu2 WHERE pu2.ProductBatchID = pb.ProductBatchID AND pu2.Sprice > 0 ORDER BY pu2.MultiFactor)) AS Sprice,
-						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
-						pb.ProductBatchID AS BatchID,
-						(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um INNER JOIN ProductUnits pu4 ON pu4.UnitID = um.UnitID WHERE pu4.ProductBatchID = pb.ProductBatchID ORDER BY pu4.MultiFactor ASC) AS UnitName
-					FROM ProductBatches pb
-					WHERE pb.Unit2Barcode IN (${barcodeList}) ${branchFilter}
-					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BarCode IN (${barcodeList}))
-					AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
-					AND (CAST(pb.AutoBarcode AS NVARCHAR(100)) IS NULL OR CAST(pb.AutoBarcode AS NVARCHAR(100)) NOT IN (${barcodeList}))
-
-					UNION ALL
-
-					SELECT pb.Unit3Barcode AS SearchBarcode,
-						COALESCE(NULLIF(pb.StdSalesPrice, 0), (SELECT TOP 1 pu2.Sprice FROM ProductUnits pu2 WHERE pu2.ProductBatchID = pb.ProductBatchID AND pu2.Sprice > 0 ORDER BY pu2.MultiFactor)) AS Sprice,
-						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
-						pb.ProductBatchID AS BatchID,
-						(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um INNER JOIN ProductUnits pu4 ON pu4.UnitID = um.UnitID WHERE pu4.ProductBatchID = pb.ProductBatchID ORDER BY pu4.MultiFactor ASC) AS UnitName
-					FROM ProductBatches pb
-					WHERE pb.Unit3Barcode IN (${barcodeList}) ${branchFilter}
-					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BarCode IN (${barcodeList}))
-					AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
-					AND (CAST(pb.AutoBarcode AS NVARCHAR(100)) IS NULL OR CAST(pb.AutoBarcode AS NVARCHAR(100)) NOT IN (${barcodeList}))
-					AND (pb.Unit2Barcode IS NULL OR pb.Unit2Barcode NOT IN (${barcodeList}))
-
-					UNION ALL
-
-					SELECT pbc.Barcode AS SearchBarcode,
-						COALESCE((SELECT TOP 1 NULLIF(pb2.StdSalesPrice, 0) FROM ProductBatches pb2 WHERE pb2.ProductBatchID = pbc.ProductBatchID ${branchFilter.replace('pb.', 'pb2.')}),
-							(SELECT TOP 1 pu2.Sprice FROM ProductUnits pu2 WHERE pu2.ProductBatchID = pbc.ProductBatchID AND pu2.Sprice > 0 ORDER BY pu2.MultiFactor)) AS Sprice,
-						(SELECT TOP 1 COALESCE(NULLIF(pb2.StdPurchasePrice, 0), NULLIF(pb2.LastPurchaseCost, 0), NULLIF(pb2.LandingCost, 0), NULLIF(pb2.AvgPurchaseCost, 0), 0) FROM ProductBatches pb2 WHERE pb2.ProductBatchID = pbc.ProductBatchID ${branchFilter.replace('pb.', 'pb2.')}) AS Cost,
-						pbc.ProductBatchID AS BatchID,
-						(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um INNER JOIN ProductUnits pu4 ON pu4.UnitID = um.UnitID WHERE pu4.ProductBatchID = pbc.ProductBatchID ORDER BY pu4.MultiFactor ASC) AS UnitName
-					FROM ProductBarcodes pbc
-					WHERE pbc.Barcode IN (${barcodeList})
-					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pbc.ProductBatchID AND pu3.BarCode IN (${barcodeList}))
-				) AS Combined
-			) AS Ranked
-			WHERE rn = 1
-		`;
-		};
-
 		// Set all selected branches to loading
 		selectedBranches.forEach(b => {
 			loadingBranchPrices[b.branch_id] = true;
 		});
 		loadingBranchPrices = { ...loadingBranchPrices };
 
-		// Fetch in parallel for all selected branches
+		// Use the same /price-check endpoint as mobile price checker — guarantees 100% matching logic
 		const promises = selectedBranches.map(async (branch) => {
 			try {
-				const sql = buildSql(branch.erp_branch_id);
-				const response = await fetch('/api/erp-products', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						action: 'query',
-						tunnelUrl: branch.tunnel_url,
-						sql
-					})
-				});
-				const result = await response.json();
+				// Call price-check per barcode in parallel batches (max 10 concurrent)
+				const batchSize = 10;
+				const priceMap = new Map<string, BranchPriceData>();
 
-				if (result.success && result.recordset) {
-					// Map results by barcode
-					const priceMap = new Map<string, BranchPriceData>();
-					for (const row of result.recordset) {
-						priceMap.set(row.SearchBarcode, {
-							cost: row.LandingCost ?? null,
-							salesPrice: row.Sprice ?? null,
-							unitName: row.UnitName ?? null
-						});
-					}
-
-					// Update productRows
-					productRows = productRows.map(pr => {
-						const data = priceMap.get(pr.barcode);
-						return {
-							...pr,
-							branchData: {
-								...pr.branchData,
-								[branch.branch_id]: data || { cost: null, salesPrice: null, unitName: null }
+				for (let i = 0; i < barcodes.length; i += batchSize) {
+					const batch = barcodes.slice(i, i + batchSize);
+					const batchPromises = batch.map(async (bc) => {
+						try {
+							const response = await fetch('/api/erp-products', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({
+									action: 'price-check',
+									tunnelUrl: branch.tunnel_url,
+									barcode: bc,
+									erpBranchId: branch.erp_branch_id
+								})
+							});
+							const result = await response.json();
+							if (result.success && result.prices && result.prices.length > 0) {
+								const price = result.prices[0];
+								priceMap.set(bc, {
+									cost: null,  // price-check doesn't return cost
+									salesPrice: price.sprice ?? null,
+									unitName: price.unit_name ?? null
+								});
 							}
-						};
+						} catch (err) {
+							// Individual barcode error — skip silently
+						}
 					});
+					await Promise.all(batchPromises);
 				}
+
+				// Now do a single bulk SQL query for cost data only
+				const barcodeList = barcodes.map(bc => `'${bc.replace(/'/g, "''")}'`).join(',');
+				const branchFilter = branch.erp_branch_id != null ? `AND pb.BranchID = ${branch.erp_branch_id}` : '';
+				const costSql = `
+				SELECT SearchBarcode, Cost AS LandingCost
+				FROM (
+					SELECT SearchBarcode, Cost,
+						ROW_NUMBER() OVER (PARTITION BY SearchBarcode ORDER BY BatchID DESC) AS rn
+					FROM (
+						SELECT pu.BarCode AS SearchBarcode,
+							COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) * pu.MultiFactor AS Cost,
+							pb.ProductBatchID AS BatchID
+						FROM ProductUnits pu
+						INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
+						WHERE pu.BarCode IN (${barcodeList}) ${branchFilter}
+
+						UNION ALL
+
+						SELECT pb.MannualBarcode AS SearchBarcode,
+							COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+							pb.ProductBatchID AS BatchID
+						FROM ProductBatches pb
+						WHERE pb.MannualBarcode IN (${barcodeList}) ${branchFilter}
+						AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+
+						UNION ALL
+
+						SELECT CAST(pb.AutoBarcode AS NVARCHAR(100)) AS SearchBarcode,
+							COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+							pb.ProductBatchID AS BatchID
+						FROM ProductBatches pb
+						WHERE CAST(pb.AutoBarcode AS NVARCHAR(100)) IN (${barcodeList}) ${branchFilter}
+						AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+						AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
+
+						UNION ALL
+
+						SELECT pb.Unit2Barcode AS SearchBarcode,
+							COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+							pb.ProductBatchID AS BatchID
+						FROM ProductBatches pb
+						WHERE pb.Unit2Barcode IN (${barcodeList}) ${branchFilter}
+						AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+						AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
+						AND (CAST(pb.AutoBarcode AS NVARCHAR(100)) IS NULL OR CAST(pb.AutoBarcode AS NVARCHAR(100)) NOT IN (${barcodeList}))
+
+						UNION ALL
+
+						SELECT pb.Unit3Barcode AS SearchBarcode,
+							COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+							pb.ProductBatchID AS BatchID
+						FROM ProductBatches pb
+						WHERE pb.Unit3Barcode IN (${barcodeList}) ${branchFilter}
+						AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+						AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
+						AND (CAST(pb.AutoBarcode AS NVARCHAR(100)) IS NULL OR CAST(pb.AutoBarcode AS NVARCHAR(100)) NOT IN (${barcodeList}))
+						AND (pb.Unit2Barcode IS NULL OR pb.Unit2Barcode NOT IN (${barcodeList}))
+
+						UNION ALL
+
+						SELECT pbc.Barcode AS SearchBarcode,
+							COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+							pbc.ProductBatchID AS BatchID
+						FROM ProductBarcodes pbc
+						INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID
+						WHERE pbc.Barcode IN (${barcodeList}) ${branchFilter}
+						AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pbc.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+					) AS Combined
+				) AS Ranked
+				WHERE rn = 1
+				`;
+
+				try {
+					const costResponse = await fetch('/api/erp-products', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ action: 'query', tunnelUrl: branch.tunnel_url, sql: costSql })
+					});
+					const costResult = await costResponse.json();
+					if (costResult.success && costResult.recordset) {
+						for (const row of costResult.recordset) {
+							const bc = String(row.SearchBarcode).trim();
+							const existing = priceMap.get(bc) || { cost: null, salesPrice: null, unitName: null };
+							existing.cost = row.LandingCost ?? null;
+							priceMap.set(bc, existing);
+						}
+					}
+				} catch (err) {
+					console.error(`Error fetching cost for branch ${branch.branch_id}:`, err);
+				}
+
+				// Update productRows
+				productRows = productRows.map(pr => {
+					const data = priceMap.get(pr.barcode);
+					return {
+						...pr,
+						branchData: {
+							...pr.branchData,
+							[branch.branch_id]: data || { cost: null, salesPrice: null, unitName: null }
+						}
+					};
+				});
 			} catch (err) {
 				console.error(`Error fetching prices for branch ${branch.branch_id}:`, err);
 			} finally {
@@ -680,6 +692,34 @@
 		sendingAll = false;
 	}
 
+	async function saveComparedPrices() {
+		if (!selectedOfferId || productRows.length === 0) return;
+		savingData = true;
+
+		try {
+			const upsertRows = productRows.map(row => ({
+				offer_id: selectedOfferId,
+				product_barcode: row.barcode,
+				cost: getComparedCost(row),
+				sales_price: getComparedSalesPrice(row)
+			}));
+
+			const { error } = await supabase
+				.from('flyer_offer_products')
+				.upsert(upsertRows, { onConflict: 'offer_id,product_barcode' });
+
+			if (error) {
+				console.error('Error saving compared prices:', error);
+			} else {
+				console.log('✅ Compared prices saved successfully for', upsertRows.length, 'products');
+			}
+		} catch (err) {
+			console.error('Error saving compared prices:', err);
+		} finally {
+			savingData = false;
+		}
+	}
+
 	onMount(async () => {
 		const { supabase: client } = await import('$lib/utils/supabase');
 		supabase = client;
@@ -861,6 +901,30 @@
 				/>
 				<span class="text-[10px] font-bold text-slate-500">%</span>
 			</div>
+
+			<!-- Save Button (enabled after load completes) -->
+			<button
+				on:click={saveComparedPrices}
+				disabled={!dataLoaded || savingData}
+				class="group relative flex items-center gap-1.5 px-4 py-1.5 text-[10px] font-black uppercase tracking-wide transition-all duration-500 rounded-lg overflow-hidden
+				{dataLoaded && !savingData ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:scale-[1.02]' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}"
+			>
+				{#if savingData}
+					<div class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
+				{:else}
+					<span class="text-xs filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">💾</span>
+				{/if}
+				<span class="relative z-10">{$t('common.save')}</span>
+			</button>
+
+			<!-- Refresh Button -->
+			<button
+				on:click={() => { selectedOfferId = ''; showComparison = false; dataLoaded = false; productRows = []; searchBarcode = ''; searchName = ''; sentRows = new Set(); editingCell = null; }}
+				class="group relative flex items-center gap-1.5 px-4 py-1.5 text-[10px] font-black uppercase tracking-wide transition-all duration-500 rounded-lg overflow-hidden bg-rose-600 text-white shadow-lg shadow-rose-200 hover:bg-rose-700 hover:scale-[1.02]"
+			>
+				<span class="text-xs filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-[360deg]">🔄</span>
+				<span class="relative z-10">{$t('common.refresh')}</span>
+			</button>
 
 			<!-- Export Excel Button -->
 			<button

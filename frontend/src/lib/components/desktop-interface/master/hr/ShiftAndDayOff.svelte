@@ -133,7 +133,7 @@
     let employeesForDateWiseSelection: EmployeeForSelection[] = [];
     let allEmployeesForDateWise: EmployeeForSelection[] = [];
     let dateWiseShifts: (EmployeeShift & {shift_date?: string})[] = [];
-    let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string, is_deductible_on_salary?: boolean})[] = [];
+    let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string, is_deductible_on_salary?: boolean, approval_requested_at?: string, day_off_reason_id?: string, _grouped?: boolean, _allIds?: string[], _allDates?: string[], _dateFrom?: string, _dateTo?: string, _dayCount?: number})[] = [];
     let dayOffsWeekday: (EmployeeShift & {day_off_weekday?: number})[] = [];
     let dayOffReasons: DayOffReason[] = [];
     let loading = false;
@@ -191,6 +191,122 @@
     let availableBranches: Branch[] = [];
     let availableNationalities: Nationality[] = [];
     
+    // Grouped day-off action modal state
+    let showGroupedDeductionModal = false;
+    let showGroupedDeleteModal = false;
+    let groupedModalDayOff: any = null;
+    let groupedCheckedDates: Record<string, boolean> = {};
+    let groupedDeductionStates: Record<string, boolean> = {};
+    let isGroupedProcessing = false;
+
+    // Grouped Shift Delete state
+    let showGroupedShiftDeleteModal = false;
+    let groupedShiftModalData: any = null;
+    let groupedShiftCheckedDates: Record<string, boolean> = {};
+    let isGroupedShiftProcessing = false;
+
+    // View Dates popup state
+    let showViewDatesPopup = false;
+    let viewDatesData: any = null;
+    let viewDatesSearch = '';
+    let viewDatesMonthFilter = '';
+    let viewDatesYearFilter = '';
+
+    // View Description popup state
+    let showDescriptionPopup = false;
+    let descriptionPopupText = '';
+    let descriptionPopupEmployee = '';
+
+    function openViewDatesPopup(dayOff: any) {
+        viewDatesData = dayOff;
+        viewDatesSearch = '';
+        viewDatesMonthFilter = '';
+        viewDatesYearFilter = '';
+        showViewDatesPopup = true;
+    }
+
+    // Format date from yyyy-mm-dd to dd-mm-yyyy with full day name
+    function formatDateDisplay(dateStr: string): string {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length === 3 && parts[0].length === 4) {
+            const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            const dayName = date.toLocaleDateString($locale === 'ar' ? 'ar-SA' : 'en-US', { weekday: 'long' });
+            return `${dayName} ${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        return dateStr;
+    }
+
+    // Smart date search: normalize input so "02122024" or "02-12-2024" matches "2024-12-02"
+    function normalizeDateSearch(input: string): string {
+        return input.replace(/[\-\/\.\s]/g, '');
+    }
+
+    function dateMatchesSearch(dateStr: string, search: string): boolean {
+        if (!search.trim()) return true;
+        const normalized = normalizeDateSearch(search);
+        // Try matching against multiple date representations
+        const d = dateStr; // format: YYYY-MM-DD
+        const parts = d.split('-');
+        if (parts.length !== 3) return d.includes(search);
+        const [y, m, dd] = parts;
+        // Build candidate strings the user might type
+        const candidates = [
+            `${dd}${m}${y}`,    // DDMMYYYY  e.g. 02122024
+            `${m}${dd}${y}`,    // MMDDYYYY
+            `${y}${m}${dd}`,    // YYYYMMDD
+            `${dd}-${m}-${y}`,  // DD-MM-YYYY
+            `${m}-${dd}-${y}`,  // MM-DD-YYYY
+            `${y}-${m}-${dd}`,  // YYYY-MM-DD
+            `${dd}/${m}/${y}`,  // DD/MM/YYYY
+            `${m}/${dd}/${y}`,  // MM/DD/YYYY
+            d,                  // original
+        ];
+        return candidates.some(c => normalizeDateSearch(c).includes(normalized) || normalized.includes(normalizeDateSearch(c)));
+    }
+
+    $: viewDatesFiltered = (() => {
+        if (!viewDatesData) return [];
+        const allDates: string[] = viewDatesData._allDates || [viewDatesData.day_off_date || viewDatesData.shift_date];
+        return allDates.filter(dateStr => {
+            if (!dateStr) return false;
+            // Month/Year filter
+            if (viewDatesMonthFilter || viewDatesYearFilter) {
+                const parts = dateStr.split('-');
+                if (parts.length === 3) {
+                    if (viewDatesYearFilter && parts[0] !== viewDatesYearFilter) return false;
+                    if (viewDatesMonthFilter && parts[1] !== viewDatesMonthFilter) return false;
+                }
+            }
+            // Search filter
+            if (viewDatesSearch.trim()) {
+                return dateMatchesSearch(dateStr, viewDatesSearch);
+            }
+            return true;
+        });
+    })();
+
+    $: viewDatesAvailableYears = (() => {
+        if (!viewDatesData) return [];
+        const allDates: string[] = viewDatesData._allDates || [viewDatesData.day_off_date || viewDatesData.shift_date];
+        const years = new Set(allDates.map(d => d?.split('-')[0]).filter(Boolean));
+        return [...years].sort();
+    })();
+
+    $: viewDatesAvailableMonths = (() => {
+        if (!viewDatesData) return [];
+        const allDates: string[] = viewDatesData._allDates || [viewDatesData.day_off_date || viewDatesData.shift_date];
+        const months = new Set(allDates.map(d => d?.split('-')[1]).filter(Boolean));
+        return [...months].sort();
+    })();
+
+    const monthNames: Record<string, { en: string, ar: string }> = {
+        '01': { en: 'Jan', ar: 'يناير' }, '02': { en: 'Feb', ar: 'فبراير' }, '03': { en: 'Mar', ar: 'مارس' },
+        '04': { en: 'Apr', ar: 'أبريل' }, '05': { en: 'May', ar: 'مايو' }, '06': { en: 'Jun', ar: 'يونيو' },
+        '07': { en: 'Jul', ar: 'يوليو' }, '08': { en: 'Aug', ar: 'أغسطس' }, '09': { en: 'Sep', ar: 'سبتمبر' },
+        '10': { en: 'Oct', ar: 'أكتوبر' }, '11': { en: 'Nov', ar: 'نوفمبر' }, '12': { en: 'Dec', ar: 'ديسمبر' }
+    };
+
     // Notification state
     let showNotification = false;
     let notificationMessage = '';
@@ -288,8 +404,10 @@
 
     $: filteredRegularEmployees = getFilteredEmployees(employees, selectedBranchFilter, selectedNationalityFilter, selectedEmploymentStatusFilter, regularShiftSearchQuery);
     $: filteredSpecialWeekdayEmployees = getFilteredSpecialWeekdayEmployees(employees, specialWeekdayBranchFilter, specialWeekdayNationalityFilter, specialWeekdayEmploymentStatusFilter, specialWeekdaySearchQuery);
-    $: filteredSpecialDateEmployees = getFilteredSpecialDateShifts(dateWiseShifts, specialDateBranchFilter, specialDateNationalityFilter, specialDateEmploymentStatusFilter, specialDateSearchQuery);
-    $: filteredDayOffsEmployees = getFilteredDayOffs(dayOffs, dayOffBranchFilter, dayOffNationalityFilter, dayOffEmploymentStatusFilter, dayOffSearchQuery);
+    $: groupedSpecialDateShifts = groupSpecialShiftDateWise(dateWiseShifts);
+    $: filteredSpecialDateEmployees = getFilteredSpecialDateShifts(groupedSpecialDateShifts, specialDateBranchFilter, specialDateNationalityFilter, specialDateEmploymentStatusFilter, specialDateSearchQuery);
+    $: groupedDayOffs = groupDayOffRequests(dayOffs);
+    $: filteredDayOffsEmployees = getFilteredDayOffs(groupedDayOffs, dayOffBranchFilter, dayOffNationalityFilter, dayOffEmploymentStatusFilter, dayOffSearchQuery);
     $: filteredDayOffsWeekdayEmployees = getFilteredDayOffsWeekday(dayOffsWeekday, dayOffWeekdayBranchFilter, dayOffWeekdayNationalityFilter, dayOffWeekdayEmploymentStatusFilter, dayOffWeekdaySearchQuery);
 
     $: availableEmploymentStatuses = [
@@ -315,6 +433,18 @@
         $t('common.days.saturday')
     ];
 
+    // Only show weekday columns that have at least one employee with a shift
+    $: activeWeekdays = (() => {
+        const days: {index: number, name: string}[] = [];
+        for (let i = 0; i < 7; i++) {
+            const hasShift = filteredSpecialWeekdayEmployees.some(emp => emp.shifts?.[i] != null);
+            if (hasShift) {
+                days.push({ index: i, name: weekdayNames[i] });
+            }
+        }
+        return days;
+    })();
+
     // Form data for modal
     let formData: RegularShiftData | SpecialShiftWeekdayData | SpecialShiftDateWiseData = {
         id: '',
@@ -331,8 +461,6 @@
         { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
         { id: 'Leave (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
         { id: 'Leave (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
-        { id: 'Time Off (Hours)', label: 'Time Off (Hours)', icon: '⏱️', color: 'purple' },
-        { id: 'Early Leave', label: 'Early Leave', icon: '🚪', color: 'red' },
         { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' }
     ];
 
@@ -353,10 +481,6 @@
             await loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
-        } else if (activeTab === 'Time Off (Hours)') {
-            // Future logic
-        } else if (activeTab === 'Early Leave') {
-            // Future logic
         } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
         }
@@ -412,10 +536,6 @@
             await loadDayOffData();
         } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
-        } else if (activeTab === 'Time Off (Hours)') {
-            // Placeholder: Time Off (Hours) logic to be added
-        } else if (activeTab === 'Early Leave') {
-            // Placeholder: Early Leave logic to be added
         } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
         }
@@ -824,58 +944,33 @@
         try {
             await initSupabase();
             
-            // Get all employees for selection
-            const { data: employeeData, error: empError } = await supabase
-                .from('hr_employee_master')
-                .select(`
-                    id,
-                    name_en,
-                    name_ar,
-                    current_branch_id,
-                    nationality_id,
-                    employment_status,
-                    sponsorship_status
-                `);
+            const t0 = performance.now();
+            
+            // Load employees, branches, and day offs ALL in parallel
+            const [empResult, branchResult, rpcResult] = await Promise.all([
+                supabase.from('hr_employee_master').select('id, name_en, name_ar, current_branch_id').order('name_en'),
+                supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+                supabase.rpc('get_day_offs_with_details', {
+                    p_date_from: dayOffFilterStart,
+                    p_date_to: dayOffFilterEnd
+                })
+            ]);
 
-            if (empError) throw empError;
+            console.log(`⚡ All 3 queries completed in ${(performance.now() - t0).toFixed(0)}ms`);
 
-            if (!employeeData || employeeData.length === 0) {
-                allEmployeesForDateWise = [];
-                dayOffs = [];
-                loading = false;
-                return;
-            }
+            if (empResult.error) throw empResult.error;
+            if (rpcResult.error) throw rpcResult.error;
 
-            // Get branch information
-            const branchIds = [...new Set(employeeData.map(e => e.current_branch_id).filter(Boolean))];
-            const { data: branches, error: branchError } = await supabase
-                .from('branches')
-                .select('id, name_en, name_ar, location_en, location_ar')
-                .in('id', branchIds);
+            const employeeData = empResult.data || [];
+            const dayOffData = (rpcResult.data || []) as any[];
+            const branches = branchResult.data || [];
 
-            if (branchError) throw branchError;
-
-            // Get nationality information
-            const nationalityIds = [...new Set(employeeData.map(e => e.nationality_id).filter(Boolean))];
-            let nationalities: any[] = [];
-            if (nationalityIds.length > 0) {
-                const { data: nat, error: natError } = await supabase
-                    .from('nationalities')
-                    .select('id, name_en, name_ar')
-                    .in('id', nationalityIds);
-                if (natError) throw natError;
-                nationalities = (nat as Nationality[]) || [];
-            }
-
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
-            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [String(n.id), n]) || []);
-
-            // Populate available branches and nationalities for filter
-            availableBranches = (branches as Branch[] | null) || [];
-            availableNationalities = nationalities || [];
+            // Build maps
+            const branchMap = new Map<string, Branch>((branches as Branch[]).map(b => [String(b.id), b]));
+            availableBranches = branches as Branch[];
 
             // Build employee selection list
-            allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
+            allEmployeesForDateWise = employeeData.map((emp: any) => {
                 const branch = branchMap.get(String(emp.current_branch_id));
                 return {
                     id: emp.id,
@@ -885,70 +980,23 @@
                     branch_name_ar: branch?.name_ar || 'N/A'
                 };
             });
-            
             allEmployeesForDateWise = [...sortEmployees(allEmployeesForDateWise)];
-
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
-            // Get Leave data
-            const { data: dayOffData, error: dayOffError } = await supabase
-                .from('day_off')
-                .select('*,day_off_reasons(*)')
-                .gte('day_off_date', dayOffFilterStart)
-                .lte('day_off_date', dayOffFilterEnd)
-                .order('day_off_date', { ascending: false });
-
-            if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError; // 404 is OK
-
-            console.log('📋 Raw Leave data from DB:', dayOffData);
-            
-            // Check if description field exists in the response
-            if (dayOffData && dayOffData.length > 0) {
-                console.log('🔍 Sample Leave object keys:', Object.keys(dayOffData[0]));
-                console.log('🔍 First Leave full object:', dayOffData[0]);
-                console.log('🔍 Description field value:', dayOffData[0].description);
-            }
-
-            // Map Leaves with employee details
-            dayOffs = ((dayOffData as any[]) || []).map(dayOff => {
-                const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(dayOff.employee_id));
-                const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
-                const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
-
-                const mappedObject = {
-                    id: dayOff.id,
-                    employee_id: dayOff.employee_id,
-                    employee_name_en: emp?.name_en || 'N/A',
-                    employee_name_ar: emp?.name_ar || 'N/A',
-                    branch_id: emp?.current_branch_id,
-                    branch_name_en: branch?.name_en || 'N/A',
-                    branch_name_ar: branch?.name_ar || 'N/A',
-                    branch_location_en: branch?.location_en || '',
-                    branch_location_ar: branch?.location_ar || '',
-                    nationality_id: emp?.nationality_id,
-                    nationality_name_en: nationality?.name_en || 'N/A',
-                    nationality_name_ar: nationality?.name_ar || 'N/A',
-                    sponsorship_status: emp?.sponsorship_status,
-                    employment_status: emp?.employment_status,
-                    day_off_date: dayOff.day_off_date,
-                    approval_status: dayOff.approval_status,
-                    reason_en: dayOff.day_off_reasons?.reason_en || 'N/A',
-                    reason_ar: dayOff.day_off_reasons?.reason_ar || 'N/A',
-                    document_url: dayOff.document_url,
-                    description: dayOff.description || null,
-                    is_deductible_on_salary: dayOff.is_deductible_on_salary || false
-                };
-                
-                if (dayOff.description) {
-                    console.log(`📝 Leave ${dayOff.id} has description: "${dayOff.description}"`);
+            // Populate available nationalities from RPC results
+            const natMap = new Map<string, Nationality>();
+            for (const d of dayOffData) {
+                if (d.nationality_id && !natMap.has(String(d.nationality_id))) {
+                    natMap.set(String(d.nationality_id), { id: d.nationality_id, name_en: d.nationality_name_en, name_ar: d.nationality_name_ar });
                 }
-                
-                return mappedObject;
-            });
-            
-            console.log('✅ Mapped Leaves:', dayOffs);
-            
+            }
+            availableNationalities = [...natMap.values()];
+
+            // RPC already returns fully joined data — assign directly (no mapping needed)
+            dayOffs = dayOffData;
             dayOffs = [...sortEmployees(dayOffs)];
+            
+            console.log(`⚡ Total loadDayOffData: ${(performance.now() - t0).toFixed(0)}ms, ${dayOffs.length} records`);
         } catch (err) {
             console.error('Error loading Leave data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -1400,6 +1448,167 @@
         }
     }
 
+    // Delete all day off records in a grouped leave request
+    async function deleteGroupedDayOff(allIds: string[], employeeId: string, dayCount: number) {
+        const confirmMsg = dayCount > 1 
+            ? `${$t('hr.shift.confirm_delete_day_off')} (${dayCount} ${$locale === 'ar' ? 'أيام' : 'days'})`
+            : $t('hr.shift.confirm_delete_day_off');
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            await initSupabase();
+            const { error } = await supabase
+                .from('day_off')
+                .delete()
+                .in('id', allIds);
+
+            if (error) throw error;
+
+            // Update local data - remove all records with matching IDs
+            const idSet = new Set(allIds);
+            dayOffs = dayOffs.filter(d => !idSet.has(d.id));
+        } catch (err) {
+            console.error('Error deleting grouped Leave:', err);
+            alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
+        }
+    }
+
+    // Open grouped deduction modal — shows all dates with checkboxes for deduction status
+    function openGroupedDeductionModal(dayOff: any) {
+        groupedModalDayOff = dayOff;
+        groupedDeductionStates = {};
+        const allDeductions = dayOff._allDeductions || [{ id: dayOff.id, date: dayOff.day_off_date, is_deductible: dayOff.is_deductible_on_salary || false }];
+        for (const item of allDeductions) {
+            groupedDeductionStates[item.id] = item.is_deductible;
+        }
+        showGroupedDeductionModal = true;
+    }
+
+    // Confirm grouped deduction update
+    async function confirmGroupedDeduction() {
+        if (!groupedModalDayOff || isGroupedProcessing) return;
+        try {
+            isGroupedProcessing = true;
+            await initSupabase();
+
+            const allDeductions = groupedModalDayOff._allDeductions || [{ id: groupedModalDayOff.id, date: groupedModalDayOff.day_off_date, is_deductible: groupedModalDayOff.is_deductible_on_salary || false }];
+
+            // Update each record's deduction status
+            for (const item of allDeductions) {
+                const newVal = groupedDeductionStates[item.id] || false;
+                if (newVal !== item.is_deductible) {
+                    const { error } = await supabase
+                        .from('day_off')
+                        .update({ is_deductible_on_salary: newVal })
+                        .eq('id', item.id);
+                    if (error) throw error;
+                }
+            }
+
+            // Update local state
+            dayOffs = dayOffs.map(d => {
+                if (groupedDeductionStates.hasOwnProperty(d.id)) {
+                    return { ...d, is_deductible_on_salary: groupedDeductionStates[d.id] || false };
+                }
+                return d;
+            });
+
+            showGroupedDeductionModal = false;
+            groupedModalDayOff = null;
+            showSuccessNotification($t('hr.shift.deduction_updated') || 'Deduction updated successfully');
+        } catch (err) {
+            console.error('Error updating grouped deduction:', err);
+            showErrorNotification($t('hr.shift.deduction_update_error') || 'Failed to update deduction');
+        } finally {
+            isGroupedProcessing = false;
+        }
+    }
+
+    // Open grouped delete modal — shows all dates with checkboxes (all checked by default)
+    function openGroupedDeleteModal(dayOff: any) {
+        groupedModalDayOff = dayOff;
+        groupedCheckedDates = {};
+        const allIds = dayOff._allIds || [dayOff.id];
+        for (const id of allIds) {
+            groupedCheckedDates[id] = true; // all checked by default
+        }
+        showGroupedDeleteModal = true;
+    }
+
+    // Confirm grouped delete — only deletes checked dates
+    async function confirmGroupedDelete() {
+        if (!groupedModalDayOff || isGroupedProcessing) return;
+        const idsToDelete = Object.entries(groupedCheckedDates).filter(([_, v]) => v).map(([id]) => id);
+        if (idsToDelete.length === 0) return;
+
+        try {
+            isGroupedProcessing = true;
+            await initSupabase();
+
+            const { error } = await supabase
+                .from('day_off')
+                .delete()
+                .in('id', idsToDelete);
+
+            if (error) throw error;
+
+            // Update local data
+            const idSet = new Set(idsToDelete);
+            dayOffs = dayOffs.filter(d => !idSet.has(d.id));
+
+            showGroupedDeleteModal = false;
+            groupedModalDayOff = null;
+            showSuccessNotification(`${$locale === 'ar' ? 'تم حذف' : 'Deleted'} ${idsToDelete.length} ${$locale === 'ar' ? 'يوم/أيام' : 'day(s)'}`);
+        } catch (err) {
+            console.error('Error deleting selected days:', err);
+            showErrorNotification($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
+        } finally {
+            isGroupedProcessing = false;
+        }
+    }
+
+    // Open grouped shift delete modal
+    function openGroupedShiftDeleteModal(shift: any) {
+        groupedShiftModalData = shift;
+        groupedShiftCheckedDates = {};
+        const allIds = shift._allIds || [shift.id];
+        for (const id of allIds) {
+            groupedShiftCheckedDates[id] = true;
+        }
+        showGroupedShiftDeleteModal = true;
+    }
+
+    // Confirm grouped shift delete
+    async function confirmGroupedShiftDelete() {
+        if (!groupedShiftModalData || isGroupedShiftProcessing) return;
+        const idsToDelete = Object.entries(groupedShiftCheckedDates).filter(([_, v]) => v).map(([id]) => id);
+        if (idsToDelete.length === 0) return;
+
+        try {
+            isGroupedShiftProcessing = true;
+            await initSupabase();
+
+            const { error } = await supabase
+                .from('special_shift_date_wise')
+                .delete()
+                .in('id', idsToDelete);
+
+            if (error) throw error;
+
+            const idSet = new Set(idsToDelete);
+            dateWiseShifts = dateWiseShifts.filter(s => !idSet.has(s.id));
+
+            showGroupedShiftDeleteModal = false;
+            groupedShiftModalData = null;
+            showSuccessNotification(`${$locale === 'ar' ? 'تم حذف' : 'Deleted'} ${idsToDelete.length} ${$locale === 'ar' ? 'نوبة/نوبات' : 'shift(s)'}`);
+        } catch (err) {
+            console.error('Error deleting selected shifts:', err);
+            showErrorNotification($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
+        } finally {
+            isGroupedShiftProcessing = false;
+        }
+    }
+
     async function saveDayOffWeekday() {
         if (!selectedEmployeeId || selectedDayOffWeekday === null) {
             alert($t('hr.shift.error_select_employee_weekday'));
@@ -1727,9 +1936,9 @@
         const isSponsored = status === true || status === 'true' || status === 'yes' || status === 'Yes' || status === '1';
         
         if (isSponsored) {
-            return { color: 'bg-green-100 text-green-800', text: $t('common.yes') || 'Yes' };
+            return { color: 'bg-green-100 text-green-800', text: $locale === 'ar' ? 'على الكفالة' : 'On Sponsorship' };
         } else {
-            return { color: 'bg-red-100 text-red-800', text: $t('common.no') || 'No' };
+            return { color: 'bg-red-100 text-red-800', text: $locale === 'ar' ? 'ليس على الكفالة' : 'Not On Sponsorship' };
         }
     }
 
@@ -1922,6 +2131,91 @@
         }
 
         return sortEmployees(filtered);
+    }
+
+    // Group day-off requests by employee + submission time + reason (same batch) — same logic as ApprovalCenter
+    function groupDayOffRequests(dayOffsList: any[]) {
+        const groups = new Map();
+        for (const d of dayOffsList) {
+            // Truncate timestamp to minute level so batch inserts with slightly different seconds still group together
+            let approvalMinute = '';
+            if (d.approval_requested_at) {
+                const dt = new Date(d.approval_requested_at);
+                approvalMinute = `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}-${dt.getHours()}-${dt.getMinutes()}`;
+            }
+            // Group by employee_id + approval time (minute) + reason (same batch submission)
+            const key = `${d.employee_id}_${approvalMinute}_${d.day_off_reason_id || ''}`;
+            if (!groups.has(key)) {
+                groups.set(key, []);
+            }
+            groups.get(key).push(d);
+        }
+
+        const grouped: any[] = [];
+        for (const [key, records] of groups) {
+            // Sort records by date
+            records.sort((a: any, b: any) => (a.day_off_date || '').localeCompare(b.day_off_date || ''));
+
+            const first = records[0];
+            const last = records[records.length - 1];
+
+            // Count approval statuses
+            const statusCounts: Record<string, number> = {};
+            for (const r of records) {
+                const s = r.approval_status || 'pending';
+                statusCounts[s] = (statusCounts[s] || 0) + 1;
+            }
+
+            grouped.push({
+                ...first,
+                _grouped: true,
+                _allIds: records.map((r: any) => r.id),
+                _allDates: records.map((r: any) => r.day_off_date),
+                _allDeductions: records.map((r: any) => ({ id: r.id, date: r.day_off_date, is_deductible: r.is_deductible_on_salary || false })),
+                _allStatuses: records.map((r: any) => ({ id: r.id, date: r.day_off_date, status: r.approval_status || 'pending' })),
+                _statusCounts: statusCounts,
+                _dateFrom: first.day_off_date,
+                _dateTo: last.day_off_date,
+                _dayCount: records.length
+            });
+        }
+
+        return grouped;
+    }
+
+    // Group special shift date-wise records by employee + same shift settings
+    function groupSpecialShiftDateWise(shiftsList: any[]) {
+        const groups = new Map();
+        for (const s of shiftsList) {
+            const key = `${s.employee_id}_${s.shift_start_time}_${s.shift_end_time}_${s.shift_start_buffer}_${s.shift_end_buffer}_${s.is_shift_overlapping_next_day}`;
+            if (!groups.has(key)) {
+                groups.set(key, []);
+            }
+            groups.get(key).push(s);
+        }
+
+        const grouped: any[] = [];
+        for (const [key, records] of groups) {
+            records.sort((a: any, b: any) => (a.shift_date || '').localeCompare(b.shift_date || ''));
+            const first = records[0];
+            const last = records[records.length - 1];
+
+            if (records.length === 1) {
+                grouped.push({ ...first, _grouped: false, _dayCount: 1 });
+            } else {
+                grouped.push({
+                    ...first,
+                    _grouped: true,
+                    _allIds: records.map((r: any) => r.id),
+                    _allDates: records.map((r: any) => r.shift_date),
+                    _dateFrom: first.shift_date,
+                    _dateTo: last.shift_date,
+                    _dayCount: records.length
+                });
+            }
+        }
+
+        return grouped;
     }
 
     function getFilteredDayOffs(itemList: any[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string) {
@@ -2451,20 +2745,14 @@
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Table Wrapper with horizontal scroll -->
                         <div class="overflow-x-auto flex-1">
-                            <table class="w-full border-collapse">
+                            <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
                                 <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                                     <tr>
-                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employeeId')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.start')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.start_buffer')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.end')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.end_buffer')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.overlaps')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.working_hours')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                     </tr>
@@ -2472,31 +2760,35 @@
                                 <tbody class="divide-y divide-slate-200">
                                     {#each filteredRegularEmployees as employee, index}
                                         <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-                                            <td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
-                                            <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
-                                            <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(employee)}</td>
-                                            <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(employee)}</td>
-                                            <td class="px-4 py-3 text-sm text-center">
-                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(employee.employment_status).color}">
-                                                    {getEmploymentStatusDisplay(employee.employment_status).text}
-                                                </span>
+                                            <td class="px-4 py-3 text-sm text-slate-700">
+                                                <div>{formatEmployeeNameDisplay(employee)}</div>
+                                                <div class="text-xs text-slate-400">{employee.id}</div>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-slate-700">
+                                                <div>{$locale === 'ar' ? (employee.branch_name_ar || employee.branch_name_en) : employee.branch_name_en}</div>
+                                                {#if ($locale === 'ar' ? (employee.branch_location_ar || employee.branch_location_en) : employee.branch_location_en)}
+                                                    <div class="text-xs text-slate-400">{$locale === 'ar' ? (employee.branch_location_ar || employee.branch_location_en) : employee.branch_location_en}</div>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-slate-700">
+                                                <div>{formatNationalityDisplay(employee)}</div>
+                                                <div class="text-xs text-slate-400">{getSponsorshipStatusDisplay(employee.sponsorship_status).text}</div>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-center font-mono">
+                                                <div class="text-slate-800">{formatTimeTo12Hour(employee.shift_start_time)}</div>
+                                                <div class="text-xs text-slate-400">{$t('hr.shift.start_buffer')}: {employee.shift_start_buffer || 0} {$t('common.hrs')}</div>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-center font-mono">
+                                                <div class="text-slate-800">{formatTimeTo12Hour(employee.shift_end_time)}</div>
+                                                <div class="text-xs text-slate-400">{$t('hr.shift.end_buffer')}: {employee.shift_end_buffer || 0} {$t('common.hrs')}</div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
-                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(employee.sponsorship_status).color}">
-                                                    {getSponsorshipStatusDisplay(employee.sponsorship_status).text}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(employee.shift_start_time)}</td>
-                                            <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{employee.shift_start_buffer ?? '—'}</td>
-                                            <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(employee.shift_end_time)}</td>
-                                            <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{employee.shift_end_buffer ?? '—'}</td>
-                                            <td class="px-4 py-3 text-sm text-center">
-                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full {employee.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-700 font-black' : 'bg-gray-200 text-gray-700'}">
-                                                    {employee.is_shift_overlapping_next_day ? '✓' : '×'}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-sm text-center font-mono font-bold text-emerald-700">
-                                                {employee.working_hours ? employee.working_hours.toFixed(2) : '—'} {$t('common.hrs')}
+                                                <div class="font-bold text-emerald-700">{employee.working_hours ? employee.working_hours.toFixed(2) : '—'} {$t('common.hrs')}</div>
+                                                <div class="text-xs mt-0.5">
+                                                    <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black {employee.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">
+                                                        {$t('hr.shift.overlaps')}: {employee.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
                                                 {#if employee.shift_start_time}
@@ -2628,54 +2920,47 @@
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Table Wrapper with horizontal scroll -->
                         <div class="overflow-x-auto flex-1">
-                            <table class="w-full border-collapse">
+                            <table class="w-full border-collapse [&_th]:border-x [&_th]:border-orange-500/30 [&_td]:border-x [&_td]:border-slate-200">
                                 <thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
                                     <tr>
-                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employeeId')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.fullName')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.branch')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.nationality')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employmentStatus')}</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.sponsorshipStatus')}</th>
-                                        {#each weekdayNames as weekday}
-                                            <th colspan="3" class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 bg-orange-500/50">
-                                                {weekday}
+                                        {#each activeWeekdays as wd}
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 bg-orange-500/50">
+                                                {wd.name}
                                             </th>
                                         {/each}
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.action')}</th>
-                                    </tr>
-                                    <tr>
-                                        <th colspan="6" class="text-xs"></th>
-                                    {#each weekdayNames as weekday}
-                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.start')}</th>
-                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.end')}</th>
-                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.hours')}</th>
-                                        {/each}
-                                        <th class="text-xs"></th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-200">
                                     {#each filteredSpecialWeekdayEmployees as employee, index}
                                         <tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-                                            <td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
-                                            <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
-                                            <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(employee)}</td>
-                                            <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(employee)}</td>
-                                            <td class="px-4 py-3 text-sm text-center">
-                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(employee.employment_status).color}">
-                                                    {getEmploymentStatusDisplay(employee.employment_status).text}
-                                                </span>
+                                            <td class="px-4 py-3 text-sm text-slate-700">
+                                                <div>{formatEmployeeNameDisplay(employee)}</div>
+                                                <div class="text-xs text-slate-400">{employee.id}</div>
                                             </td>
-                                            <td class="px-4 py-3 text-sm text-center">
-                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(employee.sponsorship_status).color}">
-                                                    {getSponsorshipStatusDisplay(employee.sponsorship_status).text}
-                                                </span>
+                                            <td class="px-4 py-3 text-sm text-slate-700">
+                                                <div>{$locale === 'ar' ? (employee.branch_name_ar || employee.branch_name_en) : employee.branch_name_en}</div>
+                                                {#if ($locale === 'ar' ? (employee.branch_location_ar || employee.branch_location_en) : employee.branch_location_en)}
+                                                    <div class="text-xs text-slate-400">{$locale === 'ar' ? (employee.branch_location_ar || employee.branch_location_en) : employee.branch_location_en}</div>
+                                                {/if}
                                             </td>
-                                            {#each renderShiftColumns(employee) as shiftCol}
-                                                <td class="px-2 py-3 text-xs text-center font-mono text-slate-800">{shiftCol.startTime}</td>
-                                                <td class="px-2 py-3 text-xs text-center font-mono text-slate-800">{shiftCol.endTime}</td>
-                                                <td class="px-2 py-3 text-xs text-center font-mono font-bold text-orange-700">
-                                                    {shiftCol.workingHours} {shiftCol.workingHours !== '—' ? $t('common.hrs') : ''}
+                                            <td class="px-4 py-3 text-sm text-slate-700">
+                                                <div>{formatNationalityDisplay(employee)}</div>
+                                                <div class="text-xs text-slate-400">{getSponsorshipStatusDisplay(employee.sponsorship_status).text}</div>
+                                            </td>
+                                            {#each activeWeekdays as wd}
+                                                {@const shift = employee.shifts?.[wd.index]}
+                                                <td class="px-3 py-2 text-center font-mono">
+                                                    {#if shift}
+                                                        <div class="text-xs text-slate-800"><span class="text-[10px] text-slate-400 font-sans">{$t('hr.shift.start')}:</span> {formatTimeTo12Hour(shift.shift_start_time)}</div>
+                                                        <div class="text-xs text-slate-800"><span class="text-[10px] text-slate-400 font-sans">{$t('hr.shift.end')}:</span> {formatTimeTo12Hour(shift.shift_end_time)}</div>
+                                                        <div class="text-xs font-bold text-orange-700">{shift.working_hours?.toFixed(2)} {$t('common.hrs')}</div>
+                                                    {:else}
+                                                        <span class="text-xs text-slate-300">—</span>
+                                                    {/if}
                                                 </td>
                                             {/each}
                                             <td class="px-4 py-3 text-sm text-center flex gap-2 justify-center">
@@ -2861,21 +3146,15 @@
                                     </div>
                                 </div>
                             {:else}
-                                <table class="w-full border-collapse">
+                                <table class="w-full border-collapse [&_th]:border-x [&_th]:border-orange-500/30 [&_td]:border-x [&_td]:border-slate-200">
                                     <thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employeeId')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.fullName')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.nationality')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employmentStatus')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.date')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.start')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.start_buffer')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.end')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.end_buffer')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.overlaps')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.working_hours')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.action')}</th>
                                         </tr>
@@ -2883,41 +3162,94 @@
                                     <tbody class="divide-y divide-slate-200">
                                         {#each filteredSpecialDateEmployees as shift, index}
                                             <tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{shift.employee_id}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(shift)}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(shift)}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(shift)}</td>
-                                                <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(shift.employment_status).color}">
-                                                        {getEmploymentStatusDisplay(shift.employment_status).text}
-                                                    </span>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{formatEmployeeNameDisplay(shift)}</div>
+                                                    <div class="text-xs text-slate-400">{shift.employee_id}</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{$locale === 'ar' ? (shift.branch_name_ar || shift.branch_name_en) : shift.branch_name_en}</div>
+                                                    {#if ($locale === 'ar' ? (shift.branch_location_ar || shift.branch_location_en) : shift.branch_location_en)}
+                                                        <div class="text-xs text-slate-400">{$locale === 'ar' ? (shift.branch_location_ar || shift.branch_location_en) : shift.branch_location_en}</div>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{formatNationalityDisplay(shift)}</div>
+                                                    <div class="text-xs text-slate-400">{getSponsorshipStatusDisplay(shift.sponsorship_status).text}</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm font-mono text-slate-800">
+                                                    {#if shift._dayCount && shift._dayCount > 1}
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="font-semibold">{formatDateDisplay(shift._dateFrom)} → {formatDateDisplay(shift._dateTo)}</span>
+                                                            <button
+                                                                class="inline-flex items-center gap-1 mt-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 hover:shadow transition-all"
+                                                                on:click={() => openViewDatesPopup(shift)}
+                                                            >
+                                                                📅 {$locale === 'ar' ? 'عرض التواريخ' : 'View Dates'} ({shift._dayCount})
+                                                            </button>
+                                                        </div>
+                                                    {:else}
+                                                        {formatDateDisplay(shift.shift_date)}
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center font-mono">
+                                                    <div class="text-slate-800">{formatTimeTo12Hour(shift.shift_start_time || '')}</div>
+                                                    <div class="text-xs text-slate-400">{$t('hr.shift.start_buffer')}: {shift.shift_start_buffer || 0} {$t('common.hrs')}</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center font-mono">
+                                                    <div class="text-slate-800">{formatTimeTo12Hour(shift.shift_end_time || '')}</div>
+                                                    <div class="text-xs text-slate-400">{$t('hr.shift.end_buffer')}: {shift.shift_end_buffer || 0} {$t('common.hrs')}</div>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(shift.sponsorship_status).color}">
-                                                        {getSponsorshipStatusDisplay(shift.sponsorship_status).text}
-                                                    </span>
-                                                </td>
-                                                <td class="px-4 py-3 text-sm font-mono text-slate-800">{shift.shift_date}</td>
-                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(shift.shift_start_time || '')}</td>
-                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_start_buffer || 0} {$t('common.hrs')}</td>
-                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(shift.shift_end_time || '')}</td>
-                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_end_buffer || 0} {$t('common.hrs')}</td>
-                                                <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-black {shift.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">
-                                                        {shift.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}
-                                                    </span>
-                                                </td>
-                                                <td class="px-4 py-3 text-sm text-center font-bold text-orange-700">
-                                                    {shift.working_hours} {$t('common.hrs')}
+                                                    <div class="font-bold text-orange-700">{shift.working_hours} {$t('common.hrs')}</div>
+                                                    <div class="text-xs mt-0.5">
+                                                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black {shift.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">
+                                                            {$t('hr.shift.overlaps')}: {shift.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}
+                                                        </span>
+                                                    </div>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
-                                                    <button 
-                                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-                                                        on:click={() => deleteSpecialShiftDateWise(shift.id, shift.employee_id, shift.shift_date)}
-                                                        title={$t('hr.shift.delete_tooltip')}
-                                                    >
-                                                        🗑️
-                                                    </button>
+                                                    <div class="flex justify-center gap-2">
+                                                        <button 
+                                                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+                                                            on:click={() => {
+                                                                selectedEmployeeId = shift.employee_id;
+                                                                if (shift._dayCount && shift._dayCount > 1) {
+                                                                    isRangeSpecialShift = true;
+                                                                    specialShiftStartDate = shift._dateFrom || shift.shift_date;
+                                                                    specialShiftEndDate = shift._dateTo || shift.shift_date;
+                                                                } else {
+                                                                    isRangeSpecialShift = false;
+                                                                }
+                                                                (formData) = {
+                                                                    id: shift.id,
+                                                                    employee_id: shift.employee_id,
+                                                                    shift_date: shift.shift_date,
+                                                                    shift_start_time: shift.shift_start_time || '09:00',
+                                                                    shift_start_buffer: shift.shift_start_buffer || 3,
+                                                                    shift_end_time: shift.shift_end_time || '17:00',
+                                                                    shift_end_buffer: shift.shift_end_buffer || 3,
+                                                                    is_shift_overlapping_next_day: shift.is_shift_overlapping_next_day || false
+                                                                };
+                                                                showModal = true;
+                                                            }}
+                                                            title={$t('common.edit')}
+                                                        >
+                                                            ✎️
+                                                        </button>
+                                                        <button 
+                                                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+                                                            on:click={() => {
+                                                                if (shift._dayCount && shift._dayCount > 1) {
+                                                                    openGroupedShiftDeleteModal(shift);
+                                                                } else {
+                                                                    deleteSpecialShiftDateWise(shift.id, shift.employee_id, shift.shift_date);
+                                                                }
+                                                            }}
+                                                            title={$t('hr.shift.delete_tooltip')}
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         {/each}
@@ -2928,7 +3260,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_shifts', { current: filteredSpecialDateEmployees.length, total: dateWiseShifts.length })}
+                            {$t('hr.shift.showing_shifts', { current: filteredSpecialDateEmployees.length, total: groupedSpecialDateShifts.length })} ({dateWiseShifts.length} {$locale === 'ar' ? 'سجل' : 'records'})
                         </div>
                     </div>
                 {/if}
@@ -3080,50 +3412,67 @@
                                     </div>
                                 </div>
                             {:else}
-                                <table class="w-full border-collapse">
+                                <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
                                     <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employeeId')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_date')}</th>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.reason') || 'Reason'}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">📝 {$t('common.description') || 'Description'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.document') || 'Document'}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.status')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">💰 {$t('hr.shift.deduction') || 'Deduction'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">✅ {$locale === 'ar' ? 'موافق' : 'Approved'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">❌ {$locale === 'ar' ? 'مرفوض' : 'Rejected'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">⏳ {$locale === 'ar' ? 'معلق' : 'Pending'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400"> {$t('hr.shift.deduction') || 'Deduction'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
                                         {#each filteredDayOffsEmployees as dayOff, index (dayOff.id)}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(dayOff)}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(dayOff)}</td>
-                                                <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(dayOff.employment_status).color}">
-                                                        {getEmploymentStatusDisplay(dayOff.employment_status).text}
-                                                    </span>
-                                                </td>
-                                                <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(dayOff.sponsorship_status).color}">
-                                                        {getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}
-                                                    </span>
-                                                </td>
-                                                <td class="px-4 py-3 text-sm font-mono text-slate-800">{dayOff.day_off_date}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{$locale === 'ar' ? (dayOff.reason_ar || dayOff.reason_en) : (dayOff.reason_en || dayOff.reason_ar)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">
-                                                    {#if dayOff.description}
-                                                        <div class="max-w-xs truncate" title={dayOff.description}>
-                                                            {dayOff.description}
+                                                    <div>{formatEmployeeNameDisplay(dayOff)}</div>
+                                                    <div class="text-xs text-slate-400">{dayOff.employee_id}</div>
+                                                    <div class="text-xs text-slate-700 mt-0.5">{$locale === 'ar' ? (dayOff.reason_ar || dayOff.reason_en) : (dayOff.reason_en || dayOff.reason_ar)}</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{$locale === 'ar' ? (dayOff.branch_name_ar || dayOff.branch_name_en) : dayOff.branch_name_en}</div>
+                                                    {#if ($locale === 'ar' ? (dayOff.branch_location_ar || dayOff.branch_location_en) : dayOff.branch_location_en)}
+                                                        <div class="text-xs text-slate-400">{$locale === 'ar' ? (dayOff.branch_location_ar || dayOff.branch_location_en) : dayOff.branch_location_en}</div>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{formatNationalityDisplay(dayOff)}</div>
+                                                    <div class="text-xs text-slate-400">{getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}</div>
+                                                </td>
+                                                <!-- Date column: show range + View Dates button for grouped, single date otherwise -->
+                                                <td class="px-4 py-3 text-sm font-mono text-slate-800">
+                                                    {#if dayOff._dayCount && dayOff._dayCount > 1}
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="font-semibold">{formatDateDisplay(dayOff._dateFrom)} → {formatDateDisplay(dayOff._dateTo)}</span>
+                                                            <button
+                                                                class="inline-flex items-center gap-1 mt-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 hover:shadow transition-all"
+                                                                on:click={() => openViewDatesPopup(dayOff)}
+                                                            >
+                                                                📅 {$locale === 'ar' ? 'عرض التواريخ' : 'View Dates'} ({dayOff._dayCount})
+                                                            </button>
                                                         </div>
                                                     {:else}
-                                                        <span class="text-slate-400 text-xs italic">{$t('common.no_data') || 'N/A'}</span>
+                                                        {formatDateDisplay(dayOff.day_off_date)}
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    {#if dayOff.description}
+                                                        <button
+                                                            class="inline-flex items-center justify-center gap-1 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-all font-bold text-xs"
+                                                            on:click={() => { descriptionPopupText = dayOff.description; descriptionPopupEmployee = ($locale === 'ar' ? (dayOff.employee_name_ar || dayOff.employee_name_en) : dayOff.employee_name_en); showDescriptionPopup = true; }}
+                                                        >
+                                                            <span>📝</span>
+                                                            {$t('common.view') || 'View'}
+                                                        </button>
+                                                    {:else}
+                                                        <span class="text-slate-300">-</span>
                                                     {/if}
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
@@ -3139,20 +3488,87 @@
                                                         <span class="text-slate-400 text-xs italic">{$t('common.no_document') || 'No Document'}</span>
                                                     {/if}
                                                 </td>
+                                                <!-- Approved column -->
                                                 <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getApprovalStatusDisplay(dayOff.approval_status).color}">
-                                                        {getApprovalStatusDisplay(dayOff.approval_status).text}
-                                                    </span>
+                                                    {#if dayOff._dayCount && dayOff._dayCount > 1 && dayOff._statusCounts}
+                                                        {#if dayOff._statusCounts['approved']}
+                                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">{dayOff._statusCounts['approved']}</span>
+                                                        {:else}
+                                                            <span class="text-slate-300">-</span>
+                                                        {/if}
+                                                    {:else}
+                                                        {#if dayOff.approval_status === 'approved'}
+                                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">1</span>
+                                                        {:else}
+                                                            <span class="text-slate-300">-</span>
+                                                        {/if}
+                                                    {/if}
+                                                </td>
+                                                <!-- Rejected column -->
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    {#if dayOff._dayCount && dayOff._dayCount > 1 && dayOff._statusCounts}
+                                                        {#if dayOff._statusCounts['rejected']}
+                                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-800">{dayOff._statusCounts['rejected']}</span>
+                                                        {:else}
+                                                            <span class="text-slate-300">-</span>
+                                                        {/if}
+                                                    {:else}
+                                                        {#if dayOff.approval_status === 'rejected'}
+                                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-800">1</span>
+                                                        {:else}
+                                                            <span class="text-slate-300">-</span>
+                                                        {/if}
+                                                    {/if}
+                                                </td>
+                                                <!-- Pending column -->
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    {#if dayOff._dayCount && dayOff._dayCount > 1 && dayOff._statusCounts}
+                                                        {#if dayOff._statusCounts['pending']}
+                                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-orange-800">{dayOff._statusCounts['pending']}</span>
+                                                        {:else}
+                                                            <span class="text-slate-300">-</span>
+                                                        {/if}
+                                                    {:else}
+                                                        {#if dayOff.approval_status === 'pending'}
+                                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-orange-800">1</span>
+                                                        {:else}
+                                                            <span class="text-slate-300">-</span>
+                                                        {/if}
+                                                    {/if}
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
-                                                    <label class="inline-flex items-center cursor-pointer" title={$t('hr.shift.toggle_deduction') || 'Toggle Deduction'}>
-                                                        <input 
-                                                            type="checkbox" 
-                                                            checked={dayOff.is_deductible_on_salary || false}
-                                                            on:change={(e) => updateDayOffDeduction(dayOff.id, e.currentTarget.checked)}
-                                                            class="w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer"
-                                                        />
-                                                    </label>
+                                                    {#if dayOff._dayCount && dayOff._dayCount > 1 && dayOff._allDeductions}
+                                                        <!-- Grouped: show deduction counts + button to manage -->
+                                                        {@const deductCount = dayOff._allDeductions.filter((d) => d.is_deductible).length}
+                                                        {@const noDeductCount = dayOff._allDeductions.length - deductCount}
+                                                        <div class="flex justify-center">
+                                                            <button 
+                                                                class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold transition-all duration-200 hover:shadow-md bg-slate-50 border border-slate-200 hover:bg-slate-100"
+                                                                on:click={() => openGroupedDeductionModal(dayOff)}
+                                                                title={$t('hr.shift.toggle_deduction') || 'Manage Deduction'}
+                                                            >
+                                                                {#if deductCount > 0}
+                                                                    <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700">✅ {deductCount}</span>
+                                                                {/if}
+                                                                {#if noDeductCount > 0}
+                                                                    <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-600">❌ {noDeductCount}</span>
+                                                                {/if}
+                                                            </button>
+                                                        </div>
+                                                    {:else}
+                                                        <!-- Single: clickable green tick or red X -->
+                                                        <button
+                                                            class="text-lg font-bold cursor-pointer hover:scale-125 transition-transform"
+                                                            on:click={() => updateDayOffDeduction(dayOff.id, !dayOff.is_deductible_on_salary)}
+                                                            title={$t('hr.shift.toggle_deduction') || 'Toggle Deduction'}
+                                                        >
+                                                            {#if dayOff.is_deductible_on_salary}
+                                                                <span class="text-green-600">✅</span>
+                                                            {:else}
+                                                                <span class="text-red-500">❌</span>
+                                                            {/if}
+                                                        </button>
+                                                    {/if}
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <div class="flex items-center justify-center gap-2">
@@ -3161,8 +3577,8 @@
                                                             class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                             on:click={() => {
                                                                 selectedEmployeeId = dayOff.employee_id;
-                                                                selectedDayOffStartDate = dayOff.day_off_date;
-                                                                selectedDayOffEndDate = dayOff.day_off_date;
+                                                                selectedDayOffStartDate = dayOff._dateFrom || dayOff.day_off_date;
+                                                                selectedDayOffEndDate = dayOff._dateTo || dayOff.day_off_date;
                                                                 showModal = true;
                                                             }}
                                                             title={$t('common.edit')}
@@ -3170,10 +3586,16 @@
                                                             ✎️
                                                         </button>
                                                         
-                                                        <!-- Delete Button -->
+                                                        <!-- Delete Button — opens modal for grouped, confirm for single -->
                                                         <button 
                                                             class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-                                                            on:click={() => deleteDayOff(dayOff.id, dayOff.employee_id, dayOff.day_off_date)}
+                                                            on:click={() => {
+                                                                if (dayOff._dayCount && dayOff._dayCount > 1) {
+                                                                    openGroupedDeleteModal(dayOff);
+                                                                } else {
+                                                                    deleteDayOff(dayOff.id, dayOff.employee_id, dayOff.day_off_date);
+                                                                }
+                                                            }}
                                                             title={$t('hr.shift.delete_day_off_tooltip')}
                                                         >
                                                             🗑️
@@ -3189,7 +3611,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_day_offs', { current: filteredDayOffsEmployees.length, total: dayOffs.length })}
+                            {$t('hr.shift.showing_day_offs', { current: filteredDayOffsEmployees.length, total: groupedDayOffs.length })}
                         </div>
                     </div>
                 {/if}
@@ -3308,15 +3730,12 @@
                                     </div>
                                 </div>
                             {:else}
-                                <table class="w-full border-collapse">
+                                <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
                                     <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employeeId')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_weekday')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
@@ -3324,19 +3743,19 @@
                                     <tbody class="divide-y divide-slate-200">
                                         {#each filteredDayOffsWeekdayEmployees as dayOff, index}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(dayOff)}</td>
-                                                <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(dayOff)}</td>
-                                                <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(dayOff.employment_status).color}">
-                                                        {getEmploymentStatusDisplay(dayOff.employment_status).text}
-                                                    </span>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{formatEmployeeNameDisplay(dayOff)}</div>
+                                                    <div class="text-xs text-slate-400">{dayOff.employee_id}</div>
                                                 </td>
-                                                <td class="px-4 py-3 text-sm text-center">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(dayOff.sponsorship_status).color}">
-                                                        {getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}
-                                                    </span>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{$locale === 'ar' ? (dayOff.branch_name_ar || dayOff.branch_name_en) : dayOff.branch_name_en}</div>
+                                                    {#if ($locale === 'ar' ? (dayOff.branch_location_ar || dayOff.branch_location_en) : dayOff.branch_location_en)}
+                                                        <div class="text-xs text-slate-400">{$locale === 'ar' ? (dayOff.branch_location_ar || dayOff.branch_location_en) : dayOff.branch_location_en}</div>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{formatNationalityDisplay(dayOff)}</div>
+                                                    <div class="text-xs text-slate-400">{getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}</div>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{weekdayNames[dayOff.day_off_weekday]}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
@@ -3406,7 +3825,7 @@
                                     </div>
                                 </div>
                             {:else}
-                                <table class="w-full border-collapse">
+                                <table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
                                     <thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
                                         <tr>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.employeeId')}</th>
@@ -4256,6 +4675,349 @@
     </div>
 {/if}
 
+<!-- View Dates Popup -->
+{#if showViewDatesPopup && viewDatesData}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]" on:click={() => { showViewDatesPopup = false; viewDatesData = null; }} on:keydown={(e) => { if (e.key === 'Escape') { showViewDatesPopup = false; viewDatesData = null; }}} role="dialog" aria-modal="true">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 animate-in scale-in overflow-hidden" on:click|stopPropagation on:keydown|stopPropagation role="document">
+            <!-- Header -->
+            <div class="bg-slate-800 px-6 py-4">
+                <h3 class="font-black text-lg" style="color: #ffffff !important;">📅 {$locale === 'ar' ? 'تواريخ الإجازة' : 'Leave Dates'}</h3>
+                <p class="text-sm mt-1 font-semibold" style="color: #ffffff !important;">{formatEmployeeNameDisplay(viewDatesData)} ({viewDatesData.employee_id})</p>
+                <p class="text-xs mt-0.5 font-medium" style="color: #ffffff !important;">{formatDateDisplay(viewDatesData._dateFrom)} → {formatDateDisplay(viewDatesData._dateTo)} &middot; {viewDatesData._dayCount} {$locale === 'ar' ? 'أيام' : 'days'}</p>
+            </div>
+            <!-- Filters -->
+            <div class="px-6 pt-4 pb-2 flex flex-wrap gap-2">
+                <!-- Search -->
+                <div class="flex-1 min-w-[140px]">
+                    <input
+                        type="text"
+                        bind:value={viewDatesSearch}
+                        placeholder={$locale === 'ar' ? 'بحث تاريخ... مثل 02122024' : 'Search date... e.g. 02122024'}
+                        class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    />
+                </div>
+                <!-- Month filter -->
+                <div class="w-28">
+                    <select
+                        bind:value={viewDatesMonthFilter}
+                        class="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        style="color: #000 !important; background-color: #fff !important;"
+                    >
+                        <option value="" style="color: #000 !important;">{$locale === 'ar' ? 'كل الأشهر' : 'All Months'}</option>
+                        {#each viewDatesAvailableMonths as m}
+                            <option value={m}>{m} - {$locale === 'ar' ? monthNames[m]?.ar : monthNames[m]?.en}</option>
+                        {/each}
+                    </select>
+                </div>
+                <!-- Year filter -->
+                <div class="w-24">
+                    <select
+                        bind:value={viewDatesYearFilter}
+                        class="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        style="color: #000 !important; background-color: #fff !important;"
+                    >
+                        <option value="" style="color: #000 !important;">{$locale === 'ar' ? 'كل السنوات' : 'All Years'}</option>
+                        {#each viewDatesAvailableYears as yr}
+                            <option value={yr}>{yr}</option>
+                        {/each}
+                    </select>
+                </div>
+            </div>
+            <!-- Dates list -->
+            <div class="px-6 pb-2">
+                <div class="text-xs text-slate-500 font-semibold mb-2">
+                    {$locale === 'ar' ? 'عرض' : 'Showing'} {viewDatesFiltered.length} / {(viewDatesData._allDates || [viewDatesData.day_off_date]).length} {$locale === 'ar' ? 'تواريخ' : 'dates'}
+                </div>
+                <div class="max-h-[320px] overflow-y-auto border border-slate-200 rounded-xl">
+                    {#if viewDatesFiltered.length === 0}
+                        <div class="py-8 text-center text-slate-400 text-sm">
+                            📭 {$locale === 'ar' ? 'لا توجد تواريخ مطابقة' : 'No matching dates'}
+                        </div>
+                    {:else}
+                        {#each viewDatesFiltered as dateItem, i}
+                            <div class="flex items-center gap-3 px-4 py-2.5 {i > 0 ? 'border-t border-slate-100' : ''} hover:bg-blue-50/50 transition-colors">
+                                <span class="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                                <span class="flex-1 font-mono text-sm font-semibold text-slate-800">{formatDateDisplay(dateItem)}</span>
+                            </div>
+                        {/each}
+                    {/if}
+                </div>
+            </div>
+            <!-- Footer -->
+            <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                    class="px-5 py-2 rounded-xl font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={() => { showViewDatesPopup = false; viewDatesData = null; }}
+                >
+                    {$t('common.close') || 'Close'}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Description Popup -->
+{#if showDescriptionPopup}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]" on:click={() => { showDescriptionPopup = false; }} on:keydown={(e) => { if (e.key === 'Escape') showDescriptionPopup = false; }} role="dialog" aria-modal="true">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" on:click|stopPropagation>
+            <div class="bg-indigo-600 text-white px-6 py-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold flex items-center gap-2">
+                    📝 {$locale === 'ar' ? 'الوصف' : 'Description'}
+                </h3>
+                <button class="text-white/80 hover:text-white text-2xl font-bold" on:click={() => { showDescriptionPopup = false; }}>&times;</button>
+            </div>
+            {#if descriptionPopupEmployee}
+                <div class="px-6 pt-4">
+                    <span class="text-xs font-semibold text-slate-500">{$locale === 'ar' ? 'الموظف' : 'Employee'}:</span>
+                    <span class="text-sm font-bold text-slate-800 {$locale === 'ar' ? 'mr-2' : 'ml-2'}">{descriptionPopupEmployee}</span>
+                </div>
+            {/if}
+            <div class="px-6 py-5">
+                <div class="bg-slate-50 rounded-xl p-4 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap break-words max-h-[60vh] overflow-y-auto">
+                    {descriptionPopupText}
+                </div>
+            </div>
+            <div class="px-6 pb-5 flex justify-end">
+                <button
+                    class="px-5 py-2 rounded-xl font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={() => { showDescriptionPopup = false; }}
+                >
+                    {$t('common.close') || 'Close'}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Grouped Deduction Modal -->
+{#if showGroupedDeductionModal && groupedModalDayOff}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]" on:click={() => { showGroupedDeductionModal = false; groupedModalDayOff = null; }}>
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 animate-in scale-in overflow-hidden" on:click|stopPropagation>
+            <div class="bg-gradient-to-r from-amber-500 to-amber-600 px-6 py-4">
+                <h3 class="text-white font-black text-lg">💰 {$t('hr.shift.manage_deduction') || 'Manage Deduction'}</h3>
+                <p class="text-amber-100 text-sm mt-1">{formatEmployeeNameDisplay(groupedModalDayOff)} ({groupedModalDayOff.employee_id})</p>
+            </div>
+            <div class="px-6 py-4">
+                <p class="text-slate-600 text-sm mb-3">{$locale === 'ar' ? 'حدد الأيام التي يتم خصمها من الراتب' : 'Check the days that should be deducted from salary'}</p>
+                <!-- Select All / Deselect All -->
+                <div class="flex gap-2 mb-3">
+                    <button 
+                        class="px-3 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
+                        on:click={() => {
+                            const allDeductions = groupedModalDayOff._allDeductions || [{ id: groupedModalDayOff.id }];
+                            for (const item of allDeductions) { groupedDeductionStates[item.id] = true; }
+                            groupedDeductionStates = { ...groupedDeductionStates };
+                        }}
+                    >
+                        ✅ {$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+                    </button>
+                    <button 
+                        class="px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+                        on:click={() => {
+                            const allDeductions = groupedModalDayOff._allDeductions || [{ id: groupedModalDayOff.id }];
+                            for (const item of allDeductions) { groupedDeductionStates[item.id] = false; }
+                            groupedDeductionStates = { ...groupedDeductionStates };
+                        }}
+                    >
+                        ⬜ {$locale === 'ar' ? 'إلغاء الكل' : 'Deselect All'}
+                    </button>
+                </div>
+                <div class="max-h-[300px] overflow-y-auto border border-slate-200 rounded-xl">
+                    {#each (groupedModalDayOff._allDeductions || [{ id: groupedModalDayOff.id, date: groupedModalDayOff.day_off_date, is_deductible: groupedModalDayOff.is_deductible_on_salary || false }]) as item, i}
+                        {@const dayDate = (groupedModalDayOff._allDates || [groupedModalDayOff.day_off_date])[i]}
+                        <label class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-amber-50 {!groupedDeductionStates[item.id] ? 'opacity-60' : ''} {i > 0 ? 'border-t border-slate-100' : ''}">
+                            <input 
+                                type="checkbox" 
+                                bind:checked={groupedDeductionStates[item.id]}
+                                class="w-5 h-5 text-amber-600 border-gray-300 rounded focus:ring-amber-500 cursor-pointer"
+                            />
+                            <span class="flex-1 font-mono text-sm font-semibold text-slate-800">{formatDateDisplay(dayDate)}</span>
+                            {#if groupedDeductionStates[item.id]}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">💰 {$locale === 'ar' ? 'خصم' : 'Deduct'}</span>
+                            {:else}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400">{$locale === 'ar' ? 'بدون خصم' : 'No Deduct'}</span>
+                            {/if}
+                        </label>
+                    {/each}
+                </div>
+                <div class="text-xs text-slate-500 mt-2 font-semibold">
+                    {Object.values(groupedDeductionStates).filter(v => v).length} / {Object.values(groupedDeductionStates).length} {$locale === 'ar' ? 'أيام محددة للخصم' : 'days selected for deduction'}
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-center gap-3">
+                <button 
+                    class="flex-1 px-4 py-2.5 rounded-xl font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={() => { showGroupedDeductionModal = false; groupedModalDayOff = null; }}
+                >
+                    {$t('common.cancel')}
+                </button>
+                <button 
+                    class="flex-1 px-4 py-2.5 rounded-xl font-bold text-white bg-amber-600 hover:bg-amber-700 transition disabled:opacity-50"
+                    on:click={confirmGroupedDeduction}
+                    disabled={isGroupedProcessing}
+                >
+                    {isGroupedProcessing ? ($t('common.saving') || 'Saving...') : ($t('common.save') || 'Save')}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Grouped Delete Modal -->
+{#if showGroupedDeleteModal && groupedModalDayOff}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]" on:click={() => { showGroupedDeleteModal = false; groupedModalDayOff = null; }}>
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 animate-in scale-in overflow-hidden" on:click|stopPropagation>
+            <div class="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4">
+                <h3 class="text-white font-black text-lg">🗑️ {$t('hr.shift.delete_day_off') || 'Delete Leave Days'}</h3>
+                <p class="text-red-100 text-sm mt-1">{formatEmployeeNameDisplay(groupedModalDayOff)} ({groupedModalDayOff.employee_id})</p>
+            </div>
+            <div class="px-6 py-4">
+                <p class="text-slate-600 text-sm mb-3">{$locale === 'ar' ? 'قم بإلغاء تحديد الأيام التي تريد الاحتفاظ بها. الأيام المحددة سيتم حذفها.' : 'Uncheck days you want to keep. Checked days will be deleted.'}</p>
+                <!-- Select All / Deselect All -->
+                <div class="flex gap-2 mb-3">
+                    <button 
+                        class="px-3 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700 hover:bg-red-200 transition"
+                        on:click={() => {
+                            const allIds = groupedModalDayOff._allIds || [groupedModalDayOff.id];
+                            for (const id of allIds) { groupedCheckedDates[id] = true; }
+                            groupedCheckedDates = { ...groupedCheckedDates };
+                        }}
+                    >
+                        ✅ {$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+                    </button>
+                    <button 
+                        class="px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+                        on:click={() => {
+                            const allIds = groupedModalDayOff._allIds || [groupedModalDayOff.id];
+                            for (const id of allIds) { groupedCheckedDates[id] = false; }
+                            groupedCheckedDates = { ...groupedCheckedDates };
+                        }}
+                    >
+                        ⬜ {$locale === 'ar' ? 'إلغاء الكل' : 'Deselect All'}
+                    </button>
+                </div>
+                <div class="max-h-[300px] overflow-y-auto border border-slate-200 rounded-xl">
+                    {#each (groupedModalDayOff._allIds || [groupedModalDayOff.id]) as dayId, i}
+                        {@const dayDate = (groupedModalDayOff._allDates || [groupedModalDayOff.day_off_date])[i]}
+                        <label class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-red-50 {groupedCheckedDates[dayId] ? 'bg-red-50/50' : 'opacity-60'} {i > 0 ? 'border-t border-slate-100' : ''}">
+                            <input 
+                                type="checkbox" 
+                                bind:checked={groupedCheckedDates[dayId]}
+                                class="w-5 h-5 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                            />
+                            <span class="flex-1 font-mono text-sm font-semibold text-slate-800 {groupedCheckedDates[dayId] ? 'line-through text-red-500' : ''}">{formatDateDisplay(dayDate)}</span>
+                            {#if groupedCheckedDates[dayId]}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-600">🗑️ {$locale === 'ar' ? 'حذف' : 'Delete'}</span>
+                            {:else}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-600">✅ {$locale === 'ar' ? 'احتفاظ' : 'Keep'}</span>
+                            {/if}
+                        </label>
+                    {/each}
+                </div>
+                <div class="text-xs text-slate-500 mt-2 font-semibold">
+                    {Object.values(groupedCheckedDates).filter(v => v).length} / {Object.values(groupedCheckedDates).length} {$locale === 'ar' ? 'أيام سيتم حذفها' : 'days will be deleted'}
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3">
+                <button 
+                    class="flex-1 px-4 py-2.5 rounded-xl font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={() => { showGroupedDeleteModal = false; groupedModalDayOff = null; }}
+                >
+                    {$t('common.cancel')}
+                </button>
+                <button 
+                    class="flex-1 px-4 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition disabled:opacity-50"
+                    on:click={confirmGroupedDelete}
+                    disabled={isGroupedProcessing || Object.values(groupedCheckedDates).every(v => !v)}
+                >
+                    {#if isGroupedProcessing}
+                        {$t('common.deleting') || 'Deleting...'}
+                    {:else}
+                        🗑️ {$locale === 'ar' ? 'حذف' : 'Delete'} ({Object.values(groupedCheckedDates).filter(v => v).length})
+                    {/if}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Grouped Shift Delete Modal -->
+{#if showGroupedShiftDeleteModal && groupedShiftModalData}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]" on:click={() => { showGroupedShiftDeleteModal = false; groupedShiftModalData = null; }}>
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 animate-in scale-in overflow-hidden" on:click|stopPropagation>
+            <div class="bg-gradient-to-r from-red-500 to-orange-500 px-6 py-4">
+                <h3 class="text-white font-black text-lg">🗑️ {$locale === 'ar' ? 'حذف نوبات خاصة' : 'Delete Special Shifts'}</h3>
+                <p class="text-orange-100 text-sm mt-1">{formatEmployeeNameDisplay(groupedShiftModalData)} ({groupedShiftModalData.employee_id})</p>
+            </div>
+            <div class="px-6 py-4">
+                <p class="text-slate-600 text-sm mb-3">{$locale === 'ar' ? 'قم بإلغاء تحديد الأيام التي تريد الاحتفاظ بها. الأيام المحددة سيتم حذفها.' : 'Uncheck days you want to keep. Checked days will be deleted.'}</p>
+                <div class="flex gap-2 mb-3">
+                    <button 
+                        class="px-3 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700 hover:bg-red-200 transition"
+                        on:click={() => {
+                            const allIds = groupedShiftModalData._allIds || [groupedShiftModalData.id];
+                            for (const id of allIds) { groupedShiftCheckedDates[id] = true; }
+                            groupedShiftCheckedDates = { ...groupedShiftCheckedDates };
+                        }}
+                    >
+                        ✅ {$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+                    </button>
+                    <button 
+                        class="px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+                        on:click={() => {
+                            const allIds = groupedShiftModalData._allIds || [groupedShiftModalData.id];
+                            for (const id of allIds) { groupedShiftCheckedDates[id] = false; }
+                            groupedShiftCheckedDates = { ...groupedShiftCheckedDates };
+                        }}
+                    >
+                        ⬜ {$locale === 'ar' ? 'إلغاء الكل' : 'Deselect All'}
+                    </button>
+                </div>
+                <div class="max-h-[300px] overflow-y-auto border border-slate-200 rounded-xl">
+                    {#each (groupedShiftModalData._allIds || [groupedShiftModalData.id]) as shiftId, i}
+                        {@const shiftDate = (groupedShiftModalData._allDates || [groupedShiftModalData.shift_date])[i]}
+                        <label class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-red-50 {groupedShiftCheckedDates[shiftId] ? 'bg-red-50/50' : 'opacity-60'} {i > 0 ? 'border-t border-slate-100' : ''}">
+                            <input 
+                                type="checkbox" 
+                                bind:checked={groupedShiftCheckedDates[shiftId]}
+                                class="w-5 h-5 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                            />
+                            <span class="flex-1 font-mono text-sm font-semibold text-slate-800 {groupedShiftCheckedDates[shiftId] ? 'line-through text-red-500' : ''}">{formatDateDisplay(shiftDate)}</span>
+                            {#if groupedShiftCheckedDates[shiftId]}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-600">🗑️ {$locale === 'ar' ? 'حذف' : 'Delete'}</span>
+                            {:else}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-600">✅ {$locale === 'ar' ? 'احتفاظ' : 'Keep'}</span>
+                            {/if}
+                        </label>
+                    {/each}
+                </div>
+                <div class="text-xs text-slate-500 mt-2 font-semibold">
+                    {Object.values(groupedShiftCheckedDates).filter(v => v).length} / {Object.values(groupedShiftCheckedDates).length} {$locale === 'ar' ? 'نوبات سيتم حذفها' : 'shifts will be deleted'}
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3">
+                <button 
+                    class="flex-1 px-4 py-2.5 rounded-xl font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={() => { showGroupedShiftDeleteModal = false; groupedShiftModalData = null; }}
+                >
+                    {$t('common.cancel')}
+                </button>
+                <button 
+                    class="flex-1 px-4 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition disabled:opacity-50"
+                    on:click={confirmGroupedShiftDelete}
+                    disabled={isGroupedShiftProcessing || Object.values(groupedShiftCheckedDates).every(v => !v)}
+                >
+                    {#if isGroupedShiftProcessing}
+                        {$t('common.deleting') || 'Deleting...'}
+                    {:else}
+                        🗑️ {$locale === 'ar' ? 'حذف' : 'Delete'} ({Object.values(groupedShiftCheckedDates).filter(v => v).length})
+                    {/if}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
 <!-- Alert Modal (Centered) -->
 {#if showAlertModal}
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]">
@@ -4275,26 +5037,32 @@
     </div>
 {/if}
 
-<!-- Notification Toast -->
+<!-- Notification Popup (Centered Confirmation Style) -->
 {#if showNotification}
-    <div class="fixed bottom-6 right-6 z-[9999] animate-in">
-        <div class="notification notification-{notificationType} shadow-2xl rounded-lg p-4 min-w-[300px] max-w-[500px]">
-            <div class="flex items-start gap-3">
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-[10001]" on:click={() => showNotification = false} on:keydown={(e) => { if (e.key === 'Escape') showNotification = false; }} role="dialog" aria-modal="true">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-in scale-in" on:click|stopPropagation>
+            <div class="flex flex-col items-center justify-center px-6 py-8 gap-4">
                 {#if notificationType === 'success'}
-                    <span class="text-2xl">✅</span>
+                    <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                        <span class="text-4xl">✅</span>
+                    </div>
                 {:else if notificationType === 'error'}
-                    <span class="text-2xl">❌</span>
+                    <div class="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                        <span class="text-4xl">❌</span>
+                    </div>
                 {:else}
-                    <span class="text-2xl">⚠️</span>
+                    <div class="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
+                        <span class="text-4xl">⚠️</span>
+                    </div>
                 {/if}
-                <div class="flex-1">
-                    <p class="text-white font-semibold text-sm leading-relaxed">{notificationMessage}</p>
-                </div>
+                <p class="text-slate-800 font-bold text-lg text-center leading-relaxed">{notificationMessage}</p>
+            </div>
+            <div class="px-6 pb-6 flex justify-center">
                 <button 
+                    class="px-8 py-2.5 rounded-xl font-bold text-white transition-all {notificationType === 'success' ? 'bg-green-600 hover:bg-green-700' : notificationType === 'error' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}"
                     on:click={() => showNotification = false}
-                    class="text-white hover:text-gray-300 transition text-lg leading-none"
                 >
-                    ✕
+                    {$t('common.ok') || 'OK'}
                 </button>
             </div>
         </div>
