@@ -3,6 +3,7 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { BarcodeDetector as BarcodeDetectorPolyfill } from 'barcode-detector';
 
 	interface BranchConfig {
 		id: string;
@@ -174,22 +175,21 @@
 	}
 
 	function detectBarcode() {
+		// Use native BarcodeDetector if available (Chrome/Android), otherwise use polyfill (iOS/Safari)
 		// @ts-ignore
-		if ('BarcodeDetector' in window) {
-			// @ts-ignore
-			const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
-			scanInterval = setInterval(async () => {
-				if (!videoEl || videoEl.readyState < 2) return;
-				try {
-					const barcodes = await detector.detect(videoEl);
-					if (barcodes.length > 0) {
-						barcode = barcodes[0].rawValue;
-						stopScan();
-						await lookupProduct(barcode);
-					}
-				} catch (_) {}
-			}, 300);
-		}
+		const DetectorClass = ('BarcodeDetector' in window) ? window.BarcodeDetector : BarcodeDetectorPolyfill;
+		const detector = new DetectorClass({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
+		scanInterval = setInterval(async () => {
+			if (!videoEl || videoEl.readyState < 2) return;
+			try {
+				const barcodes = await detector.detect(videoEl);
+				if (barcodes.length > 0) {
+					barcode = barcodes[0].rawValue;
+					stopScan();
+					await lookupProduct(barcode);
+				}
+			} catch (_) {}
+		}, 300);
 	}
 
 	function stopScan() {
