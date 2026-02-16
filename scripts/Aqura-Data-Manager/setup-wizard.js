@@ -387,21 +387,17 @@ async function runSetup() {
   addLog('Database: ' + cfg.dbName + ' | Port: ' + cfg.port, 'dim');
   addLog('', 'dim');
   
-  // If reinstalling, uninstall old services first
+  // If reinstalling, only remove the Bridge API service (leave tunnel running!)
   if (isReinstall) {
-    addLog('\ud83d\udd04 <strong>Reinstall mode</strong> \u2014 removing old services first...', 'info');
+    addLog('\ud83d\udd04 <strong>Reinstall mode</strong> \u2014 updating Bridge API (tunnel will NOT be touched)...', 'info');
     addLog('', 'dim');
     
     addLog('Stopping Bridge API service...', 'working');
     let ur = await api('setup-step', { step: 'uninstall-bridge-service', ...cfg });
     addLog(ur.success ? 'Bridge API service removed' : 'Note: ' + ur.error, ur.success ? 'success' : 'dim');
     
-    addLog('Stopping Cloudflare Tunnel service...', 'working');
-    ur = await api('setup-step', { step: 'uninstall-tunnel', ...cfg });
-    addLog(ur.success ? 'Tunnel service removed' : 'Note: ' + ur.error, ur.success ? 'success' : 'dim');
-    
     addLog('', 'dim');
-    addLog('Old services removed. Starting fresh install...', 'info');
+    addLog('Bridge API removed. Updating server code...', 'info');
     addLog('', 'dim');
   }
   
@@ -427,25 +423,44 @@ async function runSetup() {
   r = await api('setup-step', { step: 'write-service-scripts', ...cfg });
   addLog(r.success ? 'Service scripts created!' : 'Error: ' + r.error, r.success ? 'success' : 'error');
   
-  // Step 5: Download cloudflared
-  addLog('Checking cloudflared...', 'working');
-  r = await api('setup-step', { step: 'download-cloudflared', ...cfg });
-  addLog(r.success ? (r.skipped ? 'cloudflared already exists' : 'cloudflared downloaded!') : 'Error: ' + r.error, r.success ? 'success' : 'error');
-  if (!r.success) return;
+  // Step 5: Download cloudflared (skip on reinstall — tunnel stays as-is)
+  if (!isReinstall) {
+    addLog('Checking cloudflared...', 'working');
+    r = await api('setup-step', { step: 'download-cloudflared', ...cfg });
+    addLog(r.success ? (r.skipped ? 'cloudflared already exists' : 'cloudflared downloaded!') : 'Error: ' + r.error, r.success ? 'success' : 'error');
+    if (!r.success) return;
+  }
   
-  // Step 6: Install cloudflared service
-  addLog('Installing Cloudflare Tunnel service...', 'working');
-  r = await api('setup-step', { step: 'install-tunnel', ...cfg });
-  if (r.success) {
-    if (r.skipped) {
-      addLog('Tunnel service already installed', 'success');
-    } else if (r.protocol === 'http2') {
-      addLog('Tunnel installed with HTTP/2 (QUIC was blocked by network)', 'success');
+  // Step 6: Install cloudflared service (skip on reinstall — but check & restart if down)
+  if (!isReinstall) {
+    addLog('Installing Cloudflare Tunnel service...', 'working');
+    r = await api('setup-step', { step: 'install-tunnel', ...cfg });
+    if (r.success) {
+      if (r.skipped) {
+        addLog('Tunnel service already installed', 'success');
+      } else if (r.protocol === 'http2') {
+        addLog('Tunnel installed with HTTP/2 (QUIC was blocked by network)', 'success');
+      } else {
+        addLog('Tunnel service installed!', 'success');
+      }
     } else {
-      addLog('Tunnel service installed!', 'success');
+      addLog('Error: ' + r.error, 'error');
     }
   } else {
-    addLog('Error: ' + r.error, 'error');
+    // Reinstall mode: check tunnel status and restart if needed
+    addLog('Checking Cloudflare Tunnel status...', 'working');
+    r = await api('setup-step', { step: 'check-tunnel', ...cfg });
+    if (r.success) {
+      if (r.wasDown) {
+        addLog('Tunnel was down \u2014 restarted automatically! \u2705', 'success');
+      } else {
+        addLog('Tunnel is running \u2705', 'success');
+      }
+    } else if (r.reinstalled) {
+      addLog('Tunnel service was missing \u2014 reinstalled automatically! \u2705', 'success');
+    } else {
+      addLog('Warning: Could not verify tunnel: ' + (r.error || 'unknown'), 'error');
+    }
   }
   
   // Step 7: Install bridge API service
@@ -694,7 +709,7 @@ async function buildProductList(erpBranchId, appBranchId, cacheKey) {
     const baseProductsResult = await p.request().query("SELECT pb.ProductBatchID, pb.ProductID, pb.AutoBarcode, pb.MannualBarcode, pb.Unit2Barcode, pb.Unit3Barcode, pb.ExpiryDate, pb.BranchID, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBatches pb INNER JOIN Products p ON pb.ProductID = p.ProductID WHERE ((pb.MannualBarcode IS NOT NULL AND pb.MannualBarcode != '') OR (pb.AutoBarcode IS NOT NULL AND pb.AutoBarcode != '') OR (pb.Unit2Barcode IS NOT NULL AND pb.Unit2Barcode != '') OR (pb.Unit3Barcode IS NOT NULL AND pb.Unit3Barcode != ''))" + branchFilter);
     const baseProducts = baseProductsResult.recordset;
     console.log('[sync-build] Got ' + baseProducts.length + ' base products');
-    const unitsResult = await p.request().query("SELECT pu.ProductBatchID, pu.UnitID, pu.MultiFactor, ISNULL(pu.BarCode, '') as BarCode, pu.Sprice, u.UnitName FROM ProductUnits pu INNER JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID WHERE 1=1" + branchFilter + " ORDER BY pu.ProductBatchID, pu.MultiFactor");
+    const unitsResult = await p.request().query("SELECT pu.ProductBatchID, pu.UnitID, pu.MultiFactor, ISNULL(pu.BarCode, '') as BarCode, pu.Sprice, u.UnitName FROM ProductUnits pu INNER JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID WHERE 1=1" + branchFilter + " ORDER BY pu.ProductBatchID, pu.MultiFactor");
     const allUnits = unitsResult.recordset;
     const extraBarcodesResult = await p.request().query("SELECT pbc.ProductBatchID, pbc.Barcode, pbc.UnitID, ISNULL(u.UnitName, '') as UnitName, pb.MannualBarcode, pb.AutoBarcode, pb.ExpiryDate, pb.BranchID, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBarcodes pbc INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pbc.UnitID = u.UnitID WHERE pbc.Barcode IS NOT NULL AND pbc.Barcode != ''" + branchFilter);
     const extraBarcodes = extraBarcodesResult.recordset;
@@ -823,7 +838,7 @@ app.post('/price-check', authenticate, async (req, res) => {
     let productName = '', productNameAr = '', unitPrice = 0, unitName = '', multiFactor = 1, batchId = null, foundBarcode = barcode;
 
     // 1a) ProductUnits
-    const r1 = await p.request().query("SELECT pu.BarCode, pu.ProductBatchID, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.BarCode = '" + safeBarcode + "'" + branchFilter + " GROUP BY pu.BarCode, pu.ProductBatchID, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
+    const r1 = await p.request().query("SELECT pu.BarCode, pu.ProductBatchID, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.BarCode = '" + safeBarcode + "'" + branchFilter + " GROUP BY pu.BarCode, pu.ProductBatchID, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
     if (r1.recordset.length > 0) {
       var row = r1.recordset[0];
       productName = row.ProductName || ''; productNameAr = row.ItemNameinSecondLanguage || '';
@@ -848,7 +863,7 @@ app.post('/price-check', authenticate, async (req, res) => {
 
     // Fill missing info from ProductUnits if batchId found via 1b/1c
     if (!unitPrice || !productName) {
-      var rU = await p.request().query("SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.ProductBatchID = " + parseInt(String(batchId)) + " AND pu.MultiFactor = 1 GROUP BY pu.BarCode, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
+      var rU = await p.request().query("SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.ProductBatchID = " + parseInt(String(batchId)) + branchFilter + " AND pu.MultiFactor = 1 GROUP BY pu.BarCode, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
       if (rU.recordset.length > 0) {
         var rowU = rU.recordset[0];
         if (!productName) productName = rowU.ProductName || '';
@@ -860,7 +875,7 @@ app.post('/price-check', authenticate, async (req, res) => {
     }
     // StdSalesPrice fallback
     if (!unitPrice) {
-      var rFb = await p.request().query("SELECT StdSalesPrice FROM ProductBatches WHERE ProductBatchID = " + parseInt(String(batchId)));
+      var rFb = await p.request().query("SELECT StdSalesPrice FROM ProductBatches WHERE ProductBatchID = " + parseInt(String(batchId)) + (erpBranchId ? " AND BranchID = " + parseInt(String(erpBranchId)) : ""));
       if (rFb.recordset.length > 0) unitPrice = rFb.recordset[0].StdSalesPrice || 0;
     }
 
@@ -1084,6 +1099,48 @@ svc.uninstall();
       await new Promise(resolve => setTimeout(resolve, 1000));
       return { success: true };
     } catch (e) { return { success: true }; } // Don't fail on uninstall errors
+  }
+
+  if (step === 'check-tunnel') {
+    try {
+      // Check if cloudflared service exists and its state
+      const check = await runCmd('sc query cloudflared', 'C:\\');
+      if (check.success && check.stdout.includes('RUNNING')) {
+        // Tunnel is running — all good
+        return { success: true, wasDown: false };
+      }
+      if (check.success && (check.stdout.includes('STOPPED') || check.stdout.includes('STOP_PENDING') || check.stdout.includes('PAUSED'))) {
+        // Service exists but stopped — restart it
+        await runCmd('sc start cloudflared', 'C:\\');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const verify = await runCmd('sc query cloudflared', 'C:\\');
+        if (verify.success && (verify.stdout.includes('RUNNING') || verify.stdout.includes('START_PENDING'))) {
+          return { success: true, wasDown: true };
+        }
+        return { success: false, error: 'Tunnel service exists but failed to start' };
+      }
+      // Service doesn't exist — reinstall it using saved token
+      if (cfg.tunnelToken && fs.existsSync(CLOUDFLARED_PATH)) {
+        await runCmd(`"${CLOUDFLARED_PATH}" service install ${cfg.tunnelToken}`, 'C:\\');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const verify2 = await runCmd('sc query cloudflared', 'C:\\');
+        if (verify2.success && (verify2.stdout.includes('RUNNING') || verify2.stdout.includes('START_PENDING'))) {
+          return { success: true, reinstalled: true, wasDown: true };
+        }
+        // Try HTTP/2 fallback
+        await runCmd('sc stop cloudflared', 'C:\\');
+        await runCmd(`"${CLOUDFLARED_PATH}" service uninstall`, 'C:\\');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await runCmd(`"${CLOUDFLARED_PATH}" --protocol http2 service install ${cfg.tunnelToken}`, 'C:\\');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const verify3 = await runCmd('sc query cloudflared', 'C:\\');
+        if (verify3.success && (verify3.stdout.includes('RUNNING') || verify3.stdout.includes('START_PENDING'))) {
+          return { success: false, reinstalled: true };
+        }
+        return { success: false, error: 'Could not reinstall tunnel service' };
+      }
+      return { success: false, error: 'Tunnel service not found and no token available to reinstall' };
+    } catch (e) { return { success: false, error: e.message }; }
   }
 
   if (step === 'uninstall-tunnel') {

@@ -179,7 +179,7 @@ async function buildProductList(erpBranchId, appBranchId, cacheKey) {
         ISNULL(pu.BarCode, '') as BarCode, pu.Sprice, u.UnitName
       FROM ProductUnits pu
       INNER JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID
-      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
+      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
       WHERE 1=1 ${branchFilter}
       ORDER BY pu.ProductBatchID, pu.MultiFactor
     `);
@@ -508,7 +508,7 @@ app.post('/price-check', authenticate, async (req, res) => {
       SELECT pu.BarCode, pu.ProductBatchID, MAX(pu.Sprice) AS Sprice, pu.MultiFactor,
         u.UnitName, p.ProductName, p.ItemNameinSecondLanguage
       FROM ProductUnits pu
-      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
+      INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
       INNER JOIN Products p ON pb.ProductID = p.ProductID
       LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID
       WHERE pu.BarCode = '${safeBarcode}' ${branchFilter}
@@ -565,10 +565,10 @@ app.post('/price-check', authenticate, async (req, res) => {
         SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName,
           p.ProductName, p.ItemNameinSecondLanguage
         FROM ProductUnits pu
-        INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID
+        INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
         INNER JOIN Products p ON pb.ProductID = p.ProductID
         LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID
-        WHERE pu.ProductBatchID = ${parseInt(String(batchId))} AND pu.MultiFactor = 1
+        WHERE pu.ProductBatchID = ${parseInt(String(batchId))} ${branchFilter} AND pu.MultiFactor = 1
         GROUP BY pu.BarCode, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage
       `);
       if (rUnits.recordset.length > 0) {
@@ -583,7 +583,7 @@ app.post('/price-check', authenticate, async (req, res) => {
 
     // StdSalesPrice fallback when unit price is still 0
     if (!unitPrice) {
-      const rFb = await p.request().query(`SELECT StdSalesPrice FROM ProductBatches WHERE ProductBatchID = ${parseInt(String(batchId))}`);
+      const rFb = await p.request().query(`SELECT StdSalesPrice FROM ProductBatches WHERE ProductBatchID = ${parseInt(String(batchId))} ${branchFilter.replace('pb.', '')}`);
       if (rFb.recordset.length > 0) unitPrice = rFb.recordset[0].StdSalesPrice || 0;
     }
 

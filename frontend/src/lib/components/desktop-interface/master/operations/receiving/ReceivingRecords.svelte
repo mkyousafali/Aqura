@@ -1,8 +1,12 @@
 <script>
 	import { onMount } from 'svelte';
+	import XLSX from 'xlsx-js-style';
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
+	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
+	import PriceVerifier from './PriceVerifier.svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { realtimeService } from '$lib/utils/realtimeService';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// State for receiving records
 	let receivingRecords = []; // Current page records
@@ -24,14 +28,9 @@
 
 	// Pagination state (disabled UI but optimized loading)
 	let currentPage = 1;
-	let pageSize = 50; // Load 50 records at once (faster initial load, less data per query)
+	let pageSize = 500; // Load 500 records at once via RPC
 	let totalPages = 1;
 	let totalRecords = 0;
-
-	// Cache for branches, vendors, users to avoid refetching
-	let branchCache = new Map();
-	let vendorCache = new Map();
-	let userCache = new Map();
 
 	// Real-time subscription unsubscribe functions
 	let unsubscribeReceivingRecords = null;
@@ -51,6 +50,7 @@
 	let updatingErp = false;
 
 	onMount(() => {
+		loadBranches();
 		loadReceivingRecords();
 		setupRealtimeSubscriptions();
 		
@@ -78,8 +78,79 @@
 
 					// Handle different event types
 					if (payload.eventType === 'INSERT') {
-						console.log('✨ New record inserted, reloading...');
-						await loadReceivingRecords();
+						console.log('✨ New record inserted, fetching details...');
+						// Fetch just the new record via RPC instead of full reload
+						try {
+							const { supabase } = await import('$lib/utils/supabase');
+							const newId = payload.new?.id;
+							if (!newId) { await loadReceivingRecords(); return; }
+							
+							// Fetch the single new record with all joined details
+							const { data: records, error } = await supabase
+								.rpc('get_receiving_records_with_details', {
+									p_limit: 500,
+									p_offset: 0,
+									p_branch_id: null,
+									p_vendor_search: null,
+									p_pr_excel_filter: null,
+									p_erp_ref_filter: null
+								});
+							
+							if (error || !records) { await loadReceivingRecords(); return; }
+							
+							const newRec = records.find(r => r.id === newId);
+							if (!newRec) { await loadReceivingRecords(); return; }
+							
+							// Transform to nested shape
+							const newRecord = {
+								id: newRec.id,
+								bill_number: newRec.bill_number,
+								vendor_id: newRec.vendor_id,
+								branch_id: newRec.branch_id,
+								bill_date: newRec.bill_date,
+								bill_amount: newRec.bill_amount,
+								created_at: newRec.created_at,
+								user_id: newRec.user_id,
+								original_bill_url: newRec.original_bill_url,
+								erp_purchase_invoice_reference: newRec.erp_purchase_invoice_reference,
+								certificate_url: newRec.certificate_url,
+								due_date: newRec.due_date,
+								pr_excel_file_url: newRec.pr_excel_file_url,
+								final_bill_amount: newRec.final_bill_amount,
+								payment_method: newRec.payment_method,
+								credit_period: newRec.credit_period,
+								bank_name: newRec.bank_name,
+								iban: newRec.iban,
+								branches: newRec.branch_name_en ? { name_en: newRec.branch_name_en, location_en: newRec.branch_location_en } : null,
+								vendors: newRec.vendor_name ? { erp_vendor_id: newRec.vendor_id, vendor_name: newRec.vendor_name, vat_number: newRec.vat_number, branch_id: newRec.branch_id } : null,
+								users: newRec.username ? { username: newRec.username, hr_employees: { name: newRec.user_display_name } } : null,
+								schedule_status: newRec.is_scheduled ? {
+									receiving_record_id: newRec.id,
+									is_paid: newRec.is_paid,
+									pr_excel_verified: newRec.pr_excel_verified,
+									pr_excel_verified_by: newRec.pr_excel_verified_by,
+									pr_excel_verified_date: newRec.pr_excel_verified_date
+								} : null,
+								is_scheduled: newRec.is_scheduled,
+								is_paid: newRec.is_paid,
+								has_multiple_schedules: false,
+								pr_excel_verified: newRec.pr_excel_verified,
+								pr_excel_verified_by: newRec.pr_excel_verified_by,
+								pr_excel_verified_date: newRec.pr_excel_verified_date
+							};
+
+							// Prepend to arrays (newest first) and avoid duplicates
+							if (!receivingRecords.some(r => r.id === newId)) {
+								receivingRecords = [newRecord, ...receivingRecords];
+								allLoadedRecords = [newRecord, ...allLoadedRecords];
+								totalRecords += 1;
+								updatePaginatedRecords();
+								console.log('✅ New record added to table without full reload');
+							}
+						} catch (err) {
+							console.error('Error fetching new record, falling back to full reload:', err);
+							await loadReceivingRecords();
+						}
 					} else if (payload.eventType === 'UPDATE') {
 						console.log('📝 Record updated, refreshing...');
 						// Update the specific record in the local arrays
@@ -152,182 +223,141 @@
 		}
 	}
 
+	// Load all branches for filter dropdown
+	async function loadBranches() {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en, location_en')
+				.order('name_en');
+			if (!error && data) {
+				branches = data;
+			}
+		} catch (err) {
+			console.error('Error loading branches:', err);
+		}
+	}
+
 	async function loadReceivingRecords() {
 		loading = true;
 		try {
 			const startTime = performance.now();
-			const { supabase } = await import('$lib/utils/supabase');
 			
-			console.log('📋 Starting optimized receiving records load (lazy loading - load on scroll)...');
+			console.log('📋 Starting RPC-based receiving records load (500 per page)...');
 			
-			// Reset loaded records
+			// Reset loaded records and filters
 			allLoadedRecords = [];
 			selectedBranchFilter = '';
 			selectedPrExcelFilter = '';
 			vendorSearchTerm = '';
 			selectedErpRefFilter = '';
-			
-			// First, get the TOTAL COUNT of records (no limit)
-			const { count: totalCount, error: countError } = await supabase
-				.from('receiving_records')
-				.select('*', { count: 'exact', head: true });
+			currentPage = 1;
 
-			if (countError) throw countError;
-
-			totalRecords = totalCount || 0;
-			totalPages = Math.ceil(totalRecords / pageSize);
-			console.log(`📊 Total receiving records available: ${totalRecords}, Pages: ${totalPages}`);
-
-			// Load ONLY the first page initially (2000 records)
+			// Load first page via RPC (count is returned from RPC itself)
 			await loadPageData(1);
+			loading = false; // Table displays immediately
 			
 			const endTime = performance.now();
-			console.log(`✅ First batch (2000 records) loaded in ${(endTime - startTime).toFixed(0)}ms. More loads on scroll...`);
+			console.log(`✅ First batch (${pageSize} records) loaded via RPC in ${(endTime - startTime).toFixed(0)}ms`);
 		} catch (err) {
 			console.error('Error in loadReceivingRecords:', err);
 			receivingRecords = [];
 			allLoadedRecords = [];
-		} finally {
 			loading = false;
 		}
 	}
 
-	// Load data for a specific page
+	// Load data for a specific page using RPC (with server-side filters)
 	async function loadPageData(pageNum) {
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			const startIdx = (pageNum - 1) * pageSize;
 
-			console.log(`📄 Loading page ${pageNum}/${totalPages} (offset: ${startIdx}, limit: ${pageSize})...`);
-			
-			// 1️⃣ Load ONLY records for current page (no nested JOINs)
-			// Note: order BEFORE range for proper pagination
-			const { data: records, error: recordsError } = await supabase
-				.from('receiving_records')
-				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban')
-				.order('created_at', { ascending: false })
-				.range(startIdx, startIdx + pageSize - 1);
+			// Build RPC params with filters
+			const rpcParams = {
+				p_limit: pageSize,
+				p_offset: startIdx,
+				p_branch_id: selectedBranchFilter || null,
+				p_vendor_search: vendorSearchTerm?.trim() || null,
+				p_pr_excel_filter: selectedPrExcelFilter || null,
+				p_erp_ref_filter: selectedErpRefFilter || null
+			};
 
-			if (recordsError) {
-				console.error(`❌ Error loading page ${pageNum}:`, recordsError);
-				throw recordsError;
+			console.log(`📄 Loading page ${pageNum} via RPC (offset: ${startIdx}, limit: ${pageSize}, filters: ${JSON.stringify(rpcParams)})...`);
+			
+			// Single RPC call - all JOINs + filters done server-side
+			const { data: records, error: rpcError } = await supabase
+				.rpc('get_receiving_records_with_details', rpcParams);
+
+			if (rpcError) {
+				console.error(`❌ Error loading page ${pageNum}:`, rpcError);
+				throw rpcError;
 			}
 
 			if (!records || records.length === 0) {
 				console.log(`📊 No records on page ${pageNum}`);
+				totalRecords = 0;
+				totalPages = 1;
 				receivingRecords = [];
-				updatePaginatedRecords();
+				allLoadedRecords = [];
+				paginatedRecords = [];
 				return;
 			}
 
-		console.log(`📊 Loaded ${records.length} records for page ${pageNum}`);
+			// Extract total count from first record (returned by RPC)
+			totalRecords = records[0]?.total_count || records.length;
+			totalPages = Math.ceil(totalRecords / pageSize);
+			console.log(`📊 Loaded ${records.length} records for page ${pageNum} via RPC (total matching: ${totalRecords}, pages: ${totalPages})`);
 
-		// Get uncached IDs only - avoid refetching known data
-		const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))].filter(id => !branchCache.has(id));
-		const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
-		const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))].filter(id => !userCache.has(id));
-		const recordIds = records.map(r => r.id);
-		
-		const chunkArray = (array, size) => {
-			const chunks = [];
-			for (let i = 0; i < array.length; i += size) {
-				chunks.push(array.slice(i, i + size));
-			}
-			return chunks;
-		};
+			// Transform flat RPC response into nested shape the template expects
+			const recordsWithDetails = records.map(record => ({
+				id: record.id,
+				bill_number: record.bill_number,
+				vendor_id: record.vendor_id,
+				branch_id: record.branch_id,
+				bill_date: record.bill_date,
+				bill_amount: record.bill_amount,
+				created_at: record.created_at,
+				user_id: record.user_id,
+				original_bill_url: record.original_bill_url,
+				erp_purchase_invoice_reference: record.erp_purchase_invoice_reference,
+				certificate_url: record.certificate_url,
+				due_date: record.due_date,
+				pr_excel_file_url: record.pr_excel_file_url,
+				final_bill_amount: record.final_bill_amount,
+				payment_method: record.payment_method,
+				credit_period: record.credit_period,
+				bank_name: record.bank_name,
+				iban: record.iban,
+				// Nested objects for template compatibility
+				branches: record.branch_name_en ? { name_en: record.branch_name_en, location_en: record.branch_location_en } : null,
+				vendors: record.vendor_name ? { erp_vendor_id: record.vendor_id, vendor_name: record.vendor_name, vat_number: record.vat_number, branch_id: record.branch_id } : null,
+				users: record.username ? { username: record.username, hr_employees: { name: record.user_display_name } } : null,
+				// Payment schedule data
+				schedule_status: record.is_scheduled ? {
+					receiving_record_id: record.id,
+					is_paid: record.is_paid,
+					pr_excel_verified: record.pr_excel_verified,
+					pr_excel_verified_by: record.pr_excel_verified_by,
+					pr_excel_verified_date: record.pr_excel_verified_date
+				} : null,
+				is_scheduled: record.is_scheduled,
+				is_paid: record.is_paid,
+				has_multiple_schedules: false,
+				pr_excel_verified: record.pr_excel_verified,
+				pr_excel_verified_by: record.pr_excel_verified_by,
+				pr_excel_verified_date: record.pr_excel_verified_date
+			}));
 
-		const scheduleChunks = chunkArray(recordIds, 25);
-		console.log(`⚡ Loading in parallel: ${uniqueBranchIds.length ? 'branches' : 'cache'}, vendors (${uniqueVendorIds.length} IDs), ${uniqueUserIds.length ? 'users' : 'cache'}, payment schedules (${scheduleChunks.length} chunks)...`);
-		
-		// Load branches, vendors, users FIRST (fast queries)
-		const [branchResult, vendorResult, userResult] = await Promise.all([
-			uniqueBranchIds.length > 0 
-				? supabase.from('branches').select('id, name_en, location_en').in('id', uniqueBranchIds)
-				: Promise.resolve({ data: [] }),
-			uniqueVendorIds.length > 0
-				? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, branch_id').in('erp_vendor_id', uniqueVendorIds)
-				: Promise.resolve({ data: [] }),
-			uniqueUserIds.length > 0
-				? supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
-				: Promise.resolve({ data: [] })
-		]);
-
-		// Update caches with newly fetched data
-		branchResult.data?.forEach(b => branchCache.set(b.id, b));
-		// Store vendors by composite key in vendorCache
-		vendorResult.data?.forEach(v => {
-			const compositeKey = `${v.erp_vendor_id}_${v.branch_id}`;
-			vendorCache.set(compositeKey, v);
-		});
-		userResult.data?.forEach(u => userCache.set(u.id, u));
-
-		// Get all data from cache (old + new)
-		const branchMap = new Map([...Array.from(branchCache.entries())]);
-		const vendorMap = new Map([...Array.from(vendorCache.entries())]);
-		const userMap = new Map([...Array.from(userCache.entries())]);
-		
-		// INITIALIZE records with default values first
-		const recordsWithDetails = records.map(record => ({
-			...record,
-			branches: branchMap.get(record.branch_id),
-			vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
-			users: userMap.get(record.user_id),
-			schedule_status: null, // Will be updated when payment schedules load
-			is_scheduled: false,
-			has_multiple_schedules: false,
-			pr_excel_verified: false,
-			pr_excel_verified_by: null,
-			pr_excel_verified_date: null
-		}));
-
-		// Load payment schedules BEFORE showing records (wait for them)
-		console.log(`⚡ Loading payment schedules for ${scheduleChunks.length} chunks (waiting for completion)...`);
-		
-		// Use Promise.all to wait for all schedule chunks to load
-		const schedulePromises = scheduleChunks.map((chunk, idx) => {
-			return supabase
-				.from('vendor_payment_schedule')
-				.select('receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
-				.in('receiving_record_id', chunk)
-				.then(result => {
-					if (!result.error && result.data) {
-						// Update the records with schedule data
-						result.data.forEach(schedule => {
-							const recordIdx = recordsWithDetails.findIndex(r => r.id === schedule.receiving_record_id);
-							if (recordIdx >= 0) {
-								recordsWithDetails[recordIdx].schedule_status = schedule;
-								recordsWithDetails[recordIdx].is_paid = schedule.is_paid;
-								recordsWithDetails[recordIdx].is_scheduled = true;
-								// Pull verification status from payment schedule
-								recordsWithDetails[recordIdx].pr_excel_verified = schedule.pr_excel_verified;
-								recordsWithDetails[recordIdx].pr_excel_verified_by = schedule.pr_excel_verified_by;
-								recordsWithDetails[recordIdx].pr_excel_verified_date = schedule.pr_excel_verified_date;
-							}
-						});
-						console.log(`📦 Schedule chunk ${idx + 1}/${scheduleChunks.length} loaded`);
-					}
-					return result;
-				})
-				.catch(err => {
-					console.warn(`⚠️ Schedule chunk ${idx + 1} error:`, err.message);
-					// Continue loading other chunks even if one fails
-					return { error: err };
-				});
-		});
-
-		// Wait for all schedule chunks to complete
-		await Promise.all(schedulePromises);
-
-		// NOW SHOW RECORDS after payment schedules are loaded
-		receivingRecords = recordsWithDetails;
-		// Accumulate all loaded records for filtering
-		allLoadedRecords = [...allLoadedRecords, ...recordsWithDetails];
-		updatePaginatedRecords();
-		console.log(`✅ Page ${pageNum} data shown with payment schedules loaded (${recordsWithDetails.length} records, total loaded: ${allLoadedRecords.length})`);
-	} catch (err) {
-		console.error(`Error loading page ${pageNum}:`, err);
-		receivingRecords = [];
-		updatePaginatedRecords();
+			receivingRecords = recordsWithDetails;
+			allLoadedRecords = recordsWithDetails;
+			paginatedRecords = [...recordsWithDetails];
+			console.log(`✅ Page ${pageNum} loaded via RPC (${recordsWithDetails.length} records shown)`);
+		} catch (err) {
+			console.error(`Error loading page ${pageNum}:`, err);
+			receivingRecords = [];
+			paginatedRecords = [];
 		}
 	}
 
@@ -399,111 +429,34 @@
 		return;
 	}
 
-	// Update paginated records based on current page and filters
+	// Update paginated records - no client-side filtering needed, server handles it
 	function updatePaginatedRecords() {
-		// Apply branch filter across ALL loaded records
-		let displayRecords = allLoadedRecords;
-		
-		if (selectedBranchFilter && selectedBranchFilter !== '') {
-			displayRecords = displayRecords.filter(record => 
-				record.branch_id === selectedBranchFilter
-			);
-		}
-
-		// Apply PR Excel verification filter
-		if (selectedPrExcelFilter && selectedPrExcelFilter !== '') {
-			displayRecords = displayRecords.filter(record => {
-				if (selectedPrExcelFilter === 'verified') {
-					return record.pr_excel_verified === true;
-				} else if (selectedPrExcelFilter === 'unverified') {
-					return record.pr_excel_verified === false || record.pr_excel_verified === null;
-				}
-				return true;
-			});
-		}
-
-		// Apply vendor name search
-		if (vendorSearchTerm && vendorSearchTerm.trim() !== '') {
-			const searchLower = vendorSearchTerm.toLowerCase().trim();
-			displayRecords = displayRecords.filter(record => {
-				const vendorName = (record.vendors?.vendor_name || '').toLowerCase();
-				return vendorName.includes(searchLower);
-			});
-		}
-
-		// Apply ERP invoice reference filter
-		if (selectedErpRefFilter && selectedErpRefFilter !== '') {
-			displayRecords = displayRecords.filter(record => {
-				const hasErpRef = record.erp_purchase_invoice_reference && 
-					String(record.erp_purchase_invoice_reference).trim() !== '';
-				if (selectedErpRefFilter === 'entered') {
-					return hasErpRef;
-				} else if (selectedErpRefFilter === 'not_entered') {
-					return !hasErpRef;
-				}
-				return true;
-			});
-		}
-		
-		paginatedRecords = [...displayRecords]; // Use spread operator to ensure reactivity
-		const filterInfo = [];
-		if (selectedBranchFilter) filterInfo.push(`branch: ${selectedBranchFilter}`);
-		if (selectedPrExcelFilter) filterInfo.push(`PR Excel: ${selectedPrExcelFilter}`);
-		if (vendorSearchTerm) filterInfo.push(`vendor: "${vendorSearchTerm}"`);
-		if (selectedErpRefFilter) filterInfo.push(`ERP Ref: ${selectedErpRefFilter}`);
-		console.log(`📄 Showing ${paginatedRecords.length} records from ${allLoadedRecords.length} total loaded ${filterInfo.length ? `(${filterInfo.join(', ')})` : ''}`);
+		paginatedRecords = [...allLoadedRecords];
+		console.log(`📄 Showing ${paginatedRecords.length} records`);
 	}
 
-	// Pagination functions - load data on demand
-	async function nextPage() {
-		if (currentPage < totalPages) {
-			currentPage++;
-			loading = true;
-			await loadPageData(currentPage);
-			loading = false;
-		}
-	}
+	// Debounce timer for vendor search
+	let vendorSearchTimer = null;
 
-	// React to branch filter changes
-	$: if (selectedBranchFilter !== undefined) {
+	// Server-side filter reload helper
+	async function reloadWithFilters() {
 		currentPage = 1;
-		updatePaginatedRecords();
+		loading = true;
+		await loadPageData(1);
+		loading = false;
 	}
 
-	// React to PR Excel filter changes
-	$: if (selectedPrExcelFilter !== undefined) {
-		currentPage = 1;
-		updatePaginatedRecords();
+	// Called by on:change on select filters
+	function onFilterChange() {
+		reloadWithFilters();
 	}
 
-	// React to vendor search changes
-	$: if (vendorSearchTerm !== undefined) {
-		currentPage = 1;
-		updatePaginatedRecords();
-	}
-
-	// React to ERP reference filter changes
-	$: if (selectedErpRefFilter !== undefined) {
-		currentPage = 1;
-		updatePaginatedRecords();
-	}
-
-	async function previousPage() {
-		if (currentPage > 1) {
-			currentPage--;
-			loading = true;
-			await loadPageData(currentPage);
-			loading = false;
-		}
-	}
-
-	async function goToPage(page) {
-		if (page >= 1 && page <= totalPages) {
-			currentPage = page;
-			loading = true;
-			await loadPageData(currentPage);
-			loading = false;
-		}
+	// Called by on:input on vendor search (debounced)
+	function onVendorSearchInput() {
+		if (vendorSearchTimer) clearTimeout(vendorSearchTimer);
+		vendorSearchTimer = setTimeout(() => {
+			reloadWithFilters();
+		}, 500);
 	}
 
 	// Filter values change - do NOT apply filters automatically
@@ -820,6 +773,57 @@
 		}
 	}
 
+	// Download empty XLSX template for receiving
+	function downloadReceivingTemplate() {
+		const headers = ['Barcode', 'Product Name_En', 'Product Name_Ar', 'Received Qty', 'Free Qty', 'Unit', 'Cost', 'Sales Price'];
+		// Each column gets its own professional light color
+		const headerColors = [
+			'D6E4F0', // Barcode - soft blue
+			'E2EFDA', // Product Name_En - soft green
+			'FCE4D6', // Product Name_Ar - soft peach
+			'DAEEF3', // Received Qty - soft cyan
+			'E4DFEC', // Free Qty - soft lavender
+			'FFF2CC', // Unit - soft yellow
+			'D9E2F3', // Cost - soft steel blue
+			'E2F0D9', // Sales Price - soft mint
+		];
+		const border = {
+			top: { style: 'thin', color: { rgb: '999999' } },
+			bottom: { style: 'thin', color: { rgb: '999999' } },
+			left: { style: 'thin', color: { rgb: '999999' } },
+			right: { style: 'thin', color: { rgb: '999999' } }
+		};
+		const ws = XLSX.utils.aoa_to_sheet([headers]);
+		// Apply individual header styles per column
+		headers.forEach((_, i) => {
+			const cell = XLSX.utils.encode_cell({ r: 0, c: i });
+			if (ws[cell]) {
+				ws[cell].s = {
+					fill: { fgColor: { rgb: headerColors[i] } },
+					font: { bold: true, color: { rgb: '333333' }, sz: 11, name: 'Calibri' },
+					alignment: { horizontal: 'center', vertical: 'center' },
+					border
+				};
+			}
+		});
+		// Set column widths
+		ws['!cols'] = [
+			{ wch: 18 }, // Barcode
+			{ wch: 30 }, // Product Name_En
+			{ wch: 30 }, // Product Name_Ar
+			{ wch: 14 }, // Received Qty
+			{ wch: 12 }, // Free Qty
+			{ wch: 10 }, // Unit
+			{ wch: 18 }, // Cost
+			{ wch: 14 }, // Sales Price
+		];
+		// Set row height for header
+		ws['!rows'] = [{ hpt: 28 }];
+		const wb = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(wb, ws, 'Receiving Template');
+		XLSX.writeFile(wb, 'Receiving_Template.xlsx');
+	}
+
 	// Helper function to calculate days remaining to due date
 	function getDaysRemaining(dueDateString) {
 		if (!dueDateString) return 'N/A';
@@ -1024,133 +1028,100 @@
 			deletingRecordId = null;
 		}
 	}
-
-	// Lazy loading - load more records as user scrolls
-	let scrollContainer = null;
-	let isLoadingMore = false;
-
-	function handleScroll() {
-		if (!scrollContainer || isLoadingMore || loading) return;
-
-		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-		const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
-
-		// Load more when user scrolls to 80% of the table
-		if (scrollPercentage > 0.8 && currentPage < totalPages) {
-			isLoadingMore = true;
-			currentPage++;
-			console.log(`📄 Auto-loading page ${currentPage}/${totalPages} (scroll detected at ${(scrollPercentage * 100).toFixed(0)}%)`);
-			
-			loadPageData(currentPage).then(() => {
-				isLoadingMore = false;
-			}).catch(err => {
-				console.error('Error loading more records on scroll:', err);
-				isLoadingMore = false;
-			});
-		}
-	}
 </script>
 
 <!-- Receiving Records Window Content -->
-<div class="receiving-records-window" bind:this={scrollContainer} on:scroll={handleScroll}>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
 
-	<!-- Branch Filter Toolbar -->
-	<div class="filter-toolbar">
-		<label for="branch-filter" class="filter-label">Filter by Branch:</label>
-		<select id="branch-filter" bind:value={selectedBranchFilter} class="branch-filter-select">
-			<option value="">All Branches</option>
-			{#each [...new Set(allLoadedRecords.map(r => r.branch_id))] as branchId}
-				{@const branch = allLoadedRecords.find(r => r.branch_id === branchId)?.branches}
-				{#if branch}
-					<option value={branchId}>{branch.name_en} - {branch.location_en}</option>
-				{/if}
-			{/each}
-		</select>
-		{#if selectedBranchFilter || selectedPrExcelFilter}
-			<span class="filter-count">
-				({paginatedRecords.length} records)
-			</span>
-		{/if}
-
-		<div class="filter-divider"></div>
-
-		<label for="pr-excel-filter" class="filter-label">PR Excel Status:</label>
-		<select id="pr-excel-filter" bind:value={selectedPrExcelFilter} class="branch-filter-select">
-			<option value="">All Records</option>
-			<option value="verified">✅ Verified</option>
-			<option value="unverified">❌ Unverified</option>
-		</select>
-
-		<div class="filter-divider"></div>
-
-		<label for="vendor-search" class="filter-label">Search Vendor:</label>
-		<input 
-			id="vendor-search" 
-			type="text" 
-			bind:value={vendorSearchTerm} 
-			placeholder="Type vendor name..." 
-			class="vendor-search-input"
-		/>
-
-		<div class="filter-divider"></div>
-
-		<label for="erp-ref-filter" class="filter-label">ERP Invoice Ref:</label>
-		<select id="erp-ref-filter" bind:value={selectedErpRefFilter} class="branch-filter-select">
-			<option value="">All Records</option>
-			<option value="entered">✓ Entered</option>
-			<option value="not_entered">✗ Not Entered</option>
-		</select>
-
-		<div class="filter-divider"></div>
-
-		<div class="data-stats">
-			<span class="stat-item">📊 Total: <strong>{totalRecords}</strong></span>
-			<span class="stat-separator">|</span>
-			<span class="stat-item">⬇️ Loaded: <strong>{allLoadedRecords.length}</strong></span>
-			<span class="stat-separator">|</span>
-			<span class="stat-item">🔍 Filtered: <strong>{paginatedRecords.length}</strong></span>
+	<!-- Filter Controls -->
+	<div class="px-8 pt-6">
+		<div class="mb-4 flex gap-3 flex-wrap">
+			<div class="flex-1 min-w-[160px]">
+				<label for="branch-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">Filter by Branch</label>
+				<select id="branch-filter" bind:value={selectedBranchFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+					<option value="">All Branches</option>
+					{#each branches as branch}
+						<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
+					{/each}
+				</select>
+			</div>
+			<div class="flex-1 min-w-[140px]">
+				<label for="pr-excel-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">PR Excel Status</label>
+				<select id="pr-excel-filter" bind:value={selectedPrExcelFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+					<option value="">All Records</option>
+					<option value="verified">✅ Verified</option>
+					<option value="unverified">❌ Unverified</option>
+				</select>
+			</div>
+			<div class="flex-1 min-w-[160px]">
+				<label for="vendor-search" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">Search Vendor</label>
+				<input 
+					id="vendor-search" 
+					type="text" 
+					bind:value={vendorSearchTerm} 
+					on:input={onVendorSearchInput}
+					placeholder="Type vendor name..." 
+					class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+				/>
+			</div>
+			<div class="flex-1 min-w-[140px]">
+				<label for="erp-ref-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">ERP Invoice Ref</label>
+				<select id="erp-ref-filter" bind:value={selectedErpRefFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+					<option value="">All Records</option>
+					<option value="entered">✓ Entered</option>
+					<option value="not_entered">✗ Not Entered</option>
+				</select>
+			</div>
 		</div>
 	</div>
 
-	<!-- Records Table -->
-	<div class="records-container">
+	<!-- Main Content Area -->
+	<div class="flex-1 px-8 pb-6 relative overflow-hidden flex flex-col">
+		<!-- Decorative blurred circles -->
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] pointer-events-none"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] pointer-events-none"></div>
+
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col w-full">
+			<!-- Table Container (glassmorphism card) -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
 		{#if loading}
-			<div class="loading">
+			<div class="flex items-center justify-center py-20">
 				<div class="spinner"></div>
-				<p>⏳ Loading receiving records...</p>
+				<p class="ml-4 text-slate-500">⏳ Loading receiving records...</p>
 			</div>
 		{:else if paginatedRecords.length === 0}
-			<div class="no-records">
-				<p>📭 No receiving records found.</p>
+			<div class="flex items-center justify-center py-20">
+				<p class="text-slate-500 text-lg">📭 No receiving records found.</p>
 			</div>
 		{:else}
-			<div class="records-table">
-				<div class="table-header">
-					<div class="header-cell serial-number-cell">#</div>
-					<div class="header-cell">Certificate</div>
-					<div class="header-cell">Original Bill</div>
-					<div class="header-cell">PR Excel</div>
-					<div class="header-cell">Bill Info</div>
-					<div class="header-cell">Vendor Details</div>
-					<div class="header-cell">Branch</div>
-					<div class="header-cell">Received By</div>
-					<div class="header-cell">Payment Info</div>
-					<div class="header-cell">Schedule Status</div>
-					<div class="header-cell">Days to Due</div>
-					<div class="header-cell">Amounts</div>
-					<div class="header-cell">ERP Invoice Ref</div>
-					<div class="header-cell">Date</div>
-					{#if isMasterAdmin}
-						<div class="header-cell">Actions</div>
-					{/if}
-				</div>
+			<!-- Table scroll wrapper -->
+			<div class="overflow-x-auto flex-1">
+				<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+					<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
+						<tr>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">#</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Certificate</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Original Bill</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">PR Excel</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Bill Info</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Vendor Details</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Branch</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Payment Info</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Days to Due</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Amounts</th>
+							{#if isMasterAdmin}
+								<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Actions</th>
+							{/if}
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-200">
 				
 				{#each paginatedRecords as record, index}
-					<div class="table-row">
-					<div class="cell serial-number-cell">
-						<strong>{index + 1 + (currentPage - 1) * pageSize}</strong>
-					</div>
-					<div class="cell certificate-cell">
+					<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+					<td class="px-3 py-3 text-sm text-center font-semibold text-slate-500">
+						{index + 1 + (currentPage - 1) * pageSize}
+					</td>
+					<td class="px-3 py-3 text-sm text-center">
 							{#if record.certificate_url}
 								<div class="certificate-thumbnail" on:click={() => viewCertificate(record.certificate_url)}>
 									<img src={record.certificate_url} alt="Certificate" loading="lazy" />
@@ -1167,14 +1138,14 @@
 										</div>
 									{:else}
 										<button class="generate-certificate-btn" on:click={() => generateCertificate(record)}>
-											<span>�</span>
+											<span>📜</span>
 											<small>Generate Certificate</small>
 										</button>
 									{/if}
 								</div>
 							{/if}
-											</div>
-					<div class="cell certificate-cell">
+					</td>
+					<td class="px-3 py-3 text-sm text-center">
 							{#if record.original_bill_url}
 								<div class="original-bill-with-update">
 									<div class="certificate-thumbnail" on:click={() => viewOriginalBill(record.original_bill_url)}>
@@ -1219,34 +1190,42 @@
 									{/if}
 								</div>
 							{/if}
-											</div>
-					<div class="cell certificate-cell">
+					</td>
+					<td class="px-3 py-3 text-sm text-center">
 							{#if record.pr_excel_file_url}
 								<div class="excel-file-container">
 									<button 
 										class="excel-file-link"
-										on:click={() => downloadPRExcel(record)}
+										on:click={() => openWindow({
+											id: `price-verifier-${record.id}`,
+											title: 'Price Verifier',
+											component: PriceVerifier,
+											props: { record },
+											icon: '🔍',
+											size: { width: 1000, height: 700 },
+											minSize: { width: 600, height: 400 },
+											position: { x: 150, y: 100 }
+										})}
 									>
 										<div class="excel-icon">📊</div>
 										<small>PR Excel</small>
 									</button>
-									<div class="pr-excel-verification">
+									{#if record.pr_excel_verified}
+										<span class="text-green-600 text-lg" title="Verified">✓</span>
+									{:else}
 										<label class="verification-checkbox">
 											<input
 												type="checkbox"
-												checked={record.pr_excel_verified || false}
+												checked={false}
 												on:change={(e) => handlePRExcelVerification(record.id, e.target.checked)}
 											/>
-											<span class="checkbox-label">
-												{record.pr_excel_verified ? '✓ Verified' : 'Verify'}
-											</span>
+											<span class="checkbox-label">Verify</span>
 										</label>
-										{#if record.pr_excel_verified && record.pr_excel_verified_date}
-											<small class="verification-date">
-												{formatDateTime(record.pr_excel_verified_date)}
-											</small>
-										{/if}
-									</div>
+									{/if}
+									<button class="update-bill-btn" on:click={() => uploadPRExcel(record.id)} title="Upload updated PR Excel">
+										<span>🔄</span>
+										<small>Update</small>
+									</button>
 								</div>
 							{:else}
 								<div class="upload-excel-container">
@@ -1256,102 +1235,106 @@
 											<small>Uploading...</small>
 										</div>
 									{:else}
-										<button class="upload-excel-btn" on:click={() => uploadPRExcel(record.id)}>
-											<span>📊</span>
-											<small>PR Excel Not Uploaded</small>
-										</button>
+										<div class="flex items-center gap-1.5" style="height: 50px;">
+											<button class="upload-excel-btn" style="flex: 1; height: 100%;" on:click={() => uploadPRExcel(record.id)}>
+												<span>📊</span>
+												<small>Upload</small>
+											</button>
+											<button class="upload-excel-btn" style="flex: 1; height: 100%; background: #f0fdf4; border-color: #10b981; color: #047857;" on:click={downloadReceivingTemplate} title="Download empty PR Excel template">
+												<span>📥</span>
+												<small>Template</small>
+											</button>
+										</div>
 									{/if}
 								</div>
 							{/if}
-						</div>
+						</td>
 						
-						<div class="cell">
-							<div class="bill-info">
-								<strong>#{record.bill_number || 'N/A'}</strong>
-								<small>{formatDate(record.bill_date)}</small>
+						<td class="px-3 py-3 text-sm text-slate-700">
+							<div>
+								<div class="font-semibold text-slate-800">#{record.bill_number || 'N/A'}</div>
+								<div class="text-xs text-slate-400">Bill Date: {formatDate(record.bill_date)}</div>
+								<div class="text-xs text-slate-400">Received: {formatDate(record.created_at)}</div>
+								<div class="text-xs text-slate-400">By: {record.users?.hr_employees?.name || record.users?.username || 'N/A'}</div>
 							</div>
-						</div>
+						</td>
 						
-						<div class="cell">
-							<div class="vendor-info">
-								<strong>{record.vendors?.vendor_name || 'N/A'}</strong>
-								<small>ID: {record.vendors?.erp_vendor_id || 'N/A'}</small>
-								<small>VAT: {record.vendors?.vat_number || 'N/A'}</small>
+						<td class="px-3 py-3 text-sm text-slate-700">
+							<div>
+								<div class="font-semibold text-slate-800">{record.vendors?.vendor_name || 'N/A'}</div>
+								<div class="text-xs text-slate-400">ID: {record.vendors?.erp_vendor_id || 'N/A'}</div>
+								<div class="text-xs text-slate-400">VAT: {record.vendors?.vat_number || 'N/A'}</div>
 							</div>
-						</div>
+						</td>
 						
-						<div class="cell">
-							<span>{record.branches?.name_en || 'N/A'}</span>
-						</div>
-						
-						<div class="cell">
-							<div class="reviewed-by-info">
-								<strong>{record.users?.hr_employees?.name || record.users?.username || 'N/A'}</strong>
-								<small>@{record.users?.username || 'unknown'}</small>
+						<td class="px-3 py-3 text-sm text-slate-700">
+							<div>
+								<div>{record.branches?.name_en || 'N/A'}</div>
+								{#if record.branches?.location_en}
+									<div class="text-xs text-slate-400">{record.branches.location_en}</div>
+								{/if}
 							</div>
-						</div>
+						</td>
 						
-						<div class="cell">
-							<div class="payment-info">
-								<strong>{record.payment_method || 'N/A'}</strong>
-								<small>Due: {formatDate(record.due_date)}</small>
+						<td class="px-3 py-3 text-sm text-slate-700">
+							<div>
+								<div class="font-semibold text-slate-800">{record.payment_method || 'N/A'}</div>
+								<div class="text-xs text-slate-400">Due: {formatDate(record.due_date)}</div>
 								{#if record.credit_period}
-									<small>{record.credit_period} days</small>
+									<div class="text-xs text-slate-400">{record.credit_period} days</div>
 								{/if}
 							</div>
-						</div>
+						</td>
 						
-						<div class="cell">
-							<div class="schedule-status">
-								{#if record.is_scheduled}
-									{#if record.schedule_status?.is_paid}
-										<span class="status-badge paid">✓ Paid</span>
-									{:else}
-										<span class="status-badge scheduled">
-											📅 {record.has_multiple_schedules ? 'Split Scheduled' : 'Scheduled'}
-										</span>
-									{/if}
+						<td class="px-3 py-3 text-sm text-left text-slate-700">
+							<div>
+								{#if record.payment_method?.toLowerCase()?.includes('on delivery') || record.is_paid || record.schedule_status?.is_paid}
+									<div class="text-xs text-emerald-600">✓ Paid</div>
+								{:else if record.is_scheduled || record.schedule_status}
+									<div class:text-red-600={record.due_date && getDaysRemaining(record.due_date).includes('-')}>{getDaysRemaining(record.due_date)}</div>
+									<div class="text-xs text-blue-600">📅 {record.has_multiple_schedules ? 'Split Scheduled' : 'Scheduled'}</div>
 								{:else}
-									<span class="status-badge not-scheduled">⏳ Not Scheduled</span>
+									<div class:text-red-600={record.due_date && getDaysRemaining(record.due_date).includes('-')}>{getDaysRemaining(record.due_date)}</div>
+									<button 
+										class="text-xs text-white bg-orange-500 hover:bg-orange-600 px-2 py-0.5 rounded cursor-pointer border-none transition-colors duration-200"
+										title="Schedule payment for this record"
+										on:click={() => openWindow({
+											id: `manual-scheduling-${Date.now()}`,
+											title: 'Manual Scheduling',
+											component: ManualScheduling,
+											props: {},
+											icon: '📅',
+											size: { width: 900, height: 650 },
+											minSize: { width: 600, height: 400 },
+											position: { x: 140, y: 140 }
+										})}
+									>
+										📅 Schedule
+									</button>
 								{/if}
 							</div>
-						</div>
+						</td>
 						
-						<div class="cell">
-							<div class="days-remaining" class:overdue={record.due_date && getDaysRemaining(record.due_date).includes('-')}>
-								<span>{getDaysRemaining(record.due_date)}</span>
-							</div>
-						</div>
-						
-						<div class="cell">
-							<div class="amounts">
+						<td class="px-3 py-3 text-sm text-left text-slate-700">
+							<div>
 								<div>Bill: {parseFloat(record.bill_amount || 0).toFixed(2)}</div>
-								<div>Final: {parseFloat(record.final_bill_amount || 0).toFixed(2)}</div>
+								<div class="font-bold text-emerald-700">Final: {parseFloat(record.final_bill_amount || 0).toFixed(2)}</div>
+								{#if record.erp_purchase_invoice_reference}
+									<div class="text-xs text-slate-500">ERP: {record.erp_purchase_invoice_reference}</div>
+								{:else}
+									<button 
+										class="text-xs text-red-400 hover:text-red-600 cursor-pointer bg-transparent border-none p-0 text-left" 
+										on:click={() => openErpPopup(record)}
+										title="Click to enter ERP invoice reference"
+									>
+										ERP: Not Entered
+									</button>
+								{/if}
 							</div>
-						</div>
-						
-						<div class="cell">
-							<div class="erp-reference">
-									{#if record.erp_purchase_invoice_reference}
-										<span class="erp-ref-value">{record.erp_purchase_invoice_reference}</span>
-									{:else}
-										<button 
-											class="erp-ref-empty clickable" 
-											on:click={() => openErpPopup(record)}
-											title="Click to enter ERP invoice reference"
-										>
-											Not Entered
-										</button>
-									{/if}
-							</div>
-						</div>
-						
-						<div class="cell">
-							<small>{formatDate(record.created_at)}</small>
-						</div>
+						</td>
 						
 						{#if isMasterAdmin}
-							<div class="cell actions-cell">
+							<td class="px-3 py-3 text-sm text-center">
 								{#if deletingRecordId === record.id}
 									<div class="deleting-indicator">
 										<div class="spinner-small"></div>
@@ -1359,51 +1342,54 @@
 									</div>
 								{:else}
 									<button 
-										class="delete-btn" 
+										class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
 										on:click={() => deleteReceivingRecord(record.id)}
 										title="Delete this receiving record (Master Admin only)"
 									>
-										<span>🗑️</span>
+										🗑️
 									</button>
 								{/if}
-							</div>
+							</td>
 						{/if}
-					</div>
+					</tr>
 				{/each}
+					</tbody>
+				</table>
 			</div>
 		{/if}
-	</div>
 
-	<!-- Load More Records Button at Bottom -->
-	{#if allLoadedRecords.length < totalRecords && currentPage < totalPages}
-		<div class="bottom-load-more-container">
-			<button 
-				class="load-more-btn-bottom" 
-				on:click={() => {
-					isLoadingMore = true;
-					currentPage++;
-					console.log(`📄 Loading page ${currentPage}/${totalPages}...`);
-					loadPageData(currentPage).then(() => {
-						isLoadingMore = false;
-					}).catch(err => {
-						console.error('Error loading more records:', err);
-						isLoadingMore = false;
-					});
-				}}
-				disabled={isLoadingMore || loading}
-			>
-				{#if isLoadingMore}
-					<div class="spinner-small"></div>
-					Loading Page {currentPage + 1} of {totalPages}...
-				{:else}
-					📥 Load More Records (Page {currentPage} of {totalPages})
-				{/if}
-			</button>
-			<p class="load-more-info">
-				{paginatedRecords.length} records shown • {totalRecords - allLoadedRecords.length} remaining
-			</p>
+		<!-- Footer -->
+		<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex items-center justify-between">
+			<span>📊 Total: {totalRecords} • Page: {currentPage}/{totalPages} • Showing: {paginatedRecords.length}</span>
+			{#if totalPages > 1}
+				<div class="flex items-center gap-2">
+					<button 
+						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+						on:click={() => { currentPage = 1; loading = true; loadPageData(1).then(() => loading = false); }}
+						disabled={currentPage <= 1 || loading}
+					>⏮ First</button>
+					<button 
+						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+						on:click={() => { currentPage--; loading = true; loadPageData(currentPage).then(() => loading = false); }}
+						disabled={currentPage <= 1 || loading}
+					>◀ Prev</button>
+					<span class="px-3 py-1.5 text-sm font-bold text-slate-700">Page {currentPage} of {totalPages}</span>
+					<button 
+						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+						on:click={() => { currentPage++; loading = true; loadPageData(currentPage).then(() => loading = false); }}
+						disabled={currentPage >= totalPages || loading}
+					>Next ▶</button>
+					<button 
+						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+						on:click={() => { currentPage = totalPages; loading = true; loadPageData(currentPage).then(() => loading = false); }}
+						disabled={currentPage >= totalPages || loading}
+					>Last ⏭</button>
+				</div>
+			{/if}
 		</div>
-	{/if}
+			</div>
+		</div>
+	</div>
 </div>
 
 <!-- ERP Invoice Reference Popup -->
@@ -1465,414 +1451,7 @@
 {/if}
 
 <style>
-	.receiving-records-window {
-		padding: 24px;
-		height: 100vh;
-		background: white;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.filter-toolbar {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		margin-bottom: 20px;
-		padding: 16px 20px;
-		background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-		border: 1px solid #e2e8f0;
-		border-radius: 12px;
-		box-shadow: 
-			0 2px 4px rgba(0, 0, 0, 0.04),
-			0 8px 16px rgba(0, 0, 0, 0.06),
-			inset 0 1px 0 rgba(255, 255, 255, 0.8);
-		backdrop-filter: blur(10px);
-		flex-wrap: wrap;
-	}
-
-	.filter-label {
-		font-weight: 600;
-		color: #1e293b;
-		font-size: 13px;
-		white-space: nowrap;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.branch-filter-select {
-		padding: 10px 14px;
-		border: 1.5px solid #cbd5e1;
-		border-radius: 8px;
-		background: white;
-		font-size: 13px;
-		font-weight: 500;
-		cursor: pointer;
-		color: #1e293b;
-		transition: all 0.2s ease;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
-	}
-
-	.branch-filter-select:hover {
-		border-color: #94a3b8;
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06);
-		transform: translateY(-1px);
-	}
-
-	.branch-filter-select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 
-			0 4px 12px rgba(59, 130, 246, 0.15),
-			inset 0 1px 2px rgba(255, 255, 255, 0.5);
-		transform: translateY(-1px);
-	}
-
-	.filter-count {
-		font-size: 12px;
-		color: #64748b;
-		margin-left: 8px;
-		font-weight: 600;
-	}
-
-	.filter-divider {
-		width: 1px;
-		height: 28px;
-		background: linear-gradient(180deg, transparent 0%, #cbd5e1 50%, transparent 100%);
-		margin: 0 12px;
-		opacity: 0.6;
-	}
-
-	.vendor-search-input {
-		padding: 10px 14px;
-		border: 1.5px solid #cbd5e1;
-		border-radius: 8px;
-		background: white;
-		font-size: 13px;
-		color: #1e293b;
-		min-width: 220px;
-		transition: all 0.2s ease;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
-	}
-
-	.vendor-search-input::placeholder {
-		color: #94a3b8;
-		font-weight: 400;
-	}
-
-	.vendor-search-input:hover {
-		border-color: #94a3b8;
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06);
-		transform: translateY(-1px);
-	}
-
-	.vendor-search-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 
-			0 4px 12px rgba(59, 130, 246, 0.15),
-			inset 0 1px 2px rgba(255, 255, 255, 0.5);
-		transform: translateY(-1px);
-	}
-
-	.data-stats {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		margin-left: auto;
-		padding: 12px 16px;
-		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-		border: 1.5px solid #bfdbfe;
-		border-radius: 10px;
-		font-size: 12px;
-		font-weight: 600;
-		box-shadow: 
-			0 2px 4px rgba(30, 64, 175, 0.05),
-			0 8px 16px rgba(30, 64, 175, 0.08),
-			inset 0 1px 0 rgba(255, 255, 255, 0.6);
-	}
-
-	.stat-item {
-		color: #1e40af;
-		font-weight: 600;
-		white-space: nowrap;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.stat-item strong {
-		color: #0c4a6e;
-		font-weight: 700;
-		font-size: 13px;
-	}
-
-	.stat-separator {
-		color: #93c5fd;
-		margin: 0 2px;
-		opacity: 0.7;
-	}
-
-	.window-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-		padding-bottom: 16px;
-		border-bottom: 2px solid #e2e8f0;
-	}
-
-	.window-title h2 {
-		margin: 0 0 4px 0;
-		color: #1e293b;
-		font-size: 24px;
-		font-weight: 700;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.window-title p {
-		margin: 0;
-		color: #64748b;
-		font-size: 14px;
-		font-weight: 400;
-	}
-
-	.window-actions {
-		display: flex;
-		gap: 12px;
-		align-items: center;
-	}
-
-	.refresh-btn {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 16px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-	}
-
-	.refresh-btn:hover:not(:disabled) {
-		background: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
-	}
-
-	.refresh-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-		transform: none;
-	}
-
-	.refresh-btn span {
-		font-size: 16px;
-		animation: none;
-	}
-
-	.refresh-btn:hover:not(:disabled) span {
-		animation: rotate 0.6s ease-in-out;
-	}
-
-	@keyframes rotate {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
-
-	.filters-section {
-		margin-bottom: 24px;
-		padding: 20px;
-		background: #f8fafc;
-		border-radius: 12px;
-		border: 1px solid #e2e8f0;
-	}
-
-	.search-bar {
-		margin-bottom: 20px;
-	}
-
-	.search-input {
-		width: 100%;
-		padding: 12px 16px;
-		border: 2px solid #e2e8f0;
-		border-radius: 8px;
-		font-size: 16px;
-		transition: border-color 0.2s ease;
-	}
-
-	.search-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.filter-options-container {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-	}
-
-	.filter-radio-group {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-		gap: 12px;
-		padding: 16px;
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e2e8f0;
-	}
-
-	.filter-radio {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-		padding: 8px;
-		border-radius: 6px;
-		transition: background-color 0.2s ease;
-		user-select: none;
-	}
-
-	.filter-radio:hover {
-		background-color: #f0f9ff;
-	}
-
-	.filter-radio input[type="radio"] {
-		margin: 0;
-		cursor: pointer;
-		width: 16px;
-		height: 16px;
-	}
-
-	.filter-radio span {
-		font-size: 14px;
-		font-weight: 500;
-		color: #475569;
-	}
-
-	.filter-input-section {
-		display: flex;
-		gap: 12px;
-		align-items: center;
-		flex-wrap: wrap;
-		min-height: 44px;
-	}
-
-	.active-filter-content {
-		display: flex;
-		gap: 12px;
-		flex-wrap: wrap;
-		flex: 1;
-		align-items: center;
-	}
-
-	.filter-input {
-		padding: 10px 12px;
-		border: 2px solid #e2e8f0;
-		border-radius: 6px;
-		font-size: 14px;
-		transition: border-color 0.2s ease;
-		width: 100%;
-	}
-
-	.filter-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-	}
-
-	.filter-select {
-		padding: 10px 12px;
-		border: 2px solid #e2e8f0;
-		border-radius: 6px;
-		font-size: 14px;
-		background: white;
-		color: #1e293b;
-		cursor: pointer;
-		min-width: 250px;
-		transition: border-color 0.2s ease;
-	}
-
-	.filter-select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-	}
-
-	.load-filter-btn {
-		padding: 10px 24px;
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-size: 14px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
-		white-space: nowrap;
-	}
-
-	.load-filter-btn:hover:not(:disabled) {
-		background: linear-gradient(135deg, #059669 0%, #047857 100%);
-		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
-	}
-
-	.load-filter-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-		transform: none;
-	}
-
-	.archived-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		cursor: pointer;
-		font-weight: 500;
-		color: #475569;
-		padding: 0;
-		margin: 0;
-	}
-
-	.archived-toggle input[type="checkbox"] {
-		width: 18px;
-		height: 18px;
-		cursor: pointer;
-		transform: scale(1.2);
-	}
-
-	.toggle-label {
-		font-size: 0.95rem;
-		user-select: none;
-	}
-
-	.records-container {
-		background: white;
-		border-radius: 12px;
-		border: 1px solid #e2e8f0;
-		overflow: hidden;
-		flex: 1;
-		max-height: 70vh;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.loading {
-		text-align: center;
-		padding: 60px 20px;
-		color: #6b7280;
-	}
-
+	/* Spinner animations */
 	.spinner {
 		width: 40px;
 		height: 40px;
@@ -1887,68 +1466,7 @@
 		to { transform: rotate(360deg); }
 	}
 
-	.no-records {
-		text-align: center;
-		padding: 60px 20px;
-		color: #6b7280;
-	}
-
-	.records-table {
-		display: flex;
-		flex-direction: column;
-		flex: 1;
-		overflow: auto;
-	}
-
-	.table-header {
-		display: grid;
-		grid-template-columns: 40px 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
-		gap: 16px;
-		padding: 16px;
-		background: #f8fafc;
-		border-bottom: 1px solid #e2e8f0;
-		font-weight: 600;
-		color: #374151;
-		font-size: 14px;
-		position: sticky;
-		top: 0;
-		z-index: 10;
-		flex-shrink: 0;
-	}
-
-	.table-row {
-		display: grid;
-		grid-template-columns: 40px 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
-		gap: 16px;
-		padding: 16px;
-		border-bottom: 1px solid #f1f5f9;
-		transition: background-color 0.2s ease;
-	}
-
-	.table-row:hover {
-		background: #f8fafc;
-	}
-
-	.cell {
-		display: flex;
-		align-items: center;
-		font-size: 14px;
-		color: #374151;
-	}
-
-	.serial-number-cell {
-		justify-content: center;
-		font-weight: 600;
-		color: #64748b;
-		background: #f0f4f8;
-		border-radius: 4px;
-		padding: 8px;
-	}
-
-	.certificate-cell {
-		justify-content: center;
-	}
-
+	/* Certificate styles */
 	.certificate-thumbnail {
 		width: 80px;
 		height: 60px;
@@ -2040,158 +1558,6 @@
 		border-radius: 8px;
 		color: #92400e;
 		font-size: 10px;
-	}
-
-	.no-certificate {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		width: 80px;
-		height: 60px;
-		background: #f1f5f9;
-		border-radius: 8px;
-		color: #6b7280;
-		font-size: 12px;
-	}
-
-	.no-certificate span {
-		font-size: 20px;
-		margin-bottom: 4px;
-	}
-
-	.bill-info, .vendor-info, .payment-info, .amounts, .reviewed-by-info {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.bill-info strong, .vendor-info strong, .payment-info strong, .reviewed-by-info strong {
-		color: #1f2937;
-		font-weight: 600;
-	}
-
-	.bill-info small, .vendor-info small, .payment-info small, .reviewed-by-info small {
-		color: #6b7280;
-		font-size: 12px;
-	}
-
-	.schedule-status {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.status-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 6px 12px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 600;
-		white-space: nowrap;
-	}
-
-	.status-badge.scheduled {
-		background: #eff6ff;
-		color: #2563eb;
-		border: 1px solid #bfdbfe;
-	}
-
-	.status-badge.paid {
-		background: #f0fdf4;
-		color: #16a34a;
-		border: 1px solid #bbf7d0;
-	}
-
-	.status-badge.not-scheduled {
-		background: #fef3c7;
-		color: #d97706;
-		border: 1px solid #fde68a;
-	}
-
-	.amounts div {
-		font-size: 12px;
-		color: #374151;
-	}
-
-	.erp-reference {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		text-align: center;
-		font-size: 12px;
-		padding: 4px 8px;
-		border-radius: 6px;
-		font-weight: 500;
-	}
-
-	.erp-ref-value {
-		background: #f0fdf4;
-		color: #16a34a;
-		border: 1px solid #bbf7d0;
-		padding: 6px 10px;
-		border-radius: 6px;
-		font-family: 'Courier New', monospace;
-		font-weight: 600;
-		font-size: 11px;
-		word-break: break-all;
-	}
-
-	.erp-ref-empty {
-		background: #fef2f2;
-		color: #dc2626;
-		border: 1px solid #fecaca;
-		padding: 6px 10px;
-		border-radius: 6px;
-		font-style: italic;
-		font-size: 11px;
-	}
-
-	.erp-ref-empty.clickable {
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.erp-ref-empty.clickable:hover {
-		background: #fee2e2;
-		border-color: #fca5a5;
-		transform: translateY(-1px);
-	}
-
-	/* Actions Cell and Delete Button Styles */
-	.actions-cell {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.delete-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 36px;
-		height: 36px;
-		padding: 0;
-		background: #fee2e2;
-		border: 1px solid #fecaca;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		color: #dc2626;
-		font-size: 16px;
-	}
-
-	.delete-btn:hover {
-		background: #fecaca;
-		border-color: #fca5a5;
-		transform: scale(1.1);
-		box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
-	}
-
-	.delete-btn:active {
-		transform: scale(0.95);
 	}
 
 	.deleting-indicator {
@@ -2364,26 +1730,6 @@
 		cursor: not-allowed;
 	}
 
-	.days-remaining {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 8px 12px;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 12px;
-		text-align: center;
-		background: #f0fdf4;
-		color: #16a34a;
-		border: 1px solid #bbf7d0;
-	}
-
-	.days-remaining.overdue {
-		background: #fef2f2;
-		color: #dc2626;
-		border-color: #fecaca;
-	}
-
 	.upload-bill-container {
 		display: flex;
 		align-items: center;
@@ -2488,8 +1834,7 @@
 		align-items: center;
 		justify-content: center;
 		width: 100%;
-		height: 100%;
-		min-height: 50px;
+		height: 50px;
 	}
 
 	.upload-excel-btn {
@@ -2498,7 +1843,7 @@
 		align-items: center;
 		justify-content: center;
 		width: 100%;
-		height: 100%;
+		height: 50px;
 		background: #f0f9ff;
 		border: 2px dashed #0ea5e9;
 		border-radius: 6px;
@@ -2507,7 +1852,6 @@
 		transition: all 0.3s ease;
 		font-size: 8px;
 		padding: 4px;
-		min-height: 50px;
 	}
 
 	.upload-excel-btn:hover {
@@ -2523,22 +1867,12 @@
 
 	.excel-file-container {
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
 		align-items: center;
 		justify-content: center;
 		width: 100%;
-		height: 100%;
-		min-height: 50px;
-		gap: 0.5rem;
-	}
-
-	.pr-excel-verification {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.25rem;
-		width: 100%;
-		margin-top: 0.5rem;
+		height: 50px;
+		gap: 6px;
 	}
 
 	.verification-checkbox {
@@ -2575,19 +1909,12 @@
 		user-select: none;
 	}
 
-	.verification-date {
-		font-size: 0.625rem;
-		color: #64748b;
-		font-style: italic;
-	}
-
 	.excel-file-link {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		width: 100%;
-		height: 100%;
+		height: 50px;
 		background: #f0fdf4;
 		border: 2px solid #22c55e;
 		border-radius: 6px;
@@ -2595,8 +1922,7 @@
 		text-decoration: none;
 		transition: all 0.3s ease;
 		font-size: 8px;
-		padding: 4px;
-		min-height: 50px;
+		padding: 4px 8px;
 		cursor: pointer;
 	}
 
@@ -2659,304 +1985,6 @@
 		letter-spacing: 0.5px;
 	}
 
-	/* Pagination Controls Styles */
-	.pagination-controls {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 16px;
-		padding: 24px;
-		background: #f9fafb;
-		border-top: 1px solid #e5e7eb;
-		margin-top: 12px;
-		border-radius: 0 0 8px 8px;
-		flex-wrap: wrap;
-	}
-
-	.pagination-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 10px 16px;
-		background: #3b82f6;
-		color: white;
-		border: 1px solid #3b82f6;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-		transition: all 0.2s ease;
-		white-space: nowrap;
-	}
-
-	.pagination-btn:hover:not(:disabled) {
-		background: #2563eb;
-		border-color: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2);
-	}
-
-	.pagination-btn:active:not(:disabled) {
-		transform: translateY(0);
-	}
-
-	.pagination-btn:disabled {
-		background: #d1d5db;
-		border-color: #d1d5db;
-		color: #9ca3af;
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	.load-more-container {
-		display: flex;
-		justify-content: center;
-		padding: 24px 16px;
-		background: #f8fafc;
-		border-top: 1px solid #e2e8f0;
-		margin-top: 12px;
-	}
-
-	.load-more-btn {
-		padding: 10px 20px;
-		background: #059669;
-		color: white;
-		border: 1px solid #059669;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-		white-space: nowrap;
-		transition: all 0.2s ease;
-		display: flex;
-		gap: 6px;
-		align-items: center;
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		background: #047857;
-		border-color: #047857;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 6px rgba(5, 150, 105, 0.2);
-	}
-
-	.load-more-btn:active:not(:disabled) {
-		transform: translateY(0);
-	}
-
-	.load-more-btn:disabled {
-		background: #d1d5db;
-		border-color: #d1d5db;
-		color: #9ca3af;
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	.bottom-load-more-container {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 12px;
-		padding: 32px 20px;
-		background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-		border-top: 2px solid #e2e8f0;
-		margin-top: 16px;
-	}
-
-	.load-more-btn-bottom {
-		padding: 14px 32px;
-		background: linear-gradient(135deg, #059669 0%, #047857 100%);
-		color: white;
-		border: 2px solid #059669;
-		border-radius: 10px;
-		cursor: pointer;
-		font-size: 15px;
-		font-weight: 600;
-		white-space: nowrap;
-		transition: all 0.3s ease;
-		display: flex;
-		gap: 8px;
-		align-items: center;
-		box-shadow: 
-			0 4px 6px rgba(5, 150, 105, 0.1),
-			0 10px 20px rgba(5, 150, 105, 0.15);
-	}
-
-	.load-more-btn-bottom:hover:not(:disabled) {
-		background: linear-gradient(135deg, #047857 0%, #065f46 100%);
-		border-color: #047857;
-		transform: translateY(-3px);
-		box-shadow: 
-			0 6px 8px rgba(5, 150, 105, 0.15),
-			0 15px 30px rgba(5, 150, 105, 0.25);
-	}
-
-	.load-more-btn-bottom:active:not(:disabled) {
-		transform: translateY(-1px);
-	}
-
-	.load-more-btn-bottom:disabled {
-		background: linear-gradient(135deg, #d1d5db 0%, #cbd5e1 100%);
-		border-color: #d1d5db;
-		color: #9ca3af;
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	.load-more-info {
-		font-size: 13px;
-		color: #64748b;
-		margin: 0;
-		text-align: center;
-	}
-
-	.pagination-info {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		color: #6b7280;
-		font-size: 14px;
-		font-weight: 500;
-	}
-
-	.page-number {
-		color: #374151;
-		font-weight: 600;
-	}
-
-	.record-count {
-		color: #9ca3af;
-		font-size: 12px;
-	}
-
-	/* Table Footer Styles */
-	/* Responsive adjustments */
-	@media (max-width: 768px) {
-		.receiving-records-window {
-			padding: 16px;
-		}
-
-		.window-header {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 12px;
-		}
-
-		.window-title h2 {
-			font-size: 20px;
-		}
-
-		.window-actions {
-			align-self: flex-end;
-		}
-
-		.refresh-btn {
-			padding: 8px 12px;
-			font-size: 12px;
-		}
-
-		.refresh-btn span {
-			font-size: 14px;
-		}
-
-		.table-header, .table-row {
-			grid-template-columns: 80px 1fr 1fr 1fr 80px;
-			gap: 8px;
-			font-size: 12px;
-		}
-
-		.table-row .cell:nth-child(2),
-		.table-row .cell:nth-child(3),
-		.table-row .cell:nth-child(7),
-		.table-row .cell:nth-child(8),
-		.table-row .cell:nth-child(9),
-		.table-row .cell:nth-child(10),
-		.table-row .cell:nth-child(11) {
-			display: none;
-		}
-
-		.certificate-thumbnail {
-			width: 60px;
-			height: 45px;
-		}
-
-		.upload-bill-container {
-			width: 60px;
-			height: 45px;
-		}
-
-		.generate-certificate-container {
-			width: 60px;
-			height: 45px;
-		}
-
-		.generate-certificate-btn {
-			font-size: 8px;
-		}
-
-		.generate-certificate-btn span {
-			font-size: 12px;
-		}
-
-		.upload-bill-btn {
-			font-size: 10px;
-		}
-
-		.upload-bill-btn span {
-			font-size: 12px;
-		}
-
-		.upload-excel-container {
-			width: 50px;
-			height: 40px;
-		}
-
-		.upload-excel-btn {
-			font-size: 7px;
-			min-height: 40px;
-		}
-
-		.upload-excel-btn span {
-			font-size: 10px;
-		}
-
-		.excel-file-container {
-			width: 50px;
-			height: 40px;
-		}
-
-		.delete-btn {
-			width: 30px;
-			height: 30px;
-			font-size: 14px;
-		}
-
-		.filters-row {
-			grid-template-columns: 1fr;
-		}
-
-		/* Hide original bill, PR Excel, received by, payment info, days remaining, amounts, and ERP columns on mobile for space */
-		.table-header .header-cell:nth-child(2),
-		.table-header .header-cell:nth-child(3),
-		.table-header .header-cell:nth-child(7),
-		.table-header .header-cell:nth-child(8),
-		.table-header .header-cell:nth-child(9),
-		.table-header .header-cell:nth-child(10),
-		.table-header .header-cell:nth-child(11),
-		.table-header .header-cell:nth-child(12),
-		.table-row .cell:nth-child(2),
-		.table-row .cell:nth-child(3),
-		.table-row .cell:nth-child(7),
-		.table-row .cell:nth-child(8),
-		.table-row .cell:nth-child(9),
-		.table-row .cell:nth-child(10),
-		.table-row .cell:nth-child(11),
-		.table-row .cell:nth-child(12) {
-			display: none;
-		}
-	}
 </style>
 
 
