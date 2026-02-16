@@ -981,9 +981,6 @@
                             {$locale === 'ar' ? 'الفرع' : 'Branch'}
                         </th>
                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'الانتهاك' : 'Violation'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
                             {$locale === 'ar' ? 'مُبلّغ إلى' : 'Reports To'}
                         </th>
                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
@@ -1014,21 +1011,25 @@
                                     #{incident.id}
                                 </span>
                             </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
-                                {$locale === 'ar' 
-                                    ? incident.incident_types?.incident_type_ar 
-                                    : incident.incident_types?.incident_type_en}
+                            <td class="px-4 py-3.5 text-sm text-slate-700">
+                                <div class="font-medium">
+                                    {$locale === 'ar' 
+                                        ? incident.incident_types?.incident_type_ar 
+                                        : incident.incident_types?.incident_type_en}
+                                </div>
+                                {#if incident.warning_violation}
+                                    <div class="text-xs text-slate-500 mt-0.5">
+                                        {$locale === 'ar' 
+                                            ? incident.warning_violation?.name_ar 
+                                            : incident.warning_violation?.name_en}
+                                    </div>
+                                {/if}
                             </td>
                             <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
                                 {incident.employeeName}
                             </td>
                             <td class="px-4 py-3.5 text-sm text-slate-600">
                                 {incident.branchName}
-                            </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-700">
-                                {$locale === 'ar' 
-                                    ? incident.warning_violation?.name_ar 
-                                    : incident.warning_violation?.name_en}
                             </td>
                             <td class="px-4 py-3.5 text-sm text-slate-700">
                                 {#if incident.reportToNames && incident.reportToNames.length > 0}
