@@ -2407,14 +2407,16 @@
 		link.click();
 		URL.revokeObjectURL(url);
 
-		// --- Also export separate Excel files per offer type, bundled in a ZIP ---
+		// --- Also export separate XLSX files per offer type, bundled in a ZIP ---
 		try {
 			const zip = new JSZip();
 			const selectedOffer2 = getSelectedOffer();
 			const folderName = selectedOffer2
 				? `${selectedOffer2.template_name || ''}_${selectedOffer2.offer_name?.name_en || 'Offer'}`.replace(/\s+/g, '_')
 				: 'Offer_Export';
-			const folder = zip.folder(folderName);
+			// Main folder > Files subfolder
+			const mainFolder = zip.folder(folderName);
+			const filesFolder = mainFolder?.folder('Files');
 
 			// Group products by offer type
 			const groupedByType: Record<string, any[]> = {};
@@ -2424,16 +2426,41 @@
 				groupedByType[offerType].push(product);
 			}
 
+			// Build a common text file with short names and offer dates
+			let shortNameLines: string[] = [];
+
+			// Add offer start and end dates at the top
+			if (selectedOffer2?.start_date) {
+				shortNameLines.push(`Start Date: ${selectedOffer2.start_date}`);
+			}
+			if (selectedOffer2?.end_date) {
+				// End date + 1 day at 12:15 AM
+				const endDate = new Date(selectedOffer2.end_date);
+				endDate.setDate(endDate.getDate() + 1);
+				const yyyy = endDate.getFullYear();
+				const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+				const dd = String(endDate.getDate()).padStart(2, '0');
+				shortNameLines.push(`End Date: ${yyyy}-${mm}-${dd} (Original End Date: ${selectedOffer2.end_date})`);
+				shortNameLines.push(`Time: 12:15 AM`);
+			}
+			if (shortNameLines.length > 0) {
+				shortNameLines.push(''); // blank line separator
+			}
+
 			for (const [offerType, products] of Object.entries(groupedByType)) {
 				const sampleQty = products[0]?.offer_qty || 1;
+				const shortName = getShortOfferTypeFileName(offerType, selectedOffer2);
+				shortNameLines.push(`${shortName} (${offerType})`);
 
-				// Build CSV content: Barcode, Price
-				let csvLines = ['Barcode,Price'];
+				// Build XLSX workbook with Barcode, Price
+				const typeWorkbook = new ExcelJS.Workbook();
+				const typeSheet = typeWorkbook.addWorksheet('Offers');
+				typeSheet.addRow(['Barcode', 'Price']);
 
 				if (sampleQty === 1) {
 					for (const p of products) {
 						const totalOfferPrice = p.total_offer_price || ((p.offer_price || 0) * (p.offer_qty || 1));
-						csvLines.push(`${p.barcode},${totalOfferPrice}`);
+						typeSheet.addRow([p.barcode, totalOfferPrice]);
 					}
 				} else {
 					for (const p of products) {
@@ -2441,22 +2468,28 @@
 						const qty = p.offer_qty || 1;
 						const divided = qty > 0 ? Math.round((totalOfferPrice / qty) * 1000000) / 1000000 : 0;
 						const rounded2 = Math.round(divided * 100) / 100;
-						let entryAmount;
+						let entryAmount: number;
 						if (Math.abs(divided - rounded2) < 0.00001) {
-							entryAmount = rounded2.toFixed(2);
+							entryAmount = rounded2;
 						} else {
 							const raw3 = Math.floor(divided * 1000) / 1000;
-							entryAmount = (Math.floor(raw3 * 100) / 100).toFixed(2);
+							entryAmount = Math.floor(raw3 * 100) / 100;
 						}
-						csvLines.push(`${p.barcode},${entryAmount}`);
+						typeSheet.addRow([p.barcode, entryAmount]);
 					}
 				}
 
-				const csvContent = csvLines.join('\n');
-				const shortName = getShortOfferTypeFileName(offerType, selectedOffer2);
-				// Each offer type gets its own subfolder with the short name, file is "offers.csv"
-				folder?.file(`${shortName}/offers.csv`, csvContent);
+				// Style header row
+				typeSheet.getRow(1).font = { bold: true };
+				typeSheet.columns.forEach(col => { col.width = 20; });
+
+				// Write XLSX directly into Files folder with full offer type name
+				const typeBuffer = await typeWorkbook.xlsx.writeBuffer();
+				filesFolder?.file(`${offerType}.xlsx`, typeBuffer as ArrayBuffer);
 			}
+
+			// Add README.txt to main folder (not inside Files)
+			mainFolder?.file('README.txt', shortNameLines.join('\n'));
 
 			// Generate and download zip
 			const zipBlob = await zip.generateAsync({ type: 'blob' });
