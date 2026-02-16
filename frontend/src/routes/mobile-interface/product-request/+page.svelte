@@ -427,14 +427,22 @@
 		items = items.filter((_, i) => i !== index);
 	}
 
+	let barcodeDetector: any = null;
+	let scanCanvas: HTMLCanvasElement | null = null;
+	let scanCtx: CanvasRenderingContext2D | null = null;
+
 	async function startScan() {
 		scanning = true;
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-			await new Promise(r => setTimeout(r, 50));
+			stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+			});
+			await new Promise(r => setTimeout(r, 100));
 			if (videoEl) {
 				videoEl.srcObject = stream;
 				await videoEl.play();
+				await new Promise(r => setTimeout(r, 500));
+				await initDetector();
 				detectBarcode();
 			}
 		} catch (err) {
@@ -443,28 +451,73 @@
 		}
 	}
 
-	function detectBarcode() {
+	async function initDetector() {
+		// Try native BarcodeDetector first (Chrome/Android)
 		// @ts-ignore
 		if ('BarcodeDetector' in window) {
-			// @ts-ignore
-			const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
-			scanInterval = setInterval(async () => {
-				if (!videoEl || videoEl.readyState < 2) return;
-				try {
-					const barcodes = await detector.detect(videoEl);
-					if (barcodes.length > 0) {
-						modalBarcode = barcodes[0].rawValue;
-						stopScan();
-						lookupProductName(modalBarcode);
-					}
-				} catch (_) {}
-			}, 300);
+			try {
+				// @ts-ignore
+				barcodeDetector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
+				console.log('[scan] Using native BarcodeDetector');
+				return;
+			} catch (e) {
+				console.warn('[scan] Native BarcodeDetector failed:', e);
+			}
 		}
+		// Fallback: dynamically import polyfill (needed for iOS Safari)
+		try {
+			const { BarcodeDetector: Polyfill } = await import('barcode-detector');
+			barcodeDetector = new Polyfill({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
+			console.log('[scan] Using barcode-detector polyfill');
+		} catch (e) {
+			console.error('[scan] Failed to load barcode detector polyfill:', e);
+		}
+	}
+
+	function detectBarcode() {
+		if (!barcodeDetector) {
+			console.error('[scan] No barcode detector available');
+			stopScan();
+			return;
+		}
+
+		scanCanvas = document.createElement('canvas');
+		scanCtx = scanCanvas.getContext('2d');
+
+		scanInterval = setInterval(async () => {
+			if (!videoEl || videoEl.readyState < 2 || !scanCanvas || !scanCtx) return;
+			try {
+				const vw = videoEl.videoWidth;
+				const vh = videoEl.videoHeight;
+				if (vw === 0 || vh === 0) return;
+				scanCanvas.width = vw;
+				scanCanvas.height = vh;
+				scanCtx.drawImage(videoEl, 0, 0, vw, vh);
+
+				let barcodes: any[] = [];
+				try {
+					barcodes = await barcodeDetector.detect(scanCanvas);
+				} catch (_) {
+					try {
+						const imageData = scanCtx.getImageData(0, 0, vw, vh);
+						barcodes = await barcodeDetector.detect(imageData);
+					} catch (__) {}
+				}
+
+				if (barcodes.length > 0) {
+					modalBarcode = barcodes[0].rawValue;
+					stopScan();
+					lookupProductName(modalBarcode);
+				}
+			} catch (_) {}
+		}, 400);
 	}
 
 	function stopScan() {
 		if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
 		if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+		scanCanvas = null;
+		scanCtx = null;
 		scanning = false;
 	}
 
