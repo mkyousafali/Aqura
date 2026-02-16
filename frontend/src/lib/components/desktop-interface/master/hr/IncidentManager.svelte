@@ -83,6 +83,16 @@
         return true;
     });
     
+    // Utility: split array into chunks to avoid URL length limits
+    function chunkArray<T>(arr: T[], size: number): T[][] {
+        if (arr.length === 0) return [];
+        const chunks: T[][] = [];
+        for (let i = 0; i < arr.length; i += size) {
+            chunks.push(arr.slice(i, i + size));
+        }
+        return chunks;
+    }
+    
     function clearFilters() {
         filterIncidentType = '';
         filterBranch = '';
@@ -143,121 +153,111 @@
                 return;
             }
             
-            // Enrich incidents with employee and branch names
-            const enrichedIncidents = await Promise.all(
-                data.map(async (incident) => {
-                    let employeeName = 'Unknown';
-                    let branchName = 'Unknown';
-                    let reportToNames: any[] = [];
-                    let incidentActions: any[] = [];
-                    let reporterName = 'Unknown';
-                    
-                    try {
-                        // Get employee name
-                        if (incident.employee_id) {
-                            const { data: empData } = await supabase
-                                .from('hr_employee_master')
-                                .select('name_en, name_ar')
-                                .eq('id', incident.employee_id)
-                                .single();
-                            
-                            if (empData) {
-                                employeeName = $locale === 'ar' ? empData.name_ar : empData.name_en;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Employee fetch error:', e);
-                    }
-                    
-                    try {
-                        // Get branch name and location
-                        if (incident.branch_id) {
-                            const { data: branchData } = await supabase
-                                .from('branches')
-                                .select('name_en, name_ar, location_en, location_ar')
-                                .eq('id', incident.branch_id)
-                                .single();
-                            
-                            if (branchData) {
-                                const name = $locale === 'ar' ? branchData.name_ar : branchData.name_en;
-                                const location = $locale === 'ar' ? branchData.location_ar : branchData.location_en;
-                                branchName = `${name} - ${location}`;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Branch fetch error:', e);
-                    }
-                    
-                    try {
-                        // Get user names and statuses for reports_to_user_ids
-                        if (incident.reports_to_user_ids && Array.isArray(incident.reports_to_user_ids) && incident.reports_to_user_ids.length > 0) {
-                            const { data: reportUsers } = await supabase
-                                .from('hr_employee_master')
-                                .select('user_id, name_en, name_ar')
-                                .in('user_id', incident.reports_to_user_ids);
-                            
-                            if (reportUsers && reportUsers.length > 0) {
-                                const userStatusesObj = typeof incident.user_statuses === 'string' 
-                                    ? JSON.parse(incident.user_statuses) 
-                                    : (incident.user_statuses || {});
-                                
-                                reportToNames = reportUsers.map((u: any) => {
-                                    const name = $locale === 'ar' ? u.name_ar : u.name_en;
-                                    const statusData = userStatusesObj[u.user_id] || {};
-                                    return {
-                                        name,
-                                        userId: u.user_id,
-                                        status: statusData.status || 'unknown'
-                                    };
-                                });
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Reports-to users fetch error:', e);
-                    }
-                    
-                    try {
-                        // Get incident actions (warnings, fines)
-                        const { data: actionsData } = await supabase
-                            .from('incident_actions')
-                            .select('*')
-                            .eq('incident_id', incident.id)
-                            .order('created_at', { ascending: false });
-                        
-                        if (actionsData && actionsData.length > 0) {
-                            incidentActions = actionsData;
-                        }
-                    } catch (e) {
-                        console.warn('Incident actions fetch error:', e);
-                    }
-                    
-                    try {
-                        // Get reporter name (who created the incident)
-                        if (incident.created_by) {
-                            const { data: reporterData } = await supabase
-                                .from('hr_employee_master')
-                                .select('name_en, name_ar')
-                                .eq('user_id', incident.created_by)
-                                .single();
-                            
-                            if (reporterData) {
-                                reporterName = $locale === 'ar' ? reporterData.name_ar : reporterData.name_en;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Reporter fetch error:', e);
-                    }
-                    
-                    return {
-                        ...incident,
-                        employeeName,
-                        branchName,
-                        reportToNames,
-                        incidentActions,
-                        reporterName
-                    };
-                })
-            );
+            // --- Batch all lookups instead of per-incident queries ---
+            
+            // 1. Collect all unique IDs needed
+            const allEmployeeIds = [...new Set(data.map(d => d.employee_id).filter(Boolean))] as string[];
+            const allBranchIds = [...new Set(data.map(d => d.branch_id).filter(Boolean))] as number[];
+            const allCreatedByIds = [...new Set(data.map(d => d.created_by).filter(Boolean))] as string[];
+            const allReportToIds = [...new Set(data.flatMap(d => 
+                Array.isArray(d.reports_to_user_ids) ? d.reports_to_user_ids : []
+            ).filter(Boolean))] as string[];
+            const allIncidentIds = data.map(d => d.id);
+            
+            // Merge all user_ids that need name lookup (created_by + reports_to)
+            const allUserIds = [...new Set([...allCreatedByIds, ...allReportToIds])] as string[];
+            
+            // 2. Fetch all data in parallel (batched)
+            const [empResult, branchResult, actionsResult] = await Promise.all([
+                // Employees by id (TEXT)
+                allEmployeeIds.length > 0
+                    ? supabase.from('hr_employee_master').select('id, name_en, name_ar').in('id', allEmployeeIds)
+                    : { data: [] as any[] },
+                // Branches
+                allBranchIds.length > 0
+                    ? supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').in('id', allBranchIds)
+                    : { data: [] as any[] },
+                // All incident actions at once
+                allIncidentIds.length > 0
+                    ? supabase.from('incident_actions').select('*').in('incident_id', allIncidentIds).order('created_at', { ascending: false })
+                    : { data: [] as any[] },
+            ]);
+            
+            // Users by user_id — batch in chunks of 30 to avoid URL length limits
+            const userChunks = chunkArray(allUserIds, 30);
+            const userResults = userChunks.length > 0
+                ? await Promise.all(userChunks.map(chunk =>
+                    supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', chunk)
+                ))
+                : [];
+            
+            // 3. Build lookup maps
+            const empMap = new Map((empResult.data || []).map((e: any) => [e.id, e]));
+            const branchMap = new Map((branchResult.data || []).map((b: any) => [b.id, b]));
+            const userMap = new Map<string, any>();
+            for (const r of userResults) {
+                for (const u of (r.data || [])) {
+                    userMap.set(u.user_id, u);
+                }
+            }
+            // Group actions by incident_id
+            const actionsMap = new Map<string, any[]>();
+            for (const a of (actionsResult.data || [])) {
+                if (!actionsMap.has(a.incident_id)) actionsMap.set(a.incident_id, []);
+                actionsMap.get(a.incident_id)!.push(a);
+            }
+            
+            // 4. Enrich incidents using lookup maps (synchronous, no extra queries)
+            const enrichedIncidents = data.map((incident) => {
+                // Employee name
+                const emp = (incident.employee_id ? empMap.get(incident.employee_id) : null) as any;
+                const employeeName = emp ? ($locale === 'ar' ? emp.name_ar : emp.name_en) : 'Unknown';
+                
+                // Branch name
+                const branch = (incident.branch_id ? branchMap.get(incident.branch_id) : null) as any;
+                let branchName = 'Unknown';
+                if (branch) {
+                    const name = $locale === 'ar' ? branch.name_ar : branch.name_en;
+                    const location = $locale === 'ar' ? branch.location_ar : branch.location_en;
+                    branchName = `${name} - ${location}`;
+                }
+                
+                // Report-to user names with statuses
+                let reportToNames: any[] = [];
+                if (Array.isArray(incident.reports_to_user_ids) && incident.reports_to_user_ids.length > 0) {
+                    const userStatusesObj = typeof incident.user_statuses === 'string'
+                        ? JSON.parse(incident.user_statuses)
+                        : (incident.user_statuses || {});
+                    reportToNames = incident.reports_to_user_ids
+                        .map((uid: string) => {
+                            const u = userMap.get(uid);
+                            if (!u) return null;
+                            const statusData = userStatusesObj[uid] || {};
+                            return {
+                                name: $locale === 'ar' ? u.name_ar : u.name_en,
+                                userId: uid,
+                                status: statusData.status || 'unknown'
+                            };
+                        })
+                        .filter(Boolean);
+                }
+                
+                // Incident actions
+                const incidentActions = actionsMap.get(incident.id) || [];
+                
+                // Reporter name
+                const reporter = incident.created_by ? userMap.get(incident.created_by) : null;
+                const reporterName = reporter ? ($locale === 'ar' ? reporter.name_ar : reporter.name_en) : 'Unknown';
+                
+                return {
+                    ...incident,
+                    employeeName,
+                    branchName,
+                    reportToNames,
+                    incidentActions,
+                    reporterName
+                };
+            });
             
             incidents = enrichedIncidents;
             console.log('Loaded incidents:', enrichedIncidents);
