@@ -157,7 +157,7 @@
 			.from('user_theme_assignments')
 			.select('theme_id')
 			.eq('user_id', $currentUser.id)
-			.single();
+			.maybeSingle();
 		currentThemeId = data?.theme_id || null;
 	}
 

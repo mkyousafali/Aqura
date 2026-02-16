@@ -1,6 +1,6 @@
 {
   "name": "aqura-frontend",
-  "version": "AQ49.22.14.15",
+  "version": "AQ50.22.14.15",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,6 +20,7 @@
     "i18n:build": "node scripts/build-i18n.js"
   },
   "devDependencies": {
+    "@sveltejs/adapter-node": "^5.5.3",
     "@sveltejs/adapter-static": "^3.0.5",
     "@sveltejs/adapter-vercel": "^5.10.3",
     "@sveltejs/kit": "^2.9.0",
