@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { compressImage } from '$lib/utils/imageCompression';
     import { onMount, onDestroy } from 'svelte';
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
@@ -419,11 +420,13 @@
             
             photoFile = file;
             
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                photoPreview = e.target?.result as string;
-            };
-            reader.readAsDataURL(file);
+            try {
+                photoPreview = await compressImage(file);
+            } catch {
+                const reader = new FileReader();
+                reader.onload = (e) => { photoPreview = e.target?.result as string; };
+                reader.readAsDataURL(file);
+            }
             
             completionData.photo_uploaded_completed = true;
             errorMessage = '';

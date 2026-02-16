@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { compressImage } from '$lib/utils/imageCompression';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -63,18 +64,23 @@
 	let errorMessage = '';
 	let showUserPopup = false;
 
-	function handleFilesSelected(event: Event) {
+	async function handleFilesSelected(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const files = Array.from(target.files || []);
 		for (const file of files) {
 			if (file.size > 10 * 1024 * 1024) continue;
 			attachedFiles = [...attachedFiles, file];
 			if (file.type.startsWith('image/')) {
-				const reader = new FileReader();
-				reader.onload = (e) => {
-					if (e.target?.result) previewUrls = [...previewUrls, e.target.result as string];
-				};
-				reader.readAsDataURL(file);
+				try {
+					const compressed = await compressImage(file);
+					previewUrls = [...previewUrls, compressed];
+				} catch {
+					const reader = new FileReader();
+					reader.onload = (e) => {
+						if (e.target?.result) previewUrls = [...previewUrls, e.target.result as string];
+					};
+					reader.readAsDataURL(file);
+				}
 			} else {
 				previewUrls = [...previewUrls, ''];
 			}

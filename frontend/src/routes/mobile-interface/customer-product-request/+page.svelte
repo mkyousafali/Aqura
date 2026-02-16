@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { compressImage } from '$lib/utils/imageCompression';
 	import { getTranslation } from '$lib/i18n';
 	import { currentLocale } from '$lib/i18n';
 	import { onDestroy } from 'svelte';
@@ -198,14 +199,16 @@
 		showCamera = false;
 	}
 
-	function handleFileSelect(e: Event) {
+	async function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
 		if (input.files && input.files[0]) {
-			const reader = new FileReader();
-			reader.onload = (ev) => {
-				modalPhoto = ev.target?.result as string;
-			};
-			reader.readAsDataURL(input.files[0]);
+			try {
+				modalPhoto = await compressImage(input.files[0]);
+			} catch {
+				const reader = new FileReader();
+				reader.onload = (ev) => { modalPhoto = ev.target?.result as string; };
+				reader.readAsDataURL(input.files[0]);
+			}
 		}
 	}
 

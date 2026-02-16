@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { compressImage } from '$lib/utils/imageCompression';
 	import { getTranslation } from '$lib/i18n';
 	import { currentLocale } from '$lib/i18n';
 	import { onDestroy } from 'svelte';
@@ -67,12 +68,13 @@
 	let ocrNoResult = false;
 
 	function openSavePopup() {
-		requestType = null;
 		selectedBranchId = null;
 		selectedUserId = null;
 		selectedUserName = '';
 		branchUsers = [];
 		showSavePopup = true;
+		// Load data based on already-selected type
+		if (requestType) selectRequestType(requestType);
 	}
 
 	function closeSavePopup() {
@@ -416,7 +418,8 @@
 	}
 
 	function addItem() {
-		items = [...items, { barcode: modalBarcode, productName: modalProductName, quantity: modalQuantity, photo: modalPhoto }];
+		const photo = requestType === 'PO' ? modalPhoto : null;
+		items = [...items, { barcode: modalBarcode, productName: modalProductName, quantity: modalQuantity, photo }];
 		closeModal();
 	}
 
@@ -487,15 +490,18 @@
 		lookingUpProduct = false;
 	}
 
-	function handlePhoto(event: Event) {
+	async function handlePhoto(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const file = target.files?.[0];
 		if (file) {
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				modalPhoto = e.target?.result as string;
-			};
-			reader.readAsDataURL(file);
+			try {
+				modalPhoto = await compressImage(file);
+			} catch {
+				// Fallback to uncompressed
+				const reader = new FileReader();
+				reader.onload = (e) => { modalPhoto = e.target?.result as string; };
+				reader.readAsDataURL(file);
+			}
 		}
 	}
 
@@ -604,8 +610,37 @@
 </script>
 
 <div class="product-request-page" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
-	<!-- Top buttons -->
+	<!-- Type Selection (shown first before anything) -->
+	{#if !requestType}
+		<div class="type-selection-screen">
+			<div class="type-selection-card">
+				<h2 class="type-selection-title">{$currentLocale === 'ar' ? 'اختر نوع الطلب' : 'Select Request Type'}</h2>
+				<div class="request-type-row">
+					<button type="button" class="type-btn" on:click={() => selectRequestType('BT')}>BT</button>
+					<button type="button" class="type-btn" on:click={() => selectRequestType('ST')}>ST</button>
+					<button type="button" class="type-btn" on:click={() => selectRequestType('PO')}>PO</button>
+				</div>
+				<div class="type-labels-row">
+					<span class="type-label">{getTranslation('mobile.productRequestContent.branchTransfer')}</span>
+					<span class="type-label">{getTranslation('mobile.productRequestContent.inBranch')}</span>
+					<span class="type-label">{getTranslation('mobile.productRequestContent.purchaseOrder')}</span>
+				</div>
+				<div class="type-info-box">
+					<p><strong>BT</strong> – {$currentLocale === 'ar' ? 'طلب نقل بين الفروع فقط' : 'Branch Transfer requests only'}</p>
+					<p><strong>ST</strong> – {$currentLocale === 'ar' ? 'طلب نقص في المعرض - يُرسل إلى مستودع المتجر' : 'Shortage in showroom - request to shop warehouse'}</p>
+					<p><strong>PO</strong> – {$currentLocale === 'ar' ? 'طلب شراء لاحتياجات العملاء وطلبات أخرى من مسؤولي الفرع' : 'Customer needs & other orders from branch officials'}</p>
+				</div>
+			</div>
+		</div>
+	{:else}
+	<!-- Top buttons (shown after type is selected) -->
 	<div class="top-actions">
+		<div class="type-badge-row">
+			<span class="type-badge">{requestType}</span>
+			<button type="button" class="change-type-btn" on:click={() => { requestType = null; items = []; }}>
+				{$currentLocale === 'ar' ? 'تغيير' : 'Change'}
+			</button>
+		</div>
 		<button type="button" class="add-btn" on:click={openModal}>
 			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
 				<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -673,11 +708,11 @@
 		<div class="modal-overlay" on:click={closeModal} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && closeModal()}>
 			<div class="modal-container" on:click|stopPropagation role="none">
 				<div class="modal-header">
-					<span>{getTranslation('mobile.productRequestContent.addItem')}</span>
+					<span>{getTranslation('mobile.productRequestContent.addItem')} ({requestType})</span>
 					<button type="button" class="modal-close" on:click={closeModal}>&times;</button>
 				</div>
 				<div class="modal-body">
-					<p class="modal-info">{$currentLocale === 'ar' ? '⚠️ يجب ملء حقل واحد على الأقل: الباركود أو اسم المنتج أو الصورة' : '⚠️ At least one is mandatory: Photo, Barcode, or Product Name'}</p>
+					<p class="modal-info">{requestType === 'PO' ? ($currentLocale === 'ar' ? '⚠️ يجب ملء حقل واحد على الأقل: الباركود أو اسم المنتج أو الصورة' : '⚠️ At least one is mandatory: Photo, Barcode, or Product Name') : ($currentLocale === 'ar' ? '⚠️ يجب ملء حقل واحد على الأقل: الباركود أو اسم المنتج' : '⚠️ At least one is mandatory: Barcode or Product Name')}</p>
 					<div class="form-group">
 						<label>{getTranslation('mobile.productRequestContent.barcode')}</label>
 						<div class="barcode-input-row">
@@ -708,6 +743,7 @@
 						<label>{getTranslation('mobile.productRequestContent.quantity')}</label>
 						<input type="number" bind:value={modalQuantity} class="form-input" min="1" placeholder="1" />
 					</div>
+					{#if requestType === 'PO'}
 					<div class="form-group">
 						<label>{getTranslation('mobile.productRequestContent.photo')}</label>
 						{#if modalPhoto}
@@ -727,10 +763,11 @@
 							<input bind:this={fileInput} type="file" accept="image/*" capture="environment" class="hidden-file-input" on:change={handlePhoto} />
 						{/if}
 					</div>
+					{/if}
 				</div>
 				<div class="modal-footer">
 					<button type="button" class="btn-close-modal" on:click={closeModal}>{getTranslation('mobile.productRequestContent.close')}</button>
-					<button type="button" class="btn-add" on:click={addItem} disabled={!modalBarcode && !modalProductName && !modalPhoto}>{getTranslation('mobile.productRequestContent.add')}</button>
+					<button type="button" class="btn-add" on:click={addItem} disabled={!modalBarcode && !modalProductName && (requestType === 'PO' ? !modalPhoto : false)}>{getTranslation('mobile.productRequestContent.add')}</button>
 				</div>
 			</div>
 		</div>
@@ -824,32 +861,10 @@
 		<div class="modal-overlay" on:click={closeSavePopup} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && closeSavePopup()}>
 			<div class="modal-container save-popup" on:click|stopPropagation role="none">
 				<div class="modal-header">
-					<span>{getTranslation('mobile.productRequestContent.saveRequest')}</span>
+					<span>{getTranslation('mobile.productRequestContent.saveRequest')} ({requestType})</span>
 					<button type="button" class="modal-close" on:click={closeSavePopup}>&times;</button>
 				</div>
 				<div class="modal-body">
-					<!-- Request Type Buttons -->
-					<div class="request-type-row">
-						<button type="button" class="type-btn" class:active={requestType === 'BT'} on:click={() => selectRequestType('BT')}>BT</button>
-						<button type="button" class="type-btn" class:active={requestType === 'ST'} on:click={() => selectRequestType('ST')}>ST</button>
-						<button type="button" class="type-btn" class:active={requestType === 'PO'} on:click={() => selectRequestType('PO')}>PO</button>
-					</div>
-					<div class="type-labels-row">
-						<span class="type-label">{getTranslation('mobile.productRequestContent.branchTransfer')}</span>
-						<span class="type-label">{getTranslation('mobile.productRequestContent.inBranch')}</span>
-						<span class="type-label">{getTranslation('mobile.productRequestContent.purchaseOrder')}</span>
-					</div>
-
-					<!-- Type info descriptions (hide once a type is selected) -->
-					{#if !requestType}
-						<div class="type-info-box">
-							<p class="type-info-header">{$currentLocale === 'ar' ? 'اختر نوع الطلب:' : 'Select a request type:'}</p>
-							<p><strong>BT</strong> – {$currentLocale === 'ar' ? 'طلب نقل بين الفروع فقط' : 'Branch Transfer requests only'}</p>
-							<p><strong>ST</strong> – {$currentLocale === 'ar' ? 'طلب نقص في المعرض - يُرسل إلى مستودع المتجر' : 'Shortage in showroom - request to shop warehouse'}</p>
-							<p><strong>PO</strong> – {$currentLocale === 'ar' ? 'طلب شراء لاحتياجات العملاء وطلبات أخرى من مسؤولي الفرع' : 'Customer needs & other orders from branch officials'}</p>
-						</div>
-					{/if}
-
 					{#if requestType}
 <!-- Branch Selection (BT & ST) -->
 					{#if requestType === 'BT' || requestType === 'ST'}
@@ -942,6 +957,7 @@
 				</div>
 			</div>
 		</div>
+	{/if}
 	{/if}
 </div>
 
@@ -1050,6 +1066,67 @@
 		background: #FEE2E2;
 	}
 
+	/* Type selection screen */
+	.type-selection-screen {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: 1;
+		padding: 2rem 1rem;
+	}
+
+	.type-selection-card {
+		background: white;
+		border-radius: 1.5rem;
+		padding: 2rem 1.5rem;
+		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+		width: 100%;
+		max-width: 400px;
+	}
+
+	.type-selection-title {
+		font-size: 1.1rem;
+		font-weight: 700;
+		text-align: center;
+		color: #1E293B;
+		margin-bottom: 1.5rem;
+	}
+
+	/* Type badge row */
+	.type-badge-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.type-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #059669;
+		color: white;
+		font-weight: 800;
+		font-size: 0.85rem;
+		padding: 0.35rem 0.75rem;
+		border-radius: 8px;
+		letter-spacing: 0.5px;
+	}
+
+	.change-type-btn {
+		background: none;
+		border: 1px solid #CBD5E1;
+		color: #64748B;
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 0.25rem 0.5rem;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+
+	.change-type-btn:active {
+		background: #F1F5F9;
+	}
+
 	/* Top actions row */
 	.top-actions {
 		display: flex;
@@ -1057,6 +1134,8 @@
 		padding: 0.5rem;
 		background: #F8FAFC;
 		flex-shrink: 0;
+		align-items: center;
+		justify-content: space-between;
 	}
 
 	/* Add button */

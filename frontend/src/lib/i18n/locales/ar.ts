@@ -140,7 +140,6 @@ export const arabicLocale: LocaleData = {
       aiChatGuide: "دليل محادثة الذكاء الاصطناعي",
       themeManager: "مدير السمات",
       erpProductManager: "مدير منتجات ERP",
-      storageManager: "مدير التخزين",
       createDepartment: "إنشاء قسم",
       createLevel: "إنشاء مستوى",
       createPosition: "إنشاء منصب",
@@ -1621,7 +1620,6 @@ export const arabicLocale: LocaleData = {
 
     // HR Master
     hr: {
-      days: "أيام",
       processFingerprint: {
         title: "معالجة بصمات الأصابع",
         analyze_all: "تحليل الكل",
@@ -2489,7 +2487,6 @@ export const arabicLocale: LocaleData = {
       print: "طباعة",
       printed: "تم الطباعة",
       cancel: "إلغاء",
-      ok: "حسناً",
       close: "إغلاق",
       start: "بدء",
       starting: "جاري البدء...",

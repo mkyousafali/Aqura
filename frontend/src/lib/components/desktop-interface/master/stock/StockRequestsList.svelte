@@ -26,8 +26,6 @@
 	let error = '';
 
 	// Caches
-	let userCache: Record<string, string> = {};
-	let branchCache: Record<number, { name: string; location: string }> = {};
 	let imageCache: Record<string, string> = {};
 
 	// Search & Filters
@@ -115,14 +113,10 @@
 			try {
 				const resp = await fetch(url);
 				if (resp.ok) {
-					try {
-						const blob = await resp.blob();
-						if (blob.size > 0) {
-							imageCache[url] = URL.createObjectURL(blob);
-						}
-					} catch { /* content-length mismatch or corrupt body */ }
+					const blob = await resp.blob();
+					imageCache[url] = URL.createObjectURL(blob);
 				}
-			} catch { /* network error - skip */ }
+			} catch { /* skip failed images */ }
 		});
 		await Promise.all(promises);
 		imageCache = imageCache; // trigger reactivity
@@ -192,63 +186,35 @@
 		loading = true;
 		error = '';
 		try {
-			const { data, error: err } = await supabase
-				.from('product_request_st')
-				.select('*')
-				.order('created_at', { ascending: false });
+			// Single RPC call replaces 3 separate queries (requests + employees + branches)
+			const { data, error: err } = await supabase.rpc('get_stock_requests_with_details');
 
 			if (err) throw err;
 
 			const rows = data || [];
+			const isAr = $locale === 'ar';
 
-			// Collect unique user IDs and branch IDs
-			const userIds = new Set<string>();
-			const branchIds = new Set<number>();
-			for (const r of rows) {
-				userIds.add(r.requester_user_id);
-				userIds.add(r.target_user_id);
-				if (r.branch_id) branchIds.add(r.branch_id);
-			}
-
-			// Batch fetch users from hr_employee_master
-			const uncachedUsers = [...userIds].filter(id => !userCache[id]);
-			if (uncachedUsers.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, name_en, name_ar')
-					.in('user_id', uncachedUsers);
-				for (const e of employees || []) {
-					userCache[e.user_id] = $locale === 'ar' ? (e.name_ar || e.name_en || e.user_id) : (e.name_en || e.name_ar || e.user_id);
-				}
-			}
-
-			// Batch fetch branches
-			const uncachedBranches = [...branchIds].filter(id => !branchCache[id]);
-			if (uncachedBranches.length > 0) {
-				const { data: branches } = await supabase
-					.from('branches')
-					.select('id, name_en, name_ar, location_en, location_ar')
-					.in('id', uncachedBranches);
-				for (const b of branches || []) {
-					const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
-					const location = $locale === 'ar' ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
-					branchCache[b.id] = { name, location };
-				}
-			}
-
-			// Enrich rows
-			requests = rows.map(r => {
-				const branch = branchCache[r.branch_id];
-				const branchDisplay = branch ? (branch.location ? `${branch.name} — ${branch.location}` : branch.name) : '—';
+			// Map RPC results to component format
+			requests = rows.map((r: any) => {
+				const branchName = isAr ? (r.branch_name_ar || r.branch_name_en) : (r.branch_name_en || r.branch_name_ar);
+				const branchLocation = isAr ? (r.branch_location_ar || r.branch_location_en) : (r.branch_location_en || r.branch_location_ar);
+				const branchDisplay = branchName ? (branchLocation ? `${branchName} — ${branchLocation}` : branchName) : '—';
 				return {
-					...r,
-					requester_name: userCache[r.requester_user_id] || r.requester_user_id,
-					target_name: userCache[r.target_user_id] || r.target_user_id,
+					id: r.id,
+					requester_user_id: r.requester_user_id,
+					branch_id: r.branch_id,
+					target_user_id: r.target_user_id,
+					status: r.status,
+					items: r.items,
+					document_url: r.document_url,
+					created_at: r.created_at,
+					updated_at: r.updated_at,
+					requester_name: isAr ? (r.requester_name_ar || r.requester_name_en) : (r.requester_name_en || r.requester_name_ar),
+					target_name: isAr ? (r.target_name_ar || r.target_name_en) : (r.target_name_en || r.target_name_ar),
 					branch_name: branchDisplay
 				};
 			});
-			// Pre-cache images as blob URLs
-			cacheImages(requests);
+			// Images are lazy-loaded when a request is selected (not upfront)
 		} catch (err: any) {
 			console.error('Error loading ST requests:', err);
 			error = err?.message || 'Failed to load requests';
@@ -260,78 +226,26 @@
 	async function updateStatus(id: string, newStatus: 'approved' | 'rejected') {
 		console.log('🔵 [ST] updateStatus called — id:', id, 'newStatus:', newStatus);
 		try {
-			const { error: err } = await supabase
-				.from('product_request_st')
-				.update({ status: newStatus, updated_at: new Date().toISOString() })
-				.eq('id', id);
+			// Single RPC call handles: status update + quick task completion + notification
+			const { data, error: err } = await supabase.rpc('update_stock_request_status', {
+				p_request_id: id,
+				p_new_status: newStatus
+			});
+
 			if (err) throw err;
-			console.log('🟢 [ST] Status updated in DB successfully');
+
+			const result = data as { success: boolean; error?: string; tasks_completed?: number; notification_sent?: boolean };
+			if (!result?.success) {
+				throw new Error(result?.error || 'Unknown error');
+			}
+
+			console.log('🟢 [ST] RPC completed —', result);
+
+			// Update local state
 			requests = requests.map(r => r.id === id ? { ...r, status: newStatus } : r);
 			if (selectedRequest?.id === id) selectedRequest = { ...selectedRequest, status: newStatus };
-
-			// Auto-complete linked quick tasks & send notification to requester
-			const req = requests.find(r => r.id === id);
-			console.log('🟡 [ST] Found request object:', req ? 'YES' : 'NO');
-			console.log('🟡 [ST] req.requester_user_id:', req?.requester_user_id);
-			console.log('🟡 [ST] Full req keys:', req ? Object.keys(req) : 'N/A');
-			if (req) {
-				// 1) Auto-complete linked quick tasks (non-blocking)
-				try {
-					console.log('🔵 [ST] Querying linked quick tasks...');
-					const { data: linkedTasks, error: qtErr } = await supabase
-						.from('quick_tasks')
-						.select('id')
-						.eq('product_request_id', id)
-						.eq('product_request_type', 'ST');
-					console.log('🔵 [ST] Quick tasks query result:', { linkedTasks, qtErr });
-
-					if (linkedTasks && linkedTasks.length > 0) {
-						const taskIds = linkedTasks.map(t => t.id);
-						await supabase.from('quick_task_assignments')
-							.update({ status: 'completed', completed_at: new Date().toISOString() })
-							.in('quick_task_id', taskIds);
-						await supabase.from('quick_tasks')
-							.update({ status: 'completed', completed_at: new Date().toISOString() })
-							.in('id', taskIds);
-						console.log('✅ [ST] Quick tasks auto-completed');
-					}
-				} catch (taskErr) {
-					console.warn('⚠️ [ST] Failed to complete quick tasks:', taskErr);
-				}
-
-				// 2) Send notification to requester (independent - always runs)
-				console.log('🔵 [ST] === NOTIFICATION BLOCK START ===');
-				try {
-					const statusLabel = newStatus === 'approved' ? 'Accepted ✅' : 'Rejected ❌';
-					const statusLabelAr = newStatus === 'approved' ? 'مقبول ✅' : 'مرفوض ❌';
-					const notifPayload = {
-						title: `ST Request ${statusLabel} | طلب ST ${statusLabelAr}`,
-						message: `Your Stock Request has been ${newStatus}.\n---\nطلب المخزون الخاص بك تم ${newStatus === 'approved' ? 'قبوله' : 'رفضه'}.`,
-						type: newStatus === 'approved' ? 'success' : 'error',
-						priority: 'normal',
-						target_type: 'specific_users',
-						target_users: [req.requester_user_id],
-						status: 'published',
-						total_recipients: 1,
-						created_at: new Date().toISOString()
-					};
-					console.log('📨 [ST] Notification payload:', JSON.stringify(notifPayload, null, 2));
-					const { data: notifData, error: notifErr } = await supabase.from('notifications').insert(notifPayload).select();
-					console.log('📨 [ST] Notification insert result — data:', notifData, 'error:', notifErr);
-					if (notifErr) {
-						console.error('❌ [ST] Notification insert failed:', notifErr);
-					} else {
-						console.log('✅ [ST] Notification sent successfully');
-					}
-				} catch (notifCatchErr) {
-					console.error('⚠️ [ST] Notification CATCH error:', notifCatchErr);
-				}
-				console.log('🔵 [ST] === NOTIFICATION BLOCK END ===');
-			} else {
-				console.warn('🔴 [ST] req is falsy — cannot send notification! requests array length:', requests.length);
-			}
 		} catch (err: any) {
-			console.error('🔴 [ST] OUTER catch — Error updating status:', err);
+			console.error('🔴 [ST] Error updating status:', err);
 			alert('Failed to update status: ' + (err?.message || 'Unknown error'));
 		}
 	}
@@ -381,7 +295,11 @@
 		}));
 	}
 
-	$: if (selectedRequest) initEditableItems();
+	$: if (selectedRequest) {
+		initEditableItems();
+		// Lazy-load images only for the selected request
+		cacheImages([selectedRequest]);
+	}
 
 	async function toggleAvailability(index: number) {
 		editableItems[index].is_available = !editableItems[index].is_available;
