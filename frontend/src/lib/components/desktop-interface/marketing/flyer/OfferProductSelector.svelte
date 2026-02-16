@@ -1111,6 +1111,14 @@
 		// Note: Parent sub category and sub category filters are disabled 
 		// since they don't exist in the current database schema
 		
+		// Deduplicate by barcode (keep first occurrence)
+		const seen = new Set<string>();
+		filtered = filtered.filter(product => {
+			if (!product.barcode || seen.has(product.barcode)) return false;
+			seen.add(product.barcode);
+			return true;
+		});
+		
 		filteredProducts = filtered;
 	}
 	
