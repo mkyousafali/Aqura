@@ -78,6 +78,10 @@
   let selectedTemplateToCopy: string | null = null;
   let newTemplateNameInput: string = '';
   
+  // Rename Template Modal State
+  let showRenameModal = false;
+  let renameTemplateInput: string = '';
+  
   // Confirm dialog state
   let showConfirmDialog = false;
   let confirmDialogMessage = '';
@@ -731,6 +735,66 @@
       isLoading = false;
     }
   }
+  async function deleteSelectedTemplate() {
+    if (!selectedTemplateId) return;
+    const tmpl = savedTemplates.find(t => t.id === selectedTemplateId);
+    showConfirm('Delete Template', `Are you sure you want to delete "${tmpl?.name || 'this template'}"? This action cannot be undone.`, async () => {
+      try {
+        const { error } = await supabase
+          .from('shelf_paper_templates')
+          .update({ is_active: false })
+          .eq('id', selectedTemplateId);
+        if (error) throw error;
+        notifications.add({ type: 'success', message: 'Template deleted successfully' });
+        // Reset state
+        selectedTemplateId = null;
+        templateName = '';
+        templateDescription = '';
+        templateImage = null;
+        imageFile = null;
+        fieldSelectors = [];
+        nextFieldId = 1;
+        selectedFieldId = null;
+        await loadSavedTemplates();
+      } catch (error) {
+        console.error('Error deleting template:', error);
+        notifications.add({ type: 'error', message: 'Failed to delete template' });
+      }
+    });
+  }
+  
+  function openRenameModal() {
+    if (!selectedTemplateId) return;
+    renameTemplateInput = templateName;
+    showRenameModal = true;
+  }
+  
+  function closeRenameModal() {
+    showRenameModal = false;
+    renameTemplateInput = '';
+  }
+  
+  async function confirmRenameTemplate() {
+    if (!selectedTemplateId || !renameTemplateInput.trim()) {
+      notifications.add({ type: 'warning', message: 'Please enter a template name' });
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('shelf_paper_templates')
+        .update({ name: renameTemplateInput.trim() })
+        .eq('id', selectedTemplateId);
+      if (error) throw error;
+      templateName = renameTemplateInput.trim();
+      notifications.add({ type: 'success', message: 'Template renamed successfully' });
+      closeRenameModal();
+      await loadSavedTemplates();
+    } catch (error) {
+      console.error('Error renaming template:', error);
+      notifications.add({ type: 'error', message: 'Failed to rename template' });
+    }
+  }
+
   function openFontManager() {
     const windowId = `font-manager-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     openWindow({
@@ -817,6 +881,14 @@
           </button>
         </div>
         {#if selectedTemplateId}
+          <div class="template-actions-row">
+            <button class="rename-template-btn" on:click={openRenameModal} title="Rename template">
+              ✏️ Rename
+            </button>
+            <button class="delete-template-btn" on:click={deleteSelectedTemplate} title="Delete template">
+              🗑️ Delete
+            </button>
+          </div>
           <div class="template-info">
             <p class="text-xs text-gray-600 mt-2">
               {savedTemplates.find(t => t.id === selectedTemplateId)?.description || 'No description'}
@@ -1107,6 +1179,38 @@
         <button class="cancel-btn" on:click={closeTemplateNameInputModal}>Cancel</button>
         <button class="confirm-btn" on:click={confirmCopyTemplate} disabled={!newTemplateNameInput.trim()}>
           ✅ Create Template
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Rename Template Modal -->
+{#if showRenameModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeRenameModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>✏️ Rename Template</h3>
+        <button class="modal-close-btn" on:click={closeRenameModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Enter a new name for this template:</p>
+        <div class="name-input-container">
+          <input 
+            type="text" 
+            bind:value={renameTemplateInput}
+            placeholder="Enter template name"
+            class="template-name-input"
+            on:keydown={(e) => e.key === 'Enter' && confirmRenameTemplate()}
+          />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeRenameModal}>Cancel</button>
+        <button class="confirm-btn" on:click={confirmRenameTemplate} disabled={!renameTemplateInput.trim()}>
+          ✅ Rename
         </button>
       </div>
     </div>
@@ -2077,5 +2181,47 @@
 
   .confirm-delete-btn:hover {
     background: #dc2626;
+  }
+
+  .template-actions-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .rename-template-btn {
+    flex: 1;
+    padding: 0.4rem 0.75rem;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .rename-template-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+  }
+
+  .delete-template-btn {
+    flex: 1;
+    padding: 0.4rem 0.75rem;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .delete-template-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
   }
 </style>

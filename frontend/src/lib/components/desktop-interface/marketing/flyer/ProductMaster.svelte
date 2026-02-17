@@ -24,8 +24,8 @@
 	let productsWithImages: number = 0;
 	let productsWithoutImages: number = 0;
 	let isCalculatingStats: boolean = false;
-	let storageImageCache: Set<string> = new Set(); // Cache of barcodes that have images
-	let isCacheLoaded: boolean = false;
+	let storageImageCache: Set<string> = new Set(); // Track barcodes that have images (in-memory only, no persistence)
+	let isCacheLoaded: boolean = true; // Always ready, no cache loading needed
 	
 	// Database stats
 	let dbTotalProducts: number = 0;
@@ -63,9 +63,7 @@
 	let successfullyLoadedImages: Set<string> = new Set(); // Track which images have loaded successfully
 	let imageRefs: Record<string, HTMLImageElement> = {}; // Track image element refs for cache checking
 	
-	// Cache configuration (shared across all flyer components)
-	const CACHE_KEY = 'flyer_products_cache';
-	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+	// Cache removed - always load fresh data directly
 	
 	// Find missing images in storage
 	let showFindMissingImagesPopup: boolean = false;
@@ -248,10 +246,9 @@
 		saveQuotaData();
 	}
 	
-	// Load all images from Supabase Storage once
+	// No cache loading needed - check storage directly each time
 	async function loadStorageImageCache() {
-		// Skip heavy storage listing - use on-demand image checks instead
-		isCacheLoaded = true;
+		// No-op: removed caching, always check storage directly
 	}
 	
 	// Check if image exists in storage (fast single file check)
@@ -514,15 +511,8 @@
 				if (updateError) {
 					console.error('Error updating product:', updateError);
 				} else {
-					// Add to cache
+					// Track uploaded image
 					storageImageCache.add(barcode);
-					
-					// Clear product list cache
-					try {
-						localStorage.removeItem(CACHE_KEY);
-					} catch (err) {
-						console.warn('Cache clear error:', err);
-					}
 					
 					// Reload the products without images
 					await loadNoImageProducts();
@@ -683,25 +673,6 @@
 		allProductsList = [];
 		filteredAllProducts = [];
 		
-		// Try to load from cache first
-		try {
-			const cached = localStorage.getItem(CACHE_KEY);
-			if (cached) {
-				const { data, timestamp } = JSON.parse(cached);
-				const age = Date.now() - timestamp;
-				
-				if (age < CACHE_DURATION) {
-					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
-					allProductsList = data;
-					allProductsWithImages = data.filter((p: any) => p.image_url).length;
-					isLoadingAllProducts = false;
-					return;
-				}
-			}
-		} catch (err) {
-			console.warn('Cache read error:', err);
-		}
-		
 		try {
 			// Load all products in one RPC call (~17ms server-side)
 			const { data, error } = await supabase.rpc('get_all_products_master');
@@ -712,17 +683,6 @@
 			} else if (data) {
 				allProductsList = data;
 				allProductsWithImages = data.filter((p: any) => p.image_url).length;
-				
-				// Cache the loaded data
-				try {
-					localStorage.setItem(CACHE_KEY, JSON.stringify({
-						data: data,
-						timestamp: Date.now()
-					}));
-					console.log('✓ Products cached to localStorage');
-				} catch (err) {
-					console.warn('Cache write error:', err);
-				}
 			}
 		} catch (error) {
 			console.error('Error loading all products:', error);
@@ -1265,13 +1225,6 @@
 			} else {
 				alert('Product deleted successfully!');
 				
-				// Clear cache
-				try {
-					localStorage.removeItem(CACHE_KEY);
-				} catch (err) {
-					console.warn('Cache clear error:', err);
-				}
-				
 				// Reload the appropriate views
 				await loadAllProducts();
 				if (showNoImageProducts) {
@@ -1322,13 +1275,6 @@
 				alert('Failed to update product: ' + error.message);
 			} else {
 				alert('Product updated successfully!');
-				
-				// Clear cache
-				try {
-					localStorage.removeItem(CACHE_KEY);
-				} catch (err) {
-					console.warn('Cache clear error:', err);
-				}
 				
 				// Fetch updated product data and refresh the UI
 				const barcode = editingProduct.barcode;
@@ -1517,13 +1463,6 @@
 				alert('Failed to create product: ' + error.message);
 			} else {
 				alert('Product created successfully!');
-				
-				// Clear cache
-				try {
-					localStorage.removeItem(CACHE_KEY);
-				} catch (err) {
-					console.warn('Cache clear error:', err);
-				}
 				
 				// Realtime subscription will add the product automatically
 				closeCreatePopup();

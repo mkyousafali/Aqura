@@ -96,6 +96,14 @@
   let selectedTemplateToCopy: string | null = null;
   let newTemplateNameInput: string = '';
   
+  // Rename & Delete State
+  let showRenameModal = false;
+  let renameTemplateInput: string = '';
+  let showConfirmDialog = false;
+  let confirmDialogTitle = '';
+  let confirmDialogMessage = '';
+  let confirmDialogAction: (() => void) | null = null;
+  
   function handleFirstPageUpload(event: Event) {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
@@ -505,6 +513,87 @@
       alert('Failed to copy template');
     } finally {
       isLoading = false;
+    }
+  }
+
+  function showConfirm(title: string, message: string, onConfirm: () => void) {
+    confirmDialogTitle = title;
+    confirmDialogMessage = message;
+    confirmDialogAction = onConfirm;
+    showConfirmDialog = true;
+  }
+
+  function handleConfirmYes() {
+    showConfirmDialog = false;
+    if (confirmDialogAction) confirmDialogAction();
+    confirmDialogAction = null;
+  }
+
+  function handleConfirmNo() {
+    showConfirmDialog = false;
+    confirmDialogAction = null;
+  }
+
+  async function deleteSelectedTemplate() {
+    if (!selectedTemplateId) return;
+    const tmpl = savedTemplates.find(t => t.id === selectedTemplateId);
+    showConfirm('Delete Template', `Are you sure you want to delete "${tmpl?.name || 'this template'}"? This action cannot be undone.`, async () => {
+      try {
+        const { error } = await supabase
+          .from('flyer_templates')
+          .update({ is_active: false })
+          .eq('id', selectedTemplateId);
+        if (error) throw error;
+        alert('Template deleted successfully');
+        selectedTemplateId = null;
+        templateName = '';
+        templateDescription = '';
+        firstPageImage = null;
+        subPageImages = [];
+        firstPageFile = null;
+        subPageFiles = [];
+        firstPageFields = [];
+        subPageFieldsArray = [];
+        activeSubPageIndex = 0;
+        nextFieldNumber = 1;
+        selectedFieldId = null;
+        await loadSavedTemplates();
+      } catch (error) {
+        console.error('Error deleting template:', error);
+        alert('Failed to delete template');
+      }
+    });
+  }
+
+  function openRenameModal() {
+    if (!selectedTemplateId) return;
+    renameTemplateInput = templateName;
+    showRenameModal = true;
+  }
+
+  function closeRenameModal() {
+    showRenameModal = false;
+    renameTemplateInput = '';
+  }
+
+  async function confirmRenameTemplate() {
+    if (!selectedTemplateId || !renameTemplateInput.trim()) {
+      alert('Please enter a template name');
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('flyer_templates')
+        .update({ name: renameTemplateInput.trim() })
+        .eq('id', selectedTemplateId);
+      if (error) throw error;
+      templateName = renameTemplateInput.trim();
+      alert('Template renamed successfully');
+      closeRenameModal();
+      await loadSavedTemplates();
+    } catch (error) {
+      console.error('Error renaming template:', error);
+      alert('Failed to rename template');
     }
   }
   
@@ -960,6 +1049,14 @@
           </button>
         </div>
         {#if selectedTemplateId}
+          <div class="template-actions-row">
+            <button class="rename-template-btn" on:click={openRenameModal} title="Rename template">
+              ✏️ Rename
+            </button>
+            <button class="delete-template-btn" on:click={deleteSelectedTemplate} title="Delete template">
+              🗑️ Delete
+            </button>
+          </div>
           <div class="template-info">
             <p class="text-xs text-gray-600 mt-2">
               {savedTemplates.find(t => t.id === selectedTemplateId)?.description || 'No description'}
@@ -1774,6 +1871,58 @@
         <button class="confirm-btn" on:click={confirmCopyTemplate} disabled={!newTemplateNameInput.trim()}>
           ✅ Create Template
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Rename Template Modal -->
+{#if showRenameModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeRenameModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content add-subpage-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>✏️ Rename Template</h3>
+        <button class="modal-close-btn" on:click={closeRenameModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Enter a new name for this template:</p>
+        <div class="name-input-container">
+          <input 
+            type="text" 
+            bind:value={renameTemplateInput}
+            placeholder="Enter template name"
+            class="template-name-input"
+            on:keydown={(e) => e.key === 'Enter' && confirmRenameTemplate()}
+          />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeRenameModal}>Cancel</button>
+        <button class="confirm-btn" on:click={confirmRenameTemplate} disabled={!renameTemplateInput.trim()}>
+          ✅ Rename
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Confirm Dialog -->
+{#if showConfirmDialog}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={handleConfirmNo}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content confirm-dialog" on:click|stopPropagation>
+      <div class="modal-header confirm-header">
+        <h3>⚠️ {confirmDialogTitle}</h3>
+      </div>
+      <div class="modal-body">
+        <p class="confirm-message">{confirmDialogMessage}</p>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={handleConfirmNo}>Cancel</button>
+        <button class="confirm-delete-btn" on:click={handleConfirmYes}>Confirm</button>
       </div>
     </div>
   </div>
@@ -3170,5 +3319,79 @@
   .confirm-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .template-actions-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .rename-template-btn {
+    flex: 1;
+    padding: 0.4rem 0.75rem;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .rename-template-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+  }
+
+  .delete-template-btn {
+    flex: 1;
+    padding: 0.4rem 0.75rem;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .delete-template-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+  }
+
+  .confirm-dialog {
+    max-width: 420px;
+  }
+
+  .confirm-header {
+    background: #fef3c7;
+    border-bottom-color: #fde68a;
+  }
+
+  .confirm-message {
+    font-size: 0.9375rem;
+    color: #374151;
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .confirm-delete-btn {
+    padding: 0.5rem 1.25rem;
+    border: none;
+    border-radius: 6px;
+    background: #ef4444;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .confirm-delete-btn:hover {
+    background: #dc2626;
   }
 </style>

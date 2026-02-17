@@ -3,9 +3,7 @@
 	import { onMount } from 'svelte';
 	import VariationSelectionModal from '$lib/components/desktop-interface/marketing/flyer/VariationSelectionModal.svelte';
 
-	// Cache configuration (shared across all flyer components)
-	const CACHE_KEY = 'flyer_products_cache';
-	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+	// Cache removed - always load fresh data directly
 
 	// Image loading tracking
 	let successfullyLoadedImages: Set<string> = new Set();
@@ -73,23 +71,6 @@
 		isLoadingProducts = true;
 		selectedProducts.clear();
 
-		// Try to load products from cache first
-		let cachedProducts: any[] | null = null;
-		try {
-			const cached = localStorage.getItem(CACHE_KEY);
-			if (cached) {
-				const { data, timestamp } = JSON.parse(cached);
-				const age = Date.now() - timestamp;
-				
-				if (age < CACHE_DURATION) {
-					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
-					cachedProducts = data;
-				}
-			}
-		} catch (err) {
-			console.warn('Cache read error:', err);
-		}
-
 		try {
 			const loadTasks = [
 				// Load categories
@@ -105,18 +86,13 @@
 				supabase
 					.from('flyer_offer_products')
 					.select('*')
-					.eq('offer_id', templateId)
+					.eq('offer_id', templateId),
+				// Always load products fresh from DB
+				supabase
+					.from('products')
+					.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en, cost, sale_price')
+					.order('barcode', { ascending: true })
 			];
-			
-			// Only load products from DB if not cached
-			if (!cachedProducts) {
-				loadTasks.push(
-					supabase
-						.from('products')
-						.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en, cost, sale_price')
-						.order('barcode', { ascending: true })
-				);
-			}
 			
 			// Load everything in parallel for better performance
 			const results = await Promise.all(loadTasks);
@@ -141,31 +117,15 @@
 				});
 			}
 
-			// Process products - use cache or fresh data
-			if (cachedProducts) {
-				// Use cached products
-				allProducts = cachedProducts;
-			} else if (productsResult) {
-				// Fresh load from database
+			// Process products - always fresh data
+			if (productsResult) {
 				if (productsResult.error) {
 					console.error('Error loading products:', productsResult.error);
 					alert('Error loading products. Please try again.');
 					isLoadingProducts = false;
 					return;
 				}
-
 				allProducts = productsResult.data || [];
-				
-				// Cache the loaded data
-				try {
-					localStorage.setItem(CACHE_KEY, JSON.stringify({
-						data: allProducts,
-						timestamp: Date.now()
-					}));
-					console.log('✓ Products cached to localStorage');
-				} catch (err) {
-					console.warn('Cache write error:', err);
-				}
 			}
 
 			// Process selected products with page/order and store full data
