@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
+	import { getEdgeFunctionUrl } from '$lib/utils/supabase';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import AnalyzeAllWindow from './AnalyzeAllWindow.svelte';
@@ -386,7 +387,7 @@
 			const { data: { session } } = await supabase.auth.getSession();
 			const token = session?.access_token;
 
-			const res = await fetch('https://supabase.urbanaqura.com/functions/v1/process-fingerprints', {
+			const res = await fetch(getEdgeFunctionUrl('process-fingerprints'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',

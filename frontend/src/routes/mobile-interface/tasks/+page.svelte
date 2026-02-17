@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import { supabase, db } from '$lib/utils/supabase';
+	import { supabase, db, resolveStorageUrl } from '$lib/utils/supabase';
 	import { locale, getTranslation } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
 
@@ -537,8 +537,8 @@
 		// Download all attachments
 		task.attachments.forEach(attachment => {
 			const downloadUrl = attachment.file_path && attachment.file_path.startsWith('http') 
-				? attachment.file_path 
-				: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`;
+				? resolveStorageUrl(attachment.file_path) 
+				: resolveStorageUrl(attachment.file_path || '', 'task-images');
 			
 			const link = document.createElement('a');
 			link.href = downloadUrl;
@@ -557,13 +557,13 @@
 			if (attachment.file_path.startsWith('http')) {
 				return attachment.file_path;
 			}
-			return `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path}`;
+			return resolveStorageUrl(attachment.file_path, 'task-images');
 		}
 		
 		// Handle quick task files (use storage_path and storage_bucket)
 		if (attachment.storage_path) {
 			const bucket = attachment.storage_bucket || 'quick-task-files';
-			return `https://supabase.urbanaqura.com/storage/v1/object/public/${bucket}/${attachment.storage_path}`;
+			return resolveStorageUrl(attachment.storage_path, bucket);
 		}
 		
 		return null;

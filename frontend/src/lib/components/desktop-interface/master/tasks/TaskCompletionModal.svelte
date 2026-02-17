@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
-	import { db } from '$lib/utils/supabase';
+	import { db, resolveStorageUrl } from '$lib/utils/supabase';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
@@ -284,11 +284,11 @@
 						fileSize: attachment.file_size || 0,
 						fileType: attachment.file_type || 'application/octet-stream',
 						fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-							? attachment.file_path 
-							: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+							? resolveStorageUrl(attachment.file_path) 
+							: resolveStorageUrl(attachment.file_path || '', 'task-images'),
 						downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-							? attachment.file_path 
-							: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+							? resolveStorageUrl(attachment.file_path) 
+							: resolveStorageUrl(attachment.file_path || '', 'task-images'),
 						uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
 						uploadedAt: attachment.created_at
 					}));

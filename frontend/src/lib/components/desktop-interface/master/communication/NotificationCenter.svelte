@@ -5,7 +5,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { cashierUser } from '$lib/stores/cashierAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import { db, supabase } from '$lib/utils/supabase';
+	import { db, supabase, resolveStorageUrl } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import { notificationSoundManager } from '$lib/utils/inAppNotificationSounds';
 	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
@@ -133,7 +133,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				if (!acc[att.notification_id]) acc[att.notification_id] = [];
 				acc[att.notification_id].push({
 					...att,
-					fileUrl: att.file_path?.startsWith('http') ? att.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
+					fileUrl: att.file_path?.startsWith('http') ? resolveStorageUrl(att.file_path) : resolveStorageUrl(att.file_path, 'notification-images'),
 					fileName: att.file_name, fileSize: att.file_size, fileType: att.file_type,
 					uploadedAt: att.created_at, uploadedBy: att.uploaded_by
 				});
@@ -158,8 +158,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					fileName: attachment.file_name || 'Unknown File',
 					fileSize: attachment.file_size || 0,
 					fileType: attachment.file_type || 'application/octet-stream',
-					fileUrl: attachment.file_path?.startsWith('http') ? attachment.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-					downloadUrl: attachment.file_path?.startsWith('http') ? attachment.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+					fileUrl: attachment.file_path?.startsWith('http') ? resolveStorageUrl(attachment.file_path) : resolveStorageUrl(attachment.file_path || '', 'task-images'),
+					downloadUrl: attachment.file_path?.startsWith('http') ? resolveStorageUrl(attachment.file_path) : resolveStorageUrl(attachment.file_path || '', 'task-images'),
 					uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
 					uploadedAt: attachment.created_at
 				});

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 	import { _ as t, locale } from '$lib/i18n';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
@@ -246,7 +246,7 @@
 			const { data: { session } } = await supabase.auth.getSession();
 			const token = session?.access_token;
 
-			const res = await fetch(`https://supabase.urbanaqura.com/functions/v1/analyze-attendance`, {
+			const res = await fetch(getEdgeFunctionUrl('analyze-attendance'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
