@@ -10,6 +10,23 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
+<h3>✨ Mobile Assignments — Completed Tasks View, Completion Photos & Image Compression</h3>
+<p class="change-description">New completed assignments page with task/completion photo separation, View buttons for all photos, and automatic image compression for quick task file uploads.</p>
+<div class="change-details">
+<h4>February 17, 2026 (Latest):</h4>
+<ul>
+<li>✅ <b>Completed Assignments Page:</b> New dedicated page at /assignments/completed showing all completed task assignments with search, green-bordered cards, completion date, and attachment support. Accessible via "View Completed" button on the main assignments page.</li>
+<li>✅ <b>Task Status Filter Tabs:</b> Added Active/Completed/All filter tabs in the task assignment wizard (Step 2) so users can view and re-assign completed tasks.</li>
+<li>✅ <b>Completion Photos & Notes:</b> Both assignments and completed assignments pages now load and display completion photos (from task_completions and quick_task_completions tables) separately from original task attachments — with distinct labels: 📎 Task Photos (blue) and 📸 Completion Photos (amber/yellow).</li>
+<li>✅ <b>View Button on Photos:</b> All photo thumbnails now include a 👁️ View button for full-size preview, replacing the old download-only overlay.</li>
+<li>✅ <b>Quick Task Image Compression:</b> Images uploaded via QuickTaskModal (file browser and camera) are now automatically compressed (1280×960, 60% JPEG quality) before upload — matching the PO request compression. Reduces 5-10MB phone photos to ~100-300KB.</li>
+<li>✅ <b>compressImageToFile Utility:</b> New utility function in imageCompression.ts that returns a compressed File object (vs base64 data URL), enabling compressed uploads to Supabase storage.</li>
+<li>✅ <b>Removed Price Tag/Issue Type:</b> Cleaned up assignment cards by removing the Price Tag and Issue Type info sections from quick task cards.</li>
+<li>✅ <b>i18n Support:</b> Full English and Arabic translations for taskPhotos, completionPhotos, completionNotes, View action, and all completed assignments page strings.</li>
+</ul>
+</div>
+</div>
+<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 <h3>✨ Marketing Module — Shelf Paper & Flyer Template Improvements</h3>
 <p class="change-description">Arabic unit names on shelf paper, flyer page number zero-padding, single-line expiry date labels, and rename/delete template management for both Shelf Paper and Flyer Template Designers.</p>
 <div class="change-details">
