@@ -476,7 +476,7 @@
 								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
 							</span>
 						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ52.22.14.15</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ53.22.14.15</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

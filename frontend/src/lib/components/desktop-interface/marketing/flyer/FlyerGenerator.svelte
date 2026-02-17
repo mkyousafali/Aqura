@@ -83,8 +83,7 @@
   let productsData: any[] = []; // Full product data with details
   let selectedFieldId: string | null = null;
   
-  // Template cache: store fully loaded templates to avoid re-fetching
-  const templateCache = new Map<string, any>();
+  // Template data - always loaded fresh from DB
   
   // Field drag and resize
   let isDraggingField = false;
@@ -206,18 +205,6 @@
   async function handleTemplateChange() {
     if (!selectedTemplateId) return;
     
-    // Check cache first — skip network request if already loaded
-    const cached = templateCache.get(selectedTemplateId);
-    if (cached) {
-      const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
-      if (index !== -1) {
-        flyerTemplates[index] = cached;
-        flyerTemplates = [...flyerTemplates];
-      }
-      autoAssignProducts();
-      return;
-    }
-    
     isLoadingSelectedTemplate = true;
     try {
       const { data, error } = await supabase
@@ -229,9 +216,6 @@
       if (error) throw error;
       
       if (data) {
-        // Cache the full template data
-        templateCache.set(selectedTemplateId, data);
-        
         // Replace the lightweight entry with the full data
         const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
         if (index !== -1) {
@@ -270,9 +254,6 @@
         .eq('id', selectedTemplateId);
       
       if (error) throw error;
-      
-      // Invalidate cache so next load gets fresh data
-      templateCache.delete(selectedTemplateId);
       
       successMessage = 'Template configuration saved successfully!';
       setTimeout(() => successMessage = '', 3000);
@@ -1984,7 +1965,7 @@
                                     width: 100%;
                                     height: 100%;
                                     display: flex;
-                                    flex-direction: column;
+                                    flex-wrap: wrap;
                                     align-items: center;
                                     justify-content: center;
                                     font-size: {configField.fontSize || 14}px;
@@ -1996,8 +1977,7 @@
                                     line-height: 1.4;
                                   "
                                 >
-                                  <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)}</span>
-                                  <span>أو حتى نفاد الكمية</span>
+                                  <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)} أو حتى نفاد الكمية</span>
                                 </div>
                               {:else if configField.label === 'page_number'}
                                 <!-- Page Number -->
@@ -2020,7 +2000,7 @@
                                     font-style: {configField.italic ? 'italic' : 'normal'};
                                   "
                                 >
-                                  <span>1</span>
+                                  <span>01</span>
                                 </div>
                               {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && configField.label !== 'page_number' && fieldValue}
                                 <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->
@@ -2367,7 +2347,7 @@
                                       width: 100%;
                                       height: 100%;
                                       display: flex;
-                                      flex-direction: column;
+                                      flex-wrap: wrap;
                                       align-items: center;
                                       justify-content: center;
                                       font-size: {configField.fontSize || 14}px;
@@ -2379,8 +2359,7 @@
                                       line-height: 1.4;
                                     "
                                   >
-                                    <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)}</span>
-                                    <span>أو حتى نفاد الكمية</span>
+                                    <span>من {formatDateArabic(selectedOffer?.start_date)} إلى {formatDateArabic(selectedOffer?.end_date)} أو حتى نفاد الكمية</span>
                                   </div>
                                 {:else if configField.label === 'page_number'}
                                   <!-- Page Number -->
@@ -2403,7 +2382,7 @@
                                       font-style: {configField.italic ? 'italic' : 'normal'};
                                     "
                                   >
-                                    <span>{activeSubPageIndex + 2}</span>
+                                    <span>{String(activeSubPageIndex + 2).padStart(2, '0')}</span>
                                   </div>
                                 {:else if configField.label !== 'special_symbol' && configField.label !== 'variant_icon' && configField.label !== 'expiry_date_label' && configField.label !== 'page_number' && fieldValue}
                                   <!-- Text Field with Icon (Resizable Container) - Only show if fieldValue exists -->

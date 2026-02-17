@@ -5,9 +5,7 @@
 	import PriceValidationWarning from '$lib/components/desktop-interface/marketing/flyer/PriceValidationWarning.svelte';
 	import { notifications } from '$lib/stores/notifications';
 	
-	// Cache configuration (shared across all flyer components)
-	const CACHE_KEY = 'flyer_products_cache';
-	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+	// Cache removed - always load fresh data directly
 	
 	let products: any[] = [];
 	let filteredProducts: any[] = [];
@@ -940,26 +938,6 @@
 		isLoading = true;
 		products = [];
 		
-		// Try to load from cache first
-		try {
-			const cached = localStorage.getItem(CACHE_KEY);
-			if (cached) {
-				const { data, timestamp } = JSON.parse(cached);
-				const age = Date.now() - timestamp;
-				
-				if (age < CACHE_DURATION) {
-					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
-					products = data;
-					extractFilterOptions();
-					applyFilters();
-					isLoading = false;
-					return;
-				}
-			}
-		} catch (err) {
-			console.warn('Cache read error:', err);
-		}
-		
 		console.log('Starting automatic batch loading...');
 		
 		try {
@@ -1048,17 +1026,6 @@
 			applyFilters();
 			
 			console.log(`All products loaded successfully! Total: ${products.length}`);
-			
-			// Cache the loaded data
-			try {
-				localStorage.setItem(CACHE_KEY, JSON.stringify({
-					data: products,
-					timestamp: Date.now()
-				}));
-				console.log('✓ Products cached to localStorage');
-			} catch (err) {
-				console.warn('Cache write error:', err);
-			}
 
 		} catch (error) {
 			console.error('Error loading products:', {

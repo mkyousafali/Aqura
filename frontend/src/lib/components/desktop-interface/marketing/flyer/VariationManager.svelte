@@ -17,9 +17,7 @@
 	let successfullyLoadedImages: Set<string> = new Set(); // Track which images have loaded successfully
 	let imageRefs: Record<string, HTMLImageElement> = {}; // Track image element refs
 	
-	// Cache configuration (shared across all flyer components)
-	const CACHE_KEY = 'flyer_products_cache';
-	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+	// Cache removed - always load fresh data directly
 	
 	// Group creation/edit modal
 	let showGroupModal: boolean = false;
@@ -38,7 +36,7 @@
 	let expandedGroups: Set<string> = new Set();
 	let showGroupsView: boolean = false;
 	let isLoadingGroups: boolean = false;
-	let loadedGroupVariations: Map<string, any[]> = new Map(); // Cache loaded variations
+	let loadedGroupVariations: Map<string, any[]> = new Map(); // Track loaded variations
 	let groupsPage: number = 1;
 	let groupsItemsPerPage: number = 20; // Show 20 groups per page
 	
@@ -126,13 +124,6 @@
 		isLoading = true;
 		products = [];
 		
-		// Clear old cache to ensure we get fresh data with category
-		try {
-			localStorage.removeItem(CACHE_KEY);
-		} catch (err) {
-			console.warn('Cache clear error:', err);
-		}
-		
 		try {
 			let allProducts: any[] = [];
 			let parents: any[] = [];
@@ -185,17 +176,6 @@
 			groupedProducts = allProducts.filter(p => p.is_variation).length;
 			parents = allProducts.filter(p => p.is_variation && !p.parent_product_barcode) || [];
 			totalGroups = parents.length;
-			
-			// Cache the loaded data
-			try {
-				localStorage.setItem(CACHE_KEY, JSON.stringify({
-					data: allProducts,
-					timestamp: Date.now()
-				}));
-				console.log('✓ Products cached to localStorage');
-			} catch (err) {
-				console.warn('Cache write error:', err);
-			}
 			
 			console.log('✓ All products loaded:', allProducts.length);
 		} catch (error) {
@@ -819,10 +799,8 @@
 			expandedGroups.delete(parentBarcode);
 		} else {
 			expandedGroups.add(parentBarcode);
-			// Lazy load variations for this group if not cached
-			if (!loadedGroupVariations.has(parentBarcode)) {
-				loadGroupVariations(parentBarcode);
-			}
+			// Always load fresh variations for this group
+			loadGroupVariations(parentBarcode);
 		}
 		expandedGroups = expandedGroups;
 	}

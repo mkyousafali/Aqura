@@ -544,7 +544,7 @@
             <div style="font-weight: bold;">${product.product_name_en || '-'}</div>
             <div style="font-size: 12px; color: #6b7280; margin-top: 4px; font-weight: 600;">${product.barcode || '-'}</div>
           </td>
-          <td>${product.unit_name || '-'}</td>
+          <td style="direction:rtl;">${product.unit_name_ar || '-'}</td>
           <td class="copies-col">${a4Copies}</td>
           <td class="copies-col">${a5Copies}</td>
           <td class="copies-col">${a6Copies}</td>
@@ -858,7 +858,7 @@
             value = serialCounter.toString();
             break;
           case 'unit_name':
-            value = product.unit_name;
+            value = product.unit_name_ar || product.unit_name;
             break;
           case 'price':
             value = product.total_sales_price.toFixed(2);
@@ -1182,7 +1182,7 @@
               value = serialCounter.toString();
               break;
             case 'unit_name':
-              value = product.unit_name;
+              value = product.unit_name_ar || product.unit_name;
               break;
             case 'price':
               value = product.total_sales_price.toFixed(2);
@@ -1557,7 +1557,7 @@
                         {/if}
                       </div>
                     </td>
-                    <td class="unit-cell">{product.unit_name}</td>
+                    <td class="unit-cell" dir="rtl">{product.unit_name_ar || product.unit_name}</td>
                     <td class="price-cell">
                       <span class="regular-price">{product.total_sales_price.toFixed(2)} SAR</span>
                     </td>
