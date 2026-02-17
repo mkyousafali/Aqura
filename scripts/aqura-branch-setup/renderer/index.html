@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aqura Setup Installer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Custom Title Bar -->
+  <div id="titlebar">
+    <div class="titlebar-drag">
+      <span class="titlebar-icon">🏗️</span>
+      <span class="titlebar-text">Aqura Setup Installer</span>
+    </div>
+    <div class="titlebar-controls">
+      <button class="tb-btn" id="btn-minimize" title="Minimize">─</button>
+      <button class="tb-btn" id="btn-maximize" title="Maximize">☐</button>
+      <button class="tb-btn tb-close" id="btn-close" title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="app">
+
+    <!-- ═══ Screen: Mode Selection ═══ -->
+    <div id="screen-mode" class="screen active">
+      <h1 class="screen-title">Choose Installation Type</h1>
+      <p class="screen-subtitle">Select how you want to set up Aqura on this machine.</p>
+      
+      <div class="mode-cards">
+        <div class="mode-card" id="card-server" tabindex="0">
+          <div class="mode-icon">🏢</div>
+          <h2>SERVER</h2>
+          <span class="mode-badge">Master</span>
+          <p>First install for a <strong>new company</strong>.</p>
+          <ul>
+            <li>Fresh empty database</li>
+            <li>Schema only — no data</li>
+            <li>Auto-generate JWT keys</li>
+            <li>Create master admin user</li>
+            <li>Becomes replication publisher</li>
+          </ul>
+        </div>
+
+        <div class="mode-card" id="card-branch" tabindex="0">
+          <div class="mode-icon">🏪</div>
+          <h2>BRANCH</h2>
+          <span class="mode-badge">Replica</span>
+          <p>Connect to an <strong>existing server</strong>.</p>
+          <ul>
+            <li>Enter server IP / URL</li>
+            <li>Copies all data from server</li>
+            <li>Real-time replication</li>
+            <li>Uses server's JWT keys</li>
+            <li>Fast local reads</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="screen-actions">
+        <button class="btn btn-primary" id="btn-start" disabled>Select & Continue</button>
+      </div>
+    </div>
+
+    <!-- ═══ Screen: Resume ═══ -->
+    <div id="screen-resume" class="screen">
+      <h1 class="screen-title">Resume Installation?</h1>
+      <p class="screen-subtitle">A previous installation was interrupted.</p>
+      <div id="resume-info" class="info-box"></div>
+      <div class="screen-actions">
+        <button class="btn btn-secondary" id="btn-resume-fresh">Start Fresh</button>
+        <button class="btn btn-primary" id="btn-resume-continue">Resume</button>
+      </div>
+    </div>
+
+    <!-- ═══ Screen: Wizard ═══ -->
+    <div id="screen-wizard" class="screen">
+      <!-- Progress Bar -->
+      <div id="wizard-progress">
+        <div id="progress-steps"></div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-fill"></div>
+        </div>
+      </div>
+
+      <!-- Step Title -->
+      <div id="wizard-header">
+        <h2 id="step-title">Step 1: System Check</h2>
+        <span id="step-counter" class="step-counter">1 / 10</span>
+      </div>
+
+      <!-- Step Content Area -->
+      <div id="step-content">
+        <!-- Dynamically filled by renderer.js -->
+      </div>
+
+      <!-- Log Viewer -->
+      <div id="log-panel">
+        <div class="log-header">
+          <span>📋 Log</span>
+          <button class="btn-icon" id="btn-toggle-log" title="Toggle log">▼</button>
+        </div>
+        <div id="log-content" class="log-collapsed"></div>
+      </div>
+
+      <!-- Navigation -->
+      <div id="wizard-nav">
+        <button class="btn btn-secondary" id="btn-back" disabled>← Back</button>
+        <div class="nav-spacer"></div>
+        <button class="btn btn-primary" id="btn-next">Next →</button>
+      </div>
+    </div>
+
+    <!-- ═══ Screen: Complete ═══ -->
+    <div id="screen-complete" class="screen">
+      <div class="complete-icon">✅</div>
+      <h1 class="screen-title">Installation Complete!</h1>
+      <div id="complete-info" class="info-box"></div>
+      <div class="screen-actions">
+        <button class="btn btn-secondary" id="btn-open-frontend">Open Frontend</button>
+        <button class="btn btn-secondary" id="btn-open-studio">Open Studio</button>
+        <button class="btn btn-primary" id="btn-finish">Close</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

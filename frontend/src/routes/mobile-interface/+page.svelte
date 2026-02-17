@@ -4,7 +4,7 @@
 	import { page } from '$app/stores';
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, getStoragePublicUrl } from '$lib/utils/supabase';
 	import { dataService } from '$lib/utils/dataService';
 	import { realtimeService } from '$lib/utils/realtimeService';
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
@@ -402,25 +402,24 @@
 
 	// Helper function to get proper file URL
 	function getFileUrl(attachment) {
-		const baseUrl = 'https://supabase.urbanaqura.com/storage/v1/object/public';
 		if (attachment.type === 'task_image') {
 			// Task images use file_url or file_path
 			const fileName = attachment.file_url || attachment.file_path;
 			if (fileName) {
-				const url = `${baseUrl}/task-images/${fileName}`;
+				const url = getStoragePublicUrl('task-images', fileName);
 				return url;
 			}
 		} else if (attachment.type === 'quick_task_file') {
 			// Quick task files use storage_path
 			if (attachment.storage_path) {
-				const url = `${baseUrl}/quick-task-files/${attachment.storage_path}`;
+				const url = getStoragePublicUrl('quick-task-files', attachment.storage_path);
 				return url;
 			}
 		} else if (attachment.type === 'notification_attachment') {
 			// Notification attachments use file_path
 			const fileName = attachment.file_path || attachment.file_url;
 			if (fileName) {
-				const url = `${baseUrl}/notification-images/${fileName}`;
+				const url = getStoragePublicUrl('notification-images', fileName);
 				return url;
 			}
 		}

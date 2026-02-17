@@ -244,6 +244,266 @@
 	interface BranchOption { id: number; name_en: string; name_ar: string; }
 	let availableBranches: BranchOption[] = [];
 
+	// ===================== Storage Sync State =====================
+	interface StorageSyncStatus {
+		cloudBuckets: { name: string; fileCount: number; totalSize: number }[];
+		branchBuckets: { name: string; fileCount: number; totalSize: number }[];
+		cloudTotal: number;
+		branchTotal: number;
+		missingFiles: number;
+	}
+	let storageSyncStatus: Record<number, StorageSyncStatus | null> = {};
+	let storageSyncChecking: Record<number, boolean> = {};
+	let storageSyncing: Record<number, boolean> = {};
+	let storageSyncProgress: Record<number, string> = {};
+	let storageSyncDetail: Record<number, { bucket: string; done: number; total: number } | null> = {};
+	let bucketSyncing: Record<string, boolean> = {};  // key: "branchId:bucketName"
+	let bucketSyncStatus: Record<string, string> = {};  // key: "branchId:bucketName"
+
+	async function checkStorageSync(cfg: BranchSyncConfig) {
+		storageSyncChecking = { ...storageSyncChecking, [cfg.branch_id]: true };
+		storageSyncProgress = { ...storageSyncProgress, [cfg.branch_id]: 'Comparing storage...' };
+
+		try {
+			// Get cloud bucket stats
+			const { data: cloudData } = await supabase.rpc('get_storage_stats');
+			const cloudBuckets = (cloudData || []).map((b: any) => ({
+				name: b.bucket_id || b.bucket_name,
+				fileCount: Number(b.file_count) || 0,
+				totalSize: Number(b.total_size) || 0
+			}));
+
+			// Get branch bucket stats via XHR
+			let branchBuckets: any[] = [];
+			const baseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
+			const localKey = cfg.local_supabase_key;
+
+			try {
+				const xhr = new XMLHttpRequest();
+				xhr.open('POST', `${baseUrl}/rest/v1/rpc/get_storage_stats`, true);
+				xhr.setRequestHeader('Content-Type', 'application/json');
+				xhr.setRequestHeader('apikey', localKey);
+				xhr.setRequestHeader('Authorization', `Bearer ${localKey}`);
+				xhr.timeout = 15000;
+				const result: any = await new Promise((resolve, reject) => {
+					xhr.onload = () => {
+						if (xhr.status >= 200 && xhr.status < 300) {
+							try { resolve(JSON.parse(xhr.responseText)); } catch { resolve([]); }
+						} else { reject(new Error(`HTTP ${xhr.status}`)); }
+					};
+					xhr.onerror = () => reject(new Error('Network error'));
+					xhr.ontimeout = () => reject(new Error('Timeout'));
+					xhr.send('{}');
+				});
+				branchBuckets = (result || []).map((b: any) => ({
+					name: b.bucket_id || b.bucket_name,
+					fileCount: Number(b.file_count) || 0,
+					totalSize: Number(b.total_size) || 0
+				}));
+			} catch (localErr) {
+				// Try tunnel
+				if (cfg.tunnel_url) {
+					const res = await fetch('/api/branch-proxy', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ method: 'POST', baseUrl: cfg.tunnel_url.replace(/\/+$/, ''), path: '/rest/v1/rpc/get_storage_stats', apiKey: localKey, payload: {} })
+					});
+					const r = await res.json();
+					if (r.success) {
+						branchBuckets = (r.data || []).map((b: any) => ({
+							name: b.bucket_id || b.bucket_name,
+							fileCount: Number(b.file_count) || 0,
+							totalSize: Number(b.total_size) || 0
+						}));
+					}
+				}
+			}
+
+			const cloudTotal = cloudBuckets.reduce((s: number, b: any) => s + b.totalSize, 0);
+			const branchTotal = branchBuckets.reduce((s: number, b: any) => s + b.totalSize, 0);
+
+			// Count missing files
+			let missingFiles = 0;
+			for (const cb of cloudBuckets) {
+				const bb = branchBuckets.find((b: any) => b.name === cb.name);
+				if (!bb) missingFiles += cb.fileCount;
+				else if (bb.fileCount < cb.fileCount) missingFiles += cb.fileCount - bb.fileCount;
+			}
+
+			storageSyncStatus = { ...storageSyncStatus, [cfg.branch_id]: {
+				cloudBuckets, branchBuckets, cloudTotal, branchTotal, missingFiles
+			}};
+			storageSyncProgress = { ...storageSyncProgress, [cfg.branch_id]: '' };
+		} catch (e: any) {
+			storageSyncProgress = { ...storageSyncProgress, [cfg.branch_id]: `\u274C ${e.message}` };
+		}
+		storageSyncChecking = { ...storageSyncChecking, [cfg.branch_id]: false };
+	}
+
+	async function syncStorageBucket(cfg: BranchSyncConfig, targetBucketName: string) {
+		const bKey = `${cfg.branch_id}:${targetBucketName}`;
+		if (bucketSyncing[bKey]) return;
+
+		bucketSyncing = { ...bucketSyncing, [bKey]: true };
+		bucketSyncStatus = { ...bucketSyncStatus, [bKey]: 'Connecting...' };
+
+		let branchUrl = cfg.local_supabase_url.replace(/\/+$/, '');
+		const branchKey = cfg.local_supabase_key;
+
+		// XHR helpers for branch storage API
+		function branchStorageXhr(method: string, path: string, body?: Blob | string, contentType?: string): Promise<any> {
+			return new Promise((resolve, reject) => {
+				const xhr = new XMLHttpRequest();
+				xhr.open(method, `${branchUrl}${path}`, true);
+				xhr.setRequestHeader('apikey', branchKey);
+				xhr.setRequestHeader('Authorization', `Bearer ${branchKey}`);
+				if (contentType) xhr.setRequestHeader('Content-Type', contentType);
+				xhr.timeout = 120000;
+				xhr.onload = () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						try { resolve(xhr.responseText ? JSON.parse(xhr.responseText) : null); }
+						catch { resolve(null); }
+					} else { reject(new Error(`${xhr.status} ${xhr.responseText?.substring(0, 200)}`)); }
+				};
+				xhr.onerror = () => reject(new Error('Network error'));
+				xhr.ontimeout = () => reject(new Error('Timeout'));
+				xhr.send(body || null);
+			});
+		}
+
+		// Test branch connectivity
+		try {
+			await branchStorageXhr('GET', '/storage/v1/bucket');
+		} catch {
+			if (cfg.tunnel_url) {
+				branchUrl = cfg.tunnel_url.replace(/\/+$/, '');
+			} else {
+				bucketSyncStatus = { ...bucketSyncStatus, [bKey]: '\u274C Cannot connect' };
+				bucketSyncing = { ...bucketSyncing, [bKey]: false };
+				return;
+			}
+		}
+
+		try {
+			// Ensure bucket exists on branch
+			const branchBucketsRes = await branchStorageXhr('GET', '/storage/v1/bucket');
+			const existingBranch = new Set((branchBucketsRes || []).map((b: any) => b.id || b.name));
+
+			if (!existingBranch.has(targetBucketName)) {
+				bucketSyncStatus = { ...bucketSyncStatus, [bKey]: 'Creating bucket...' };
+				const bucketPayload: any = { id: targetBucketName, name: targetBucketName, public: true };
+				try {
+					await branchStorageXhr('POST', '/storage/v1/bucket', JSON.stringify(bucketPayload), 'application/json');
+				} catch (e: any) {
+					if (!e.message?.includes('already exists')) {
+						bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u274C Bucket create failed: ${e.message}` };
+						bucketSyncing = { ...bucketSyncing, [bKey]: false };
+						return;
+					}
+				}
+				// Verify bucket was created
+				const verifyRes = await branchStorageXhr('GET', '/storage/v1/bucket');
+				const verified = (verifyRes || []).some((b: any) => (b.id || b.name) === targetBucketName);
+				if (!verified) {
+					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u274C Bucket creation not confirmed` };
+					bucketSyncing = { ...bucketSyncing, [bKey]: false };
+					return;
+				}
+			}
+
+			let totalSynced = 0;
+			let totalSkipped = 0;
+			let totalErrors = 0;
+
+			{
+				const bucketId = targetBucketName;
+				bucketSyncStatus = { ...bucketSyncStatus, [bKey]: 'Listing files...' };
+
+				// List all files in cloud bucket
+				let cloudFiles: { name: string; id?: string }[] = [];
+				let offset = 0;
+				while (true) {
+					const { data: files } = await supabase.storage.from(bucketId).list('', { limit: 1000, offset, sortBy: { column: 'name', order: 'asc' } });
+					if (!files || files.length === 0) break;
+					const realFiles = files.filter((f: any) => f.metadata && f.metadata.size > 0);
+					cloudFiles = [...cloudFiles, ...realFiles];
+					if (files.length < 1000) break;
+					offset += 1000;
+				}
+
+				if (cloudFiles.length === 0) {
+					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: '\u2705 Empty bucket' };
+					bucketSyncing = { ...bucketSyncing, [bKey]: false };
+					return;
+				}
+
+				// List files on branch in this bucket
+				let branchFileNames = new Set<string>();
+				try {
+					let bOffset = 0;
+					while (true) {
+						const bFiles = await branchStorageXhr('POST', `/storage/v1/object/list/${bucketId}`, JSON.stringify({ prefix: '', limit: 1000, offset: bOffset, sortBy: { column: 'name', order: 'asc' } }), 'application/json');
+						if (!bFiles || bFiles.length === 0) break;
+						for (const f of bFiles) {
+							if (f.metadata && f.metadata.size > 0) branchFileNames.add(f.name);
+						}
+						if (bFiles.length < 1000) break;
+						bOffset += 1000;
+					}
+				} catch { /* empty bucket on branch */ }
+
+				// Find missing files
+				const missing = cloudFiles.filter(f => !branchFileNames.has(f.name));
+				if (missing.length === 0) {
+					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u2705 All ${cloudFiles.length} files in sync` };
+					bucketSyncing = { ...bucketSyncing, [bKey]: false };
+					await checkStorageSync(cfg);
+					return;
+				}
+
+				for (let fi = 0; fi < missing.length; fi++) {
+					const file = missing[fi];
+					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `Syncing ${fi + 1}/${missing.length}...` };
+
+					try {
+						const { data: blob, error: dlErr } = await supabase.storage.from(bucketId).download(file.name);
+						if (dlErr || !blob) throw new Error(dlErr?.message || 'Download failed');
+						await branchStorageXhr('POST', `/storage/v1/object/${bucketId}/${file.name}`, blob, blob.type || 'application/octet-stream');
+						totalSynced++;
+					} catch (e: any) {
+						console.warn(`Storage sync ${bucketId}/${file.name}: ${e.message}`);
+						totalErrors++;
+					}
+				}
+
+				totalSkipped += cloudFiles.length - missing.length;
+			}
+
+			const statusMsg = totalErrors > 0
+				? `\u26A0\uFE0F ${totalSynced} synced, ${totalSkipped} existed, ${totalErrors} errors`
+				: `\u2705 ${totalSynced} synced, ${totalSkipped} already existed`;
+			bucketSyncStatus = { ...bucketSyncStatus, [bKey]: statusMsg };
+
+			// Refresh comparison
+			await checkStorageSync(cfg);
+		} catch (e: any) {
+			bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u274C ${e.message}` };
+		}
+
+		bucketSyncing = { ...bucketSyncing, [bKey]: false };
+	}
+
+	async function syncAllStorage(cfg: BranchSyncConfig) {
+		if (!storageSyncStatus[cfg.branch_id]) return;
+		const buckets = storageSyncStatus[cfg.branch_id]!.cloudBuckets;
+		for (const b of buckets) {
+			const bb = storageSyncStatus[cfg.branch_id]!.branchBuckets.find(x => x.name === b.name);
+			if (!bb || bb.fileCount < b.fileCount) {
+				await syncStorageBucket(cfg, b.name);
+			}
+		}
+	}
+
 	// ===================== Frontend Deployment State =====================
 	interface FrontendBuild {
 		id: number;
@@ -1942,6 +2202,112 @@
 												</div>
 											</div>
 										{/if}
+
+										<!-- Storage Sync Row -->
+										<div class="flex flex-col mt-3 pt-3 border-t border-amber-100">
+											<div class="flex items-center justify-between">
+												<div class="flex items-center gap-4 text-xs">
+													<span class="font-bold text-amber-600">{"\u{1F4C1}"} Storage:</span>
+													{#if storageSyncChecking[cfg.branch_id]}
+														<span class="text-slate-400 animate-pulse">Comparing buckets...</span>
+													{:else if storageSyncStatus[cfg.branch_id]}
+														{@const ss = storageSyncStatus[cfg.branch_id]}
+														<span class="font-semibold text-slate-700">Cloud: {formatBytes(ss.cloudTotal)} ({ss.cloudBuckets.length} buckets)</span>
+														<span class="text-slate-300">|</span>
+														<span class="font-semibold text-slate-700">Branch: {formatBytes(ss.branchTotal)}</span>
+														<span class="text-slate-300">|</span>
+														{#if ss.missingFiles === 0}
+															<span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">{"\u2705"} All in sync</span>
+														{:else}
+															<span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold">{"\u{26A0}\uFE0F"} {ss.missingFiles} files missing</span>
+														{/if}
+													{:else}
+														<span class="text-slate-400">Not checked</span>
+													{/if}
+												</div>
+												<div class="flex items-center gap-2">
+													<button
+														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition disabled:opacity-50"
+														on:click={() => checkStorageSync(cfg)}
+														disabled={storageSyncChecking[cfg.branch_id]}
+													>
+														{storageSyncChecking[cfg.branch_id] ? '\u{23F3}' : '\u{1F50D}'} Check
+													</button>
+													{#if storageSyncStatus[cfg.branch_id] && storageSyncStatus[cfg.branch_id].missingFiles > 0}
+														<button
+															class="px-3 py-1.5 text-xs font-black rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all shadow shadow-amber-200 disabled:opacity-50"
+															on:click={() => syncAllStorage(cfg)}
+														>
+															{"\u{1F4E5}"} Sync All Missing
+														</button>
+													{/if}
+												</div>
+											</div>
+											{#if storageSyncProgress[cfg.branch_id]}
+												<div class="mt-2 text-xs font-semibold {storageSyncProgress[cfg.branch_id]?.startsWith('\u2705') ? 'text-emerald-600' : storageSyncProgress[cfg.branch_id]?.startsWith('\u274C') || storageSyncProgress[cfg.branch_id]?.startsWith('\u26A0') ? 'text-red-600' : 'text-amber-600'}">
+													{storageSyncProgress[cfg.branch_id]}
+												</div>
+											{/if}
+											<!-- Bucket Table -->
+											{#if storageSyncStatus[cfg.branch_id] && storageSyncStatus[cfg.branch_id].cloudBuckets.length > 0}
+												<div class="mt-2 border border-amber-100 rounded-xl overflow-hidden">
+													<table class="w-full text-xs">
+														<thead>
+															<tr class="bg-amber-50 text-amber-700 font-bold">
+																<td class="px-3 py-1.5">Status</td>
+																<td class="px-3 py-1.5">Bucket</td>
+																<td class="px-3 py-1.5 text-right">Cloud Files</td>
+																<td class="px-3 py-1.5 text-right">Cloud Size</td>
+																<td class="px-3 py-1.5 text-right">Branch Files</td>
+																<td class="px-3 py-1.5 text-right">Branch Size</td>
+																<td class="px-3 py-1.5 text-center">Sync</td>
+															</tr>
+														</thead>
+														<tbody>
+															{#each storageSyncStatus[cfg.branch_id].cloudBuckets as cb}
+																{@const bb = storageSyncStatus[cfg.branch_id].branchBuckets.find(b => b.name === cb.name)}
+																{@const bk = `${cfg.branch_id}:${cb.name}`}
+																{@const inSync = bb && bb.fileCount >= cb.fileCount}
+																{@const missing = cb.fileCount - (bb?.fileCount || 0)}
+																<tr class="border-t border-amber-50 {inSync ? 'bg-white' : 'bg-amber-50/30'}">
+																	<td class="px-3 py-1.5">
+																		{#if inSync}
+																			<span class="text-emerald-500">{"\u2705"}</span>
+																		{:else if bb}
+																			<span class="text-amber-500">{"\u{26A0}\uFE0F"}</span>
+																		{:else}
+																			<span class="text-red-500">{"\u274C"}</span>
+																		{/if}
+																	</td>
+																	<td class="px-3 py-1.5 font-mono font-semibold text-slate-700">{cb.name}</td>
+																	<td class="px-3 py-1.5 text-right text-slate-600">{cb.fileCount.toLocaleString()}</td>
+																	<td class="px-3 py-1.5 text-right text-slate-600">{formatBytes(cb.totalSize)}</td>
+																	<td class="px-3 py-1.5 text-right {inSync ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'}">{(bb?.fileCount || 0).toLocaleString()}</td>
+																	<td class="px-3 py-1.5 text-right text-slate-600">{formatBytes(bb?.totalSize || 0)}</td>
+																	<td class="px-3 py-1.5 text-center">
+																		{#if bucketSyncing[bk]}
+																			<span class="text-amber-600 font-semibold animate-pulse">{bucketSyncStatus[bk] || 'Syncing...'}</span>
+																		{:else if bucketSyncStatus[bk]}
+																			<span class="font-semibold {bucketSyncStatus[bk]?.startsWith('\u2705') ? 'text-emerald-600' : bucketSyncStatus[bk]?.startsWith('\u274C') ? 'text-red-600' : 'text-amber-600'}">{bucketSyncStatus[bk]}</span>
+																		{:else if inSync}
+																			<span class="text-emerald-500 font-semibold">{"\u2705"}</span>
+																		{:else}
+																			<button
+																				class="px-2.5 py-1 text-xs font-black rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all disabled:opacity-50"
+																				on:click={() => syncStorageBucket(cfg, cb.name)}
+																				title="Sync {missing} missing files"
+																			>
+																				{"\u{1F4E5}"} Sync ({missing})
+																			</button>
+																		{/if}
+																	</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+												</div>
+											{/if}
+										</div>
 									</div>
 
 									<!-- Sync Progress (shown during sync) -->

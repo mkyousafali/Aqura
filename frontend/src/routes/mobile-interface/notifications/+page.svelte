@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import { db, supabase } from '$lib/utils/supabase';
+	import { db, supabase, resolveStorageUrl } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
 	import { currentLocale, localeData } from '$lib/i18n';
@@ -307,7 +307,7 @@
 				if (!acc[att.notification_id]) acc[att.notification_id] = [];
 				acc[att.notification_id].push({
 					...att,
-					fileUrl: att.file_path?.startsWith('http') ? att.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
+					fileUrl: att.file_path?.startsWith('http') ? resolveStorageUrl(att.file_path) : resolveStorageUrl(att.file_path, 'notification-images'),
 					fileName: att.file_name, fileSize: att.file_size, fileType: att.file_type,
 					uploadedAt: att.created_at, uploadedBy: att.uploaded_by
 				});
@@ -331,8 +331,8 @@
 					fileName: att.file_name || 'Unknown File',
 					fileSize: att.file_size || 0,
 					fileType: att.file_type || 'application/octet-stream',
-					fileUrl: att.file_path?.startsWith('http') ? att.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${att.file_path || ''}`,
-					downloadUrl: att.file_path?.startsWith('http') ? att.file_path : `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${att.file_path || ''}`,
+					fileUrl: att.file_path?.startsWith('http') ? resolveStorageUrl(att.file_path) : resolveStorageUrl(att.file_path || '', 'task-images'),
+					downloadUrl: att.file_path?.startsWith('http') ? resolveStorageUrl(att.file_path) : resolveStorageUrl(att.file_path || '', 'task-images'),
 					uploadedBy: att.uploaded_by_name || att.uploaded_by || 'Unknown',
 					uploadedAt: att.created_at
 				});

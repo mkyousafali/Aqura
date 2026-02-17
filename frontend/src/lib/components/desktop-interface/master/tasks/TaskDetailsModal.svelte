@@ -3,7 +3,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
-	import { db } from '$lib/utils/supabase';
+	import { db, resolveStorageUrl } from '$lib/utils/supabase';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -53,11 +53,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						fileSize: attachment.file_size || 0,
 					fileType: attachment.file_type || 'application/octet-stream',
 					fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-						? attachment.file_path 
-						: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+						? resolveStorageUrl(attachment.file_path) 
+						: resolveStorageUrl(attachment.file_path || '', 'task-images'),
 					downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-						? attachment.file_path 
-						: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+						? resolveStorageUrl(attachment.file_path) 
+						: resolveStorageUrl(attachment.file_path || '', 'task-images'),
 					uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
 						uploadedAt: attachment.created_at
 					}));

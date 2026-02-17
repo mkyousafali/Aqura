@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import { db, supabase } from '$lib/utils/supabase';
+	import { db, supabase, resolveStorageUrl } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 	import { locale, getTranslation } from '$lib/i18n';
@@ -108,8 +108,8 @@
 						...att,
 						type: 'notification_attachment',
 						fileUrl: att.file_path && att.file_path.startsWith('http') 
-							? att.file_path 
-							: `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
+							? resolveStorageUrl(att.file_path) 
+							: resolveStorageUrl(att.file_path, 'notification-images'),
 						fileName: att.file_name,
 						fileSize: att.file_size,
 						fileType: att.file_type,
@@ -171,7 +171,7 @@
 							taskAttachments.push(...taskImages.map(img => ({
 								...img,
 								type: 'task_image',
-								fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+								fileUrl: resolveStorageUrl(img.file_url || img.file_path, 'task-images'),
 								fileName: img.file_name,
 								fileSize: img.file_size,
 								fileType: img.file_type,
@@ -211,7 +211,7 @@
 								taskAttachments.push(...taskImages.map(img => ({
 									...img,
 									type: 'task_image',
-									fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+									fileUrl: resolveStorageUrl(img.file_url || img.file_path, 'task-images'),
 									fileName: img.file_name,
 									fileSize: img.file_size,
 									fileType: img.file_type,
@@ -305,7 +305,7 @@
 						quickTaskAttachments = quickTaskFiles.map(file => ({
 							...file,
 							type: 'quick_task_file',
-							fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/quick-task-files/${file.storage_path}`,
+							fileUrl: resolveStorageUrl(file.storage_path, 'quick-task-files'),
 							fileName: file.file_name,
 							fileSize: file.file_size,
 							fileType: file.file_type,

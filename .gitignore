@@ -17,6 +17,9 @@ pnpm-debug.log*
 # Copilot instructions (contains server credentials)
 .github/copilot-instructions.md
 
+# AI guides with credentials/architecture details
+Do not delete/AI_BRANCH_INSTALLER_AND_SYNC_GUIDE.md
+
 # Build output
 frontend/build/
 

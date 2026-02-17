@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	export let cardType: string = 'total_tasks';
@@ -1242,7 +1242,7 @@
 		try {
 			// Call the Edge Function
 			const response = await fetch(
-				'https://supabase.urbanaqura.com/functions/v1/check-overdue-reminders',
+				getEdgeFunctionUrl('check-overdue-reminders'),
 				{
 					method: 'POST',
 					headers: {

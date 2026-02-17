@@ -1,11 +1,14 @@
-import adapter from "@sveltejs/adapter-vercel";
+import adapterVercel from "@sveltejs/adapter-vercel";
+import adapterNode from "@sveltejs/adapter-node";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+
+const useNode = process.env.BUILD_ADAPTER === 'node';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: adapter(),
+    adapter: useNode ? adapterNode({ out: 'build' }) : adapterVercel(),
     alias: {
       $lib: "./src/lib",
       $components: "./src/lib/components",

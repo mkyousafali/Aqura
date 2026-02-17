@@ -241,20 +241,15 @@ try {
     const buildDir = path.join(frontendDir, 'build');
     const zipPath = path.join(__dirname, '..', 'aqura-frontend-build.zip');
     
-    // Step 1: Temporarily swap adapter to adapter-node
-    console.log('📦 Step 1/5: Switching to adapter-node for branch build...');
-    const originalConfig = fs.readFileSync(svelteConfigPath, 'utf-8');
-    const nodeConfig = originalConfig.replace(
-      /import adapter from ["']@sveltejs\/adapter-vercel["'];/,
-      'import adapter from "@sveltejs/adapter-node";'
-    );
-    fs.writeFileSync(svelteConfigPath, nodeConfig, 'utf-8');
-    console.log('   ✅ Adapter switched to adapter-node');
+    // Step 1: Set BUILD_ADAPTER=node for adapter-node build
+    console.log('📦 Step 1/5: Setting BUILD_ADAPTER=node for branch build...');
+    process.env.BUILD_ADAPTER = 'node';
+    console.log('   ✅ BUILD_ADAPTER=node set (svelte.config.js reads this automatically)');
     
     try {
       // Step 2: Build frontend
       console.log('🔨 Step 2/5: Building frontend (this may take a minute)...');
-      execSync('npm run build', { cwd: frontendDir, stdio: 'inherit' });
+      execSync('npm run build', { cwd: frontendDir, stdio: 'inherit', env: { ...process.env, BUILD_ADAPTER: 'node' } });
       console.log('   ✅ Frontend built successfully');
       
       // Step 3: Create ZIP of build output
@@ -291,9 +286,9 @@ try {
       console.log(`\n🎉 Build ${newVersion} uploaded! Branches can now update.`);
       
     } finally {
-      // Always restore adapter-vercel
-      fs.writeFileSync(svelteConfigPath, originalConfig, 'utf-8');
-      console.log('🔄 Restored adapter-vercel in svelte.config.js');
+      // Reset BUILD_ADAPTER
+      delete process.env.BUILD_ADAPTER;
+      console.log('🔄 Cleared BUILD_ADAPTER env var');
       
       // Clean up ZIP
       if (fs.existsSync(zipPath)) {

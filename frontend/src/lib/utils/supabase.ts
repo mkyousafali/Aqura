@@ -6,6 +6,62 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://supabase.urban
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY0ODc1NTI3LCJleHAiOjIwODA0NTE1Mjd9.IT_YSPU9oivuGveKfRarwccr59SNMzX_36cw04Lf448";
 
+// Cloud Supabase URL (hardcoded reference for URL rewriting)
+const CLOUD_SUPABASE_URL = "https://supabase.urbanaqura.com";
+
+/**
+ * Resolves a storage URL to use the current Supabase instance URL.
+ * On branch deployments where VITE_SUPABASE_URL points to the local Supabase,
+ * this rewrites cloud URLs (https://supabase.urbanaqura.com/...) to use the local URL.
+ * On cloud, this is a no-op since both URLs are the same.
+ * 
+ * Handles: full cloud URLs, relative paths (bucket/file), already-local URLs
+ * 
+ * @param url - The storage URL or relative path
+ * @param bucket - Optional bucket name (required if url is just a filename/path)
+ * @returns Resolved URL pointing to the current Supabase instance
+ */
+export function resolveStorageUrl(url: string | null | undefined, bucket?: string): string {
+  if (!url) return '';
+  
+  // If it's a full cloud URL, rewrite the domain to current supabaseUrl
+  if (url.includes('supabase.urbanaqura.com')) {
+    return url.replace(CLOUD_SUPABASE_URL, supabaseUrl);
+  }
+  
+  // If it already starts with http, it's already a full URL (possibly local) — return as-is
+  if (url.startsWith('http')) {
+    return url;
+  }
+  
+  // It's a relative path — build full URL with bucket
+  if (bucket) {
+    return `${supabaseUrl}/storage/v1/object/public/${bucket}/${url}`;
+  }
+  
+  // Relative path without bucket — assume it contains the bucket in the path
+  return `${supabaseUrl}/storage/v1/object/public/${url}`;
+}
+
+/**
+ * Builds a Supabase Edge Function URL using the current instance URL.
+ * On branch, this redirects to the local Supabase. On cloud, points to cloud.
+ * 
+ * @param functionName - The edge function name (e.g., 'analyze-attendance')
+ * @returns Full edge function invocation URL
+ */
+export function getEdgeFunctionUrl(functionName: string): string {
+  return `${supabaseUrl}/functions/v1/${functionName}`;
+}
+
+/**
+ * Builds a storage public URL for the given bucket and path.
+ * Always uses the current VITE_SUPABASE_URL so it works on both cloud and branch.
+ */
+export function getStoragePublicUrl(bucket: string, path: string): string {
+  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
+}
+
 // Debug logging
 if (typeof window !== 'undefined') {
   console.log('🔐 Supabase Configuration:');

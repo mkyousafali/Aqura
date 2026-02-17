@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 	import { _ as t, locale } from '$lib/i18n';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import XLSX from 'xlsx-js-style';
@@ -630,7 +630,7 @@
 			const { data: { session } } = await supabase.auth.getSession();
 			const token = session?.access_token;
 
-			await fetch('https://supabase.urbanaqura.com/functions/v1/analyze-attendance', {
+			await fetch(getEdgeFunctionUrl('analyze-attendance'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
