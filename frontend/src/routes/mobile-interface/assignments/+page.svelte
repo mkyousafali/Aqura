@@ -112,6 +112,83 @@
 		}
 	}
 
+	// Load completion photos from task_completions and quick_task_completions
+	async function loadCompletionPhotos() {
+		const quickTaskAssignments = assignments.filter(a => a.task_type === 'quick_task');
+		const regularTaskAssignments = assignments.filter(a => a.task_type === 'regular');
+
+		// Load completion photos for regular tasks
+		if (regularTaskAssignments.length > 0) {
+			const taskIds = regularTaskAssignments.map(a => a.task_id);
+			try {
+				const { data: completions } = await supabase
+					.from('task_completions')
+					.select('id, task_id, assignment_id, completion_photo_url, completion_notes, completed_by_name, completed_at')
+					.in('task_id', taskIds);
+
+				if (completions && completions.length > 0) {
+					const completionMap = new Map();
+					completions.forEach(c => {
+						const key = c.assignment_id || c.task_id;
+						if (!completionMap.has(key)) completionMap.set(key, []);
+						if (c.completion_photo_url) {
+							completionMap.get(key).push({
+								file_url: c.completion_photo_url,
+								file_name: `completion-photo-${c.id}.jpg`,
+								file_type: 'image/jpeg',
+								completed_by_name: c.completed_by_name,
+								completed_at: c.completed_at,
+								notes: c.completion_notes
+							});
+						}
+					});
+					regularTaskAssignments.forEach(assignment => {
+						const photos = completionMap.get(assignment.id) || completionMap.get(assignment.task_id) || [];
+						assignment.completionPhotos = photos;
+						const completion = completions.find(c => c.assignment_id === assignment.id || c.task_id === assignment.task_id);
+						if (completion?.completion_notes) assignment.completionNotes = completion.completion_notes;
+					});
+				}
+			} catch (error) {
+				console.error('Error loading regular task completion photos:', error);
+			}
+		}
+
+		// Load completion photos for quick tasks
+		if (quickTaskAssignments.length > 0) {
+			const assignmentIds = quickTaskAssignments.map(a => a.id);
+			try {
+				const { data: completions } = await supabase
+					.from('quick_task_completions')
+					.select('id, quick_task_id, assignment_id, photo_path, completion_notes, completed_by_user_id, created_at')
+					.in('assignment_id', assignmentIds);
+
+				if (completions && completions.length > 0) {
+					const completionMap = new Map();
+					completions.forEach(c => {
+						if (!completionMap.has(c.assignment_id)) completionMap.set(c.assignment_id, []);
+						if (c.photo_path) {
+							completionMap.get(c.assignment_id).push({
+								file_url: `${supabase.supabaseUrl}/storage/v1/object/public/completion-photos/${c.photo_path}`,
+								file_name: `completion-photo-${c.id}.jpg`,
+								file_type: 'image/jpeg',
+								completed_at: c.created_at,
+								notes: c.completion_notes
+							});
+						}
+					});
+					quickTaskAssignments.forEach(assignment => {
+						assignment.completionPhotos = completionMap.get(assignment.id) || [];
+						const completion = completions.find(c => c.assignment_id === assignment.id);
+						if (completion?.completion_notes) assignment.completionNotes = completion.completion_notes;
+					});
+				}
+			} catch (error) {
+				console.error('Error loading quick task completion photos:', error);
+			}
+		}
+	}
+
 	// Download file function
 	async function downloadFile(file) {
 		try {
@@ -284,7 +361,7 @@
 			
 			// Load attachments for all assignments (in parallel)
 			assignments = allAssignments;
-			await loadAssignmentAttachments();
+			await Promise.all([loadAssignmentAttachments(), loadCompletionPhotos()]);
 			
 			// Calculate statistics from ALL assignments (always accurate)
 			calculateStats();
@@ -631,6 +708,18 @@
 		</div>
 	</section>
 
+	<!-- View Completed Button -->
+	<section class="completed-link-section">
+		<button class="view-completed-btn" on:click={() => goto('/mobile-interface/assignments/completed')}>
+			<span class="btn-icon">✅</span>
+			<span class="btn-text">{getTranslation('mobile.assignmentsContent.viewCompleted')}</span>
+			<span class="btn-count">{totalStats.completed}</span>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M9 18l6-6-6-6"/>
+			</svg>
+		</button>
+	</section>
+
 	<!-- Floating Filter Button -->
 	{#if !isLoading && assignments.length > 0}
 		<button class="floating-filter-btn" on:click={toggleFilters} class:active={showFilters}>
@@ -775,24 +864,6 @@
 							</div>
 						</div>
 
-						{#if assignment.task_type === 'quick_task'}
-							<!-- Quick Task specific information -->
-							<div class="quick-task-info">
-								{#if assignment.task?.price_tag}
-									<div class="quick-detail">
-										<span class="quick-label">{getTranslation('mobile.assignmentsContent.taskDetails.priceTag')}</span>
-										<span class="quick-value">{assignment.task.price_tag}</span>
-									</div>
-								{/if}
-								{#if assignment.task?.issue_type}
-									<div class="quick-detail">
-										<span class="quick-label">{getTranslation('mobile.assignmentsContent.taskDetails.issueType')}</span>
-										<span class="quick-value">{getTranslation(`mobile.quickTaskContent.issueTypes.${assignment.task.issue_type}`) || assignment.task.issue_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-									</div>
-								{/if}
-							</div>
-						{/if}
-
 						{#if assignment.notes}
 							<div class="assignment-notes">
 								<span class="notes-label">{getTranslation('mobile.assignmentsContent.taskDetails.notes')}</span>
@@ -800,11 +871,11 @@
 							</div>
 						{/if}
 
-						<!-- Attachments Section -->
+						<!-- Task Attachments (sent by assigner) -->
 						{#if assignment.attachments && assignment.attachments.length > 0}
 							<div class="attachments-section">
 								<div class="attachments-header">
-									<span class="attachments-label">{getTranslation('mobile.assignmentsContent.taskDetails.attachments')} ({assignment.attachments.length})</span>
+									<span class="attachments-label task-photos-label">📎 {getTranslation('mobile.assignmentsContent.taskDetails.taskPhotos')} ({assignment.attachments.length})</span>
 								</div>
 								<div class="attachments-grid">
 									{#each assignment.attachments as attachment}
@@ -819,11 +890,10 @@
 														on:click={() => openImagePreview(attachment.file_url)}
 													/>
 													<button 
-														class="download-btn" 
-														on:click|stopPropagation={() => downloadFile(attachment)}
-														title="{getTranslation('mobile.assignmentsContent.actions.download')} {attachment.file_name || 'file'}"
+														class="view-photo-btn" 
+														on:click={() => openImagePreview(attachment.file_url)}
 													>
-														⬇️
+														👁️ {getTranslation('mobile.assignmentsContent.actions.view')}
 													</button>
 												</div>
 											{:else}
@@ -844,6 +914,47 @@
 										</div>
 									{/each}
 								</div>
+							</div>
+						{/if}
+
+						<!-- Completion Photos (sent by completer) -->
+						{#if assignment.completionPhotos && assignment.completionPhotos.length > 0}
+							<div class="attachments-section completion-photos-section">
+								<div class="attachments-header">
+									<span class="attachments-label completion-photos-label">📸 {getTranslation('mobile.assignmentsContent.taskDetails.completionPhotos')} ({assignment.completionPhotos.length})</span>
+								</div>
+								<div class="attachments-grid">
+									{#each assignment.completionPhotos as photo}
+										<div class="attachment-item">
+											<div class="image-attachment completion-photo">
+												<!-- svelte-ignore a11y-click-events-have-key-events -->
+												<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+												<!-- svelte-ignore a11y-click-events-have-key-events -->
+												<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+												<img 
+													src={photo.file_url} 
+													alt="Completion"
+													class="attachment-thumbnail"
+													on:click={() => openImagePreview(photo.file_url)}
+												/>
+												<button 
+													class="view-photo-btn" 
+													on:click={() => openImagePreview(photo.file_url)}
+												>
+													👁️ {getTranslation('mobile.assignmentsContent.actions.view')}
+												</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
+						<!-- Completion Notes -->
+						{#if assignment.completionNotes}
+							<div class="assignment-notes completion-notes-section">
+								<span class="notes-label">📝 {getTranslation('mobile.assignmentsContent.taskDetails.completionNotes')}</span>
+								<p class="notes-text">{@html linkifyText(assignment.completionNotes)}</p>
 							</div>
 						{/if}
 					</div>
@@ -917,6 +1028,58 @@
 		font-size: 0.62rem;
 		color: #6B7280;
 		margin-top: 0.1rem;
+	}
+
+	/* Completed Link */
+	.completed-link-section {
+		padding: 0.3rem 0.6rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.view-completed-btn {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		gap: 0.4rem;
+		padding: 0.5rem 0.6rem;
+		background: #ECFDF5;
+		border: 1px solid #A7F3D0;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.view-completed-btn:hover {
+		background: #D1FAE5;
+	}
+
+	.view-completed-btn .btn-icon {
+		font-size: 0.88rem;
+	}
+
+	.view-completed-btn .btn-text {
+		flex: 1;
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: #065F46;
+		text-align: left;
+	}
+
+	.view-completed-btn .btn-count {
+		background: #059669;
+		color: white;
+		font-size: 0.68rem;
+		font-weight: 700;
+		padding: 0.1rem 0.4rem;
+		border-radius: 10px;
+		min-width: 20px;
+		text-align: center;
+	}
+
+	.view-completed-btn svg {
+		color: #059669;
+		flex-shrink: 0;
 	}
 
 	/* Filters */
@@ -1390,6 +1553,51 @@
 		margin-top: 0.4rem;
 		padding-top: 0.4rem;
 		border-top: 1px solid #E5E7EB;
+	}
+
+	.task-photos-label {
+		color: #3B82F6;
+	}
+
+	.completion-photos-section {
+		background: #FFFBEB;
+		border: 1px solid #FDE68A;
+		border-radius: 5px;
+		padding: 0.4rem 0.5rem;
+		border-top: none;
+	}
+
+	.completion-photos-label {
+		color: #D97706;
+		font-weight: 600;
+	}
+
+	.completion-photo {
+		border: 2px solid #F59E0B;
+		border-radius: 6px;
+	}
+
+	.view-photo-btn {
+		display: block;
+		width: 100%;
+		background: #3B82F6;
+		color: white;
+		border: none;
+		padding: 0.2rem 0;
+		border-radius: 0 0 4px 4px;
+		font-size: 0.62rem;
+		font-weight: 600;
+		cursor: pointer;
+		text-align: center;
+	}
+
+	.view-photo-btn:active {
+		background: #2563EB;
+	}
+
+	.completion-notes-section {
+		background: #FEF3C7;
+		border-color: #FDE68A;
 	}
 
 	.attachments-header {

@@ -369,6 +369,9 @@ export const englishLocale: LocaleData = {
           description: "Choose tasks to assign",
           searchPlaceholder: "Search tasks...",
           noDescription: "No description",
+          activeTasks: "Active",
+          completedTasks: "Completed",
+          allTasks: "All",
         },
         step3: {
           title: "Assignment Settings",
@@ -659,6 +662,9 @@ export const englishLocale: LocaleData = {
           description: "Description:",
           notes: "Notes:",
           attachments: "📎 Attachments",
+          taskPhotos: "Task Photos",
+          completionPhotos: "Completion Photos",
+          completionNotes: "Completion Notes",
           deadline: "Deadline:",
           noDeadline: "No deadline",
           assignedTo: "Assigned to:",
@@ -672,6 +678,7 @@ export const englishLocale: LocaleData = {
         // Actions
         actions: {
           download: "Download",
+          view: "View",
           viewDetails: "View Details",
           markComplete: "Mark Complete",
           updateStatus: "Update Status",
@@ -688,6 +695,22 @@ export const englishLocale: LocaleData = {
           of: "of",
           completionRate: "Completion Rate:",
         },
+        viewCompleted: "View Completed Assignments",
+      },
+
+      // Completed Assignments Page
+      completedAssignments: {
+        title: "Completed Assignments",
+        backToAssignments: "Back to Assignments",
+        completedTotal: "Completed Tasks",
+        searchPlaceholder: "Search completed tasks...",
+        loading: "Loading completed assignments...",
+        noCompleted: "No completed assignments",
+        noMatchingSearch: "No completed assignments match your search.",
+        noCompletedYet: "No assignments have been completed yet.",
+        completedAt: "Completed:",
+        showing: "Showing",
+        of: "of",
       },
 
       // Task Details Page

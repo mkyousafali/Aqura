@@ -62,3 +62,26 @@ export function compressImage(
 		}
 	});
 }
+/**
+ * Compress an image File and return a new compressed File object.
+ * Useful when you need to upload the compressed result to storage.
+ * 
+ * @param file - File object to compress
+ * @param maxWidth - Maximum width in pixels (default: 1280)
+ * @param maxHeight - Maximum height in pixels (default: 960)
+ * @param quality - JPEG quality 0-1 (default: 0.6)
+ * @returns Promise<File> - Compressed File object
+ */
+export async function compressImageToFile(
+	file: File,
+	maxWidth = 1280,
+	maxHeight = 960,
+	quality = 0.6
+): Promise<File> {
+	const dataUrl = await compressImage(file, maxWidth, maxHeight, quality);
+	const res = await fetch(dataUrl);
+	const blob = await res.blob();
+	const ext = file.name.split('.').pop()?.toLowerCase();
+	const compressedName = file.name.replace(/\.[^.]+$/, '.jpg');
+	return new File([blob], compressedName, { type: 'image/jpeg' });
+}

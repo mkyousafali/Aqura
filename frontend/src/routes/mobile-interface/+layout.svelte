@@ -62,7 +62,7 @@
 	let showStockMenu = false;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ22';
+	let mobileVersion = 'AQ23';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
@@ -649,6 +649,7 @@
 		if (path.startsWith('/mobile-interface/tasks/')) return getTranslation('mobile.taskDetails');
 		if (path.startsWith('/mobile-interface/notifications/create')) return getTranslation('mobile.createNotification');
 		if (path.startsWith('/mobile-interface/notifications/')) return getTranslation('mobile.notification');
+		if (path === '/mobile-interface/assignments/completed' || path === '/mobile-interface/assignments/completed/') return getTranslation('mobile.completedAssignments.title');
 		if (path.startsWith('/mobile-interface/assignments/')) return getTranslation('mobile.assignmentDetails');
 		
 		// Default fallback

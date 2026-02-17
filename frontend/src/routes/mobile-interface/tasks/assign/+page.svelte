@@ -21,6 +21,7 @@
 	let userSearchTerm = '';
 	let userSearchType = 'name'; // 'name', 'branch_id', 'employee_id'
 	let selectedBranch = '';
+	let taskStatusFilter = 'active'; // 'active', 'completed', 'all'
 	
 	// Selections
 	let selectedTasks = new Set();
@@ -104,10 +105,10 @@
 		try {
 			isLoading = true;
 			
-			// Load tasks
+			// Load tasks (include all statuses so user can filter)
 			const taskResult = await db.tasks.getAll();
 			if (!taskResult.error && taskResult.data) {
-				tasks = taskResult.data.filter(task => task.status === 'active' || task.status === 'draft');
+				tasks = taskResult.data;
 			}
 
 			// Load branches
@@ -196,6 +197,9 @@
 		const hiddenTitle = 'New payment made — enter into the ERP, update the ERP reference, and upload the payment receipt';
 		filteredTasks = tasks.filter(task => {
 			if (task.title === hiddenTitle) return false;
+			// Status filter
+			if (taskStatusFilter === 'active' && task.status !== 'active' && task.status !== 'draft') return false;
+			if (taskStatusFilter === 'completed' && task.status !== 'completed') return false;
 			const matchesSearch = task.title.toLowerCase().includes(taskSearchTerm.toLowerCase()) ||
 								task.description?.toLowerCase().includes(taskSearchTerm.toLowerCase());
 			return matchesSearch;
@@ -657,6 +661,7 @@
 	}
 
 	$: if (taskSearchTerm !== undefined) filterTasks();
+	$: if (taskStatusFilter) filterTasks();
 	$: if (userSearchTerm !== undefined || selectedBranch !== undefined) filterUsers();
 	$: if ($locale) {
 		// Trigger re-filtering when locale changes to update branch names
@@ -1183,6 +1188,18 @@
 					bind:value={taskSearchTerm}
 					class="user-popup-search-input"
 				/>
+				<!-- Task Status Filter Tabs -->
+				<div class="task-status-tabs">
+					<button class="task-status-tab" class:active={taskStatusFilter === 'active'} on:click={() => taskStatusFilter = 'active'}>
+						{getTranslation('mobile.assignContent.step2.activeTasks')}
+					</button>
+					<button class="task-status-tab" class:active={taskStatusFilter === 'completed'} on:click={() => taskStatusFilter = 'completed'}>
+						{getTranslation('mobile.assignContent.step2.completedTasks')}
+					</button>
+					<button class="task-status-tab" class:active={taskStatusFilter === 'all'} on:click={() => taskStatusFilter = 'all'}>
+						{getTranslation('mobile.assignContent.step2.allTasks')}
+					</button>
+				</div>
 			</div>
 
 			<!-- Task List -->
@@ -1854,6 +1871,34 @@
 		outline: none;
 		border-color: #3B82F6;
 		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+	}
+
+	.task-status-tabs {
+		display: flex;
+		gap: 0.25rem;
+		background: #F3F4F6;
+		border-radius: 6px;
+		padding: 2px;
+	}
+
+	.task-status-tab {
+		flex: 1;
+		padding: 0.3rem 0.4rem;
+		border: none;
+		background: transparent;
+		border-radius: 5px;
+		font-size: 0.7rem;
+		font-weight: 500;
+		color: #6B7280;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.task-status-tab.active {
+		background: white;
+		color: #3B82F6;
+		box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 	}
 
 	.user-popup-list {
