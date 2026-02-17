@@ -83,6 +83,9 @@
   let productsData: any[] = []; // Full product data with details
   let selectedFieldId: string | null = null;
   
+  // Template cache: store fully loaded templates to avoid re-fetching
+  const templateCache = new Map<string, any>();
+  
   // Field drag and resize
   let isDraggingField = false;
   let isResizingField = false;
@@ -203,17 +206,32 @@
   async function handleTemplateChange() {
     if (!selectedTemplateId) return;
     
+    // Check cache first — skip network request if already loaded
+    const cached = templateCache.get(selectedTemplateId);
+    if (cached) {
+      const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
+      if (index !== -1) {
+        flyerTemplates[index] = cached;
+        flyerTemplates = [...flyerTemplates];
+      }
+      autoAssignProducts();
+      return;
+    }
+    
     isLoadingSelectedTemplate = true;
     try {
       const { data, error } = await supabase
         .from('flyer_templates')
-        .select('*')
+        .select('id, name, description, first_page_image_url, sub_page_image_urls, first_page_configuration, sub_page_configurations, metadata, is_active, is_default, category, usage_count, created_at')
         .eq('id', selectedTemplateId)
         .single();
       
       if (error) throw error;
       
       if (data) {
+        // Cache the full template data
+        templateCache.set(selectedTemplateId, data);
+        
         // Replace the lightweight entry with the full data
         const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
         if (index !== -1) {
@@ -253,6 +271,9 @@
       
       if (error) throw error;
       
+      // Invalidate cache so next load gets fresh data
+      templateCache.delete(selectedTemplateId);
+      
       successMessage = 'Template configuration saved successfully!';
       setTimeout(() => successMessage = '', 3000);
     } catch (error: any) {
@@ -267,50 +288,26 @@
     
     isLoadingProducts = true;
     try {
-      const { data, error } = await supabase
-        .from('flyer_offer_products')
-        .select('*')
-        .eq('offer_id', offerId);
+      // Single RPC call replaces 3-4 separate API calls (offer products + product details + variation images)
+      const { data: rpcResult, error } = await supabase.rpc('get_flyer_generator_data', {
+        p_offer_id: offerId
+      });
       
       if (error) throw error;
       
-      if (!data || data.length === 0) {
+      const allProducts = rpcResult?.products || [];
+      
+      if (allProducts.length === 0) {
         offerProducts = [];
         productsData = [];
         return;
       }
       
-      const barcodes = data.map(op => op.product_barcode);
+      // Group products by variation groups (server already joined everything)
+      const variationGroups = new Map<string, any[]>();
+      const standaloneProducts: any[] = [];
       
-      // Get product details from products (including variation fields and unit name)
-      const { data: productDetails, error: productError } = await supabase
-        .from('products')
-        .select('barcode, product_name_en, product_name_ar, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override, variation_order, product_units(name_en, name_ar)')
-        .in('barcode', barcodes);
-      
-      if (productError) throw productError;
-      
-      // Combine offer data with product details
-      const allProducts = data.map(offerProduct => {
-        const productDetail = productDetails?.find(p => p.barcode === offerProduct.product_barcode);
-        return {
-          ...offerProduct,
-          product_name_en: productDetail?.product_name_en || '',
-          product_name_ar: productDetail?.product_name_ar || '',
-          unit_name: productDetail?.product_units?.name_ar || '',
-          image_url: productDetail?.image_url || productDetail?.variation_image_override,
-          is_variation: productDetail?.is_variation,
-          parent_product_barcode: productDetail?.parent_product_barcode,
-          variation_group_name_en: productDetail?.variation_group_name_en,
-          variation_group_name_ar: productDetail?.variation_group_name_ar
-        };
-      });
-      
-      // Group products by variation groups
-      const variationGroups = new Map<string, typeof allProducts>();
-      const standaloneProducts: typeof allProducts = [];
-      
-      allProducts.forEach(product => {
+      allProducts.forEach((product: any) => {
         if (product.is_variation && product.parent_product_barcode) {
           const groupKey = product.parent_product_barcode;
           if (!variationGroups.has(groupKey)) {
@@ -332,27 +329,16 @@
       for (const [parentBarcode, groupProducts] of variationGroups.entries()) {
         if (groupProducts.length > 0) {
           const firstProduct = groupProducts[0];
+          const offerVariationBarcodes = groupProducts.map((p: any) => p.product_barcode);
           
-          // ONLY use variations that are actually selected in the offer
-          const offerVariationBarcodes = groupProducts.map(p => p.product_barcode);
+          // Variation images already provided by the RPC
+          const variationImages = (firstProduct.variation_images || [])
+            .filter((vi: any) => vi.image_url)
+            .map((vi: any) => vi.image_url);
           
-          // Fetch variation images
-          const { data: variationImgData } = await supabase
-            .from('products')
-            .select('image_url, variation_order')
-            .in('barcode', offerVariationBarcodes)
-            .order('variation_order', { ascending: true });
-          
-          const variationImages = variationImgData
-            ?.filter(p => p.image_url)
-            .map(p => p.image_url) || [];
-          
-          // Use group name if available, fallback to first product name
           const groupNameEn = firstProduct.variation_group_name_en || firstProduct.product_name_en;
           const groupNameAr = firstProduct.variation_group_name_ar || firstProduct.product_name_ar;
-          
-          // Find parent product or use first variation's data
-          const parentProduct = groupProducts.find(p => p.product_barcode === parentBarcode) || firstProduct;
+          const parentProduct = groupProducts.find((p: any) => p.product_barcode === parentBarcode) || firstProduct;
           
           consolidatedProducts.push({
             ...parentProduct,
@@ -363,7 +349,6 @@
             variation_count: offerVariationBarcodes.length,
             variation_barcodes: offerVariationBarcodes,
             variation_images: variationImages,
-            // Use parent's image or first variation's image
             image_url: parentProduct.image_url || firstProduct.image_url
           });
         }
@@ -372,7 +357,7 @@
       offerProducts = consolidatedProducts;
       
       // Also update productsData for backward compatibility
-      productsData = consolidatedProducts.map(op => ({
+      productsData = consolidatedProducts.map((op: any) => ({
         barcode: op.product_barcode,
         product_name_en: op.product_name_en,
         product_name_ar: op.product_name_ar,
@@ -1558,7 +1543,8 @@
       
       if (error) throw error;
       
-      for (const font of (data || [])) {
+      // Load all fonts in parallel instead of sequentially for faster loading
+      const fontPromises = (data || []).map(async (font: any) => {
         try {
           const fontFace = new FontFace(font.name, `url(${font.font_url})`);
           await fontFace.load();
@@ -1566,7 +1552,8 @@
         } catch (e) {
           console.warn(`Failed to load font: ${font.name}`, e);
         }
-      }
+      });
+      await Promise.all(fontPromises);
     } catch (error) {
       console.error('Error loading custom fonts:', error);
     }

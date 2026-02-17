@@ -395,6 +395,36 @@
 			
 			const recipientUserIds = permissions?.map(p => p.user_id) || [];
 			
+			// Fetch default incident users for this type (get tasks + notifications regardless of branch)
+			const { data: defaultIncidentData } = await supabase
+				.from('default_incident_users')
+				.select('user_id')
+				.eq('incident_type_id', selectedIncidentType.id);
+			const defaultUserIds = (defaultIncidentData || []).map(d => d.user_id);
+			
+			// Merge default users into recipient list (for notifications), deduplicate
+			defaultUserIds.forEach(uid => {
+				if (!recipientUserIds.includes(uid)) {
+					recipientUserIds.push(uid);
+				}
+			});
+			
+			// Get branch_id for each permitted user to filter same-branch for tasks
+			const reporterBranchId = currentUserData.branch_id || get(currentUser)?.branch_id;
+			let sameBranchUserIds: string[] = [];
+			if (reporterBranchId && recipientUserIds.length > 0) {
+				const { data: recipientUsers } = await supabase
+					.from('users')
+					.select('id, branch_id')
+					.in('id', recipientUserIds);
+				sameBranchUserIds = (recipientUsers || [])
+					.filter(u => String(u.branch_id) === String(reporterBranchId))
+					.map(u => u.id);
+			}
+			
+			// Build task recipient list: same-branch users + default users (deduplicated)
+			const taskRecipientIds = [...new Set([...sameBranchUserIds, ...defaultUserIds])];
+			
 			// Create user_statuses object
 			const userStatuses: any = {};
 			recipientUserIds.forEach(userId => {
@@ -531,8 +561,8 @@
 					await supabase.from('notifications').insert(notificationsList);
 				}
 				
-				// Create quick tasks for recipients to acknowledge the incident
-				if (recipientUserIds.length > 0) {
+				// Create quick tasks for same-branch + default incident users
+				if (taskRecipientIds.length > 0) {
 					try {
 						// Build task description based on incident type
 						let taskDescEn = '';
@@ -564,8 +594,8 @@
 						if (taskCreateError) {
 							console.warn('⚠️ Failed to create quick task:', taskCreateError);
 						} else if (quickTaskData) {
-							// Create assignments for each recipient
-							const assignments = recipientUserIds.map(userId => ({
+							// Create assignments for all task recipients (same-branch + default users, deduplicated)
+							const assignments = taskRecipientIds.map(userId => ({
 								quick_task_id: quickTaskData.id,
 								assigned_to_user_id: userId,
 								require_task_finished: true

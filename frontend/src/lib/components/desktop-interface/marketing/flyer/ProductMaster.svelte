@@ -81,7 +81,7 @@
 	let selectedWebImage: string | null = null;
 	let downloadingImage: boolean = false;
 	let removingBackground: boolean = false;
-	let searchProvider: 'google' | 'duckduckgo' | null = null;
+	let searchProvider: 'google' | 'openfoodfacts' | null = null;
 	
 	// Image preview popup
 	let showImagePreview: boolean = false;
@@ -346,56 +346,50 @@
 		await loadStorageImageCache();
 	}
 	
-	// Load database statistics
-	async function loadDatabaseStats() {
+	// Load all init data in one RPC call (stats + dropdowns)
+	async function loadInitData() {
 		isLoadingDbStats = true;
+		isLoadingDropdownsData = true;
 		
 		try {
-			// Get total products count
-			const { count: totalCount, error: countError } = await supabase
-				.from('products')
-				.select('*', { count: 'exact', head: true });
+			const { data, error } = await supabase.rpc('get_product_master_init_data');
 			
-			if (countError) {
-				console.error('Error loading product count:', countError);
-			} else {
-				dbTotalProducts = totalCount || 0;
+			if (error) {
+				console.error('Error loading init data:', error);
+			} else if (data) {
+				// Set database stats
+				dbTotalProducts = data.total_products || 0;
+				dbProductsWithImages = data.products_with_images || 0;
+				dbProductsWithoutImages = data.products_without_images || 0;
+				
+				// Set dropdown data
+				allUnits = data.units || [];
+				allCategories = data.categories || [];
+				dropdownsDataLoaded = true;
 			}
-			
-			// Get products with images count
-			const { count: withImageCount, error: withImageError } = await supabase
-				.from('products')
-				.select('*', { count: 'exact', head: true })
-				.not('image_url', 'is', null)
-				.neq('image_url', '');
-			
-			if (withImageError) {
-				console.error('Error loading with-image count:', withImageError);
-			} else {
-				dbProductsWithImages = withImageCount || 0;
-			}
-			
-			// Get products without images count
-			const { count: noImageCount, error: noImageError } = await supabase
-				.from('products')
-				.select('*', { count: 'exact', head: true })
-				.or('image_url.is.null,image_url.eq.');
-			
-			if (noImageError) {
-				console.error('Error loading no-image count:', noImageError);
-			} else {
-				dbProductsWithoutImages = noImageCount || 0;
+		} catch (error) {
+			console.error('Error loading init data:', error);
+		}
+		
+		isLoadingDbStats = false;
+		isLoadingDropdownsData = false;
+	}
+	
+	// Legacy function for refreshing stats only
+	async function loadDatabaseStats() {
+		isLoadingDbStats = true;
+		try {
+			const { data, error } = await supabase.rpc('get_product_master_init_data');
+			if (!error && data) {
+				dbTotalProducts = data.total_products || 0;
+				dbProductsWithImages = data.products_with_images || 0;
+				dbProductsWithoutImages = data.products_without_images || 0;
 			}
 		} catch (error) {
 			console.error('Error loading database stats:', error);
 		}
-		
 		isLoadingDbStats = false;
 	}
-	
-	// Don't load products on mount - start with empty state
-	// But load database statistics
-	loadDatabaseStats();
 	
 	function downloadTemplate() {
 		// Create template data with sample row - matching the actual database schema
@@ -450,7 +444,7 @@
 		showNoImageProducts = true;
 		
 		try {
-			// Load with pagination - get first 50 products without images
+			// Load all products without images
 			const { data, error } = await supabase
 				.from('products')
 				.select(`
@@ -461,8 +455,7 @@
 					product_units (name_en, name_ar)
 				`)
 				.or('image_url.is.null,image_url.eq.')
-				.order('created_at', { ascending: false })
-				.range(0, 49);
+				.order('product_name_en', { ascending: true });
 			
 			if (error) {
 				console.error('Error loading products without images:', error);
@@ -710,73 +703,26 @@
 		}
 		
 		try {
-			let allProducts: any[] = [];
-			let offset = 0;
-			const limit = 500; // Load 500 at a time
-			let hasMore = true;
+			// Load all products in one RPC call (~17ms server-side)
+			const { data, error } = await supabase.rpc('get_all_products_master');
 			
-			// Load all products in chunks without blocking UI
-			while (hasMore) {
-				const { data, error } = await supabase
-					.from('products')
-					.select(`
-						id,
-						barcode,
-						product_name_en,
-						product_name_ar,
-						image_url,
-						product_units (name_en, name_ar),
-						product_categories (name_en, name_ar)
-					`)
-					.order('product_name_en', { ascending: true })
-					.range(offset, offset + limit - 1);
+			if (error) {
+				console.error('Error loading all products:', error);
+				alert('Error loading products. Please try again.');
+			} else if (data) {
+				allProductsList = data;
+				allProductsWithImages = data.filter((p: any) => p.image_url).length;
 				
-				if (error) {
-					console.error('Error loading products chunk:', error);
-					break;
+				// Cache the loaded data
+				try {
+					localStorage.setItem(CACHE_KEY, JSON.stringify({
+						data: data,
+						timestamp: Date.now()
+					}));
+					console.log('✓ Products cached to localStorage');
+				} catch (err) {
+					console.warn('Cache write error:', err);
 				}
-				
-				if (!data || data.length === 0) {
-					hasMore = false;
-					break;
-				}
-				
-				// Process this chunk
-				const processedChunk = (data || []).map((product: any) => {
-					return {
-						...product,
-						unit_name: product.product_units?.name_en || '',
-						unit_name_ar: product.product_units?.name_ar || '',
-						parent_category: product.product_categories?.name_en || '',
-						parent_category_ar: product.product_categories?.name_ar || ''
-					};
-				});
-				
-				allProducts = [...allProducts, ...processedChunk];
-				
-				// Update UI with loaded products so far
-				allProductsList = allProducts;
-
-				offset += limit;
-				if (data.length < limit) {
-					hasMore = false;
-				}
-			}
-			
-			allProductsList = allProducts;
-
-			// Set count of products with images
-			allProductsWithImages = allProducts.filter(p => p.image_url).length;
-			
-			// Cache the loaded data
-			try {
-				localStorage.setItem(CACHE_KEY, JSON.stringify({
-					data: allProducts,
-					timestamp: Date.now()
-				}));
-				console.log('✓ Products cached to localStorage');
-			} catch (err) {
-				console.warn('Cache write error:', err);
 			}
 		} catch (error) {
 			console.error('Error loading all products:', error);
@@ -880,21 +826,6 @@
 			if (!categoriesError && categoriesData) {
 				allCategories = categoriesData;
 			}
-			
-			// Also load products for reference (optional, for future use)
-			const { data: productsData, error: productsError } = await supabase
-				.from('products')
-				.select(`
-					category_id,
-					product_units (
-						name_en,
-						name_ar
-					),
-					product_categories (
-						name_en,
-						name_ar
-					)
-				`);
 			
 			// Dropdown data loaded
 			dropdownsDataLoaded = true;
@@ -1016,7 +947,7 @@
 	}
 
 	// Search for product images on the web
-	async function searchWebForImages(barcode: string, provider: 'google' | 'duckduckgo') {
+	async function searchWebForImages(barcode: string, provider: 'google' | 'openfoodfacts') {
 		searchingBarcode = barcode;
 		searchProvider = provider;
 		showImageSearchPopup = true;
@@ -1039,7 +970,7 @@
 			const productNameAr = product?.product_name_ar || product?.['Product name_ar'] || '';
 			
 			// Choose API endpoint based on provider
-			const endpoint = provider === 'google' ? '/api/google-search' : '/api/find-image';
+			const endpoint = provider === 'google' ? '/api/google-search' : '/api/openfoodfacts-search';
 			
 			// Call the image search API endpoint with all search terms
 			const response = await fetch(endpoint, {
@@ -1059,11 +990,11 @@
 				console.error(`${provider} search error:`, errorData);
 				
 				if (errorData.quota_exceeded) {
-					alert(`${provider === 'google' ? 'Google' : 'DuckDuckGo'} search quota exceeded. Please try again later.`);
+					alert(`${provider === 'google' ? 'Google' : 'Open Food Facts'} search quota exceeded. Please try again later.`);
 				} else {
 					const errorMsg = errorData.error || 'Failed to search for images';
 					const details = errorData.details ? `\n\nDetails: ${JSON.stringify(errorData.details, null, 2)}` : '';
-					alert(`${provider === 'google' ? 'Google' : 'DuckDuckGo'} Search Error:\n${errorMsg}${details}`);
+					alert(`${provider === 'google' ? 'Google' : 'Open Food Facts'} Search Error:\n${errorMsg}${details}`);
 				}
 				isSearchingWeb = false;
 				return;
@@ -2450,7 +2381,7 @@
 	// Load quota data on mount
 	onMount(() => {
 		loadQuotaData();
-		loadAllProductsForDropdowns();
+		loadInitData();
 		subscribeToRealtimeChanges();
 
 		// Cleanup on unmount
@@ -3054,10 +2985,10 @@
 		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeImageSearchPopup}>
 			<div class="bg-white rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col" on:click|stopPropagation>
 				<!-- Header -->
-				<div class="bg-gradient-to-r {searchProvider === 'google' ? 'from-blue-600 to-blue-700' : 'from-orange-600 to-red-600'} p-6 flex items-center justify-between">
+				<div class="bg-gradient-to-r {searchProvider === 'google' ? 'from-blue-600 to-blue-700' : 'from-green-600 to-emerald-700'} p-6 flex items-center justify-between">
 					<div>
 						<h3 class="text-2xl font-bold text-white">
-							{searchProvider === 'google' ? '🔍 Google Search' : '🦆 DuckDuckGo Search'}
+							{searchProvider === 'google' ? '🔍 Google Search' : '🍊 Open Food Facts'}
 						</h3>
 						<p class="text-white text-opacity-90 mt-1">
 							Barcode: {searchingBarcode}
@@ -3498,228 +3429,188 @@
 	
 	<!-- Products Without Images View -->
 	{#if showNoImageProducts}
-		<div class="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200">
-			<div class="bg-white border-b border-gray-200">
-				<div class="flex items-center justify-between p-4">
+		<div class="space-y-2">
+			<!-- Header Bar with stats inline -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-3">
+				<div class="flex items-center justify-between flex-wrap gap-3">
 					<div class="flex items-center gap-3">
-						<div class="bg-gradient-to-br from-orange-600 to-red-600 rounded-lg p-2">
-							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<div class="bg-gradient-to-br from-orange-600 to-red-600 rounded-xl p-2 shadow-lg">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
 							</svg>
 						</div>
-						<div>
-							<h2 class="text-xl font-bold text-gray-900">Products Without Images</h2>
-							<p class="text-sm text-gray-500 mt-0.5">Upload images for products below</p>
+						<h2 class="text-lg font-black text-slate-800">Products Without Images</h2>
+						<!-- Inline stats badges -->
+						<div class="flex items-center gap-2">
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-100 text-red-800 text-xs font-black">✗ {noImageProducts.length} Missing</span>
 						</div>
 					</div>
-					<div class="flex gap-2">
+					<div class="flex gap-1.5 flex-wrap">
 						<button 
 							on:click={exportMissingImagesToExcel}
-							class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 gap-1"
 							title="Export missing images to Excel"
 						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-							</svg>
-							Export to Excel
+							📥 Export
 						</button>
 						<button 
 							on:click={closeNoImageView}
-							class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-300 transition-all duration-200 gap-1"
 						>
-							Close
+							✕
 						</button>
 					</div>
 				</div>
-				
-				<!-- Search Bar -->
-				<div class="px-4 pb-4">
-					<div class="relative">
-						<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-							<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			</div>
+
+			{#if isLoadingNoImageProducts}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center">
+					<div class="animate-spin inline-block">
+						<div class="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full"></div>
+					</div>
+					<p class="text-slate-500 mt-4 font-semibold">Loading products...</p>
+				</div>
+			{:else if noImageProducts.length === 0}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-emerald-200">
+					<svg class="w-24 h-24 text-emerald-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+					</svg>
+					<h3 class="text-xl font-bold text-slate-600 mb-2">All products have images!</h3>
+					<p class="text-slate-400">Great job! All products in the database have images.</p>
+				</div>
+			{:else}
+				<!-- Compact Search + Info Row -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-2">
+					<div class="flex items-center gap-3">
+						<div class="relative flex-1">
+							<input
+								type="text"
+								bind:value={noImageSearchQuery}
+								placeholder="Search by barcode, name (English/Arabic)..."
+								class="w-full pl-8 pr-4 py-2 bg-white/80 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-xs font-medium text-slate-700 placeholder-slate-400"
+							/>
+							<svg class="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 							</svg>
 						</div>
-						<input
-							type="text"
-							bind:value={noImageSearchQuery}
-							placeholder="Search by barcode or product name..."
-							class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-						/>
-						{#if noImageSearchQuery}
-							<button
-								on:click={() => noImageSearchQuery = ''}
-								class="absolute inset-y-0 right-0 pr-3 flex items-center"
-							>
-								<svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-								</svg>
-							</button>
-						{/if}
+						<span class="text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+							{filteredNoImageProducts.length}/{noImageProducts.length}
+						</span>
 					</div>
 				</div>
-			</div>
-			
-			{#if isLoadingNoImageProducts}
-				<div class="p-12 text-center">
-					<svg class="animate-spin w-12 h-12 mx-auto text-red-600" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-					</svg>
-					<p class="text-gray-600 mt-4">Loading products...</p>
-				</div>
-			{:else if noImageProducts.length === 0}
-				<div class="p-12 text-center">
-					<svg class="w-24 h-24 mx-auto text-green-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-					</svg>
-					<h3 class="text-xl font-semibold text-gray-800 mb-2">All products have images!</h3>
-					<p class="text-gray-600">Great job! All products in the database have images.</p>
-				</div>
-			{:else}
-				<div class="overflow-x-auto">
-					<table class="min-w-full divide-y divide-gray-200">
-						<thead class="bg-gray-50">
-							<tr>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Barcode
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Product Name (EN)
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Product Name (AR)
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Unit Name
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Upload Image
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Web Search
-								</th>
-								<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Edit
-								</th>
-							</tr>
-						</thead>
-						<tbody class="bg-white divide-y divide-gray-200">
-							{#if filteredNoImageProducts.length === 0}
+
+				<!-- Products Table -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+					<div class="overflow-x-auto flex-1 max-h-[calc(100vh-220px)] overflow-y-auto">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-orange-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
 								<tr>
-									<td colspan="7" class="px-6 py-12 text-center">
-										<svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-										</svg>
-										<p class="text-gray-500 text-lg font-medium">No products found</p>
-										<p class="text-gray-400 text-sm mt-1">Try adjusting your search query</p>
-									</td>
+									<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-10">#</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Barcode</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Product Name</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Unit</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Upload</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Web Search</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Action</th>
 								</tr>
-							{:else}
-								{#each filteredNoImageProducts as product (product.barcode)}
-								<tr class="hover:bg-gray-50 transition-colors">
-									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-										{product.barcode}
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
-										{product.product_name_en || '-'}
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
-										{product.product_name_ar || '-'}
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-										{product.unit_name || '-'}
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap">
-										<div class="flex items-center gap-2">
-											<label 
-												for="upload-{product.barcode}"
-												class="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-semibold rounded-lg hover:shadow-lg cursor-pointer transition-all duration-200 flex items-center gap-2"
-											>
-												{#if uploadingImageForBarcode === product.barcode}
-													<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-														<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-														<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-													</svg>
-													Uploading...
-												{:else}
-													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-													</svg>
-													Choose Image
-												{/if}
-											</label>
-											<input
-												id="upload-{product.barcode}"
-												type="file"
-												accept="image/*"
-												on:change={(e) => uploadSingleImage(e, product.barcode)}
-												disabled={uploadingImageForBarcode !== null}
-												class="hidden"
-											/>
-										</div>
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap">
-										<div class="flex flex-col gap-2">
-											<!-- Google Search Button -->
-											<button
-												on:click={() => searchWebForImages(product.barcode, 'google')}
-												disabled={!isGoogleAvailable()}
-												class="px-3 py-2 text-white text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 {isGoogleAvailable() ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:shadow-lg' : 'bg-gray-400 cursor-not-allowed'}"
-												title={isGoogleAvailable() ? `Google (${quotaData.googleSearches}/${GOOGLE_DAILY_LIMIT} used today)` : 'Daily quota exceeded'}
-											>
-												<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-													<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-													<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-													<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-													<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-												</svg>
-												<span class="hidden xl:inline">Google</span>
-												<span class="text-[10px] opacity-75">({quotaData.googleSearches}/{GOOGLE_DAILY_LIMIT})</span>
-											</button>
-											
-											<!-- DuckDuckGo Search Button -->
-											<button
-												on:click={() => searchWebForImages(product.barcode, 'duckduckgo')}
-												class="px-3 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white text-xs font-semibold rounded-lg hover:shadow-lg transition-all duration-200 flex items-center gap-2"
-												title="DuckDuckGo (Unlimited)"
-											>
-												<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-													<path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 23C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11z"/>
-													<path d="M12 6c-3.309 0-6 2.691-6 6s2.691 6 6 6 6-2.691 6-6-2.691-6-6-6z"/>
-												</svg>
-												<span class="hidden xl:inline">DuckDuckGo</span>
-												<span class="text-[10px] opacity-75">(∞)</span>
-											</button>
-										</div>
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-center">
-										<button
-											on:click={() => openEditPopup(product)}
-											class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-1.5 mx-auto"
-											title="Edit product details"
-										>
-											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+							</thead>
+							<tbody class="divide-y divide-slate-200">
+								{#if filteredNoImageProducts.length === 0}
+									<tr>
+										<td colspan="7" class="px-6 py-12 text-center">
+											<svg class="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 											</svg>
-											Edit
-										</button>
-									</td>
-								</tr>
-								{/each}
-							{/if}
-						</tbody>
-					</table>
-				</div>
-				
-				<div class="bg-gray-50 px-6 py-4 border-t border-gray-200">
-					<p class="text-sm text-gray-700">
-						{#if noImageSearchQuery.trim()}
-							Showing <span class="font-semibold">{filteredNoImageProducts.length}</span> of <span class="font-semibold">{noImageProducts.length}</span> products
-						{:else}
-							Total Products Without Images: <span class="font-semibold">{noImageProducts.length}</span>
-						{/if}
-					</p>
+											<p class="text-slate-500 text-lg font-medium">No products found</p>
+											<p class="text-slate-400 text-sm mt-1">Try adjusting your search query</p>
+										</td>
+									</tr>
+								{:else}
+									{#each filteredNoImageProducts as product, index (product.barcode)}
+									<tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-3 py-2 text-center text-xs font-bold text-slate-400">{index + 1}</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<span class="select-all cursor-copy hover:bg-orange-100 px-2 py-0.5 rounded transition-colors font-mono text-xs">
+												{product.barcode}
+											</span>
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div class="font-medium text-slate-800">{product.product_name_en || '-'}</div>
+											{#if product.product_name_ar}
+												<div class="text-xs text-slate-400">{product.product_name_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											{product.unit_name || '-'}
+										</td>
+										<td class="px-4 py-2 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<input
+													id="upload-{product.barcode}"
+													type="file"
+													accept="image/*"
+													on:change={(e) => uploadSingleImage(e, product.barcode)}
+													disabled={uploadingImageForBarcode !== null}
+													class="hidden"
+												/>
+												<button
+													on:click={() => document.getElementById(`upload-${product.barcode}`)?.click()}
+													disabled={uploadingImageForBarcode === product.barcode}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110 disabled:opacity-50"
+													title="Upload image"
+												>
+													{#if uploadingImageForBarcode === product.barcode}
+														<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+															<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+															<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+														</svg>
+													{:else}
+														🖼️
+													{/if}
+												</button>
+											</div>
+										</td>
+										<td class="px-4 py-2 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<!-- Google Search Button -->
+												<button
+													on:click={() => searchWebForImages(product.barcode, 'google')}
+													disabled={!isGoogleAvailable()}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white font-bold transition-all duration-200 transform hover:scale-110 {isGoogleAvailable() ? 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg' : 'bg-gray-400 cursor-not-allowed'}"
+													title={isGoogleAvailable() ? `Google (${quotaData.googleSearches}/${GOOGLE_DAILY_LIMIT} used today)` : 'Daily quota exceeded'}
+												>
+													🔍
+												</button>
+												<!-- Open Food Facts Button -->
+												<button
+													on:click={() => searchWebForImages(product.barcode, 'openfoodfacts')}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													title="Open Food Facts (Free & Unlimited)"
+												>
+													🍊
+												</button>
+											</div>
+										</td>
+										<td class="px-4 py-2 text-center">
+											<button
+												on:click={() => openEditPopup(product)}
+												class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+												title="Edit product"
+											>
+												✏️
+											</button>
+										</td>
+									</tr>
+									{/each}
+								{/if}
+							</tbody>
+						</table>
+					</div>
+
+					<!-- Footer with row count -->
+					<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+						Total Products Without Images: {noImageProducts.length} | Showing: {filteredNoImageProducts.length}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -3727,305 +3618,229 @@
 	
 	<!-- All Products View -->
 	{#if showAllProducts}
-		<div class="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200">
-			<div class="bg-white border-b border-gray-200">
-				<div class="flex items-center justify-between p-4">
+		<div class="space-y-2">
+			<!-- Header Bar with stats inline -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-3">
+				<div class="flex items-center justify-between flex-wrap gap-3">
 					<div class="flex items-center gap-3">
-						<div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg p-2">
-							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl p-2 shadow-lg">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
 							</svg>
 						</div>
-						<div>
-							<h2 class="text-xl font-bold text-gray-900">All Products in Database</h2>
-							<p class="text-sm text-gray-500 mt-0.5">Browse and search all products</p>
+						<h2 class="text-lg font-black text-slate-800">All Products</h2>
+						<!-- Inline stats badges -->
+						<div class="flex items-center gap-2">
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 text-xs font-black">{allProductsList.length} Total</span>
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-black">✓ {dbProductsWithImages}</span>
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-100 text-red-800 text-xs font-black">✗ {dbProductsWithoutImages}</span>
 						</div>
 					</div>
-					<div class="flex gap-2">
+					<div class="flex gap-1.5 flex-wrap">
 						<button 
 							on:click={exportProductsToXLSX}
-							class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 gap-1"
 							title="Export all products to Excel"
 						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-							</svg>
-							Export to Excel
+							📥 Export
 						</button>
 						<button 
 							on:click={clearProductCacheAndReload}
-							class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 gap-1"
 							title="Clear cache and reload all data from database"
 						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-							</svg>
-							Clear Cache & Reload
+							🔄 Reload
 						</button>
 						<button 
 							on:click={findMissingImagesInStorage}
 							disabled={isFindingMissingImages}
-							class="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed gap-1"
 							title="Search storage for images matching products without image URLs"
 						>
 							{#if isFindingMissingImages}
-								<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<svg class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
 									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 								</svg>
-								Searching...
+								...
 							{:else}
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-								</svg>
-								Find Missing Images
+								🔍 Missing
 							{/if}
 						</button>
 						<button 
 							on:click={closeAllProductsView}
-							class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-300 transition-all duration-200 gap-1"
 						>
-							Close
+							✕
 						</button>
 					</div>
 				</div>
 			</div>
 			
 			{#if isLoadingAllProducts}
-				<div class="p-12 text-center">
-					<svg class="animate-spin w-12 h-12 mx-auto text-blue-600" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-					</svg>
-					<p class="text-gray-600 mt-4">Loading products...</p>
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center">
+					<div class="animate-spin inline-block">
+						<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+					</div>
+					<p class="text-slate-500 mt-4 font-semibold">Loading products...</p>
 				</div>
 			{:else if allProductsList.length === 0}
-				<div class="p-12 text-center">
-					<svg class="w-24 h-24 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+					<svg class="w-24 h-24 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
 					</svg>
-					<h3 class="text-xl font-semibold text-gray-800 mb-2">No Products Found</h3>
-					<p class="text-gray-600">Import products from Excel to get started.</p>
+					<h3 class="text-xl font-bold text-slate-600 mb-2">No Products Found</h3>
+					<p class="text-slate-400">Import products from Excel to get started.</p>
 				</div>
 			{:else}
-				<!-- Stats Cards -->
-				<div class="bg-white p-6 border-b border-gray-200">
-					<div class="flex gap-8 justify-center">
-						<div class="text-center bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 min-w-[150px]">
-							<p class="text-4xl font-bold text-blue-700 mb-1">{allProductsList.length}</p>
-							<p class="text-sm font-semibold text-gray-700">Total Products</p>
+				<!-- Compact Search + Info Row -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-2">
+					<div class="flex items-center gap-3">
+						<div class="relative flex-1">
+							<input
+								type="text"
+								bind:value={allProductsSearch}
+								placeholder="Search by barcode, name (English/Arabic)..."
+								class="w-full pl-8 pr-4 py-2 bg-white/80 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs font-medium text-slate-700 placeholder-slate-400"
+							/>
+							<svg class="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
 						</div>
-						<div class="text-center bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 min-w-[150px]">
-							<p class="text-4xl font-bold text-green-700 mb-1">{dbProductsWithImages}</p>
-							<p class="text-sm font-semibold text-gray-700">With Images</p>
-						</div>
-						<div class="text-center bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4 min-w-[150px]">
-							<p class="text-4xl font-bold text-red-700 mb-1">{dbProductsWithoutImages}</p>
-							<p class="text-sm font-semibold text-gray-700">Without Images</p>
-						</div>
-					</div>
-				</div>
-				
-				<!-- Search Bar -->
-				<div class="bg-gray-50 p-4 border-b border-gray-200">
-					<div class="relative">
-						<input
-							type="text"
-							bind:value={allProductsSearch}
-							placeholder="Search by barcode, name (English/Arabic)..."
-							class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-						/>
-						<svg class="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-						</svg>
-					</div>
-					<div class="flex items-center justify-between mt-2">
-						<p class="text-sm text-gray-600">
-							Showing {filteredAllProducts.length} of {allProductsList.length} products
-						</p>
-						<div class="flex items-center gap-2">
-							{#if successfullyLoadedImages.size > 0}
-								<svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
-								<span class="text-sm font-medium text-green-600">
-									Images Loaded: {successfullyLoadedImages.size} / {allProductsWithImages}
-								</span>
-							{/if}
-						</div>
+						<span class="text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+							{filteredAllProducts.length}/{allProductsList.length}
+						</span>
+						{#if successfullyLoadedImages.size > 0}
+							<span class="text-[11px] font-bold text-emerald-600 whitespace-nowrap">
+								✓ {successfullyLoadedImages.size}/{allProductsWithImages} img
+							</span>
+						{/if}
 					</div>
 				</div>
 				
 				<!-- Products Table -->
-				<div class="overflow-x-auto max-h-[600px] overflow-y-auto">
-					<table class="min-w-full divide-y divide-gray-200">
-						<thead class="bg-gray-100 sticky top-0 z-10">
-							<tr>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Image
-								</th>
-								<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Actions
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Barcode
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Product Name
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Unit
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Category
-								</th>
-								<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Image URL
-								</th>
-							</tr>
-						</thead>
-						<tbody class="bg-white divide-y divide-gray-200">
-							{#each filteredAllProducts as product, index (product.barcode)}
-								<tr class="hover:bg-gray-50 transition-colors">
-									<td class="px-4 py-4 whitespace-nowrap text-center text-sm font-medium text-gray-700">
-										{index + 1}
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap">
-										<div class="w-20 h-20 bg-gray-50 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden relative group cursor-pointer" on:click={() => { if (product.image_url) { previewImageUrl = product.image_url; previewBarcode = product.barcode; showImagePreview = true; } }}>
-											{#if product.image_url}
-												<img 
-													bind:this={imageRefs[product.barcode]}
-													src={product.image_url}
-													alt={product.product_name_en || product.barcode}
-													data-barcode={product.barcode}
-													class="w-full h-full object-scale-down p-1 group-hover:opacity-80 transition-opacity"
-													loading="eager"
-													decoding="async"
-													on:load={handleImageLoad}
-													on:error={handleImageError}
-												/>
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+					<div class="overflow-x-auto flex-1 max-h-[calc(100vh-220px)] overflow-y-auto">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+								<tr>
+									<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-10">#</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Image</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Barcode</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Product Name</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Unit</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Category</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-slate-200">
+								{#each filteredAllProducts as product, index (product.barcode)}
+									<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-3 py-2 text-center text-xs font-bold text-slate-400">{index + 1}</td>
+										<td class="px-4 py-2 text-center">
+											<div class="w-14 h-14 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden relative mx-auto cursor-pointer group" on:click={() => { if (product.image_url) { previewImageUrl = product.image_url; previewBarcode = product.barcode; showImagePreview = true; } }}>
+												{#if product.image_url}
+													<img 
+														bind:this={imageRefs[product.barcode]}
+														src={product.image_url}
+														alt={product.product_name_en || product.barcode}
+														data-barcode={product.barcode}
+														class="w-full h-full object-scale-down p-0.5 group-hover:opacity-80 transition-opacity"
+														loading="lazy"
+														decoding="async"
+														on:load={handleImageLoad}
+														on:error={handleImageError}
+													/>
+												{:else}
+													<svg class="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+													</svg>
+												{/if}
+											</div>
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<span class="select-all cursor-copy hover:bg-blue-100 px-2 py-0.5 rounded transition-colors font-mono text-xs">
+												{product.barcode}
+											</span>
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div class="font-medium text-slate-800">{product.product_name_en || '-'}</div>
+											{#if product.product_name_ar}
+												<div dir="rtl" class="text-xs text-slate-400 text-right">{product.product_name_ar}</div>
 											{/if}
-											<!-- Always show placeholder -->
-											<svg class="w-8 h-8 text-gray-400 absolute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-											</svg>
-										</div>
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-center">
-										<input
-											type="file"
-											id="update-image-{product.barcode}"
-											accept="image/*"
-											on:change={(e) => uploadSingleImage(e, product.barcode)}
-											class="hidden"
-										/>
-										<button
-											on:click={() => document.getElementById(`update-image-${product.barcode}`)?.click()}
-											disabled={uploadingImageForBarcode === product.barcode}
-											class="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 mx-auto"
-											title="Update product image"
-										>
-											{#if uploadingImageForBarcode === product.barcode}
-												<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-													<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-													<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-												</svg>
-												Uploading...
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div>{product.unit_name || '-'}</div>
+											{#if product.unit_name_ar}
+												<div dir="rtl" class="text-xs text-slate-400 text-right">{product.unit_name_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div>{product.parent_category || '-'}</div>
+											{#if product.parent_category_ar}
+												<div dir="rtl" class="text-xs text-slate-400 text-right">{product.parent_category_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-center">
+											{#if !product.image_url}
+												<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-red-200 text-red-800">No Image</span>
+											{:else if successfullyLoadedImages.has(product.barcode)}
+												<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-200 text-emerald-800">✓ Loaded</span>
 											{:else}
-												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-												</svg>
-												Update Image
+												<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-200 text-orange-800">Pending</span>
 											{/if}
-										</button>
-										<button
-											on:click={() => openEditPopup(product)}
-											class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-1.5 mx-auto"
-											title="Edit product details"
-										>
-											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-											</svg>
-											Edit
-										</button>
-										<button
-											on:click={() => deleteProduct(product.barcode)}
-											class="px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1.5 mx-auto"
-											title="Delete product"
-										>
-											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-											</svg>
-											Delete
-										</button>
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-										<span class="select-all cursor-copy hover:bg-blue-100 px-2 py-1 rounded transition-colors" title="Click to copy">
-											{product.barcode}
-										</span>
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900">
-										<div dir="ltr" class="font-medium text-gray-900 block">{product.product_name_en || '-'}</div>
-										<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product.product_name_ar || ''}</div>
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900">
-										<div class="font-medium text-gray-900 block">{product.unit_name || '-'}</div>
-										<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product.unit_name_ar || ''}</div>
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900">
-										<div class="font-medium text-gray-900 block">{product.parent_category || '-'}</div>
-										<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product.parent_category_ar || ''}</div>
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-center">
-										{#if !product.image_url}
-											<!-- No URL -->
-											<div class="flex items-center justify-center group relative cursor-help">
-												<svg class="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-													<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-												</svg>
-												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
-													No image URL
-												</div>
-											</div>
-										{:else if successfullyLoadedImages.has(product.barcode)}
-											<!-- Successfully loaded -->
-											<div class="flex items-center justify-center group relative cursor-help">
-												<svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-													<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-												</svg>
-												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none max-w-xs">
-													<div class="break-all text-left">✓ Image loaded</div>
-												</div>
-											</div>
-										{:else}
-											<!-- URL exists but not loaded yet or failed -->
-											<div class="flex items-center justify-center gap-2 group relative">
-												<svg class="w-5 h-5 text-orange-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
-													<path fill-rule="evenodd" d="M18.101 12.93l.9-1.559A1 1 0 0018.566 10H14V9l2-3H8v1H6V6h12a2 2 0 012 2v4a2 2 0 01-2 2h-.899zM5 8l2.351-3.521A1 1 0 0110 5h6a1 1 0 01.936 1.479l-1.948 3.87A1 1 0 0014 11h-4v1H8v-1H2a1 1 0 01-1-1V9a1 1 0 011-1h4V7a1 1 0 011-1zm10.151 2.968l1.948-3.87A1 1 0 0017 6h-6a1 1 0 00-.936 1.479l1.948 3.87a1 1 0 00.936.651h4a1 1 0 00.936-1.479z" clip-rule="evenodd" />
-												</svg>
+										</td>
+										<td class="px-4 py-2 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<input
+													type="file"
+													id="update-image-{product.barcode}"
+													accept="image/*"
+													on:change={(e) => uploadSingleImage(e, product.barcode)}
+													class="hidden"
+												/>
 												<button
-													class="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
-													on:click={() => {
-														const img = document.querySelector(`img[data-barcode="${product.barcode}"]`) as HTMLImageElement;
-														if (img) {
-															img.src = product.image_url + '?t=' + Date.now();
-														}
-													}}
+													on:click={() => document.getElementById(`update-image-${product.barcode}`)?.click()}
+													disabled={uploadingImageForBarcode === product.barcode}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110 disabled:opacity-50"
+													title="Update image"
 												>
-													Retry
+													{#if uploadingImageForBarcode === product.barcode}
+														<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+															<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+															<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+														</svg>
+													{:else}
+														🖼️
+													{/if}
 												</button>
-												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
-													⚠ Failed to load
-												</div>
+												<button
+													on:click={() => openEditPopup(product)}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													title="Edit product"
+												>
+													✏️
+												</button>
+												<button
+													on:click={() => deleteProduct(product.barcode)}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													title="Delete product"
+												>
+													🗑️
+												</button>
 											</div>
-										{/if}
-									</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>				<div class="bg-gray-50 px-6 py-4 border-t border-gray-200">
-					<p class="text-sm text-gray-700">
-						Total Products: <span class="font-semibold">{allProductsList.length}</span>
-					</p>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+
+					<!-- Footer with row count -->
+					<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+						Total Products: {allProductsList.length} | Showing: {filteredAllProducts.length}
+					</div>
 				</div>
 			{/if}
 		</div>

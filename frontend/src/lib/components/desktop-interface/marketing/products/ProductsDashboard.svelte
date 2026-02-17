@@ -52,44 +52,94 @@
 	let nameSearchQuery = '';
 
 	const BATCH_SIZE = 500;
-	const PARALLEL_BATCHES = 4;
+	const PAGE_SIZE = 500;
+	let currentPage = 1;
 
-	async function getProductCount(): Promise<number> {
-		const { count, error: err } = await supabase
-			.from('products')
-			.select('*', { count: 'exact', head: true });
+	// Reactive: get products for display (paginated or search results)
+	$: isSearching = barcodeSearchQuery.trim() !== '' || nameSearchQuery.trim() !== '';
+	$: searchResults = isSearching ? getSearchResults() : [];
+	$: totalPages = Math.ceil(products.length / PAGE_SIZE);
+	$: displayProducts = isSearching 
+		? searchResults 
+		: products.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-		if (err) {
-			throw new Error(err.message);
-		}
-		return count || 0;
+	function getSearchResults(): Product[] {
+		const bq = barcodeSearchQuery.toLowerCase().trim();
+		const nq = nameSearchQuery.toLowerCase().trim();
+		return products.filter((product) => {
+			const barcodeMatch = !bq || product.barcode.toLowerCase().includes(bq);
+			const nameMatch = !nq || 
+				(product.product_name_en.toLowerCase().includes(nq) ||
+				 product.product_name_ar.toLowerCase().includes(nq));
+			return barcodeMatch && nameMatch;
+		});
 	}
 
-	async function loadCategories() {
-		const { data, error: err } = await supabase
-			.from('product_categories')
-			.select('id, name_en, name_ar');
+	function goToPage(page: number) {
+		if (page >= 1 && page <= totalPages) {
+			currentPage = page;
+		}
+	}
 
-		if (err) {
-			console.error('Error loading categories:', err);
-		} else {
-			data?.forEach((cat: Category) => {
+	async function loadProducts() {
+		isLoading = true;
+		error = null;
+		products = [];
+		loadedCount = 0;
+
+		try {
+			// First call to get total_count + categories + units + first batch
+			const { data: firstBatch, error: firstError } = await supabase.rpc('get_products_dashboard_data', {
+				p_limit: BATCH_SIZE,
+				p_offset: 0
+			});
+
+			if (firstError) throw new Error(firstError.message);
+
+			totalCount = firstBatch?.total_count || 0;
+			products = firstBatch?.products || [];
+			loadedCount = products.length;
+
+			// Populate categories and units maps (from first batch, same for all)
+			(firstBatch?.categories || []).forEach((cat: Category) => {
 				categories.set(cat.id, cat);
 			});
-		}
-	}
-
-	async function loadUnits() {
-		const { data, error: err } = await supabase
-			.from('product_units')
-			.select('id, name_en, name_ar');
-
-		if (err) {
-			console.error('Error loading units:', err);
-		} else {
-			data?.forEach((unit: Unit) => {
+			(firstBatch?.units || []).forEach((unit: Unit) => {
 				units.set(unit.id, unit);
 			});
+
+			// Load remaining batches in parallel with Promise.all
+			if (totalCount > BATCH_SIZE) {
+				const remainingBatches = Math.ceil((totalCount - BATCH_SIZE) / BATCH_SIZE);
+				const batchPromises = [];
+
+				for (let i = 0; i < remainingBatches; i++) {
+					const offset = (i + 1) * BATCH_SIZE;
+					batchPromises.push(
+						supabase.rpc('get_products_dashboard_data', {
+							p_limit: BATCH_SIZE,
+							p_offset: offset
+						})
+					);
+				}
+
+				const batchResults = await Promise.all(batchPromises);
+
+				for (const result of batchResults) {
+					if (result.error) {
+						console.error('Batch error:', result.error);
+						continue;
+					}
+					const batchProducts = result.data?.products || [];
+					products = [...products, ...batchProducts];
+					loadedCount += batchProducts.length;
+				}
+			}
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to load products';
+			console.error('Error:', err);
+		} finally {
+			isLoading = false;
 		}
 	}
 
@@ -101,77 +151,6 @@
 			unit_name_en: units.get(product.unit_id)?.name_en || null,
 			unit_name_ar: units.get(product.unit_id)?.name_ar || null
 		};
-	}
-
-	async function loadProductBatch(from: number, to: number): Promise<Product[]> {
-		const { data, error: fetchError } = await supabase
-			.from('products')
-			.select('id, barcode, product_name_en, product_name_ar, category_id, unit_id')
-			.range(from, to);
-
-		if (fetchError) {
-			throw new Error(fetchError.message);
-		}
-
-		// Map category_id and unit_id to names
-		const productsWithDetails = (data || []).map(mapProductDetails);
-
-		return productsWithDetails;
-	}
-
-	async function loadProducts() {
-		isLoading = true;
-		error = null;
-		products = [];
-		loadedCount = 0;
-
-		try {
-			// Start loading categories and units in background (don't wait)
-			const categoriesPromise = loadCategories();
-			const unitsPromise = loadUnits();
-
-			// Get total count immediately
-			totalCount = await getProductCount();
-
-			// Calculate number of batches needed
-			const numBatches = Math.ceil(totalCount / BATCH_SIZE);
-
-			// Load products in parallel batches without waiting for categories/units
-			for (let batchGroup = 0; batchGroup < numBatches; batchGroup += PARALLEL_BATCHES) {
-				const batchPromises = [];
-
-				// Create parallel requests (up to PARALLEL_BATCHES at a time)
-				for (let i = 0; i < PARALLEL_BATCHES && batchGroup + i < numBatches; i++) {
-					const batchIndex = batchGroup + i;
-					const from = batchIndex * BATCH_SIZE;
-					const to = from + BATCH_SIZE - 1;
-					batchPromises.push(loadProductBatch(from, to));
-				}
-
-				// Wait for all parallel requests in this group to complete
-				const batchResults = await Promise.all(batchPromises);
-
-				// Add results to products array
-				for (const batchData of batchResults) {
-					products = [...products, ...batchData];
-					loadedCount += batchData.length;
-				}
-			}
-
-			// Now wait for categories and units to finish loading
-			await Promise.all([categoriesPromise, unitsPromise]);
-
-			// Update all products with category and unit details (re-render)
-			products = products.map(mapProductDetails);
-
-			// Sort by name
-			products.sort((a, b) => a.product_name_en.localeCompare(b.product_name_en));
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load products';
-			console.error('Error:', err);
-		} finally {
-			isLoading = false;
-		}
 	}
 
 	function openEditModal(product: Product) {
@@ -332,17 +311,6 @@
 		);
 	}
 
-	function getFilteredProducts() {
-		return products.filter((product) => {
-			const barcodeMatch = !barcodeSearchQuery.trim() || 
-				product.barcode.toLowerCase().includes(barcodeSearchQuery.toLowerCase());
-			const nameMatch = !nameSearchQuery.trim() || 
-				(product.product_name_en.toLowerCase().includes(nameSearchQuery.toLowerCase()) ||
-				 product.product_name_ar.toLowerCase().includes(nameSearchQuery.toLowerCase()));
-			return barcodeMatch && nameMatch;
-		});
-	}
-
 	onMount(() => {
 		loadProducts();
 	});
@@ -367,7 +335,7 @@
 
 		<div class="search-container">
 			<div class="search-group">
-				<label for="barcode-search">Search Barcode</label>
+				<label for="barcode-search">🔍 Search Barcode (all pages)</label>
 				<input
 					id="barcode-search"
 					type="text"
@@ -377,7 +345,7 @@
 				/>
 			</div>
 			<div class="search-group">
-				<label for="name-search">Search Name</label>
+				<label for="name-search">🔍 Search Name (all pages)</label>
 				<input
 					id="name-search"
 					type="text"
@@ -392,8 +360,30 @@
 		</div>
 
 		<div class="results-info">
-			Showing {getFilteredProducts().length} of {products.length} products
+			{#if isSearching}
+				🔎 Found {searchResults.length} results across all {products.length} products
+			{:else}
+				📄 Page {currentPage} of {totalPages} — Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, products.length)} of {products.length} products
+			{/if}
 		</div>
+
+		<!-- Pagination Controls (hidden during search) -->
+		{#if !isSearching && totalPages > 1}
+			<div class="pagination-controls">
+				<button class="page-btn" disabled={currentPage === 1} on:click={() => goToPage(1)}>⏮ First</button>
+				<button class="page-btn" disabled={currentPage === 1} on:click={() => goToPage(currentPage - 1)}>◀ Prev</button>
+				{#each Array(totalPages) as _, i}
+					<button 
+						class="page-btn {currentPage === i + 1 ? 'active' : ''}"
+						on:click={() => goToPage(i + 1)}
+					>
+						{i + 1}
+					</button>
+				{/each}
+				<button class="page-btn" disabled={currentPage === totalPages} on:click={() => goToPage(currentPage + 1)}>Next ▶</button>
+				<button class="page-btn" disabled={currentPage === totalPages} on:click={() => goToPage(totalPages)}>Last ⏭</button>
+			</div>
+		{/if}
 
 		<div class="table-wrapper">
 			<table class="products-table">
@@ -407,9 +397,9 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each getFilteredProducts() as product, index (product.id)}
+					{#each displayProducts as product, index (product.id)}
 						<tr>
-							<td class="sn-column">{index + 1}</td>
+							<td class="sn-column">{isSearching ? index + 1 : (currentPage - 1) * PAGE_SIZE + index + 1}</td>
 							<td>{product.barcode || '-'}</td>
 							<td>
 								<div 
@@ -1142,5 +1132,45 @@
 		background-color: #f0fdf4;
 		border-radius: 8px;
 		border: 2px dashed #d1fae5;
+	}
+
+	.pagination-controls {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+		justify-content: center;
+		flex-wrap: wrap;
+		padding: 8px 0;
+	}
+
+	.page-btn {
+		padding: 8px 14px;
+		border: 2px solid #d1fae5;
+		border-radius: 8px;
+		background: white;
+		color: #059669;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.page-btn:hover:not(:disabled):not(.active) {
+		background-color: #f0fdf4;
+		border-color: #10b981;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);
+	}
+
+	.page-btn.active {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border-color: #059669;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.page-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 </style>
