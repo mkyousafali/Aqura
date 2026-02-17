@@ -5,11 +5,25 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ53.22.14.15</p>
-<p class="version-details">Desktop: 53 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
+<p class="version-title">Version AQ54.22.14.15</p>
+<p class="version-details">Desktop: 54 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
 </div>
 
 <div class="latest-change">
+<h3>✨ Marketing Module — Shelf Paper & Flyer Template Improvements</h3>
+<p class="change-description">Arabic unit names on shelf paper, flyer page number zero-padding, single-line expiry date labels, and rename/delete template management for both Shelf Paper and Flyer Template Designers.</p>
+<div class="change-details">
+<h4>February 17, 2026 (Latest):</h4>
+<ul>
+<li>✅ <b>Shelf Paper — Arabic Unit Names:</b> Unit names on shelf paper now display in Arabic only (<code>unit_name_ar</code>) with RTL direction, across print table, PDF generation (single & batch), and the product table UI.</li>
+<li>✅ <b>Flyer Generator — Zero-Padded Page Numbers:</b> Page numbers now display as 01, 02, 03 instead of 1, 2, 3 for cleaner visual presentation on both first page and sub pages.</li>
+<li>✅ <b>Flyer Generator — Single-Line Expiry Labels:</b> Expiry date labels now wrap naturally on a single line instead of splitting across two lines, applied to both first page and sub page sections.</li>
+<li>✅ <b>Shelf Paper Template Designer — Rename & Delete:</b> Added rename and delete buttons next to the template selector. Rename opens a modal to update template name. Delete uses a confirmation dialog and performs a soft-delete (sets <code>is_active: false</code>).</li>
+<li>✅ <b>Flyer Template Designer — Rename & Delete:</b> Same rename/delete functionality added for flyer templates with confirmation dialogs and soft-delete mechanism.</li>
+</ul>
+</div>
+</div>
+<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 <h3>✨ Remote Branch Frontend Deployment System</h3>
 <p class="change-description">New remote frontend deployment pipeline enabling one-click branch updates through Cloudflare tunnel. Builds are uploaded to cloud storage and branches pull updates automatically via the StorageManager UI.</p>
 <div class="change-details">
