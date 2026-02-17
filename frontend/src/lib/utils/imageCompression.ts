@@ -79,9 +79,16 @@ export async function compressImageToFile(
 	quality = 0.6
 ): Promise<File> {
 	const dataUrl = await compressImage(file, maxWidth, maxHeight, quality);
-	const res = await fetch(dataUrl);
-	const blob = await res.blob();
-	const ext = file.name.split('.').pop()?.toLowerCase();
+	// Convert data URL to blob without using fetch() to avoid Service Worker interception
+	const parts = dataUrl.split(',');
+	const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+	const byteString = atob(parts[1]);
+	const ab = new ArrayBuffer(byteString.length);
+	const ia = new Uint8Array(ab);
+	for (let i = 0; i < byteString.length; i++) {
+		ia[i] = byteString.charCodeAt(i);
+	}
+	const blob = new Blob([ab], { type: mime });
 	const compressedName = file.name.replace(/\.[^.]+$/, '.jpg');
 	return new File([blob], compressedName, { type: 'image/jpeg' });
 }

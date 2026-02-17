@@ -78,6 +78,12 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
     }
     console.log('📬 [Push] Permission granted');
 
+    // In dev mode, skip SW registration to avoid intercepting Supabase requests
+    if (!import.meta.env.PROD) {
+      console.log('📬 [Push] Skipping SW registration in dev mode');
+      return null;
+    }
+
     // Ensure service worker is registered
     console.log('📬 [Push] Checking service worker registration...');
     let registration: ServiceWorkerRegistration;

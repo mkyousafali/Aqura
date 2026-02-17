@@ -635,6 +635,19 @@
 				isLoading = false;
 			}
 			
+			// In dev mode, unregister all service workers to prevent old SWs from corrupting uploads
+			if (!import.meta.env.PROD && 'serviceWorker' in navigator) {
+				try {
+					const registrations = await navigator.serviceWorker.getRegistrations();
+					for (const reg of registrations) {
+						await reg.unregister();
+						console.log('🗑️ [Dev] Unregistered service worker:', reg.scope);
+					}
+				} catch (e) {
+					console.warn('⚠️ [Dev] SW unregister failed:', e);
+				}
+			}
+
 			// No automatic cleanup or cache clearing - only setup service workers when needed
 			if (!isAuthenticated) {
 				console.log('🔧 User not authenticated, standard service worker setup...');

@@ -789,6 +789,7 @@ export const arabicLocale: LocaleData = {
         taskFinishedRequired: "إنهاء المهمة (مطلوب)",
         uploadPhotoRequired: "📷 رفع صورة (مطلوب)",
         choosePhoto: "اختر صورة",
+        takePhoto: "التقط صورة",
         erpReferenceRequired: "🔢 مرجع ERP (مطلوب)",
         erpReferencePlaceholder: "أدخل رقم مرجع ERP",
         additionalNotesOptional: "📝 ملاحظات إضافية (اختياري)",
@@ -805,6 +806,9 @@ export const arabicLocale: LocaleData = {
         failedToLoad: "فشل تحميل تفاصيل المهمة",
         notSet: "غير محدد",
         invalidDate: "تاريخ غير صالح",
+        taskType_regular: "مهمة عادية",
+        taskType_quick: "مهمة سريعة",
+        taskType_receiving: "مهمة استلام",
       },
 
       // Notifications Page Content

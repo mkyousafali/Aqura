@@ -3,7 +3,7 @@
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
 // SERVICE WORKER VERSION - Increment to force updates
-const SW_VERSION = '2.2.0'; // Updated: Added ERP Product Manager
+const SW_VERSION = '2.4.0'; // Updated: Fixed SW bypass to not re-fetch Supabase requests (was corrupting binary uploads)
 console.log(`[ServiceWorker] Version ${SW_VERSION} initializing`);
 
 // Import workbox from CDN for service worker
@@ -269,12 +269,16 @@ self.addEventListener('fetch', (event) => {
 	const { request } = event;
 	const url = new URL(request.url);
 
-	// NEVER cache notification-related API calls - they must always be fresh
-	if (url.hostname.includes('supabase.co') && 
-	    (url.pathname.includes('notification') || 
-	     url.search.includes('notification'))) {
-		// Network-only for notifications - no caching
-		event.respondWith(fetch(request));
+	// BYPASS: All Supabase requests (storage, REST, RPC, functions, auth) must never be cached
+	// IMPORTANT: Do NOT use event.respondWith(fetch(request)) here — re-fetching through the SW
+	// corrupts binary POST bodies (file uploads). Simply returning lets the browser handle it natively.
+	if (url.hostname.includes('supabase') || 
+	    url.hostname.includes('urbanaqura.com')) {
+		return;
+	}
+
+	// BYPASS: data: URLs must never be intercepted
+	if (request.url.startsWith('data:')) {
 		return;
 	}
 
