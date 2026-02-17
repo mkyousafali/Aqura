@@ -2,6 +2,7 @@
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { compressImageToFile } from '$lib/utils/imageCompression';
 
 	const dispatch = createEventDispatcher();
 
@@ -526,13 +527,24 @@
 
 	function handleFileSelect(event) {
 		const files = Array.from(event.target.files);
-		files.forEach(file => {
+		files.forEach(async (file: any) => {
 			if (isValidFileType(file)) {
+				let fileToAdd = file;
+				// Compress images before adding
+				if (file.type.startsWith('image/')) {
+					try {
+						fileToAdd = await compressImageToFile(file);
+						console.log(`🗜️ [QuickTask] Compressed ${file.name}: ${(file.size / 1024).toFixed(0)}KB → ${(fileToAdd.size / 1024).toFixed(0)}KB`);
+					} catch (err) {
+						console.warn('⚠️ [QuickTask] Compression failed, using original:', err);
+						fileToAdd = file;
+					}
+				}
 				selectedFiles = [...selectedFiles, {
-					file,
-					name: file.name,
-					size: file.size,
-					type: file.type,
+					file: fileToAdd,
+					name: fileToAdd.name,
+					size: fileToAdd.size,
+					type: fileToAdd.type,
 					id: Date.now() + Math.random()
 				}];
 			} else {
@@ -575,13 +587,24 @@
 
 	function handleCameraCapture(event) {
 		const files = Array.from(event.target.files);
-		files.forEach(file => {
+		files.forEach(async (file: any) => {
 			if (isValidFileType(file)) {
+				let fileToAdd = file;
+				// Compress camera photos
+				if (file.type.startsWith('image/')) {
+					try {
+						fileToAdd = await compressImageToFile(file);
+						console.log(`🗜️ [QuickTask] Compressed camera: ${(file.size / 1024).toFixed(0)}KB → ${(fileToAdd.size / 1024).toFixed(0)}KB`);
+					} catch (err) {
+						console.warn('⚠️ [QuickTask] Camera compression failed, using original:', err);
+						fileToAdd = file;
+					}
+				}
 				selectedFiles = [...selectedFiles, {
-					file,
-					name: file.name,
-					size: file.size,
-					type: file.type,
+					file: fileToAdd,
+					name: fileToAdd.name,
+					size: fileToAdd.size,
+					type: fileToAdd.type,
 					id: Date.now() + Math.random()
 				}];
 			}

@@ -3,28 +3,28 @@
 ## 🚨 MANDATORY PROTOCOL
 **NEVER push changes to the repository without first updating the version numbers and the Version Changelog.** 
 
+**⚠️ ALWAYS use the `--deploy` flag when running the version script.** This builds the frontend, creates a ZIP, uploads it to Supabase storage, and registers it in the database so branches can pull the update. **Do NOT run the script without `--deploy` — it is NOT optional.**
+
 This system uses a multi-interface versioning scheme to track updates across Desktop, Mobile, Cashier, and Customer interfaces.
 
 ---
 
-## 🛠️ Step 1: Automated Version Update
+## 🛠️ Step 1: Automated Version Update (ALWAYS with --deploy)
 
-Always use the specialized script `Do not delete/simple-push.js` to increment version numbers and update the respective UI displays.
+Always use the specialized script `Do not delete/simple-push.js` to increment version numbers and update the respective UI displays. **ALWAYS include the `--deploy` flag** to build, zip, and upload to Supabase storage.
 
 ### Command Usage:
 ```bash
-# Update ALL interfaces (Default for large features)
-node "Do not delete/simple-push.js" all "feat: detailed description of changes"
+# ⚠️ ALWAYS use --deploy flag! Never omit it!
+
+# Update ALL interfaces
+node "Do not delete/simple-push.js" all "feat: detailed description of changes" --deploy
 
 # Update SPECIFIC interfaces
-node "Do not delete/simple-push.js" desktop "feat(hr): add new analysis tool"
-node "Do not delete/simple-push.js" mobile "fix(auth): fix login splash"
-node "Do not delete/simple-push.js" cashier "feat: add localized branches"
-node "Do not delete/simple-push.js" customer "style: update theme colors"
-
-# WITH BRANCH DEPLOYMENT (builds frontend & uploads to cloud database)
-node "Do not delete/simple-push.js" desktop "feat: new feature" --deploy
-node "Do not delete/simple-push.js" all "feat: major update" --deploy
+node "Do not delete/simple-push.js" desktop "feat(hr): add new analysis tool" --deploy
+node "Do not delete/simple-push.js" mobile "fix(auth): fix login splash" --deploy
+node "Do not delete/simple-push.js" cashier "feat: add localized branches" --deploy
+node "Do not delete/simple-push.js" customer "style: update theme colors" --deploy
 ```
 
 ### What this script does:
@@ -100,13 +100,7 @@ Before running your final `git push`, perform this check in order:
    - Stage the changelog: `git add frontend/src/lib/components/desktop-interface/common/VersionChangelog.svelte`
    - Commit: `git commit -m "docs(changelog): update AQ[X] entry with [feature details]"`
    - Push: `git push`
-6. **Deploy to Branches** *(if applicable)*: If branches need the update, use the `--deploy` flag:
-   ```bash
-   node "Do not delete/simple-push.js" desktop "feat: your changes" --deploy
-   ```
-   This builds the frontend, uploads it to cloud storage, and registers it in the database.
-   Branches can then pull the update from **StorageManager → Branch Sync → Update Frontend**.
 
 **REMEMBER: The version number in VersionChangelog.svelte is what users see in the app. Missing this step means users see outdated version info!**
 
-**REMEMBER: If branches need the update, always use `--deploy` flag to upload the build to the cloud database!**
+**🚨 CRITICAL: ALWAYS use `--deploy` flag with the version script. NEVER run without it. The `--deploy` flag builds the frontend, zips it, uploads to Supabase storage, and registers it in the database. Without it, branches cannot pull the update and you will need to run the script again with a wasted version bump!**

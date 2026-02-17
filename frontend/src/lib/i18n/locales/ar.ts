@@ -377,6 +377,9 @@ export const arabicLocale: LocaleData = {
           description: "اختر المهام المراد تخصيصها",
           searchPlaceholder: "البحث في المهام...",
           noDescription: "لا يوجد وصف",
+          activeTasks: "نشطة",
+          completedTasks: "مكتملة",
+          allTasks: "الكل",
         },
         step3: {
           title: "إعدادات التخصيص",
@@ -667,6 +670,9 @@ export const arabicLocale: LocaleData = {
           description: "الوصف:",
           notes: "الملاحظات:",
           attachments: "📎 المرفقات",
+          taskPhotos: "صور المهمة",
+          completionPhotos: "صور الإنجاز",
+          completionNotes: "ملاحظات الإنجاز",
           deadline: "الموعد النهائي:",
           noDeadline: "لا يوجد موعد نهائي",
           assignedTo: "مُعيَّن إلى:",
@@ -680,6 +686,7 @@ export const arabicLocale: LocaleData = {
         // Actions
         actions: {
           download: "تحميل",
+          view: "عرض",
           viewDetails: "عرض التفاصيل",
           markComplete: "تمييز كمكتمل",
           updateStatus: "تحديث الحالة",
@@ -696,6 +703,22 @@ export const arabicLocale: LocaleData = {
           of: "من",
           completionRate: "معدل الإنجاز:",
         },
+        viewCompleted: "عرض المهام المكتملة",
+      },
+
+      // Completed Assignments Page
+      completedAssignments: {
+        title: "المهام المكتملة",
+        backToAssignments: "العودة إلى التعيينات",
+        completedTotal: "المهام المكتملة",
+        searchPlaceholder: "البحث في المهام المكتملة...",
+        loading: "جاري تحميل المهام المكتملة...",
+        noCompleted: "لا توجد مهام مكتملة",
+        noMatchingSearch: "لا توجد مهام مكتملة تطابق بحثك.",
+        noCompletedYet: "لم يتم إكمال أي مهام بعد.",
+        completedAt: "اكتمل في:",
+        showing: "عرض",
+        of: "من",
       },
 
       // Task Details Page
