@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, getStoragePublicUrl, resolveStorageUrl } from '$lib/utils/supabase';
 	import { notifications } from '$lib/stores/notifications';
 	import { locale, getTranslation } from '$lib/i18n';
 
@@ -179,7 +179,7 @@
 						}
 						filesMap.get(file.quick_task_id).push({
 							...file,
-							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/quick-task-files/${file.storage_path}`,
+							file_url: getStoragePublicUrl('quick-task-files', file.storage_path),
 							source: 'quick_task'
 						});
 					});
@@ -209,7 +209,7 @@
 						}
 						imagesMap.get(image.task_id).push({
 							...image,
-							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/task-images/${image.file_path}`,
+							file_url: getStoragePublicUrl('task-images', image.file_path),
 							source: 'task'
 						});
 					});
@@ -243,7 +243,7 @@
 						if (!completionMap.has(key)) completionMap.set(key, []);
 						if (c.completion_photo_url) {
 							completionMap.get(key).push({
-								file_url: c.completion_photo_url,
+								file_url: resolveStorageUrl(c.completion_photo_url),
 								file_name: `completion-photo-${c.id}.jpg`,
 								file_type: 'image/jpeg',
 								completed_by_name: c.completed_by_name,
@@ -279,12 +279,16 @@
 					completions.forEach(c => {
 						if (!completionMap.has(c.assignment_id)) completionMap.set(c.assignment_id, []);
 						if (c.photo_path) {
-							completionMap.get(c.assignment_id).push({
-								file_url: `${supabase.supabaseUrl}/storage/v1/object/public/completion-photos/${c.photo_path}`,
-								file_name: `completion-photo-${c.id}.jpg`,
-								file_type: 'image/jpeg',
-								completed_at: c.created_at,
-								notes: c.completion_notes
+							// photo_path may contain comma-separated paths for multi-photo completions
+							const paths = c.photo_path.split(',').map(p => p.trim()).filter(p => p);
+							paths.forEach((path, idx) => {
+								completionMap.get(c.assignment_id).push({
+									file_url: getStoragePublicUrl('completion-photos', path),
+									file_name: `completion-photo-${c.id}-${idx + 1}.jpg`,
+									file_type: 'image/jpeg',
+									completed_at: c.created_at,
+									notes: c.completion_notes
+								});
 							});
 						}
 					});

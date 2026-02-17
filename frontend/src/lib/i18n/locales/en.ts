@@ -781,6 +781,7 @@ export const englishLocale: LocaleData = {
         taskFinishedRequired: "Task Finished (Required)",
         uploadPhotoRequired: "📷 Upload Photo (Required)",
         choosePhoto: "Choose Photo",
+        takePhoto: "Take Photo",
         erpReferenceRequired: "🔢 ERP Reference (Required)",
         erpReferencePlaceholder: "Enter ERP reference number",
         additionalNotesOptional: "📝 Additional Notes (Optional)",
@@ -797,6 +798,9 @@ export const englishLocale: LocaleData = {
         failedToLoad: "Failed to load task details",
         notSet: "Not set",
         invalidDate: "Invalid date",
+        taskType_regular: "Regular Task",
+        taskType_quick: "Quick Task",
+        taskType_receiving: "Receiving Task",
       },
 
       // Notifications Page Content

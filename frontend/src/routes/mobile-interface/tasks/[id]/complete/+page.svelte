@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { compressImage } from '$lib/utils/imageCompression';
     import { onMount, onDestroy } from 'svelte';
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
@@ -55,12 +54,11 @@
         completion_notes: ''
     };
 
-    // Photo upload
-    let photoFile: File | null = null;
-    let photoPreview: string | null = null;
+    // Photo upload (multi-photo)
+    let photoFiles: File[] = [];
+    let photoPreviews: string[] = [];
 
 	// UI state
-	let showTaskDetails = false;
 	let showImageModal = false;
 	let selectedImageUrl = '';    // Calculate completion progress
     $: completionProgress = (() => {
@@ -73,7 +71,7 @@
         }
         if (resolvedRequirePhotoUpload) {
             total++;
-            if (photoFile) completed++;
+            if (photoFiles.length > 0) completed++;
         }
         if (resolvedRequireErpReference) {
             total++;
@@ -93,7 +91,7 @@
         
         // Check completion requirements
         const taskCheck = !resolvedRequireTaskFinished || completionData.task_finished_completed;
-        const photoCheck = !resolvedRequirePhotoUpload || !!photoFile;
+        const photoCheck = !resolvedRequirePhotoUpload || photoFiles.length > 0;
         const erpCheck = !resolvedRequireErpReference || !!completionData.erp_reference_number?.trim();
         
         return taskCheck && photoCheck && erpCheck;
@@ -405,73 +403,74 @@
 
     async function handlePhotoUpload(event: Event) {
         const target = event.target as HTMLInputElement;
-        const file = target.files?.[0];
+        const files = target.files;
         
-        if (file) {
-            if (!file.type.startsWith('image/')) {
-                errorMessage = t('invalidImageFile');
-                return;
-            }
-            
-            if (file.size > 5 * 1024 * 1024) {
-                errorMessage = t('imageTooLarge');
-                return;
-            }
-            
-            photoFile = file;
-            
-            try {
-                photoPreview = await compressImage(file);
-            } catch {
+        if (files && files.length > 0) {
+            for (const file of Array.from(files)) {
+                if (!file.type.startsWith('image/')) {
+                    errorMessage = t('invalidImageFile');
+                    continue;
+                }
+                
+                if (file.size > 5 * 1024 * 1024) {
+                    errorMessage = t('imageTooLarge');
+                    continue;
+                }
+                
+                photoFiles = [...photoFiles, file];
+                
                 const reader = new FileReader();
-                reader.onload = (e) => { photoPreview = e.target?.result as string; };
+                reader.onload = (e) => { 
+                    photoPreviews = [...photoPreviews, e.target?.result as string]; 
+                };
                 reader.readAsDataURL(file);
             }
             
-            completionData.photo_uploaded_completed = true;
+            completionData.photo_uploaded_completed = photoFiles.length > 0;
             errorMessage = '';
+            
+            // Reset input so same file can be re-selected
+            target.value = '';
         }
     }
     
-    function removePhoto() {
-        photoFile = null;
-        photoPreview = null;
-        completionData.photo_uploaded_completed = false;
-        
-        const fileInput = document.getElementById('photo-upload') as HTMLInputElement;
-        if (fileInput) {
-            fileInput.value = '';
-        }
+    function removePhoto(index: number) {
+        photoFiles = photoFiles.filter((_, i) => i !== index);
+        photoPreviews = photoPreviews.filter((_, i) => i !== index);
+        completionData.photo_uploaded_completed = photoFiles.length > 0;
     }
     
-    async function uploadPhoto(): Promise<string | null> {
-        if (!photoFile || !currentUserData) return null;
+    async function uploadPhotos(): Promise<string[]> {
+        if (photoFiles.length === 0 || !currentUserData) return [];
         
-        try {
-            const fileExt = photoFile.name.split('.').pop();
-            const fileName = `task-completion-${taskId}-${Date.now()}.${fileExt}`;
-            
-            const { data, error } = await supabase.storage
-                .from('completion-photos')
-                .upload(fileName, photoFile, {
-                    cacheControl: '3600',
-                    upsert: false
-                });
-            
-            if (error) {
-                console.error('Storage upload error:', error);
-                return null;
+        const urls: string[] = [];
+        for (const file of photoFiles) {
+            try {
+                const fileExt = file.name.split('.').pop();
+                const fileName = `task-completion-${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
+                
+                const { data, error } = await supabase.storage
+                    .from('completion-photos')
+                    .upload(fileName, file, {
+                        cacheControl: '3600',
+                        upsert: false
+                    });
+                
+                if (error) {
+                    console.error('Storage upload error:', error);
+                    continue;
+                }
+                
+                const { data: urlData } = supabase.storage
+                    .from('completion-photos')
+                    .getPublicUrl(fileName);
+                
+                urls.push(urlData.publicUrl);
+            } catch (error) {
+                console.error('Error uploading photo:', error);
             }
-            
-            const { data: urlData } = supabase.storage
-                .from('completion-photos')
-                .getPublicUrl(fileName);
-            
-            return urlData.publicUrl;
-        } catch (error) {
-            console.error('Error uploading photo:', error);
-            return null;
         }
+        return urls;
     }
     
     async function submitCompletion() {
@@ -482,13 +481,13 @@
         successMessage = '';
         
         try {
-            let photoUrl = null;
+            let photoUrls: string[] = [];
             
-            if (resolvedRequirePhotoUpload && photoFile) {
+            if (resolvedRequirePhotoUpload && photoFiles.length > 0) {
                 try {
-                    photoUrl = await uploadPhoto();
-                    if (!photoUrl) {
-                        console.warn('Photo upload failed, continuing without photo');
+                    photoUrls = await uploadPhotos();
+                    if (photoUrls.length === 0) {
+                        console.warn('Photo upload failed, continuing without photos');
                     }
                 } catch (uploadError) {
                     console.error('Photo upload failed:', uploadError);
@@ -515,8 +514,8 @@
                 completed_by_name: currentUserData.username,
                 // Skip completed_by_branch_id for now - column type mismatch issue
                 task_finished_completed: resolvedRequireTaskFinished ? completionData.task_finished_completed : null,
-                photo_uploaded_completed: resolvedRequirePhotoUpload ? (photoUrl ? true : false) : null,
-                completion_photo_url: photoUrl,
+                photo_uploaded_completed: resolvedRequirePhotoUpload ? (photoUrls.length > 0 ? true : false) : null,
+                completion_photo_url: photoUrls.length > 0 ? photoUrls.join(',') : null,
                 erp_reference_completed: resolvedRequireErpReference ? completionData.erp_reference_completed : null,
                 erp_reference_number: resolvedRequireErpReference ? completionData.erp_reference_number : null,
                 completion_notes: completionData.completion_notes || null,
@@ -612,138 +611,25 @@
             </div>
         </div>
     {:else}
-        <!-- Task Details Section -->
-        <div class="task-details-section">
-            <div class="details-header">
-                <h3>{t('taskDetails')}</h3>
-                <button 
-                    class="toggle-btn"
-                    on:click={() => showTaskDetails = !showTaskDetails}
-                >
-                    {showTaskDetails ? '▼' : '▶'} {showTaskDetails ? t('hideDetails') : t('showDetails')}
-                </button>
+        <!-- Compact Task Info Bar -->
+        <div class="task-info-bar">
+            <div class="info-bar-title">{getLocalizedContent(taskDetails.title)}</div>
+            <div class="info-bar-row">
+                <span class="priority-badge {getPriorityColor(taskDetails.priority)}">
+                    {getTranslation(`mobile.assignmentsContent.priorities.${taskDetails.priority?.toLowerCase() || 'medium'}`)}
+                </span>
+                {#if assignmentDetails?.deadline_datetime || assignmentDetails?.deadline_date}
+                    <span class="info-chip {isOverdue(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date) ? 'overdue' : 'on-time'}">
+                        {#if isOverdue(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
+                            {t('overdueBy')} {getOverdueTime(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
+                        {:else}
+                            {liveCountdown} {t('remaining')}
+                        {/if}
+                    </span>
+                {/if}
             </div>
-
-            {#if showTaskDetails && taskDetails}
-                <div class="details-content">
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <label>{t('titleLabel')}</label>
-                            <span class="value">{getLocalizedContent(taskDetails.title)}</span>
-                        </div>
-                        
-                        <div class="detail-item">
-                            <label>{t('priorityLabel')}</label>
-                            <span class="priority-badge {getPriorityColor(taskDetails.priority)}">
-                                {getTranslation(`mobile.assignmentsContent.priorities.${taskDetails.priority?.toLowerCase() || 'medium'}`)}
-                            </span>
-                        </div>
-                        
-                        <div class="detail-item">
-                            <label>{t('createdLabel')}</label>
-                            <span class="value">{formatDate(taskDetails.created_at)}</span>
-                        </div>
-                        
-                        <div class="detail-item">
-                            <label>{t('deadlineLabel')}</label>
-                            <span class="value">
-                                {#if assignmentDetails?.deadline_datetime}
-                                    {formatDate(assignmentDetails.deadline_datetime)} {t('at')} {formatTime(assignmentDetails.deadline_datetime)}
-                                {:else if assignmentDetails?.deadline_date}
-                                    {formatDate(assignmentDetails.deadline_date)}
-                                    {#if assignmentDetails?.deadline_time}
-                                        {t('at')} {assignmentDetails.deadline_time}
-                                    {/if}
-                                {:else}
-                                    {t('noDeadlineSet')}
-                                {/if}
-                            </span>
-                        </div>
-
-                        {#if assignmentDetails?.deadline_datetime || assignmentDetails?.deadline_date}
-                            <div class="detail-item">
-                                <label>{t('statusLabel')}</label>
-                                <span class="value {isOverdue(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date) ? 'overdue' : 'on-time'}">
-                                    {#if isOverdue(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
-                                        {t('overdueBy')} {getOverdueTime(assignmentDetails.deadline_datetime || assignmentDetails.deadline_date)}
-                                    {:else}
-                                        {liveCountdown} {t('remaining')}
-                                    {/if}
-                                </span>
-                            </div>
-                        {/if}
-
-                        {#if assignmentDetails}
-                            <div class="detail-item">
-                                <label>{t('assignedToLabel')}</label>
-                                <span class="value">{assignedToUserName}</span>
-                            </div>
-                            
-                            <div class="detail-item">
-                                <label>{t('assignedByLabel')}</label>
-                                <span class="value">{assignedByUserName}</span>
-                            </div>
-                        {/if}
-                    </div>
-
-                    {#if taskDetails.description}
-                        <div class="description-block">
-                            <label>{t('descriptionLabel')}</label>
-                            <div class="description-text">{getLocalizedContent(taskDetails.description, 'description')}</div>
-                        </div>
-                    {/if}
-
-                    {#if assignmentDetails?.notes}
-                        <div class="description-block">
-                            <label>{t('assignmentNotesLabel')}</label>
-                            <div class="description-text">{getLocalizedContent(assignmentDetails.notes, 'description')}</div>
-                        </div>
-                    {/if}
-
-                    {#if taskImages.length > 0}
-                        <div class="images-section">
-                            <label>{t('taskImagesLabel')}</label>
-                            <div class="images-grid">
-                                {#each taskImages as image}
-                                    <div class="image-item" on:click={() => openImageModal(image.image_url)} role="button" tabindex="0">
-                                        <img src={image.image_url} alt="Task image" loading="lazy" />
-                                    </div>
-                                {/each}
-                            </div>
-                        </div>
-                    {/if}
-
-                    {#if taskAttachments.length > 0}
-                        <div class="attachments-section">
-                            <label>{t('taskFilesLabel')}</label>
-                            <div class="attachments-list">
-                                {#each taskAttachments as attachment}
-                                    <div class="attachment-item">
-                                        <div class="attachment-info">
-                                            <div class="attachment-name">{attachment.fileName}</div>
-                                            <div class="attachment-meta">
-                                                {#if attachment.fileSize}
-                                                    {Math.round(attachment.fileSize / 1024)} KB • 
-                                                {/if}
-                                                {attachment.uploadedBy}
-                                            </div>
-                                        </div>
-                                        <button 
-                                            class="download-btn"
-                                            on:click={() => downloadFile(attachment.fileUrl, attachment.fileName)}
-                                        >
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                                <polyline points="7,10 12,15 17,10"/>
-                                                <line x1="12" y1="15" x2="12" y2="3"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                {/each}
-                            </div>
-                        </div>
-                    {/if}
-                </div>
+            {#if assignedByUserName}
+                <div class="info-bar-assigned">👤 {t('assignedByLabel')} {assignedByUserName}</div>
             {/if}
         </div>
 
@@ -796,32 +682,55 @@
                         <span class="requirement-label required">{t('uploadPhotoRequired')}</span>
                     </div>
                     
-                    {#if !photoPreview}
-                        <div class="upload-section">
-                            <input
-                                id="photo-upload"
-                                type="file"
-                                accept="image/*"
-                                on:change={handlePhotoUpload}
-                                disabled={isSubmitting}
-                                class="file-input"
-                                required
-                            />
-                            <label for="photo-upload" class="upload-btn">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                                </svg>
-                                {t('choosePhoto')}
-                            </label>
-                        </div>
-                    {:else}
-                        <div class="photo-preview">
-                            <img src={photoPreview} alt="Task completion" class="preview-image" />
-                            <button class="remove-photo" on:click={removePhoto} disabled={isSubmitting}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M18 6L6 18M6 6l12 12"/>
-                                </svg>
-                            </button>
+                    <div class="upload-section">
+                        <!-- Camera capture button -->
+                        <input
+                            id="camera-capture"
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            on:change={handlePhotoUpload}
+                            disabled={isSubmitting}
+                            class="file-input"
+                        />
+                        <label for="camera-capture" class="upload-btn camera-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                                <circle cx="12" cy="13" r="4"/>
+                            </svg>
+                            {t('takePhoto')}
+                        </label>
+                        
+                        <!-- File chooser button -->
+                        <input
+                            id="photo-upload"
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            on:change={handlePhotoUpload}
+                            disabled={isSubmitting}
+                            class="file-input"
+                        />
+                        <label for="photo-upload" class="upload-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            {t('choosePhoto')} ({photoFiles.length})
+                        </label>
+                    </div>
+
+                    {#if photoPreviews.length > 0}
+                        <div class="photo-grid">
+                            {#each photoPreviews as preview, i}
+                                <div class="photo-preview-item">
+                                    <img src={preview} alt="Photo {i + 1}" class="preview-image" />
+                                    <button class="remove-photo" on:click={() => removePhoto(i)} disabled={isSubmitting} aria-label="Remove photo {i + 1}">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M18 6L6 18M6 6l12 12"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            {/each}
                         </div>
                     {/if}
                 </div>
@@ -936,80 +845,62 @@
         margin-bottom: 1rem;
     }
 
-    .task-details-section {
+    /* Compact Task Info Bar */
+    .task-info-bar {
         background: white;
         margin: 0.5rem 0.6rem;
+        padding: 0.65rem 0.85rem;
         border-radius: 8px;
         border: 1px solid #E5E7EB;
-        overflow: hidden;
     }
 
-    .details-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.6rem 0.85rem;
-        background: #F9FAFB;
-        border-bottom: 1px solid #E5E7EB;
-    }
-
-    .details-header h3 {
-        margin: 0;
-        font-size: 0.88rem;
+    .info-bar-title {
+        font-size: 0.9rem;
         font-weight: 600;
         color: #1F2937;
+        margin-bottom: 0.4rem;
     }
 
-    .toggle-btn {
-        background: none;
-        border: none;
-        padding: 0.35rem;
-        cursor: pointer;
-        color: #6B7280;
-        font-size: 0.8rem;
-        border-radius: 4px;
-        transition: all 0.2s;
+    .info-bar-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        align-items: center;
+        margin-bottom: 0.3rem;
     }
 
-    .toggle-btn:hover {
-        background: #E5E7EB;
+    .info-chip {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.75rem;
+        font-size: 0.7rem;
+        font-weight: 500;
+        background: #F3F4F6;
         color: #374151;
-    }
-
-    .details-content {
-        padding: 0.6rem 0.85rem;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
-        margin-bottom: 0.6rem;
-    }
-
-    .detail-item {
-        background: #F9FAFB;
-        padding: 0.5rem 0.7rem;
-        border-radius: 6px;
         border: 1px solid #E5E7EB;
     }
 
-    .detail-item label {
+    .info-chip.overdue {
+        background: #FEF2F2;
+        color: #DC2626;
+        border-color: #FECACA;
         font-weight: 600;
-        color: #374151;
-        margin-bottom: 0.25rem;
-        display: block;
-        font-size: 0.8rem;
     }
 
-    .detail-item .value {
-        color: #1F2937;
-        font-size: 0.8rem;
+    .info-chip.on-time {
+        background: #F0FDF4;
+        color: #16A34A;
+        border-color: #BBF7D0;
+    }
+
+    .info-bar-assigned {
+        font-size: 0.75rem;
+        color: #6B7280;
     }
 
     .priority-badge {
         display: inline-block;
-        padding: 0.2rem 0.55rem;
+        padding: 0.15rem 0.5rem;
         border-radius: 0.75rem;
         font-size: 0.7rem;
         font-weight: 600;
@@ -1030,126 +921,6 @@
     .priority-low {
         background: #D1FAE5;
         color: #059669;
-    }
-
-    .overdue {
-        color: #DC2626;
-        font-weight: 600;
-    }
-
-    .on-time {
-        color: #16A34A;
-        font-weight: 500;
-    }
-
-    .description-block {
-        margin-top: 0.6rem;
-    }
-
-    .description-block label {
-        display: block;
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: 0.3rem;
-    }
-
-    .description-text {
-        background: #F9FAFB;
-        padding: 0.55rem 0.7rem;
-        border-radius: 6px;
-        border: 1px solid #E5E7EB;
-        white-space: pre-wrap;
-        color: #1F2937;
-        line-height: 1.4;
-        font-size: 0.8rem;
-    }
-
-    .images-section,
-    .attachments-section {
-        margin-top: 0.6rem;
-    }
-
-    .images-section label,
-    .attachments-section label {
-        display: block;
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: 0.4rem;
-    }
-
-    .images-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-        gap: 0.5rem;
-    }
-
-    .image-item {
-        aspect-ratio: 1;
-        border-radius: 6px;
-        overflow: hidden;
-        cursor: pointer;
-        transition: transform 0.2s;
-    }
-
-    .image-item:hover {
-        transform: scale(1.05);
-    }
-
-    .image-item img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .attachments-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-    }
-
-    .attachment-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.55rem 0.7rem;
-        background: #F9FAFB;
-        border: 1px solid #E5E7EB;
-        border-radius: 6px;
-    }
-
-    .attachment-info {
-        flex: 1;
-    }
-
-    .attachment-name {
-        font-weight: 500;
-        color: #1F2937;
-        font-size: 0.8rem;
-    }
-
-    .attachment-meta {
-        font-size: 0.7rem;
-        color: #6B7280;
-        margin-top: 0.25rem;
-    }
-
-    .download-btn {
-        background: #3B82F6;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        padding: 0.35rem;
-        cursor: pointer;
-        transition: background 0.2s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .download-btn:hover {
-        background: #2563EB;
     }
 
     .progress-section {
@@ -1265,6 +1036,9 @@
 
     .upload-section {
         margin-top: 0.4rem;
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
     }
 
     .file-input {
@@ -1291,15 +1065,28 @@
         background: #2563EB;
     }
 
-    .photo-preview {
+    .camera-btn {
+        background: #10B981;
+    }
+
+    .camera-btn:hover {
+        background: #059669;
+    }
+
+    .photo-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.4rem;
+        margin-top: 0.5rem;
+    }
+
+    .photo-preview-item {
         position: relative;
-        display: inline-block;
-        margin-top: 0.4rem;
     }
 
     .preview-image {
-        width: 100px;
-        height: 100px;
+        width: 100%;
+        aspect-ratio: 1;
         object-fit: cover;
         border-radius: 6px;
         border: 1px solid #E5E7EB;
@@ -1307,14 +1094,14 @@
 
     .remove-photo {
         position: absolute;
-        top: -8px;
-        right: -8px;
+        top: -6px;
+        right: -6px;
         background: #EF4444;
         color: white;
         border: none;
         border-radius: 50%;
-        width: 24px;
-        height: 24px;
+        width: 22px;
+        height: 22px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1482,7 +1269,7 @@
     @media (max-width: 640px) {
         .requirements-section,
         .progress-section,
-        .task-details-section {
+        .task-info-bar {
             margin: 0.4rem 0.6rem;
         }
 
@@ -1493,10 +1280,6 @@
         .cancel-btn,
         .complete-btn {
             width: 100%;
-        }
-
-        .detail-grid {
-            grid-template-columns: 1fr;
         }
 
         .images-grid {

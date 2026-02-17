@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { compressImage } from '$lib/utils/imageCompression';
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import { supabase, db } from '$lib/utils/supabase';
+	import { supabase, db, getStoragePublicUrl } from '$lib/utils/supabase';
 	import { notifications } from '$lib/stores/notifications';
 
 	// Get task ID from URL params
@@ -42,12 +41,9 @@
 		completion_notes: ''
 	};
 
-	// Photo upload (add photo upload functionality)
-	let photoFile: File | null = null;
-	let photoPreview: string | null = null;
-
-	// UI state
-	let showTaskDetails = false;
+	// Photo upload (multi-photo)
+	let photoFiles: File[] = [];
+	let photoPreviews: string[] = [];
 
 	// Calculate completion progress
 	$: completionProgress = (() => {
@@ -61,7 +57,7 @@
 
 		if (resolvedRequirePhotoUpload) {
 			total++;
-			if (photoFile && completionData.photo_uploaded_completed) completed++;
+			if (photoFiles.length > 0 && completionData.photo_uploaded_completed) completed++;
 		}
 
 		if (resolvedRequireErpReference) {
@@ -82,7 +78,7 @@
 		
 		// Check completion requirements
 		const taskCheck = !resolvedRequireTaskFinished || completionData.task_finished_completed;
-		const photoCheck = !resolvedRequirePhotoUpload || (!!photoFile && completionData.photo_uploaded_completed);
+		const photoCheck = !resolvedRequirePhotoUpload || (photoFiles.length > 0 && completionData.photo_uploaded_completed);
 		const erpCheck = !resolvedRequireErpReference || (!!completionData.erp_reference_number?.trim() && completionData.erp_reference_completed);
 		
 		return taskCheck && photoCheck && erpCheck;
@@ -144,7 +140,7 @@
 					fileName: file.file_name || 'Unknown File',
 					fileSize: file.file_size || 0,
 					fileType: file.file_type || 'application/octet-stream',
-					fileUrl: file.file_url || '',
+					fileUrl: file.storage_path ? getStoragePublicUrl(file.storage_bucket || 'quick-task-files', file.storage_path) : '',
 					uploadedBy: file.uploaded_by_name || 'Unknown',
 					uploadedAt: file.created_at
 				}));
@@ -371,70 +367,70 @@
 	
 	async function handlePhotoUpload(event: Event) {
 		const target = event.target as HTMLInputElement;
-		const file = target.files?.[0];
+		const files = target.files;
 		
-		if (file) {
-			if (!file.type.startsWith('image/')) {
-				errorMessage = 'Please select a valid image file';
-				return;
-			}
-			
-			if (file.size > 5 * 1024 * 1024) {
-				errorMessage = 'Image file must be less than 5MB';
-				return;
-			}
-			
-			photoFile = file;
-			
-			try {
-				photoPreview = await compressImage(file);
-			} catch {
+		if (files && files.length > 0) {
+			for (const file of Array.from(files)) {
+				if (!file.type.startsWith('image/')) {
+					errorMessage = 'Please select a valid image file';
+					continue;
+				}
+				
+				if (file.size > 5 * 1024 * 1024) {
+					errorMessage = 'Image file must be less than 5MB';
+					continue;
+				}
+				
+				photoFiles = [...photoFiles, file];
+				
 				const reader = new FileReader();
-				reader.onload = (e) => { photoPreview = e.target?.result as string; };
+				reader.onload = (e) => { 
+					photoPreviews = [...photoPreviews, e.target?.result as string]; 
+				};
 				reader.readAsDataURL(file);
 			}
 			
-			completionData.photo_uploaded_completed = true;
+			completionData.photo_uploaded_completed = photoFiles.length > 0;
 			errorMessage = '';
+			
+			// Reset input so same file can be re-selected
+			target.value = '';
 		}
 	}
 	
-	function removePhoto() {
-		photoFile = null;
-		photoPreview = null;
-		completionData.photo_uploaded_completed = false;
-		
-		const fileInput = document.getElementById('photo-upload') as HTMLInputElement;
-		if (fileInput) {
-			fileInput.value = '';
-		}
+	function removePhoto(index: number) {
+		photoFiles = photoFiles.filter((_, i) => i !== index);
+		photoPreviews = photoPreviews.filter((_, i) => i !== index);
+		completionData.photo_uploaded_completed = photoFiles.length > 0;
 	}
 	
-	async function uploadPhoto(): Promise<string | null> {
-		if (!photoFile || !currentUserData) return null;
+	async function uploadPhotos(): Promise<string[]> {
+		if (photoFiles.length === 0 || !currentUserData) return [];
 		
-		try {
-			const fileExt = photoFile.name.split('.').pop();
-			const fileName = `quick-task-completion-${assignmentDetails.id}-${Date.now()}.${fileExt}`;
-			
-			const { data, error } = await supabase.storage
-				.from('completion-photos')
-				.upload(fileName, photoFile, {
-					cacheControl: '3600',
-					upsert: false
-				});
-			
-			if (error) {
-				console.error('Storage upload error:', error);
-				return null;
+		const paths: string[] = [];
+		for (const file of photoFiles) {
+			try {
+				const fileExt = file.name.split('.').pop();
+				const fileName = `quick-task-completion-${assignmentDetails.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
+				
+				const { data, error } = await supabase.storage
+					.from('completion-photos')
+					.upload(fileName, file, {
+						cacheControl: '3600',
+						upsert: false
+					});
+				
+				if (error) {
+					console.error('Storage upload error:', error);
+					continue;
+				}
+				
+				paths.push(data.path);
+			} catch (error) {
+				console.error('Error uploading photo:', error);
 			}
-			
-			// Return just the file path, not the full URL
-			return data.path;
-		} catch (error) {
-			console.error('Error uploading photo:', error);
-			return null;
 		}
+		return paths;
 	}
 	
 	async function submitCompletion() {
@@ -515,13 +511,13 @@
 		successMessage = '';
 		
 		try {
-			let photoPath = null;
+			let photoPaths: string[] = [];
 			
-			// Upload photo if required and provided
-			if (resolvedRequirePhotoUpload && photoFile) {
+			// Upload photos if required and provided
+			if (resolvedRequirePhotoUpload && photoFiles.length > 0) {
 				try {
-					photoPath = await uploadPhoto();
-					if (!photoPath) {
+					photoPaths = await uploadPhotos();
+					if (photoPaths.length === 0) {
 						errorMessage = 'Photo upload failed. Please try again.';
 						return;
 					}
@@ -538,7 +534,7 @@
 					p_assignment_id: assignmentDetails.id,
 					p_user_id: currentUserData.id,
 					p_completion_notes: completionData.completion_notes || null,
-					p_photos: photoPath ? [photoPath] : null,
+					p_photos: photoPaths.length > 0 ? photoPaths : null,
 					p_erp_reference: completionData.erp_reference_number || null
 				});
 				
@@ -595,7 +591,7 @@
 			});
 			
 			setTimeout(() => {
-				goto('/mobile-interface/assignments');
+				goto('/mobile-interface/tasks');
 			}, 2000);
 			
 		} catch (error) {
@@ -645,128 +641,34 @@
 			<h2>Access Denied</h2>
 			<p>This quick task is not assigned to you. Only assigned users can complete tasks.</p>
 			<div class="error-actions">
-				<button class="back-btn" on:click={() => goto('/mobile-interface/assignments')}>
-					← Back to Assignments
+				<button class="back-btn" on:click={() => goto('/mobile-interface/tasks')}>
+					← Back to Tasks
 				</button>
 			</div>
 		</div>
 	{:else}
-		<!-- Task Details Section -->
-		<div class="task-details-section">
-			<div class="details-header">
-				<h3>⚡ Quick Task Details</h3>
-				<button 
-					class="toggle-btn"
-					on:click={() => showTaskDetails = !showTaskDetails}
-				>
-					{showTaskDetails ? '▼' : '▶'} {showTaskDetails ? 'Hide' : 'Show'} Details
-				</button>
-			</div>
-
-			{#if showTaskDetails && taskDetails}
-				<div class="details-content">
-					<div class="detail-grid">
-						<div class="detail-item">
-							<span class="detail-label">📝 Title:</span>
-							<span class="value">{taskDetails.title}</span>
-						</div>
-						
-						<div class="detail-item">
-							<span class="detail-label">🎯 Priority:</span>
-							<span class="priority-badge {getPriorityColor(taskDetails.priority)}">
-								{taskDetails.priority?.toUpperCase() || 'MEDIUM'}
-							</span>
-						</div>
-
-						<div class="detail-item">
-							<span class="detail-label">🏷️ Price Tag:</span>
-							<span class="value">{formatPriceTag(taskDetails.price_tag)}</span>
-						</div>
-
-						<div class="detail-item">
-							<span class="detail-label">🔧 Issue Type:</span>
-							<span class="value">{formatIssueType(taskDetails.issue_type)}</span>
-						</div>
-						
-						<div class="detail-item">
-							<span class="detail-label">📅 Created:</span>
-							<span class="value">{formatDate(taskDetails.created_at)}</span>
-						</div>
-						
-						<div class="detail-item">
-							<span class="detail-label">⏰ Deadline:</span>
-							<span class="value">
-								{#if taskDetails.deadline_datetime}
-									{formatDate(taskDetails.deadline_datetime)} at {formatTime(taskDetails.deadline_datetime)}
-								{:else}
-									No deadline set
-								{/if}
-							</span>
-						</div>
-
-						{#if taskDetails.deadline_datetime}
-							<div class="detail-item">
-								<span class="detail-label">⚠️ Status:</span>
-								<span class="value {isOverdue(taskDetails.deadline_datetime) ? 'overdue' : 'on-time'}">
-									{#if isOverdue(taskDetails.deadline_datetime)}
-										Overdue by {getOverdueTime(taskDetails.deadline_datetime)}
-									{:else}
-										{liveCountdown} remaining
-									{/if}
-								</span>
-							</div>
+		<!-- Compact Task Info Bar -->
+		<div class="task-info-bar">
+			<div class="info-bar-title">{taskDetails.title}</div>
+			<div class="info-bar-row">
+				<span class="priority-badge {getPriorityColor(taskDetails.priority)}">
+					{taskDetails.priority?.toUpperCase() || 'MEDIUM'}
+				</span>
+				{#if taskDetails.issue_type}
+					<span class="info-chip">{formatIssueType(taskDetails.issue_type)}</span>
+				{/if}
+				{#if taskDetails.deadline_datetime}
+					<span class="info-chip {isOverdue(taskDetails.deadline_datetime) ? 'overdue' : 'on-time'}">
+						{#if isOverdue(taskDetails.deadline_datetime)}
+							Overdue by {getOverdueTime(taskDetails.deadline_datetime)}
+						{:else}
+							{liveCountdown} remaining
 						{/if}
-
-						<div class="detail-item">
-							<span class="detail-label">📌 Assigned to:</span>
-							<span class="value">{assignedToUserName}</span>
-						</div>
-						
-						<div class="detail-item">
-							<span class="detail-label">👤 Assigned by:</span>
-							<span class="value">{assignedByUserName}</span>
-						</div>
-					</div>
-
-					{#if taskDetails.description}
-						<div class="description-block">
-							<span class="detail-label">📄 Description:</span>
-							<div class="description-text">{taskDetails.description}</div>
-						</div>
-					{/if}
-
-					{#if taskFiles.length > 0}
-						<div class="attachments-section">
-							<span class="detail-label">📎 Task Files:</span>
-							<div class="attachments-list">
-								{#each taskFiles as file}
-									<div class="attachment-item">
-										<div class="attachment-info">
-											<div class="attachment-name">{file.fileName}</div>
-											<div class="attachment-meta">
-												{#if file.fileSize}
-													{Math.round(file.fileSize / 1024)} KB • 
-												{/if}
-												{file.uploadedBy}
-											</div>
-										</div>
-										<button 
-											class="download-btn"
-											on:click={() => downloadFile(file.fileUrl, file.fileName)}
-											aria-label="Download {file.fileName}"
-										>
-											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-												<polyline points="7,10 12,15 17,10"/>
-												<line x1="12" y1="15" x2="12" y2="3"/>
-											</svg>
-										</button>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/if}
-				</div>
+					</span>
+				{/if}
+			</div>
+			{#if assignedByUserName}
+				<div class="info-bar-assigned">👤 Assigned by: {assignedByUserName}</div>
 			{/if}
 		</div>
 
@@ -816,35 +718,58 @@
 			{#if resolvedRequirePhotoUpload}
 				<div class="requirement-item">
 					<div class="requirement-header">
-						<span class="requirement-label required">📷 Upload Photo (Required)</span>
+						<span class="requirement-label required">📷 Upload Photos (Required)</span>
 					</div>
 					
-					{#if !photoPreview}
-						<div class="upload-section">
-							<input
-								id="photo-upload"
-								type="file"
-								accept="image/*"
-								on:change={handlePhotoUpload}
-								disabled={isSubmitting}
-								class="file-input"
-								required
-							/>
-							<label for="photo-upload" class="upload-btn">
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-								</svg>
-								Choose Photo
-							</label>
-						</div>
-					{:else}
-						<div class="photo-preview">
-							<img src={photoPreview} alt="Task completion" class="preview-image" />
-							<button class="remove-photo" on:click={removePhoto} disabled={isSubmitting}>
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M18 6L6 18M6 6l12 12"/>
-								</svg>
-							</button>
+					<div class="upload-section">
+						<!-- Camera capture button -->
+						<input
+							id="camera-capture"
+							type="file"
+							accept="image/*"
+							capture="environment"
+							on:change={handlePhotoUpload}
+							disabled={isSubmitting}
+							class="file-input"
+						/>
+						<label for="camera-capture" class="upload-btn camera-btn">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+								<circle cx="12" cy="13" r="4"/>
+							</svg>
+							Take Photo
+						</label>
+
+						<!-- File chooser button -->
+						<input
+							id="photo-upload"
+							type="file"
+							accept="image/*"
+							multiple
+							on:change={handlePhotoUpload}
+							disabled={isSubmitting}
+							class="file-input"
+						/>
+						<label for="photo-upload" class="upload-btn">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+							</svg>
+							Choose Files ({photoFiles.length})
+						</label>
+					</div>
+
+					{#if photoPreviews.length > 0}
+						<div class="photo-grid">
+							{#each photoPreviews as preview, i}
+								<div class="photo-preview-item">
+									<img src={preview} alt="Photo {i + 1}" class="preview-image" />
+									<button class="remove-photo" on:click={() => removePhoto(i)} disabled={isSubmitting} aria-label="Remove photo {i + 1}">
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M18 6L6 18M6 6l12 12"/>
+										</svg>
+									</button>
+								</div>
+							{/each}
 						</div>
 					{/if}
 				</div>
@@ -891,7 +816,7 @@
 
 		<!-- Actions -->
 		<div class="actions">
-			<button class="cancel-btn" on:click={() => goto('/mobile-interface/assignments')} disabled={isSubmitting}>
+			<button class="cancel-btn" on:click={() => goto('/mobile-interface/tasks')} disabled={isSubmitting}>
 				Cancel
 			</button>
 			<button 
@@ -945,80 +870,62 @@
 		margin-bottom: 1rem;
 	}
 
-	.task-details-section {
+	/* Compact Task Info Bar */
+	.task-info-bar {
 		background: white;
 		margin: 0.5rem 0.6rem;
+		padding: 0.65rem 0.85rem;
 		border-radius: 8px;
 		border: 1px solid #E5E7EB;
-		overflow: hidden;
 	}
 
-	.details-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.6rem 0.85rem;
-		background: #F9FAFB;
-		border-bottom: 1px solid #E5E7EB;
-	}
-
-	.details-header h3 {
-		margin: 0;
-		font-size: 0.88rem;
+	.info-bar-title {
+		font-size: 0.9rem;
 		font-weight: 600;
 		color: #1F2937;
+		margin-bottom: 0.4rem;
 	}
 
-	.toggle-btn {
-		background: none;
-		border: none;
-		padding: 0.35rem;
-		cursor: pointer;
-		color: #6B7280;
-		font-size: 0.8rem;
-		border-radius: 4px;
-		transition: all 0.2s;
+	.info-bar-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		align-items: center;
+		margin-bottom: 0.3rem;
 	}
 
-	.toggle-btn:hover {
-		background: #E5E7EB;
+	.info-chip {
+		display: inline-block;
+		padding: 0.15rem 0.5rem;
+		border-radius: 0.75rem;
+		font-size: 0.7rem;
+		font-weight: 500;
+		background: #F3F4F6;
 		color: #374151;
-	}
-
-	.details-content {
-		padding: 0.6rem 0.85rem;
-	}
-
-	.detail-grid {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 0.5rem;
-		margin-bottom: 0.6rem;
-	}
-
-	.detail-item {
-		background: #F9FAFB;
-		padding: 0.5rem 0.7rem;
-		border-radius: 6px;
 		border: 1px solid #E5E7EB;
 	}
 
-	.detail-item span.detail-label {
+	.info-chip.overdue {
+		background: #FEF2F2;
+		color: #DC2626;
+		border-color: #FECACA;
 		font-weight: 600;
-		color: #374151;
-		margin-bottom: 0.25rem;
-		display: block;
-		font-size: 0.8rem;
 	}
 
-	.detail-item .value {
-		color: #1F2937;
-		font-size: 0.8rem;
+	.info-chip.on-time {
+		background: #F0FDF4;
+		color: #16A34A;
+		border-color: #BBF7D0;
+	}
+
+	.info-bar-assigned {
+		font-size: 0.75rem;
+		color: #6B7280;
 	}
 
 	.priority-badge {
 		display: inline-block;
-		padding: 0.2rem 0.55rem;
+		padding: 0.15rem 0.5rem;
 		border-radius: 0.75rem;
 		font-size: 0.7rem;
 		font-weight: 600;
@@ -1039,100 +946,6 @@
 	.priority-low {
 		background: #D1FAE5;
 		color: #059669;
-	}
-
-	.overdue {
-		color: #DC2626;
-		font-weight: 600;
-	}
-
-	.on-time {
-		color: #16A34A;
-		font-weight: 500;
-	}
-
-	.description-block {
-		margin-top: 0.5rem;
-	}
-
-	.description-block .detail-label {
-		display: block;
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 0.3rem;
-	}
-
-	.description-text {
-		background: #F9FAFB;
-		padding: 0.55rem 0.7rem;
-		border-radius: 6px;
-		border: 1px solid #E5E7EB;
-		white-space: pre-wrap;
-		color: #1F2937;
-		line-height: 1.4;
-		font-size: 0.8rem;
-	}
-
-	.attachments-section {
-		margin-top: 0.5rem;
-	}
-
-	.attachments-section .detail-label {
-		display: block;
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 0.4rem;
-	}
-
-	.attachments-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-
-	.attachment-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.55rem 0.7rem;
-		background: #F9FAFB;
-		border: 1px solid #E5E7EB;
-		border-radius: 6px;
-	}
-
-	.attachment-info {
-		flex: 1;
-	}
-
-	.attachment-name {
-		font-weight: 500;
-		color: #1F2937;
-		font-size: 0.8rem;
-	}
-
-	.attachment-meta {
-		font-size: 0.7rem;
-		color: #6B7280;
-		margin-top: 0.15rem;
-	}
-
-	.download-btn {
-		background: #3B82F6;
-		color: white;
-		border: none;
-		border-radius: 5px;
-		padding: 0.35rem;
-		cursor: pointer;
-		transition: background 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.download-btn:hover {
-		background: #2563EB;
 	}
 
 	.progress-section {
@@ -1256,6 +1069,9 @@
 
 	.upload-section {
 		margin-top: 0.35rem;
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
 	}
 
 	.upload-btn {
@@ -1277,29 +1093,48 @@
 		background: #2563EB;
 	}
 
-	.photo-preview {
-		position: relative;
-		margin-top: 0.35rem;
+	.camera-btn {
+		background: #10B981;
+	}
+	
+	.camera-btn:hover {
+		background: #059669;
 	}
 
-	.preview-image {
-		width: 100%;
-		max-width: 200px;
-		height: auto;
+	.photo-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+	}
+
+	.photo-preview-item {
+		position: relative;
+		aspect-ratio: 1;
 		border-radius: 6px;
+		overflow: hidden;
 		border: 1px solid #E5E7EB;
+	}
+
+	.photo-preview-item .preview-image {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		border-radius: 0;
+		border: none;
+		max-width: none;
 	}
 
 	.remove-photo {
 		position: absolute;
-		top: 4px;
-		right: 4px;
+		top: 3px;
+		right: 3px;
 		background: rgba(0, 0, 0, 0.7);
 		color: white;
 		border: none;
 		border-radius: 50%;
-		width: 24px;
-		height: 24px;
+		width: 22px;
+		height: 22px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1424,7 +1259,7 @@
 
 		.requirements-section,
 		.progress-section,
-		.task-details-section {
+		.task-info-bar {
 			margin: 0.4rem 0.6rem;
 		}
 
@@ -1435,10 +1270,6 @@
 		.cancel-btn,
 		.complete-btn {
 			width: 100%;
-		}
-
-		.detail-grid {
-			grid-template-columns: 1fr;
 		}
 	}
 
