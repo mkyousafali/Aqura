@@ -100,7 +100,7 @@ export const GET: RequestHandler = async () => {
 			},
 			CONTROLS: {
 				DASHBOARD: [],
-				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE', 'ERP_PRODUCT_MANAGER'],
+				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE', 'ERP_PRODUCT_MANAGER', 'STORAGE_MANAGER'],
 				OPERATIONS: [],
 				REPORTS: []
 			}
@@ -222,7 +222,8 @@ export const GET: RequestHandler = async () => {
 			BUTTON_GENERATOR: 'Button Generator',
 			THEME_MANAGER: 'Theme Manager',
 			AI_CHAT_GUIDE: 'AI Chat Guide',
-			ERP_PRODUCT_MANAGER: 'ERP Product Manager'
+			ERP_PRODUCT_MANAGER: 'ERP Product Manager',
+			STORAGE_MANAGER: 'Storage Manager'
 		};
 
 		// Merge both mappings

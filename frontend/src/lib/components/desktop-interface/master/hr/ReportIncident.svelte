@@ -417,6 +417,36 @@
             
             const recipientUserIds = permissions?.map(p => p.user_id) || [];
             
+            // Fetch default incident users for this type (get tasks + notifications regardless of branch)
+            const { data: defaultIncidentData } = await supabase
+                .from('default_incident_users')
+                .select('user_id')
+                .eq('incident_type_id', incidentType);
+            const defaultUserIds = (defaultIncidentData || []).map((d: any) => d.user_id);
+            
+            // Merge default users into recipient list (for notifications), deduplicate
+            defaultUserIds.forEach((uid: string) => {
+                if (!recipientUserIds.includes(uid)) {
+                    recipientUserIds.push(uid);
+                }
+            });
+            
+            // Get branch_id for each permitted user to filter same-branch for tasks
+            const reporterBranchId = $currentUser?.branch_id;
+            let sameBranchUserIds: string[] = [];
+            if (reporterBranchId && recipientUserIds.length > 0) {
+                const { data: recipientUsers } = await supabase
+                    .from('users')
+                    .select('id, branch_id')
+                    .in('id', recipientUserIds);
+                sameBranchUserIds = (recipientUsers || [])
+                    .filter((u: any) => String(u.branch_id) === String(reporterBranchId))
+                    .map((u: any) => u.id);
+            }
+            
+            // Build task recipient list: same-branch users + default users (deduplicated)
+            const taskRecipientIds = [...new Set([...sameBranchUserIds, ...defaultUserIds])];
+            
             // Create user_statuses object with 'reported' status for each recipient
             const userStatuses: any = {};
             recipientUserIds.forEach(userId => {
@@ -580,8 +610,8 @@
                         .insert(notificationsList);
                 }
                 
-                // Create quick tasks for recipients to acknowledge the incident
-                if (recipientUserIds.length > 0) {
+                // Create quick tasks for same-branch + default incident users
+                if (taskRecipientIds.length > 0) {
                     try {
                         // Build task description based on incident type
                         let taskDescEn = '';
@@ -613,8 +643,8 @@
                         if (taskCreateError) {
                             console.warn('⚠️ Failed to create quick task:', taskCreateError);
                         } else if (quickTaskData) {
-                            // Create assignments for each recipient
-                            const assignments = recipientUserIds.map(userId => ({
+                            // Create assignments for all task recipients (same-branch + default users, deduplicated)
+                            const assignments = taskRecipientIds.map(userId => ({
                                 quick_task_id: quickTaskData.id,
                                 assigned_to_user_id: userId,
                                 require_task_finished: true
@@ -667,9 +697,9 @@
 
 <div class="h-full flex flex-col bg-gradient-to-br from-blue-50 to-slate-50 font-sans">
     <div class="p-6 space-y-4 overflow-y-auto flex-1">
-        <!-- Incident Type Selection -->
+        <!-- 1. Incident Type Selection (same as mobile - always first) -->
         <div>
-            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}</label>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'نوع الحادثة *' : 'Incident Type *'}</label>
             <div class="relative">
                 <div class="relative">
                     <input 
@@ -718,14 +748,39 @@
             {/if}
         </div>
         
-        <!-- Violation & Employee Selection - Only shown for Employee Incidents (IN2) or when opened from Discipline -->
+        <!-- 2. Branch Selection (same as mobile - always shown after incident type, before conditional fields) -->
+        {#if selectedIncidentType || violation}
+            <div>
+                <label for="branch-select" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'الفرع *' : 'Branch *'}</label>
+                <select 
+                    id="branch-select"
+                    bind:value={selectedBranch}
+                    class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
+                >
+                    <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
+                    {#each availableBranches as branch}
+                        <option value={branch.id}>
+                            {$locale === 'ar' 
+                                ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
+                                : `${branch.name_en} - ${branch.location_en}`}
+                        </option>
+                    {/each}
+                </select>
+                {#if !selectedBranch}
+                    <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                {/if}
+            </div>
+        {/if}
+        
+        <!-- 3. Conditional Fields based on Incident Type -->
+        
+        <!-- 3a. Employee Incidents (IN2) - Violation & Employee Selection -->
         {#if violation || incidentType === 'IN2'}
-        <div>
-            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'المخالفة واختيار الموظف' : 'Violation & Select Employee'}</label>
-            <div class="flex items-center gap-3">
+            <div>
+                <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'المخالفة *' : 'Violation *'}</label>
                 {#if violation}
                     <!-- Violation passed from Discipline - show as static badge -->
-                    <div class="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 flex items-center gap-2 flex-shrink-0">
+                    <div class="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 flex items-center gap-2">
                         <div class="w-1 h-6 bg-blue-500 rounded-full"></div>
                         <div class="text-xs">
                             <span class="font-medium text-slate-900">{$locale === 'ar' ? violation.name_ar : violation.name_en}</span>
@@ -733,7 +788,7 @@
                     </div>
                 {:else if needsViolationSelector}
                     <!-- IN2 selected from sidebar - show violation search -->
-                    <div class="flex-1 relative">
+                    <div class="relative">
                         <div class="relative">
                             <input 
                                 type="text" 
@@ -770,8 +825,19 @@
                             </div>
                         {/if}
                     </div>
+                    {#if selectedViolation}
+                        <div class="mt-2 bg-orange-50 border border-orange-200 rounded px-3 py-1.5 flex items-center gap-2">
+                            <div class="w-1 h-6 bg-orange-500 rounded-full"></div>
+                            <span class="text-xs font-medium text-slate-900">{$locale === 'ar' ? selectedViolation.name_ar : selectedViolation.name_en}</span>
+                        </div>
+                    {/if}
                 {/if}
-                <div class="flex-1 relative">
+            </div>
+            
+            <!-- Employee Selection -->
+            <div>
+                <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'الموظف *' : 'Employee *'}</label>
+                <div class="relative">
                     <div class="relative">
                         <input 
                             type="text" 
@@ -802,6 +868,7 @@
                                         class="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 border-b border-slate-100 last:border-b-0 transition"
                                     >
                                         <span class="font-medium text-slate-900">{$locale === 'ar' ? (emp.name_ar || emp.name_en) : emp.name_en}</span>
+                                        <span class="text-slate-400 text-xs ml-2">({emp.id})</span>
                                     </button>
                                 {/each}
                             {/if}
@@ -809,226 +876,90 @@
                     {/if}
                 </div>
             </div>
-            {#if selectedViolation}
-                <div class="mt-2 bg-orange-50 border border-orange-200 rounded px-3 py-1.5 flex items-center gap-2">
-                    <div class="w-1 h-6 bg-orange-500 rounded-full"></div>
-                    <span class="text-xs font-medium text-slate-900">{$locale === 'ar' ? selectedViolation.name_ar : selectedViolation.name_en}</span>
-                </div>
-            {/if}
-        </div>
-        {/if}
-
-        <!-- For Employee Incidents: Show form when employee is selected -->
-        {#if (violation || incidentType === 'IN2') && selectedEmployee}
-            {#if loadingEmployee}
-                <div class="bg-slate-100 border border-slate-200 rounded px-3 py-1.5 flex items-center gap-2">
-                    <div class="animate-spin w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full"></div>
-                    <span class="text-xs text-slate-500">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</span>
-                </div>
-            {:else if selectedEmployeeDetails}
-                <!-- Employee Details -->
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'تفاصيل الموظف' : 'Employee Details'}</label>
-                    <div class="bg-green-50 border border-green-200 rounded px-3 py-1.5 flex items-center gap-3">
-                        <div class="w-1 h-6 bg-green-500 rounded-full flex-shrink-0"></div>
-                        <span class="text-xs font-bold text-green-600">{selectedEmployeeDetails.id || '-'}</span>
-                        <span class="text-slate-400">|</span>
-                        <span class="text-sm font-medium text-slate-900">{$locale === 'ar' ? (selectedEmployeeDetails.name_ar || selectedEmployeeDetails.name_en) : selectedEmployeeDetails.name_en}</span>
-                        <span class="text-slate-400">|</span>
-                        <span class="text-sm font-bold text-green-700">{selectedEmployeeDetails.id_number || ($locale === 'ar' ? 'لا يوجد' : 'No ID')}</span>
+            
+            <!-- Employee Details Card -->
+            {#if selectedEmployee}
+                {#if loadingEmployee}
+                    <div class="bg-slate-100 border border-slate-200 rounded px-3 py-1.5 flex items-center gap-2">
+                        <div class="animate-spin w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full"></div>
+                        <span class="text-xs text-slate-500">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</span>
                     </div>
-                </div>
-
-                <!-- Branch Selection -->
-                <div>
-                    <label for="branch-select" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع *' : 'Select Branch *'}</label>
-                    <select 
-                        id="branch-select"
-                        bind:value={selectedBranch}
-                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
-                    >
-                        <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
-                        {#each availableBranches as branch}
-                            <option value={branch.id}>
-                                {$locale === 'ar' 
-                                    ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
-                                    : `${branch.name_en} - ${branch.location_en}`}
-                            </option>
-                        {/each}
-                    </select>
-                    {#if !selectedBranch}
-                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
-                    {/if}
-                </div>
-
-                <div class="space-y-3">
+                {:else if selectedEmployeeDetails}
                     <div>
-                        <label for="what-happened" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟ *' : 'What Happened? *'}</label>
-                        <textarea 
-                            id="what-happened"
-                            bind:value={whatHappened}
-                            placeholder={$locale === 'ar' ? 'صف ما حدث...' : 'Describe what happened...'}
-                            rows="3"
-                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
-                        ></textarea>
-                        {#if !whatHappened.trim()}
-                            <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
-                        {/if}
-                    </div>
-                    <div>
-                        <label for="proof-witness" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'الإثبات / الشاهد' : 'Proof / Witness'}</label>
-                        <textarea 
-                            id="proof-witness"
-                            bind:value={proofWitness}
-                            placeholder={$locale === 'ar' ? 'أدخل تفاصيل الإثبات أو الشاهد...' : 'Enter proof or witness details...'}
-                            rows="2"
-                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
-                        ></textarea>
-                    </div>
-                    
-                    <!-- Attachments Upload Section (Optional - Unlimited) -->
-                    <div>
-                        <label for="attachments-upload" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📎 {$locale === 'ar' ? 'المرفقات (اختياري - غير محدود)' : 'Attachments (Optional - Unlimited)'}</label>
-                        <div class="flex gap-2">
-                            <input 
-                                id="attachments-upload"
-                                type="file" 
-                                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
-                                multiple
-                                on:change={handleAttachmentSelect}
-                                disabled={isUploadingAttachments}
-                                class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition cursor-pointer disabled:opacity-50"
-                            />
-                            {#if attachments.length > 0}
-                                <button 
-                                    type="button"
-                                    on:click={clearAllAttachments}
-                                    disabled={isUploadingAttachments}
-                                    class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-bold disabled:opacity-50 transition"
-                                >
-                                    {$locale === 'ar' ? 'مسح الكل' : 'Clear All'}
-                                </button>
-                            {/if}
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'تفاصيل الموظف' : 'Employee Details'}</label>
+                        <div class="bg-green-50 border border-green-200 rounded px-3 py-1.5 flex items-center gap-3">
+                            <div class="w-1 h-6 bg-green-500 rounded-full flex-shrink-0"></div>
+                            <span class="text-xs font-bold text-green-600">{selectedEmployeeDetails.id || '-'}</span>
+                            <span class="text-slate-400">|</span>
+                            <span class="text-sm font-medium text-slate-900">{$locale === 'ar' ? (selectedEmployeeDetails.name_ar || selectedEmployeeDetails.name_en) : selectedEmployeeDetails.name_en}</span>
+                            <span class="text-slate-400">|</span>
+                            <span class="text-sm font-bold text-green-700">{selectedEmployeeDetails.id_number || ($locale === 'ar' ? 'لا يوجد' : 'No ID')}</span>
                         </div>
-                        <p class="text-xs text-slate-500 mt-1">{$locale === 'ar' ? 'يمكنك رفع صور أو PDF أو مستندات (حد أقصى 10 ميجابايت لكل ملف)' : 'You can upload images, PDFs, or documents (max 10MB per file)'}</p>
-                        
-                        {#if attachments.length > 0}
-                            <div class="mt-2 space-y-2">
-                                <p class="text-xs font-bold text-green-600">✓ {attachments.length} {$locale === 'ar' ? 'ملف(ات) محددة' : 'file(s) selected'}</p>
-                                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                                    {#each attachmentPreviews as preview, index}
-                                        <div class="relative group border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
-                                            {#if preview.type === 'image' && preview.url}
-                                                <img src={preview.url} alt="Preview" class="w-full h-24 object-cover" />
-                                            {:else if preview.type === 'pdf'}
-                                                <div class="w-full h-24 flex items-center justify-center bg-red-50">
-                                                    <span class="text-3xl">📄</span>
-                                                </div>
-                                            {:else}
-                                                <div class="w-full h-24 flex items-center justify-center bg-blue-50">
-                                                    <span class="text-3xl">📁</span>
-                                                </div>
-                                            {/if}
-                                            <div class="p-1 bg-white border-t">
-                                                <p class="text-xs text-slate-600 truncate">{preview.file.name}</p>
-                                                <p class="text-xs text-slate-400">{(preview.file.size / 1024).toFixed(1)} KB</p>
-                                            </div>
-                                            <button 
-                                                type="button"
-                                                on:click={() => removeAttachment(index)}
-                                                class="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                                            >×</button>
-                                        </div>
-                                    {/each}
-                                </div>
-                            </div>
-                        {/if}
                     </div>
-                </div>
+                {/if}
             {/if}
         {/if}
         
-        <!-- For Non-Employee Incidents (from sidebar): Show form directly when incident type is selected -->
-        {#if !violation && incidentType && incidentType !== 'IN2' && selectedIncidentType}
-            <!-- Related Party Details - Different fields based on incident type -->
-            {#if incidentType === 'IN1' || incidentType === 'IN9'}
-                <!-- Customer/POS Incidents: Show customer name and contact -->
-                <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="text-lg">👤</span>
-                        <span class="text-sm font-bold text-orange-700">{$locale === 'ar' ? 'تفاصيل العميل' : 'Customer Details'}</span>
-                    </div>
-                    <div>
-                        <label for="customer-name" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'اسم العميل *' : 'Customer Name *'}</label>
-                        <input 
-                            id="customer-name"
-                            type="text"
-                            bind:value={customerName}
-                            placeholder={$locale === 'ar' ? 'أدخل اسم العميل...' : 'Enter customer name...'}
-                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
-                        />
-                        {#if !customerName.trim()}
-                            <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
-                        {/if}
-                    </div>
-                    <div>
-                        <label for="customer-contact" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'رقم التواصل *' : 'Contact Number *'}</label>
-                        <input 
-                            id="customer-contact"
-                            type="tel"
-                            bind:value={customerContact}
-                            placeholder={$locale === 'ar' ? 'أدخل رقم التواصل...' : 'Enter contact number...'}
-                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
-                        />
-                        {#if !customerContact.trim()}
-                            <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
-                        {/if}
-                    </div>
+        <!-- 3b. Customer Incidents (IN1, IN9) - Customer Details -->
+        {#if !violation && (incidentType === 'IN1' || incidentType === 'IN9')}
+            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-lg">👤</span>
+                    <span class="text-sm font-bold text-orange-700">{$locale === 'ar' ? 'تفاصيل العميل' : 'Customer Details'}</span>
                 </div>
-            {:else}
-                <!-- Other Incidents: Show general related party details -->
-                <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="text-lg">📋</span>
-                        <span class="text-sm font-bold text-purple-700">{$locale === 'ar' ? 'تفاصيل الطرف المعني' : 'Related Party Details'}</span>
-                    </div>
-                    <textarea 
-                        id="related-party-details"
-                        bind:value={relatedPartyDetails}
-                        placeholder={$locale === 'ar' ? 'أدخل تفاصيل الطرف المعني (الاسم، رقم التواصل، أي معلومات أخرى)...' : 'Enter related party details (name, contact, any other information)...'}
-                        rows="3"
-                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm resize-none"
-                    ></textarea>
+                <div>
+                    <label for="customer-name" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'اسم العميل *' : 'Customer Name *'}</label>
+                    <input 
+                        id="customer-name"
+                        type="text"
+                        bind:value={customerName}
+                        placeholder={$locale === 'ar' ? 'أدخل اسم العميل...' : 'Enter customer name...'}
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
+                    />
+                    {#if !customerName.trim()}
+                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                    {/if}
                 </div>
-            {/if}
-            
-            <!-- Branch Selection for Non-Employee Incidents -->
-            <div>
-                <label for="branch-select-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع *' : 'Select Branch *'}</label>
-                <select 
-                    id="branch-select-other"
-                    bind:value={selectedBranch}
-                    class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
-                >
-                    <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
-                    {#each availableBranches as branch}
-                        <option value={branch.id}>
-                            {$locale === 'ar' 
-                                ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
-                                : `${branch.name_en} - ${branch.location_en}`}
-                        </option>
-                    {/each}
-                </select>
-                {#if !selectedBranch}
-                    <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
-                {/if}
+                <div>
+                    <label for="customer-contact" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'رقم التواصل *' : 'Contact Number *'}</label>
+                    <input 
+                        id="customer-contact"
+                        type="tel"
+                        bind:value={customerContact}
+                        placeholder={$locale === 'ar' ? 'أدخل رقم التواصل...' : 'Enter contact number...'}
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
+                    />
+                    {#if !customerContact.trim()}
+                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                    {/if}
+                </div>
             </div>
-
+        {/if}
+        
+        <!-- 3c. Other Incidents - Related Party Details -->
+        {#if !violation && selectedIncidentType && incidentType !== 'IN2' && incidentType !== 'IN1' && incidentType !== 'IN9'}
+            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-lg">📋</span>
+                    <span class="text-sm font-bold text-purple-700">{$locale === 'ar' ? 'تفاصيل الطرف المعني' : 'Related Party Details'}</span>
+                </div>
+                <textarea 
+                    id="related-party-details"
+                    bind:value={relatedPartyDetails}
+                    placeholder={$locale === 'ar' ? 'أدخل تفاصيل الطرف المعني (الاسم، رقم التواصل، أي معلومات أخرى)...' : 'Enter related party details (name, contact, any other information)...'}
+                    rows="3"
+                    class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm resize-none"
+                ></textarea>
+            </div>
+        {/if}
+        
+        <!-- 4. What Happened + Proof + Attachments (always shown when type selected - matching mobile flow) -->
+        {#if selectedIncidentType || violation}
             <div class="space-y-3">
                 <div>
-                    <label for="what-happened-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟ *' : 'What Happened? *'}</label>
+                    <label for="what-happened" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟ *' : 'What Happened? *'}</label>
                     <textarea 
-                        id="what-happened-other"
+                        id="what-happened"
                         bind:value={whatHappened}
                         placeholder={$locale === 'ar' ? 'صف ما حدث...' : 'Describe what happened...'}
                         rows="3"
@@ -1039,9 +970,9 @@
                     {/if}
                 </div>
                 <div>
-                    <label for="proof-witness-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'الإثبات / الشاهد' : 'Proof / Witness'}</label>
+                    <label for="proof-witness" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'الإثبات / الشاهد' : 'Proof / Witness'}</label>
                     <textarea 
-                        id="proof-witness-other"
+                        id="proof-witness"
                         bind:value={proofWitness}
                         placeholder={$locale === 'ar' ? 'أدخل تفاصيل الإثبات أو الشاهد...' : 'Enter proof or witness details...'}
                         rows="2"
@@ -1049,12 +980,12 @@
                     ></textarea>
                 </div>
                 
-                <!-- Attachments Upload Section for Non-Employee Incidents -->
+                <!-- Attachments Upload Section -->
                 <div>
-                    <label for="attachments-upload-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📎 {$locale === 'ar' ? 'المرفقات (اختياري - غير محدود)' : 'Attachments (Optional - Unlimited)'}</label>
+                    <label for="attachments-upload" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📎 {$locale === 'ar' ? 'المرفقات (اختياري - غير محدود)' : 'Attachments (Optional - Unlimited)'}</label>
                     <div class="flex gap-2">
                         <input 
-                            id="attachments-upload-other"
+                            id="attachments-upload"
                             type="file" 
                             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
                             multiple
@@ -1111,8 +1042,9 @@
         {/if}
     </div>
 
+    <!-- Submit Button -->
     <div class="px-8 py-5 bg-white border-t-2 border-slate-200 flex gap-4 justify-end flex-shrink-0 shadow-lg">
-        <button disabled={(!selectedEmployee && (violation || incidentType === 'IN2')) || (!selectedBranch && incidentType && incidentType !== 'IN2') || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95" on:click={handleReportIncident}>
+        <button disabled={(!selectedEmployee && (violation || incidentType === 'IN2')) || !selectedBranch || !selectedIncidentType && !violation || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95" on:click={handleReportIncident}>
             {isSaving ? ($locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : ($locale === 'ar' ? 'الإبلاغ عن الحادثة' : 'Report Incident')}
         </button>
     </div>

@@ -29,6 +29,9 @@
     let pendingUsersList: { name_en: string; name_ar: string }[] = [];
     let showReportsToModal = false;
     let selectedReportsToIncident: any = null;
+    let showWhatHappenedModal = false;
+    let whatHappenedText = '';
+    let whatHappenedIncidentId = '';
     
     // Filter state
     let filterIncidentType = '';
@@ -129,12 +132,12 @@
                     ? ($locale === 'ar' ? (inc.employee_name_ar || inc.employee_name_en) : inc.employee_name_en)
                     : 'Unknown';
                 
-                // Branch name
+                // Branch name + location
                 let branchName = 'Unknown';
+                let branchLocation = '';
                 if (inc.branch_name_en) {
-                    const name = $locale === 'ar' ? (inc.branch_name_ar || inc.branch_name_en) : inc.branch_name_en;
-                    const location = $locale === 'ar' ? (inc.branch_location_ar || inc.branch_location_en) : inc.branch_location_en;
-                    branchName = `${name} - ${location}`;
+                    branchName = $locale === 'ar' ? (inc.branch_name_ar || inc.branch_name_en) : inc.branch_name_en;
+                    branchLocation = $locale === 'ar' ? (inc.branch_location_ar || inc.branch_location_en || '') : (inc.branch_location_en || '');
                 }
                 
                 // Reporter name
@@ -167,13 +170,20 @@
                 // Incident actions (already included from RPC)
                 const incidentActions = inc.incident_actions || [];
                 
+                // Claimed-by name (from RPC subquery)
+                const claimedByName = inc.claimed_by_name_en
+                    ? ($locale === 'ar' ? (inc.claimed_by_name_ar || inc.claimed_by_name_en) : inc.claimed_by_name_en)
+                    : '';
+                
                 return {
                     ...inc,
                     employeeName,
                     branchName,
+                    branchLocation,
                     reportToNames,
                     incidentActions,
-                    reporterName
+                    reporterName,
+                    claimedByName
                 };
             });
             
@@ -824,14 +834,14 @@
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Header/Navigation -->
-    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div class="flex flex-wrap items-center gap-4">
+    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-4 shadow-sm">
+        <div class="flex-1 grid grid-cols-7 gap-3">
             <!-- Incident Type Filter -->
-            <div class="flex flex-col">
-                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}</label>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}</label>
                 <select
                     bind:value={filterIncidentType}
-                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 >
                     <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
                     {#each incidentTypeOptions as opt}
@@ -841,11 +851,11 @@
             </div>
             
             <!-- Branch Filter -->
-            <div class="flex flex-col">
-                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'الفرع' : 'Branch'}</label>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'الفرع' : 'Branch'}</label>
                 <select
                     bind:value={filterBranch}
-                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 >
                     <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
                     {#each branchOptions as opt}
@@ -855,11 +865,11 @@
             </div>
             
             <!-- Employee Filter -->
-            <div class="flex flex-col">
-                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'الموظف' : 'Employee'}</label>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'الموظف' : 'Employee'}</label>
                 <select
                     bind:value={filterEmployee}
-                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 >
                     <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
                     {#each employeeOptions as opt}
@@ -869,11 +879,11 @@
             </div>
             
             <!-- Reported By Filter -->
-            <div class="flex flex-col">
-                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'أبلغ بواسطة' : 'Reported By'}</label>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'أبلغ بواسطة' : 'Reported By'}</label>
                 <select
                     bind:value={filterReportedBy}
-                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 >
                     <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
                     {#each reporterOptions as opt}
@@ -883,30 +893,30 @@
             </div>
             
             <!-- Date Range Filter -->
-            <div class="flex flex-col">
-                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'من تاريخ' : 'From Date'}</label>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'من تاريخ' : 'From Date'}</label>
                 <input
                     type="date"
                     bind:value={filterDateStart}
-                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[140px] shadow-sm transition-all"
+                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 />
             </div>
             
-            <div class="flex flex-col">
-                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'إلى تاريخ' : 'To Date'}</label>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'إلى تاريخ' : 'To Date'}</label>
                 <input
                     type="date"
                     bind:value={filterDateEnd}
-                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[140px] shadow-sm transition-all"
+                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 />
             </div>
             
             <!-- Clear Filters Button -->
-            <div class="flex flex-col">
-                <label class="text-xs text-transparent mb-1">Clear</label>
+            <div>
+                <label class="block text-xs text-transparent mb-2">Clear</label>
                 <button
                     on:click={clearFilters}
-                    class="px-4 py-2 bg-slate-100 text-slate-600 text-sm rounded-lg hover:bg-slate-200 transition-all flex items-center gap-2 font-medium shadow-sm"
+                    class="px-4 py-2.5 bg-slate-100 text-slate-600 text-sm rounded-xl hover:bg-slate-200 transition-all flex items-center gap-2 font-bold shadow-sm"
                     title={$locale === 'ar' ? 'مسح الفلاتر' : 'Clear Filters'}
                 >
                     <span>✕</span>
@@ -919,7 +929,7 @@
         <button
             on:click={loadIncidents}
             disabled={isLoading}
-            class="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed flex items-center gap-2 font-semibold shadow-md hover:shadow-lg"
+            class="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
             title={$locale === 'ar' ? 'تحديث' : 'Refresh'}
         >
             <span class={isLoading ? 'animate-spin' : ''}>🔄</span>
@@ -928,90 +938,89 @@
     </div>
     
     <!-- Main Content Area -->
-    <div class="flex-1 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+    <div class="flex-1 p-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+        <!-- Futuristic background decorative elements -->
+        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
+
+        <div class="relative max-w-[99%] mx-auto h-full flex flex-col">
     
     {#if isLoading}
-        <div class="flex items-center justify-center flex-1">
-            <div class="text-center bg-white/80 backdrop-blur-sm rounded-2xl p-10 shadow-lg">
-                <div class="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center animate-pulse">
-                    <span class="text-3xl">📋</span>
+        <div class="flex items-center justify-center h-full">
+            <div class="text-center">
+                <div class="animate-spin inline-block">
+                    <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
                 </div>
-                <p class="text-slate-600 font-medium">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading incidents...'}</p>
+                <p class="mt-4 text-slate-600 font-semibold">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading incidents...'}</p>
             </div>
         </div>
     {:else if error}
-        <div class="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-xl p-6 mb-4 shadow-lg">
-            <div class="flex items-center gap-3 mb-3">
-                <div class="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                    <span class="text-xl">⚠️</span>
-                </div>
-                <p class="text-red-800 font-semibold">{$locale === 'ar' ? 'خطأ' : 'Error'}: {error}</p>
-            </div>
+        <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+            <p class="text-red-700 font-semibold">{$locale === 'ar' ? 'خطأ' : 'Error'}: {error}</p>
             <button 
                 on:click={loadIncidents}
-                class="px-5 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 font-medium shadow-md transition-all"
+                class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
             >
                 {$locale === 'ar' ? 'إعادة محاولة' : 'Retry'}
             </button>
         </div>
     {:else if incidents.length === 0}
-        <div class="flex items-center justify-center flex-1">
-            <div class="text-center bg-white/80 backdrop-blur-sm rounded-2xl p-10 shadow-lg">
-                <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-slate-200 to-slate-300 rounded-full flex items-center justify-center">
-                    <span class="text-4xl">📭</span>
-                </div>
-                <p class="text-slate-600 text-lg font-medium">{$locale === 'ar' ? 'لا توجد حوادث مسجلة' : 'No incidents found'}</p>
-            </div>
+        <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+            <div class="text-5xl mb-4">📭</div>
+            <p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'لا توجد حوادث مسجلة' : 'No incidents found'}</p>
         </div>
     {:else}
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden flex-1 overflow-y-auto border border-slate-200/50">
-            <table class="w-full">
-                <thead class="bg-gradient-to-r from-slate-100 to-slate-50 sticky top-0 border-b border-slate-200">
+        <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+            <!-- Table Wrapper with scroll -->
+            <div class="overflow-auto flex-1">
+            <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+                <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                     <tr>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'رقم التقرير' : 'Report ID'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'الموظف' : 'Employee'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'الفرع' : 'Branch'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'مُبلّغ إلى' : 'Reports To'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'الحالة' : 'Status'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'المرفقات' : 'Attachments'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'الغرامة' : 'Fine'}
-                        </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
+                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
                             {$locale === 'ar' ? 'التاريخ' : 'Date'}
                         </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'أبلغ بواسطة' : 'Reported By'}
+                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}
                         </th>
-                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                            {$locale === 'ar' ? 'الإجراءات' : 'Actions'}
+                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'الفرع' : 'Branch'}
+                        </th>
+                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'مُبلّغ إلى' : 'Reports To'}
+                        </th>
+                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'الحالة' : 'Status'}
+                        </th>
+                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'المرفقات' : 'Attachments'}
+                        </th>
+                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'الغرامة' : 'Fine'}
+                        </th>
+                        <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'مطالبة' : 'Claim'}
+                        </th>
+                        <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'تحقيق' : 'Investigate'}
+                        </th>
+                        <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'تحذير' : 'Warning'}
+                        </th>
+                        <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'حل' : 'Resolve'}
                         </th>
                     </tr>
                 </thead>
-                <tbody>
-                    {#each filteredIncidents as incident (incident.id)}
-                        <tr class="hover:bg-gradient-to-r hover:from-emerald-50/30 hover:to-teal-50/30 transition-all duration-200">
-                            <td class="px-4 py-3.5">
-                                <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 font-mono text-sm font-semibold border border-emerald-200/50">
-                                    #{incident.id}
-                                </span>
+                <tbody class="divide-y divide-slate-200">
+                    {#each filteredIncidents as incident, index (incident.id)}
+                        <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                            <td class="px-4 py-3 text-sm text-slate-600 font-medium">
+                                <div>{formatDate(incident.created_at)}</div>
+                                {#if incident.reporterName}
+                                    <div class="text-xs text-slate-400 mt-0.5">📢 {incident.reporterName}</div>
+                                {/if}
                             </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-700">
+                            <td class="px-4 py-3 text-sm text-slate-700">
                                 <div class="font-medium">
                                     {$locale === 'ar' 
                                         ? incident.incident_types?.incident_type_ar 
@@ -1024,26 +1033,25 @@
                                             : incident.warning_violation?.name_en}
                                     </div>
                                 {/if}
+                                {#if incident.employeeName && incident.employeeName !== 'Unknown'}
+                                    <div class="text-xs text-blue-600 mt-0.5">👤 {incident.employeeName}</div>
+                                {/if}
                             </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
-                                {incident.employeeName}
+                            <td class="px-4 py-3 text-sm text-slate-600">
+                                <div class="font-medium">{incident.branchName}</div>
+                                {#if incident.branchLocation}
+                                    <div class="text-xs text-slate-400 mt-0.5">{incident.branchLocation}</div>
+                                {/if}
                             </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-600">
-                                {incident.branchName}
-                            </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-700">
+                            <td class="px-4 py-3 text-sm text-slate-700">
                                 {#if incident.reportToNames && incident.reportToNames.length > 0}
                                     <div class="flex flex-col gap-2">
-                                        {#if incident.resolution_status === 'claimed'}
-                                            {#each incident.reportToNames as user}
-                                                {#if user.status === 'claimed' || user.status === 'Claimed'}
-                                                    <div class="flex items-center gap-2">
-                                                        <span class="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">
-                                                            ✓ {user.name}
-                                                        </span>
-                                                    </div>
-                                                {/if}
-                                            {/each}
+                                        {#if incident.claimedByName}
+                                            <div class="flex items-center gap-2">
+                                                <span class="px-2 py-1 {incident.resolution_status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} rounded text-xs font-semibold">
+                                                    ✓ {incident.claimedByName}
+                                                </span>
+                                            </div>
                                         {/if}
                                         {#if incident.reportToNames}
                                             {@const userStatusesObj = typeof incident.user_statuses === 'string' ? JSON.parse(incident.user_statuses) : (incident.user_statuses || {})}
@@ -1061,7 +1069,7 @@
                                     <span class="text-slate-400 italic">{$locale === 'ar' ? 'لا أحد' : 'None'}</span>
                                 {/if}
                             </td>
-                            <td class="px-4 py-3.5 text-sm">
+                            <td class="px-4 py-3 text-sm">
                                 <span class="px-2.5 py-1.5 rounded-full text-xs font-semibold shadow-sm {getStatusBadgeColor(incident.resolution_status)}">
                                     {$locale === 'ar'
                                         ? incident.resolution_status === 'reported' ? 'مبلغ عنه'
@@ -1071,9 +1079,18 @@
                                         : incident.resolution_status.charAt(0).toUpperCase() + incident.resolution_status.slice(1)}
                                 </span>
                             </td>
-                            <td class="px-4 py-3.5 text-sm">
-                                {#if incident.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0}
-                                    <div class="flex flex-wrap gap-1.5">
+                            <td class="px-4 py-3 text-sm">
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    {#if incident.what_happened?.description}
+                                        <button
+                                            on:click={() => { whatHappenedText = incident.what_happened.description; whatHappenedIncidentId = incident.id; showWhatHappenedModal = true; }}
+                                            class="w-7 h-7 flex items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all shadow-sm border border-amber-200/50 text-sm font-bold"
+                                            title={$locale === 'ar' ? 'ماذا حدث؟' : 'What happened?'}
+                                        >
+                                            ❓
+                                        </button>
+                                    {/if}
+                                    {#if incident.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0}
                                         {#each incident.attachments as attachment, idx}
                                             <button
                                                 type="button"
@@ -1085,12 +1102,12 @@
                                                 <span class="max-w-16 truncate">{idx + 1}</span>
                                             </button>
                                         {/each}
-                                    </div>
-                                {:else}
-                                    <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا مرفقات' : 'None'}</span>
-                                {/if}
+                                    {:else if !incident.what_happened?.description}
+                                        <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا مرفقات' : 'None'}</span>
+                                    {/if}
+                                </div>
                             </td>
-                            <td class="px-4 py-3.5 text-sm">
+                            <td class="px-4 py-3 text-sm">
                                 {#if incident.incidentActions && incident.incidentActions.length > 0}
                                     {#each incident.incidentActions.filter((a: any) => a.has_fine) as action}
                                         <div class="flex flex-col gap-1">
@@ -1121,70 +1138,84 @@
                                     <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا غرامة' : 'No fine'}</span>
                                 {/if}
                             </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-600 font-medium">
-                                {formatDate(incident.created_at)}
+                            <!-- Claim -->
+                            <td class="px-3 py-3 text-center">
+                                <button
+                                    on:click={() => handleClaimIncident(incident)}
+                                    disabled={incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved'}
+                                    class="px-2.5 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
+                                    title={$locale === 'ar' ? 'مطالبة بالحادثة' : 'Claim incident'}
+                                >
+                                    {$locale === 'ar' ? 'مطالبة' : 'Claim'}
+                                </button>
                             </td>
-                            <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
-                                {incident.reporterName || '-'}
-                            </td>
-                            <td class="px-4 py-3.5 text-sm">
-                                <div class="flex flex-wrap gap-1.5">
-                                    <button
-                                        on:click={() => handleClaimIncident(incident)}
-                                        disabled={incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved'}
-                                        class="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
-                                        title={$locale === 'ar' ? 'مطالبة بالحادثة' : 'Claim incident'}
-                                    >
-                                        {$locale === 'ar' ? 'مطالبة' : 'Claim'}
-                                    </button>
-                                    <button
-                                        on:click={() => openAssignModal(incident)}
-                                        disabled={!isClaimedByCurrentUser(incident) || hasAnyAssignedUser(incident) || !!incident.investigation_report}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700'}"
-                                        title={$locale === 'ar' ? 'تعيين مهمة' : 'Assign task'}
-                                    >
-                                        {$locale === 'ar' ? 'تعيين' : 'Assign'}
-                                    </button>
+                            <!-- Assign -->
+                            <!-- Investigate -->
+                            <td class="px-3 py-3 text-center">
+                                <div class="flex flex-col gap-1 items-center">
                                     <button
                                         on:click={() => openInvestigationModal(incident)}
                                         disabled={!isClaimedByCurrentUser(incident) && !incident.investigation_report}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && !incident.investigation_report ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'}"
+                                        class="px-2.5 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && !incident.investigation_report ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'}"
                                         title={$locale === 'ar' ? (incident.investigation_report ? 'عرض التقرير' : 'التحقيق') : (incident.investigation_report ? 'View Report' : 'Investigation')}
                                     >
                                         {$locale === 'ar' ? (incident.investigation_report ? 'تقرير ✓' : 'تحقيق') : (incident.investigation_report ? 'Report ✓' : 'Investigate')}
                                     </button>
                                     <button
-                                        on:click={() => openWarningModal(incident)}
-                                        disabled={!isClaimedByCurrentUser(incident) && !hasWarningAction(incident)}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && !hasWarningAction(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'}"
-                                        title={hasWarningAction(incident) 
-                                            ? ($locale === 'ar' ? 'عرض التحذير' : 'View Warning')
-                                            : ($locale === 'ar' ? 'إصدار تحذير' : 'Issue warning')}
+                                        on:click={() => openAssignModal(incident)}
+                                        disabled={!isClaimedByCurrentUser(incident) || hasAnyAssignedUser(incident) || !!incident.investigation_report}
+                                        class="px-2.5 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700'}"
+                                        title={$locale === 'ar' ? 'تعيين مهمة' : 'Assign task'}
                                     >
-                                        {hasWarningAction(incident)
-                                            ? ($locale === 'ar' ? 'تحذير ✓' : 'Warning ✓')
-                                            : ($locale === 'ar' ? 'تحذير' : 'Warning')}
-                                    </button>
-                                    <button
-                                        on:click={() => incident.resolution_status === 'resolved' ? openResolutionModal(incident) : handleResolveIncident(incident)}
-                                        disabled={!isClaimedByCurrentUser(incident) && incident.resolution_status !== 'resolved'}
-                                        class="px-3 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && incident.resolution_status !== 'resolved' ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'}"
-                                        title={incident.resolution_status === 'resolved' 
-                                            ? ($locale === 'ar' ? 'عرض تقرير الحل' : 'View Resolution')
-                                            : ($locale === 'ar' ? 'حل الحادثة' : 'Resolve incident')}
-                                    >
-                                        {incident.resolution_status === 'resolved'
-                                            ? ($locale === 'ar' ? 'حل ✓' : 'Resolved ✓')
-                                            : ($locale === 'ar' ? 'حل' : 'Resolve')}
+                                        {$locale === 'ar' ? 'تعيين' : 'Assign'}
                                     </button>
                                 </div>
+                            </td>
+                            <!-- Warning -->
+                            <td class="px-3 py-3 text-center">
+                                <button
+                                    on:click={() => openWarningModal(incident)}
+                                    disabled={!isClaimedByCurrentUser(incident) && !hasWarningAction(incident)}
+                                    class="px-2.5 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && !hasWarningAction(incident) ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'}"
+                                    title={hasWarningAction(incident) 
+                                        ? ($locale === 'ar' ? 'عرض التحذير' : 'View Warning')
+                                        : ($locale === 'ar' ? 'إصدار تحذير' : 'Issue warning')}
+                                >
+                                    {hasWarningAction(incident)
+                                        ? ($locale === 'ar' ? 'تحذير ✓' : 'Warning ✓')
+                                        : ($locale === 'ar' ? 'تحذير' : 'Warning')}
+                                </button>
+                            </td>
+                            <!-- Resolve -->
+                            <td class="px-3 py-3 text-center">
+                                <button
+                                    on:click={() => incident.resolution_status === 'resolved' ? openResolutionModal(incident) : handleResolveIncident(incident)}
+                                    disabled={!isClaimedByCurrentUser(incident) && incident.resolution_status !== 'resolved'}
+                                    class="px-2.5 py-1.5 text-white text-xs rounded-lg transition-all shadow-sm hover:shadow font-medium {!isClaimedByCurrentUser(incident) && incident.resolution_status !== 'resolved' ? 'bg-gray-400 cursor-not-allowed pointer-events-none opacity-60' : incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'}"
+                                    title={incident.resolution_status === 'resolved' 
+                                        ? ($locale === 'ar' ? 'عرض تقرير الحل' : 'View Resolution')
+                                        : ($locale === 'ar' ? 'حل الحادثة' : 'Resolve incident')}
+                                >
+                                    {incident.resolution_status === 'resolved'
+                                        ? ($locale === 'ar' ? 'حل ✓' : 'Resolved ✓')
+                                        : ($locale === 'ar' ? 'حل' : 'Resolve')}
+                                </button>
                             </td>
                         </tr>
                     {/each}
                 </tbody>
             </table>
+            </div>
+
+            <!-- Footer with row count -->
+            <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                {$locale === 'ar' 
+                    ? `عرض ${filteredIncidents.length} من ${incidents.length} حادثة`
+                    : `Showing ${filteredIncidents.length} of ${incidents.length} incident${incidents.length !== 1 ? 's' : ''}`}
+            </div>
         </div>
     {/if}
+        </div>
     </div>
 </div>
 
@@ -1458,6 +1489,36 @@
             <button
                 on:click={closeReportsToModal}
                 class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+            >
+                {$locale === 'ar' ? 'إغلاق' : 'Close'}
+            </button>
+        </div>
+    </div>
+{/if}
+
+<!-- What Happened Popup Modal -->
+{#if showWhatHappenedModal}
+    <div class="modal-overlay" on:click={() => showWhatHappenedModal = false}>
+        <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4" on:click|stopPropagation>
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <span class="w-8 h-8 flex items-center justify-center rounded-full bg-amber-100 text-amber-700">❓</span>
+                    {$locale === 'ar' ? 'ماذا حدث' : 'What Happened'}
+                    <span class="text-sm font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">#{whatHappenedIncidentId}</span>
+                </h3>
+                <button
+                    on:click={() => showWhatHappenedModal = false}
+                    class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
+                >
+                    ✕
+                </button>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap max-h-[60vh] overflow-y-auto border border-slate-200/50">
+                {whatHappenedText}
+            </div>
+            <button
+                on:click={() => showWhatHappenedModal = false}
+                class="w-full mt-4 px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-semibold"
             >
                 {$locale === 'ar' ? 'إغلاق' : 'Close'}
             </button>

@@ -32,6 +32,7 @@
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
 	import ApprovalPermissionsManager from '$lib/components/desktop-interface/settings/ApprovalPermissionsManager.svelte';
+	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
 	import CommunicationCenter from '$lib/components/desktop-interface/master/CommunicationCenter.svelte';
 	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
 	import MonthlyManager from '$lib/components/desktop-interface/master/finance/MonthlyManager.svelte';
@@ -1486,6 +1487,28 @@ function openApprovalCenter() {
 		showSettingsSubmenu = false;
 	}
 
+	function openStorageManager() {
+		const windowId = generateWindowId('storage-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Storage Manager #${instanceNumber}`,
+			component: StorageManager,
+			icon: '🗄️',
+			size: { width: 1100, height: 750 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsManageSubmenu = false;
+	}
+
 
 
 	function openClearTables() {
@@ -1808,6 +1831,7 @@ function openApprovalCenter() {
 			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
+			'STORAGE_MANAGER': openStorageManager,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
 			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
@@ -5306,6 +5330,14 @@ function openApprovalCenter() {
 							<span class="menu-text">{t('nav.erpProductManager')}</span>
 						</button>
 					</div>
+				{#if $currentUser?.isMasterAdmin}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openStorageManager}>
+							<span class="menu-icon">🗄️</span>
+							<span class="menu-text">{t('nav.storageManager') || 'Storage Manager'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}			<!-- Operations Subsection -->
 			<div class="submenu-item-container">

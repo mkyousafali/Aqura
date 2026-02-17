@@ -208,6 +208,7 @@
 		branch_name_ar: string;
 		local_supabase_url: string;
 		local_supabase_key: string;
+		tunnel_url: string | null;
 		is_active: boolean;
 		last_sync_at: string | null;
 		last_sync_status: string | null;
@@ -236,6 +237,7 @@
 	let formBranchId = 0;
 	let formLocalUrl = '';
 	let formLocalKey = '';
+	let formTunnelUrl = '';
 	let formSaving = false;
 
 	// Available branches for dropdown
@@ -281,6 +283,7 @@
 		formBranchId = 0;
 		formLocalUrl = '';
 		formLocalKey = '';
+		formTunnelUrl = '';
 		showAddBranchForm = true;
 	}
 
@@ -289,6 +292,7 @@
 		formBranchId = cfg.branch_id;
 		formLocalUrl = cfg.local_supabase_url;
 		formLocalKey = cfg.local_supabase_key;
+		formTunnelUrl = cfg.tunnel_url || '';
 		showAddBranchForm = true;
 	}
 
@@ -299,7 +303,8 @@
 			const { error: rpcErr } = await supabase.rpc('upsert_branch_sync_config', {
 				p_branch_id: formBranchId,
 				p_local_supabase_url: formLocalUrl.replace(/\/$/, ''),
-				p_local_supabase_key: formLocalKey
+				p_local_supabase_key: formLocalKey,
+				p_tunnel_url: formTunnelUrl ? formTunnelUrl.replace(/\/$/, '') : null
 			});
 			if (rpcErr) throw new Error(rpcErr.message);
 			showAddBranchForm = false;
@@ -330,13 +335,14 @@
 		syncOverallStatus = 'Connecting to local branch...';
 
 		// XHR-based helpers for local Supabase (bypasses SvelteKit/Vite fetch interceptor)
-		const localBaseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
+		let activeBaseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
 		const localKey = cfg.local_supabase_key;
+		let usingTunnel = false;
 
-		function xhrRequest(method: string, path: string, body?: any): Promise<any> {
+		function xhrRequest(method: string, path: string, body?: any, timeoutMs = 30000): Promise<any> {
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest();
-				xhr.open(method, `${localBaseUrl}${path}`, true);
+				xhr.open(method, `${activeBaseUrl}${path}`, true);
 				xhr.setRequestHeader('Content-Type', 'application/json');
 				xhr.setRequestHeader('apikey', localKey);
 				xhr.setRequestHeader('Authorization', `Bearer ${localKey}`);
@@ -351,31 +357,72 @@
 				};
 				xhr.onerror = () => reject(new Error(`Network error: ${method} ${path}`));
 				xhr.ontimeout = () => reject(new Error(`Timeout: ${method} ${path}`));
-				xhr.timeout = 30000;
+				xhr.timeout = timeoutMs;
 				xhr.send(body ? JSON.stringify(body) : null);
 			});
 		}
 
+		// Server-side proxy for tunnel requests (avoids CORS)
+		async function proxyRequest(method: string, path: string, body?: any): Promise<any> {
+			const res = await fetch('/api/branch-proxy', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					method,
+					baseUrl: activeBaseUrl,
+					path,
+					apiKey: localKey,
+					payload: body
+				})
+			});
+			const result = await res.json();
+			if (!result.success) throw new Error(result.error);
+			return result.data;
+		}
+
+		// Smart request: XHR for local, proxy for tunnel
+		async function branchRequest(method: string, path: string, body?: any): Promise<any> {
+			if (usingTunnel) return proxyRequest(method, path, body);
+			return xhrRequest(method, path, body);
+		}
+
 		async function localGet(path: string): Promise<any> {
-			return xhrRequest('GET', path);
+			return branchRequest('GET', path);
 		}
 
 		async function localPost(path: string, body: any): Promise<any> {
-			return xhrRequest('POST', path, body);
+			return branchRequest('POST', path, body);
 		}
 
 		async function localDelete(path: string): Promise<void> {
-			await xhrRequest('DELETE', path);
+			await branchRequest('DELETE', path);
 		}
 
-		// Test connection with raw fetch
+		// Test connection: try local URL first (5s timeout), fall back to tunnel URL via proxy
 		try {
-			await localGet('/rest/v1/branches?select=id&limit=1');
-		} catch (e: any) {
-			syncOverallStatus = `\u274C Cannot connect to local Supabase: ${e.message}`;
-			syncing = false;
-			currentSyncBranch = null;
-			return;
+			await xhrRequest('GET', '/rest/v1/branches?select=id&limit=1', undefined, 5000);
+			syncOverallStatus = '✅ Connected via local network';
+		} catch (localErr: any) {
+			// Local failed — try tunnel if configured (via server proxy to avoid CORS)
+			if (cfg.tunnel_url) {
+				syncOverallStatus = '🔄 Local network unreachable, trying tunnel...';
+				activeBaseUrl = cfg.tunnel_url.replace(/\/+$/, '');
+				try {
+					await proxyRequest('GET', '/rest/v1/branches?select=id&limit=1');
+					usingTunnel = true;
+					syncOverallStatus = '✅ Connected via tunnel';
+				} catch (tunnelErr: any) {
+					syncOverallStatus = `❌ Cannot connect via local (${localErr.message}) or tunnel (${tunnelErr.message})`;
+					syncing = false;
+					currentSyncBranch = null;
+					return;
+				}
+			} else {
+				syncOverallStatus = `❌ Cannot connect to local Supabase: ${localErr.message}\n💡 Add a Tunnel URL in branch config to sync outside local network`;
+				syncing = false;
+				currentSyncBranch = null;
+				return;
+			}
 		}
 
 		// Get ordered tables
@@ -483,8 +530,8 @@
 		});
 
 		syncOverallStatus = totalFailed === 0
-			? `\u2705 Sync complete! ${totalSuccess} tables, ${totalRows.toLocaleString()} rows synced.`
-			: `\u26A0\uFE0F Sync finished with ${totalFailed} error(s). ${totalSuccess} tables OK, ${totalRows.toLocaleString()} rows.`;
+			? `\u2705 Sync complete! ${totalSuccess} tables, ${totalRows.toLocaleString()} rows synced${usingTunnel ? ' (via tunnel)' : ''}.`
+			: `\u26A0\uFE0F Sync finished with ${totalFailed} error(s). ${totalSuccess} tables OK, ${totalRows.toLocaleString()} rows${usingTunnel ? ' (via tunnel)' : ''}.`;
 
 		syncing = false;
 		currentSyncBranch = null;
@@ -1511,8 +1558,17 @@
 												<div>
 													<h4 class="text-base font-black text-slate-800">{cfg.branch_name_en}</h4>
 													<p class="text-sm text-slate-500 font-medium mt-0.5">{cfg.branch_name_ar}</p>
-													<div class="flex items-center gap-2 mt-1.5">
-														<code class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">{cfg.local_supabase_url}</code>
+													<div class="flex flex-col gap-1 mt-1.5">
+														<div class="flex items-center gap-1.5">
+															<span class="text-xs font-bold text-slate-400">🏠 LAN:</span>
+															<code class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">{cfg.local_supabase_url}</code>
+														</div>
+														{#if cfg.tunnel_url}
+															<div class="flex items-center gap-1.5">
+																<span class="text-xs font-bold text-slate-400">🌐 Tunnel:</span>
+																<code class="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded font-mono">{cfg.tunnel_url}</code>
+															</div>
+														{/if}
 													</div>
 												</div>
 											</div>
@@ -1676,6 +1732,18 @@
 							class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-mono text-slate-700 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
 						/>
 						<p class="text-xs text-slate-400 mt-1">The service_role key with full write access (same JWT as cloud)</p>
+					</div>
+
+					<!-- Tunnel URL (optional) -->
+					<div>
+						<label class="block text-sm font-bold text-slate-700 mb-1.5">🌐 Tunnel URL <span class="text-slate-400 font-medium">(optional)</span></label>
+						<input
+							type="text"
+							bind:value={formTunnelUrl}
+							placeholder="https://branch-supabase.urbanaqura.com"
+							class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-mono text-slate-700 focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 outline-none"
+						/>
+						<p class="text-xs text-slate-400 mt-1">Cloudflare Tunnel URL — used as fallback when local network is unreachable (for syncing outside the branch)</p>
 					</div>
 
 					<!-- Actions -->

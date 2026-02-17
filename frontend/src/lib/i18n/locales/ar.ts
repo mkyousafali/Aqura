@@ -140,6 +140,7 @@ export const arabicLocale: LocaleData = {
       aiChatGuide: "دليل محادثة الذكاء الاصطناعي",
       themeManager: "مدير السمات",
       erpProductManager: "مدير منتجات ERP",
+      storageManager: "مدير التخزين",
       createDepartment: "إنشاء قسم",
       createLevel: "إنشاء مستوى",
       createPosition: "إنشاء منصب",
