@@ -244,6 +244,231 @@
 	interface BranchOption { id: number; name_en: string; name_ar: string; }
 	let availableBranches: BranchOption[] = [];
 
+	// ===================== Frontend Deployment State =====================
+	interface FrontendBuild {
+		id: number;
+		version: string;
+		file_name: string;
+		file_size: number;
+		storage_path: string;
+		notes: string | null;
+		created_at: string;
+		download_url: string;
+	}
+
+	interface BranchFrontendStatus {
+		version: string;
+		build_id: number | null;
+		updated_at: string | null;
+		frontend_service: string;
+		update_service_uptime: number;
+	}
+
+	let latestBuild: FrontendBuild | null = null;
+	let latestBuildLoading = false;
+	let buildUploadProgress = '';
+	let buildUploading = false;
+	let branchFrontendStatus: Record<number, BranchFrontendStatus | null> = {};
+	let branchFrontendChecking: Record<number, boolean> = {};
+	let branchFrontendUpdating: Record<number, boolean> = {};
+	let branchUpdateStatus: Record<number, string> = {};
+
+	async function loadLatestBuild() {
+		latestBuildLoading = true;
+		try {
+			const { data, error: rpcErr } = await supabase.rpc('get_latest_frontend_build');
+			if (!rpcErr && data && data.length > 0) {
+				latestBuild = data[0];
+			} else {
+				latestBuild = null;
+			}
+		} catch (e: any) {
+			console.error('Failed to load latest build:', e.message);
+		}
+		latestBuildLoading = false;
+	}
+
+	async function uploadFrontendBuild(event: Event) {
+		const input = event.target as HTMLInputElement;
+		if (!input.files || input.files.length === 0) return;
+		const file = input.files[0];
+
+		if (!file.name.endsWith('.zip')) {
+			alert('Please select a .zip file');
+			input.value = '';
+			return;
+		}
+
+		const version = prompt('Enter version label (e.g. AQ50.22.14.15):', '');
+		if (!version) { input.value = ''; return; }
+
+		const notes = prompt('Optional notes for this build:', '') || '';
+
+		buildUploading = true;
+		buildUploadProgress = 'Uploading build ZIP to cloud storage...';
+
+		try {
+			const storagePath = `builds/${version.replace(/\s+/g, '_')}_${Date.now()}.zip`;
+
+			const { error: uploadErr } = await supabase.storage
+				.from('frontend-builds')
+				.upload(storagePath, file, {
+					contentType: 'application/zip',
+					upsert: false
+				});
+
+			if (uploadErr) throw new Error(uploadErr.message);
+
+			buildUploadProgress = 'Saving build metadata...';
+
+			const { error: insertErr } = await supabase
+				.from('frontend_builds')
+				.insert({
+					version,
+					file_name: file.name,
+					file_size: file.size,
+					storage_path: storagePath,
+					notes: notes || null
+				});
+
+			if (insertErr) throw new Error(insertErr.message);
+
+			buildUploadProgress = `\u2705 Build ${version} uploaded successfully!`;
+			await loadLatestBuild();
+			setTimeout(() => { buildUploadProgress = ''; }, 4000);
+		} catch (e: any) {
+			buildUploadProgress = `\u274C Upload failed: ${e.message}`;
+			setTimeout(() => { buildUploadProgress = ''; }, 6000);
+		}
+
+		buildUploading = false;
+		input.value = '';
+	}
+
+	function getUpdateServiceUrl(cfg: BranchSyncConfig): string | null {
+		// Derive the update service URL from the tunnel URL
+		// branch3-db.urbanaqura.com → branch3-update.urbanaqura.com
+		if (cfg.tunnel_url) {
+			const tunnelHost = cfg.tunnel_url.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+			const updateHost = tunnelHost.replace(/-db\./, '-update.');
+			return `https://${updateHost}`;
+		}
+		// Fallback: try local network port 3002
+		const localHost = cfg.local_supabase_url.replace(/:\d+\/?$/, '');
+		return `${localHost}:3002`;
+	}
+
+	async function checkBranchFrontendVersion(cfg: BranchSyncConfig) {
+		branchFrontendChecking = { ...branchFrontendChecking, [cfg.branch_id]: true };
+		branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: 'Checking...' };
+
+		try {
+			const updateUrl = getUpdateServiceUrl(cfg);
+			if (!updateUrl) throw new Error('No tunnel or local URL configured');
+
+			// Try via server proxy to avoid CORS
+			const res = await fetch('/api/branch-proxy', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					method: 'GET',
+					baseUrl: updateUrl,
+					path: '/status',
+					apiKey: cfg.local_supabase_key
+				})
+			});
+			const result = await res.json();
+
+			if (result.success && result.data?.ok) {
+				branchFrontendStatus = { ...branchFrontendStatus, [cfg.branch_id]: result.data };
+				branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: '' };
+			} else {
+				// Try direct XHR for local network
+				try {
+					const xhr = new XMLHttpRequest();
+					xhr.open('GET', `${updateUrl}/status`, true);
+					xhr.timeout = 5000;
+					const xhrResult: any = await new Promise((resolve, reject) => {
+						xhr.onload = () => {
+							try { resolve(JSON.parse(xhr.responseText)); }
+							catch { reject(new Error('Invalid response')); }
+						};
+						xhr.onerror = () => reject(new Error('Network error'));
+						xhr.ontimeout = () => reject(new Error('Timeout'));
+						xhr.send();
+					});
+					if (xhrResult.ok) {
+						branchFrontendStatus = { ...branchFrontendStatus, [cfg.branch_id]: xhrResult };
+						branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: '' };
+					} else {
+						throw new Error('Update service not responding');
+					}
+				} catch (localErr: any) {
+					branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: `\u274C ${localErr.message}` };
+				}
+			}
+		} catch (e: any) {
+			branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: `\u274C ${e.message}` };
+		}
+
+		branchFrontendChecking = { ...branchFrontendChecking, [cfg.branch_id]: false };
+	}
+
+	async function updateBranchFrontend(cfg: BranchSyncConfig) {
+		if (!latestBuild) {
+			alert('No build available. Upload a build first.');
+			return;
+		}
+
+		const currentVer = branchFrontendStatus[cfg.branch_id]?.version || 'unknown';
+		if (!confirm(`Update frontend on "${cfg.branch_name_en}"?\n\nCurrent: ${currentVer}\nNew: ${latestBuild.version}\n\nThe branch frontend will restart.`)) return;
+
+		branchFrontendUpdating = { ...branchFrontendUpdating, [cfg.branch_id]: true };
+		branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: '\u{23F3} Downloading & deploying...' };
+
+		try {
+			const updateUrl = getUpdateServiceUrl(cfg);
+			if (!updateUrl) throw new Error('No tunnel or local URL configured');
+
+			// Build the full download URL from the cloud Supabase
+			const cloudUrl = import.meta.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+			const downloadUrl = `${cloudUrl}${latestBuild.download_url}`;
+
+			// Call update service through proxy
+			const res = await fetch('/api/branch-proxy', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					method: 'POST',
+					baseUrl: updateUrl,
+					path: '/update',
+					apiKey: cfg.local_supabase_key,
+					payload: {
+						download_url: downloadUrl,
+						version: latestBuild.version,
+						build_id: latestBuild.id
+					}
+				})
+			});
+			const result = await res.json();
+
+			if (result.success && result.data?.ok) {
+				branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: `\u2705 Updated to ${latestBuild.version}!` };
+				// Refresh status
+				setTimeout(() => checkBranchFrontendVersion(cfg), 3000);
+			} else {
+				throw new Error(result.data?.error || result.error || 'Update failed');
+			}
+		} catch (e: any) {
+			branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: `\u274C Update failed: ${e.message}` };
+		}
+
+		branchFrontendUpdating = { ...branchFrontendUpdating, [cfg.branch_id]: false };
+		setTimeout(() => {
+			branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: '' };
+		}, 8000);
+	}
+
 	// Correct sync order: parents first for INSERT, children first for DELETE
 	const SYNC_TABLE_ORDER = [
 		'desktop_themes', 'product_categories', 'product_units',
@@ -911,6 +1136,7 @@
 	$: if (activeTab === 'sync' && !syncConfigsLoading && supabase && lastTabLoad !== 'sync') {
 		lastTabLoad = 'sync';
 		loadBranchSyncConfigs();
+		loadLatestBuild();
 	}
 </script>
 
@@ -1517,6 +1743,58 @@
 						</div>
 					</div>
 
+					<!-- Frontend Deployment Section -->
+					<div class="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl p-5">
+						<div class="flex items-center justify-between mb-3">
+							<div class="flex items-center gap-3">
+								<div class="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center text-lg">{"\u{1F4E6}"}</div>
+								<div>
+									<h4 class="text-sm font-black text-slate-800">Frontend Deployment</h4>
+									<p class="text-xs text-slate-500">Upload builds & deploy to branches remotely</p>
+								</div>
+							</div>
+							<label class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs cursor-pointer transition-all shadow-lg shadow-indigo-200 hover:scale-[1.02] disabled:opacity-50 {buildUploading ? 'opacity-50 pointer-events-none' : ''}">
+								{#if buildUploading}
+									<span class="animate-spin inline-block">{"\u{23F3}"}</span> Uploading...
+								{:else}
+									{"\u{2B06}\uFE0F"} Upload Build ZIP
+								{/if}
+								<input type="file" accept=".zip" class="hidden" on:change={uploadFrontendBuild} disabled={buildUploading} />
+							</label>
+						</div>
+
+						{#if buildUploadProgress}
+							<div class="text-xs font-semibold mb-2 {buildUploadProgress.startsWith('\u2705') ? 'text-emerald-600' : buildUploadProgress.startsWith('\u274C') ? 'text-red-600' : 'text-indigo-600'}">
+								{buildUploadProgress}
+							</div>
+						{/if}
+
+						{#if latestBuildLoading}
+							<div class="text-xs text-slate-500 font-medium">Loading latest build...</div>
+						{:else if latestBuild}
+							<div class="flex items-center gap-4 bg-white/80 rounded-xl px-4 py-2.5 border border-indigo-100">
+								<div class="flex items-center gap-2">
+									<span class="text-xs font-bold text-slate-400">Latest:</span>
+									<span class="text-sm font-black text-indigo-700">{latestBuild.version}</span>
+								</div>
+								<div class="text-xs text-slate-400">|</div>
+								<div class="text-xs text-slate-500 font-medium">{latestBuild.file_name}</div>
+								<div class="text-xs text-slate-400">|</div>
+								<div class="text-xs text-slate-500 font-medium">{formatBytes(latestBuild.file_size)}</div>
+								<div class="text-xs text-slate-400">|</div>
+								<div class="text-xs text-slate-500 font-medium">{formatSyncDate(latestBuild.created_at)}</div>
+								{#if latestBuild.notes}
+									<div class="text-xs text-slate-400">|</div>
+									<div class="text-xs text-slate-500 font-medium italic">{latestBuild.notes}</div>
+								{/if}
+							</div>
+						{:else}
+							<div class="text-xs text-slate-500 font-medium bg-white/80 rounded-xl px-4 py-2.5 border border-indigo-100">
+								No builds uploaded yet. Upload a frontend build ZIP to enable remote deployment.
+							</div>
+						{/if}
+					</div>
+
 					{#if syncConfigsLoading && branchSyncConfigs.length === 0}
 						<div class="flex items-center justify-center py-16">
 							<div class="text-center">
@@ -1616,6 +1894,54 @@
 												</button>
 											</div>
 										</div>
+
+										<!-- Frontend Update Row -->
+										{#if latestBuild}
+											<div class="flex items-center justify-between mt-3 pt-3 border-t border-indigo-100">
+												<div class="flex items-center gap-4 text-xs">
+													<span class="font-bold text-indigo-500">{"\u{1F4E6}"} Frontend:</span>
+													{#if branchFrontendChecking[cfg.branch_id]}
+														<span class="text-slate-400 animate-pulse">Checking...</span>
+													{:else if branchFrontendStatus[cfg.branch_id]}
+														<span class="font-semibold text-slate-700">v{branchFrontendStatus[cfg.branch_id]?.version || 'unknown'}</span>
+														<span class="text-slate-300">|</span>
+														<span class="text-emerald-600 font-semibold">{branchFrontendStatus[cfg.branch_id]?.frontend_service}</span>
+														{#if branchFrontendStatus[cfg.branch_id]?.version !== latestBuild.version}
+															<span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold">{"\u{26A0}\uFE0F"} Update available</span>
+														{:else}
+															<span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">{"\u2705"} Up to date</span>
+														{/if}
+													{:else}
+														<span class="text-slate-400">Not checked</span>
+													{/if}
+													{#if branchUpdateStatus[cfg.branch_id]}
+														<span class="font-semibold {branchUpdateStatus[cfg.branch_id]?.startsWith('\u2705') ? 'text-emerald-600' : branchUpdateStatus[cfg.branch_id]?.startsWith('\u274C') ? 'text-red-600' : 'text-indigo-600'}">
+															{branchUpdateStatus[cfg.branch_id]}
+														</span>
+													{/if}
+												</div>
+												<div class="flex items-center gap-2">
+													<button
+														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition disabled:opacity-50"
+														on:click={() => checkBranchFrontendVersion(cfg)}
+														disabled={branchFrontendChecking[cfg.branch_id] || branchFrontendUpdating[cfg.branch_id]}
+													>
+														{branchFrontendChecking[cfg.branch_id] ? '\u{23F3}' : '\u{1F50D}'} Check
+													</button>
+													<button
+														class="px-4 py-1.5 text-xs font-black rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+														on:click={() => updateBranchFrontend(cfg)}
+														disabled={branchFrontendUpdating[cfg.branch_id] || branchFrontendChecking[cfg.branch_id] || !latestBuild}
+													>
+														{#if branchFrontendUpdating[cfg.branch_id]}
+															<span class="animate-spin inline-block">{"\u{23F3}"}</span> Updating...
+														{:else}
+															{"\u{2B06}\uFE0F"} Update Frontend
+														{/if}
+													</button>
+												</div>
+											</div>
+										{/if}
 									</div>
 
 									<!-- Sync Progress (shown during sync) -->

@@ -5,15 +5,30 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ49.22.14.15</p>
-<p class="version-details">Desktop: 49 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
+<p class="version-title">Version AQ51.22.14.15</p>
+<p class="version-details">Desktop: 51 | Mobile: 22 | Cashier: 14 | Customer: 15</p>
 </div>
 
 <div class="latest-change">
+<h3>✨ Remote Branch Frontend Deployment System</h3>
+<p class="change-description">New remote frontend deployment pipeline enabling one-click branch updates through Cloudflare tunnel. Builds are uploaded to cloud storage and branches pull updates automatically via the StorageManager UI.</p>
+<div class="change-details">
+<h4>February 17, 2026 (Latest):</h4>
+<ul>
+<li>✅ <b>Remote Frontend Update Service:</b> Node.js service running on branch VMs (port 3002) that handles downloading, extracting, and deploying new frontend builds. Endpoints: /health, /status (version info), and /update (deploy new build). Preserves .env during deployments.</li>
+<li>✅ <b>Cloud Build Storage:</b> New <code>frontend_builds</code> database table and <code>frontend-builds</code> Supabase Storage bucket for storing versioned build ZIPs (up to 100MB). Includes <code>get_latest_frontend_build()</code> RPC function.</li>
+<li>✅ <b>StorageManager — Frontend Deployment UI:</b> New "Frontend Deployment" section in Branch Sync tab with build upload button, latest build info card, and per-branch "Check Version" / "Update Frontend" controls with real-time status indicators.</li>
+<li>✅ <b>Version Script — --deploy Flag:</b> The <code>simple-push.js</code> version script now supports a <code>--deploy</code> flag that automatically builds the frontend with adapter-node, creates a ZIP, uploads to cloud storage, and registers in the database — all in one command.</li>
+<li>✅ <b>Branch Proxy Enhancement:</b> Made apiKey optional in branch-proxy for non-Supabase endpoints (update service). Increased timeout from 60s to 120s for large build transfers.</li>
+<li>✅ <b>Cloudflare Tunnel Integration:</b> Update service accessible via <code>branch3-update.urbanaqura.com</code> tunnel route using HTTP/2 protocol.</li>
+</ul>
+</div>
+</div>
+<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 <h3>✨ Expiry Control System, Product Claim Manager & Enhanced Update Badge</h3>
 <p class="change-description">Complete Expiry Control management with multi-select bulk operations, new Product Claim Manager for branch inventory assignments, grouped day-off approvals, shelf paper enhancements, and a persistent update notification system.</p>
 <div class="change-details">
-<h4>February 16, 2026 (Latest):</h4>
+<h4>February 16, 2026:</h4>
 <ul>
 <li>✅ <b>Expiry Control — New Module:</b> High-performance expiry date management using materialized views. Four interactive tabs: <b>Quick Report</b> (15-day critical), <b>Near Expiry</b> (60-day warning), <b>All Products</b> (server-side searchable), and <b>Deleted Items</b> (with undo support).</li>
 <li>✅ <b>Multi-Select Bulk Tasks:</b> Added checkbox selection system to Quick Report and Near Expiry tables. Select all or individual items to send multiple tasks at once. Features a sticky floating action bar with selected count and clear/send buttons.</li>

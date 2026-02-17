@@ -21,12 +21,30 @@ node "Do not delete/simple-push.js" desktop "feat(hr): add new analysis tool"
 node "Do not delete/simple-push.js" mobile "fix(auth): fix login splash"
 node "Do not delete/simple-push.js" cashier "feat: add localized branches"
 node "Do not delete/simple-push.js" customer "style: update theme colors"
+
+# WITH BRANCH DEPLOYMENT (builds frontend & uploads to cloud database)
+node "Do not delete/simple-push.js" desktop "feat: new feature" --deploy
+node "Do not delete/simple-push.js" all "feat: major update" --deploy
 ```
 
 ### What this script does:
 1. **Increments Version**: Updates `AQ[Desktop].[Mobile].[Cashier].[Customer]` in `package.json`.
 2. **Updates Displays**: Synchronizes the version string in `Sidebar.svelte` (Desktop), `+layout.svelte` (Mobile), etc.
 3. **Automated Commit**: Stages files and creates a git commit with your provided message.
+4. **Branch Deployment** *(with `--deploy` flag)*: Builds the frontend with `adapter-node`, creates a ZIP, uploads it to cloud Supabase storage, and registers it in the `frontend_builds` database table so branches can pull the update from StorageManager.
+
+### `--deploy` Flag Details:
+When `--deploy` is passed, the script performs these additional steps after the commit:
+1. **Switches adapter** to `adapter-node` (temporarily replaces `adapter-vercel` in `svelte.config.js`)
+2. **Builds frontend** using `npm run build` in the frontend directory
+3. **Creates ZIP** of the build output using PowerShell `Compress-Archive`
+4. **Uploads ZIP** to Supabase Storage bucket `frontend-builds`
+5. **Registers build** in the `frontend_builds` database table with version, file size, and notes
+6. **Restores** `adapter-vercel` in `svelte.config.js` and cleans up the ZIP file
+
+> **Note:** The `--deploy` flag reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_SERVICE_KEY` from `frontend/.env`. Make sure these are set correctly.
+>
+> After uploading, branches can update by going to **StorageManager → Branch Sync → Update Frontend** button on each branch card.
 
 ---
 
@@ -82,5 +100,13 @@ Before running your final `git push`, perform this check in order:
    - Stage the changelog: `git add frontend/src/lib/components/desktop-interface/common/VersionChangelog.svelte`
    - Commit: `git commit -m "docs(changelog): update AQ[X] entry with [feature details]"`
    - Push: `git push`
+6. **Deploy to Branches** *(if applicable)*: If branches need the update, use the `--deploy` flag:
+   ```bash
+   node "Do not delete/simple-push.js" desktop "feat: your changes" --deploy
+   ```
+   This builds the frontend, uploads it to cloud storage, and registers it in the database.
+   Branches can then pull the update from **StorageManager → Branch Sync → Update Frontend**.
 
 **REMEMBER: The version number in VersionChangelog.svelte is what users see in the app. Missing this step means users see outdated version info!**
+
+**REMEMBER: If branches need the update, always use `--deploy` flag to upload the build to the cloud database!**

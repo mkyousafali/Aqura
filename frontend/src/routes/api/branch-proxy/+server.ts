@@ -14,16 +14,19 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await request.json();
 		const { method, baseUrl, path, apiKey, payload } = body;
 
-		if (!baseUrl || !path || !apiKey) {
-			return json({ success: false, error: 'Missing baseUrl, path, or apiKey' }, { status: 400 });
+		if (!baseUrl || !path) {
+			return json({ success: false, error: 'Missing baseUrl or path' }, { status: 400 });
 		}
 
 		const url = `${baseUrl.replace(/\/+$/, '')}${path}`;
 		const headers: Record<string, string> = {
-			'Content-Type': 'application/json',
-			'apikey': apiKey,
-			'Authorization': `Bearer ${apiKey}`
+			'Content-Type': 'application/json'
 		};
+
+		if (apiKey) {
+			headers['apikey'] = apiKey;
+			headers['Authorization'] = `Bearer ${apiKey}`;
+		}
 
 		if (method === 'POST') {
 			headers['Prefer'] = 'return=minimal';
@@ -32,7 +35,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const fetchOptions: RequestInit = {
 			method: method || 'GET',
 			headers,
-			signal: AbortSignal.timeout(60000) // 60s timeout for large syncs
+			signal: AbortSignal.timeout(120000) // 120s timeout for large syncs/deploys
 		};
 
 		if (payload && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
