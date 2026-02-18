@@ -29,6 +29,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Live countdown state
 	let countdownInterval = null;
 	
+	// Copy notification state
+	let copyNotification = null;
+	let copyNotificationTimeout = null;
+	
 	// Get current user from persistent auth service (check cashier first, then desktop)
 	$: activeUser = $cashierUser || $currentUser;
 	$: authenticated = $isCashierAuthenticated || $isAuthenticated;
@@ -697,6 +701,107 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		});
 	}
 
+	// Extract barcode from task title (format: "Price Change | BARCODE | Arabic")
+	function extractBarcode(title) {
+		if (!title) return null;
+		
+		// Try to extract barcode from different formats:
+		// 1. "Price Change | 259261 | تغيير السعر" (split by |)
+		const parts = title.split('|');
+		if (parts.length >= 2) {
+			const barcode = parts[1].trim();
+			// Check if it's numeric
+			if (/^\d+$/.test(barcode)) {
+				return barcode;
+			}
+		}
+		
+		// 2. "تغيير السعر: 259261" - extract number after colon
+		const colonMatch = title.match(/:\s*(\d+)/);
+		if (colonMatch && colonMatch[1]) {
+			return colonMatch[1];
+		}
+		
+		// 3. Look for any long number sequence (barcode) that's 5+ digits
+		const numberMatch = title.match(/\b(\d{5,})\b/);
+		if (numberMatch && numberMatch[1]) {
+			return numberMatch[1];
+		}
+		
+		return null;
+	}
+
+	// Copy barcode to clipboard and show notification
+	async function copyBarcodeToClipboard(task) {
+		const barcode = extractBarcode(task.title);
+		console.log('📋 Barcode Copy:', { title: task.title, extracted: barcode });
+		if (!barcode) {
+			console.warn('❌ No barcode found in title:', task.title);
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(barcode);
+			copyNotification = barcode;
+			console.log('✅ Barcode copied:', barcode);
+			
+			// Clear previous timeout if any
+			if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
+			
+			// Hide notification after 2 seconds
+			copyNotificationTimeout = setTimeout(() => {
+				copyNotification = null;
+			}, 2000);
+		} catch (err) {
+			console.error('Failed to copy barcode:', err);
+		}
+	}
+
+	// Get description with parts separated
+	function getDescriptionParts(description) {
+		if (!description) return { text: '', price: null };
+		
+		const priceMatch = description.match(/New Price:\s*([\d.]+)/i);
+		if (priceMatch) {
+			const beforePrice = description.substring(0, priceMatch.index);
+			const afterPrice = description.substring(priceMatch.index + priceMatch[0].length);
+			return {
+				before: beforePrice,
+				price: priceMatch[1],
+				after: afterPrice,
+				hasPrice: true
+			};
+		}
+		
+		return { text: description, hasPrice: false };
+	}
+	
+	// Copy price to clipboard and show notification
+	async function copyPriceToClipboard(task) {
+		const parts = getDescriptionParts(task.description);
+		console.log('💰 Price Copy:', { description: task.description, extracted: parts.price, hasPrice: parts.hasPrice });
+		if (!parts.hasPrice) {
+			console.warn('❌ No price found in description:', task.description);
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(parts.price);
+			copyNotification = parts.price;
+			console.log('✅ Price copied:', parts.price);
+			
+			// Clear previous timeout if any
+			if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
+			
+			// Hide notification after 2 seconds
+			copyNotificationTimeout = setTimeout(() => {
+				copyNotification = null;
+			}, 2000);
+		} catch (err) {
+			console.error('Failed to copy price:', err);
+		}
+	}
+
 	function openTaskDetails(task) {
 		if (task.task_type === 'quick_task') {
 			openQuickTaskDetails(task);
@@ -959,6 +1064,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </script>
 
 <div class="my-tasks-view h-full flex flex-col bg-gray-50">
+	<!-- Copy Notification Toast -->
+	{#if copyNotification}
+		<div class="fixed top-4 right-4 z-50 animate-fade-in">
+			<div class="bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2">
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+				</svg>
+				<span><strong>{copyNotification}</strong> copied</span>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Header -->
 	<div class="bg-white shadow-sm border-b p-6">
 		<div class="flex items-center justify-between">
@@ -1096,7 +1213,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 							<div class="flex items-start justify-between">
 								<div class="flex-1">
 									<div class="flex items-center space-x-3 mb-2">
-										<h3 class="text-lg font-semibold text-gray-900">{task.title}</h3>
+										<h3 
+											class="text-lg font-semibold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
+											on:dblclick={() => copyBarcodeToClipboard(task)}
+											title="Double-click to copy barcode"
+										>
+											{task.title}
+										</h3>
 										{#if task.task_type === 'quick_task'}
 											<span class="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
 												⚡ QUICK TASK
@@ -1110,7 +1233,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										</span>
 									</div>
 									
-									<p class="text-gray-600 mb-3">{task.description}</p>
+									<!-- Description with copyable new price -->
+									{#if task.description}
+										{#if getDescriptionParts(task.description).hasPrice}
+											{@const parts = getDescriptionParts(task.description)}
+											<p class="text-gray-600 mb-3">
+												{parts.before}
+												New Price: 
+												<span 
+													class="font-bold text-blue-600 cursor-pointer hover:text-blue-800 transition-colors"
+													on:dblclick={() => copyPriceToClipboard(task)}
+													title="Double-click to copy price"
+												>
+													{parts.price}
+												</span>
+												{parts.after}
+											</p>
+										{:else}
+											<p class="text-gray-600 mb-3">{task.description}</p>
+										{/if}
+									{/if}
 									
 									<!-- Quick Task specific fields -->
 									{#if task.task_type === 'quick_task'}
@@ -1262,5 +1404,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <style>
 	.my-tasks-view {
 		background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+	}
+
+	:global(.animate-fade-in) {
+		animation: fadeInSlide 0.3s ease-out forwards;
+	}
+
+	@keyframes fadeInSlide {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 </style>
