@@ -1,5 +1,5 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -27,6 +27,7 @@
 
 	// Budget management
 	let showBudgetModal = false;
+	let showPaymentMethodModal = false; // Modal for allocating budget by payment method
 	let paymentMethodBudgets = {}; // payment_method -> budget amount (using object instead of Map)
 	let totalBudgetLimit = 0;
 	let adjustAmounts = {}; // Track adjust amounts for each item
@@ -43,7 +44,7 @@
 	let expensePaymentMethodFilter = '';
 
 	// Reactive breakdown calculation
-	$: breakdown = getDetailedBreakdown(vendorPayments, expenseSchedules, nonApprovedPayments, selectedVendorPayments, selectedExpenseSchedules, selectedNonApprovedPayments, adjustAmounts);
+	$: breakdown = getDetailedBreakdown();
 	
 	// Calculate total from payment method budgets reactively
 	$: calculatedTotalBudget = Object.values(paymentMethodBudgets).reduce((sum, budget) => {
@@ -73,6 +74,13 @@
 		return descriptionMatch && categoryMatch && branchMatch && paymentMethodMatch;
 	});
 
+	// Sort expense schedules by vendor name
+	$: sortedExpenseSchedules = [...filteredExpenseSchedules].sort((a, b) => {
+		const vendorA = (a.vendor_name || '').toLowerCase();
+		const vendorB = (b.vendor_name || '').toLowerCase();
+		return vendorA.localeCompare(vendorB);
+	});
+
 	// Get unique values for dropdowns
 	$: uniqueVendorBranches = [...new Set(vendorPayments.map(p => p.branch_name).filter(Boolean))].sort();
 	$: uniqueVendorPaymentMethods = [...new Set(vendorPayments.map(p => p.payment_method).filter(Boolean))].sort();
@@ -94,6 +102,61 @@
 
 	// Print functionality
 	let showPrintPreview = false;
+
+	// Vendor grouping functionality
+	let showGroupDetailsModal = false;
+	let selectedGroup = null; // Will hold the grouped vendor data
+	let groupExpandedRows = new Set(); // Track which groups are expanded to show individual items
+	$: groupedVendorPayments = getGroupedVendorPayments(filteredVendorPayments);
+
+	function getGroupedVendorPayments(payments) {
+		// Group by vendor_id and branch_id
+		const groupMap = new Map();
+		
+		payments.forEach(payment => {
+			const groupKey = `${payment.vendor_id}|${payment.branch_id}`;
+			if (!groupMap.has(groupKey)) {
+				groupMap.set(groupKey, {
+					vendor_id: payment.vendor_id,
+					vendor_name: payment.vendor_name,
+					branch_id: payment.branch_id,
+					branch_name: payment.branch_name,
+					payment_method: payment.payment_method,
+					total_amount: 0,
+					bill_count: 0,
+					bills: [],
+					approval_statuses: new Set()
+				});
+			}
+			const group = groupMap.get(groupKey);
+			group.total_amount += payment.final_bill_amount || payment.bill_amount;
+			group.bill_count += 1;
+			group.bills.push(payment);
+			group.approval_statuses.add(payment.approval_status);
+		});
+		
+		return Array.from(groupMap.values());
+	}
+
+	function openGroupDetailsModal(group) {
+		selectedGroup = group;
+		showGroupDetailsModal = true;
+	}
+
+	function closeGroupDetailsModal() {
+		showGroupDetailsModal = false;
+		selectedGroup = null;
+	}
+
+	function toggleGroupExpand(groupKey) {
+		if (groupExpandedRows.has(groupKey)) {
+			groupExpandedRows.delete(groupKey);
+		} else {
+			groupExpandedRows.add(groupKey);
+		}
+		groupExpandedRows = groupExpandedRows;
+		calculateBudget();
+	}
 
 	function generatePrintPreview() {
 		showPrintPreview = true;
@@ -395,22 +458,42 @@
 			allPaymentMethods: new Set()
 		};
 
+		console.log('🔄 Running getDetailedBreakdown with', vendorPayments.length, 'vendors,', expenseSchedules.length, 'expenses');
+
+		// Helper function to get payment method from an object (tries multiple field names)
+		const getPaymentMethod = (obj) => {
+			if (!obj) return null;
+			// Try different possible field names
+			return obj.payment_method 
+				|| obj.payment_method_name 
+				|| obj.paymentMethod
+				|| obj.payment_method_en
+				|| obj.method
+				|| null;
+		};
+
 		// Collect all available payment methods from all data (regardless of selection)
-		vendorPayments.forEach(payment => {
-			if (payment.payment_method) {
-				breakdown.allPaymentMethods.add(payment.payment_method);
+		vendorPayments.forEach((payment, index) => {
+			const method = getPaymentMethod(payment);
+			if (method) {
+				breakdown.allPaymentMethods.add(method);
+				if (index === 0) console.log('✅ Found payment method in vendor payment:', method);
 			}
 		});
 
-		expenseSchedules.forEach(expense => {
-			if (expense.payment_method) {
-				breakdown.allPaymentMethods.add(expense.payment_method);
+		expenseSchedules.forEach((expense, index) => {
+			const method = getPaymentMethod(expense);
+			if (method) {
+				breakdown.allPaymentMethods.add(method);
+				if (index === 0) console.log('✅ Found payment method in expense schedule:', method);
 			}
 		});
 
-		nonApprovedPayments.forEach(payment => {
-			if (payment.payment_method) {
-				breakdown.allPaymentMethods.add(payment.payment_method);
+		nonApprovedPayments.forEach((payment, index) => {
+			const method = getPaymentMethod(payment);
+			if (method) {
+				breakdown.allPaymentMethods.add(method);
+				if (index === 0) console.log('✅ Found payment method in non-approved payment:', method);
 			}
 		});
 
@@ -426,7 +509,7 @@
 				const amount = (adjustAmount && parseFloat(adjustAmount) > 0) 
 					? parseFloat(adjustAmount) 
 					: (payment.final_bill_amount || payment.bill_amount);
-				const method = payment.payment_method || 'Unknown';
+				const method = getPaymentMethod(payment) || 'Unknown';
 				
 				breakdown.byPaymentMethod.set(method, (breakdown.byPaymentMethod.get(method) || 0) + amount);
 			}
@@ -439,7 +522,7 @@
 				const amount = (adjustAmount && parseFloat(adjustAmount) > 0) 
 					? parseFloat(adjustAmount) 
 					: expense.amount;
-				const method = expense.payment_method || 'Unknown';
+				const method = getPaymentMethod(expense) || 'Unknown';
 				
 				breakdown.byPaymentMethod.set(method, (breakdown.byPaymentMethod.get(method) || 0) + amount);
 			}
@@ -452,7 +535,7 @@
 				const amount = (adjustAmount && parseFloat(adjustAmount) > 0) 
 					? parseFloat(adjustAmount) 
 					: (payment.final_bill_amount || payment.bill_amount);
-				const method = payment.payment_method || 'Unknown';
+				const method = getPaymentMethod(payment) || 'Unknown';
 				
 				breakdown.byPaymentMethod.set(method, (breakdown.byPaymentMethod.get(method) || 0) + amount);
 			}
@@ -460,6 +543,58 @@
 
 		console.log('🔍 Payment Methods Found:', Array.from(breakdown.allPaymentMethods));
 		console.log('💰 Payment Method Breakdown:', Object.fromEntries(breakdown.byPaymentMethod));
+		if (breakdown.allPaymentMethods.size === 0) {
+			console.log('⚠️ No payment methods detected!');
+			console.log('📊 Vendor payments count:', vendorPayments.length);
+			console.log('📊 Expense schedules count:', expenseSchedules.length);
+			console.log('📊 Non-approved payments count:', nonApprovedPayments.length);
+			if (vendorPayments.length > 0) {
+				console.log('📋 Vendor payment fields:', Object.keys(vendorPayments[0]));
+				console.log('💳 Sample vendor payment_method values:', vendorPayments.slice(0, 3).map((p, i) => `[${i}]: "${p.payment_method}"`));
+			}
+			if (expenseSchedules.length > 0) {
+				console.log('📋 Expense schedule fields:', Object.keys(expenseSchedules[0]));
+				console.log('💳 Sample expense payment_method values:', expenseSchedules.slice(0, 3).map((e, i) => `[${i}]: "${e.payment_method}"`));
+			}
+		}
+
+		return breakdown;
+	}
+
+	// Get breakdown for ALL scheduled items (not filtered by selection) - for display card
+	function getAllScheduledBreakdown() {
+		const breakdown = new Map();
+
+		const getPaymentMethod = (obj) => {
+			if (!obj) return null;
+			return obj.payment_method 
+				|| obj.payment_method_name 
+				|| obj.paymentMethod
+				|| obj.payment_method_en
+				|| obj.method
+				|| null;
+		};
+
+		// Add ALL vendor payments regardless of selection
+		vendorPayments.forEach(payment => {
+			const amount = payment.final_bill_amount || payment.bill_amount;
+			const method = getPaymentMethod(payment) || 'Unknown';
+			breakdown.set(method, (breakdown.get(method) || 0) + amount);
+		});
+
+		// Add ALL expense schedules regardless of selection
+		expenseSchedules.forEach(expense => {
+			const amount = expense.amount;
+			const method = getPaymentMethod(expense) || 'Unknown';
+			breakdown.set(method, (breakdown.get(method) || 0) + amount);
+		});
+
+		// Add ALL non-approved payments regardless of selection
+		nonApprovedPayments.forEach(payment => {
+			const amount = payment.final_bill_amount || payment.bill_amount;
+			const method = getPaymentMethod(payment) || 'Unknown';
+			breakdown.set(method, (breakdown.get(method) || 0) + amount);
+		});
 
 		return breakdown;
 	}
@@ -479,7 +614,73 @@
 		closeBudgetModal();
 	}
 
-	// Checkbox handling functions
+	async function openPaymentMethodModal() {
+		// Ensure data is loaded for the selected date
+		if (!selectedDate) {
+			alert('❌ Please select a date first');
+			return;
+		}
+
+		// Always load fresh data to ensure we have the latest
+		console.log('📋 Loading payment data...');
+		isLoading = true;
+		try {
+			await loadScheduledItems();
+			
+			// Wait for Svelte to process reactive updates
+			await tick();
+			await tick(); // Extra tick to be sure
+			
+			// Manually recalculate breakdown to force update
+			breakdown = getDetailedBreakdown();
+			
+			// Wait again for the new breakdown to be processed
+			await tick();
+			
+			// Manually check if we have payment methods now
+			console.log('✅ Data loaded. Vendor payments:', vendorPayments.length, 'Expenses:', expenseSchedules.length);
+			console.log('💳 Breakdown allPaymentMethods size:', breakdown?.allPaymentMethods?.size || 0);
+			console.log('💳 Payment methods found:', Array.from(breakdown?.allPaymentMethods || []));
+			
+			// Force a manual check of payment methods
+			if (vendorPayments.length === 0 && expenseSchedules.length === 0) {
+				alert('⚠️ No scheduled payments for this date');
+				return;
+			}
+		} catch (error) {
+			console.error('Error loading data:', error);
+			alert('❌ Error loading data: ' + error.message);
+			return;
+		} finally {
+			isLoading = false;
+		}
+
+		// Open modal with fresh data
+		showPaymentMethodModal = true;
+	}
+
+	// Get payment method source (vendor or expense)
+	function getPaymentMethodSource(method) {
+		const vendorMethods = new Set();
+		const expenseMethods = new Set();
+
+		vendorPayments.forEach(p => {
+			if (p.payment_method) vendorMethods.add(p.payment_method);
+		});
+
+		expenseSchedules.forEach(e => {
+			if (e.payment_method) expenseMethods.add(e.payment_method);
+		});
+
+		if (vendorMethods.has(method) && !expenseMethods.has(method)) {
+			return 'vendor';
+		} else if (expenseMethods.has(method) && !vendorMethods.has(method)) {
+			return 'expense';
+		} else {
+			return 'both';
+		}
+	}
+
 	function toggleVendorPayment(paymentId) {
 		if (selectedVendorPayments.has(paymentId)) {
 			selectedVendorPayments.delete(paymentId);
@@ -511,13 +712,13 @@
 	}
 
 	function selectAllVendorPayments() {
-		vendorPayments.forEach(payment => selectedVendorPayments.add(payment.id));
+		filteredVendorPayments.forEach(payment => selectedVendorPayments.add(payment.id));
 		selectedVendorPayments = selectedVendorPayments;
 		calculateBudget();
 	}
 
 	function selectAllExpenseSchedules() {
-		expenseSchedules.forEach(expense => selectedExpenseSchedules.add(expense.id));
+		filteredExpenseSchedules.forEach(expense => selectedExpenseSchedules.add(expense.id));
 		selectedExpenseSchedules = selectedExpenseSchedules;
 		calculateBudget();
 	}
@@ -590,6 +791,14 @@
 
 			if (error) throw error;
 			
+			// Debug: Log first item to see all available fields
+			if (data && data.length > 0) {
+				console.log('🔍 First vendor payment record:', data[0]);
+				console.log('📋 Available fields:', Object.keys(data[0]));
+				console.log('💰 Payment method value:', data[0].payment_method);
+				console.log('🔍 All payment methods in vendor payments:', data.map(p => p.payment_method).filter(Boolean));
+			}
+			
 			// Map branch_id to branch name + location
 			vendorPayments = (data || []).map(payment => {
 				const branchInfo = branchMap.get(payment.branch_id);
@@ -616,6 +825,11 @@
 				.order('amount', { ascending: false });
 
 			if (error) throw error;
+			
+			// Debug: Log payment methods
+			if (data && data.length > 0) {
+				console.log('💰 Expense payment methods:', data.map(e => e.payment_method).filter(Boolean));
+			}
 			
 			// Map branch_id to branch name + location
 			expenseSchedules = (data || []).map(expense => {
@@ -870,264 +1084,290 @@
 	}
 </script>
 
-<div class="budget-planner">
-	<!-- Combined Date Selection and Budget Summary Section -->
-	<div class="unified-controls-section">
-		<!-- Date Selection Card -->
-		<div class="control-card">
-			<div class="date-selector">
-				<label for="selectedDate">📅 Select Date:</label>
-				<input 
-					id="selectedDate"
-					type="date" 
-					bind:value={selectedDate}
-					on:change={onDateChange}
-					class="date-input"
-				/>
-			</div>
-
-			<div class="budget-input">
-				<label for="dailyBudget">💰 Daily Budget (SAR):</label>
-				<div class="budget-input-group">
-					<input 
-						id="dailyBudget"
-						type="number" 
-						bind:value={calculatedTotalBudget}
-						step="0.01"
-						min="0"
-						placeholder="0.00"
-						class="budget-amount"
-						readonly
-						title="This is calculated from payment method budgets below"
-					/>
-					<span class="calculated-label">Auto-calculated</span>
-				</div>
-			</div>
-
-			<!-- Print Schedule Button -->
-			<div class="print-schedule-section">
-				<button class="print-schedule-btn" on:click={generatePrintPreview}>
-					<span class="btn-icon">🖨️</span>
-					<span class="btn-text">Generate Day Schedule</span>
-				</button>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header Bar with Action Buttons -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">📊</span>
+			<div>
+				<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">Day Budget Planner</h2>
+				<p class="text-[11px] text-slate-500">Plan and manage daily cash flow with budget tracking</p>
 			</div>
 		</div>
 
-		<!-- Budget Summary Card -->
-		<div class="control-card budget-summary-card" class:over-budget={budgetStatus === 'over'} class:exact-budget={budgetStatus === 'exact'}>
-			<div class="unified-budget-card">
-				<!-- Left Side: Total Summary -->
-				<div class="budget-summary-side">
-					<div class="card-header">
-						<h3>📊 Total Budget Summary</h3>
+		<!-- Action Button -->
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300"
+				on:click={generatePrintPreview}
+			>
+				<span class="text-base filter drop-shadow-sm">🖨️</span>
+				<span>Generate Schedule</span>
+			</button>
+		</div>
+	</div>
+
+	<!-- Cards Section (Fixed at Top) -->
+	<div class="px-4 py-6 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50 border-b border-white/50 backdrop-blur-sm z-20">
+		<div class="relative w-full">
+			<!-- Date Selection and Budget Summary Cards -->
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+				<!-- Date Selection Card -->
+				<div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
+					<h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+						<span class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-lg">📅</span>
+						<span>Select Date</span>
+					</h3>
+					<input 
+						id="selectedDate"
+						type="date" 
+						bind:value={selectedDate}
+						on:change={onDateChange}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+					/>
+				</div>
+
+				<!-- Daily Budget Card -->
+				<div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
+					<h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+						<span class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-lg">💰</span>
+						<span>Daily Budget</span>
+					</h3>
+					<div>
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Budget Amount (SAR)</label>
+						<input 
+							id="dailyBudget"
+							type="number" 
+							bind:value={calculatedTotalBudget}
+							step="0.01"
+							min="0"
+							placeholder="0.00"
+							class="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed font-bold"
+							readonly
+							title="This is calculated from payment method budgets below"
+						/>
+						<button 
+							on:click={openPaymentMethodModal}
+							class="w-full mt-3 px-4 py-2 text-xs font-bold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors duration-200 flex items-center justify-center gap-2"
+						>
+							<span>💳</span>
+							<span>Allocate by Payment Method</span>
+						</button>
+						<p class="text-[10px] text-slate-500 mt-2 italic">Auto-calculated from payment method budgets</p>
 					</div>
-					<div class="card-content">
-					<div class="summary-item">
-						<span class="label">Daily Budget:</span>
-						<span class="value">{formatCurrency(calculatedTotalBudget)}</span>
-					</div>
-					<div class="summary-item">
-						<span class="label">Total Scheduled (Selected):</span>
-						<span class="value">{formatCurrency(totalScheduled)}</span>
-						<span class="count-info">
-							({selectedVendorPayments.size + selectedExpenseSchedules.size + selectedNonApprovedPayments.size} items selected)
-						</span>
-					</div>
-					<div class="summary-item remaining">
-						<span class="label">Remaining:</span>
-						<span class="value" class:negative={remainingBudget < 0}>
-							{formatCurrency(remainingBudget)}
-						</span>
-					</div>
-					<div class="budget-status-indicator">
-						{#if budgetStatus === 'over'}
-							{@const totalOverBudget = remainingBudget < 0}
-							
-							⚠️ Over Budget
-							{#if totalOverBudget}
-								<div class="over-budget-detail">Total: {formatCurrency(Math.abs(remainingBudget))} over daily budget</div>
+				</div>
+
+				<!-- Budget Status Card -->
+				<div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
+					<h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+						<span class="w-8 h-8 rounded-lg {budgetStatus === 'over' ? 'bg-red-100' : 'bg-emerald-100'} flex items-center justify-center text-lg">{budgetStatus === 'over' ? '⚠️' : '✅'}</span>
+						<span>Budget Status</span>
+					</h3>
+					<div class="space-y-2">
+						<div class="flex justify-between items-baseline">
+							<span class="text-xs font-semibold text-slate-600 uppercase">Remaining</span>
+							<span class="text-xl font-black {remainingBudget < 0 ? 'text-red-600' : 'text-emerald-600'}">
+								{formatCurrency(remainingBudget)}
+							</span>
+						</div>
+						<p class="text-xs text-slate-500">
+							{#if budgetStatus === 'over'}
+								<span class="font-semibold text-red-600">Over budget</span>
+							{:else if budgetStatus === 'exact'}
+								<span class="font-semibold text-emerald-600">Exact match</span>
+							{:else}
+								<span class="font-semibold text-emerald-600">Within budget</span>
 							{/if}
-							
-							{#if breakdown && breakdown.allPaymentMethods}
-								{#each Array.from(breakdown.allPaymentMethods) as method}
-									{@const methodBudget = paymentMethodBudgets[method] || 0}
-									{@const methodUsed = breakdown.byPaymentMethod.get(method) || 0}
-									{#if methodBudget > 0 && methodUsed > methodBudget}
-										<div class="over-budget-detail">
-											{method}: {formatCurrency(methodUsed - methodBudget)} over budget
-										</div>
-									{/if}
-								{/each}
+						</p>
+					</div>
+				</div>
+
+				<!-- Budget Breakdown Card (4th Card) -->
+				<div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
+					<h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+						<span class="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-lg">📋</span>
+						<span>Breakdown</span>
+					</h3>
+					<div class="space-y-3 text-sm">
+						<div class="flex justify-between items-center">
+							<span class="text-slate-600 font-semibold">Total Budget:</span>
+							<span class="font-black text-indigo-600">{formatCurrency(calculatedTotalBudget)}</span>
+						</div>
+						<div class="flex justify-between items-center">
+							<span class="text-slate-600 font-semibold">Scheduled:</span>
+							<span class="font-black text-slate-800">{formatCurrency(totalScheduled)}</span>
+						</div>
+						<div class="flex justify-between items-center pt-2 border-t border-slate-200">
+							<span class="text-slate-600 font-semibold">Remaining:</span>
+							<span class="font-black {remainingBudget < 0 ? 'text-red-600' : 'text-emerald-600'}">{formatCurrency(remainingBudget)}</span>
+						</div>
+						{#if true}
+							{@const allScheduledBreakdown = getAllScheduledBreakdown()}
+							{#if allScheduledBreakdown && allScheduledBreakdown.size > 0}
+								<div class="pt-2 border-t border-slate-200">
+									<p class="text-xs font-semibold text-slate-600 mb-2 uppercase">Payment Methods</p>
+									<div class="text-xs space-y-1 max-h-32 overflow-y-auto">
+										{#each Array.from(allScheduledBreakdown.entries()) as [method, amount]}
+											<div class="flex justify-between items-center text-slate-700">
+												<span class="truncate">{method}</span>
+												<span class="font-semibold text-right ml-2">{formatCurrency(amount)}</span>
+											</div>
+										{/each}
+									</div>
+								</div>
 							{/if}
-						{:else if budgetStatus === 'exact'}
-							✅ Exact Budget Match
-						{:else}
-							✅ Within Budget
 						{/if}
 					</div>
 				</div>
 			</div>
-
-			<!-- Right Side: Detailed Breakdown -->
-			<div class="budget-breakdown-side">
-				<div class="card-header">
-					<h3>📋 Detailed Breakdown</h3>
-				</div>
-				<div class="card-content">
-					<!-- By Payment Method Table -->
-					{#if breakdown.allPaymentMethods.size > 0}
-						<div class="breakdown-section">
-							<h4>By Payment Method</h4>
-							<div class="breakdown-table-container">
-								<table class="breakdown-table">
-									<thead>
-										<tr>
-											<th>Payment Method</th>
-											<th>Budget</th>
-											<th>Selected Total</th>
-											<th>Remaining</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each Array.from(breakdown.allPaymentMethods) as method}
-											{@const amount = breakdown.byPaymentMethod.get(method) || 0}
-											{@const budgetForMethod = paymentMethodBudgets[method] || 0}
-											{@const remaining = budgetForMethod - amount}
-											<tr class:over-budget-row={budgetForMethod > 0 && amount > budgetForMethod}>
-												<td class="method-name-cell">
-													<span class="method-name">{method}</span>
-												</td>
-												<td class="budget-cell">
-													<input 
-														type="number"
-														bind:value={paymentMethodBudgets[method]}
-														step="0.01"
-														min="0"
-														placeholder="0.00"
-														class="budget-input-inline"
-													/>
-												</td>
-												<td class="selected-cell">
-													<span class="selected-amount" class:over-budget={budgetForMethod > 0 && amount > budgetForMethod}>
-														{formatCurrency(amount)}
-													</span>
-												</td>
-												<td class="remaining-cell">
-													{#if budgetForMethod > 0}
-														<span class="remaining-amount" class:negative={remaining < 0}>
-															{formatCurrency(remaining)}
-														</span>
-													{:else}
-														<span class="no-limit-text">∞</span>
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					{:else}
-						<div class="no-breakdown">
-							<p>Loading payment methods...</p>
-						</div>
-					{/if}
-				</div>
-			</div>
 		</div>
 	</div>
-	</div>
+
+	<!-- Scrollable Content Area -->
+	<div class="flex-1 px-4 py-6 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<!-- Decorative blurs -->
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse pointer-events-none"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-cyan-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
+
+		<div class="relative w-full">
 
 	{#if isLoading}
-		<div class="loading">
-			<div class="spinner"></div>
-			<p>Loading scheduled items...</p>
+		<div class="flex items-center justify-center h-96">
+			<div class="text-center">
+				<div class="animate-spin inline-block mb-4">
+					<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+				</div>
+				<p class="text-slate-600 font-semibold">Loading scheduled items...</p>
+			</div>
 		</div>
 	{:else}
-		<!-- Vendor Payments - Separate Scrollable Container -->
-		<div class="table-section">
-			<div class="section-header">
-				<div class="section-header-content">
-					<h3>💰 Vendor Payments Due ({filteredVendorPayments.length}{filteredVendorPayments.length !== vendorPayments.length ? ` of ${vendorPayments.length}` : ''})</h3>
-					<div class="header-actions">
-						<button 
-							class="select-all-btn"
-							on:click={selectAllVendorPayments}
-							disabled={vendorPayments.length === 0}
-						>
-							Select All
-						</button>
-						<button 
-							class="clear-all-btn"
-							on:click={clearAllSelections}
-							disabled={selectedVendorPayments.size === 0}
-						>
-							Clear All
-						</button>
+		<!-- Vendor Payments Section -->
+		<div class="mb-6 bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
+			<!-- Combined Header with Cards and Controls -->
+			<div class="space-y-4 mb-4">
+				<!-- Summary Cards (Combined from Both Tables) -->
+				{#if true}
+					{@const vendorTotal = vendorPayments.reduce((sum, p) => sum + (p.final_bill_amount || p.bill_amount), 0)}
+					{@const expenseTotal = expenseSchedules.reduce((sum, e) => sum + e.amount, 0)}
+					{@const combinedTotal = vendorTotal + expenseTotal}
+					{@const vendorCount = groupedVendorPayments.length}
+					{@const expenseCount = filteredExpenseSchedules.length}
+					{@const totalItems = vendorPayments.length + expenseSchedules.length}
+					{@const totalSelected = Array.from(selectedVendorPayments).length + selectedExpenseSchedules.size}
+					<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+					<div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Total Items</p>
+						<p class="text-lg font-black text-blue-600">{totalItems}</p>
+					</div>
+					<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Combined Total</p>
+						<p class="text-lg font-black text-emerald-600">{formatCurrency(combinedTotal)}</p>
+					</div>
+					<div class="bg-purple-50 border border-purple-200 rounded-lg p-3">
+						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Groups + Schedules</p>
+						<p class="text-lg font-black text-purple-600">{vendorCount} + {expenseCount}</p>
+					</div>
+					<div class="bg-orange-50 border border-orange-200 rounded-lg p-3">
+						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Selected</p>
+						<p class="text-lg font-black text-orange-600">{totalSelected}</p>
 					</div>
 				</div>
-				<div class="filter-section">
-					<div class="filter-group">
-						<label for="vendor-filter">Filter by Vendor:</label>
-						<input 
-							id="vendor-filter"
-							type="text" 
-							bind:value={vendorFilter} 
-							placeholder="Enter vendor name..."
-							class="header-filter-input"
-						/>
-					</div>
-					<div class="filter-group">
-						<label for="vendor-branch-filter">Filter by Branch:</label>
-						<select 
-							id="vendor-branch-filter"
-							bind:value={branchFilter}
-							class="header-filter-input"
-						>
-							<option value="">All Branches</option>
-							{#each uniqueVendorBranches as branch}
-								<option value={branch}>{branch}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label for="vendor-payment-method-filter">Filter by Payment Method:</label>
-						<select 
-							id="vendor-payment-method-filter"
-							bind:value={paymentMethodFilter}
-							class="header-filter-input"
-						>
-							<option value="">All Payment Methods</option>
-							{#each uniqueVendorPaymentMethods as method}
-								<option value={method}>{method}</option>
-							{/each}
-						</select>
-					</div>
-					{#if vendorFilter || branchFilter || paymentMethodFilter}
-						<button 
-							class="clear-filters-btn"
-							on:click={() => {vendorFilter = ''; branchFilter = ''; paymentMethodFilter = '';}}
-						>
-							Clear Filters
-						</button>
-					{/if}
+				<!-- Select/Clear All Controls -->
+				<div class="flex justify-end gap-2">
+					<button 
+						class="px-4 py-2 text-xs font-black uppercase text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
+						on:click={selectAllVendorPayments}
+						disabled={vendorPayments.length === 0}
+					>
+						Select All
+					</button>
+					<button 
+						class="px-4 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-xl hover:bg-slate-300 transition-all disabled:opacity-50"
+						on:click={clearAllSelections}
+						disabled={selectedVendorPayments.size === 0 && selectedExpenseSchedules.size === 0}
+					>
+						Clear All
+					</button>
 				</div>
+				{/if}
 			</div>
-			<div class="individual-table-container vendor-payment-table">
-				<div class="data-section">
-					{#if vendorPayments.length > 0}
-						{#if filteredVendorPayments.length > 0}
-						<!-- Fixed Header Table -->
-						<div class="table-header-wrapper">
-							<table class="header-table vendor-header-table">
+
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-black text-slate-800 flex items-center gap-2">
+					<span class="text-2xl">💰</span>
+					Vendor Payments Due ({filteredVendorPayments.length}{filteredVendorPayments.length !== vendorPayments.length ? ` of ${vendorPayments.length}` : ''})
+				</h3>
+			</div>
+
+			<!-- Filters Only -->
+				<div class="bg-white/40 backdrop-blur-sm rounded-lg border border-slate-200 p-3">
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 h-full">
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="vendor-filter">Filter by Vendor</label>
+							<input 
+								id="vendor-filter"
+								type="text" 
+								bind:value={vendorFilter} 
+								placeholder="Enter vendor name..."
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="vendor-branch-filter">Filter by Branch</label>
+							<select 
+								id="vendor-branch-filter"
+								bind:value={branchFilter}
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+								style="color: #000000 !important; background-color: #ffffff !important;"
+							>
+								<option value="">All Branches</option>
+								{#each uniqueVendorBranches as branch}
+									<option value={branch}>{branch}</option>
+								{/each}
+							</select>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="vendor-payment-method-filter">Filter by Method</label>
+							<select 
+								id="vendor-payment-method-filter"
+								bind:value={paymentMethodFilter}
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+								style="color: #000000 !important; background-color: #ffffff !important;"
+							>
+								<option value="">All Methods</option>
+								{#each uniqueVendorPaymentMethods as method}
+									<option value={method}>{method}</option>
+								{/each}
+							</select>
+						</div>
+						{#if vendorFilter || branchFilter || paymentMethodFilter}
+							<div class="flex items-end">
+								<button 
+									class="w-full px-4 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-lg hover:bg-slate-300 transition-all"
+									on:click={() => {vendorFilter = ''; branchFilter = ''; paymentMethodFilter = '';}}
+								>
+									Clear
+								</button>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+			{#if vendorPayments.length > 0}
+				<!-- Grouped Table with Drill-down -->
+				<div class="overflow-x-auto -mx-6 px-6">
+					{#if groupedVendorPayments.length > 0}
+					<!-- Fixed Header Table -->
+					<div class="table-header-wrapper">
+						<table class="header-table vendor-header-table">
 								<thead>
 									<tr>
 										<th class="checkbox-column vendor-select">Select</th>
-										<th class="vendor-bill-number">Bill Number</th>
+										<th style="width: 40px;"></th>
 										<th class="vendor-name">Vendor</th>
 										<th class="vendor-branch">Branch</th>
-										<th class="vendor-amount">Amount</th>
-										<th class="vendor-adjust-amount">Adjust Amount</th>
+										<th class="vendor-amount">Total Amount</th>
+										<th class="vendor-bill-number">Bills</th>
 										<th class="vendor-payment-method">Payment Method</th>
 										<th class="vendor-approval-status">Approval Status</th>
 										<th class="vendor-actions">Actions</th>
@@ -1139,168 +1379,245 @@
 						<div class="table-body-wrapper">
 							<table class="body-table vendor-body-table">
 								<tbody>
-									{#each filteredVendorPayments as payment}
-										{@const adjustAmount = adjustAmounts[`vendor_${payment.id}`] || ''}
-										{@const hasAdjustAmount = adjustAmount && parseFloat(adjustAmount) > 0}
-										<tr>
+									{#each groupedVendorPayments as group (group.vendor_id + '|' + group.branch_id)}
+										{@const groupKey = group.vendor_id + '|' + group.branch_id}
+										{@const isExpanded = groupExpandedRows.has(groupKey)}
+										{@const groupSelectedCount = group.bills.filter(b => selectedVendorPayments.has(b.id)).length}
+										{@const groupTotalSelected = groupSelectedCount}
+										<tr class="group-row">
 											<td class="checkbox-column vendor-select">
 												<input 
 													type="checkbox" 
-													checked={selectedVendorPayments.has(payment.id)}
-													on:change={() => toggleVendorPayment(payment.id)}
+													checked={groupTotalSelected === group.bills.length}
+													indeterminate={groupTotalSelected > 0 && groupTotalSelected < group.bills.length}
+													on:change={() => {
+														// Toggle all items in group
+														if (groupTotalSelected === group.bills.length) {
+															// Deselect all
+															group.bills.forEach(b => selectedVendorPayments.delete(b.id));
+														} else {
+															// Select all
+															group.bills.forEach(b => selectedVendorPayments.add(b.id));
+														}
+														selectedVendorPayments = selectedVendorPayments;
+														calculateBudget();
+													}}
 												/>
 											</td>
-											<td class="bill-number vendor-bill-number">{payment.bill_number}</td>
-											<td class="vendor-name">{payment.vendor_name}</td>
-											<td class="vendor-branch">{payment.branch_name}</td>
-											<td class="amount vendor-amount">{formatCurrency(payment.final_bill_amount || payment.bill_amount)}</td>
-											<td class="adjust-amount-cell vendor-adjust-amount">
-												<input 
-													type="number"
-													bind:value={adjustAmounts[`vendor_${payment.id}`]}
-													step="0.01"
-													min="0"
-													placeholder="Enter amount"
-													class="adjust-amount-input"
-												/>
+											<td style="width: 40px;">
+												<button 
+													class="text-base hover:text-blue-600 transition"
+													on:click={() => toggleGroupExpand(groupKey)}
+													title={isExpanded ? 'Collapse' : 'Expand'}
+												>
+													{isExpanded ? '▼' : '▶'}
+												</button>
 											</td>
-											<td class="payment-method vendor-payment-method">{payment.payment_method}</td>
+											<td class="vendor-name font-semibold">{group.vendor_name}</td>
+											<td class="vendor-branch">{group.branch_name}</td>
+											<td class="amount vendor-amount font-bold text-blue-600">{formatCurrency(group.total_amount)}</td>
+											<td class="vendor-bill-number">
+												<button 
+													class="px-3 py-1 text-xs font-bold text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition"
+													on:click={() => openGroupDetailsModal(group)}
+												>
+													📄 {group.bill_count} Bill{group.bill_count !== 1 ? 's' : ''}
+												</button>
+											</td>
+											<td class="payment-method vendor-payment-method">{group.payment_method}</td>
 											<td class="vendor-approval-status">
-												<span class="status-badge" class:approved={payment.approval_status === 'approved'} class:pending={payment.approval_status === 'pending'}>
-													{#if payment.approval_status === 'approved'}
-														✅ Approved
-													{:else if payment.approval_status === 'pending'}
-														⏳ Pending
-													{:else if payment.approval_status === 'sent_for_approval'}
-														📤 Sent for Approval
-													{:else if payment.approval_status === 'rejected'}
-														❌ Rejected
+												<span class="inline-block text-xs">
+													{#if group.approval_statuses.has('approved') && group.approval_statuses.size === 1}
+														✅ All Approved
+													{:else if group.approval_statuses.has('pending') && group.approval_statuses.size === 1}
+														⏳ All Pending
+													{:else if group.approval_statuses.size > 1}
+														🔀 Mixed
 													{:else}
-														❓ {payment.approval_status}
+														{[...group.approval_statuses][0]}
 													{/if}
 												</span>
 											</td>
 											<td class="vendor-actions">
-												<div class="action-buttons">
-													<button 
-														class="reschedule-btn"
-														on:click={() => openRescheduleModal(payment, 'vendor')}
-													>
-														📅 Reschedule
-													</button>
+												<button 
+													class="reschedule-btn text-xs px-2 py-1"
+													on:click={() => openRescheduleModal(group.bills[0], 'vendor')}
+												>
+													📅 Reschedule
+												</button>
+											</td>
+										</tr>
+
+										<!-- Expanded Detail Rows -->
+										{#if isExpanded}
+											{#each group.bills as bill}
+												{@const adjustAmount = adjustAmounts[`vendor_${bill.id}`] || ''}
+												{@const hasAdjustAmount = adjustAmount && parseFloat(adjustAmount) > 0}
+												<tr class="detail-row">
+													<td class="checkbox-column vendor-select" style="padding-left: 60px;">
+														<input 
+															type="checkbox" 
+															checked={selectedVendorPayments.has(bill.id)}
+															on:change={() => toggleVendorPayment(bill.id)}
+														/>
+													</td>
+													<td></td>
+													<td class="vendor-bill-number font-mono text-sm">Bill #{bill.bill_number}</td>
+													<td class="vendor-branch text-sm">{bill.branch_name}</td>
+													<td class="amount vendor-amount">{formatCurrency(bill.final_bill_amount || bill.bill_amount)}</td>
+													<td class="adjust-amount-cell vendor-adjust-amount">
+														<input 
+															type="number"
+															bind:value={adjustAmounts[`vendor_${bill.id}`]}
+															step="0.01"
+															min="0"
+															placeholder="Enter amount"
+															class="adjust-amount-input text-xs"
+														/>
+													</td>
+													<td class="text-sm">{bill.payment_method}</td>
+													<td class="vendor-approval-status">
+														<span class="status-badge text-xs" class:approved={bill.approval_status === 'approved'} class:pending={bill.approval_status === 'pending'}>
+															{#if bill.approval_status === 'approved'}
+																✅ Approved
+															{:else if bill.approval_status === 'pending'}
+																⏳ Pending
+															{:else if bill.approval_status === 'sent_for_approval'}
+																📤 Sent
+															{:else if bill.approval_status === 'rejected'}
+																❌ Rejected
+															{:else}
+																❓ {bill.approval_status}
+															{/if}
+														</span>
+													</td>
+													<td class="vendor-actions">
+														<div class="action-buttons text-xs">
+															<button 
+																class="reschedule-btn"
+																on:click={() => openRescheduleModal(bill, 'vendor')}
+															>
+																📅 Reschedule
+															</button>
 													{#if hasAdjustAmount}
 														<button 
 															class="split-btn"
-															on:click={() => openSplitModal(payment, 'vendor')}
-														>
-															✂️ Split
-														</button>
-													{/if}
-												</div>
-											</td>
-										</tr>
+															on:click={() => openSplitModal(bill, 'vendor')}
+													></button>
+												{/if}
+											</div>
+										</td>
+									</tr>
 									{/each}
-								</tbody>
-							</table>
-						</div>
-						{:else}
-							<div class="no-data">
-								<p>No vendor payments match the current filters</p>
-								<button class="clear-filters-btn" on:click={() => {vendorFilter = ''; branchFilter = ''; paymentMethodFilter = '';}}>
-									Clear Filters
-								</button>
-							</div>
-						{/if}
+								{/if}
+							{/each}
+						</tbody>
+					</table>
+				</div>
 			{:else}
-				<div class="no-data">
-					<p>No vendor payments scheduled for {formatDate(selectedDate)}</p>
+				<div class="p-8 text-center">
+					<p class="text-slate-600 font-semibold mb-3">No vendor payments match the current filters</p>
+					<button class="px-4 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-lg hover:bg-slate-300 transition-all" on:click={() => {vendorFilter = ''; branchFilter = ''; paymentMethodFilter = '';}}>
+						Clear Filters
+					</button>
 				</div>
 			{/if}
-				</div>
 			</div>
+		{:else}
+			<div class="p-8 text-center">
+				<p class="text-slate-600 font-semibold">No vendor payments scheduled for {formatDate(selectedDate)}</p>
+			</div>
+		{/if}
 		</div>
 
 		<!-- Expense Schedules - Separate Scrollable Container -->
 		<div class="table-section">
-			<div class="section-header">
-				<div class="section-header-content">
-					<h3>📋 Expense Schedules Due ({filteredExpenseSchedules.length}{filteredExpenseSchedules.length !== expenseSchedules.length ? ` of ${expenseSchedules.length}` : ''})</h3>
-					<div class="header-actions">
-						<button 
-							class="select-all-btn"
-							on:click={selectAllExpenseSchedules}
-							disabled={expenseSchedules.length === 0}
-						>
-							Select All
-						</button>
-						<button 
-							class="clear-all-btn"
-							on:click={() => {
-								selectedExpenseSchedules.clear();
-								selectedExpenseSchedules = selectedExpenseSchedules;
-								calculateBudget();
-							}}
-							disabled={selectedExpenseSchedules.size === 0}
-						>
-							Clear All
-						</button>
+			<!-- Filters Only -->
+			<div class="bg-white/40 backdrop-blur-sm rounded-lg border border-slate-200 p-3 mb-4">
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="expense-description-filter">Filter by Description</label>
+							<input 
+								id="expense-description-filter"
+								type="text" 
+								bind:value={expenseDescriptionFilter} 
+								placeholder="Enter description..."
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="expense-category-filter">Filter by Category</label>
+							<input 
+								id="expense-category-filter"
+								type="text" 
+								bind:value={expenseCategoryFilter} 
+								placeholder="Enter category..."
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="expense-branch-filter">Filter by Branch</label>
+							<select 
+								id="expense-branch-filter"
+								bind:value={expenseBranchFilter}
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+								style="color: #000000 !important; background-color: #ffffff !important;"
+							>
+								<option value="">All Branches</option>
+								{#each uniqueExpenseBranches as branch}
+									<option value={branch}>{branch}</option>
+								{/each}
+							</select>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-1 uppercase" for="expense-payment-method-filter">Filter by Method</label>
+							<select 
+								id="expense-payment-method-filter"
+								bind:value={expensePaymentMethodFilter}
+								class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+								style="color: #000000 !important; background-color: #ffffff !important;"
+							>
+								<option value="">All Payment Methods</option>
+								{#each uniqueExpensePaymentMethods as method}
+									<option value={method}>{method}</option>
+								{/each}
+							</select>
+						</div>
+						{#if expenseDescriptionFilter || expenseCategoryFilter || expenseBranchFilter || expensePaymentMethodFilter}
+							<div class="flex items-end col-span-2">
+								<button 
+									class="w-full px-4 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-lg hover:bg-slate-300 transition-all"
+									on:click={() => {expenseDescriptionFilter = ''; expenseCategoryFilter = ''; expenseBranchFilter = ''; expensePaymentMethodFilter = '';}}
+								>
+									Clear Filters
+								</button>
+							</div>
+						{/if}
 					</div>
 				</div>
-				<div class="filter-section">
-					<div class="filter-group">
-						<label for="expense-description-filter">Filter by Description:</label>
-						<input 
-							id="expense-description-filter"
-							type="text" 
-							bind:value={expenseDescriptionFilter} 
-							placeholder="Enter description..."
-							class="header-filter-input"
-						/>
-					</div>
-					<div class="filter-group">
-						<label for="expense-category-filter">Filter by Category:</label>
-						<input 
-							id="expense-category-filter"
-							type="text" 
-							bind:value={expenseCategoryFilter} 
-							placeholder="Enter category..."
-							class="header-filter-input"
-						/>
-					</div>
-					<div class="filter-group">
-						<label for="expense-branch-filter">Filter by Branch:</label>
-						<select 
-							id="expense-branch-filter"
-							bind:value={expenseBranchFilter}
-							class="header-filter-input"
-						>
-							<option value="">All Branches</option>
-							{#each uniqueExpenseBranches as branch}
-								<option value={branch}>{branch}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label for="expense-payment-method-filter">Filter by Payment Method:</label>
-						<select 
-							id="expense-payment-method-filter"
-							bind:value={expensePaymentMethodFilter}
-							class="header-filter-input"
-						>
-							<option value="">All Payment Methods</option>
-							{#each uniqueExpensePaymentMethods as method}
-								<option value={method}>{method}</option>
-							{/each}
-						</select>
-					</div>
-					{#if expenseDescriptionFilter || expenseCategoryFilter || expenseBranchFilter || expensePaymentMethodFilter}
-						<button 
-							class="clear-filters-btn"
-							on:click={() => {expenseDescriptionFilter = ''; expenseCategoryFilter = ''; expenseBranchFilter = ''; expensePaymentMethodFilter = '';}}
-						>
-							Clear Filters
-						</button>
-					{/if}
+
+			<!-- Section Header with Title and Actions -->
+			<div class="section-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0;">
+				<h3>📋 Expense Schedules Due ({filteredExpenseSchedules.length}{filteredExpenseSchedules.length !== expenseSchedules.length ? ` of ${expenseSchedules.length}` : ''})</h3>
+				<div class="header-actions">
+					<button 
+						class="select-all-btn"
+						on:click={selectAllExpenseSchedules}
+						disabled={expenseSchedules.length === 0}
+					>
+						Select All
+					</button>
+					<button 
+						class="clear-all-btn"
+						on:click={() => {
+							selectedExpenseSchedules.clear();
+							selectedExpenseSchedules = selectedExpenseSchedules;
+							calculateBudget();
+						}}
+						disabled={selectedExpenseSchedules.size === 0}
+					>
+						Clear All
+					</button>
 				</div>
 			</div>
 			<div class="individual-table-container">
@@ -1312,6 +1629,7 @@
 								<thead>
 									<tr>
 										<th class="checkbox-column">Select</th>
+										<th>Vendor Name</th>
 										<th>Description</th>
 										<th>Category</th>
 										<th>Branch</th>
@@ -1328,7 +1646,7 @@
 						<div class="table-body-wrapper">
 							<table class="body-table">
 								<tbody>
-									{#each filteredExpenseSchedules as expense}
+									{#each sortedExpenseSchedules as expense}
 										{@const adjustAmount = adjustAmounts[`expense_${expense.id}`] || ''}
 										{@const hasAdjustAmount = adjustAmount && parseFloat(adjustAmount) > 0}
 										<tr>
@@ -1339,6 +1657,7 @@
 													on:change={() => toggleExpenseSchedule(expense.id)}
 												/>
 											</td>
+											<td class="vendor-name font-semibold">{expense.vendor_name || 'N/A'}</td>
 											<td class="description">{expense.description}</td>
 											<td>{expense.expense_category_name_en || 'N/A'}</td>
 											<td>{expense.branch_name}</td>
@@ -1479,8 +1798,206 @@
 				</div>
 			</div>
 		{/if}
+
 	{/if}
-</div>
+
+	<!-- Group Details Modal -->
+{#if showGroupDetailsModal && selectedGroup}
+	<div class="modal-overlay" on:click={closeGroupDetailsModal} style="--modal-z-index: 25;">
+		<div class="modal-content" on:click|stopPropagation style="max-width: 700px;">
+			<div class="modal-header">
+				<h3>📋 Vendor Group Details</h3>
+				<button class="close-btn" on:click={closeGroupDetailsModal}>✕</button>
+			</div>
+			<div class="modal-body">
+				<!-- Group Summary -->
+				<div class="space-y-4">
+					<div class="grid grid-cols-2 gap-4 p-4 bg-blue-50 rounded-lg">
+						<div>
+							<p class="text-xs font-bold text-slate-600 uppercase">Vendor</p>
+							<p class="text-sm font-bold text-slate-800">{selectedGroup.vendor_name}</p>
+						</div>
+						<div>
+							<p class="text-xs font-bold text-slate-600 uppercase">Branch</p>
+							<p class="text-sm font-bold text-slate-800">{selectedGroup.branch_name}</p>
+						</div>
+						<div>
+							<p class="text-xs font-bold text-slate-600 uppercase">Total Amount</p>
+							<p class="text-lg font-black text-blue-600">{formatCurrency(selectedGroup.total_amount)}</p>
+						</div>
+						<div>
+							<p class="text-xs font-bold text-slate-600 uppercase">Bill Count</p>
+							<p class="text-lg font-black text-slate-800">{selectedGroup.bill_count}</p>
+						</div>
+					</div>
+
+					<!-- Bills List -->
+					<div>
+						<p class="text-sm font-bold text-slate-700 mb-2">📄 Bills ({selectedGroup.bills.length}):</p>
+						<div class="space-y-2 max-h-96 overflow-y-auto">
+							{#each selectedGroup.bills as bill}
+								<div class="p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+									<div class="flex items-start justify-between">
+										<div>
+											<p class="font-semibold text-slate-800">Bill #{bill.bill_number}</p>
+											<p class="text-xs text-slate-600 mt-1">Amount: {formatCurrency(bill.final_bill_amount || bill.bill_amount)}</p>
+										</div>
+										<div class="text-right">
+											<span class="status-badge" class:approved={bill.approval_status === 'approved'} class:pending={bill.approval_status === 'pending'}>
+												{#if bill.approval_status === 'approved'}
+													✅ Approved
+												{:else if bill.approval_status === 'pending'}
+													⏳ Pending
+												{:else if bill.approval_status === 'sent_for_approval'}
+													📤 Sent
+												{:else if bill.approval_status === 'rejected'}
+													❌ Rejected
+												{:else}
+													❓ {bill.approval_status}
+												{/if}
+											</span>
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+
+					<!-- Branches in Group -->
+					{#if selectedGroup.bills.length > 1}
+						<div>
+							<p class="text-sm font-bold text-slate-700 mb-2">🏢 Branches:</p>
+							<div class="flex flex-wrap gap-2">
+								{#each [...new Set(selectedGroup.bills.map(b => b.branch_name))] as branch}
+									<span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">{branch}</span>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button class="btn-secondary" on:click={closeGroupDetailsModal}>Close</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Payment Method Budget Allocation Modal -->
+{#if showPaymentMethodModal}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="modal-overlay" on:click={() => showPaymentMethodModal = false}>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="modal-content" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>💳 Allocate Budget by Payment Method</h3>
+				<button class="close-btn" on:click={() => showPaymentMethodModal = false}>✕</button>
+			</div>
+
+			<div class="modal-body" style="max-height: 70vh; overflow-y-auto;">
+				<!-- Budget Summary -->
+				<div class="mb-6 pb-6 border-b border-slate-300">
+					<div class="grid grid-cols-2 gap-4">
+						<div class="text-center">
+							<div class="text-xs font-bold text-slate-600 uppercase mb-1">Total Budget</div>
+							<div class="text-2xl font-black text-blue-600">{formatCurrency(calculatedTotalBudget)}</div>
+						</div>
+						<div class="text-center">
+							<div class="text-xs font-bold text-slate-600 uppercase mb-1">Remaining</div>
+							<div class="text-2xl font-black {remainingBudget < 0 ? 'text-red-600' : 'text-emerald-600'}">{formatCurrency(remainingBudget)}</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Payment Method Budgets -->
+				{#if breakdown && breakdown.allPaymentMethods.size > 0}
+					<div class="space-y-4">
+						{#each Array.from(breakdown.allPaymentMethods) as method}
+							{@const amount = breakdown.byPaymentMethod.get(method) || 0}
+							{@const budgetForMethod = paymentMethodBudgets[method] || 0}
+							{@const remaining = budgetForMethod - amount}
+							{@const source = getPaymentMethodSource(method)}
+							{@const isVendor = source === 'vendor'}
+							{@const isExpense = source === 'expense'}
+							<div class="p-4 rounded-xl border transition-all {isVendor ? 'bg-blue-50 border-blue-200' : isExpense ? 'bg-emerald-50 border-emerald-200' : 'bg-purple-50 border-purple-200'}">
+								<div class="flex items-center justify-between mb-3">
+									<div class="flex items-center gap-2">
+										<span class="font-bold {isVendor ? 'text-blue-900' : isExpense ? 'text-emerald-900' : 'text-purple-900'}">{method}</span>
+										<span class="text-xs font-bold px-2 py-0.5 rounded {isVendor ? 'bg-blue-200 text-blue-700' : isExpense ? 'bg-emerald-200 text-emerald-700' : 'bg-purple-200 text-purple-700'}">
+											{isVendor ? '💳 Vendor' : isExpense ? '📋 Expense' : '🔄 Both'}
+										</span>
+									</div>
+									<span class="text-xs font-semibold {isVendor ? 'text-blue-700' : isExpense ? 'text-emerald-700' : 'text-purple-700'}">Current: {formatCurrency(amount)}</span>
+								</div>
+								<input 
+									type="number"
+									bind:value={paymentMethodBudgets[method]}
+									step="0.01"
+									min="0"
+									placeholder="0.00"
+									class="w-full px-4 py-2 border {isVendor ? 'border-blue-300 focus:ring-blue-500' : isExpense ? 'border-emerald-300 focus:ring-emerald-500' : 'border-purple-300 focus:ring-purple-500'} rounded-lg text-base font-semibold focus:outline-none focus:ring-2 transition-all"
+								/>
+								<div class="mt-2 text-xs {isVendor ? 'text-blue-700' : isExpense ? 'text-emerald-700' : 'text-purple-700'}">
+									{#if budgetForMethod > 0}
+										Budget Remaining: <span class="{remaining < 0 ? 'text-red-600 font-bold' : ''}">{formatCurrency(remaining)}</span>
+									{:else}
+										<span class="text-slate-500 italic">No limit set</span>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="text-center py-8 space-y-4">
+						<div class="flex justify-center text-5xl mb-4">📭</div>
+						<p class="text-slate-700 font-semibold">No Payment Methods Found</p>
+						<div class="text-sm text-slate-600 space-y-2">
+							<p>Selected date: <span class="font-bold text-slate-800">{selectedDate || 'Not selected'}</span></p>
+							<p>
+								Scheduled items loaded:
+								<span class="font-bold text-slate-800">
+									{vendorPayments.length + expenseSchedules.length + nonApprovedPayments.length}
+								</span>
+								{#if vendorPayments.length + expenseSchedules.length + nonApprovedPayments.length === 0}
+									<span class="block text-xs text-amber-600 mt-2">⚠️ No scheduled payments for this date</span>
+								{/if}
+							</p>
+						</div>
+						
+						{#if isLoading}
+							<p class="text-sm text-blue-600 font-semibold">⏳ Loading data...</p>
+						{:else if !selectedDate}
+							<p class="text-sm text-amber-600 font-semibold">Select a date to load payment methods</p>
+						{:else if vendorPayments.length + expenseSchedules.length + nonApprovedPayments.length === 0}
+							<p class="text-sm text-slate-600">No payments scheduled for <strong>{new Date(selectedDate).toLocaleDateString()}</strong></p>
+							<button 
+								on:click={() => showPaymentMethodModal = false}
+								class="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 mt-4"
+							>
+								Select Different Date
+							</button>
+						{:else}
+							<p class="text-xs text-slate-500">Payment methods not detected in the scheduled items</p>
+							<p class="text-xs text-slate-500 mt-2">💡 Items must have a <code class="bg-slate-100 px-1 rounded">payment_method</code> field</p>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<div class="modal-footer">
+				<button 
+					class="close-btn" 
+					on:click={() => showPaymentMethodModal = false}
+					style="padding: 10px 20px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; font-weight: bold; color: #475569;"
+				>
+					Done
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Budget Settings Modal -->
 {#if showBudgetModal}
@@ -1856,21 +2373,44 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each filteredVendorPayments.filter(p => selectedVendorPayments.has(p.id)) as payment}
-									<tr>
-										<td>{payment.bill_number}</td>
-										<td>{payment.vendor_name}</td>
-										<td>{payment.branch_name}</td>
-										<td>{payment.payment_method}</td>
-										<td>{formatCurrency(payment.final_bill_amount || payment.bill_amount)}</td>
-										<td>{formatCurrency(adjustAmounts[`vendor-${payment.id}`] || 0)}</td>
-										<td>
-											<span class="status-badge" class:approved={payment.approval_status === 'Approved'} class:pending={payment.approval_status === 'Pending'}>
-												{payment.approval_status}
-											</span>
-										</td>
-									</tr>
-								{/each}
+								{#if true}
+									{@const selectedPaymentsSorted = filteredVendorPayments.filter(p => selectedVendorPayments.has(p.id)).sort((a, b) => (a.vendor_name || '').localeCompare(b.vendor_name || ''))}
+									{#each (() => {
+										const groups = {};
+										selectedPaymentsSorted.forEach(payment => {
+											const vendor = payment.vendor_name || 'Unknown';
+											if (!groups[vendor]) groups[vendor] = [];
+											groups[vendor].push(payment);
+										});
+										return Object.entries(groups);
+									})() as [vendor, payments]}
+										{#each payments as payment}
+											<tr>
+												<td>{payment.bill_number}</td>
+												<td>{payment.vendor_name}</td>
+												<td>{payment.branch_name}</td>
+												<td>{payment.payment_method}</td>
+												<td>{formatCurrency(payment.final_bill_amount || payment.bill_amount)}</td>
+												<td>{formatCurrency(adjustAmounts[`vendor-${payment.id}`] || 0)}</td>
+												<td>
+													<span class="status-badge" class:approved={payment.approval_status === 'Approved'} class:pending={payment.approval_status === 'Pending'}>
+														{payment.approval_status}
+													</span>
+												</td>
+											</tr>
+										{/each}
+										{#if payments.length > 1}
+											{@const vendorTotal = payments.reduce((sum, p) => sum + (p.final_bill_amount || p.bill_amount || 0), 0)}
+											{@const vendorAdjusted = payments.reduce((sum, p) => sum + (parseFloat(adjustAmounts[`vendor-${p.id}`]) || 0), 0)}
+											<tr style="background-color: #f3f4f6; font-weight: bold;">
+												<td colspan="4" style="text-align: right;">Subtotal for {vendor}:</td>
+												<td>{formatCurrency(vendorTotal)}</td>
+												<td>{formatCurrency(vendorAdjusted)}</td>
+												<td></td>
+											</tr>
+										{/if}
+									{/each}
+								{/if}
 							</tbody>
 						</table>
 					</div>
@@ -1883,6 +2423,7 @@
 						<table class="print-table">
 							<thead>
 								<tr>
+									<th>Vendor Name</th>
 									<th>Description</th>
 									<th>Category</th>
 									<th>Branch</th>
@@ -1892,16 +2433,39 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each filteredExpenseSchedules.filter(e => selectedExpenseSchedules.has(e.id)) as expense}
-									<tr>
-										<td>{expense.description}</td>
-										<td>{expense.expense_category_name_en || 'N/A'}</td>
-										<td>{expense.branch_name}</td>
-										<td>{expense.payment_method}</td>
-										<td>{formatCurrency(expense.amount)}</td>
-										<td>{formatCurrency(adjustAmounts[`expense-${expense.id}`] || 0)}</td>
-									</tr>
-								{/each}
+								{#if true}
+									{@const selectedExpensesSorted = filteredExpenseSchedules.filter(e => selectedExpenseSchedules.has(e.id)).sort((a, b) => (a.vendor_name || '').localeCompare(b.vendor_name || ''))}
+									{#each (() => {
+										const groups = {};
+										selectedExpensesSorted.forEach(expense => {
+											const vendor = expense.vendor_name || 'Unknown';
+											if (!groups[vendor]) groups[vendor] = [];
+											groups[vendor].push(expense);
+										});
+										return Object.entries(groups);
+									})() as [vendor, expenses]}
+										{#each expenses as expense}
+											<tr>
+												<td>{expense.vendor_name || 'N/A'}</td>
+												<td>{expense.description}</td>
+												<td>{expense.expense_category_name_en || 'N/A'}</td>
+												<td>{expense.branch_name}</td>
+												<td>{expense.payment_method}</td>
+												<td>{formatCurrency(expense.amount)}</td>
+												<td>{formatCurrency(adjustAmounts[`expense-${expense.id}`] || 0)}</td>
+											</tr>
+										{/each}
+										{#if expenses.length > 1}
+											{@const expenseTotal = expenses.reduce((sum, e) => sum + (e.amount || 0), 0)}
+											{@const expenseAdjusted = expenses.reduce((sum, e) => sum + (parseFloat(adjustAmounts[`expense-${e.id}`]) || 0), 0)}
+											<tr style="background-color: #f3f4f6; font-weight: bold;">
+												<td colspan="5" style="text-align: right;">Subtotal for {vendor}:</td>
+												<td>{formatCurrency(expenseTotal)}</td>
+												<td>{formatCurrency(expenseAdjusted)}</td>
+											</tr>
+										{/if}
+									{/each}
+								{/if}
 							</tbody>
 						</table>
 					</div>
@@ -1941,6 +2505,10 @@
 		</div>
 	</div>
 {/if}
+
+		</div>
+	</div>
+</div>
 
 <style>
 	.budget-planner {
@@ -2866,12 +3434,6 @@
 		height: 100%;
 		overflow: visible;
 	}
-
-	.data-section.non-approved {
-		/* Specific styling for non-approved sections if needed */
-	}
-
-	/* Remove old section header styles - now handled by .section-header */
 
 	/* Table Styles with Fixed Headers */
 	.table-header-wrapper {

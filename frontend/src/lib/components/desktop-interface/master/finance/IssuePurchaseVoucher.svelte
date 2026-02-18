@@ -11,17 +11,14 @@
 
 	let issuedVouchers = [];
 	let isLoading = false;
-	let showTable = true;
-	let branchMap = {};
-	let userEmployeeMap = {};
 	let selectedItems = new Set();
 	let subscription;
 
-	// Search options for loading
+	// Search options
 	let searchPVId = '';
 	let searchSerialNumber = '';
 	let hasLoaded = false;
-	let loadedBy = ''; // 'pvId' or 'serial'
+	let loadedBy = '';
 	let loadedValue = '';
 
 	// Filter variables
@@ -31,73 +28,57 @@
 
 	$: selectedCount = selectedItems.size;
 
+	// Unique filter values derived from loaded vouchers
+	$: uniqueFilterValues = [...new Set(issuedVouchers.map(i => i.value))].sort((a, b) => a - b);
+	$: uniqueLocations = [...new Map(issuedVouchers.filter(i => i.stock_location).map(i => [i.stock_location, i.stock_location_name || i.stock_location])).entries()];
+
+	// Computed filtered list
+	$: filteredVouchers = issuedVouchers.filter((item) => {
+		if (filterSerialNumber && !item.serial_number.toString().includes(filterSerialNumber)) return false;
+		if (filterLocation && String(item.stock_location) !== String(filterLocation)) return false;
+		if (filterValue && item.value.toString() !== filterValue) return false;
+		return true;
+	});
+
 	onMount(() => {
 		setupRealtimeSubscription();
-		loadLookupData();
 
-		// Auto-load if serial number is provided
 		if (autoLoadSerial) {
 			searchSerialNumber = autoLoadSerial;
-			if (autoFilterValue) {
-				filterValue = autoFilterValue;
-			}
+			if (autoFilterValue) filterValue = autoFilterValue;
 			loadBySerialNumber(autoLoadSerial);
 		}
 
 		return () => {
-			if (subscription) {
-				subscription.unsubscribe();
-			}
+			if (subscription) subscription.unsubscribe();
 		};
 	});
 
 	function setupRealtimeSubscription() {
 		const channelName = `issue_purchase_voucher_${Date.now()}`;
-		console.log('📡 IssuePurchaseVoucher: Setting up realtime subscription');
-		
 		subscription = supabase
 			.channel(channelName)
-			.on(
-				'postgres_changes',
-				{
-					event: '*',
-					schema: 'public',
-					table: 'purchase_voucher_items'
-				},
-				(payload) => {
-					console.log('🎫 IssuePurchaseVoucher: purchase_voucher_items changed', payload.eventType, payload.new?.serial_number || payload.old?.serial_number);
-					handleVoucherItemUpdate(payload);
-				}
-			)
-			.subscribe((status) => {
-				console.log('📡 IssuePurchaseVoucher: Realtime subscription status:', status);
-			});
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_voucher_items' }, (payload) => {
+				handleVoucherItemUpdate(payload);
+			})
+			.subscribe();
 	}
 
 	function handleVoucherItemUpdate(payload) {
 		const { eventType, new: newRecord, old: oldRecord } = payload;
 
 		if (eventType === 'UPDATE' && newRecord) {
-			// If issue_type changed from 'not issued' to something else, remove from list
 			if (newRecord.issue_type !== 'not issued') {
+				// Issued — remove instantly
 				issuedVouchers = issuedVouchers.filter(item => item.id !== newRecord.id);
 				selectedItems.delete(newRecord.id);
-				selectedItems = selectedItems; // Trigger reactivity
-				console.log('🔄 IssuePurchaseVoucher: Removed issued voucher from list:', newRecord.id);
+				selectedItems = selectedItems;
 			} else {
-				// Update the item in place
-				issuedVouchers = issuedVouchers.map(item => {
-					if (item.id === newRecord.id) {
-						return { ...item, ...newRecord };
-					}
-					return item;
-				});
+				// Still not-issued but updated — reload to get resolved names
+				reloadCurrentSearch();
 			}
-		} else if (eventType === 'INSERT' && newRecord) {
-			// Add new non-issued voucher
-			if (newRecord.issue_type === 'not issued') {
-				issuedVouchers = [...issuedVouchers, newRecord];
-			}
+		} else if (eventType === 'INSERT' && newRecord && newRecord.issue_type === 'not issued') {
+			reloadCurrentSearch();
 		} else if (eventType === 'DELETE' && oldRecord) {
 			issuedVouchers = issuedVouchers.filter(item => item.id !== oldRecord.id);
 			selectedItems.delete(oldRecord.id);
@@ -105,176 +86,62 @@
 		}
 	}
 
-	// Get unique filter values
-	$: uniqueValues = {
-		values: [...new Set(issuedVouchers.map((i) => i.value))].sort((a, b) => a - b),
-		locations: [...new Set(issuedVouchers.map((i) => i.stock_location).filter(Boolean))]
-	};
-
-	// Computed filtered list
-	$: filteredVouchers = issuedVouchers.filter((item) => {
-		if (filterSerialNumber && !item.serial_number.toString().includes(filterSerialNumber)) return false;
-		if (filterLocation && item.stock_location !== (filterLocation ? parseInt(filterLocation) : null)) return false;
-		if (filterValue && item.value.toString() !== filterValue) return false;
-		return true;
-	});
+	function reloadCurrentSearch() {
+		if (!hasLoaded) return;
+		if (loadedBy === 'pvId') loadByPVId(loadedValue);
+		else if (loadedBy === 'serial') loadBySerialNumber(loadedValue);
+	}
 
 	async function loadByPVId(pvId) {
-		if (!pvId || !pvId.trim()) {
-			alert('Please enter a PV ID to load');
-			return;
-		}
-		
+		if (!pvId || !pvId.trim()) { alert('Please enter a PV ID to load'); return; }
 		isLoading = true;
-		showTable = true;
 		hasLoaded = true;
 		loadedBy = 'pvId';
 		loadedValue = pvId.trim();
 		selectedItems.clear();
 		selectedItems = selectedItems;
-		
 		try {
-			const vouchersResult = await supabase
-				.from('purchase_voucher_items')
-				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
-				.eq('purchase_voucher_id', pvId.trim())
-				.eq('issue_type', 'not issued')
-				.order('serial_number', { ascending: true });
-
-			if (vouchersResult.error) {
-				console.error('Error loading non-issued vouchers:', vouchersResult.error);
-				issuedVouchers = [];
-			} else {
-				issuedVouchers = vouchersResult.data || [];
-			}
-		} catch (error) {
-			console.error('Error:', error);
-			issuedVouchers = [];
-		} finally {
-			isLoading = false;
-		}
+			const { data, error } = await supabase.rpc('get_issue_pv_vouchers', { p_pv_id: pvId.trim() });
+			if (error) { console.error('Error loading vouchers:', error); issuedVouchers = []; }
+			else { issuedVouchers = data || []; }
+		} catch (error) { console.error('Error:', error); issuedVouchers = []; }
+		finally { isLoading = false; }
 	}
 
 	async function loadBySerialNumber(serialNum) {
-		if (!serialNum || !serialNum.trim()) {
-			alert('Please enter a Serial Number to load');
-			return;
-		}
-		
+		if (!serialNum || !serialNum.trim()) { alert('Please enter a Serial Number to load'); return; }
 		isLoading = true;
-		showTable = true;
 		hasLoaded = true;
 		loadedBy = 'serial';
 		loadedValue = serialNum.trim();
 		selectedItems.clear();
 		selectedItems = selectedItems;
-		
 		try {
-			const vouchersResult = await supabase
-				.from('purchase_voucher_items')
-				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
-				.eq('serial_number', parseInt(serialNum.trim()))
-				.eq('issue_type', 'not issued')
-				.order('purchase_voucher_id', { ascending: true });
-
-			if (vouchersResult.error) {
-				console.error('Error loading non-issued vouchers:', vouchersResult.error);
-				issuedVouchers = [];
-			} else {
-				issuedVouchers = vouchersResult.data || [];
-			}
-		} catch (error) {
-			console.error('Error:', error);
-			issuedVouchers = [];
-		} finally {
-			isLoading = false;
-		}
+			const { data, error } = await supabase.rpc('get_issue_pv_vouchers', { p_serial_number: parseInt(serialNum.trim()) });
+			if (error) { console.error('Error loading vouchers:', error); issuedVouchers = []; }
+			else { issuedVouchers = data || []; }
+		} catch (error) { console.error('Error:', error); issuedVouchers = []; }
+		finally { isLoading = false; }
 	}
 
-	function handleLoadPVIdClick() {
-		loadByPVId(searchPVId);
-	}
-
-	function handleLoadSerialClick() {
-		loadBySerialNumber(searchSerialNumber);
-	}
-
-	function handlePVIdKeyPress(event) {
-		if (event.key === 'Enter') {
-			loadByPVId(searchPVId);
-		}
-	}
-
-	function handleSerialKeyPress(event) {
-		if (event.key === 'Enter') {
-			loadBySerialNumber(searchSerialNumber);
-		}
-	}
-
-	async function loadLookupData() {
-		try {
-			const [branchesResult, usersResult, employeesResult] = await Promise.all([
-				supabase.from('branches').select('id, name_en, location_en').limit(50),
-				supabase.from('users').select('id, username, employee_id').limit(200),
-				supabase.from('hr_employees').select('id, name').limit(200)
-			]);
-
-			// Process branches
-			if (!branchesResult.error && branchesResult.data) {
-				branchMap = {};
-				branchesResult.data.forEach((branch) => {
-					branchMap[branch.id] = `${branch.name_en} - ${branch.location_en}`;
-				});
-				branchMap = branchMap; // Trigger reactivity
-			}
-
-			// Process users and employees
-			if (!usersResult.error && !employeesResult.error) {
-				const users = usersResult.data || [];
-				const employees = employeesResult.data || [];
-
-				const employeeMap = {};
-				employees.forEach((emp) => {
-					employeeMap[emp.id] = emp.name;
-				});
-
-				userEmployeeMap = {};
-				users.forEach((user) => {
-					if (user.employee_id && employeeMap[user.employee_id]) {
-						userEmployeeMap[user.id] = `${user.username} - ${employeeMap[user.employee_id]}`;
-					} else {
-						userEmployeeMap[user.id] = user.username;
-					}
-				});
-				userEmployeeMap = userEmployeeMap; // Trigger reactivity
-			}
-		} catch (error) {
-			console.error('Error loading lookup data:', error);
-		}
-	}
+	function handlePVIdKeyPress(e) { if (e.key === 'Enter') loadByPVId(searchPVId); }
+	function handleSerialKeyPress(e) { if (e.key === 'Enter') loadBySerialNumber(searchSerialNumber); }
 
 	function toggleSelectAll() {
-		if (selectedItems.size === filteredVouchers.length) {
-			selectedItems.clear();
-		} else {
-			filteredVouchers.forEach((item) => selectedItems.add(item.id));
-		}
+		if (selectedItems.size === filteredVouchers.length) selectedItems.clear();
+		else filteredVouchers.forEach(item => selectedItems.add(item.id));
 		selectedItems = selectedItems;
 	}
 
 	function toggleItemSelection(itemId) {
-		if (selectedItems.has(itemId)) {
-			selectedItems.delete(itemId);
-		} else {
-			selectedItems.add(itemId);
-		}
+		if (selectedItems.has(itemId)) selectedItems.delete(itemId);
+		else selectedItems.add(itemId);
 		selectedItems = selectedItems;
 	}
 
 	async function handleIssue(itemId) {
-		const item = issuedVouchers.find((i) => i.id === itemId);
+		const item = issuedVouchers.find(i => i.id === itemId);
 		if (!item) return;
-
 		const windowId = `issue-voucher-${itemId}-${Date.now()}`;
 		openWindow({
 			id: windowId,
@@ -283,26 +150,13 @@
 			icon: '📝',
 			size: { width: 500, height: 350 },
 			position: { x: 400, y: 300 },
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true,
-			props: {
-				item,
-				itemId,
-				windowId,
-				onIssueComplete: () => {
-					// Realtime will handle removing the voucher from the list
-					// No need to reload the entire table
-					console.log('✅ Issue complete - realtime will update the list');
-				}
-			}
+			resizable: true, minimizable: true, maximizable: true, closable: true,
+			props: { item, itemId, windowId, onIssueComplete: () => console.log('✅ Issue complete - realtime will update') }
 		});
 	}
 
 	async function handleBatchIssue() {
 		if (selectedItems.size === 0) return;
-
 		const windowId = `batch-issue-${Date.now()}`;
 		openWindow({
 			id: windowId,
@@ -311,518 +165,254 @@
 			icon: '📦',
 			size: { width: 500, height: 350 },
 			position: { x: 450, y: 350 },
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true,
+			resizable: true, minimizable: true, maximizable: true, closable: true,
 			props: {
 				itemIds: Array.from(selectedItems),
 				count: selectedItems.size,
 				windowId,
-				onIssueComplete: () => {
-					// Realtime will handle removing the vouchers from the list
-					// Just clear the selection
-					selectedItems.clear();
-					selectedItems = selectedItems;
-					console.log('✅ Batch issue complete - realtime will update the list');
-				}
+				onIssueComplete: () => { selectedItems.clear(); selectedItems = selectedItems; }
 			}
 		});
 	}
 </script>
 
-<div class="issue-purchase-voucher">
-	<div class="header">
-		<h2>Issue Purchase Vouchers</h2>
-		{#if selectedCount > 0}
-			<button class="batch-button" on:click={handleBatchIssue}>
-				Batch Issue ({selectedCount})
-			</button>
-		{/if}
-	</div>
-
-	<!-- Search Section -->
-	<div class="search-section">
-		<div class="search-options">
-			<div class="search-box">
-				<label for="pvIdSearch">Search by PV ID</label>
-				<div class="search-input-group">
-					<input 
-						type="text" 
-						id="pvIdSearch"
-						placeholder="Enter PV ID (e.g., 100PV0001)" 
-						bind:value={searchPVId}
-						on:keypress={handlePVIdKeyPress}
-						class="pv-search-input"
-					/>
-					<button class="load-button" on:click={handleLoadPVIdClick} disabled={isLoading}>
-						{isLoading ? 'Loading...' : 'Load'}
-					</button>
-				</div>
-			</div>
-			
-			<div class="search-divider">
-				<span>OR</span>
-			</div>
-			
-			<div class="search-box">
-				<label for="serialSearch">Search by Serial Number</label>
-				<div class="search-input-group">
-					<input 
-						type="text" 
-						id="serialSearch"
-						placeholder="Enter Serial Number (e.g., 101)" 
-						bind:value={searchSerialNumber}
-						on:keypress={handleSerialKeyPress}
-						class="pv-search-input"
-					/>
-					<button class="load-button serial-btn" on:click={handleLoadSerialClick} disabled={isLoading}>
-						{isLoading ? 'Loading...' : 'Load'}
-					</button>
-				</div>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header Bar -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">📝</span>
+			<div>
+				<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">Issue Purchase Vouchers</h2>
+				<p class="text-[11px] text-slate-500">Search by PV ID or Serial Number to load non-issued vouchers</p>
 			</div>
 		</div>
-		
-		{#if hasLoaded && loadedValue}
-			<div class="current-pv">
-				Currently loaded by {loadedBy === 'pvId' ? 'PV ID' : 'Serial Number'}: <strong>{loadedValue}</strong>
-			</div>
-		{/if}
+		<div class="flex gap-2">
+			{#if selectedCount > 0}
+				<button
+					class="group flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-200 hover:bg-amber-600 hover:shadow-xl hover:scale-[1.02]"
+					on:click={handleBatchIssue}
+				>
+					<span class="text-base">📦</span>
+					<span>Batch Issue ({selectedCount})</span>
+				</button>
+			{/if}
+		</div>
 	</div>
 
-	{#if !isLoading && issuedVouchers.length > 0}
-		<div class="stats-card">
-			<div class="stat-item">
-				<div class="stat-label">Total Loaded</div>
-				<div class="stat-value">{issuedVouchers.length}</div>
-			</div>
-			<div class="stat-item">
-				<div class="stat-label">Filtered Results</div>
-				<div class="stat-value">{filteredVouchers.length}</div>
-			</div>
-			<div class="stat-item">
-				<div class="stat-label">Selected</div>
-				<div class="stat-value highlight">{selectedCount}</div>
-			</div>
-		</div>
-	{/if}
+	<!-- Main Content -->
+	<div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<!-- Decorative blurs -->
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-cyan-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-	{#if hasLoaded}
-		{#if isLoading}
-			<div class="loading">Loading non-issued vouchers...</div>
-		{:else if issuedVouchers.length === 0}
-			<div class="empty-state">No non-issued vouchers found for {loadedBy === 'pvId' ? 'PV ID' : 'Serial Number'}: {loadedValue}</div>
-		{:else}
-			<div class="filters-section">
-				<div class="filter-row">
-					<div class="filter-group">
-						<label>Serial Number</label>
-						<input type="text" placeholder="Search serial" bind:value={filterSerialNumber} />
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+
+			<!-- Search Section -->
+			<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-5 mb-4">
+				<div class="flex gap-5 items-end">
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="pvIdSearch">Search by PV ID</label>
+						<div class="flex gap-3">
+							<input
+								type="text"
+								id="pvIdSearch"
+								placeholder="Enter PV ID (e.g., 100PV0001)"
+								bind:value={searchPVId}
+								on:keypress={handlePVIdKeyPress}
+								class="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+							/>
+							<button
+								class="px-6 py-2.5 text-xs font-black uppercase tracking-wide bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 hover:shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+								on:click={() => loadByPVId(searchPVId)}
+								disabled={isLoading}
+							>{isLoading ? 'Loading...' : 'Load'}</button>
+						</div>
 					</div>
-					<div class="filter-group">
-						<label>Stock Location</label>
-						<select bind:value={filterLocation}>
-							<option value="">All Locations</option>
-							{#each uniqueValues.locations as locId}
-								<option value={locId}>{branchMap[locId] || locId}</option>
-							{/each}
-						</select>
+
+					<div class="flex items-center pb-2">
+						<span class="px-3 py-1 bg-slate-200 rounded-full text-[10px] font-black uppercase text-slate-500">OR</span>
 					</div>
-					<div class="filter-group">
-						<label>Value</label>
-						<select bind:value={filterValue}>
-							<option value="">All Values</option>
-							{#each uniqueValues.values as val}
-								<option value={val.toString()}>{val}</option>
-							{/each}
-						</select>
+
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="serialSearch">Search by Serial Number</label>
+						<div class="flex gap-3">
+							<input
+								type="text"
+								id="serialSearch"
+								placeholder="Enter Serial Number (e.g., 101)"
+								bind:value={searchSerialNumber}
+								on:keypress={handleSerialKeyPress}
+								class="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							/>
+							<button
+								class="px-6 py-2.5 text-xs font-black uppercase tracking-wide bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+								on:click={() => loadBySerialNumber(searchSerialNumber)}
+								disabled={isLoading}
+							>{isLoading ? 'Loading...' : 'Load'}</button>
+						</div>
 					</div>
 				</div>
+
+				{#if hasLoaded && loadedValue}
+					<div class="mt-3 px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-semibold">
+						Currently loaded by {loadedBy === 'pvId' ? 'PV ID' : 'Serial Number'}: <strong class="font-black">{loadedValue}</strong>
+					</div>
+				{/if}
 			</div>
-			<div class="table-wrapper">
-				<table class="vouchers-table">
-					<thead>
-						<tr>
-							<th style="width: 40px;">
-								<input type="checkbox" checked={selectedItems.size === filteredVouchers.length && filteredVouchers.length > 0} on:change={toggleSelectAll} />
-							</th>
-							<th>Voucher ID</th>
-							<th>Serial Number</th>
-							<th>Value</th>
-							<th>Stock</th>
-							<th>Status</th>
-							<th>Issue Type</th>
-							<th>Stock Location</th>
-							<th>Stock Person</th>
-							<th>Action</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each filteredVouchers as item (item.id)}
-							<tr>
-								<td style="width: 40px;">
-									<input type="checkbox" checked={selectedItems.has(item.id)} on:change={() => toggleItemSelection(item.id)} />
-								</td>
-								<td>{item.purchase_voucher_id}</td>
-								<td>{item.serial_number}</td>
-								<td>{item.value}</td>
-								<td><span class="stock-badge">{item.stock}</span></td>
-								<td><span class="status-badge" class:stocked={item.status === 'stocked'} class:issued={item.status === 'issued'} class:closed={item.status === 'closed'}>{item.status}</span></td>
-								<td>{item.issue_type}</td>
-							<td>{item.stock_location ? branchMap[item.stock_location] || item.stock_location : '-'}</td>
-							<td>{item.stock_person ? userEmployeeMap[item.stock_person] || item.stock_person : '-'}</td>							<td>
-								<button class="issue-btn" on:click={() => handleIssue(item.id)}>Issue</button>
-							</td>							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-	{/if}
+
+			{#if hasLoaded}
+				{#if isLoading}
+					<div class="flex items-center justify-center flex-1">
+						<div class="text-center">
+							<div class="animate-spin inline-block">
+								<div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full"></div>
+							</div>
+							<p class="mt-4 text-slate-600 font-semibold">Loading non-issued vouchers...</p>
+						</div>
+					</div>
+
+				{:else if issuedVouchers.length === 0}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📭</div>
+						<p class="text-slate-600 font-semibold">No non-issued vouchers found</p>
+						<p class="text-sm text-slate-400 mt-1">for {loadedBy === 'pvId' ? 'PV ID' : 'Serial Number'}: {loadedValue}</p>
+					</div>
+
+				{:else}
+					<!-- Stats Cards -->
+					<div class="grid grid-cols-3 gap-3 mb-4">
+						<div class="bg-white/50 backdrop-blur-sm rounded-2xl border border-slate-200 p-4 text-center">
+							<div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Total Loaded</div>
+							<div class="text-2xl font-black text-slate-800">{issuedVouchers.length}</div>
+						</div>
+						<div class="bg-white/50 backdrop-blur-sm rounded-2xl border border-slate-200 p-4 text-center">
+							<div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Filtered</div>
+							<div class="text-2xl font-black text-slate-800">{filteredVouchers.length}</div>
+						</div>
+						<div class="bg-amber-500/10 backdrop-blur-sm rounded-2xl border border-amber-200 p-4 text-center">
+							<div class="text-[11px] font-bold uppercase tracking-wide text-amber-600 mb-1">Selected</div>
+							<div class="text-2xl font-black text-amber-700">{selectedCount}</div>
+						</div>
+					</div>
+
+					<!-- Filters Row -->
+					<div class="mb-4 grid grid-cols-3 gap-3">
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="ipv-filterSerial">Serial Number</label>
+							<input
+								id="ipv-filterSerial"
+								type="text"
+								placeholder="Search serial..."
+								bind:value={filterSerialNumber}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="ipv-filterLocation">Stock Location</label>
+							<select id="ipv-filterLocation" bind:value={filterLocation}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All Locations</option>
+								{#each uniqueLocations as [locId, locName]}
+									<option value={locId} style="color: #000 !important;">{locName || locId}</option>
+								{/each}
+							</select>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="ipv-filterValue">Value</label>
+							<select id="ipv-filterValue" bind:value={filterValue}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All Values</option>
+								{#each uniqueFilterValues as val}
+									<option value={val.toString()} style="color: #000 !important;">{val}</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+
+					<!-- Table Card -->
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+						<div class="overflow-auto flex-1">
+							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-indigo-500/30 [&_td]:border-x [&_td]:border-slate-200">
+								<thead class="sticky top-0 bg-indigo-600 text-white shadow-lg z-10">
+									<tr>
+										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400 w-10">
+											<input
+												type="checkbox"
+												checked={selectedItems.size === filteredVouchers.length && filteredVouchers.length > 0}
+												on:change={toggleSelectAll}
+												class="w-4 h-4 cursor-pointer rounded accent-indigo-300"
+											/>
+										</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Voucher ID</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Serial #</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Value</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Stock</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Status</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Issue Type</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Location</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Stock Person</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">Action</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200">
+									{#each filteredVouchers as item, index (item.id)}
+										<tr class="transition-colors duration-200 {selectedItems.has(item.id) ? 'bg-indigo-50/40' : index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} hover:bg-indigo-50/30">
+											<td class="px-3 py-3 text-center">
+												<input
+													type="checkbox"
+													checked={selectedItems.has(item.id)}
+													on:change={() => toggleItemSelection(item.id)}
+													class="w-4 h-4 cursor-pointer rounded accent-indigo-500"
+												/>
+											</td>
+											<td class="px-4 py-3 text-sm text-slate-700 font-semibold">{item.purchase_voucher_id}</td>
+											<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{item.serial_number}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-emerald-700">{item.value}</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-slate-100 text-slate-700">{item.stock}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												{#if item.status === 'stocked'}
+													<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-100 text-blue-800">Stocked</span>
+												{:else if item.status === 'issued'}
+													<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800">Issued</span>
+												{:else if item.status === 'closed'}
+													<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">Closed</span>
+												{:else}
+													<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-red-100 text-red-800">{item.status}</span>
+												{/if}
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-indigo-100 text-indigo-800">{item.issue_type}</span>
+											</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_location_name || '-'}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_person_name || '-'}</td>
+											<td class="px-4 py-3 text-center">
+												<button
+													class="px-3 py-1.5 text-[10px] font-black uppercase tracking-wide bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all duration-200 hover:shadow-md"
+													on:click={() => handleIssue(item.id)}
+												>Issue</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<!-- Footer -->
+						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+							Showing {filteredVouchers.length} of {issuedVouchers.length} vouchers
+						</div>
+					</div>
+				{/if}
+			{/if}
+		</div>
+	</div>
 </div>
 
 <style>
-	.issue-purchase-voucher {
-		width: 100%;
-		height: 100%;
-		padding: 24px;
-		background: #f8fafc;
-	}
-
-	.header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 16px;
-	}
-
-	.header h2 {
-		margin: 0;
-		font-size: 24px;
-		font-weight: 700;
-		color: #1f2937;
-	}
-
-	.search-section {
-		background: white;
-		padding: 16px 20px;
-		border-radius: 12px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		margin-bottom: 20px;
-	}
-
-	.search-box label {
-		display: block;
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 8px;
-	}
-
-	.search-input-group {
-		display: flex;
-		gap: 12px;
-	}
-
-	.pv-search-input {
-		flex: 1;
-		padding: 12px 16px;
-		font-size: 16px;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		transition: border-color 0.2s;
-	}
-
-	.pv-search-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-	}
-
-	.load-button {
-		padding: 12px 28px;
-		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-size: 16px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.load-button:hover:not(:disabled) {
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.load-button:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.load-button.serial-btn {
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-	}
-
-	.load-button.serial-btn:hover:not(:disabled) {
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-	}
-
-	.search-options {
-		display: flex;
-		gap: 20px;
-		align-items: flex-end;
-	}
-
-	.search-options .search-box {
-		flex: 1;
-	}
-
-	.search-divider {
-		display: flex;
-		align-items: center;
-		padding-bottom: 8px;
-	}
-
-	.search-divider span {
-		padding: 6px 12px;
-		background: #e5e7eb;
-		border-radius: 20px;
-		font-size: 12px;
-		font-weight: 600;
-		color: #6b7280;
-	}
-
-	.current-pv {
-		margin-top: 12px;
-		padding: 8px 12px;
-		background: #f0fdf4;
-		border: 1px solid #86efac;
-		border-radius: 6px;
-		font-size: 14px;
-		color: #166534;
-	}
-
-	.batch-button {
-		padding: 12px 24px;
-		background: #f59e0b;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.batch-button:hover {
-		background: #d97706;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
-	}
-
-	.stats-card {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: 16px;
-		margin-bottom: 20px;
-		padding: 16px;
-		background: white;
-		border-radius: 12px;
-		border: 1px solid #e5e7eb;
-		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-	}
-
-	.stat-item {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		padding: 12px;
-		background: #f9fafb;
-		border-radius: 8px;
-		border-left: 3px solid #3b82f6;
-	}
-
-	.stat-label {
-		font-size: 12px;
-		font-weight: 600;
-		color: #6b7280;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.stat-value {
-		font-size: 28px;
-		font-weight: 700;
-		color: #1f2937;
-	}
-
-	.stat-value.highlight {
-		color: #f59e0b;
-	}
-
-	.loading,
-	.empty-state {
-		padding: 32px 24px;
-		text-align: center;
-		color: #6b7280;
-		font-size: 14px;
-		background: white;
-		border-radius: 12px;
-		border: 1px solid #e5e7eb;
-	}
-
-	.table-wrapper {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		overflow: auto;
-		max-height: 600px;
-		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-	}
-
-	.vouchers-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 13px;
-	}
-
-	.vouchers-table thead {
-		background: #f9fafb;
-		position: sticky;
-		top: 0;
-	}
-
-	.vouchers-table th {
-		padding: 12px 16px;
-		text-align: left;
-		font-weight: 600;
-		color: #374151;
-		border-bottom: 1px solid #e5e7eb;
-		white-space: nowrap;
-	}
-
-	.vouchers-table td {
-		padding: 12px 16px;
-		border-bottom: 1px solid #f3f4f6;
-		color: #4b5563;
-	}
-
-	.vouchers-table tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.status-badge {
-		display: inline-block;
-		padding: 4px 10px;
-		border-radius: 6px;
-		font-size: 11px;
-		font-weight: 600;
-		background: #fee2e2;
-		color: #dc2626;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.status-badge.stocked {
-		background: #dbeafe;
-		color: #1e40af;
-	}
-
-	.status-badge.issued {
-		background: #fef08a;
-		color: #a16207;
-	}
-
-	.status-badge.closed {
-		background: #dcfce7;
-		color: #16a34a;
-	}
-
-	.stock-badge {
-		display: inline-block;
-		padding: 2px 8px;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 600;
-		background: #f3f4f6;
-		color: #374151;
-	}
-
-	.issue-btn {
-		padding: 6px 12px;
-		background: #10b981;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.2s;
-		white-space: nowrap;
-	}
-
-	.issue-btn:hover {
-		background: #059669;
-		transform: translateY(-1px);
-		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-	}
-
-	.issue-btn:active {
-		transform: translateY(0);
-	}
-
-	input[type='checkbox'] {
-		cursor: pointer;
-		width: 16px;
-		height: 16px;
-	}
-
-	.filters-section {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		padding: 16px;
-		margin-bottom: 16px;
-		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-	}
-
-	.filter-row {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 12px;
-	}
-
-	.filter-group {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.filter-group label {
-		font-size: 12px;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.filter-group input,
-	.filter-group select {
-		padding: 8px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 13px;
-		background: white;
-		color: #1f2937;
-	}
-
-	.filter-group input:focus,
-	.filter-group select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-	}
-
-	.filter-group select {
-		cursor: pointer;
+	:global(.font-sans) {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	}
 </style>

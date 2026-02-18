@@ -61,21 +61,40 @@
 	let subscription;
 	let ignoreReloadUntil = 0; // Timestamp to ignore reloads until
 
+	let isComponentMounted = true;
+
 	// Debounce book summary updates to batch multiple realtime events
 	let pendingBookUpdates = new Set();
 	let bookUpdateTimeout = null;
 
-	onMount(async () => {
-		// Load branches and users
-		await loadBranches();
-		await loadUsers();
-		await loadEmployees();
+	// Reactive lookup maps
+	$: branchMap = branches.reduce((map, b) => {
+		map[b.id] = `${b.name_en} - ${b.location_en}`;
+		return map;
+	}, {});
 
-		// Subscribe to real-time changes
+	$: employeeMap = employees.reduce((map, e) => {
+		map[e.id] = e.name;
+		return map;
+	}, {});
+
+	$: userEmployeeMap = users.reduce((map, u) => {
+		const empName = employeeMap[u.employee_id];
+		map[u.id] = empName ? `${u.username} - ${empName}` : u.username;
+		return map;
+	}, {});
+
+	$: userNameMap = users.reduce((map, u) => {
+		map[u.id] = u.username;
+		return map;
+	}, {});
+
+	onMount(async () => {
+		await loadAllData();
 		setupRealtimeSubscriptions();
 
 		return () => {
-			// Cleanup subscription on unmount
+			isComponentMounted = false;
 			if (subscription) {
 				subscription.unsubscribe();
 			}
@@ -128,7 +147,7 @@
 					console.log('📦 Realtime: purchase_vouchers changed', payload.eventType);
 					// For book changes, reload book summary
 					if (showManagePerBook) {
-						loadBookSummary();
+						loadAllData();
 					}
 				}
 			)
@@ -318,169 +337,42 @@
 		}
 	}
 
-	async function loadBranches() {
-		try {
-			const { data, error } = await supabase
-				.from('branches')
-				.select('id, name_en, location_en')
-				.limit(100);
-			if (!error) {
-				branches = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading branches:', error);
-		}
-	}
-
-	async function loadUsers() {
-		try {
-			const { data, error } = await supabase
-				.from('users')
-				.select('id, username, employee_id')
-				.limit(500);
-			if (!error) {
-				users = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading users:', error);
-		}
-	}
-
-	async function loadEmployees() {
-		try {
-			const { data, error } = await supabase
-				.from('hr_employees')
-				.select('id, name')
-				.limit(500);
-			if (!error) {
-				employees = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading employees:', error);
-		}
-	}
-
-	async function loadRequesters() {
-		try {
-			const { data, error } = await supabase
-				.from('requesters')
-				.select('*')
-				.limit(100);
-			if (!error) {
-				requesters = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading requesters:', error);
-		}
-	}
-
-	async function loadBookSummary() {
+	// Single RPC call to load ALL data (book summary + lookups)
+	async function loadAllData() {
+		if (!isComponentMounted) return;
 		isLoading = true;
 		try {
-			// Use parallel queries with limits for faster loading
-			const [vouchersRes, itemsRes] = await Promise.all([
-				supabase
-					.from('purchase_vouchers')
-					.select('id, book_number, serial_start, serial_end, voucher_count, total_value')
-					.limit(1000),
-				supabase
-					.from('purchase_voucher_items')
-					.select('purchase_voucher_id, value, stock, status, stock_location, stock_person')
-					.limit(10000)
-			]);
+			const { data: rpcResult, error } = await supabase.rpc('get_pv_stock_manager_data');
 
-			if (vouchersRes.error || itemsRes.error) {
-				console.error('Error loading data:', vouchersRes.error || itemsRes.error);
-				bookSummary = [];
+			if (error) {
+				console.error('Error loading stock manager data:', error);
 				return;
 			}
 
-			const vouchers = vouchersRes.data || [];
-			const items = itemsRes.data || [];
+			branches = rpcResult.branches || [];
+			users = rpcResult.users || [];
+			employees = rpcResult.employees || [];
 
-			// Create a map of vouchers for quick lookup
-			const voucherMap = {};
-			vouchers.forEach(v => {
-				voucherMap[v.id] = v;
-			});
+			// Build lookup maps for display names
+			const _branchMap = {};
+			branches.forEach(b => { _branchMap[b.id] = `${b.name_en} - ${b.location_en}`; });
 
-			// Group items by purchase_voucher_id
-			const grouped = {};
-			items.forEach(item => {
-				const vid = item.purchase_voucher_id;
-				if (!grouped[vid]) {
-					const voucher = voucherMap[vid];
-					grouped[vid] = {
-						voucher_id: vid,
-						book_number: voucher?.book_number || vid,
-						serial_range: voucher ? `${voucher.serial_start} - ${voucher.serial_end}` : '-',
-						total_count: 0,
-						total_value: 0,
-						stock_count: 0,
-						stocked_count: 0,
-						issued_count: 0,
-						closed_count: 0,
-						stock_locations: new Set(),
-						stock_persons: new Set()
-					};
-				}
-				
-				grouped[vid].total_count += 1;
-				grouped[vid].total_value += item.value || 0;
-				
-				if (item.stock > 0) {
-					grouped[vid].stock_count += 1;
-				}
-				
-				if (item.status === 'stocked') {
-					grouped[vid].stocked_count += 1;
-				} else if (item.status === 'issued') {
-					grouped[vid].issued_count += 1;
-				} else if (item.status === 'closed') {
-					grouped[vid].closed_count += 1;
-				}
+			const _userNameMap = {};
+			users.forEach(u => { _userNameMap[u.id] = u.username; });
 
-				if (item.stock_location) {
-					grouped[vid].stock_locations.add(item.stock_location);
-				}
-				if (item.stock_person) {
-					grouped[vid].stock_persons.add(item.stock_person);
-				}
-			});
-
-			// Create lookup maps
-			const branchMap = {};
-			branches.forEach(b => {
-				branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
-			});
-
-			const employeeMap = {};
-			employees.forEach(e => {
-				employeeMap[e.id] = e.name;
-			});
-
-			const userEmployeeMap = {};
-			users.forEach(u => {
-				const empName = employeeMap[u.employee_id];
-				userEmployeeMap[u.id] = empName ? `${u.username} - ${empName}` : u.username;
-			});
-
-			// Convert Sets to arrays and resolve names
-			const allBooks = Object.values(grouped).map(book => {
-				const locIds = Array.from(book.stock_locations);
-				book.stock_locations = locIds.map(id => branchMap[id] || `Unknown (${id})`).join(', ') || '-';
-				
-				const personIds = Array.from(book.stock_persons);
-				book.stock_persons = personIds.map(id => userEmployeeMap[id] || `Unknown (${id})`).join(', ') || '-';
-				
-				return book;
-			});
-
-			// Sort to show unassigned records first, then assigned records
-			bookSummary = allBooks.sort((a, b) => {
-				const aUnassigned = a.stock_locations === '-' || a.stock_persons === '-' ? 0 : 1;
-				const bUnassigned = b.stock_locations === '-' || b.stock_persons === '-' ? 0 : 1;
-				return aUnassigned - bUnassigned;
+			// Book Summary
+			bookSummary = (rpcResult.book_summary || []).map(book => {
+				const locIds = book.stock_locations || [];
+				const personIds = book.stock_persons || [];
+				return {
+					...book,
+					stock_locations: locIds.length > 0
+						? locIds.map(id => _branchMap[id] || `Unknown (${id})`).join(', ')
+						: '-',
+					stock_persons: personIds.length > 0
+						? personIds.map(id => _userNameMap[id] || `Unknown (${id})`).join(', ')
+						: '-'
+				};
 			});
 
 			// Build unique filter options for books
@@ -489,10 +381,11 @@
 			uniqueBookLocations = [...new Set(bookSummary.map(b => b.stock_locations))];
 			uniqueBookPersons = [...new Set(bookSummary.map(b => b.stock_persons))];
 
-			// Apply filters
 			applyBookFilters();
+
+			console.log(`📦 PV Stock Manager: Loaded ${bookSummary.length} books, ${branches.length} branches, ${users.length} users via RPC`);
 		} catch (error) {
-			console.error('Error:', error);
+			console.error('Error in loadAllData:', error);
 		} finally {
 			isLoading = false;
 		}
@@ -502,7 +395,7 @@
 		showManagePerBook = true;
 		showManagePerVoucher = false;
 		selectedBooks.clear();
-		loadBookSummary();
+		loadAllData();
 	}
 
 	function handleManagePerVoucher() {
@@ -791,62 +684,57 @@
 
 	async function loadVoucherItems() {
 		isLoading = true;
-		try {
-			// Load all unassigned voucher items
-			const { data, error } = await supabase
-				.from('purchase_voucher_items')
-				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
-				.limit(10000);
+		voucherItems = [];
+		const CHUNK_SIZE = 2000;
 
-			if (error) {
-				console.error('Error loading voucher items:', error);
+		try {
+			// First call to get total count + first chunk
+			const { data: firstData, error: firstError } = await supabase.rpc('get_pv_stock_voucher_items', { p_offset: 0, p_limit: CHUNK_SIZE });
+
+			if (firstError) {
+				console.error('Error loading voucher items via RPC:', firstError);
 				voucherItems = [];
 				return;
 			}
 
-			// Create lookup maps
-			const branchMap = {};
-			branches.forEach(b => {
-				branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
-			});
+			const totalCount = firstData?.total_count || 0;
+			let allItems = firstData?.items || [];
+			console.log(`📦 Chunk 1: ${allItems.length} items (total: ${totalCount})`);
 
-			const employeeMap = {};
-			employees.forEach(e => {
-				employeeMap[e.id] = e.name;
-			});
+			// Fire remaining chunks in parallel
+			if (totalCount > CHUNK_SIZE) {
+				const remainingChunks = [];
+				for (let offset = CHUNK_SIZE; offset < totalCount; offset += CHUNK_SIZE) {
+					remainingChunks.push(
+						supabase.rpc('get_pv_stock_voucher_items', { p_offset: offset, p_limit: CHUNK_SIZE })
+					);
+				}
 
-			const userEmployeeMap = {};
-			users.forEach(u => {
-				const empName = employeeMap[u.employee_id];
-				userEmployeeMap[u.id] = empName ? `${u.username} - ${empName}` : u.username;
-			});
+				const results = await Promise.all(remainingChunks);
+				for (const result of results) {
+					if (result.error) {
+						console.error('Error loading chunk:', result.error);
+					} else {
+						const chunkItems = result.data?.items || [];
+						allItems = [...allItems, ...chunkItems];
+					}
+				}
+			}
 
-			// Filter and format items - show all with unassigned first
-			const filteredItems = (data || [])
-				.map(item => ({
-					...item,
-					stock_location_name: item.stock_location ? branchMap[item.stock_location] : '-',
-					stock_person_name: item.stock_person ? userEmployeeMap[item.stock_person] : '-'
-				}))
-				.sort((a, b) => {
-					const aUnassigned = !a.stock_location || !a.stock_person ? 0 : 1;
-					const bUnassigned = !b.stock_location || !b.stock_person ? 0 : 1;
-					return aUnassigned - bUnassigned;
-				});
+			voucherItems = allItems;
+			console.log(`📦 Loaded ${voucherItems.length} voucher items via parallel RPC (${Math.ceil(totalCount / CHUNK_SIZE)} chunks)`);
 
-			voucherItems = filteredItems;
-			
 			// Build unique filter options
-			uniquePVIds = [...new Set(filteredItems.map(i => i.purchase_voucher_id))];
-			uniqueValues = [...new Set(filteredItems.map(i => i.value))];
-			uniqueStatuses = [...new Set(filteredItems.map(i => i.status))];
-			uniqueLocations = [...new Set(filteredItems.map(i => i.stock_location_name))];
-			uniquePersons = [...new Set(filteredItems.map(i => i.stock_person_name))];
-			
-			// Apply filters
+			uniquePVIds = [...new Set(voucherItems.map(i => i.purchase_voucher_id))];
+			uniqueValues = [...new Set(voucherItems.map(i => i.value))];
+			uniqueStatuses = [...new Set(voucherItems.map(i => i.status))];
+			uniqueLocations = [...new Set(voucherItems.map(i => i.stock_location_name))];
+			uniquePersons = [...new Set(voucherItems.map(i => i.stock_person_name))];
+
 			applyFilters();
 		} catch (error) {
 			console.error('Error:', error);
+			voucherItems = [];
 		} finally {
 			isLoading = false;
 		}
@@ -855,7 +743,7 @@
 	// Manual refresh function
 	function handleRefresh() {
 		if (showManagePerBook) {
-			loadBookSummary();
+			loadAllData();
 		} else if (showManagePerVoucher) {
 			loadVoucherItems();
 		}
@@ -944,289 +832,405 @@
 	}
 </script>
 
-<div class="stock-manager">
-	<div class="button-group">
-		<button class="action-button" on:click={handleManagePerBook}>Manage Per Book</button>
-		<button class="action-button" on:click={handleManagePerVoucher}>Manage Per Voucher</button>
-		{#if showManagePerBook || showManagePerVoucher}
-			<button class="action-button refresh-btn" on:click={handleRefresh} title="Refresh data">
-				🔄 Refresh
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header / Navigation Bar -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<!-- View Mode Tabs -->
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+				{showManagePerBook
+					? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]'
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={handleManagePerBook}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📚</span>
+				<span class="relative z-10">Per Book</span>
+				{#if showManagePerBook}
+					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+				{/if}
 			</button>
-		{/if}
+			<button
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+				{showManagePerVoucher
+					? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={handleManagePerVoucher}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">🎫</span>
+				<span class="relative z-10">Per Voucher</span>
+				{#if showManagePerVoucher}
+					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+				{/if}
+			</button>
+			{#if showManagePerBook || showManagePerVoucher}
+				<button
+					class="group relative flex items-center gap-2.5 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden text-slate-500 hover:bg-white hover:text-emerald-700 hover:shadow-md"
+					on:click={handleRefresh}
+					title="Refresh data"
+				>
+					<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-180">🔄</span>
+					<span class="relative z-10">Refresh</span>
+				</button>
+			{/if}
+		</div>
+
+		<!-- Right side action buttons -->
+		<div class="flex gap-2">
+			{#if showManagePerBook}
+				<button
+					class="group flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-teal-600 text-white shadow-lg shadow-teal-200 hover:bg-teal-700 hover:shadow-xl hover:scale-[1.02]"
+					on:click={openExportModal}
+				>
+					<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📊</span>
+					<span>Export Excel</span>
+				</button>
+			{/if}
+			{#if showManagePerBook && selectedBooks.size > 0}
+				<button
+					class="group flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-purple-600 text-white shadow-lg shadow-purple-200 hover:bg-purple-700 hover:shadow-xl hover:scale-[1.02]"
+					on:click={openBatchAssignBooksModal}
+				>
+					<span class="text-base">✅</span>
+					<span>Assign {selectedBooks.size} Book(s)</span>
+				</button>
+			{/if}
+			{#if showManagePerVoucher && selectedItems.size > 0}
+				<button
+					class="group flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-purple-600 text-white shadow-lg shadow-purple-200 hover:bg-purple-700 hover:shadow-xl hover:scale-[1.02]"
+					on:click={openBatchAssignModal}
+				>
+					<span class="text-base">✅</span>
+					<span>Assign {selectedItems.size} Voucher(s)</span>
+				</button>
+			{/if}
+		</div>
 	</div>
 
-	{#if showManagePerBook}
-		<div class="section-content">
-			<h3>Manage Per Book</h3>
-			{#if isLoading}
-				<div class="loading">Loading data...</div>
-			{:else if bookSummary.length === 0}
-				<div class="empty-state">No records found</div>
-			{:else}
-				<!-- Filters Section -->
-				<div class="filters-section">
-					<div class="filter-group">
-						<label for="filterBookPVId">PV ID</label>
-						<input 
-							id="filterBookPVId" 
-							type="text" 
-							placeholder="Search PV ID" 
-							bind:value={filterBookPVId} 
-							on:input={handleBookFilterChange} 
-							class="form-input"
-						/>
-					</div>
+	<!-- Main Content Area -->
+	<div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<!-- Decorative background blurs -->
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-					<div class="filter-group">
-						<label for="filterBookNumber">Book Number</label>
-						<input 
-							id="filterBookNumber" 
-							type="text" 
-							placeholder="Enter book number" 
-							bind:value={filterBookNumber} 
-							on:input={handleBookFilterChange} 
-							class="form-input"
-						/>
-					</div>
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
 
-					<div class="filter-group">
-						<label for="filterBookStockLocation">Stock Location</label>
-						<select id="filterBookStockLocation" bind:value={filterBookStockLocation} on:change={handleBookFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueBookLocations as location}
-								<option value={location}>{location}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="filter-group">
-						<label for="filterBookStockPerson">Stock Person</label>
-						<select id="filterBookStockPerson" bind:value={filterBookStockPerson} on:change={handleBookFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueBookPersons as person}
-								<option value={person}>{person}</option>
-							{/each}
-						</select>
+			{#if !showManagePerBook && !showManagePerVoucher}
+				<!-- Welcome / Empty State -->
+				<div class="flex-1 flex items-center justify-center">
+					<div class="text-center">
+						<div class="text-6xl mb-4">📦</div>
+						<h2 class="text-xl font-black text-slate-700 mb-2">Purchase Voucher Stock Manager</h2>
+						<p class="text-sm text-slate-500">Select <strong>Per Book</strong> or <strong>Per Voucher</strong> to start managing stock</p>
 					</div>
 				</div>
 
-				<!-- Export and Batch Action Section -->
-				<div class="batch-action-section">
-					<button class="export-btn" on:click={openExportModal}>📊 Export to Excel</button>
-					{#if selectedBooks.size > 0}
-						<span class="selection-info">{selectedBooks.size} book(s) selected</span>
-						<button class="assign-btn" on:click={openBatchAssignBooksModal}>Assign Selected</button>
-					{/if}
+			{:else if isLoading}
+				<!-- Loading State -->
+				<div class="flex items-center justify-center flex-1">
+					<div class="text-center">
+						<div class="animate-spin inline-block">
+							<div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
+						</div>
+						<p class="mt-4 text-slate-600 font-semibold">Loading data...</p>
+					</div>
 				</div>
-				<div class="table-wrapper">
-					<table class="summary-table">
-						<thead>
-							<tr>
-								<th style="width: 40px;">
-									<input
-										type="checkbox"
-										checked={selectedBooks.size === filteredBookSummary.length && filteredBookSummary.length > 0}
-										on:change={toggleSelectAllBooks}
-										class="row-checkbox"
-									/>
-								</th>
-								<th>Voucher ID</th>
-								<th>Book Number</th>
-								<th>Serial Range</th>
-								<th>Total Count</th>
-								<th>Total Value</th>
-								<th>Stock Count</th>
-								<th>Stocked</th>
-								<th>Issued</th>
-								<th>Closed</th>
-								<th>Stock Location</th>
-								<th>Stock Person</th>
-								<th>Action</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each filteredBookSummary as book (book.voucher_id)}
-								<tr class:selected={selectedBooks.has(book.voucher_id)}>
-									<td>
-										<input
-											type="checkbox"
-											checked={selectedBooks.has(book.voucher_id)}
-											on:change={() => toggleSelectBook(book.voucher_id)}
-											class="row-checkbox"
-										/>
-									</td>
-									<td>{book.voucher_id}</td>
-									<td>{book.book_number}</td>
-									<td>{book.serial_range}</td>
-									<td>{book.total_count}</td>
-									<td>{book.total_value}</td>
-									<td><span class="badge">{book.stock_count}</span></td>
-									<td><span class="badge stocked">{book.stocked_count}</span></td>
-									<td><span class="badge issued">{book.issued_count}</span></td>
-									<td><span class="badge closed">{book.closed_count}</span></td>
-									<td>{book.stock_locations}</td>
-									<td>{book.stock_persons}</td>
-									<td>
-										<button class="assign-btn" on:click={() => openAssignModal(book)}>Assign</button>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</div>
-	{/if}
 
-	{#if showManagePerVoucher}
-		<div class="section-content">
-			<h3>Manage Per Voucher</h3>
-			
-			{#if isLoading}
-				<div class="loading">Loading data...</div>
-			{:else if voucherItems.length === 0}
-				<div class="empty-state">No records found</div>
-			{:else}
-				<!-- Filters Section -->
-				<div class="filters-section">
-					<div class="filter-group">
-						<label for="filterPVId">PV ID</label>
-						<input 
-							id="filterPVId" 
-							type="text" 
-							placeholder="Search PV ID" 
-							bind:value={filterPVId} 
-							on:input={handleFilterChange} 
-							class="form-input"
-						/>
+			{:else if showManagePerBook}
+				<!-- ═══════════════════════════════════ Per Book View ═══════════════════════════════════ -->
+				{#if bookSummary.length === 0}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📭</div>
+						<p class="text-slate-600 font-semibold">No book data found</p>
+					</div>
+				{:else}
+					<!-- Filters Row -->
+					<div class="mb-4 grid grid-cols-4 gap-3">
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookPVId">PV ID</label>
+							<input
+								id="filterBookPVId"
+								type="text"
+								placeholder="Search PV ID..."
+								bind:value={filterBookPVId}
+								on:input={handleBookFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookNumber">Book Number</label>
+							<input
+								id="filterBookNumber"
+								type="text"
+								placeholder="Enter book number..."
+								bind:value={filterBookNumber}
+								on:input={handleBookFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookStockLocation">Stock Location</label>
+							<select id="filterBookStockLocation" bind:value={filterBookStockLocation} on:change={handleBookFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All</option>
+								{#each uniqueBookLocations as location}
+									<option value={location} style="color: #000 !important;">{location}</option>
+								{/each}
+							</select>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookStockPerson">Stock Person</label>
+							<select id="filterBookStockPerson" bind:value={filterBookStockPerson} on:change={handleBookFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All</option>
+								{#each uniqueBookPersons as person}
+									<option value={person} style="color: #000 !important;">{person}</option>
+								{/each}
+							</select>
+						</div>
 					</div>
 
-					<div class="filter-group">
-					<label for="filterSerialNumber">Serial Number</label>
-					<input 
-						id="filterSerialNumber" 
-						type="text" 
-						placeholder="Enter exact serial number" 
-						bind:value={filterSerialNumber} 
-						on:input={handleFilterChange} 
-						class="form-input"
-					/>
-				</div>
-
-				<div class="filter-group">
-					<label for="filterValue">Value</label>
-					<input 
-						id="filterValue" 
-						type="text" 
-						placeholder="Enter exact value" 
-						bind:value={filterValue} 
-						on:input={handleFilterChange} 
-						class="form-input"
-					/>
-				</div>
-
-				<div class="filter-group">
-					<label for="filterStatus">Status</label>
-					<select id="filterStatus" bind:value={filterStatus} on:change={handleFilterChange} class="form-input">
-						<option value="">All</option>
-						{#each uniqueStatuses as status}
-							<option value={status}>{status}</option>
-						{/each}
-					</select>
-				</div>
-
-				<div class="filter-group">
-					<label for="filterStockLocation">Stock Location</label>
-					<select id="filterStockLocation" bind:value={filterStockLocation} on:change={handleFilterChange} class="form-input">
-						<option value="">All</option>
-						{#each uniqueLocations as location}
-							<option value={location}>{location}</option>
-						{/each}
-					</select>
-				</div>
-
-				<div class="filter-group">
-					<label for="filterStockPerson">Stock Person</label>
-					<select id="filterStockPerson" bind:value={filterStockPerson} on:change={handleFilterChange} class="form-input">
-						<option value="">All</option>
-						{#each uniquePersons as person}
-							<option value={person}>{person}</option>
-						{/each}
-					</select>
-				</div>
-			</div>
-
-				<!-- Batch Action Button -->
-				{#if selectedItems.size > 0}
-					<div class="batch-action-section">
-						<span class="selection-info">{selectedItems.size} voucher(s) selected</span>
-						<button class="assign-btn" on:click={openBatchAssignModal}>Assign Selected</button>
+					<!-- Table Card -->
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+						<div class="overflow-auto flex-1">
+							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+								<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
+									<tr>
+										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400 w-10">
+											<input
+												type="checkbox"
+												checked={selectedBooks.size === filteredBookSummary.length && filteredBookSummary.length > 0}
+												on:change={toggleSelectAllBooks}
+												class="w-4 h-4 cursor-pointer rounded accent-emerald-300"
+											/>
+										</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Voucher ID</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Book #</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Serial Range</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Count</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Value</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stock</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stocked</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Issued</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Closed</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Location</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Person</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Action</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200">
+									{#each filteredBookSummary as book, index (book.voucher_id)}
+										<tr class="transition-colors duration-200 {selectedBooks.has(book.voucher_id) ? 'bg-emerald-50/40' : index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} hover:bg-emerald-50/30">
+											<td class="px-3 py-3 text-center">
+												<input
+													type="checkbox"
+													checked={selectedBooks.has(book.voucher_id)}
+													on:change={() => toggleSelectBook(book.voucher_id)}
+													class="w-4 h-4 cursor-pointer rounded accent-emerald-500"
+												/>
+											</td>
+											<td class="px-4 py-3 text-sm text-slate-700 font-semibold">{book.voucher_id}</td>
+											<td class="px-4 py-3 text-sm text-slate-700">{book.book_number}</td>
+											<td class="px-4 py-3 text-sm text-slate-500 font-mono">{book.serial_range}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-slate-800">{book.total_count}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-emerald-700">{book.total_value}</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-slate-200 text-slate-700">{book.stock_count}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-800">{book.stocked_count}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">{book.issued_count}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-800">{book.closed_count}</span>
+											</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{book.stock_locations}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{book.stock_persons}</td>
+											<td class="px-4 py-3 text-center">
+												<button
+													class="px-3 py-1.5 text-[10px] font-black uppercase tracking-wide bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all duration-200 hover:shadow-md"
+													on:click={() => openAssignModal(book)}
+												>Assign</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<!-- Footer -->
+						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+							Showing {filteredBookSummary.length} books {filterBookPVId || filterBookNumber || filterBookStockLocation || filterBookStockPerson ? `(filtered from ${bookSummary.length})` : ''}
+						</div>
 					</div>
 				{/if}
-				<div class="table-wrapper">
-					<table class="summary-table">
-						<thead>
-							<tr>
-								<th style="width: 40px;">
-									<input
-										type="checkbox"
-										checked={selectedItems.size === filteredVoucherItems.length && filteredVoucherItems.length > 0}
-										on:change={toggleSelectAll}
-										class="row-checkbox"
-									/>
-								</th>
-								<th>Voucher ID</th>
-								<th>Serial Number</th>
-								<th>Value</th>
-								<th>Stock</th>
-								<th>Status</th>
-								<th>Issue Type</th>
-								<th>Stock Location</th>
-								<th>Stock Person</th>
-								<th>Action</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each filteredVoucherItems as item (item.id)}
-								<tr class:selected={selectedItems.has(item.id)}>
-									<td>
-										<input
-											type="checkbox"
-											checked={selectedItems.has(item.id)}
-											on:change={() => toggleSelectItem(item.id)}
-											class="row-checkbox"
-										/>
-									</td>
-									<td>{item.purchase_voucher_id}</td>
-									<td>{item.serial_number}</td>
-									<td>{item.value}</td>
-									<td>{item.stock}</td>
-									<td>
-										<span class="badge" class:stocked={item.status === 'stocked'} class:issued={item.status === 'issued'} class:closed={item.status === 'closed'}>
-											{item.status}
-										</span>
-									</td>
-									<td>{item.issue_type}</td>
-									<td>{item.stock_location_name}</td>
-									<td>{item.stock_person_name}</td>
-									<td>
-										<button class="assign-btn" on:click={() => openAssignItemModal(item)}>Assign</button>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+
+			{:else if showManagePerVoucher}
+				<!-- ═══════════════════════════════════ Per Voucher View ═══════════════════════════════════ -->
+				{#if voucherItems.length === 0}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📭</div>
+						<p class="text-slate-600 font-semibold">No voucher items found</p>
+					</div>
+				{:else}
+					<!-- Filters Row -->
+					<div class="mb-4 grid grid-cols-6 gap-3">
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterPVId">PV ID</label>
+							<input
+								id="filterPVId"
+								type="text"
+								placeholder="Search PV ID..."
+								bind:value={filterPVId}
+								on:input={handleFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterSerialNumber">Serial #</label>
+							<input
+								id="filterSerialNumber"
+								type="text"
+								placeholder="Exact serial..."
+								bind:value={filterSerialNumber}
+								on:input={handleFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterValue">Value</label>
+							<input
+								id="filterValue"
+								type="text"
+								placeholder="Exact value..."
+								bind:value={filterValue}
+								on:input={handleFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStatus">Status</label>
+							<select id="filterStatus" bind:value={filterStatus} on:change={handleFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All</option>
+								{#each uniqueStatuses as status}
+									<option value={status} style="color: #000 !important;">{status}</option>
+								{/each}
+							</select>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStockLocation">Location</label>
+							<select id="filterStockLocation" bind:value={filterStockLocation} on:change={handleFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All</option>
+								{#each uniqueLocations as location}
+									<option value={location} style="color: #000 !important;">{location}</option>
+								{/each}
+							</select>
+						</div>
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStockPerson">Person</label>
+							<select id="filterStockPerson" bind:value={filterStockPerson} on:change={handleFilterChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+								style="color: #000 !important; background-color: #fff !important;">
+								<option value="" style="color: #000 !important;">All</option>
+								{#each uniquePersons as person}
+									<option value={person} style="color: #000 !important;">{person}</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+
+					<!-- Table Card -->
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+						<div class="overflow-auto flex-1">
+							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+								<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+									<tr>
+										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-10">
+											<input
+												type="checkbox"
+												checked={selectedItems.size === filteredVoucherItems.length && filteredVoucherItems.length > 0}
+												on:change={toggleSelectAll}
+												class="w-4 h-4 cursor-pointer rounded accent-blue-300"
+											/>
+										</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">PV ID</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Serial #</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Value</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Stock</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issue Type</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Location</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Person</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200">
+									{#each filteredVoucherItems as item, index (item.id)}
+										<tr class="transition-colors duration-200 {selectedItems.has(item.id) ? 'bg-blue-50/40' : index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} hover:bg-blue-50/30">
+											<td class="px-3 py-3 text-center">
+												<input
+													type="checkbox"
+													checked={selectedItems.has(item.id)}
+													on:change={() => toggleSelectItem(item.id)}
+													class="w-4 h-4 cursor-pointer rounded accent-blue-500"
+												/>
+											</td>
+											<td class="px-4 py-3 text-sm text-slate-700 font-semibold">{item.purchase_voucher_id}</td>
+											<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{item.serial_number}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-emerald-700">{item.value}</td>
+											<td class="px-4 py-3 text-sm text-center text-slate-600">{item.stock}</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase
+													{item.status === 'stocked' ? 'bg-blue-100 text-blue-800' :
+													 item.status === 'issued' ? 'bg-emerald-100 text-emerald-800' :
+													 item.status === 'closed' ? 'bg-red-100 text-red-800' :
+													 item.status === 'stock' ? 'bg-slate-200 text-slate-700' :
+													 'bg-amber-100 text-amber-800'}">
+													{item.status || 'N/A'}
+												</span>
+											</td>
+											<td class="px-4 py-3 text-xs text-center text-slate-600">{item.issue_type || '—'}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_location_name}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_person_name}</td>
+											<td class="px-4 py-3 text-center">
+												<button
+													class="px-3 py-1.5 text-[10px] font-black uppercase tracking-wide bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 hover:shadow-md"
+													on:click={() => openAssignItemModal(item)}
+												>Assign</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<!-- Footer -->
+						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+							Showing {filteredVoucherItems.length} of {voucherItems.length} vouchers {filterPVId || filterSerialNumber || filterValue || filterStatus || filterStockLocation || filterStockPerson ? '(filtered)' : ''}
+						</div>
+					</div>
+				{/if}
 			{/if}
 		</div>
-	{/if}
+	</div>
+</div>
 
-	{#if showAssignModal}
-		<div class="modal-overlay" on:click={closeAssignModal}>
-			<div class="modal-content" on:click|stopPropagation>
-				<div class="modal-header">
-				<h3>
-					Assign Stock Details - 
+<!-- ═══════════════════════════════════ Assign Modal ═══════════════════════════════════ -->
+{#if showAssignModal}
+	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+	<div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[1000]" on:click={closeAssignModal}>
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="bg-white rounded-2xl shadow-2xl max-w-xl w-[90%] max-h-[90vh] overflow-y-auto" on:click|stopPropagation>
+			<div class="flex justify-between items-center px-6 py-4 border-b border-slate-200">
+				<h3 class="text-base font-black text-slate-800 flex items-center gap-2">
+					<span class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-lg">📌</span>
+					Assign Stock —
 					{#if modalMode === 'book'}
 						{selectedBook?.voucher_id}
 					{:else if modalMode === 'item'}
@@ -1237,542 +1241,145 @@
 						{selectedBooks.size} Book(s)
 					{/if}
 				</h3>
-				<button class="close-btn" on:click={closeAssignModal}>&times;</button>
+				<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors text-xl" on:click={closeAssignModal}>&times;</button>
 			</div>
 
-				<div class="modal-body">
-					<div class="form-group">
-						<label for="stockLocation">Stock Location (Branch)</label>
-						<select id="stockLocation" bind:value={selectedStockLocation} class="form-input">
-							<option value="">-- Select Branch --</option>
-							{#each branches as branch (branch.id)}
-								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="form-group">
-						<label>Stock Person</label>
-						<input 
-							type="text" 
-							placeholder="Search users..." 
-							bind:value={stockPersonSearch}
-							class="form-input"
-						/>
-						<div class="radio-group">
-							{#each users.filter(u => u.username.toLowerCase().includes(stockPersonSearch.toLowerCase())) as user (user.id)}
-								{@const employee = employees.find(e => e.id === user.employee_id)}
-								<label class="radio-label">
-									<input
-										type="radio"
-										name="stockPerson"
-										value={user.id}
-										bind:group={selectedStockPerson}
-									/>
-									<span>{user.username} - {employee?.name || 'N/A'}</span>
-								</label>
-							{/each}
-						</div>
-					</div>
+			<div class="p-6 space-y-5">
+				<div>
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="stockLocation">Stock Location (Branch)</label>
+					<select id="stockLocation" bind:value={selectedStockLocation}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+						style="color: #000 !important; background-color: #fff !important;">
+						<option value="" style="color: #000 !important;">— Select Branch —</option>
+						{#each branches as branch (branch.id)}
+							<option value={branch.id} style="color: #000 !important;">{branch.name_en} - {branch.location_en}</option>
+						{/each}
+					</select>
 				</div>
 
-				<div class="modal-footer">
-					<button class="cancel-btn" on:click={closeAssignModal}>Cancel</button>
-					<button class="save-btn" on:click={handleAssignSubmit}>Assign</button>
+				<div>
+					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Stock Person</label>
+					<input
+						type="text"
+						placeholder="Search users..."
+						bind:value={stockPersonSearch}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all mb-2"
+					/>
+					<div class="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50">
+						{#each users.filter(u => u.username.toLowerCase().includes(stockPersonSearch.toLowerCase())) as user (user.id)}
+							{@const employee = employees.find(e => e.id === user.employee_id)}
+							<label class="flex items-center gap-2.5 cursor-pointer px-3 py-2 rounded-lg hover:bg-emerald-50 transition-colors {selectedStockPerson === user.id ? 'bg-emerald-100 ring-1 ring-emerald-300' : ''}">
+								<input
+									type="radio"
+									name="stockPerson"
+									value={user.id}
+									bind:group={selectedStockPerson}
+									class="accent-emerald-600"
+								/>
+								<span class="text-sm text-slate-700">{user.username} - {employee?.name || 'N/A'}</span>
+							</label>
+						{/each}
+					</div>
 				</div>
 			</div>
-		</div>
-	{/if}
 
-	{#if showExportModal}
-		<div class="modal-overlay" on:click={closeExportModal}>
-			<div class="modal-content" on:click|stopPropagation>
-				<div class="modal-header">
-					<h3>📊 Export to Excel</h3>
-					<button class="close-btn" on:click={closeExportModal}>&times;</button>
-				</div>
-
-				<div class="modal-body">
-					<p class="export-info">Select the Stock Location and Stock Person to filter and export the book data.</p>
-					
-					<div class="form-group">
-						<label for="exportStockLocation">Stock Location (Branch)</label>
-						<select id="exportStockLocation" bind:value={exportStockLocation} class="form-input">
-							<option value="">-- Select Branch --</option>
-							{#each branches as branch (branch.id)}
-								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="form-group">
-						<label>Stock Person</label>
-						<input 
-							type="text" 
-							placeholder="Search users..." 
-							bind:value={exportStockPersonSearch}
-							class="form-input"
-							style="margin-bottom: 8px;"
-						/>
-						<div class="radio-group">
-							{#each users.filter(u => {
-								const emp = employees.find(e => e.id === u.employee_id);
-								const searchTerm = exportStockPersonSearch.toLowerCase();
-								return u.username.toLowerCase().includes(searchTerm) || (emp?.name || '').toLowerCase().includes(searchTerm);
-							}) as user (user.id)}
-								{@const employee = employees.find(e => e.id === user.employee_id)}
-								<label class="radio-label">
-									<input
-										type="radio"
-										name="exportStockPerson"
-										value={user.id}
-										bind:group={exportStockPerson}
-									/>
-									<span>{user.username} - {employee?.name || 'N/A'}</span>
-								</label>
-							{/each}
-						</div>
-					</div>
-				</div>
-
-				<div class="modal-footer">
-					<button class="cancel-btn" on:click={closeExportModal}>Cancel</button>
-					<button class="save-btn" on:click={handleExportToExcel} disabled={isExporting || !exportStockLocation || !exportStockPerson}>
-						{isExporting ? 'Exporting...' : 'Export'}
-					</button>
-				</div>
+			<div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-200">
+				<button
+					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
+					on:click={closeAssignModal}
+				>Cancel</button>
+				<button
+					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+					on:click={handleAssignSubmit}
+					disabled={!selectedStockLocation || !selectedStockPerson}
+				>Assign</button>
 			</div>
 		</div>
-	{/if}
-</div>
+	</div>
+{/if}
+
+<!-- ═══════════════════════════════════ Export Modal ═══════════════════════════════════ -->
+{#if showExportModal}
+	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+	<div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[1000]" on:click={closeExportModal}>
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="bg-white rounded-2xl shadow-2xl max-w-xl w-[90%] max-h-[90vh] overflow-y-auto" on:click|stopPropagation>
+			<div class="flex justify-between items-center px-6 py-4 border-b border-slate-200">
+				<h3 class="text-base font-black text-slate-800 flex items-center gap-2">
+					<span class="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center text-lg">📊</span>
+					Export to Excel
+				</h3>
+				<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors text-xl" on:click={closeExportModal}>&times;</button>
+			</div>
+
+			<div class="p-6 space-y-5">
+				<div class="p-3 bg-blue-50 rounded-xl text-sm text-blue-700 font-medium">
+					Select the Stock Location and Stock Person to filter and export.
+				</div>
+
+				<div>
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="exportStockLocation">Stock Location (Branch)</label>
+					<select id="exportStockLocation" bind:value={exportStockLocation}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+						style="color: #000 !important; background-color: #fff !important;">
+						<option value="" style="color: #000 !important;">— Select Branch —</option>
+						{#each branches as branch (branch.id)}
+							<option value={branch.id} style="color: #000 !important;">{branch.name_en} - {branch.location_en}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div>
+					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Stock Person</label>
+					<input
+						type="text"
+						placeholder="Search users..."
+						bind:value={exportStockPersonSearch}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all mb-2"
+					/>
+					<div class="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50">
+						{#each users.filter(u => {
+							const emp = employees.find(e => e.id === u.employee_id);
+							const searchTerm = exportStockPersonSearch.toLowerCase();
+							return u.username.toLowerCase().includes(searchTerm) || (emp?.name || '').toLowerCase().includes(searchTerm);
+						}) as user (user.id)}
+							{@const employee = employees.find(e => e.id === user.employee_id)}
+							<label class="flex items-center gap-2.5 cursor-pointer px-3 py-2 rounded-lg hover:bg-teal-50 transition-colors {exportStockPerson === user.id ? 'bg-teal-100 ring-1 ring-teal-300' : ''}">
+								<input
+									type="radio"
+									name="exportStockPerson"
+									value={user.id}
+									bind:group={exportStockPerson}
+									class="accent-teal-600"
+								/>
+								<span class="text-sm text-slate-700">{user.username} - {employee?.name || 'N/A'}</span>
+							</label>
+						{/each}
+					</div>
+				</div>
+			</div>
+
+			<div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-200">
+				<button
+					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
+					on:click={closeExportModal}
+				>Cancel</button>
+				<button
+					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-teal-600 text-white rounded-xl hover:bg-teal-700 hover:shadow-lg shadow-teal-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+					on:click={handleExportToExcel}
+					disabled={isExporting || !exportStockLocation || !exportStockPerson}
+				>
+					{isExporting ? 'Exporting...' : 'Export'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
-	.stock-manager {
-		width: 100%;
-		height: 100%;
-		padding: 20px;
-	}
-
-	.button-group {
-		display: flex;
-		gap: 16px;
-		margin-bottom: 20px;
-	}
-
-	.action-button {
-		padding: 12px 24px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.action-button:hover {
-		background: #2563eb;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.action-button:active {
-		transform: translateY(0);
-	}
-
-	.refresh-btn {
-		background: #10b981;
-	}
-
-	.refresh-btn:hover {
-		background: #059669;
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-	}
-
-	.section-content {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		padding: 20px;
-		margin-top: 20px;
-	}
-
-	.section-content h3 {
-		margin: 0 0 16px 0;
-		font-size: 18px;
-		font-weight: 600;
-		color: #1f2937;
-	}
-
-	.loading,
-	.empty-state {
-		padding: 32px 24px;
-		text-align: center;
-		color: #6b7280;
-		font-size: 14px;
-	}
-
-	.table-wrapper {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		overflow: auto;
-		max-height: 400px;
-	}
-
-	.summary-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 13px;
-	}
-
-	.summary-table thead {
-		background: #f9fafb;
-		position: sticky;
-		top: 0;
-	}
-
-	.summary-table th {
-		padding: 12px 16px;
-		text-align: left;
-		font-weight: 600;
-		color: #374151;
-		border-bottom: 1px solid #e5e7eb;
-		white-space: nowrap;
-	}
-
-	.summary-table td {
-		padding: 12px 16px;
-		border-bottom: 1px solid #f3f4f6;
-		color: #4b5563;
-	}
-
-	.summary-table tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.badge {
-		display: inline-block;
-		padding: 4px 10px;
-		border-radius: 6px;
-		font-size: 11px;
-		font-weight: 600;
-		background: #f3f4f6;
-		color: #374151;
-		text-align: center;
-		min-width: 30px;
-	}
-
-	.badge.stocked {
-		background: #dbeafe;
-		color: #1e40af;
-	}
-
-	.badge.issued {
-		background: #fef08a;
-		color: #a16207;
-	}
-
-	.badge.closed {
-		background: #dcfce7;
-		color: #16a34a;
-	}
-
-	.assign-btn {
-		padding: 6px 12px;
-		background: #10b981;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		font-size: 12px;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.assign-btn:hover {
-		background: #059669;
-	}
-
-	/* Filters Section */
-	.filters-section {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: 12px;
-		padding: 16px 0;
-		margin-bottom: 16px;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.filter-group {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.filter-group label {
-		font-size: 12px;
-		font-weight: 600;
-		margin-bottom: 4px;
-		color: #374151;
-	}
-
-	.filter-group .form-input {
-		padding: 6px 8px;
-		font-size: 13px;
-	}
-
-	/* Batch Action Section */
-	.batch-action-section {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 12px;
-		margin-bottom: 12px;
-		background: #dbeafe;
-		border-radius: 6px;
-	}
-
-	.selection-info {
-		font-weight: 600;
-		color: #1e40af;
-		font-size: 14px;
-	}
-
-	/* Checkbox Styles */
-	.row-checkbox {
-		cursor: pointer;
-		width: 18px;
-		height: 18px;
-	}
-
-	.summary-table tbody tr.selected {
-		background: #f0f9ff;
-	}
-
-	/* Modal Styles */
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-	}
-
-	.modal-content {
-		background: white;
-		border-radius: 8px;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-		max-width: 600px;
-		width: 90%;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 20px;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.modal-header h3 {
-		margin: 0;
-		font-size: 18px;
-		font-weight: 600;
-	}
-
-	.close-btn {
-		background: none;
-		border: none;
-		font-size: 28px;
-		cursor: pointer;
-		color: #6b7280;
-		padding: 0;
-		width: 32px;
-		height: 32px;
-	}
-
-	.close-btn:hover {
-		color: #1f2937;
-	}
-
-	.modal-body {
-		padding: 20px;
-	}
-
-	.form-group {
-		margin-bottom: 20px;
-	}
-
-	.form-group label {
-		display: block;
-		font-weight: 600;
-		margin-bottom: 8px;
-		color: #374151;
-		font-size: 14px;
-	}
-
-	.form-input {
-		width: 100%;
-		padding: 8px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 14px;
-	}
-
-	.form-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.radio-group {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		max-height: 250px;
-		overflow-y: auto;
-		padding: 8px;
-		border: 1px solid #e5e7eb;
-		border-radius: 6px;
-	}
-
-	.radio-label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-		padding: 6px;
-		border-radius: 4px;
-		transition: background-color 0.2s;
-	}
-
-	.radio-label:hover {
-		background-color: #f3f4f6;
-	}
-
-	.radio-label input {
-		cursor: pointer;
-	}
-
-	.radio-label span {
-		font-size: 14px;
-		color: #374151;
-	}
-
-	.secondary-btn {
-		padding: 8px 16px;
-		background: #6b7280;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		transition: background-color 0.2s;
-	}
-
-	.secondary-btn:hover {
-		background: #4b5563;
-	}
-
-	.requesters-table {
-		margin-top: 12px;
-		border: 1px solid #e5e7eb;
-		border-radius: 6px;
-		overflow: auto;
-		max-height: 250px;
-	}
-
-	.requesters-table table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 12px;
-	}
-
-	.requesters-table th {
-		background: #f9fafb;
-		padding: 8px;
-		text-align: left;
-		border-bottom: 1px solid #e5e7eb;
-		font-weight: 600;
-	}
-
-	.requesters-table td {
-		padding: 8px;
-		border-bottom: 1px solid #f3f4f6;
-	}
-
-	.modal-footer {
-		display: flex;
-		gap: 12px;
-		justify-content: flex-end;
-		padding: 20px;
-		border-top: 1px solid #e5e7eb;
-	}
-
-	.cancel-btn {
-		padding: 8px 16px;
-		background: #e5e7eb;
-		color: #374151;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-weight: 600;
-		transition: background-color 0.2s;
-	}
-
-	.cancel-btn:hover {
-		background: #d1d5db;
-	}
-
-	.save-btn {
-		padding: 8px 16px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-weight: 600;
-		transition: background-color 0.2s;
-	}
-
-	.save-btn:hover {
-		background: #2563eb;
-	}
-
-	.save-btn:disabled {
-		background: #9ca3af;
-		cursor: not-allowed;
-	}
-
-	.export-btn {
-		padding: 8px 16px;
-		background: #059669;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 13px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.export-btn:hover {
-		background: #047857;
-	}
-
-	.export-info {
-		margin: 0 0 16px 0;
-		padding: 12px;
-		background: #f0f9ff;
-		border-radius: 6px;
-		color: #1e40af;
-		font-size: 14px;
+	:global(.font-sans) {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	}
 </style>

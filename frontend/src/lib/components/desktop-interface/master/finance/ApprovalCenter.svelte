@@ -950,7 +950,7 @@ async function loadHistoricalData() {
 					requisition_id: reqData.id,
 					requisition_number: reqData.requisition_number,
 					co_user_id: null,
-					co_user_name: null,
+					co_user_name: reqData.requester_name || null,
 					bill_type: 'no_bill',
 					payment_method: reqData.payment_category || 'cash',
 					due_date: reqData.due_date,
@@ -961,7 +961,9 @@ async function loadHistoricalData() {
 					is_paid: false,
 					approver_id: reqData.approver_id,
 					approver_name: reqData.approver_name,
-					created_by: reqData.created_by
+					created_by: reqData.created_by,
+					vendor_id: reqData.vendor_id || null,
+					vendor_name: reqData.vendor_name || null
 				};
 
 				const { error: schedulerError } = await supabase
