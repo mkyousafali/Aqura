@@ -1549,7 +1549,7 @@
 
 <div class="h-full overflow-auto bg-gradient-to-br from-indigo-50 via-blue-50 to-purple-50 p-6">
   <!-- Selection Panel -->
-  <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+  <div class="sticky top-0 z-30 bg-white rounded-xl shadow-lg p-6 mb-6">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <!-- Select Offer -->
       <div>

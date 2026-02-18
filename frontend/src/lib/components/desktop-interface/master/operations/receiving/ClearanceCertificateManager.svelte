@@ -1,11 +1,13 @@
 <!-- ClearanceCertificateManager.svelte -->
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import { supabase } from '$lib/utils/supabase';
   import { currentUser } from '$lib/utils/persistentAuth';
   
   export let receivingRecord = null;
   export let show = false;
+  export let printOnly = false;
+  export let autoGenerate = false;
   
   let currencySymbolUrl = '/icons/saudi-currency.png';
   const dispatch = createEventDispatcher();
@@ -862,7 +864,7 @@
   }
 
   // Print certificate
-  function printCertificate() {
+  function printCertificateOnly() {
     // Create a new window with proper title to avoid "about:blank"
     const printWindow = window.open('', '_blank', 'width=800,height=600');
     
@@ -906,6 +908,22 @@
         printWindow.close();
       }, 1000);
     }, 500);
+  }
+
+  async function printCertificateAndAssignTasks() {
+    // Print first
+    printCertificateOnly();
+
+    // If printOnly mode (edited bill), skip task assignment
+    if (printOnly) {
+      // Just close the modal after printing
+      generationSuccess = 'Certificate printed successfully (tasks already assigned).';
+      tasksGenerated = true;
+      return;
+    }
+
+    // Automatically assign tasks after printing
+    await createTasksWithCertificate();
   }
 
   // Create tasks for selected users with certificate attachment
@@ -1027,6 +1045,42 @@
     }
   }
 
+  // Reset internal state when modal opens fresh
+  $: if (show) {
+    certificateGenerated = false;
+    certificateHtml = '';
+    certificateSaved = false;
+    certificateImageUrl = '';
+    clearanceCertificateUrl = '';
+    generationError = '';
+    generationSuccess = '';
+    // Don't reset tasksGenerated here - we check from DB in onMount/checkIfTasksExist
+    if (!printOnly) {
+      tasksGenerated = false;
+    }
+    // Auto-generate entire flow if autoGenerate is true
+    if (autoGenerate) {
+      runAutoGenerateFlow();
+    }
+  }
+
+  // Automatically run through all steps: generate → save → print & assign
+  async function runAutoGenerateFlow() {
+    await tick();
+    // Step 1: Generate certificate
+    const generated = await generateClearanceCertificateDocument();
+    if (!generated) return;
+    
+    await tick();
+    // Step 2: Save certificate as image
+    const saved = await saveCertificateAsImage();
+    if (!saved) return;
+    
+    await tick();
+    // Step 3: Print and assign tasks
+    await printCertificateAndAssignTasks();
+  }
+
   // When receivingRecord changes, resolve names
   $: if (receivingRecord && show) {
     resolveEmployeeNames();
@@ -1111,7 +1165,7 @@
 {#if show}
   <!-- Modal backdrop -->
   <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[70vh] overflow-hidden">
       <!-- Header -->
       <div class="px-6 py-4 border-b border-gray-200">
         <div class="flex items-center justify-between">
@@ -1129,7 +1183,7 @@
       </div>
       
       <!-- Content -->
-      <div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+      <div class="p-4 overflow-y-auto max-h-[calc(70vh-110px)]">
         {#if receivingRecord}
           <!-- Receiving Record Info -->
           <div class="bg-gray-50 rounded-lg p-4 mb-6">
@@ -1155,40 +1209,22 @@
           </div>
           
           {#if !certificateGenerated}
-            <!-- Step 1: Generate Certificate Template -->
-            <div class="mb-6">
-              <h3 class="text-lg font-medium text-gray-900 mb-4">Generate Clearance Certificate</h3>
-              
-              <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 mb-4">
-                <div class="text-center">
-                  <svg class="mx-auto h-12 w-12 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <div class="mt-4">
-                    <span class="mt-2 block text-sm font-medium text-gray-900">
-                      Professional Certificate Template
-                    </span>
-                    <span class="mt-1 block text-sm text-gray-600">
-                      Generate a professional clearance certificate with receiving details
-                    </span>
-                  </div>
-                </div>
-              </div>
-              
+            <!-- Step 1: Generate Certificate -->
+            <div class="mb-4">
               <button
                 on:click={generateClearanceCertificateDocument}
                 disabled={isGenerating}
-                class="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                class="w-full inline-flex items-center justify-center bg-orange-600 text-white px-8 py-2.5 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
               >
-                {#if isGenerating}
-                  <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Generating Certificate...
-                {:else}
-                  📄 Generate Clearance Certificate
-                {/if}
+                  {#if isGenerating}
+                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Generating...
+                  {:else}
+                    📄 Generate Certificate
+                  {/if}
               </button>
             </div>
           {:else if !certificateSaved}
@@ -1279,30 +1315,23 @@
                 />
               </div>
               
-              <!-- Action Buttons: Print and Assign Tasks -->
-              <div class="flex space-x-3 mb-4">
+              <!-- Action Button: Print Certificate (& Assign Tasks if first time) -->
+              <div class="flex mb-4">
                 <button
-                  on:click={printCertificate}
-                  class="flex-1 bg-gray-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-700 flex items-center justify-center"
-                >
-                  🖨️ Print Certificate
-                </button>
-                
-                <button
-                  on:click={createTasksWithCertificate}
+                  on:click={printCertificateAndAssignTasks}
                   disabled={isGenerating}
-                  class="flex-1 bg-orange-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  class="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {#if isGenerating}
                     <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Creating Tasks...
+                    {printOnly ? 'Printing...' : 'Printing & Assigning Tasks...'}
                   {:else}
-                    🚀 Assign Tasks
+                    {printOnly ? '🖨️ Print Updated Certificate' : '🖨️ Print Certificate & Assign Tasks'}
                   {/if}
-              </button>
+                </button>
               </div>
             </div>
           {:else}
@@ -1336,6 +1365,16 @@
                   </div>
                 </div>
               {/if}
+
+              <!-- Reprint Button -->
+              <div class="flex mb-4">
+                <button
+                  on:click={printCertificateOnly}
+                  class="w-full bg-gray-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-700 flex items-center justify-center"
+                >
+                  🖨️ Reprint Certificate
+                </button>
+              </div>
             </div>
           {/if}
           
@@ -1356,54 +1395,51 @@
           
           <!-- Generated Tasks List -->
           {#if generatedTasks.length > 0}
-            <div class="mb-6">
-              <h3 class="text-lg font-medium text-gray-900 mb-4">Generated Tasks</h3>
-              <div class="space-y-4">
-                {#each generatedTasks as task}
-                  <div class="border border-gray-200 rounded-lg p-4">
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1">
-                        <div class="flex items-center space-x-2 mb-2">
-                          <span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {getRoleDisplayName(task.role_type)}
-                          </span>
-                          {#if roleEmployeeNames[task.role_type]}
-                            <span class="text-sm text-gray-700 font-medium">
-                              {roleEmployeeNames[task.role_type].employeeId} - {roleEmployeeNames[task.role_type].name}
-                            </span>
-                          {/if}
-                          <span class="px-2 py-1 rounded-full text-xs font-medium {getTaskStatusColor(task.assignment_status)}">
-                            {task.assignment_status}
-                          </span>
-                          {#if task.is_overdue}
-                            <span class="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                              Overdue
-                            </span>
-                          {/if}
-                        </div>
-                        
-                        <h4 class="font-medium text-gray-900 mb-1">{task.task_title}</h4>
-                        <p class="text-sm text-gray-600 mb-2">{task.task_description}</p>
-                        
-                        <div class="text-xs text-gray-500 space-y-1">
-                          {#if task.deadline_datetime}
-                            <div>📅 Deadline: {new Date(task.deadline_datetime).toLocaleString()}</div>
-                          {/if}
-                          {#if task.requires_erp_reference}
-                            <div>📊 Requires ERP Reference</div>
-                          {/if}
-                          {#if task.requires_original_bill_upload}
-                            <div>📎 Requires Original Bill Upload</div>
-                          {/if}
-                          {#if task.requires_reassignment}
-                            <div>🔄 Can be Reassigned</div>
-                          {/if}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                {/each}
-              </div>
+            <div class="mb-4">
+              <h3 class="text-sm font-semibold text-gray-800 mb-2">Assigned Tasks</h3>
+              <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                <thead>
+                  <tr class="bg-gray-100 text-left text-xs text-gray-600 uppercase">
+                    <th class="px-3 py-2">Employee</th>
+                    <th class="px-3 py-2">Position</th>
+                    <th class="px-3 py-2">Status</th>
+                    <th class="px-3 py-2">Deadline</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each generatedTasks as task}
+                    <tr class="border-t border-gray-100 hover:bg-gray-50">
+                      <td class="px-3 py-2 font-medium text-gray-900">
+                        {#if roleEmployeeNames[task.role_type]}
+                          {roleEmployeeNames[task.role_type].employeeId} - {roleEmployeeNames[task.role_type].name}
+                        {:else}
+                          —
+                        {/if}
+                      </td>
+                      <td class="px-3 py-2">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {getRoleDisplayName(task.role_type)}
+                        </span>
+                      </td>
+                      <td class="px-3 py-2">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium {getTaskStatusColor(task.assignment_status)}">
+                          {task.assignment_status}
+                        </span>
+                        {#if task.is_overdue}
+                          <span class="ml-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Overdue</span>
+                        {/if}
+                      </td>
+                      <td class="px-3 py-2 text-xs text-gray-500">
+                        {#if task.deadline_datetime}
+                          {new Date(task.deadline_datetime).toLocaleDateString()}
+                        {:else}
+                          —
+                        {/if}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
             </div>
           {/if}
           

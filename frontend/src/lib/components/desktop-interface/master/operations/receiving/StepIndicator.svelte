@@ -19,6 +19,7 @@
 .step-indicator {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 1.5rem;
   margin-bottom: 2rem;
 }
@@ -50,6 +51,15 @@
 .step.active .step-number {
   background: #1976d2;
   color: #fff;
+  animation: heartbeat 1.2s ease-in-out infinite;
+}
+@keyframes heartbeat {
+  0% { transform: scale(1); }
+  14% { transform: scale(1.2); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.15); }
+  56% { transform: scale(1); }
+  100% { transform: scale(1); }
 }
 .step.completed .step-number {
   background: #43a047;
