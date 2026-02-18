@@ -45,6 +45,7 @@
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
 	import BankReconciliation from '$lib/components/desktop-interface/master/finance/BankReconciliation.svelte';
 	import AssetManager from '$lib/components/desktop-interface/master/finance/AssetManager.svelte';
+	import LeaseAndRent from '$lib/components/desktop-interface/master/finance/LeaseAndRent.svelte';
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
 	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
@@ -2378,6 +2379,27 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Lease and Rent window
+	function openLeaseAndRent() {
+		collapseAllMenus();
+		const windowId = generateWindowId('lease-and-rent');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.leaseAndRent')} #${instanceNumber}`,
+			component: LeaseAndRent,
+			icon: '🏠',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 150 + (Math.random() * 100),
+				y: 150 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Open Purchase Voucher Manager window
 	function openPurchaseVoucherManager() {
 		collapseAllMenus();
@@ -4109,6 +4131,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openAssetManager}>
 								<span class="menu-icon">🏗️</span>
 								<span class="menu-text">{t('nav.assetManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('LEASE_AND_RENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLeaseAndRent}>
+								<span class="menu-icon">🏠</span>
+								<span class="menu-text">{t('nav.leaseAndRent')}</span>
 							</button>
 						</div>
 					{/if}

@@ -55,7 +55,7 @@
 		// Additional DB button codes
 		'UPLOAD_EMPLOYEES': '📤', 'WARNING_MASTER': '⚠️', 'SALARY_WAGE_MANAGEMENT': '💰',
 		'CONTACT_MANAGEMENT': '📇', 'DOCUMENT_MANAGEMENT': '📑', 'BIOMETRIC_DATA': '👆',
-		'BRANCH_MASTER': '🏢', 'SOUND_SETTINGS': '🔊', 'CATEGORY_MANAGER': '📂', 'ASSET_MANAGER': '🏗️',
+		'BRANCH_MASTER': '🏢', 'SOUND_SETTINGS': '🔊', 'CATEGORY_MANAGER': '📂', 'ASSET_MANAGER': '🏗️', 'LEASE_AND_RENT': '🏠',
 		'REPORTS_STATS': '📊', 'COUPON_DASHBOARD': '🎁', 'MANAGE_CAMPAIGNS': '📋',
 		'IMPORT_CUSTOMERS': '👥', 'MANAGE_PRODUCTS': '🎁', 'OVER_DUES': '⏰',
 		'USER_PERMISSIONS': '🔐', 'USERS': '👤', 'CREATE_USER_ROLES': '👥',
@@ -189,6 +189,7 @@
 		'SOUND_SETTINGS': 'nav.soundSettings',
 		'CATEGORY_MANAGER': 'nav.categoryManager',
 		'ASSET_MANAGER': 'nav.assetManager',
+		'LEASE_AND_RENT': 'nav.leaseAndRent',
 		'REPORTS_STATS': 'nav.reportsAndStats',
 		'COUPON_DASHBOARD': 'nav.couponDashboard',
 		'MANAGE_CAMPAIGNS': 'nav.manageCampaigns',
@@ -476,7 +477,7 @@
 								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
 							</span>
 						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ55.23.15.16</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ56.23.15.16</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

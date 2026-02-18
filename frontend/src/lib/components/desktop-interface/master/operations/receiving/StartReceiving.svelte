@@ -7,21 +7,24 @@
   import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
   import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { _ as t, currentLocale } from '$lib/i18n';
   
-  let steps = ['Select Branch', 'Select Vendor', 'Bill Information', 'Finalization'];
+  $: steps = [$t('receiving.stepSelectBranch'), $t('receiving.stepSelectVendor'), $t('receiving.stepBillInformation'), $t('receiving.stepFinalization')];
   let currentStep = 0;
   let allRequiredUsersSelected = false; // Track if all required users are selected
   
   // Clearance Certification state
   let showCertificateManager = false;
   let currentReceivingRecord = null;
+  let tasksAlreadyAssigned = false;
   let savedReceivingId = null; // Track the saved receiving record ID
   
   // Branch selection state
   let branches = [];
   let selectedBranch = '';
   let selectedBranchName = '';
+  let selectedBranchLocation = '';
   let showBranchSelector = true;
   let isLoading = false;
   let errorMessage = '';
@@ -37,9 +40,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let shelfStockers = []; // All users from selected branch
   let actualShelfStockers = []; // Only users with "Shelf Stocker" position
   let filteredShelfStockers = [];
-  let selectedShelfStocker = null; // Single selection
+  let selectedShelfStockers = []; // Multiple selection
   let shelfStockersLoading = false;
   let shelfStockerSearchQuery = '';
+  let shelfStockerHighlightIndex = -1;
   let showAllUsersForShelfStockers = false; // Flag to show all users when no shelf stockers found
 
   // Accountant selection state
@@ -103,6 +107,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let selectedVendor = null;
   let vendorLoading = false;
   let vendorError = '';
+  let vendorHighlightIndex = -1;
 
   // Vendor update popup state
   let showVendorUpdatePopup = false;
@@ -125,7 +130,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
   // Date information for Step 3
   let currentDateTime = '';
-  let billDate = '';
+  let billDate = new Date().toISOString().split('T')[0]; // Auto-fill today's date
   let billAmount = '';
   let billNumber = '';
 
@@ -259,7 +264,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedAccountant && 
     selectedPurchasingManager && 
     selectedInventoryManager && 
-    selectedShelfStocker && 
+    selectedShelfStockers.length > 0 && 
     selectedWarehouseHandler &&
     selectedNightSupervisors.length > 0;
 
@@ -344,7 +349,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       const { data, error } = await supabase
         .from('branches')
-        .select('id, name_en, name_ar, location_en')
+        .select('id, name_en, name_ar, location_en, location_ar')
         .eq('is_active', true)
         .order('name_en');
 
@@ -479,6 +484,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Now load shelf stockers for manual selection
       await loadShelfStockersForSelection();
+      // Auto-focus shelf stocker search input
+      await tick();
+      document.getElementById('shelfStockerSearchInput')?.focus();
     } catch (err) {
       defaultPositionsError = 'Failed to load default positions: ' + err.message;
       console.error('Error loading default positions:', err);
@@ -493,42 +501,42 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Only set branch managers loading flag
       branchManagersLoading = true;
 
-      // Single query to get all active users with their positions in one go
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Query hr_employee_master for locale-aware names
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en,
-                position_title_ar
-              )
-            )
+          name_en,
+          name_ar,
+          current_position_id,
+          users(
+            username
+          ),
+          hr_positions(
+            position_title_en,
+            position_title_ar
           )
         `)
-        .eq('branch_id', branchId)
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .order('username');
+        .eq('current_branch_id', branchId)
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .order('name_en');
 
       if (loadError) throw loadError;
 
       // Transform data into user objects
-      const allBranchUsers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const isAr = $currentLocale === 'ar';
+      const allBranchUsers = (employees || []).map(emp => {
+        const posEn = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const posAr = emp.hr_positions?.position_title_ar;
+        const position = isAr ? (posAr || posEn) : posEn;
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: position
+          id: emp.user_id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
+          employeeId: emp.id,
+          position: position,
+          positionEn: posEn
         };
       });
 
@@ -539,10 +547,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       selectedBranchManager = null;
       showAllUsers = false;
 
-      // Filter for branch managers only
+      // Filter for branch managers only (always use English position for matching)
       const branchManagersList = allBranchUsers.filter(u => 
-        u.position.toLowerCase().includes('branch') && 
-        u.position.toLowerCase().includes('manager')
+        u.positionEn.toLowerCase().includes('branch') && 
+        u.positionEn.toLowerCase().includes('manager')
       );
 
       // Apply filtered results for branch managers
@@ -580,32 +588,31 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       filteredPurchasingManagers = [];
       selectedPurchasingManager = null;
 
-      // Optimized query: Get users with their current position directly
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Query hr_employee_master for locale-aware names (all branches for purchasing)
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          branch_id,
-          branches (
-            id,
-            name_en
+          name_en,
+          name_ar,
+          current_branch_id,
+          current_position_id,
+          users(
+            username
           ),
-          hr_employees!inner(
+          branches(
             id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en
-              )
-            )
+            name_en,
+            name_ar
+          ),
+          hr_positions(
+            position_title_en,
+            position_title_ar
           )
         `)
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .range(0, 999); // Pagination limit to optimize query size
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .range(0, 999);
 
       if (loadError) {
         console.error('Error loading users:', loadError);
@@ -614,24 +621,28 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       }
 
       // Transform data into user objects
-      purchasingManagers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const isAr = $currentLocale === 'ar';
+      const allEmployees = (employees || []).map(emp => {
+        const posEn = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const posAr = emp.hr_positions?.position_title_ar;
+        const position = isAr ? (posAr || posEn) : posEn;
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
+          id: emp.user_id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
+          employeeId: emp.id,
           position: position,
-          branchName: user.branches?.name_en || 'Unknown Branch',
-          branchId: user.branch_id
+          positionEn: posEn,
+          branchName: isAr ? (emp.branches?.name_ar || emp.branches?.name_en || 'Unknown Branch') : (emp.branches?.name_en || 'Unknown Branch'),
+          branchId: emp.current_branch_id
         };
       });
+      purchasingManagers = allEmployees;
 
-      // Filter for actual purchasing managers
+      // Filter for actual purchasing managers (always use English position for matching)
       actualPurchasingManagers = purchasingManagers.filter(user => 
-        user.position.toLowerCase().includes('purchasing') && 
-        user.position.toLowerCase().includes('manager')
+        user.positionEn.toLowerCase().includes('purchasing') && 
+        user.positionEn.toLowerCase().includes('manager')
       );
 
       // If purchasing managers found, show only them. Otherwise, prepare to show all users
@@ -674,49 +685,49 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get all active users from the selected branch
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Query hr_employee_master for locale-aware names
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en,
-                position_title_ar
-              )
-            )
+          name_en,
+          name_ar,
+          current_position_id,
+          users(
+            username
+          ),
+          hr_positions(
+            position_title_en,
+            position_title_ar
           )
         `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .order('username');
+        .eq('current_branch_id', parseInt(selectedBranch))
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .order('name_en');
 
       if (loadError) throw loadError;
 
       // Transform data into user objects
-      const allBranchUsers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const isAr = $currentLocale === 'ar';
+      const allBranchUsers = (employees || []).map(emp => {
+        const posEn = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const posAr = emp.hr_positions?.position_title_ar;
+        const position = isAr ? (posAr || posEn) : posEn;
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: position
+          id: emp.user_id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
+          employeeId: emp.id,
+          position: position,
+          positionEn: posEn
         };
       });
 
-      // Filter for inventory managers
+      // Filter for inventory managers (always use English position for matching)
       const inventoryManagersList = allBranchUsers.filter(u => 
-        u.position.toLowerCase().includes('inventory') && 
-        u.position.toLowerCase().includes('manager')
+        u.positionEn.toLowerCase().includes('inventory') && 
+        u.positionEn.toLowerCase().includes('manager')
       );
 
       // Apply filtered results
@@ -754,49 +765,49 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get all active users from the selected branch
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Query hr_employee_master for locale-aware names
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en,
-                position_title_ar
-              )
-            )
+          name_en,
+          name_ar,
+          current_position_id,
+          users(
+            username
+          ),
+          hr_positions(
+            position_title_en,
+            position_title_ar
           )
         `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .order('username');
+        .eq('current_branch_id', parseInt(selectedBranch))
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .order('name_en');
 
       if (loadError) throw loadError;
 
       // Transform data into user objects
-      const allBranchUsers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const isAr = $currentLocale === 'ar';
+      const allBranchUsers = (employees || []).map(emp => {
+        const posEn = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const posAr = emp.hr_positions?.position_title_ar;
+        const position = isAr ? (posAr || posEn) : posEn;
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: position
+          id: emp.user_id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
+          employeeId: emp.id,
+          position: position,
+          positionEn: posEn
         };
       });
 
-      // Filter for night supervisors
+      // Filter for night supervisors (always use English position for matching)
       const nightSupervisorsList = allBranchUsers.filter(u => 
-        u.position.toLowerCase().includes('night') && 
-        u.position.toLowerCase().includes('supervisor')
+        u.positionEn.toLowerCase().includes('night') && 
+        u.positionEn.toLowerCase().includes('supervisor')
       );
 
       // Apply filtered results
@@ -834,49 +845,49 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get all active users from the selected branch
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Query hr_employee_master for locale-aware names
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en,
-                position_title_ar
-              )
-            )
+          name_en,
+          name_ar,
+          current_position_id,
+          users(
+            username
+          ),
+          hr_positions(
+            position_title_en,
+            position_title_ar
           )
         `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .order('username');
+        .eq('current_branch_id', parseInt(selectedBranch))
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .order('name_en');
 
       if (loadError) throw loadError;
 
       // Transform data into user objects
-      const allBranchUsers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const isAr = $currentLocale === 'ar';
+      const allBranchUsers = (employees || []).map(emp => {
+        const posEn = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const posAr = emp.hr_positions?.position_title_ar;
+        const position = isAr ? (posAr || posEn) : posEn;
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: position
+          id: emp.user_id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
+          employeeId: emp.id,
+          position: position,
+          positionEn: posEn
         };
       });
 
-      // Filter for warehouse handlers & stock handlers
+      // Filter for warehouse handlers & stock handlers (always use English position for matching)
       const warehouseHandlersList = allBranchUsers.filter(u => 
-        (u.position.toLowerCase().includes('warehouse') || 
-         (u.position.toLowerCase().includes('stock') && u.position.toLowerCase().includes('handler')))
+        (u.positionEn.toLowerCase().includes('warehouse') || 
+         (u.positionEn.toLowerCase().includes('stock') && u.positionEn.toLowerCase().includes('handler')))
       );
 
       // Apply filtered results
@@ -907,7 +918,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       shelfStockers = [];
       actualShelfStockers = [];
       filteredShelfStockers = [];
-      selectedShelfStocker = null;
+      selectedShelfStockers = [];
 
       if (!selectedBranch) {
         shelfStockersLoading = false;
@@ -921,9 +932,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           user_id,
           id,
           name_en,
+          name_ar,
           current_position_id,
+          users(
+            username
+          ),
           hr_positions(
-            position_title_en
+            position_title_en,
+            position_title_ar
           )
         `)
         .eq('current_branch_id', parseInt(selectedBranch))
@@ -933,12 +949,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       if (loadError) throw loadError;
 
       // Transform data into user objects
+      const isAr = $currentLocale === 'ar';
       const allBranchUsers = (employees || []).map(emp => {
-        const position = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const position = isAr
+          ? (emp.hr_positions?.position_title_ar || emp.hr_positions?.position_title_en || 'No Position Assigned')
+          : (emp.hr_positions?.position_title_en || 'No Position Assigned');
         return {
           id: emp.user_id,
-          username: emp.id,
-          employeeName: emp.name_en || emp.id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
           employeeId: emp.id,
           position: position
         };
@@ -985,48 +1004,48 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get all active users from the selected branch
-      const { data: usersWithPositions, error: loadError } = await supabase
-        .from('users')
+      // Query hr_employee_master for locale-aware names
+      const { data: employees, error: loadError } = await supabase
+        .from('hr_employee_master')
         .select(`
+          user_id,
           id,
-          username,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id,
-            hr_position_assignments!inner(
-              is_current,
-              hr_positions(
-                position_title_en,
-                position_title_ar
-              )
-            )
+          name_en,
+          name_ar,
+          current_position_id,
+          users(
+            username
+          ),
+          hr_positions(
+            position_title_en,
+            position_title_ar
           )
         `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active')
-        .eq('hr_employees.hr_position_assignments.is_current', true)
-        .order('username');
+        .eq('current_branch_id', parseInt(selectedBranch))
+        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .order('name_en');
 
       if (loadError) throw loadError;
 
       // Transform data into user objects
-      const allBranchUsers = (usersWithPositions || []).map(user => {
-        const positions = user.hr_employees?.hr_position_assignments || [];
-        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+      const isAr = $currentLocale === 'ar';
+      const allBranchUsers = (employees || []).map(emp => {
+        const posEn = emp.hr_positions?.position_title_en || 'No Position Assigned';
+        const posAr = emp.hr_positions?.position_title_ar;
+        const position = isAr ? (posAr || posEn) : posEn;
         return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: position
+          id: emp.user_id,
+          username: emp.users?.username || emp.id,
+          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
+          employeeId: emp.id,
+          position: position,
+          positionEn: posEn
         };
       });
 
-      // Filter for accountants
+      // Filter for accountants (always use English position for matching)
       const accountantsList = allBranchUsers.filter(u => 
-        u.position.toLowerCase().includes('accountant')
+        u.positionEn.toLowerCase().includes('accountant')
       );
 
       // Apply filtered results
@@ -1080,8 +1099,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     branchManagerSearchQuery = ''; // Reset search
   }
 
+  // Shelf stocker keyboard navigation
+  function handleShelfStockerSearchKeydown(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (shelfStockerHighlightIndex < filteredShelfStockers.length - 1) {
+        shelfStockerHighlightIndex++;
+      }
+      tick().then(() => {
+        const row = document.querySelector('tr.stocker-row-highlight');
+        if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (shelfStockerHighlightIndex > 0) {
+        shelfStockerHighlightIndex--;
+      }
+      tick().then(() => {
+        const row = document.querySelector('tr.stocker-row-highlight');
+        if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (shelfStockerHighlightIndex >= 0 && shelfStockerHighlightIndex < filteredShelfStockers.length) {
+        const user = filteredShelfStockers[shelfStockerHighlightIndex];
+        const isSelected = selectedShelfStockers.some(s => s.id === user.id);
+        if (isSelected) {
+          removeShelfStocker(user.id);
+        } else {
+          selectShelfStocker(user);
+        }
+      }
+    }
+  }
+
   // Shelf stocker search functionality
   function handleShelfStockerSearch() {
+    shelfStockerHighlightIndex = -1;
     const sourceList = showAllUsersForShelfStockers ? shelfStockers : actualShelfStockers;
     
     if (!shelfStockerSearchQuery.trim()) {
@@ -1098,13 +1152,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   }
 
   function selectShelfStocker(user) {
-    selectedShelfStocker = user;
-    console.log('Selected shelf stocker:', selectedShelfStocker);
+    if (!selectedShelfStockers.find(s => s.id === user.id)) {
+      selectedShelfStockers = [...selectedShelfStockers, user];
+    }
+    console.log('Selected shelf stockers:', selectedShelfStockers);
   }
 
-  function removeShelfStocker() {
-    selectedShelfStocker = null;
-    console.log('Removed shelf stocker selection');
+  function removeShelfStocker(userId) {
+    selectedShelfStockers = selectedShelfStockers.filter(s => s.id !== userId);
+    console.log('Removed shelf stocker, remaining:', selectedShelfStockers);
+  }
+
+  function removeAllShelfStockers() {
+    selectedShelfStockers = [];
+    console.log('Removed all shelf stockers');
   }
 
   // Function to show all users when no shelf stockers found
@@ -1271,8 +1332,38 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     warehouseHandlerSearchQuery = ''; // Reset search
   }
 
+  // Vendor keyboard navigation
+  function handleVendorSearchKeydown(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (vendorHighlightIndex < filteredVendors.length - 1) {
+        vendorHighlightIndex++;
+      }
+      tick().then(() => scrollVendorRowIntoView());
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (vendorHighlightIndex > 0) {
+        vendorHighlightIndex--;
+      }
+      tick().then(() => scrollVendorRowIntoView());
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (vendorHighlightIndex >= 0 && vendorHighlightIndex < filteredVendors.length) {
+        selectVendor(filteredVendors[vendorHighlightIndex]);
+      }
+    }
+  }
+
+  function scrollVendorRowIntoView() {
+    const row = document.querySelector(`tr.vendor-row-highlight`);
+    if (row) {
+      row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
   // Vendor search functionality
   function handleVendorSearch() {
+    vendorHighlightIndex = -1;
     if (!searchQuery.trim()) {
       filteredVendors = vendors;
     } else {
@@ -1312,7 +1403,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     // Since option values are strings, convert selectedBranch to number for comparison
     const branchId = parseInt(selectedBranch);
     const branch = branches.find(b => b.id === branchId);
-    selectedBranchName = branch ? branch.name_en : '';
+    const isAr = $currentLocale === 'ar';
+    selectedBranchName = branch ? (isAr ? (branch.name_ar || branch.name_en) : branch.name_en) : '';
+    selectedBranchLocation = branch ? (isAr ? (branch.location_ar || branch.location_en || '') : (branch.location_en || '')) : '';
     console.log('Reactive update - Found branch:', branch, 'selectedBranchName:', selectedBranchName);
     
     // Load branch users for the selected branch - ONLY branch managers
@@ -1444,12 +1537,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedPurchasingManager = null;
     selectedInventoryManager = null;
     selectedAccountant = null;
-    selectedShelfStocker = null;
+    selectedShelfStockers = [];
     selectedNightSupervisors = [];
     selectedWarehouseHandler = null;
   }
 
-  function selectVendor(vendor) {
+  async function selectVendor(vendor) {
     // Check if vendor is missing critical information
     const missingSalesmanName = !vendor.salesman_name || vendor.salesman_name.trim() === '';
     const missingSalesmanContact = !vendor.salesman_contact || vendor.salesman_contact.trim() === '';
@@ -1466,6 +1559,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Vendor has all required information, proceed normally
       selectedVendor = vendor;
       currentStep = 2; // Move to bill information step
+      await tick();
+      const dateEl = document.getElementById('billDate');
+      if (dateEl) { dateEl.focus(); try { dateEl.showPicker(); } catch(e) {} }
     }
   }
 
@@ -1545,6 +1641,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     showVendorUpdatePopup = false;
     vendorToUpdate = null;
     currentStep = 2; // Move to bill information step
+    tick().then(() => { const el = document.getElementById('billDate'); if (el) { el.focus(); try { el.showPicker(); } catch(e) {} } });
   }
 
   function skipVendorUpdate() {
@@ -1648,6 +1745,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   function goBackToVendorSelection() {
     currentStep = 1; // Go back to vendor selection step
     selectedVendor = null;
+    tick().then(() => document.getElementById('vendorSearchInput')?.focus());
   }
 
   function proceedToReceiving() {
@@ -1816,7 +1914,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         branch_manager_user_id: selectedBranchManager?.id || null,
         accountant_user_id: selectedAccountant?.id || null,
         purchasing_manager_user_id: selectedPurchasingManager?.id || null,
-        shelf_stocker_user_ids: selectedShelfStocker ? [selectedShelfStocker.id] : [],
+        shelf_stocker_user_ids: selectedShelfStockers.map(s => s.id),
         // New fields from migration 68
         inventory_manager_user_id: selectedInventoryManager?.id || null,
         night_supervisor_user_ids: selectedNightSupervisors?.map(s => s.id) || [],
@@ -1844,7 +1942,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         damage_vendor_document_number: returns.damage.hasReturn === 'yes' ? returns.damage.vendorDocumentNumber : null
       };
 
-      // Check for duplicate bills before saving
+      // Check for duplicate bills before saving (skip if updating existing record)
+      if (!savedReceivingId) {
       console.log('Checking for duplicate bills...');
       const { data: existingRecords, error: duplicateError } = await supabase
         .from('receiving_records')
@@ -1878,6 +1977,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         console.log('Duplicate bill found:', duplicateRecord);
         return; // Don't save the duplicate
       }
+      } // end duplicate check
 
       console.log('No duplicate found, proceeding with save...');
       
@@ -1889,6 +1989,22 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       console.log('Bill Date:', receivingData.bill_date);
       console.log('Bill Amount:', receivingData.bill_amount);
 
+      // If we already have a saved record ID, update instead of insert
+      if (savedReceivingId) {
+        console.log('Updating existing receiving record:', savedReceivingId);
+        const { error: updateError } = await supabase
+          .from('receiving_records')
+          .update(receivingData)
+          .eq('id', savedReceivingId);
+
+        if (updateError) {
+          console.error('Error updating receiving record:', updateError);
+          alert('Error updating receiving data: ' + updateError.message);
+          return;
+        }
+
+        console.log('Receiving record updated successfully');
+      } else {
       // Save to receiving_records table - don't select anything back to avoid permission issues
       const { data, error } = await supabase
         .from('receiving_records')
@@ -1929,6 +2045,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         alert('Record saved but ID could not be retrieved.');
         return;
       }
+      } // end else (new insert)
       
       // Check if payment method differs from vendor's default and ask to update vendor table
       const paymentMethodChanged = paymentMethod && selectedVendor?.payment_method && 
@@ -1950,9 +2067,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return; // Wait for user response
       } else {
         // No payment changes, proceed directly to success
-        receivingSuccessMessage = 'Receiving data saved successfully! You can now generate the clearance certification.';
+        receivingSuccessMessage = 'Receiving data saved successfully!';
         showReceivingSuccessModal = true;
+        setTimeout(() => { showReceivingSuccessModal = false; }, 2000);
         currentStep = 3;
+        // Auto-trigger certificate generation
+        setTimeout(() => generateClearanceCertification(), 300);
       }
     } catch (error) {
       console.error('Error saving receiving data:', error);
@@ -1996,18 +2116,24 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
 
     // After vendor update (or cancellation), show success message
-    receivingSuccessMessage = 'Receiving data saved successfully! You can now generate the clearance certification.';
+    receivingSuccessMessage = 'Receiving data saved successfully!';
     showReceivingSuccessModal = true;
+    setTimeout(() => { showReceivingSuccessModal = false; }, 2000);
     currentStep = 3;
+    // Auto-trigger certificate generation
+    setTimeout(() => generateClearanceCertification(), 300);
   }
 
   function handlePaymentUpdateCancel() {
     showPaymentUpdateModal = false;
     
     // Still show success message even if vendor wasn't updated
-    receivingSuccessMessage = 'Receiving data saved successfully! You can now generate the clearance certification.';
+    receivingSuccessMessage = 'Receiving data saved successfully!';
     showReceivingSuccessModal = true;
+    setTimeout(() => { showReceivingSuccessModal = false; }, 2000);
     currentStep = 3;
+    // Auto-trigger certificate generation
+    setTimeout(() => generateClearanceCertification(), 300);
   }
 
   function closeVendorUpdatedModal() {
@@ -2600,149 +2726,111 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // Handle certificate manager close
   function handleCertificateManagerClose() {
     showCertificateManager = false;
-    // Optionally redirect back to main menu or close window
-    // windowManager.closeWindow();
+    // Mark tasks as assigned after first successful certificate flow
+    tasksAlreadyAssigned = true;
   }
 </script>
-<StepIndicator {steps} {currentStep} />
+<div class="receiving-layout">
+<div class="step-indicator-fixed">
+  <StepIndicator {steps} {currentStep} />
+</div>
+<div class="receiving-content">
 
 <!-- Step 1: Branch Selection Section -->
 {#if currentStep === 0}
 <div class="form-section">
   
   {#if selectedBranch && !showBranchSelector}
-    <div class="current-selection">
-      <div class="selection-info">
-        <span class="label">Selected Branch:</span>
-        <span class="value">{selectedBranchName}</span>
+    <!-- Compact Branch Bar -->
+    <div class="branch-bar-compact">
+      <div class="branch-bar-left">
+        <span class="branch-bar-name">{selectedBranchName}{#if selectedBranchLocation} <span class="branch-bar-location">— {selectedBranchLocation}</span>{/if}</span>
+        <label class="branch-bar-default">
+          <input 
+            type="checkbox" 
+            checked={setAsDefaultBranch}
+            on:change={(e) => { setAsDefaultBranch = e.target.checked; handleDefaultBranchToggle(); }}
+          />
+          {$t('receiving.default')}
+        </label>
       </div>
-      <label class="default-branch-checkbox">
-        <input 
-          type="checkbox" 
-          checked={setAsDefaultBranch}
-          on:change={(e) => { setAsDefaultBranch = e.target.checked; handleDefaultBranchToggle(); }}
-        />
-        <span>Set as default</span>
-      </label>
-      <button type="button" on:click={changeBranch} class="change-btn">
-        Change Branch
+      <button type="button" on:click={changeBranch} class="branch-bar-change-btn">
+        {$t('receiving.change')}
       </button>
     </div>
 
-    <!-- Default Positions Summary (auto-loaded from branch_default_positions) -->
-    <div class="defaults-summary-section">
+    <!-- Compact Assigned Positions Strip -->
+    <div class="positions-strip">
       {#if defaultPositionsLoading}
-        <div class="defaults-loading">
-          <div class="spinner"></div>
-          <span>Loading default positions...</span>
+        <div class="positions-strip-loading">
+          <div class="spinner-sm"></div>
+          <span>{$t('receiving.loadingPositions')}</span>
         </div>
       {:else if defaultPositionsError}
-        <div class="defaults-error">
-          <span class="warning-icon">⚠️</span>
-          <span>{defaultPositionsError}</span>
+        <div class="positions-strip-error">
+          <span>⚠️ {defaultPositionsError}</span>
         </div>
       {:else if defaultPositionsLoaded}
-        <h4 class="defaults-header">Assigned Positions (from Branch Defaults)</h4>
-        <div class="defaults-grid">
-          <!-- Branch Manager -->
-          <div class="default-item">
-            <span class="default-role">Branch Manager</span>
-            {#if selectedBranchManager}
-              <span class="default-user">✅ {selectedBranchManager.username} - {selectedBranchManager.employeeName}</span>
-            {:else}
-              <span class="default-missing">❌ Not assigned</span>
-            {/if}
+        <div class="positions-strip-items">
+          <div class="pos-chip" class:pos-ok={selectedBranchManager} class:pos-missing={!selectedBranchManager} title={selectedBranchManager ? selectedBranchManager.username + ' - ' + selectedBranchManager.employeeName : $t('receiving.notAssigned')}>
+            <span class="pos-chip-label">{$t('receiving.branchMgr')}</span>
+            <span class="pos-chip-value">{selectedBranchManager ? selectedBranchManager.username + ' - ' + selectedBranchManager.employeeName : '—'}</span>
           </div>
-          <!-- Purchasing Manager -->
-          <div class="default-item">
-            <span class="default-role">Purchasing Manager</span>
-            {#if selectedPurchasingManager}
-              <span class="default-user">✅ {selectedPurchasingManager.username} - {selectedPurchasingManager.employeeName}</span>
-            {:else}
-              <span class="default-missing">❌ Not assigned</span>
-            {/if}
+          <div class="pos-chip" class:pos-ok={selectedPurchasingManager} class:pos-missing={!selectedPurchasingManager} title={selectedPurchasingManager ? selectedPurchasingManager.username + ' - ' + selectedPurchasingManager.employeeName : $t('receiving.notAssigned')}>
+            <span class="pos-chip-label">{$t('receiving.purchasing')}</span>
+            <span class="pos-chip-value">{selectedPurchasingManager ? selectedPurchasingManager.username + ' - ' + selectedPurchasingManager.employeeName : '—'}</span>
           </div>
-          <!-- Inventory Manager -->
-          <div class="default-item">
-            <span class="default-role">Inventory Manager</span>
-            {#if selectedInventoryManager}
-              <span class="default-user">✅ {selectedInventoryManager.username} - {selectedInventoryManager.employeeName}</span>
-            {:else}
-              <span class="default-missing">❌ Not assigned</span>
-            {/if}
+          <div class="pos-chip" class:pos-ok={selectedInventoryManager} class:pos-missing={!selectedInventoryManager} title={selectedInventoryManager ? selectedInventoryManager.username + ' - ' + selectedInventoryManager.employeeName : $t('receiving.notAssigned')}>
+            <span class="pos-chip-label">{$t('receiving.inventory')}</span>
+            <span class="pos-chip-value">{selectedInventoryManager ? selectedInventoryManager.username + ' - ' + selectedInventoryManager.employeeName : '—'}</span>
           </div>
-          <!-- Accountant -->
-          <div class="default-item">
-            <span class="default-role">Accountant</span>
-            {#if selectedAccountant}
-              <span class="default-user">✅ {selectedAccountant.username} - {selectedAccountant.employeeName}</span>
-            {:else}
-              <span class="default-missing">❌ Not assigned</span>
-            {/if}
+          <div class="pos-chip" class:pos-ok={selectedAccountant} class:pos-missing={!selectedAccountant} title={selectedAccountant ? selectedAccountant.username + ' - ' + selectedAccountant.employeeName : $t('receiving.notAssigned')}>
+            <span class="pos-chip-label">{$t('receiving.accountant')}</span>
+            <span class="pos-chip-value">{selectedAccountant ? selectedAccountant.username + ' - ' + selectedAccountant.employeeName : '—'}</span>
           </div>
-          <!-- Night Supervisor(s) -->
-          <div class="default-item">
-            <span class="default-role">Night Supervisor(s)</span>
-            {#if selectedNightSupervisors.length > 0}
-              <span class="default-user">✅ {selectedNightSupervisors.map(s => s.username + ' - ' + s.employeeName).join(', ')}</span>
-            {:else}
-              <span class="default-missing">❌ Not assigned</span>
-            {/if}
+          <div class="pos-chip" class:pos-ok={selectedNightSupervisors.length > 0} class:pos-missing={selectedNightSupervisors.length === 0} title={selectedNightSupervisors.length > 0 ? selectedNightSupervisors.map(s => s.username + ' - ' + s.employeeName).join(', ') : $t('receiving.notAssigned')}>
+            <span class="pos-chip-label">{$t('receiving.nightSup')}</span>
+            <span class="pos-chip-value">{selectedNightSupervisors.length > 0 ? selectedNightSupervisors.map(s => s.username + ' - ' + s.employeeName).join(', ') : '—'}</span>
           </div>
-          <!-- Warehouse Handler -->
-          <div class="default-item">
-            <span class="default-role">Warehouse Handler</span>
-            {#if selectedWarehouseHandler}
-              <span class="default-user">✅ {selectedWarehouseHandler.username} - {selectedWarehouseHandler.employeeName}</span>
-            {:else}
-              <span class="default-missing">❌ Not assigned</span>
-            {/if}
+          <div class="pos-chip" class:pos-ok={selectedWarehouseHandler} class:pos-missing={!selectedWarehouseHandler} title={selectedWarehouseHandler ? selectedWarehouseHandler.username + ' - ' + selectedWarehouseHandler.employeeName : $t('receiving.notAssigned')}>
+            <span class="pos-chip-label">{$t('receiving.warehouse')}</span>
+            <span class="pos-chip-value">{selectedWarehouseHandler ? selectedWarehouseHandler.username + ' - ' + selectedWarehouseHandler.employeeName : '—'}</span>
           </div>
-        </div>
-        <div class="defaults-note">
-          <span class="note-icon">ℹ️</span>
-          <span>These positions are auto-loaded from branch defaults. To change them, go to Vendor → Manage → Default Positions.</span>
         </div>
       {/if}
     </div>
 
     <!-- Shelf Stocker Selection (Manual - standalone) -->
     <div class="shelf-stocker-standalone-section">
-      <h4>
-        {#if showAllUsersForShelfStockers}
-          Select User as Shelf Stocker
-        {:else}
-          Select Shelf Stocker
-        {/if}
-      </h4>
-      
-      <!-- Selected Shelf Stocker Display -->
-      {#if selectedShelfStocker}
-        <div class="selected-stocker">
-          <h5>Selected Shelf Stocker:</h5>
-          <div class="selected-stocker-item">
-            <span class="stocker-info">
-              {selectedShelfStocker.username} - {selectedShelfStocker.employeeName}
-              {#if selectedShelfStocker.position.toLowerCase().includes('shelf') && selectedShelfStocker.position.toLowerCase().includes('stocker')}
-                <span class="stocker-badge">Shelf Stocker</span>
-              {/if}
-            </span>
-            <button 
-              type="button" 
-              class="remove-stocker-btn"
-              on:click={removeShelfStocker}
-              title="Remove this shelf stocker"
-            >
-              ×
-            </button>
+      <div class="shelf-stocker-header-bar">
+        <h4>
+          {#if showAllUsersForShelfStockers}
+            {$t('receiving.selectUserAsShelfStocker')}
+          {:else}
+            {$t('receiving.selectShelfStocker')}
+          {/if}
+        </h4>
+        {#if selectedShelfStockers.length > 0}
+          <div class="shelf-stocker-selected-chips">
+            {#each selectedShelfStockers as stocker}
+              <div class="shelf-stocker-chip">
+                <span class="chip-name">{stocker.username} - {stocker.employeeName}</span>
+                <button 
+                  type="button" 
+                  class="remove-stocker-inline-btn"
+                  on:click={() => removeShelfStocker(stocker.id)}
+                  title={$t('receiving.remove')}
+                >×</button>
+              </div>
+            {/each}
           </div>
-        </div>
-      {/if}
+        {/if}
+      </div>
       
       {#if shelfStockersLoading}
         <div class="stockers-loading">
           <div class="spinner"></div>
-          <span>Loading shelf stockers...</span>
+          <span>{$t('receiving.loadingShelfStockers')}</span>
         </div>
       {:else if actualShelfStockers.length === 0 && !showAllUsersForShelfStockers}
         <!-- No Shelf Stockers Found - Show Message -->
@@ -2750,10 +2838,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           <div class="no-stockers-message">
             <span class="warning-icon">⚠️</span>
             <div class="message-content">
-              <h5>No Shelf Stockers Found</h5>
-              <p>No users with "Shelf Stocker" position found for this branch. You can select any other user to help with shelf stocking.</p>
+              <h5>{$t('receiving.noShelfStockersFound')}</h5>
+              <p>{$t('receiving.noShelfStockersMsg')}</p>
               <button type="button" class="select-any-user-btn" on:click={showAllUsersForShelfStockerSelection}>
-                Select Any User as Shelf Stocker
+                {$t('receiving.selectAnyUserAsStocker')}
               </button>
             </div>
           </div>
@@ -2761,14 +2849,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       {:else if filteredShelfStockers.length === 0 && !shelfStockerSearchQuery}
         <div class="no-stockers">
           <span class="notice-icon">⚠️</span>
-          <span>No active users found for shelf stocker selection</span>
+          <span>{$t('receiving.noActiveUsersForStocker')}</span>
         </div>
       {:else}
         <!-- Show instructions based on current view -->
         {#if showAllUsersForShelfStockers}
           <div class="fallback-notice">
             <span class="info-icon">ℹ️</span>
-            <span>No official shelf stockers found. Please select any user from the list below to help with shelf stocking:</span>
+            <span>{$t('receiving.noOfficialStockersMsg')}</span>
           </div>
         {/if}
 
@@ -2776,8 +2864,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         <div class="stocker-search">
           <input 
             type="text" 
+            id="shelfStockerSearchInput"
             bind:value={shelfStockerSearchQuery}
-            placeholder="Search by employee ID, name, or position..."
+            on:keydown={handleShelfStockerSearchKeydown}
+            placeholder={$t('receiving.searchStockerPlaceholder')}
             class="search-input"
           />
         </div>
@@ -2786,50 +2876,37 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         <div class="stockers-table-container">
           {#if filteredShelfStockers.length === 0 && shelfStockerSearchQuery}
             <div class="no-search-results">
-              <p>No users found matching "{shelfStockerSearchQuery}"</p>
+              <p>{$t('receiving.noUsersMatchSearch').replace('{query}', shelfStockerSearchQuery)}</p>
             </div>
           {:else}
           <table class="stockers-table">
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Employee Name</th>
-                <th>Employee ID</th>
-                <th>Position</th>
-                <th>Action</th>
+                <th>{$t('receiving.employeeId')}</th>
+                <th>{$t('receiving.employeeName')}</th>
+                <th>{$t('receiving.position')}</th>
+                <th>{$t('receiving.action')}</th>
               </tr>
             </thead>
             <tbody>
-              {#each filteredShelfStockers as user}
-                {@const isSelected = selectedShelfStocker && selectedShelfStocker.id === user.id}
-                <tr class="stocker-row" class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}>
-                  <td class="username-cell">{user.username}</td>
-                  <td class="name-cell">{user.employeeName}</td>
+              {#each filteredShelfStockers as user, si}
+                {@const isSelected = selectedShelfStockers.some(s => s.id === user.id)}
+                <tr class="stocker-row" class:stocker-row-highlight={si === shelfStockerHighlightIndex} class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}>
                   <td class="id-cell">{user.employeeId}</td>
+                  <td class="name-cell">{user.employeeName}</td>
                   <td class="position-cell">
                     {user.position}
-                    {#if user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')}
-                      <span class="stocker-badge">Shelf Stocker</span>
-                    {/if}
                   </td>
                   <td class="action-cell">
-                    {#if isSelected}
-                      <button 
-                        type="button" 
-                        class="remove-stocker-btn"
-                        on:click={removeShelfStocker}
-                      >
-                        Remove
-                      </button>
-                    {:else}
-                      <button 
-                        type="button" 
-                        class="select-stocker-btn"
-                        on:click={() => selectShelfStocker(user)}
-                      >
-                        Select
-                      </button>
-                    {/if}
+                    <label class="stocker-checkbox-label">
+                      <input 
+                        type="checkbox" 
+                        checked={isSelected}
+                        on:change={() => isSelected ? removeShelfStocker(user.id) : selectShelfStocker(user)}
+                        on:keydown={(e) => { if (e.key === 'Enter' && allRequiredUsersSelected) { e.preventDefault(); currentStep = 1; tick().then(() => document.getElementById('vendorSearchInput')?.focus()); }}}
+                        class="stocker-checkbox"
+                      />
+                    </label>
                   </td>
                 </tr>
               {/each}
@@ -2845,25 +2922,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       {#if isLoading}
         <div class="loading-state">
           <div class="spinner"></div>
-          <span>Loading branches...</span>
+          <span>{$t('receiving.loadingBranches')}</span>
         </div>
       {:else if errorMessage}
         <div class="error-state">
           <p>{errorMessage}</p>
-          <button on:click={loadBranches} class="retry-btn">Retry</button>
+          <button on:click={loadBranches} class="retry-btn">{$t('receiving.retry')}</button>
         </div>
       {:else}
-        <label for="branch-select" class="form-label">Choose Branch:</label>
+        <label for="branch-select" class="form-label">{$t('receiving.chooseBranch')}</label>
         <select 
           id="branch-select" 
           bind:value={selectedBranch}
           class="form-select"
         >
-          <option value="">-- Select Branch --</option>
+          <option value="">-- {$t('receiving.selectBranch')} --</option>
           {#each branches as branch}
             <option value={branch.id.toString()}>
-              {branch.name_en}
-              {#if branch.location_en} - {branch.location_en}{/if}
+              {$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
+              {#if $currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en} - {$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en}{/if}
             </option>
           {/each}
         </select>
@@ -2871,7 +2948,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         {#if selectedBranch}
           <div class="branch-actions">
             <button type="button" on:click={confirmBranchSelection} class="confirm-btn">
-              ✓ Confirm Branch
+              ✓ {$t('receiving.confirmBranch')}
             </button>
           </div>
         {/if}
@@ -2887,19 +2964,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     <div class="step-complete-info">
       {#if allRequiredUsersSelected}
         <span class="step-complete-icon">✅</span>
-        <span class="step-complete-text">Step 1 Complete: Branch & Staff Selected</span>
+        <span class="step-complete-text">{$t('receiving.step1Complete')}</span>
       {:else}
         <span class="step-incomplete-icon">⚠️</span>
-        <span class="step-incomplete-text">Please select all required staff members</span>
+        <span class="step-incomplete-text">{$t('receiving.selectAllStaff')}</span>
       {/if}
     </div>
     <button 
       type="button" 
-      on:click={() => currentStep = 1} 
+      on:click={() => { currentStep = 1; tick().then(() => document.getElementById('vendorSearchInput')?.focus()); }} 
       class="continue-step-btn"
       disabled={!allRequiredUsersSelected}
     >
-      Continue to Step 2: Select Vendor →
+      {$t('receiving.continueToStep2')}
     </button>
   </div>
 {/if}
@@ -2907,15 +2984,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <!-- Step 2: Vendor Selection Section -->
 {#if currentStep === 1 && selectedBranch && !showBranchSelector}
   <div class="form-section">
+    <div style="margin-bottom: 0.75rem;">
+      <button type="button" class="secondary-btn" on:click={() => currentStep = 0}>
+        {$t('receiving.backToBranch')}
+      </button>
+    </div>
     {#if selectedVendor}
       <div class="current-selection">
         <div class="selection-info">
-          <span class="label">Selected Vendor:</span>
+          <span class="label">{$t('receiving.selectedVendor')}</span>
           <span class="value">{selectedVendor.vendor_name}</span>
           <span class="vendor-id">({selectedVendor.erp_vendor_id})</span>
         </div>
         <button type="button" on:click={changeVendor} class="change-btn">
-          Change Vendor
+          {$t('receiving.changeVendor')}
         </button>
       </div>
     {:else}
@@ -2926,8 +3008,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <span class="search-icon">🔍</span>
             <input 
               type="text" 
-              placeholder="Search by ERP ID, vendor name, salesman, place, location, categories, delivery modes..."
+              id="vendorSearchInput"
+              placeholder={$t('receiving.searchVendorPlaceholder')}
               bind:value={searchQuery}
+              on:keydown={handleVendorSearchKeydown}
               class="search-input"
             />
             {#if searchQuery}
@@ -2935,7 +3019,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {/if}
           </div>
           <div class="search-results-info">
-            Showing {filteredVendors.length} of {vendors.length} vendors
+            {$t('receiving.showingVendors', { shown: filteredVendors.length, total: vendors.length })}
           </div>
         </div>
 
@@ -2943,15 +3027,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         <div class="column-selector-section">
           <div class="column-selector">
             <button class="column-selector-btn" on:click={() => showColumnSelector = !showColumnSelector}>
-              🏷️ Show/Hide Columns
+              🏷️ {$t('receiving.showHideColumns')}
               <span class="dropdown-arrow">{showColumnSelector ? '▲' : '▼'}</span>
             </button>
             
             {#if showColumnSelector}
               <div class="column-dropdown">
                 <div class="column-controls">
-                  <button class="control-btn" on:click={() => toggleAllColumns(true)}>✅ Show All</button>
-                  <button class="control-btn" on:click={() => toggleAllColumns(false)}>❌ Hide All</button>
+                  <button class="control-btn" on:click={() => toggleAllColumns(true)}>✅ {$t('receiving.showAll')}</button>
+                  <button class="control-btn" on:click={() => toggleAllColumns(false)}>❌ {$t('receiving.hideAll')}</button>
                 </div>
                 <div class="column-list">
                   {#each columnDefinitions as column}
@@ -2973,24 +3057,24 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         {#if vendorLoading}
           <div class="loading-state">
             <div class="spinner"></div>
-            <span>Loading vendors...</span>
+            <span>{$t('receiving.loadingVendors')}</span>
           </div>
         {:else if vendorError}
           <div class="error-state">
             <p>{vendorError}</p>
-            <button on:click={loadVendors} class="retry-btn">Retry</button>
+            <button on:click={loadVendors} class="retry-btn">{$t('receiving.retry')}</button>
           </div>
         {:else if filteredVendors.length === 0}
           <div class="empty-state">
             {#if searchQuery}
               <span class="empty-icon">🔍</span>
-              <h4>No vendors found</h4>
-              <p>No vendors match your search criteria</p>
-              <button class="clear-search-btn" on:click={() => searchQuery = ''}>Clear Search</button>
+              <h4>{$t('receiving.noVendorsFound')}</h4>
+              <p>{$t('receiving.noVendorsMatch')}</p>
+              <button class="clear-search-btn" on:click={() => searchQuery = ''}>{$t('receiving.clearSearch')}</button>
             {:else}
               <span class="empty-icon">📝</span>
-              <h4>No vendors available</h4>
-              <p>No active vendors found</p>
+              <h4>{$t('receiving.noVendorsAvailable')}</h4>
+              <p>{$t('receiving.noActiveVendors')}</p>
             {/if}
           </div>
         {:else}
@@ -2999,36 +3083,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <table>
               <thead>
                 <tr>
-                  {#if visibleColumns.erp_vendor_id}<th>ERP Vendor ID</th>{/if}
-                  {#if visibleColumns.vendor_name}<th>Vendor Name</th>{/if}
-                  {#if visibleColumns.salesman_name}<th>Salesman Name</th>{/if}
-                  {#if visibleColumns.salesman_contact}<th>Salesman Contact</th>{/if}
-                  {#if visibleColumns.supervisor_name}<th>Supervisor Name</th>{/if}
-                  {#if visibleColumns.supervisor_contact}<th>Supervisor Contact</th>{/if}
-                  {#if visibleColumns.vendor_contact}<th>Vendor Contact</th>{/if}
-                  {#if visibleColumns.payment_method}<th>Payment Method</th>{/if}
-                  {#if visibleColumns.credit_period}<th>Credit Period</th>{/if}
-                  {#if visibleColumns.bank_name}<th>Bank Name</th>{/if}
-                  {#if visibleColumns.iban}<th>IBAN</th>{/if}
-                  {#if visibleColumns.last_visit}<th>Last Visit</th>{/if}
-                  {#if visibleColumns.place}<th>Place</th>{/if}
-                  {#if visibleColumns.location}<th>Location</th>{/if}
-                  {#if visibleColumns.categories}<th>Categories</th>{/if}
-                  {#if visibleColumns.delivery_modes}<th>Delivery Modes</th>{/if}
-                  {#if visibleColumns.return_expired}<th>Return Expired</th>{/if}
-                  {#if visibleColumns.return_near_expiry}<th>Return Near Expiry</th>{/if}
-                  {#if visibleColumns.return_over_stock}<th>Return Over Stock</th>{/if}
-                  {#if visibleColumns.return_damage}<th>Return Damage</th>{/if}
-                  {#if visibleColumns.no_return}<th>No Return</th>{/if}
-                  {#if visibleColumns.vat_status}<th>VAT Status</th>{/if}
-                  {#if visibleColumns.vat_number}<th>VAT Number</th>{/if}
-                  {#if visibleColumns.status}<th>Status</th>{/if}
-                  {#if visibleColumns.actions}<th>Actions</th>{/if}
+                  {#if visibleColumns.erp_vendor_id}<th>{$t('receiving.erpVendorId')}</th>{/if}
+                  {#if visibleColumns.vendor_name}<th>{$t('receiving.vendorName')}</th>{/if}
+                  {#if visibleColumns.salesman_name}<th>{$t('receiving.salesmanName')}</th>{/if}
+                  {#if visibleColumns.salesman_contact}<th>{$t('receiving.salesmanContact')}</th>{/if}
+                  {#if visibleColumns.supervisor_name}<th>{$t('receiving.supervisorName')}</th>{/if}
+                  {#if visibleColumns.supervisor_contact}<th>{$t('receiving.supervisorContact')}</th>{/if}
+                  {#if visibleColumns.vendor_contact}<th>{$t('receiving.vendorContact')}</th>{/if}
+                  {#if visibleColumns.payment_method}<th>{$t('receiving.paymentMethod')}</th>{/if}
+                  {#if visibleColumns.credit_period}<th>{$t('receiving.creditPeriod')}</th>{/if}
+                  {#if visibleColumns.bank_name}<th>{$t('receiving.bankName')}</th>{/if}
+                  {#if visibleColumns.iban}<th>{$t('receiving.iban')}</th>{/if}
+                  {#if visibleColumns.last_visit}<th>{$t('receiving.lastVisit')}</th>{/if}
+                  {#if visibleColumns.place}<th>{$t('receiving.place')}</th>{/if}
+                  {#if visibleColumns.location}<th>{$t('receiving.location')}</th>{/if}
+                  {#if visibleColumns.categories}<th>{$t('receiving.categories')}</th>{/if}
+                  {#if visibleColumns.delivery_modes}<th>{$t('receiving.deliveryModes')}</th>{/if}
+                  {#if visibleColumns.return_expired}<th>{$t('receiving.returnExpired')}</th>{/if}
+                  {#if visibleColumns.return_near_expiry}<th>{$t('receiving.returnNearExpiry')}</th>{/if}
+                  {#if visibleColumns.return_over_stock}<th>{$t('receiving.returnOverStock')}</th>{/if}
+                  {#if visibleColumns.return_damage}<th>{$t('receiving.returnDamage')}</th>{/if}
+                  {#if visibleColumns.no_return}<th>{$t('receiving.noReturn')}</th>{/if}
+                  {#if visibleColumns.vat_status}<th>{$t('receiving.vatStatus')}</th>{/if}
+                  {#if visibleColumns.vat_number}<th>{$t('receiving.vatNumber')}</th>{/if}
+                  {#if visibleColumns.status}<th>{$t('receiving.status')}</th>{/if}
+                  {#if visibleColumns.actions}<th>{$t('receiving.actions')}</th>{/if}
                 </tr>
               </thead>
               <tbody>
-                {#each filteredVendors as vendor}
-                  <tr>
+                {#each filteredVendors as vendor, vi}
+                  <tr class:vendor-row-highlight={vi === vendorHighlightIndex}>
                     {#if visibleColumns.erp_vendor_id}
                       <td class="vendor-id">{vendor.erp_vendor_id}</td>
                     {/if}
@@ -3040,7 +3124,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.salesman_name}
                           {vendor.salesman_name}
                         {:else}
-                          <span class="no-data">No salesman</span>
+                          <span class="no-data">{$t('receiving.noSalesman')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3049,7 +3133,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.salesman_contact}
                           {vendor.salesman_contact}
                         {:else}
-                          <span class="no-data">No contact</span>
+                          <span class="no-data">{$t('receiving.noContact')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3058,7 +3142,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.supervisor_name}
                           {vendor.supervisor_name}
                         {:else}
-                          <span class="no-data">No supervisor</span>
+                          <span class="no-data">{$t('receiving.noSupervisor')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3067,7 +3151,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.supervisor_contact}
                           {vendor.supervisor_contact}
                         {:else}
-                          <span class="no-data">No contact</span>
+                          <span class="no-data">{$t('receiving.noContact')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3076,7 +3160,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.vendor_contact_number}
                           {vendor.vendor_contact_number}
                         {:else}
-                          <span class="no-data">No contact</span>
+                          <span class="no-data">{$t('receiving.noContact')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3085,16 +3169,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.payment_method}
                           {vendor.payment_method}
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
                     {#if visibleColumns.credit_period}
                       <td class="vendor-data">
                         {#if vendor.credit_period}
-                          {vendor.credit_period} days
+                          {vendor.credit_period} {$t('receiving.days')}
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3103,7 +3187,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.bank_name}
                           {vendor.bank_name}
                         {:else}
-                          <span class="no-data">No bank</span>
+                          <span class="no-data">{$t('receiving.noBank')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3112,7 +3196,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.iban}
                           {vendor.iban}
                         {:else}
-                          <span class="no-data">No IBAN</span>
+                          <span class="no-data">{$t('receiving.noIban')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3121,7 +3205,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.last_visit}
                           {new Date(vendor.last_visit).toLocaleDateString()}
                         {:else}
-                          <span class="no-data">No visit</span>
+                          <span class="no-data">{$t('receiving.noVisit')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3130,7 +3214,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.place}
                           📍 {vendor.place}
                         {:else}
-                          <span class="no-data">No place</span>
+                          <span class="no-data">{$t('receiving.noPlace')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3138,10 +3222,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                       <td class="vendor-data">
                         {#if vendor.location_link}
                           <button class="location-btn" on:click={() => window.open(vendor.location_link, '_blank')}>
-                            🌐 Open Map
+                            🌐 {$t('receiving.openMap')}
                           </button>
                         {:else}
-                          <span class="no-data">No location</span>
+                          <span class="no-data">{$t('receiving.noLocation')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3157,7 +3241,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                             {/if}
                           </div>
                         {:else}
-                          <span class="no-data">No categories</span>
+                          <span class="no-data">{$t('receiving.noCategories')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3173,7 +3257,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                             {/if}
                           </div>
                         {:else}
-                          <span class="no-data">No delivery modes</span>
+                          <span class="no-data">{$t('receiving.noDeliveryModes')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3182,7 +3266,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.return_expired_products}
                           <span class="return-policy {vendor.return_expired_products.toLowerCase()}">{vendor.return_expired_products}</span>
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3191,7 +3275,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.return_near_expiry_products}
                           <span class="return-policy {vendor.return_near_expiry_products.toLowerCase()}">{vendor.return_near_expiry_products}</span>
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3200,7 +3284,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.return_over_stock}
                           <span class="return-policy {vendor.return_over_stock.toLowerCase()}">{vendor.return_over_stock}</span>
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3209,16 +3293,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.return_damage_products}
                           <span class="return-policy {vendor.return_damage_products.toLowerCase()}">{vendor.return_damage_products}</span>
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
                     {#if visibleColumns.no_return}
                       <td class="vendor-data">
                         {#if vendor.no_return !== undefined}
-                          <span class="return-policy {vendor.no_return ? 'true' : 'false'}">{vendor.no_return ? 'Yes' : 'No'}</span>
+                          <span class="return-policy {vendor.no_return ? 'true' : 'false'}">{vendor.no_return ? $t('receiving.yes') : $t('receiving.no')}</span>
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3227,7 +3311,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.vat_applicable}
                           <span class="vat-status {vendor.vat_applicable.toLowerCase().replace(' ', '-')}">{vendor.vat_applicable}</span>
                         {:else}
-                          <span class="no-data">N/A</span>
+                          <span class="no-data">{$t('receiving.na')}</span>
                         {/if}
                       </td>
                     {/if}
@@ -3236,23 +3320,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                         {#if vendor.vat_number}
                           {vendor.vat_number}
                         {:else}
-                          <span class="no-data">No VAT number</span>
+                          <span class="no-data">{$t('receiving.noVatNumber')}</span>
                         {/if}
                       </td>
                     {/if}
                     {#if visibleColumns.status}
                       <td class="vendor-status">
-                        <span class="status-badge {vendor.status ? vendor.status.toLowerCase() : 'active'}">{vendor.status || 'Active'}</span>
+                        <span class="status-badge {vendor.status ? vendor.status.toLowerCase() : 'active'}">{vendor.status || $t('receiving.active')}</span>
                       </td>
                     {/if}
                     {#if visibleColumns.actions}
                       <td class="action-cell">
                         <div class="action-buttons">
                           <button class="select-btn" on:click={() => selectVendor(vendor)}>
-                            Select
+                            {$t('receiving.select')}
                           </button>
                           <button class="edit-btn" on:click={() => openEditWindow(vendor)}>
-                            ✏️ Edit
+                            ✏️ {$t('receiving.edit')}
                           </button>
                         </div>
                       </td>
@@ -3273,474 +3357,228 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
-      <span class="step-complete-text">Step 2 Complete: Vendor Selected</span>
+      <span class="step-complete-text">{$t('receiving.step2Complete')}</span>
     </div>
     <button type="button" on:click={() => currentStep = 2} class="continue-step-btn">
-      Continue to Step 3: Bill Information →
+      {$t('receiving.continueToStep3')}
     </button>
   </div>
 {/if}
 
 <!-- Step 3: Bill Information -->
 {#if currentStep === 2 && selectedVendor}
-  <div class="form-section">
+  <div class="form-section step3-compact">
 
-    <p class="step-description">Review current date and enter bill details</p>
+    <div class="step3-top-bar">
+      <button type="button" class="secondary-btn btn-sm" on:click={() => currentStep = 1}>
+        {$t('receiving.back')}
+      </button>
+      <span class="step3-title">{$t('receiving.billInformation')} {selectedVendor.vendor_name}</span>
+    </div>
     
-    <div class="bill-info-grid">
-      <div class="date-field">
-        <label>Current Date & Time:</label>
-        <input 
-          type="text" 
-          value={currentDateTime} 
-          readonly 
-          class="readonly-input"
-        />
-      </div>
-      
-      <div class="date-field">
-        <label for="billDate">Bill Date: <span class="required">*</span></label>
-        <input 
-          type="date" 
-          id="billDate"
-          bind:value={billDate}
-          class="editable-input"
-          required
-        />
+    <!-- Row 1: Bill Info + Return Policy side by side -->
+    <div class="step3-row-1">
+      <div class="bill-info-card">
+        <div class="bill-info-grid">
+          <div class="bill-field bill-field--date">
+            <div class="bill-field__icon">🕐</div>
+            <div class="bill-field__content">
+              <label>{$t('receiving.currentDate')}</label>
+              <input type="text" value={currentDateTime} readonly class="readonly-input" />
+            </div>
+          </div>
+          <div class="bill-field bill-field--billdate">
+            <div class="bill-field__icon">📅</div>
+            <div class="bill-field__content">
+              <label for="billDate">{$t('receiving.billDate')} <span class="required">*</span> <span class="heartbeat-warning" title={$t('receiving.verifyBillDate')}>⚠️</span></label>
+              <input type="date" id="billDate" bind:value={billDate} class="editable-input" required 
+                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('billAmount')?.focus(); }}} />
+            </div>
+          </div>
+          <div class="bill-field bill-field--amount">
+            <div class="bill-field__icon">💰</div>
+            <div class="bill-field__content">
+              <label for="billAmount">{$t('receiving.amount')} <span class="required">*</span></label>
+              <input type="number" id="billAmount" bind:value={billAmount} step="0.01" min="0" placeholder="0.00" class="editable-input" required 
+                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('billNumber')?.focus(); }}} />
+            </div>
+          </div>
+          <div class="bill-field bill-field--number">
+            <div class="bill-field__icon">🧾</div>
+            <div class="bill-field__content">
+              <label for="billNumber">{$t('receiving.billNumber')} <span class="required">*</span></label>
+              <input type="text" id="billNumber" bind:value={billNumber} placeholder={$t('receiving.billNumberPlaceholder')} class="editable-input" required 
+                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('return-select-expired')?.focus(); }}} />
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="amount-field">
-        <label for="billAmount">Bill Amount: <span class="required">*</span></label>
-        <input 
-          type="number" 
-          id="billAmount"
-          bind:value={billAmount}
-          step="0.01"
-          min="0"
-          placeholder="0.00"
-          class="editable-input"
-          required
-        />
-      </div>
-
-      <div class="bill-number-field">
-        <label for="billNumber">Bill Number: <span class="required">*</span></label>
-        <input 
-          type="text" 
-          id="billNumber"
-          bind:value={billNumber}
-          placeholder="Enter bill number"
-          class="editable-input"
-          required
-        />
-      </div>
-    </div>
-
-    <!-- Current Return Policy Section -->
-    <div class="return-policy-section">
-      <h4>Current Return Policy for {selectedVendor.vendor_name}</h4>
-      <div class="policy-grid">
-        <div class="policy-item">
-          <label>Expired Products:</label>
-          <span class="policy-value {selectedVendor.return_expired_products ? selectedVendor.return_expired_products.toLowerCase() : 'not-specified'}">
-            {selectedVendor.return_expired_products || 'Not specified'}
+      <div class="return-policy-card">
+        <div class="rp-header">{$t('receiving.returnPolicy')}</div>
+        <div class="rp-chips">
+          <span class="rp-chip {selectedVendor.return_expired_products ? selectedVendor.return_expired_products.toLowerCase() : 'not-specified'}">
+            {$t('receiving.expired')} {selectedVendor.return_expired_products || '—'}
           </span>
-        </div>
-        <div class="policy-item">
-          <label>Near Expiry Products:</label>
-          <span class="policy-value {selectedVendor.return_near_expiry_products ? selectedVendor.return_near_expiry_products.toLowerCase() : 'not-specified'}">
-            {selectedVendor.return_near_expiry_products || 'Not specified'}
+          <span class="rp-chip {selectedVendor.return_near_expiry_products ? selectedVendor.return_near_expiry_products.toLowerCase() : 'not-specified'}">
+            {$t('receiving.nearExpiry')} {selectedVendor.return_near_expiry_products || '—'}
           </span>
-        </div>
-        <div class="policy-item">
-          <label>Over Stock:</label>
-          <span class="policy-value {selectedVendor.return_over_stock ? selectedVendor.return_over_stock.toLowerCase() : 'not-specified'}">
-            {selectedVendor.return_over_stock || 'Not specified'}
+          <span class="rp-chip {selectedVendor.return_over_stock ? selectedVendor.return_over_stock.toLowerCase() : 'not-specified'}">
+            {$t('receiving.overStock')} {selectedVendor.return_over_stock || '—'}
           </span>
-        </div>
-        <div class="policy-item">
-          <label>Damage Products:</label>
-          <span class="policy-value {selectedVendor.return_damage_products ? selectedVendor.return_damage_products.toLowerCase() : 'not-specified'}">
-            {selectedVendor.return_damage_products || 'Not specified'}
+          <span class="rp-chip {selectedVendor.return_damage_products ? selectedVendor.return_damage_products.toLowerCase() : 'not-specified'}">
+            {$t('receiving.damage')} {selectedVendor.return_damage_products || '—'}
           </span>
-        </div>
-        <div class="policy-item">
-          <label>Return Policy Status:</label>
-          <span class="policy-value {selectedVendor.no_return ? 'no-returns' : 'returns-accepted'}">
-            {selectedVendor.no_return ? 'No Returns Accepted' : 'Returns Accepted'}
+          <span class="rp-chip {selectedVendor.no_return ? 'no-returns' : 'returns-accepted'}">
+            {selectedVendor.no_return ? '🚫 ' + $t('receiving.noReturns') : '✅ ' + $t('receiving.returnsOk')}
           </span>
         </div>
       </div>
     </div>
 
-    <!-- Return Processing Section -->
+    <!-- Row 2: Return Processing (only if returns accepted) -->
     {#if selectedVendor && !selectedVendor.no_return}
-      <div class="return-processing-section">
-        <h4>Return Processing</h4>
-        <p class="section-description">Mark if there are any returns for this receiving and enter amounts</p>
-        
+      <div class="step3-returns-row">
+        <div class="returns-header-bar">
+          <span class="returns-title">📦 {$t('receiving.returnProcessing')}</span>
+          <div class="bill-summary-inline">
+            <span>{$t('receiving.bill')} <strong>{parseFloat(billAmount || 0).toFixed(2)}</strong></span>
+            <span class="ret-amt">{$t('receiving.returns')} <strong>-{totalReturnAmount.toFixed(2)}</strong></span>
+            <span class="final-amt">{$t('receiving.final')} <strong>{finalBillAmount.toFixed(2)}</strong></span>
+          </div>
+        </div>
         <div class="return-questions-grid">
-          <!-- Expired Products Return -->
-          <div class="return-question">
-            <label>Returns for Expired Products:</label>
-            <select bind:value={returns.expired.hasReturn} class="return-dropdown">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-            {#if returns.expired.hasReturn === 'yes'}
-              <input 
-                type="number" 
-                bind:value={returns.expired.amount}
-                placeholder="Enter return amount"
-                step="0.01"
-                min="0"
-                class="return-amount-input"
-              />
-              <select bind:value={returns.expired.erpDocumentType} class="return-dropdown">
-                <option value="">Select ERP Document Type</option>
-                <option value="GRR">GRR (Goods Return Receipt)</option>
-                <option value="PRI">PRI (Purchase Return Invoice)</option>
-              </select>
-              <input 
-                type="text" 
-                bind:value={returns.expired.erpDocumentNumber}
-                placeholder="Enter ERP document number"
-                class="return-amount-input"
-              />
-              <input 
-                type="text" 
-                bind:value={returns.expired.vendorDocumentNumber}
-                placeholder="Enter vendor document number"
-                class="return-amount-input"
-              />
-            {/if}
-          </div>
-
-          <!-- Near Expiry Products Return -->
-          <div class="return-question">
-            <label>Returns for Near Expiry Products:</label>
-            <select bind:value={returns.nearExpiry.hasReturn} class="return-dropdown">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-            {#if returns.nearExpiry.hasReturn === 'yes'}
-              <input 
-                type="number" 
-                bind:value={returns.nearExpiry.amount}
-                placeholder="Enter return amount"
-                step="0.01"
-                min="0"
-                class="return-amount-input"
-              />
-              <select bind:value={returns.nearExpiry.erpDocumentType} class="return-dropdown">
-                <option value="">Select ERP Document Type</option>
-                <option value="GRR">GRR (Goods Return Receipt)</option>
-                <option value="PRI">PRI (Purchase Return Invoice)</option>
-              </select>
-              <input 
-                type="text" 
-                bind:value={returns.nearExpiry.erpDocumentNumber}
-                placeholder="Enter ERP document number"
-                class="return-amount-input"
-              />
-              <input 
-                type="text" 
-                bind:value={returns.nearExpiry.vendorDocumentNumber}
-                placeholder="Enter vendor document number"
-                class="return-amount-input"
-              />
-            {/if}
-          </div>
-
-          <!-- Over Stock Return -->
-          <div class="return-question">
-            <label>Returns for Over Stock:</label>
-            <select bind:value={returns.overStock.hasReturn} class="return-dropdown">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-            {#if returns.overStock.hasReturn === 'yes'}
-              <input 
-                type="number" 
-                bind:value={returns.overStock.amount}
-                placeholder="Enter return amount"
-                step="0.01"
-                min="0"
-                class="return-amount-input"
-              />
-              <select bind:value={returns.overStock.erpDocumentType} class="return-dropdown">
-                <option value="">Select ERP Document Type</option>
-                <option value="GRR">GRR (Goods Return Receipt)</option>
-                <option value="PRI">PRI (Purchase Return Invoice)</option>
-              </select>
-              <input 
-                type="text" 
-                bind:value={returns.overStock.erpDocumentNumber}
-                placeholder="Enter ERP document number"
-                class="return-amount-input"
-              />
-              <input 
-                type="text" 
-                bind:value={returns.overStock.vendorDocumentNumber}
-                placeholder="Enter vendor document number"
-                class="return-amount-input"
-              />
-            {/if}
-          </div>
-
-          <!-- Damage Products Return -->
-          <div class="return-question">
-            <label>Returns for Damage Products:</label>
-            <select bind:value={returns.damage.hasReturn} class="return-dropdown">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-            {#if returns.damage.hasReturn === 'yes'}
-              <input 
-                type="number" 
-                bind:value={returns.damage.amount}
-                placeholder="Enter return amount"
-                step="0.01"
-                min="0"
-                class="return-amount-input"
-              />
-              <select bind:value={returns.damage.erpDocumentType} class="return-dropdown">
-                <option value="">Select ERP Document Type</option>
-                <option value="GRR">GRR (Goods Return Receipt)</option>
-                <option value="PRI">PRI (Purchase Return Invoice)</option>
-              </select>
-              <input 
-                type="text" 
-                bind:value={returns.damage.erpDocumentNumber}
-                placeholder="Enter ERP document number"
-                class="return-amount-input"
-              />
-              <input 
-                type="text" 
-                bind:value={returns.damage.vendorDocumentNumber}
-                placeholder="Enter vendor document number"
-                class="return-amount-input"
-              />
-            {/if}
-          </div>
-        </div>
-
-        <!-- Bill Amount Summary -->
-        <div class="bill-summary">
-          <div class="summary-row">
-            <label>Original Bill Amount:</label>
-            <span class="amount-display">{parseFloat(billAmount || 0).toFixed(2)}</span>
-          </div>
-          <div class="summary-row">
-            <label>Total Return Amount:</label>
-            <span class="amount-display return-amount">{totalReturnAmount.toFixed(2)}</span>
-          </div>
-          <div class="summary-row final-amount">
-            <label>Final Bill Amount:</label>
-            <span class="amount-display">{finalBillAmount.toFixed(2)}</span>
-          </div>
+          {#each [
+            { key: 'expired', label: $t('receiving.expiredLabel'), nextId: 'return-select-nearExpiry' },
+            { key: 'nearExpiry', label: $t('receiving.nearExpiryLabel'), nextId: 'return-select-overStock' },
+            { key: 'overStock', label: $t('receiving.overStockLabel'), nextId: 'return-select-damage' },
+            { key: 'damage', label: $t('receiving.damageLabel'), nextId: 'paymentMethod' }
+          ] as retType}
+            <div class="return-q-card">
+              <div class="rq-top">
+                <label>{retType.label}</label>
+                <select id="return-select-{retType.key}" bind:value={returns[retType.key].hasReturn} class="rq-select"
+                  on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById(retType.nextId)?.focus(); }}}>
+                  <option value="no">{$t('receiving.no')}</option>
+                  <option value="yes">{$t('receiving.yes')}</option>
+                </select>
+              </div>
+              {#if returns[retType.key].hasReturn === 'yes'}
+                <div class="rq-fields">
+                  <input type="number" bind:value={returns[retType.key].amount} placeholder="Amount" step="0.01" min="0" class="rq-input" />
+                  <select bind:value={returns[retType.key].erpDocumentType} class="rq-select">
+                    <option value="">{$t('receiving.erpDocType')}</option>
+                    <option value="GRR">GRR</option>
+                    <option value="PRI">PRI</option>
+                  </select>
+                  <input type="text" bind:value={returns[retType.key].erpDocumentNumber} placeholder={$t('receiving.erpDocNumber')} class="rq-input" />
+                  <input type="text" bind:value={returns[retType.key].vendorDocumentNumber} placeholder={$t('receiving.vendorDocNumber')} class="rq-input" />
+                </div>
+              {/if}
+            </div>
+          {/each}
         </div>
       </div>
     {/if}
 
-    <!-- Payment Information Section -->
+    <!-- Row 3: Payment + Due Date + VAT all in one row -->
     {#if selectedVendor}
-      <div class="payment-section">
-        <h4>Payment Information</h4>
-        <p class="section-description">Current payment details from vendor (can be changed for this receiving)</p>
-        
-        <div class="payment-grid">
-          <div class="payment-field">
-            <label for="paymentMethod">Payment Method: <span class="required">*</span></label>
-            <select 
-              id="paymentMethod"
-              bind:value={paymentMethod}
-              on:change={() => {
-                paymentChanged = true;
-                paymentMethodExplicitlySelected = true;
-              }}
-              class="editable-input"
-              required
-            >
-              <option value="">Select Payment Method</option>
-              <option value="Cash on Delivery">Cash on Delivery</option>
-              <option value="Bank on Delivery">Bank on Delivery</option>
-              <option value="Cash Credit">Cash Credit</option>
-              <option value="Bank Credit">Bank Credit</option>
-            </select>
+      <div class="step3-row-3">
+        <!-- Payment -->
+        <div class="pay-card">
+          <div class="pay-header">💳 {$t('receiving.payment')}</div>
+          <div class="pay-fields">
+            <div class="compact-field">
+              <label for="paymentMethod">{$t('receiving.method')} <span class="required">*</span></label>
+              <select id="paymentMethod" bind:value={paymentMethod} on:change={() => { paymentChanged = true; paymentMethodExplicitlySelected = true; }} class="editable-input" required
+                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const vatField = document.getElementById('billVatNumber'); if (vatField) vatField.focus(); else document.getElementById('saveReceivingBtn')?.focus(); }}}>
+                <option value="">{$t('receiving.selectPayment')}</option>
+                <option value="Cash on Delivery">{$t('receiving.cashOnDelivery')}</option>
+                <option value="Bank on Delivery">{$t('receiving.bankOnDelivery')}</option>
+                <option value="Cash Credit">{$t('receiving.cashCredit')}</option>
+                <option value="Bank Credit">{$t('receiving.bankCredit')}</option>
+              </select>
+            </div>
+            {#if paymentMethod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')}
+              <div class="compact-field">
+                <label for="creditPeriod">{$t('receiving.creditDays')}</label>
+                <input type="number" id="creditPeriod" bind:value={creditPeriod} on:input={() => paymentChanged = true} placeholder={$t('receiving.daysPlaceholder')} min="0" class="editable-input" />
+              </div>
+            {/if}
+            {#if paymentMethod && (paymentMethod === 'Bank on Delivery' || paymentMethod === 'Bank Credit')}
+              <div class="compact-field">
+                <label for="bankName">{$t('receiving.bank')}</label>
+                <input type="text" id="bankName" bind:value={bankName} on:input={() => paymentChanged = true} placeholder={$t('receiving.bankNamePlaceholder')} class="editable-input" />
+              </div>
+              <div class="compact-field">
+                <label for="iban">{$t('receiving.ibanLabel')}</label>
+                <input type="text" id="iban" bind:value={iban} on:input={() => paymentChanged = true} placeholder={$t('receiving.ibanPlaceholder')} class="editable-input" />
+              </div>
+            {/if}
           </div>
-
-          <!-- Credit Period - Show only for Credit methods -->
-          {#if paymentMethod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')}
-            <div class="payment-field">
-              <label for="creditPeriod">Credit Period (Days):</label>
-              <input 
-                type="number" 
-                id="creditPeriod"
-                bind:value={creditPeriod}
-                on:input={() => paymentChanged = true}
-                placeholder="Enter credit period in days"
-                min="0"
-                class="editable-input"
-              />
-            </div>
-          {/if}
-
-          <!-- Bank Name - Show for Bank methods only -->
-          {#if paymentMethod && (paymentMethod === 'Bank on Delivery' || paymentMethod === 'Bank Credit')}
-            <div class="payment-field">
-              <label for="bankName">Bank Name:</label>
-              <input 
-                type="text" 
-                id="bankName"
-                bind:value={bankName}
-                on:input={() => paymentChanged = true}
-                placeholder="Enter bank name"
-                class="editable-input"
-              />
-            </div>
-
-            <div class="payment-field">
-              <label for="iban">IBAN:</label>
-              <input 
-                type="text" 
-                id="iban"
-                bind:value={iban}
-                on:input={() => paymentChanged = true}
-                placeholder="Enter IBAN number"
-                class="editable-input"
-              />
-            </div>
+          {#if paymentChanged}
+            <div class="pay-notice">ℹ️ {$t('receiving.paymentModifiedNotice')}</div>
           {/if}
         </div>
 
-        {#if paymentChanged}
-          <div class="payment-notice">
-            <span class="notice-icon">ℹ️</span>
-            <span>Payment information has been modified for this receiving.</span>
+        <!-- Due Date -->
+        {#if paymentMethod}
+          <div class="due-card">
+            <div class="pay-header">📅 {$t('receiving.dueDate')}</div>
+            <div class="due-content">
+              {#if dueDate}
+                <input type="date" id="dueDate" value={dueDate} readonly class="readonly-input"
+                  title={paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery' ? $t('receiving.dueOnDelivery') : $t('receiving.billDatePlusCreditPeriod')} />
+                <span class="calc-info">
+                  {#if paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit'}
+                    {$t('receiving.billDatePlusDays', { days: creditPeriod })}
+                  {:else}
+                    {$t('receiving.dueOnDelivery')}
+                  {/if}
+                </span>
+              {:else if (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit') && billDate && !creditPeriod}
+                <div class="due-notice">{$t('receiving.enterCreditPeriod')}</div>
+              {:else}
+                <input type="date" id="dueDate" value="" readonly class="readonly-input" />
+                <span class="calc-info">{$t('receiving.waitingForInputs')}</span>
+              {/if}
+            </div>
           </div>
         {/if}
-      </div>
-    {/if}
 
-    <!-- Due Date Section - Show for all payment methods -->
-    {#if selectedVendor && paymentMethod}
-      <div class="due-date-section">
-        <h4>Due Date Information</h4>
-        
-        {#if paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery'}
-          <p class="section-description">Payment due on delivery (current date)</p>
-        {:else if paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit'}
-          <p class="section-description">Calculated based on bill date and credit period</p>
-        {/if}
-        
-        <div class="due-date-field">
-          <label for="dueDate">Due Date:</label>
-          {#if dueDate}
-            <input 
-              type="date" 
-              id="dueDate"
-              value={dueDate}
-              readonly
-              class="readonly-input"
-              title={paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery' 
-                     ? 'Due on delivery (current date)' 
-                     : 'Calculated as Bill Date + Credit Period'}
-            />
-            {#if paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit'}
-              <span class="calculation-info">Bill Date + {creditPeriod} days</span>
-            {:else}
-              <span class="calculation-info">Due on delivery</span>
-            {/if}
-          {:else if (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit') && billDate && !creditPeriod}
-            <div class="due-date-notice">
-              <span class="notice-text">Please enter credit period to calculate due date</span>
-            </div>
+        <!-- VAT -->
+        <div class="vat-card">
+          <div class="pay-header">🧾 {$t('receiving.vatVerification')}</div>
+          {#if selectedVendor.vat_applicable !== 'VAT Applicable'}
+            <div class="vat-na">ℹ️ {$t('receiving.vatNotApplicable')}</div>
           {:else}
-            <input 
-              type="date" 
-              id="dueDate"
-              value=""
-              readonly
-              placeholder="Due date will be calculated"
-              class="readonly-input"
-            />
-            <span class="calculation-info">Waiting for bill date and credit period</span>
+            <div class="vat-fields">
+              <div class="compact-field">
+                <label for="vendorVatNumber">{$t('receiving.vendorVat')}</label>
+                <input type="text" id="vendorVatNumber" value={vendorVatNumber ? maskVatNumber(vendorVatNumber) : ''} readonly class="readonly-input masked-vat" placeholder={$t('receiving.noVatOnFile')} title={$t('receiving.enterFullVatToVerify')} />
+              </div>
+              <div class="compact-field">
+                <label for="billVatNumber">{$t('receiving.billVat')}</label>
+                <input type="text" id="billVatNumber" bind:value={billVatNumber} placeholder={$t('receiving.vatFromBill')} class="editable-input" 
+                  on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => { const reasonEl = document.getElementById('vatMismatchReason'); if (reasonEl) reasonEl.focus(); else { saveReceivingData(); } }, 50); }}} />
+              </div>
+            </div>
+            {#if billVatNumber}
+              <div class="vat-result">
+                {#if vatNumbersMatch === true}
+                  <span class="vat-ok">✅ {$t('receiving.vatMatch')}</span>
+                {:else if vatNumbersMatch === false}
+                  <span class="vat-warn">⚠️ {$t('receiving.vatMismatch')}</span>
+                  <div class="mismatch-reason-compact">
+                    <label for="vatMismatchReason">{$t('receiving.reason')}</label>
+                    <textarea id="vatMismatchReason" bind:value={vatMismatchReason} placeholder={$t('receiving.vatMismatchPlaceholder')} rows="2" class="reason-textarea-sm"
+                      on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveReceivingData(); }}}></textarea>
+                  </div>
+                {/if}
+              </div>
+            {/if}
           {/if}
         </div>
-      </div>
-    {/if}
-
-    <!-- VAT Number Verification Section -->
-    {#if selectedVendor}
-      <div class="vat-verification-section">
-        <h4>VAT Number Verification</h4>
-        <p class="section-description">Verify VAT number on bill matches vendor VAT number</p>
-        
-        {#if selectedVendor.vat_applicable !== 'VAT Applicable'}
-          <div class="vat-not-applicable">
-            <span class="info-icon">ℹ️</span>
-            <span>VAT is not applicable for this vendor</span>
-          </div>
-        {:else}
-          <div class="vat-grid">
-            <div class="vat-field">
-              <label for="vendorVatNumber">Vendor VAT Number:</label>
-              <input 
-                type="text" 
-                id="vendorVatNumber"
-                value={vendorVatNumber ? maskVatNumber(vendorVatNumber) : ''}
-                readonly
-                class="readonly-input masked-vat"
-                placeholder="No VAT number on file"
-                title="Enter full VAT number in the field below to verify"
-              />
-              {#if vendorVatNumber}
-                <small class="vat-hint">Enter full VAT number below to verify</small>
-              {/if}
-            </div>
-
-            <div class="vat-field">
-              <label for="billVatNumber">VAT Number on Bill:</label>
-              <input 
-                type="text" 
-                id="billVatNumber"
-                bind:value={billVatNumber}
-                placeholder="Enter VAT number from bill"
-                class="editable-input"
-              />
-            </div>
-          </div>
-
-          <!-- VAT Verification Status -->
-          {#if billVatNumber}
-            <div class="vat-status">
-              {#if vatNumbersMatch === true}
-                <div class="vat-match">
-                  <span class="status-icon">✅</span>
-                  <span>VAT numbers match - you can proceed</span>
-                </div>
-              {:else if vatNumbersMatch === false}
-                <div class="vat-mismatch">
-                  <span class="status-icon">⚠️</span>
-                  <span>VAT numbers don't match</span>
-                </div>
-                
-                <div class="mismatch-reason">
-                  <label for="vatMismatchReason">Reason for VAT Number Mismatch:</label>
-                  <textarea 
-                    id="vatMismatchReason"
-                    bind:value={vatMismatchReason}
-                    placeholder="Please explain why VAT numbers don't match (e.g., bill from different entity, subsidiary, etc.)"
-                    rows="3"
-                    class="reason-textarea"
-                  ></textarea>
-                  <p class="reason-note">You can still proceed with the receiving after providing a reason.</p>
-                </div>
-              {/if}
-            </div>
-          {/if}
-        {/if}
       </div>
     {/if}
 
@@ -3748,22 +3586,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     {#if currentStep !== 2 && currentStep !== 3}
     <div class="step-actions">
       <button type="button" class="secondary-btn" on:click={goBackToVendorSelection}>
-        ← Back to Vendor Selection
+        {$t('receiving.backToVendor')}
       </button>
       <button type="button" class="primary-btn" on:click={proceedToReceiving}>
-        Continue to Receiving →
+        {$t('receiving.continueToReceiving')}
       </button>
     </div>
     {/if}
     
-    <!-- Navigation for Step 3 (Bill Information) -->
-    {#if currentStep === 2}
-    <div class="step-actions">
-      <button type="button" class="secondary-btn" on:click={() => currentStep = 1}>
-        ← Back to Vendor Selection
-      </button>
-    </div>
-    {/if}
+
   </div>
 {/if}
 
@@ -3772,10 +3603,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
-      <span class="step-complete-text">Step 3 Complete: Bill Information & User Roles Assigned</span>
+      <span class="step-complete-text">{$t('receiving.step3Complete')}</span>
     </div>
-    <button type="button" on:click={saveReceivingData} class="save-continue-btn">
-      💾 Save & Continue to Certification →
+    <button type="button" id="saveReceivingBtn" on:click={saveReceivingData} class="save-continue-btn">
+      💾 {$t('receiving.saveContinueCert')}
     </button>
   </div>
 {:else if currentStep === 2}
@@ -3784,22 +3615,22 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       <span class="step-incomplete-icon">⏳</span>
       <span class="step-incomplete-text">
         {#if !paymentMethodExplicitlySelected}
-          Please select a Payment Method to continue
+          {$t('receiving.selectPaymentMethod')}
         {:else if !dueDateReady}
-          Please complete Due Date information (set bill date and credit period if applicable)
+          {$t('receiving.completeDueDate')}
         {:else if !billDate || !billAmount || !billNumber || !billNumber.trim()}
-          Please fill in all required fields (Bill Date, Amount, Number)
+          {$t('receiving.fillRequiredFields')}
         {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && !billVatNumber}
-          Please enter VAT Number from Bill
+          {$t('receiving.enterBillVat')}
         {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && billVatNumber && vatNumbersMatch === false && !vatMismatchReason}
-          Please provide reason for VAT Number mismatch
+          {$t('receiving.provideVatReason')}
         {:else}
-          Complete all required fields to continue
+          {$t('receiving.completeAllFields')}
         {/if}
       </span>
     </div>
     <button type="button" disabled class="save-continue-btn disabled">
-      💾 Complete Step 3 to Continue →
+      💾 {$t('receiving.completeStep3')}
     </button>
   </div>
 {/if}
@@ -3808,35 +3639,42 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {#if currentStep === 3}
   <div class="form-section">
 
-    {#if savedReceivingId}
-      <p class="step-description">✅ Receiving data saved successfully! Generate clearance certificate template.</p>
-    {:else}
-      <p class="step-description">⚠️ Please go back to Step 3 and save the receiving data first.</p>
-    {/if}
+    <!-- Warning Notice -->
+    <div class="step4-warning-notice">
+      <span class="step4-warning-icon">⚠️</span>
+      <span>{$t('receiving.step4Warning')}</span>
+    </div>
+
+    <div class="step4-top-bar">
+      <button type="button" class="edit-bill-btn" on:click={() => currentStep = 2}>
+        ✏️ {$t('receiving.editBillInfo')}
+      </button>
+      {#if savedReceivingId}
+        <span class="step4-status step4-status--ok">✅ {$t('receiving.receivingSaved')}</span>
+      {:else}
+        <span class="step4-status step4-status--warn">⚠️ {$t('receiving.saveFromStep3First')}</span>
+      {/if}
+    </div>
     
     <div class="clearance-section">
       {#if savedReceivingId}
         <button type="button" class="generate-cert-btn" on:click={generateClearanceCertification}>
-          � Generate Clearance Certificate 
+          📜 {$t('receiving.generateClearanceCertificate')}
         </button>
       {:else}
         <button type="button" class="generate-cert-btn-disabled" disabled>
-          � Generate Clearance Certificate
+          📜 {$t('receiving.generateClearanceCertificate')}
         </button>
-        <p class="warning-text">Please save the receiving data from Step 3 first.</p>
+        <p class="warning-text">{$t('receiving.pleaseSaveFirst')}</p>
       {/if}
     </div>
 
-    
-    <div class="step-actions">
-      <button type="button" class="secondary-btn" on:click={() => currentStep = 2}>
-        ← Back to Bill Information
-      </button>
-    </div>
   </div>
 {/if}
 
 <!-- More StartReceiving content will be added here -->
+</div><!-- /.receiving-content -->
+</div><!-- /.receiving-layout -->
 
 <style>
 	.user-info-section {
@@ -3870,6 +3708,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		margin-left: 0.5rem;
 	}
 
+	.receiving-layout {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.step-indicator-fixed {
+		flex-shrink: 0;
+		z-index: 50;
+		background: #fff;
+		padding: 0.25rem 0;
+		box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+	}
+
+	.receiving-content {
+		flex: 1;
+		overflow-y: auto;
+		min-height: 0;
+	}
+
+	/* Override parent window-content to let our layout handle scrolling */
+	:global(.window-content:has(.receiving-layout)) {
+		overflow: hidden !important;
+		display: flex !important;
+		flex-direction: column;
+	}
+
 	.form-section {
 		margin-bottom: 2rem;
 		padding: 1.5rem;
@@ -3885,149 +3751,241 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		font-weight: 600;
 	}
 
-	.current-selection {
+	/* Compact Branch Bar */
+	.branch-bar-compact {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		padding: 1rem;
+		justify-content: space-between;
+		padding: 0.5rem 0.75rem;
 		background: #e8f5e8;
 		border-radius: 6px;
 		border: 1px solid #4caf50;
 	}
 
-	.selection-info .label {
-		color: #666;
-		margin-right: 0.5rem;
-	}
-
-	/* Default Branch Checkbox */
-	.default-branch-checkbox {
+	.branch-bar-left {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		margin: 0;
-		padding: 0;
-		cursor: pointer;
-		font-size: 12px;
-		color: #555;
-		user-select: none;
+		gap: 0.5rem;
 	}
 
-	.default-branch-checkbox input[type="checkbox"] {
-		width: 16px;
-		height: 16px;
+	.branch-bar-icon {
+		font-size: 1.1rem;
+	}
+
+	.branch-bar-name {
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: #2e7d32;
+	}
+
+	.branch-bar-location {
+		font-weight: 400;
+		font-size: 0.85rem;
+		color: #555;
+	}
+
+	.branch-bar-default {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 0.75rem;
+		color: #555;
+		cursor: pointer;
+		margin-left: 0.5rem;
+		padding-left: 0.5rem;
+		border-left: 1px solid #a5d6a7;
+	}
+
+	.branch-bar-default input[type="checkbox"] {
+		width: 14px;
+		height: 14px;
 		cursor: pointer;
 		accent-color: #4caf50;
 	}
 
-	.default-branch-checkbox span {
-		line-height: 1;
-	}
-
-	/* Default Positions Summary Section */
-	.defaults-summary-section {
-		margin-top: 1.5rem;
-		padding: 1rem 1.25rem;
-		background: #f0f7ff;
-		border: 1px solid #b8d4f0;
-		border-radius: 8px;
-	}
-
-	.defaults-loading {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 1rem;
-		color: #555;
-	}
-
-	.defaults-error {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
-		background: #fff3cd;
-		border: 1px solid #ffc107;
-		border-radius: 6px;
-		color: #856404;
-		font-size: 0.85rem;
-	}
-
-	.defaults-header {
-		margin: 0 0 0.75rem 0;
-		font-size: 1rem;
-		font-weight: 600;
-		color: #1a73e8;
-	}
-
-	.defaults-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 0.75rem;
-	}
-
-	.default-item {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		padding: 0.6rem 0.75rem;
-		background: #fff;
-		border-radius: 6px;
-		border: 1px solid #e0e0e0;
-	}
-
-	.default-role {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: #555;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-
-	.default-user {
-		font-size: 0.85rem;
+	.branch-bar-change-btn {
+		background: none;
+		border: 1px solid #4caf50;
 		color: #2e7d32;
+		padding: 0.25rem 0.6rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.8rem;
+		font-weight: 500;
 	}
 
-	.default-missing {
-		font-size: 0.85rem;
-		color: #c62828;
+	.branch-bar-change-btn:hover {
+		background: #4caf50;
+		color: white;
 	}
 
-	.defaults-note {
-		margin-top: 0.75rem;
+	/* Compact Positions Strip */
+	.positions-strip {
+		margin-top: 0.5rem;
+		padding: 0.4rem 0.5rem;
+		background: #f0f7ff;
+		border: 1px solid #d0e3f7;
+		border-radius: 6px;
+	}
+
+	.positions-strip-loading {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		padding: 0.25rem;
 		font-size: 0.8rem;
-		color: #666;
+		color: #555;
+	}
+
+	.spinner-sm {
+		width: 14px;
+		height: 14px;
+		border: 2px solid #e0e0e0;
+		border-top: 2px solid #1a73e8;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.positions-strip-error {
+		font-size: 0.8rem;
+		color: #856404;
+		padding: 0.25rem;
+	}
+
+	.positions-strip-items {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+
+	.pos-chip {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		border: 1px solid #e0e0e0;
+		background: #fff;
+		min-width: 0;
+	}
+
+	.pos-chip.pos-ok {
+		border-color: #a5d6a7;
+		background: #e8f5e9;
+	}
+
+	.pos-chip.pos-missing {
+		border-color: #ffcdd2;
+		background: #ffebee;
+	}
+
+	.pos-chip-label {
+		font-weight: 600;
+		color: #555;
+		white-space: nowrap;
+	}
+
+	.pos-chip-value {
+		color: #333;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.pos-chip.pos-missing .pos-chip-value {
+		color: #c62828;
 	}
 
 	/* Shelf Stocker Standalone Section */
 	.shelf-stocker-standalone-section {
-		margin-top: 1.5rem;
-		padding: 1rem 1.25rem;
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
 		background: #f8f9fa;
 		border: 1px solid #dee2e6;
 		border-radius: 8px;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.shelf-stocker-header-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.4rem;
 	}
 
 	.shelf-stocker-standalone-section h4 {
-		margin: 0 0 0.75rem 0;
-		font-size: 1rem;
+		margin: 0;
+		font-size: 0.95rem;
 		font-weight: 600;
 		color: #333;
 	}
 
-	@media (max-width: 1200px) {
-		.defaults-grid {
-			grid-template-columns: repeat(2, 1fr);
-		}
+	.shelf-stocker-selected-inline {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.2rem 0.5rem;
+		background: #e8f5e9;
+		border: 1px solid #a5d6a7;
+		border-radius: 4px;
+		font-size: 0.8rem;
+	}
+
+	.shelf-stocker-selected-inline .selected-check {
+		font-size: 0.85rem;
+	}
+
+	.shelf-stocker-selected-inline .selected-name {
+		font-weight: 500;
+		color: #2e7d32;
+	}
+
+	.remove-stocker-inline-btn {
+		background: none;
+		border: none;
+		color: #c62828;
+		font-size: 1.1rem;
+		cursor: pointer;
+		padding: 0 0.2rem;
+		line-height: 1;
+		font-weight: bold;
+	}
+
+	.remove-stocker-inline-btn:hover {
+		color: #b71c1c;
+	}
+
+	.shelf-stocker-selected-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+	}
+
+	.shelf-stocker-chip {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.15rem 0.4rem;
+		background: #e8f5e9;
+		border: 1px solid #a5d6a7;
+		border-radius: 4px;
+		font-size: 0.8rem;
+	}
+
+	.shelf-stocker-chip .chip-name {
+		font-weight: 500;
+		color: #2e7d32;
 	}
 
 	@media (max-width: 768px) {
-		.defaults-grid {
-			grid-template-columns: 1fr;
+		.positions-strip-items {
+			gap: 0.25rem;
+		}
+		.pos-chip {
+			font-size: 0.7rem;
 		}
 	}
 
@@ -4532,11 +4490,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.stocker-search {
-		margin-bottom: 1rem;
+		margin-bottom: 0.4rem;
 	}
 
 	.stockers-table-container {
-		max-height: 300px;
+		max-height: 420px;
 		overflow-y: auto;
 		border: 1px solid #dee2e6;
 		border-radius: 6px;
@@ -4552,18 +4510,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		background: #f8f9fa;
 		color: #495057;
 		font-weight: 600;
-		padding: 0.75rem;
+		padding: 0.4rem 0.6rem;
 		text-align: left;
 		border-bottom: 2px solid #dee2e6;
 		position: sticky;
 		top: 0;
 		z-index: 10;
+		font-size: 0.85rem;
 	}
 
 	.stockers-table td {
-		padding: 0.75rem;
+		padding: 0.35rem 0.6rem;
 		border-bottom: 1px solid #dee2e6;
 		vertical-align: middle;
+		font-size: 0.85rem;
 	}
 
 	.stocker-row {
@@ -4583,6 +4543,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-left: 4px solid #28a745;
 	}
 
+	.stocker-row.stocker-row-highlight {
+		background: #e3f2fd;
+		outline: 2px solid #1976d2;
+		outline-offset: -2px;
+	}
+
+	.stocker-row.stocker-row-highlight.is-selected {
+		background: #c8e6c9;
+		outline: 2px solid #1976d2;
+		outline-offset: -2px;
+	}
+
 	.select-stocker-btn {
 		background: #28a745;
 		color: white;
@@ -4596,6 +4568,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.select-stocker-btn:hover {
 		background: #218838;
+	}
+
+	.stocker-checkbox-label {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+	}
+
+	.stocker-checkbox {
+		width: 20px;
+		height: 20px;
+		cursor: pointer;
+		accent-color: #28a745;
 	}
 
 	/* Accountant Section Styles */
@@ -5804,8 +5790,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.vendor-table {
 		background: white;
 		border-radius: 8px;
-		overflow: hidden;
+		overflow-y: auto;
+		max-height: 680px;
 		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		border: 1px solid #dee2e6;
 	}
 
 	.vendor-table table {
@@ -5815,21 +5803,32 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.vendor-table th {
 		background: #f8f9fa;
-		padding: 1rem;
+		padding: 0.4rem 0.6rem;
 		text-align: left;
 		font-weight: 600;
 		color: #333;
-		border-bottom: 1px solid #e9ecef;
+		border-bottom: 2px solid #dee2e6;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		font-size: 0.85rem;
 	}
 
 	.vendor-table td {
-		padding: 1rem;
+		padding: 0.35rem 0.6rem;
 		border-bottom: 1px solid #e9ecef;
-		vertical-align: top;
+		vertical-align: middle;
+		font-size: 0.85rem;
 	}
 
 	.vendor-table tbody tr:hover {
 		background: #f8f9fa;
+	}
+
+	.vendor-table tbody tr.vendor-row-highlight {
+		background: #e3f2fd;
+		outline: 2px solid #1976d2;
+		outline-offset: -2px;
 	}
 
 	.vendor-id {
@@ -5906,12 +5905,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.action-buttons {
 		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
+		gap: 0.35rem;
+		flex-wrap: nowrap;
+		align-items: center;
 	}
 
 	.action-cell {
 		min-width: 140px;
+		white-space: nowrap;
 	}
 
 	.selection-info .vendor-id {
@@ -6127,25 +6128,428 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		color: #f57c00;
 	}
 
-	/* Step 3: Bill Information Styles */
+	/* Step 3: Compact Bill Information Styles */
+	.step3-compact {
+		padding: 0.5rem !important;
+		margin-bottom: 0.5rem !important;
+	}
+
+	.step3-top-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.step3-title {
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: #333;
+	}
+
+	.btn-sm {
+		padding: 0.25rem 0.6rem !important;
+		font-size: 0.8rem !important;
+	}
+
+	/* Row 1: Bill Info + Return Policy side by side */
+	.step3-row-1 {
+		display: grid;
+		grid-template-columns: 3fr 2fr;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.bill-info-card {
+		background: transparent;
+		padding: 0;
+	}
+
 	.bill-info-grid {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 2rem;
-		margin: 2rem 0;
-		max-width: 1200px;
+		grid-template-columns: 1fr 1fr 1fr 1fr;
+		gap: 0.4rem;
 	}
 
-	.date-field, .amount-field, .bill-number-field {
+	.bill-field {
+		display: flex;
+		align-items: stretch;
+		background: white;
+		border-radius: 8px;
+		border: 1px solid #e0e0e0;
+		overflow: hidden;
+		transition: box-shadow 0.2s;
+	}
+
+	.bill-field:hover {
+		box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+	}
+
+	.bill-field__icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		min-width: 36px;
+		font-size: 1rem;
+		flexshrink: 0;
+	}
+
+	.bill-field--date .bill-field__icon {
+		background: #e8eaf6;
+	}
+
+	.bill-field--billdate .bill-field__icon {
+		background: #fff3e0;
+	}
+
+	.bill-field--amount .bill-field__icon {
+		background: #e8f5e9;
+	}
+
+	.bill-field--number .bill-field__icon {
+		background: #e3f2fd;
+	}
+
+	.bill-field--date { border-left: 3px solid #5c6bc0; }
+	.bill-field--billdate { border-left: 3px solid #ff9800; }
+	.bill-field--amount { border-left: 3px solid #43a047; }
+	.bill-field--number { border-left: 3px solid #1e88e5; }
+
+	.bill-field__content {
+		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.1rem;
+		padding: 0.3rem 0.4rem;
 	}
 
-	.date-field label, .amount-field label, .bill-number-field label {
+	.bill-field__content label {
+		font-weight: 600;
+		color: #555;
+		font-size: 0.72rem;
+		white-space: nowrap;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.bill-field__content input,
+	.bill-field__content select {
+		border: none !important;
+		background: transparent !important;
+		padding: 0.15rem 0 !important;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #333;
+		outline: none;
+		box-shadow: none !important;
+		border-bottom: 1px dashed #ccc !important;
+		border-radius: 0 !important;
+	}
+
+	.bill-field__content input:focus {
+		border-bottom-color: #667eea !important;
+	}
+
+	.bill-field__content input[readonly] {
+		border-bottom-style: solid !important;
+		border-bottom-color: #e0e0e0 !important;
+		color: #888;
+		cursor: default;
+	}
+
+	.compact-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.compact-field label {
+		font-weight: 600;
+		color: #555;
+		font-size: 0.75rem;
+		white-space: nowrap;
+	}
+
+	.return-policy-card {
+		background: #f8f9fa;
+		border: 1px solid #e0e0e0;
+		border-radius: 6px;
+		padding: 0.4rem 0.5rem;
+		border-left: 3px solid #667eea;
+	}
+
+	.rp-header {
+		font-weight: 600;
+		font-size: 0.8rem;
+		color: #333;
+		margin-bottom: 0.3rem;
+	}
+
+	.rp-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.rp-chip {
+		font-size: 0.7rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 10px;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.rp-chip.accepted, .rp-chip.no {
+		background: #e8f5e8;
+		color: #2e7d32;
+	}
+
+	.rp-chip.rejected, .rp-chip.yes {
+		background: #ffebee;
+		color: #d32f2f;
+	}
+
+	.rp-chip.not-specified {
+		background: #fff3e0;
+		color: #f57c00;
+	}
+
+	.rp-chip.returns-accepted {
+		background: #e8f5e8;
+		color: #2e7d32;
+		font-weight: 600;
+	}
+
+	.rp-chip.no-returns {
+		background: #ffebee;
+		color: #d32f2f;
+		font-weight: 600;
+	}
+
+	/* Row 2: Returns */
+	.step3-returns-row {
+		background: #f0f4ff;
+		border: 1px solid #c8d6f0;
+		border-radius: 6px;
+		padding: 0.4rem 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.returns-header-bar {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.35rem;
+	}
+
+	.returns-title {
+		font-weight: 600;
+		font-size: 0.85rem;
+		color: #1976d2;
+	}
+
+	.bill-summary-inline {
+		display: flex;
+		gap: 1rem;
+		font-size: 0.8rem;
+		color: #333;
+	}
+
+	.bill-summary-inline .ret-amt {
+		color: #d32f2f;
+	}
+
+	.bill-summary-inline .final-amt {
+		color: #1976d2;
+		font-weight: 600;
+	}
+
+	.return-questions-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr 1fr;
+		gap: 0.4rem;
+	}
+
+	.return-q-card {
+		background: white;
+		padding: 0.35rem 0.4rem;
+		border-radius: 4px;
+		border: 1px solid #e3f2fd;
+	}
+
+	.rq-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.3rem;
+		margin-bottom: 0.2rem;
+	}
+
+	.rq-top label {
 		font-weight: 600;
 		color: #333;
-		font-size: 1rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+	}
+
+	.rq-select {
+		padding: 0.2rem 0.3rem;
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
+		background: white;
+		font-size: 0.75rem;
+		min-width: 50px;
+	}
+
+	.rq-select:focus {
+		outline: none;
+		border-color: #2196f3;
+	}
+
+	.rq-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.rq-input {
+		width: 100%;
+		padding: 0.2rem 0.3rem;
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
+		background: white;
+		font-size: 0.75rem;
+	}
+
+	.rq-input:focus {
+		outline: none;
+		border-color: #2196f3;
+	}
+
+	/* Row 3: Payment + Due Date + VAT */
+	.step3-row-3 {
+		display: grid;
+		grid-template-columns: 2fr 1fr 2fr;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.pay-card, .due-card, .vat-card {
+		background: #f8f9fa;
+		border: 1px solid #e0e0e0;
+		border-radius: 6px;
+		padding: 0.4rem 0.5rem;
+	}
+
+	.pay-card {
+		border-left: 3px solid #4caf50;
+	}
+
+	.due-card {
+		border-left: 3px solid #ff9800;
+	}
+
+	.vat-card {
+		border-left: 3px solid #9c27b0;
+	}
+
+	.pay-header {
+		font-weight: 600;
+		font-size: 0.8rem;
+		color: #333;
+		margin-bottom: 0.3rem;
+	}
+
+	.pay-fields, .vat-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.pay-notice {
+		font-size: 0.7rem;
+		color: #856404;
+		background: #fff3cd;
+		border-radius: 4px;
+		padding: 0.2rem 0.4rem;
+		margin-top: 0.25rem;
+	}
+
+	.due-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.calc-info {
+		font-size: 0.7rem;
+		color: #6c757d;
+		font-style: italic;
+	}
+
+	.due-notice {
+		font-size: 0.75rem;
+		color: #1565c0;
+		font-style: italic;
+		padding: 0.3rem;
+		background: #e3f2fd;
+		border-radius: 4px;
+		text-align: center;
+	}
+
+	.vat-na {
+		font-size: 0.8rem;
+		color: #1565c0;
+		padding: 0.3rem;
+		background: #e3f2fd;
+		border-radius: 4px;
+	}
+
+	.vat-result {
+		margin-top: 0.25rem;
+	}
+
+	.vat-ok {
+		font-size: 0.75rem;
+		color: #155724;
+		background: #d4edda;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		display: inline-block;
+	}
+
+	.vat-warn {
+		font-size: 0.75rem;
+		color: #856404;
+		background: #fff3cd;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		display: inline-block;
+		margin-bottom: 0.25rem;
+	}
+
+	.mismatch-reason-compact {
+		margin-top: 0.2rem;
+	}
+
+	.mismatch-reason-compact label {
+		font-weight: 600;
+		font-size: 0.75rem;
+		color: #333;
+		display: block;
+		margin-bottom: 0.15rem;
+	}
+
+	.reason-textarea-sm {
+		width: 100%;
+		border: 1px solid #ced4da;
+		border-radius: 4px;
+		padding: 0.3rem;
+		font-size: 0.75rem;
+		resize: vertical;
+		min-height: 40px;
 	}
 
 	.required {
@@ -6154,14 +6558,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.readonly-input {
-		padding: 0.75rem;
-		border: 2px solid #e0e0e0;
-		border-radius: 8px;
+		padding: 0.3rem 0.4rem;
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
 		background-color: #f5f5f5;
 		color: #666;
-		font-size: 1rem;
+		font-size: 0.8rem;
 		cursor: not-allowed;
-		transition: all 0.2s ease;
 	}
 
 	.readonly-input:focus {
@@ -6170,13 +6573,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.editable-input {
-		padding: 0.75rem;
-		border: 2px solid #e0e0e0;
-		border-radius: 8px;
+		padding: 0.3rem 0.4rem;
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
 		background-color: white;
 		color: #333;
-		font-size: 1rem;
-		transition: all 0.2s ease;
+		font-size: 0.8rem;
 	}
 
 	.editable-input:invalid, .editable-input[required]:not(:focus):invalid {
@@ -6192,471 +6594,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.editable-input:focus {
 		outline: none;
 		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-	}
-
-	/* Return Policy Section Styles */
-	.return-policy-section {
-		margin: 2rem 0;
-		padding: 1.5rem;
-		background: #f8f9fa;
-		border-radius: 12px;
-		border-left: 4px solid #667eea;
-	}
-
-	.return-policy-section h4 {
-		margin: 0 0 1rem 0;
-		color: #333;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.policy-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 1rem;
-	}
-
-	.policy-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.75rem;
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e0e0e0;
-		transition: all 0.2s ease;
-	}
-
-	.policy-item:hover {
-		border-color: #ccc;
-		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-	}
-
-	.policy-item label {
-		font-weight: 600;
-		color: #333;
-		font-size: 0.9rem;
-	}
-
-	.policy-value {
-		font-weight: 500;
-		padding: 0.3rem 0.8rem;
-		border-radius: 15px;
-		font-size: 0.8rem;
-		text-transform: capitalize;
-		text-align: center;
-		min-width: 80px;
-	}
-
-	.policy-value.accepted {
-		background: #e8f5e8;
-		color: #2e7d32;
-	}
-
-	.policy-value.rejected {
-		background: #ffebee;
-		color: #d32f2f;
-	}
-
-	.policy-value.yes {
-		background: #ffebee;
-		color: #d32f2f;
-	}
-
-	.policy-value.no {
-		background: #e8f5e8;
-		color: #2e7d32;
-	}
-
-	.policy-value.not-specified {
-		background: #fff3e0;
-		color: #f57c00;
-	}
-
-	.policy-value.returns-accepted {
-		background: #e8f5e8;
-		color: #2e7d32;
-		font-weight: 600;
-	}
-
-	.policy-value.no-returns {
-		background: #ffebee;
-		color: #d32f2f;
-		font-weight: 600;
-	}
-
-	/* Return Processing Section Styles */
-	.return-processing-section {
-		margin: 2rem 0;
-		padding: 1.5rem;
-		background: #f0f4ff;
-		border-radius: 12px;
-		border-left: 4px solid #2196f3;
-	}
-
-	.return-processing-section h4 {
-		margin: 0 0 0.5rem 0;
-		color: #1976d2;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.section-description {
-		margin: 0 0 1.5rem 0;
-		color: #666;
-		font-size: 0.9rem;
-	}
-
-	.return-questions-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-		gap: 1.5rem;
-		margin-bottom: 2rem;
-	}
-
-	.return-question {
-		background: white;
-		padding: 1rem;
-		border-radius: 8px;
-		border: 1px solid #e3f2fd;
-		box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-	}
-
-	.return-question label {
-		display: block;
-		font-weight: 600;
-		color: #333;
-		margin-bottom: 0.5rem;
-		font-size: 0.9rem;
-	}
-
-	.return-dropdown {
-		width: 100%;
-		padding: 0.5rem;
-		border: 2px solid #e0e0e0;
-		border-radius: 6px;
-		background: white;
-		font-size: 0.9rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.return-dropdown:focus {
-		outline: none;
-		border-color: #2196f3;
-	}
-
-	.return-amount-input {
-		width: 100%;
-		padding: 0.5rem;
-		border: 2px solid #e0e0e0;
-		border-radius: 6px;
-		background: white;
-		font-size: 0.9rem;
-	}
-
-	.return-amount-input:focus {
-		outline: none;
-		border-color: #2196f3;
-		box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
-	}
-
-	/* Bill Summary Styles */
-	.bill-summary {
-		background: white;
-		padding: 1.5rem;
-		border-radius: 8px;
-		border: 2px solid #e3f2fd;
-		box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-	}
-
-	.summary-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.75rem 0;
-		border-bottom: 1px solid #f0f0f0;
-	}
-
-	.summary-row:last-child {
-		border-bottom: none;
-	}
-
-	.summary-row.final-amount {
-		border-top: 2px solid #2196f3;
-		font-weight: 600;
-		font-size: 1.1rem;
-		background: #f8fcff;
-		margin-top: 0.5rem;
-		padding: 1rem 0;
-		border-radius: 4px;
-	}
-
-	.summary-row label {
-		font-weight: 600;
-		color: #333;
-	}
-
-	.amount-display {
-		font-size: 1.1rem;
-		font-weight: 600;
-		color: #2e7d32;
-	}
-
-	.amount-display.return-amount {
-		color: #d32f2f;
-	}
-
-	.final-amount .amount-display {
-		color: #1976d2;
-		font-size: 1.2rem;
-	}
-
-	/* Payment Information Section Styles */
-	.payment-section {
-		margin: 2rem 0;
-		padding: 1.5rem;
-		background: #f8fcf8;
-		border-radius: 12px;
-		border-left: 4px solid #4caf50;
-	}
-
-	.payment-section h4 {
-		margin: 0 0 0.5rem 0;
-		color: #2e7d32;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.payment-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 2rem;
-		margin: 1.5rem 0;
-	}
-
-	.payment-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.payment-field label {
-		font-weight: 600;
-		color: #333;
-		font-size: 1rem;
-	}
-
-	.readonly-input {
-		background: #f8f9fa;
-		border: 1px solid #dee2e6;
-		border-radius: 6px;
-		padding: 0.75rem;
-		font-size: 1rem;
-		color: #495057;
-		cursor: not-allowed;
-	}
-
-	.due-date-notice {
-		background: #e3f2fd;
-		border: 1px solid #90caf9;
-		border-radius: 6px;
-		padding: 0.75rem;
-		text-align: center;
-	}
-
-	.notice-text {
-		color: #1565c0;
-		font-size: 0.9rem;
-		font-style: italic;
-	}
-
-	.due-date-section {
-		background: #f8f9fa;
-		border: 1px solid #dee2e6;
-		border-radius: 8px;
-		padding: 1.5rem;
-		margin: 1.5rem 0;
-	}
-
-	.due-date-section h4 {
-		color: #495057;
-		margin-bottom: 0.5rem;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.due-date-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-top: 1rem;
-	}
-
-	.due-date-field label {
-		font-weight: 600;
-		color: #333;
-		font-size: 1rem;
-	}
-
-	.calculation-info {
-		font-size: 0.85rem;
-		color: #6c757d;
-		font-style: italic;
-		margin-top: 0.25rem;
-	}
-
-	.vat-verification-section {
-		background: #f8f9fa;
-		border: 1px solid #dee2e6;
-		border-radius: 8px;
-		padding: 1.5rem;
-		margin: 1.5rem 0;
-	}
-
-	.vat-verification-section h4 {
-		color: #495057;
-		margin-bottom: 0.5rem;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.vat-not-applicable {
-		background: #e3f2fd;
-		border: 1px solid #90caf9;
-		border-radius: 6px;
-		padding: 0.75rem;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		color: #1565c0;
-		font-size: 0.9rem;
-	}
-
-	.info-icon {
-		font-size: 1.1rem;
-	}
-
-	.vat-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.5rem;
-		margin: 1rem 0;
-	}
-
-	.vat-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.vat-field label {
-		font-weight: 600;
-		color: #333;
-		font-size: 1rem;
+		box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
 	}
 
 	.readonly-input.masked-vat {
 		background: #f8f9fa;
-		border: 2px solid #6c757d;
+		border: 1px solid #6c757d;
 		color: #495057;
 		font-family: 'Courier New', monospace;
 		font-weight: 600;
-		letter-spacing: 2px;
-		font-size: 1.1rem;
-	}
-
-	.vat-hint {
-		color: #6c757d;
+		letter-spacing: 1px;
 		font-size: 0.85rem;
-		font-style: italic;
-		margin-top: 0.25rem;
 	}
 
-	.vat-status {
-		margin-top: 1rem;
-		padding: 1rem;
-		border-radius: 6px;
-	}
-
-	.vat-match {
-		background: #d4edda;
-		border: 1px solid #c3e6cb;
-		color: #155724;
-		padding: 0.75rem;
-		border-radius: 6px;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.vat-mismatch {
-		background: #fff3cd;
-		border: 1px solid #ffeaa7;
-		color: #856404;
-		padding: 0.75rem;
-		border-radius: 6px;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
-	}
-
-	.status-icon {
-		font-size: 1.1rem;
-	}
-
-	.mismatch-reason {
-		margin-top: 1rem;
-	}
-
-	.mismatch-reason label {
-		font-weight: 600;
-		color: #333;
-		font-size: 1rem;
-		display: block;
-		margin-bottom: 0.5rem;
-	}
-
-	.reason-textarea {
-		width: 100%;
-		border: 1px solid #ced4da;
-		border-radius: 6px;
-		padding: 0.75rem;
-		font-size: 1rem;
-		resize: vertical;
-		min-height: 80px;
-	}
-
-	.reason-note {
-		font-size: 0.85rem;
-		color: #6c757d;
-		margin-top: 0.5rem;
-		font-style: italic;
-	}
-
-	.payment-notice {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: #fff3cd;
-		border: 1px solid #ffeaa7;
-		border-radius: 6px;
-		padding: 0.75rem;
-		margin-top: 1rem;
-		font-size: 0.9rem;
-		color: #856404;
-	}
-
-	.notice-icon {
-		font-size: 1.1rem;
-	}
-
-	.payment-actions {
-		display: flex;
-		gap: 1rem;
-		margin-top: 1rem;
-		justify-content: flex-end;
+	.section-description {
+		margin: 0 0 0.3rem 0;
+		color: #666;
+		font-size: 0.75rem;
 	}
 
 	.update-vendor-btn {
@@ -6826,6 +6780,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 	}
 
+	@keyframes heartbeat {
+		0%   { transform: scale(1); }
+		14%  { transform: scale(1.3); }
+		28%  { transform: scale(1); }
+		42%  { transform: scale(1.2); }
+		70%  { transform: scale(1); }
+		100% { transform: scale(1); }
+	}
+
+	.heartbeat-warning {
+		display: inline-block;
+		font-size: 1.1rem;
+		animation: heartbeat 1.2s ease-in-out infinite;
+	}
+
 	.secondary-btn {
 		background: #6c757d;
 		color: white;
@@ -6868,17 +6837,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	/* Responsive design for bill information */
 	@media (max-width: 1024px) {
+		.step3-row-1 {
+			grid-template-columns: 1fr;
+		}
 		.bill-info-grid {
 			grid-template-columns: 1fr 1fr;
-			max-width: 800px;
+		}
+		.return-questions-grid {
+			grid-template-columns: 1fr 1fr;
+		}
+		.step3-row-3 {
+			grid-template-columns: 1fr 1fr;
 		}
 	}
 
 	@media (max-width: 768px) {
 		.bill-info-grid {
 			grid-template-columns: 1fr;
-			gap: 1.5rem;
-			max-width: 500px;
+			gap: 0.5rem;
+		}
+		.return-questions-grid {
+			grid-template-columns: 1fr;
+		}
+		.step3-row-3 {
+			grid-template-columns: 1fr;
 		}
 
 		.step-actions {
@@ -6891,6 +6873,67 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			width: 100%;
 			justify-content: center;
 		}
+	}
+
+	/* Step 4: Top Bar & Edit Button */
+	.step4-warning-notice {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		margin-bottom: 1rem;
+		background: #fff3cd;
+		border: 1px solid #ffc107;
+		border-radius: 8px;
+		color: #856404;
+		font-size: 0.85rem;
+		font-weight: 500;
+		line-height: 1.4;
+	}
+
+	.step4-warning-icon {
+		flex-shrink: 0;
+		font-size: 1.1rem;
+	}
+
+	.step4-top-bar {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.edit-bill-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.4rem 1rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #1976d2;
+		background: #e3f2fd;
+		border: 1px solid #90caf9;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.edit-bill-btn:hover {
+		background: #bbdefb;
+		border-color: #64b5f6;
+	}
+
+	.step4-status {
+		font-size: 0.85rem;
+		font-weight: 500;
+	}
+
+	.step4-status--ok {
+		color: #2e7d32;
+	}
+
+	.step4-status--warn {
+		color: #e65100;
 	}
 
 	/* Step 4: Receiving Summary */
@@ -7874,5 +7917,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <ClearanceCertificateManager 
   bind:show={showCertificateManager}
   receivingRecord={currentReceivingRecord}
+  printOnly={tasksAlreadyAssigned}
+  autoGenerate={true}
   on:close={handleCertificateManagerClose}
 />

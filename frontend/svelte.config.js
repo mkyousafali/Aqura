@@ -6,6 +6,10 @@ const useNode = process.env.BUILD_ADAPTER === 'node';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
+  onwarn: (warning, handler) => {
+    if (warning.code === 'a11y-label-has-associated-control') return;
+    handler(warning);
+  },
   preprocess: vitePreprocess(),
   kit: {
     adapter: useNode ? adapterNode({ out: 'build' }) : adapterVercel(),
