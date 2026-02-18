@@ -296,11 +296,20 @@
 			permittedButtons = allButtons.filter(btn => {
 				const id = buttonCodeToIdMap.get(btn.code);
 				return id && enabledButtonIds.has(id);
+			}).sort((a, b) => {
+				// Sort by section first, then by name
+				const sectionCompare = a.section.localeCompare(b.section);
+				return sectionCompare !== 0 ? sectionCompare : a.name.localeCompare(b.name);
 			});
 			
+			// Non-permitted = either explicitly disabled OR missing (no record yet)
 			nonPermittedButtons = allButtons.filter(btn => {
 				const id = buttonCodeToIdMap.get(btn.code);
-				return id && disabledButtonIds.has(id);
+				return id && !enabledButtonIds.has(id);
+			}).sort((a, b) => {
+				// Sort by section first, then by name
+				const sectionCompare = a.section.localeCompare(b.section);
+				return sectionCompare !== 0 ? sectionCompare : a.name.localeCompare(b.name);
 			});
 
 			console.log('✅ Permitted:', permittedButtons.length, '❌ Non-permitted:', nonPermittedButtons.length);
@@ -329,7 +338,7 @@
 			
 			console.log('Enabling button codes:', buttonCodesToEnable);
 
-			// Update permissions to true for selected buttons for ALL selected users
+			// Upsert permissions to true for selected buttons for ALL selected users
 			for (const buttonCode of buttonCodesToEnable) {
 				const buttonId = buttonCodeToIdMap.get(buttonCode);
 				
@@ -338,18 +347,16 @@
 					continue;
 				}
 
-				console.log(`Updating button ${buttonCode} (ID: ${buttonId}) to enabled for ${selectedUserIds.size} users`);
+				console.log(`Upserting button ${buttonCode} (ID: ${buttonId}) to enabled for ${selectedUserIds.size} users`);
 
-				// Update for all selected users
+				// Upsert for all selected users (insert if not exists, update if exists)
 				for (const userId of selectedUserIds) {
 					const { error } = await supabase
 						.from('button_permissions')
-						.update({ is_enabled: true })
-						.eq('user_id', userId)
-						.eq('button_id', buttonId);
+						.upsert({ user_id: userId, button_id: buttonId, is_enabled: true }, { onConflict: 'user_id,button_id' });
 
 					if (error) {
-						console.error(`Error updating button ${buttonId} for user ${userId}:`, error);
+						console.error(`Error upserting button ${buttonId} for user ${userId}:`, error);
 					}
 				}
 			}
@@ -362,12 +369,10 @@
 				for (const userId of selectedUserIds) {
 					const { error } = await supabase
 						.from('button_permissions')
-						.update({ is_enabled: false })
-						.eq('user_id', userId)
-						.eq('button_id', buttonId);
+						.upsert({ user_id: userId, button_id: buttonId, is_enabled: false }, { onConflict: 'user_id,button_id' });
 
 					if (error) {
-						console.error(`Error disabling button ${buttonId} for user ${userId}:`, error);
+						console.error(`Error upserting button ${buttonId} for user ${userId}:`, error);
 					}
 				}
 			}

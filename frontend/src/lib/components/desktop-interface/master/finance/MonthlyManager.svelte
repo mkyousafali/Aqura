@@ -169,7 +169,7 @@
 
 		const { data, error } = await supabase
 			.from('expense_scheduler')
-			.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, requisition_id, requisition_number, creator:users!created_by(username)')
+			.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, requisition_id, requisition_number, vendor_name, creator:users!created_by(username)')
 			.eq('due_date', selectedDate)
 			.limit(5000);			if (error) {
 				console.error('Error loading expense scheduler payments:', error);
@@ -962,6 +962,7 @@
 					<tr>
 						<th>Voucher Number</th>
 						<th>Sub-Category</th>
+						<th>Requester</th>
 						<th>Branch</th>
 						<th>Payment Method</th>
 						<th>Amount</th>
@@ -986,6 +987,15 @@
 										{payment.expense_category_name_en || payment.expense_category_name_ar}
 									{:else}
 										<span style="color: #f59e0b; font-style: italic;">Unknown - To Be Assigned</span>
+									{/if}
+								</td>
+								<td style="text-align: left;">
+									{#if payment.vendor_name}
+										<span style="color: #8b5cf6;">🏢 {payment.vendor_name}</span>
+									{:else if payment.co_user_name}
+										<span style="color: #06b6d4;">👤 {payment.co_user_name}</span>
+									{:else}
+										<span style="color: #94a3b8;">{payment.creator?.username || '—'}</span>
 									{/if}
 								</td>
 								<td style="text-align: left;">{getBranchName(payment.branch_id)}</td>

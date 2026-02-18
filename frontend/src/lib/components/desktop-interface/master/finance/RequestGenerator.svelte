@@ -1,5 +1,5 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import html2canvas from 'html2canvas';
@@ -41,6 +41,12 @@
 	let employeeSearchQuery = '';
 	let internalEmployees = [];
 	let filteredInternalEmployees = [];
+
+	// Vendor data
+	let vendors = [];
+	let filteredVendors = [];
+	let vendorSearchQuery = '';
+	let selectedVendor = null;
 	let vatApplicable = false;
 	let paymentCategory = 'advance_cash';
 	let description = '';
@@ -358,6 +364,108 @@
 		employeeSearchQuery = '';
 	}
 
+	// Vendor management functions
+	async function loadVendorsForBranch() {
+		if (!selectedBranchId) {
+			vendors = [];
+			filteredVendors = [];
+			return;
+		}
+		try {
+			const { data, error } = await supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, payment_method, credit_period, bank_name, iban, vat_number')
+				.eq('branch_id', selectedBranchId)
+				.order('vendor_name');
+			if (error) throw error;
+			vendors = data || [];
+			filteredVendors = vendors;
+		} catch (err) {
+			console.error('Error loading vendors:', err);
+			vendors = [];
+			filteredVendors = [];
+		}
+	}
+
+	function handleVendorSearch() {
+		const query = vendorSearchQuery.toLowerCase();
+		if (query) {
+			filteredVendors = vendors.filter(v =>
+				v.vendor_name?.toLowerCase().includes(query) ||
+				String(v.erp_vendor_id).includes(query)
+			);
+		} else {
+			filteredVendors = vendors;
+		}
+	}
+
+	async function selectVendor(vendor) {
+		console.log('🏢 selectVendor called with:', JSON.stringify(vendor));
+		selectedVendor = vendor;
+		requesterId = String(vendor.erp_vendor_id);
+		requesterName = vendor.vendor_name;
+		requesterContact = '';
+		vendorSearchQuery = '';
+		// Auto-fill payment details from vendor (skip N/A values)
+		if (vendor.bank_name && vendor.bank_name !== 'N/A') bankName = vendor.bank_name;
+		if (vendor.iban && vendor.iban !== 'N/A') iban = vendor.iban;
+
+		// Determine the correct payment category
+		let targetCategory = paymentCategory; // keep current default
+		if (vendor.payment_method && vendor.payment_method !== 'N/A') {
+			const methodMap = {
+				'cash on delivery': 'cash',
+				'cash credit': 'cash_credit',
+				'bank credit': 'bank_credit',
+				'bank on delivery': 'bank'
+			};
+			const mapped = methodMap[vendor.payment_method.toLowerCase()];
+			if (mapped) {
+				targetCategory = mapped;
+			}
+		}
+
+		// If vendor has credit_period, ensure credit variant is selected
+		if (vendor.credit_period && vendor.credit_period > 0) {
+			if (!['advance_cash_credit', 'advance_bank_credit', 'cash_credit', 'bank_credit'].includes(targetCategory)) {
+				const creditVariantMap = {
+					'cash': 'cash_credit',
+					'advance_cash': 'advance_cash_credit',
+					'bank': 'bank_credit',
+					'advance_bank': 'advance_bank_credit',
+					'stock_purchase_cash': 'cash_credit',
+					'stock_purchase_bank': 'bank_credit',
+					'stock_purchase_advance_cash': 'advance_cash_credit',
+					'stock_purchase_advance_bank': 'advance_bank_credit'
+				};
+				targetCategory = creditVariantMap[targetCategory] || 'cash_credit';
+			}
+		}
+
+		console.log('🏢 targetCategory:', targetCategory, 'credit_period:', vendor.credit_period);
+
+		// Auto-tick VAT applicable for vendor requests
+		vatApplicable = true;
+
+		// Set payment category first and wait for DOM to update (shows credit period field)
+		paymentCategory = targetCategory;
+		await tick();
+
+		// Now set credit period after the field is rendered
+		if (vendor.credit_period && vendor.credit_period > 0) {
+			creditPeriod = String(vendor.credit_period);
+			console.log('🏢 creditPeriod set to:', creditPeriod);
+		}
+	}
+
+	function clearVendorSelection() {
+		selectedVendor = null;
+		requesterId = '';
+		requesterName = '';
+		requesterContact = '';
+		vendorSearchQuery = '';
+	}
+
 	function validateStep1() {
 		if (!selectedBranchId) {
 			alert('Please select a branch');
@@ -392,6 +500,11 @@
 			}
 			if (!selectedEmployeeName.trim()) {
 				alert('Please select a valid internal employee');
+				return false;
+			}
+		} else if (requestType === 'vendor') {
+			if (!selectedVendor) {
+				alert('Please select a vendor');
 				return false;
 			}
 		}
@@ -555,12 +668,20 @@
 				insertData.requester_contact = requesterContact;
 				insertData.requester_ref_id = selectedRequesterId || null;
 				insertData.internal_user_id = null;
-			} else {
+			} else if (requestType === 'internal') {
 				insertData.requester_id = selectedInternalUserId; // Store user ID as text for consistency
 				insertData.requester_name = selectedEmployeeName;
 				insertData.requester_contact = selectedEmployeeContact;
 				insertData.requester_ref_id = null;
 				insertData.internal_user_id = selectedInternalUserId;
+			} else if (requestType === 'vendor') {
+				insertData.requester_id = String(selectedVendor.erp_vendor_id);
+				insertData.requester_name = selectedVendor.vendor_name;
+				insertData.requester_contact = '';
+				insertData.requester_ref_id = null;
+				insertData.internal_user_id = null;
+				insertData.vendor_id = selectedVendor.erp_vendor_id;
+				insertData.vendor_name = selectedVendor.vendor_name;
 			}
 
 			const { error: dbError } = await supabase
@@ -959,6 +1080,10 @@
 		templateGenerated = false;
 		showTemplateModal = false;
 		requisitionNumber = '';
+		selectedVendor = null;
+		vendorSearchQuery = '';
+		vendors = [];
+		filteredVendors = [];
 	}
 </script>
 
@@ -1140,6 +1265,11 @@
 							<span class="radio-label">Internal Employee</span>
 							<span class="radio-description">Company employee</span>
 						</label>
+						<label class="radio-option">
+							<input type="radio" bind:group={requestType} value="vendor" on:change={() => loadVendorsForBranch()} />
+							<span class="radio-label">Vendor</span>
+							<span class="radio-description">Existing vendor from selected branch</span>
+						</label>
 					</div>
 				</div>
 
@@ -1229,6 +1359,89 @@
 				</div>
 		{/if}
 
+				<!-- Vendor Selection (requestType = 'vendor') -->
+				{#if requestType === 'vendor'}
+					<div class="requester-section">
+						<h4>🏢 Vendor Selection</h4>
+						
+						{#if !selectedBranchId}
+							<div class="field-hint" style="color: #f59e0b;">⚠️ Please select a branch in Step 1 first to load vendors</div>
+						{:else if vendors.length === 0}
+							<div class="field-hint">Loading vendors for selected branch...</div>
+						{:else}
+							<div class="form-group">
+								<label>Search Vendor *</label>
+								<input 
+									type="text" 
+									bind:value={vendorSearchQuery} 
+									on:input={handleVendorSearch}
+									placeholder="Search by vendor name or ID..." 
+									class="form-input" 
+								/>
+								<div class="field-hint">💡 {vendors.length} vendors available for this branch</div>
+							</div>
+
+							{#if filteredVendors.length > 0 && !selectedVendor}
+								<div class="employee-search-results" style="max-height: 250px; overflow-y: auto;">
+									<h5>Vendors ({filteredVendors.length}):</h5>
+									{#each filteredVendors as vendor}
+										<div 
+											class="employee-item"
+											on:click={() => selectVendor(vendor)}
+										>
+											<div class="employee-info">
+												<strong>{vendor.vendor_name}</strong>
+												<span class="employee-id">ID: {vendor.erp_vendor_id}</span>
+											</div>
+											<div class="employee-details">
+												{#if vendor.payment_method}
+													<span class="department">{vendor.payment_method}</span>
+												{/if}
+												{#if vendor.bank_name}
+													<span class="position">🏦 {vendor.bank_name}</span>
+												{/if}
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+
+							{#if selectedVendor}
+								<div class="selected-employee">
+									<h5>✅ Selected Vendor:</h5>
+									<div class="employee-card">
+										<div class="employee-header">
+											<strong>{selectedVendor.vendor_name}</strong>
+											<span class="employee-id">ID: {selectedVendor.erp_vendor_id}</span>
+										</div>
+										<div class="employee-meta">
+											{#if selectedVendor.payment_method}
+												<span class="department">💳 {selectedVendor.payment_method}</span>
+											{/if}
+											{#if selectedVendor.bank_name}
+												<span class="position">🏦 {selectedVendor.bank_name}</span>
+											{/if}
+											{#if selectedVendor.iban}
+												<span class="email">IBAN: {selectedVendor.iban}</span>
+											{/if}
+											{#if selectedVendor.vat_number}
+												<span class="email">VAT: {selectedVendor.vat_number}</span>
+											{/if}
+										</div>
+										<button 
+											type="button" 
+											class="clear-selection-btn"
+											on:click={clearVendorSelection}
+										>
+											❌ Clear Selection
+										</button>
+									</div>
+								</div>
+							{/if}
+						{/if}
+					</div>
+				{/if}
+
 				<!-- Internal Employee Selection (requestType = 'internal') -->
 				{#if requestType === 'internal'}
 					<div class="requester-section">
@@ -1308,7 +1521,7 @@
 				</div>
 
 				<!-- Conditional fields based on payment category -->
-				{#if paymentCategory === 'advance_cash_credit' || paymentCategory === 'advance_bank_credit' || paymentCategory === 'cash_credit' || paymentCategory === 'bank_credit'}
+				{#if paymentCategory === 'advance_cash_credit' || paymentCategory === 'advance_bank_credit' || paymentCategory === 'cash_credit' || paymentCategory === 'bank_credit' || requestType === 'vendor'}
 					<div class="form-group conditional-field">
 						<label>Credit Period (Days) *</label>
 						<input 
@@ -1322,7 +1535,7 @@
 					</div>
 				{/if}
 
-				{#if paymentCategory === 'advance_bank' || paymentCategory === 'advance_bank_credit' || paymentCategory === 'bank' || paymentCategory === 'bank_credit' || paymentCategory === 'stock_purchase_advance_bank' || paymentCategory === 'stock_purchase_bank'}
+				{#if paymentCategory === 'advance_bank' || paymentCategory === 'advance_bank_credit' || paymentCategory === 'bank' || paymentCategory === 'bank_credit' || paymentCategory === 'stock_purchase_advance_bank' || paymentCategory === 'stock_purchase_bank' || (selectedVendor && (selectedVendor.bank_name && selectedVendor.bank_name !== 'N/A') || (selectedVendor && selectedVendor.iban && selectedVendor.iban !== 'N/A'))}
 					<div class="form-row conditional-field">
 						<div class="form-group">
 							<label>Bank Name (Optional)</label>
@@ -1542,17 +1755,17 @@
 							</div>
 							<div class="info-item">
 								<div class="info-label">
-									<span class="label-en">Name</span>
-									<span class="label-ar">الاسم</span>
+									<span class="label-en">{requestType === 'vendor' ? 'Vendor Name' : 'Name'}</span>
+									<span class="label-ar">{requestType === 'vendor' ? 'اسم المورد' : 'الاسم'}</span>
 								</div>
 								<div class="info-value">{requesterName}</div>
 							</div>
 							<div class="info-item">
 								<div class="info-label">
-									<span class="label-en">Contact</span>
-									<span class="label-ar">الاتصال</span>
+									<span class="label-en">{requestType === 'vendor' ? 'Request Type' : 'Contact'}</span>
+									<span class="label-ar">{requestType === 'vendor' ? 'نوع الطلب' : 'الاتصال'}</span>
 								</div>
-								<div class="info-value">{requesterContact}</div>
+								<div class="info-value">{requestType === 'vendor' ? '🏢 Vendor' : requesterContact}</div>
 							</div>
 							<div class="info-item">
 								<div class="info-label">

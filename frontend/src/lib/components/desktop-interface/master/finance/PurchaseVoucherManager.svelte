@@ -79,12 +79,7 @@
 	let isComponentMounted = true;
 
 	onMount(async () => {
-		await loadBranches();
-		await loadUsers();
-		await loadEmployees();
-		await loadNotIssuedStats();
-		await loadIssuedStats();
-		await loadClosedStats();
+		await loadAllData();
 		await loadVoucherItems();
 
 		// Setup realtime subscription
@@ -146,11 +141,7 @@
 			
 			isLoadingStats = true;
 			try {
-				await Promise.all([
-					loadNotIssuedStats(),
-					loadIssuedStats(),
-					loadClosedStats()
-				]);
+				await loadAllData();
 			} catch (error) {
 				console.error('Error updating stats:', error);
 			} finally {
@@ -184,8 +175,8 @@
 
 			// Also update book summary if in book view
 			if (viewMode === 'book') {
-				// Reload book summary to recalculate aggregates
-				loadBookSummary();
+				// Reload all data to recalculate aggregates
+				loadAllData();
 			}
 		} else if (eventType === 'INSERT' && newRecord) {
 			// For new items, add to the list
@@ -199,14 +190,14 @@
 			voucherItems = [newItem, ...voucherItems];
 			
 			if (viewMode === 'book') {
-				loadBookSummary();
+				loadAllData();
 			}
 		} else if (eventType === 'DELETE' && oldRecord) {
 			// For deleted items, remove from list
 			voucherItems = voucherItems.filter(item => item.id !== oldRecord.id);
 			
 			if (viewMode === 'book') {
-				loadBookSummary();
+				loadAllData();
 			}
 		}
 
@@ -216,311 +207,115 @@
 
 	// Manual refresh function
 	function handleRefresh() {
+		loadAllData();
 		if (viewMode === 'voucher') {
 			loadVoucherItems();
-		} else if (viewMode === 'book') {
-			loadBookSummary();
-		}
-		loadNotIssuedStats();
-		loadIssuedStats();
-		loadClosedStats();
-	}
-
-	async function loadBranches() {
-		try {
-			const { data, error } = await supabase
-				.from('branches')
-				.select('id, name_en, location_en')
-				.limit(100);
-			if (!error) {
-				branches = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading branches:', error);
 		}
 	}
 
-	async function loadUsers() {
-		try {
-			const { data, error } = await supabase
-				.from('users')
-				.select('id, username, employee_id')
-				.limit(500);
-			if (!error) {
-				users = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading users:', error);
-		}
-	}
-
-	async function loadEmployees() {
-		try {
-			const { data, error } = await supabase
-				.from('hr_employees')
-				.select('id, name')
-				.limit(500);
-			if (!error) {
-				employees = data || [];
-			}
-		} catch (error) {
-			console.error('Error loading employees:', error);
-		}
-	}
-
-	async function loadNotIssuedStats() {
+	// Single RPC call to load ALL data (stats + book summary + lookups)
+	async function loadAllData() {
 		if (!isComponentMounted) return;
 		
 		try {
-			const [vouchersRes, itemsRes] = await Promise.all([
-				supabase
-					.from('purchase_vouchers')
-					.select('id, book_number')
-					.limit(1000),
-				supabase
-					.from('purchase_voucher_items')
-					.select('purchase_voucher_id, value, stock_location')
-					.eq('issue_type', 'not issued')
-					.limit(10000)
-			]);
-
-			if (vouchersRes.error || itemsRes.error) {
-				console.error('Error loading not issued stats:', vouchersRes.error || itemsRes.error);
-				return;
-			}
-
-			const items = itemsRes.data || [];
-			const allVoucherIds = new Set();
+			const { data: rpcResult, error } = await supabase.rpc('get_purchase_voucher_manager_data');
 			
-			// Group by branch and then by value
-			const branchValueCounts = {};
-
-			items.forEach(item => {
-				const branchId = item.stock_location || 'unassigned';
-				const voucherId = item.purchase_voucher_id;
-				const value = item.value || 0;
-
-				allVoucherIds.add(voucherId);
-
-				if (!branchValueCounts[branchId]) {
-					branchValueCounts[branchId] = {};
-				}
-
-				if (!branchValueCounts[branchId][value]) {
-					branchValueCounts[branchId][value] = {
-						vouchers: 0, // count of items (PV ID + serial)
-						books: new Set() // unique PV IDs
-					};
-				}
-				
-				// Count each item (voucher = PV ID + serial)
-				branchValueCounts[branchId][value].vouchers++;
-				// Track unique PV IDs for book count
-				branchValueCounts[branchId][value].books.add(voucherId);
-			});
-
-			// Convert Set to count for books
-			Object.keys(branchValueCounts).forEach(branchId => {
-				Object.keys(branchValueCounts[branchId]).forEach(value => {
-					branchValueCounts[branchId][value].books = branchValueCounts[branchId][value].books.size;
-				});
-			});
-
-			// Calculate summary by value (across all branches)
-			const valueSummary = {};
-			Object.keys(branchValueCounts).forEach(branchId => {
-				Object.keys(branchValueCounts[branchId]).forEach(value => {
-					if (!valueSummary[value]) {
-						valueSummary[value] = {
-							vouchers: 0,
-							books: 0
-						};
-					}
-					valueSummary[value].vouchers += branchValueCounts[branchId][value].vouchers;
-					valueSummary[value].books += branchValueCounts[branchId][value].books;
-				});
-			});
-
-			notIssuedStats = {
-				totalVouchers: allVoucherIds.size,
-				byBranch: branchValueCounts,
-				byValue: valueSummary
-			};
-
-		} catch (error) {
-			console.error('Error loading not issued stats:', error);
-		}
-	}
-
-	async function loadIssuedStats() {
-		if (!isComponentMounted) return;
-		
-		try {
-			const { data: items, error } = await supabase
-				.from('purchase_voucher_items')
-				.select('purchase_voucher_id, value, stock_location, issue_type')
-				.neq('issue_type', 'not issued')
-				.limit(10000);
-
 			if (error) {
-				console.error('Error loading issued stats:', error);
+				console.error('Error loading purchase voucher data:', error);
 				return;
 			}
 
-			const allVoucherIds = new Set();
+			// Parse lookups
+			branches = rpcResult.branches || [];
+			users = rpcResult.users || [];
+			employees = rpcResult.employees || [];
+
+			// Build lookup maps for display names
+			const _branchMap = {};
+			branches.forEach(b => { _branchMap[b.id] = `${b.name_en} - ${b.location_en}`; });
 			
-			// Group by branch, then by value, then by issue_type
-			const branchValueCounts = {};
+			const _employeeMap = {};
+			employees.forEach(e => { _employeeMap[e.id] = e.name; });
 
-			items.forEach(item => {
-				const branchId = item.stock_location || 'unassigned';
-				const voucherId = item.purchase_voucher_id;
-				const value = item.value || 0;
-				const issueType = item.issue_type || 'unknown';
+			const _userNameMap = {};
+			users.forEach(u => { _userNameMap[u.id] = u.username; });
 
-				allVoucherIds.add(voucherId);
+			// --- Not Issued Stats ---
+			const niByBranch = {};
+			const niByValue = {};
+			const niAllVoucherIds = new Set();
+			(rpcResult.not_issued_stats || []).forEach(row => {
+				const branchId = row.stock_location || 'unassigned';
+				const value = row.value || 0;
+				if (!niByBranch[branchId]) niByBranch[branchId] = {};
+				niByBranch[branchId][value] = { vouchers: Number(row.voucher_count), books: Number(row.book_count) };
+				if (!niByValue[value]) niByValue[value] = { vouchers: 0, books: 0 };
+				niByValue[value].vouchers += Number(row.voucher_count);
+				niByValue[value].books += Number(row.book_count);
+			});
+			// Compute total distinct books from byValue
+			let niTotal = 0;
+			Object.values(niByValue).forEach(v => { niTotal += v.books; });
+			notIssuedStats = { totalVouchers: niTotal, byBranch: niByBranch, byValue: niByValue };
 
-				if (!branchValueCounts[branchId]) {
-					branchValueCounts[branchId] = {};
-				}
+			// --- Issued Stats ---
+			const isByBranch = {};
+			const isByValue = {};
+			let isTotal = 0;
+			(rpcResult.issued_stats || []).forEach(row => {
+				const branchId = row.stock_location || 'unassigned';
+				const value = row.value || 0;
+				const issueType = row.issue_type || 'unknown';
+				if (!isByBranch[branchId]) isByBranch[branchId] = {};
+				if (!isByBranch[branchId][value]) isByBranch[branchId][value] = {};
+				isByBranch[branchId][value][issueType] = { vouchers: Number(row.voucher_count), books: Number(row.book_count) };
+				if (!isByValue[value]) isByValue[value] = { vouchers: 0, books: 0 };
+				isByValue[value].vouchers += Number(row.voucher_count);
+				isByValue[value].books += Number(row.book_count);
+				isTotal += Number(row.book_count);
+			});
+			issuedStats = { totalVouchers: isTotal, byBranch: isByBranch, byValue: isByValue };
 
-				if (!branchValueCounts[branchId][value]) {
-					branchValueCounts[branchId][value] = {};
-				}
+			// --- Closed Stats ---
+			const clByBranch = {};
+			const clByValue = {};
+			let clTotal = 0;
+			(rpcResult.closed_stats || []).forEach(row => {
+				const branchId = row.stock_location || 'unassigned';
+				const value = row.value || 0;
+				const issueType = row.issue_type || 'unknown';
+				if (!clByBranch[branchId]) clByBranch[branchId] = {};
+				if (!clByBranch[branchId][value]) clByBranch[branchId][value] = {};
+				clByBranch[branchId][value][issueType] = { vouchers: Number(row.voucher_count), books: Number(row.book_count) };
+				if (!clByValue[value]) clByValue[value] = { vouchers: 0, books: 0 };
+				clByValue[value].vouchers += Number(row.voucher_count);
+				clByValue[value].books += Number(row.book_count);
+				clTotal += Number(row.book_count);
+			});
+			closedStats = { totalVouchers: clTotal, byBranch: clByBranch, byValue: clByValue };
 
-				if (!branchValueCounts[branchId][value][issueType]) {
-					branchValueCounts[branchId][value][issueType] = {
-						vouchers: 0, // count of items (PV ID + serial)
-						books: new Set() // unique PV IDs
-					};
-				}
-				
-				// Count each item (voucher = PV ID + serial)
-				branchValueCounts[branchId][value][issueType].vouchers++;
-				// Track unique PV IDs for book count
-				branchValueCounts[branchId][value][issueType].books.add(voucherId);
+			// --- Book Summary ---
+			bookSummary = (rpcResult.book_summary || []).map(book => {
+				const locIds = book.stock_locations || [];
+				const personIds = book.stock_persons || [];
+				return {
+					...book,
+					stock_locations: locIds.length > 0 
+						? locIds.map(id => _branchMap[id] || `Unknown (${id})`).join(', ')
+						: '-',
+					stock_persons: personIds.length > 0
+						? personIds.map(id => _userNameMap[id] || `Unknown (${id})`).join(', ')
+						: '-'
+				};
 			});
 
-			// Convert Set to count for books
-			Object.keys(branchValueCounts).forEach(branchId => {
-				Object.keys(branchValueCounts[branchId]).forEach(value => {
-					Object.keys(branchValueCounts[branchId][value]).forEach(issueType => {
-						branchValueCounts[branchId][value][issueType].books = branchValueCounts[branchId][value][issueType].books.size;
-					});
-				});
-			});
-
-			// Calculate summary by value only (across all branches, all issue types)
-			const valueSummary = {};
-			Object.keys(branchValueCounts).forEach(branchId => {
-				Object.keys(branchValueCounts[branchId]).forEach(value => {
-					if (!valueSummary[value]) {
-						valueSummary[value] = {
-							vouchers: 0,
-							books: 0
-						};
-					}
-					Object.keys(branchValueCounts[branchId][value]).forEach(issueType => {
-						valueSummary[value].vouchers += branchValueCounts[branchId][value][issueType].vouchers;
-						valueSummary[value].books += branchValueCounts[branchId][value][issueType].books;
-					});
-				});
-			});
-
-			issuedStats = {
-				totalVouchers: allVoucherIds.size,
-				byBranch: branchValueCounts,
-				byValue: valueSummary
-			};
-
+			console.log(`📦 PV Manager: Loaded ${bookSummary.length} books, ${branches.length} branches, ${users.length} users via RPC`);
 		} catch (error) {
-			console.error('Error loading issued stats:', error);
+			console.error('Error in loadAllData:', error);
 		}
 	}
 
-	async function loadClosedStats() {
-		if (!isComponentMounted) return;
-		
-		try {
-			const { data: items, error } = await supabase
-				.from('purchase_voucher_items')
-				.select('purchase_voucher_id, value, stock_location, issue_type')
-				.eq('status', 'closed')
-				.limit(10000);
 
-			if (error) {
-				console.error('Error loading closed stats:', error);
-				return;
-			}
-
-			const allVoucherIds = new Set();
-			
-			// Group by branch, then by value, then by issue_type
-			const branchValueCounts = {};
-
-			items.forEach(item => {
-				const branchId = item.stock_location || 'unassigned';
-				const voucherId = item.purchase_voucher_id;
-				const value = item.value || 0;
-				const issueType = item.issue_type || 'unknown';
-
-				allVoucherIds.add(voucherId);
-
-				if (!branchValueCounts[branchId]) {
-					branchValueCounts[branchId] = {};
-				}
-
-				if (!branchValueCounts[branchId][value]) {
-					branchValueCounts[branchId][value] = {};
-				}
-
-				if (!branchValueCounts[branchId][value][issueType]) {
-					branchValueCounts[branchId][value][issueType] = {
-						vouchers: 0,
-						books: new Set()
-					};
-				}
-				
-				branchValueCounts[branchId][value][issueType].vouchers++;
-				branchValueCounts[branchId][value][issueType].books.add(voucherId);
-			});
-
-			// Convert Set to count for books
-			Object.keys(branchValueCounts).forEach(branchId => {
-				Object.keys(branchValueCounts[branchId]).forEach(value => {
-					Object.keys(branchValueCounts[branchId][value]).forEach(issueType => {
-						branchValueCounts[branchId][value][issueType].books = branchValueCounts[branchId][value][issueType].books.size;
-					});
-				});
-			});
-
-			// Calculate summary by value only (across all branches, all issue types)
-			const valueSummary = {};
-			Object.keys(branchValueCounts).forEach(branchId => {
-				Object.keys(branchValueCounts[branchId]).forEach(value => {
-					if (!valueSummary[value]) {
-						valueSummary[value] = {
-							vouchers: 0,
-							books: 0
-						};
-					}
-					Object.keys(branchValueCounts[branchId][value]).forEach(issueType => {
-						valueSummary[value].vouchers += branchValueCounts[branchId][value][issueType].vouchers;
-						valueSummary[value].books += branchValueCounts[branchId][value][issueType].books;
-					});
-				});
-			});
-
-			closedStats = {
-				totalVouchers: allVoucherIds.size,
-				byBranch: branchValueCounts,
-				byValue: valueSummary
-			};
-
-		} catch (error) {
-			console.error('Error loading closed stats:', error);
-		}
-	}
 
 	async function loadVoucherItems(reset = true) {
 		if (reset) {
@@ -573,120 +368,11 @@
 		}
 	}
 
-	async function loadBookSummary() {
-		isLoading = true;
-		try {
-			const [vouchersRes, itemsRes] = await Promise.all([
-				supabase
-					.from('purchase_vouchers')
-					.select('id, book_number, serial_start, serial_end, voucher_count, total_value')
-					.limit(1000),
-				supabase
-					.from('purchase_voucher_items')
-					.select('purchase_voucher_id, value, stock, status, stock_location, stock_person')
-					.limit(10000)
-			]);
-
-			if (vouchersRes.error || itemsRes.error) {
-				console.error('Error loading data:', vouchersRes.error || itemsRes.error);
-				bookSummary = [];
-				return;
-			}
-
-			const vouchers = vouchersRes.data || [];
-			const items = itemsRes.data || [];
-
-			const voucherMap = {};
-			vouchers.forEach(v => {
-				voucherMap[v.id] = v;
-			});
-
-			const grouped = {};
-			items.forEach(item => {
-				const vid = item.purchase_voucher_id;
-				if (!grouped[vid]) {
-					const voucher = voucherMap[vid];
-					grouped[vid] = {
-						voucher_id: vid,
-						book_number: voucher?.book_number || vid,
-						serial_range: voucher ? `${voucher.serial_start} - ${voucher.serial_end}` : '-',
-						total_count: 0,
-						total_value: 0,
-						stock_count: 0,
-						stocked_count: 0,
-						issued_count: 0,
-						closed_count: 0,
-						stock_locations: new Set(),
-						stock_persons: new Set()
-					};
-				}
-				
-				grouped[vid].total_count += 1;
-				grouped[vid].total_value += item.value || 0;
-				
-				if (item.stock > 0) {
-					grouped[vid].stock_count += 1;
-				}
-				
-				if (item.status === 'stocked') {
-					grouped[vid].stocked_count += 1;
-				} else if (item.status === 'issued') {
-					grouped[vid].issued_count += 1;
-				} else if (item.status === 'closed') {
-					grouped[vid].closed_count += 1;
-				}
-
-				if (item.stock_location) {
-					grouped[vid].stock_locations.add(item.stock_location);
-				}
-				if (item.stock_person) {
-					grouped[vid].stock_persons.add(item.stock_person);
-				}
-			});
-
-			const branchMap = {};
-			branches.forEach(b => {
-				branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
-			});
-
-			const employeeMap = {};
-			employees.forEach(e => {
-				employeeMap[e.id] = e.name;
-			});
-
-			const userEmployeeMap = {};
-			users.forEach(u => {
-				const empName = employeeMap[u.employee_id];
-				userEmployeeMap[u.id] = empName ? `${u.username} - ${empName}` : u.username;
-			});
-
-			const allBooks = Object.values(grouped).map(book => {
-				const locIds = Array.from(book.stock_locations);
-				book.stock_locations = locIds.map(id => branchMap[id] || `Unknown (${id})`).join(', ') || '-';
-				
-				const personIds = Array.from(book.stock_persons);
-				book.stock_persons = personIds.map(id => userNameMap[id] || `Unknown (${id})`).join(', ') || '-';
-				
-				return book;
-			});
-
-			bookSummary = allBooks.sort((a, b) => {
-				const aUnassigned = a.stock_locations === '-' || a.stock_persons === '-' ? 0 : 1;
-				const bUnassigned = b.stock_locations === '-' || b.stock_persons === '-' ? 0 : 1;
-				return aUnassigned - bUnassigned;
-			});
-
-		} catch (error) {
-			console.error('Error:', error);
-		} finally {
-			isLoading = false;
-		}
-	}
-
 	function setViewMode(mode) {
 		viewMode = mode;
 		if (mode === 'book') {
-			loadBookSummary();
+			// Book data already loaded via RPC, just refresh if needed
+			loadAllData();
 		} else {
 			loadVoucherItems();
 		}
@@ -769,735 +455,448 @@
 	}
 </script>
 
-<div class="purchase-voucher-manager">
-	<div class="status-grid">
-		<div class="status-card clickable" on:click={() => showCard1Breakdown = !showCard1Breakdown}>
-			<h3 class="card-title">Available Vouchers {showCard1Breakdown ? '▼' : '▶'}</h3>
-			<div class="total-count">Total: {notIssuedStats.totalVouchers} {notIssuedStats.totalVouchers === 1 ? 'voucher' : 'vouchers'}</div>
-			
-			{#if !showCard1Breakdown}
-				<!-- Summary by value -->
-				<div class="value-summary">
-					{#if Object.keys(notIssuedStats.byValue || {}).length > 0}
-						{#each Object.entries(notIssuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
-							<div class="value-item">
-								<span class="value-label">Value {Number(value).toFixed(2)}:</span>
-								<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)}</span>
-							</div>
-						{/each}
-					{:else}
-						<p class="no-branch">No not issued vouchers</p>
-					{/if}
-				</div>
-			{:else}
-				<!-- Detailed breakdown by branch -->
-				<div class="branch-breakdown">
-					{#if Object.keys(notIssuedStats.byBranch).length > 0}
-						{#each Object.entries(notIssuedStats.byBranch) as [branchId, valueCounts]}
-							<div class="branch-section">
-								<h4 class="branch-section-title">{branchMap[branchId] || branchId}</h4>
-							{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
-								<div class="value-item">
-									<span class="value-label">Value {Number(value).toFixed(2)}:</span>
-									<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)}</span>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header / Navigation Bar -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<!-- Action Buttons -->
+		<div class="flex gap-2">
+			<button 
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-emerald-600 text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:shadow-xl hover:scale-[1.02]"
+				on:click={handleAddPurchaseVoucher}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">➕</span>
+				<span>Add Book</span>
+			</button>
+			<button 
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-xl hover:scale-[1.02]"
+				on:click={handleIssuePurchaseVoucher}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📤</span>
+				<span>Issue</span>
+			</button>
+			<button 
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-orange-600 text-white shadow-lg shadow-orange-200 hover:bg-orange-700 hover:shadow-xl hover:scale-[1.02]"
+				on:click={handleClosePurchaseVoucher}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">✅</span>
+				<span>Close</span>
+			</button>
+			<button 
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-purple-600 text-white shadow-lg shadow-purple-200 hover:bg-purple-700 hover:shadow-xl hover:scale-[1.02]"
+				on:click={handlePurchaseVoucherStockManager}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📦</span>
+				<span>Stock Manager</span>
+			</button>
+		</div>
+
+		<!-- View Mode Tabs -->
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button 
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+				{viewMode === 'book' 
+					? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]'
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={() => setViewMode('book')}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📚</span>
+				<span class="relative z-10">Book Wise</span>
+				{#if viewMode === 'book'}
+					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+				{/if}
+			</button>
+			<button 
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+				{viewMode === 'voucher' 
+					? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={() => setViewMode('voucher')}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">🎫</span>
+				<span class="relative z-10">Voucher Wise</span>
+				{#if viewMode === 'voucher'}
+					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+				{/if}
+			</button>
+			<button 
+				class="group relative flex items-center gap-2.5 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden text-slate-500 hover:bg-white hover:text-emerald-700 hover:shadow-md"
+				on:click={handleRefresh}
+				title="Refresh data"
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-180">🔄</span>
+				<span class="relative z-10">Refresh</span>
+			</button>
+		</div>
+	</div>
+
+	<!-- Main Content Area -->
+	<div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<!-- Decorative background blurs -->
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
+
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+			<!-- Status Summary Cards -->
+			<div class="grid grid-cols-3 gap-4 mb-6">
+				<!-- Available Vouchers Card -->
+				<button 
+					class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-5 text-left transition-all duration-300 hover:shadow-[0_16px_48px_-12px_rgba(0,0,0,0.1)] hover:scale-[1.01] cursor-pointer"
+					on:click={() => showCard1Breakdown = !showCard1Breakdown}
+				>
+					<div class="flex items-center justify-between mb-3">
+						<h3 class="text-sm font-black uppercase tracking-wide text-slate-700 flex items-center gap-2">
+							<span class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-lg">📋</span>
+							Available
+						</h3>
+						<span class="text-xs font-bold text-slate-400">{showCard1Breakdown ? '▼' : '▶'}</span>
+					</div>
+					<div class="text-2xl font-black text-emerald-600 mb-2">{notIssuedStats.totalVouchers}</div>
+					<div class="text-xs text-slate-500 font-semibold">{notIssuedStats.totalVouchers === 1 ? 'book' : 'books'} not issued</div>
+
+					{#if !showCard1Breakdown}
+						<div class="mt-3 space-y-1.5">
+							{#if Object.keys(notIssuedStats.byValue || {}).length > 0}
+								{#each Object.entries(notIssuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+									<div class="flex justify-between items-center px-2.5 py-1.5 bg-emerald-50/50 rounded-lg text-xs">
+										<span class="text-slate-600 font-semibold">Value {Number(value).toFixed(0)}</span>
+										<span class="text-emerald-700 font-black">{counts.vouchers} vouchers · {counts.books} books · {(Number(value) * counts.vouchers).toFixed(0)} total</span>
 									</div>
 								{/each}
-							</div>
-						{/each}
+							{:else}
+								<p class="text-xs text-slate-400 italic text-center mt-2">No available vouchers</p>
+							{/if}
+						</div>
 					{:else}
-						<p class="no-branch">No not issued vouchers</p>
-					{/if}
-				</div>
-			{/if}
-		</div>
-		<div class="status-card clickable" on:click={() => showCard2Breakdown = !showCard2Breakdown}>
-			<h3 class="card-title">Issued Vouchers {showCard2Breakdown ? '▼' : '▶'}</h3>
-			<div class="total-count">Total: {issuedStats.totalVouchers} {issuedStats.totalVouchers === 1 ? 'voucher' : 'vouchers'}</div>
-			
-			{#if !showCard2Breakdown}
-				<!-- Summary by value -->
-				<div class="value-summary">
-					{#if Object.keys(issuedStats.byValue || {}).length > 0}
-						{#each Object.entries(issuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
-							<div class="value-item">
-								<span class="value-label">Value {Number(value).toFixed(2)}:</span>
-								<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)}</span>
-							</div>
-						{/each}
-					{:else}
-						<p class="no-branch">No issued vouchers</p>
-					{/if}
-				</div>
-			{:else}
-				<!-- Detailed breakdown by branch -->
-				<div class="branch-breakdown">
-					{#if Object.keys(issuedStats.byBranch).length > 0}
-						{#each Object.entries(issuedStats.byBranch) as [branchId, valueCounts]}
-							<div class="branch-section">
-								<h4 class="branch-section-title">{branchMap[branchId] || branchId}</h4>
-							{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
-								{#each Object.entries(issueTypes) as [issueType, counts]}
-									<div class="value-item">
-										<span class="value-label">Value {Number(value).toFixed(2)}:</span>
-										<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)} {issueType}</span>
-										</div>
+						<div class="mt-3 space-y-3">
+							{#if Object.keys(notIssuedStats.byBranch).length > 0}
+								{#each Object.entries(notIssuedStats.byBranch) as [branchId, valueCounts]}
+									<div class="bg-slate-50 rounded-xl p-3">
+										<h4 class="text-xs font-black text-slate-700 mb-2 pb-1.5 border-b border-slate-200">{branchMap[branchId] || branchId}</h4>
+										{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+											<div class="flex justify-between items-center px-2 py-1 text-xs">
+												<span class="text-slate-500 font-semibold">Value {Number(value).toFixed(0)}</span>
+												<span class="text-emerald-700 font-bold">{counts.vouchers} vouchers · {counts.books} books</span>
+											</div>
+										{/each}
+									</div>
 								{/each}
-								{/each}
-							</div>
-						{/each}
-					{:else}
-						<p class="no-branch">No issued vouchers</p>
+							{:else}
+								<p class="text-xs text-slate-400 italic text-center">No available vouchers</p>
+							{/if}
+						</div>
 					{/if}
-				</div>
-			{/if}
-		</div>
-		<div class="status-card clickable" on:click={() => showCard3Breakdown = !showCard3Breakdown}>
-			<h3 class="card-title">Closed Vouchers {showCard3Breakdown ? '▼' : '▶'}</h3>
-			<div class="total-count">Total: {closedStats.totalVouchers} {closedStats.totalVouchers === 1 ? 'voucher' : 'vouchers'}</div>
-			
-			{#if !showCard3Breakdown}
-				<!-- Summary by value -->
-				<div class="value-summary">
-					{#if Object.keys(closedStats.byValue || {}).length > 0}
-						{#each Object.entries(closedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
-							<div class="value-item">
-								<span class="value-label">Value {Number(value).toFixed(2)}:</span>
-								<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)}</span>
-							</div>
-						{/each}
-					{:else}
-						<p class="no-branch">No closed vouchers</p>
-					{/if}
-				</div>
-			{:else}
-				<!-- Detailed breakdown by branch -->
-				<div class="branch-breakdown">
-					{#if Object.keys(closedStats.byBranch).length > 0}
-						{#each Object.entries(closedStats.byBranch) as [branchId, valueCounts]}
-							<div class="branch-section">
-								<h4 class="branch-section-title">{branchMap[branchId] || branchId}</h4>
-							{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
-								{#each Object.entries(issueTypes) as [issueType, counts]}
-									<div class="value-item">
-										<span class="value-label">Value {Number(value).toFixed(2)}:</span>
-										<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)} {issueType}</span>
-										</div>
-								{/each}
-								{/each}
-							</div>
-						{/each}
-					{:else}
-						<p class="no-branch">No closed vouchers</p>
-					{/if}
-				</div>
-			{/if}
-		</div>
-	</div>
-	<div class="button-group">
-		<button class="action-button" on:click={handleAddPurchaseVoucher}>Add Purchase Voucher</button>
-		<button class="action-button" on:click={handleIssuePurchaseVoucher}>Issue Purchase Voucher</button>
-		<button class="action-button" on:click={handleClosePurchaseVoucher}>Close Purchase Voucher</button>
-		<button class="action-button" on:click={handlePurchaseVoucherStockManager}>Purchase Voucher Stock Manager</button>
-	</div>
+				</button>
 
-	<!-- View Mode Toggle Buttons -->
-	<div class="view-toggle">
-		<button 
-			class="toggle-btn" 
-			class:active={viewMode === 'book'}
-			on:click={() => setViewMode('book')}
-		>
-			📚 Book Wise
-		</button>
-		<button 
-			class="toggle-btn" 
-			class:active={viewMode === 'voucher'}
-			on:click={() => setViewMode('voucher')}
-		>
-			🎫 Voucher Wise
-		</button>
-		<button 
-			class="toggle-btn refresh-btn" 
-			on:click={handleRefresh}
-			title="Refresh data"
-		>
-			🔄 Refresh
-		</button>
-		{#if viewMode === 'voucher'}
-			<div class="filter-group">
-				<label for="status-filter">Filter by Status:</label>
-				<select id="status-filter" bind:value={statusFilter} on:change={() => loadVoucherItems(true)}>
-					<option value="all">All</option>
-					<option value="stock">Stock</option>
-					<option value="stocked">Stocked</option>
-					<option value="issued">Issued</option>
-					<option value="closed">Closed</option>
-				</select>
-			</div>
-		{/if}
-	</div>
+				<!-- Issued Vouchers Card -->
+				<button 
+					class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-5 text-left transition-all duration-300 hover:shadow-[0_16px_48px_-12px_rgba(0,0,0,0.1)] hover:scale-[1.01] cursor-pointer"
+					on:click={() => showCard2Breakdown = !showCard2Breakdown}
+				>
+					<div class="flex items-center justify-between mb-3">
+						<h3 class="text-sm font-black uppercase tracking-wide text-slate-700 flex items-center gap-2">
+							<span class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-lg">📤</span>
+							Issued
+						</h3>
+						<span class="text-xs font-bold text-slate-400">{showCard2Breakdown ? '▼' : '▶'}</span>
+					</div>
+					<div class="text-2xl font-black text-blue-600 mb-2">{issuedStats.totalVouchers}</div>
+					<div class="text-xs text-slate-500 font-semibold">{issuedStats.totalVouchers === 1 ? 'book' : 'books'} issued</div>
 
-	<!-- Voucher Items Table -->
-	{#if isLoading}
-		<p class="loading">Loading voucher items...</p>
-	{:else if viewMode === 'book'}
-		<!-- Book Wise View -->
-		{#if bookSummary.length === 0}
-			<p class="no-data">No book data found</p>
-		{:else}
-			<!-- Search by ID Filter -->
-			<div class="view-toggle" style="margin-top: 16px;">
-				<div class="filter-group">
-					<label for="book-search-id">Search by ID:</label>
-					<input 
-						id="book-search-id" 
-						type="text" 
-						placeholder="Search PV ID or Book Number..." 
-						bind:value={bookSearchId}
-						style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 6px; min-width: 300px;"
-					/>
-					{#if bookSearchId}
-						<button 
-							class="toggle-btn" 
-							on:click={() => bookSearchId = ''}
-							style="padding: 8px 16px; margin-left: 8px;"
-						>
-							Clear
-						</button>
+					{#if !showCard2Breakdown}
+						<div class="mt-3 space-y-1.5">
+							{#if Object.keys(issuedStats.byValue || {}).length > 0}
+								{#each Object.entries(issuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+									<div class="flex justify-between items-center px-2.5 py-1.5 bg-blue-50/50 rounded-lg text-xs">
+										<span class="text-slate-600 font-semibold">Value {Number(value).toFixed(0)}</span>
+										<span class="text-blue-700 font-black">{counts.vouchers} vouchers · {counts.books} books · {(Number(value) * counts.vouchers).toFixed(0)} total</span>
+									</div>
+								{/each}
+							{:else}
+								<p class="text-xs text-slate-400 italic text-center mt-2">No issued vouchers</p>
+							{/if}
+						</div>
+					{:else}
+						<div class="mt-3 space-y-3">
+							{#if Object.keys(issuedStats.byBranch).length > 0}
+								{#each Object.entries(issuedStats.byBranch) as [branchId, valueCounts]}
+									<div class="bg-slate-50 rounded-xl p-3">
+										<h4 class="text-xs font-black text-slate-700 mb-2 pb-1.5 border-b border-slate-200">{branchMap[branchId] || branchId}</h4>
+										{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
+											{#each Object.entries(issueTypes) as [issueType, counts]}
+												<div class="flex justify-between items-center px-2 py-1 text-xs">
+													<span class="text-slate-500 font-semibold">Value {Number(value).toFixed(0)} · {issueType}</span>
+													<span class="text-blue-700 font-bold">{counts.vouchers} vouchers · {counts.books} books</span>
+												</div>
+											{/each}
+										{/each}
+									</div>
+								{/each}
+							{:else}
+								<p class="text-xs text-slate-400 italic text-center">No issued vouchers</p>
+							{/if}
+						</div>
 					{/if}
+				</button>
+
+				<!-- Closed Vouchers Card -->
+				<button 
+					class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-5 text-left transition-all duration-300 hover:shadow-[0_16px_48px_-12px_rgba(0,0,0,0.1)] hover:scale-[1.01] cursor-pointer"
+					on:click={() => showCard3Breakdown = !showCard3Breakdown}
+				>
+					<div class="flex items-center justify-between mb-3">
+						<h3 class="text-sm font-black uppercase tracking-wide text-slate-700 flex items-center gap-2">
+							<span class="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-lg">🔒</span>
+							Closed
+						</h3>
+						<span class="text-xs font-bold text-slate-400">{showCard3Breakdown ? '▼' : '▶'}</span>
+					</div>
+					<div class="text-2xl font-black text-orange-600 mb-2">{closedStats.totalVouchers}</div>
+					<div class="text-xs text-slate-500 font-semibold">{closedStats.totalVouchers === 1 ? 'book' : 'books'} closed</div>
+
+					{#if !showCard3Breakdown}
+						<div class="mt-3 space-y-1.5">
+							{#if Object.keys(closedStats.byValue || {}).length > 0}
+								{#each Object.entries(closedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+									<div class="flex justify-between items-center px-2.5 py-1.5 bg-orange-50/50 rounded-lg text-xs">
+										<span class="text-slate-600 font-semibold">Value {Number(value).toFixed(0)}</span>
+										<span class="text-orange-700 font-black">{counts.vouchers} vouchers · {counts.books} books · {(Number(value) * counts.vouchers).toFixed(0)} total</span>
+									</div>
+								{/each}
+							{:else}
+								<p class="text-xs text-slate-400 italic text-center mt-2">No closed vouchers</p>
+							{/if}
+						</div>
+					{:else}
+						<div class="mt-3 space-y-3">
+							{#if Object.keys(closedStats.byBranch).length > 0}
+								{#each Object.entries(closedStats.byBranch) as [branchId, valueCounts]}
+									<div class="bg-slate-50 rounded-xl p-3">
+										<h4 class="text-xs font-black text-slate-700 mb-2 pb-1.5 border-b border-slate-200">{branchMap[branchId] || branchId}</h4>
+										{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
+											{#each Object.entries(issueTypes) as [issueType, counts]}
+												<div class="flex justify-between items-center px-2 py-1 text-xs">
+													<span class="text-slate-500 font-semibold">Value {Number(value).toFixed(0)} · {issueType}</span>
+													<span class="text-orange-700 font-bold">{counts.vouchers} vouchers · {counts.books} books</span>
+												</div>
+											{/each}
+										{/each}
+									</div>
+								{/each}
+							{:else}
+								<p class="text-xs text-slate-400 italic text-center">No closed vouchers</p>
+							{/if}
+						</div>
+					{/if}
+				</button>
+			</div>
+
+			<!-- Loading State -->
+			{#if isLoading}
+				<div class="flex items-center justify-center flex-1">
+					<div class="text-center">
+						<div class="animate-spin inline-block">
+							<div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
+						</div>
+						<p class="mt-4 text-slate-600 font-semibold">Loading voucher data...</p>
+					</div>
 				</div>
-			</div>
-			<div class="count-header">
-				<span class="count-label">Total Books:</span>
-				<span class="count-value">{filteredBookSummary.length} {bookSearchId ? `(filtered from ${bookSummary.length})` : ''}</span>
-			</div>
-			<div class="table-container">
-				<table class="vouchers-table">
-					<thead>
-						<tr>
-							<th>Voucher ID</th>
-							<th>Book Number</th>
-							<th>Serial Range</th>
-							<th>Total Count</th>
-							<th>Total Value</th>
-							<th>Stock Count</th>
-							<th>Stocked</th>
-							<th>Issued</th>
-							<th>Closed</th>
-							<th>Stock Location</th>
-							<th>Stock Person</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each filteredBookSummary as book (book.voucher_id)}
-							<tr>
-								<td>{book.voucher_id}</td>
-								<td>{book.book_number}</td>
-								<td>{book.serial_range}</td>
-								<td>{book.total_count}</td>
-								<td>{book.total_value}</td>
-								<td><span class="badge">{book.stock_count}</span></td>
-								<td><span class="badge stocked">{book.stocked_count}</span></td>
-								<td><span class="badge issued">{book.issued_count}</span></td>
-								<td><span class="badge closed">{book.closed_count}</span></td>
-								<td>{book.stock_locations}</td>
-								<td>{book.stock_persons}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-	{:else}
-		<!-- Voucher Wise View -->
-		{#if voucherItems.length === 0}
-			<p class="no-data">No voucher items found</p>
-		{:else}
-			<div class="count-header">
-				<span class="count-label">Total Vouchers:</span>
-				<span class="count-value">{voucherItems.length}</span>
-			</div>
-			<div class="table-container">
-				<table class="vouchers-table">
-					<thead>
-						<tr>
-							<th>PV ID</th>
-							<th>Serial Number</th>
-							<th>Value</th>
-							<th>Status</th>
-							<th>Issue Type</th>
-							<th>Stock</th>
-							<th>Stock Location</th>						<th>Stock Person</th>							<th>Issued By</th>
-							<th>Issued To</th>
-							<th>Issued Date</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each voucherItems as item (item.id)}
-							<tr>
-								<td>{item.purchase_voucher_id}</td>
-								<td>{item.serial_number}</td>
-								<td>{item.value}</td>
-								<td>
-									<span class="status-badge status-{item.status}">
-										{item.status || 'N/A'}
-									</span>
-								</td>
-								<td>{item.issue_type || 'N/A'}</td>
-								<td>{item.stock}</td>
-							<td>{item.stock_location ? (branchMap[item.stock_location] || item.stock_location) : 'N/A'}</td>
-							<td>{item.stock_person ? (userNameMap[item.stock_person] || item.stock_person) : 'N/A'}</td>
-							<td>{item.issued_by ? (userEmployeeMap[item.issued_by] || item.issued_by) : 'N/A'}</td>
-								<td>{item.issued_to ? (userEmployeeMap[item.issued_to] || item.issued_to) : 'N/A'}</td>
-								<td>{item.issued_date ? new Date(item.issued_date).toLocaleDateString() : 'N/A'}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-			{#if hasMoreVouchers}
-				<div class="load-more-container">
-					<button 
-						class="load-more-btn" 
-						on:click={loadMoreVouchers}
-						disabled={isLoadingMore}
-					>
-						{#if isLoadingMore}
-							Loading...
-						{:else}
-							Load More
+
+			{:else if viewMode === 'book'}
+				<!-- Book Wise View -->
+				{#if bookSummary.length === 0}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📭</div>
+						<p class="text-slate-600 font-semibold">No book data found</p>
+					</div>
+				{:else}
+					<!-- Filters Row -->
+					<div class="mb-4 flex gap-3">
+						<div class="flex-1">
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="book-search-id">Search by ID</label>
+							<input 
+								id="book-search-id" 
+								type="text" 
+								placeholder="Search PV ID or Book Number..." 
+								bind:value={bookSearchId}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							/>
+						</div>
+						{#if bookSearchId}
+							<div class="flex items-end">
+								<button 
+									class="px-4 py-2.5 text-xs font-bold uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
+									on:click={() => bookSearchId = ''}
+								>
+									Clear
+								</button>
+							</div>
 						{/if}
-					</button>
+					</div>
+
+					<!-- Table Card -->
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+						<div class="overflow-auto flex-1">
+							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+								<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
+									<tr>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Voucher ID</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Book #</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Serial Range</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Count</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Value</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stock</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stocked</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Issued</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Closed</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Location</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Person</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200">
+									{#each filteredBookSummary as book, index (book.voucher_id)}
+										<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+											<td class="px-4 py-3 text-sm text-slate-700 font-semibold">{book.voucher_id}</td>
+											<td class="px-4 py-3 text-sm text-slate-700">{book.book_number}</td>
+											<td class="px-4 py-3 text-sm text-slate-500 font-mono">{book.serial_range}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-slate-800">{book.total_count}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-emerald-700">{book.total_value}</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-slate-200 text-slate-700">{book.stock_count}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-800">{book.stocked_count}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">{book.issued_count}</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-800">{book.closed_count}</span>
+											</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{book.stock_locations}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{book.stock_persons}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<!-- Footer -->
+						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+							Showing {filteredBookSummary.length} books {bookSearchId ? `(filtered from ${bookSummary.length})` : ''}
+						</div>
+					</div>
+				{/if}
+
+			{:else}
+				<!-- Voucher Wise View -->
+				<!-- Filter Controls -->
+				<div class="mb-4 flex gap-3">
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="status-filter">Filter by Status</label>
+						<select 
+							id="status-filter" 
+							bind:value={statusFilter} 
+							on:change={() => loadVoucherItems(true)}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+							style="color: #000000 !important; background-color: #ffffff !important;"
+						>
+							<option value="all" style="color: #000000 !important; background-color: #ffffff !important;">All Statuses</option>
+							<option value="stock" style="color: #000000 !important; background-color: #ffffff !important;">Stock</option>
+							<option value="stocked" style="color: #000000 !important; background-color: #ffffff !important;">Stocked</option>
+							<option value="issued" style="color: #000000 !important; background-color: #ffffff !important;">Issued</option>
+							<option value="closed" style="color: #000000 !important; background-color: #ffffff !important;">Closed</option>
+						</select>
+					</div>
 				</div>
+
+				{#if voucherItems.length === 0}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📭</div>
+						<p class="text-slate-600 font-semibold">No voucher items found</p>
+					</div>
+				{:else}
+					<!-- Table Card -->
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+						<div class="overflow-auto flex-1">
+							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+								<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+									<tr>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">PV ID</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Serial #</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Value</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issue Type</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Stock</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Location</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Person</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issued By</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issued To</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issue Date</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200">
+									{#each voucherItems as item, index (item.id)}
+										<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+											<td class="px-4 py-3 text-sm text-slate-700 font-semibold">{item.purchase_voucher_id}</td>
+											<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{item.serial_number}</td>
+											<td class="px-4 py-3 text-sm text-center font-bold text-emerald-700">{item.value}</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase
+													{item.status === 'stocked' ? 'bg-blue-100 text-blue-800' : 
+													 item.status === 'issued' ? 'bg-emerald-100 text-emerald-800' : 
+													 item.status === 'closed' ? 'bg-red-100 text-red-800' : 
+													 item.status === 'stock' ? 'bg-slate-200 text-slate-700' : 
+													 'bg-amber-100 text-amber-800'}">
+													{item.status || 'N/A'}
+												</span>
+											</td>
+											<td class="px-4 py-3 text-xs text-center text-slate-600">{item.issue_type || 'N/A'}</td>
+											<td class="px-4 py-3 text-sm text-center text-slate-600">{item.stock}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_location ? (branchMap[item.stock_location] || item.stock_location) : '—'}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_person ? (userNameMap[item.stock_person] || item.stock_person) : '—'}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.issued_by ? (userEmployeeMap[item.issued_by] || item.issued_by) : '—'}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.issued_to ? (userEmployeeMap[item.issued_to] || item.issued_to) : '—'}</td>
+											<td class="px-4 py-3 text-xs text-center text-slate-500">{item.issued_date ? new Date(item.issued_date).toLocaleDateString() : '—'}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<!-- Footer -->
+						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex items-center justify-between">
+							<span>Showing {voucherItems.length} vouchers</span>
+							{#if hasMoreVouchers}
+								<button 
+									class="px-5 py-2 text-xs font-black uppercase tracking-wide bg-blue-600 text-white rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+									on:click={loadMoreVouchers}
+									disabled={isLoadingMore}
+								>
+									{#if isLoadingMore}
+										Loading...
+									{:else}
+										Load More
+									{/if}
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/if}
 			{/if}
-		{/if}
-	{/if}
+		</div>
+	</div>
 </div>
 
 <style>
-	.purchase-voucher-manager {
-		position: relative;
-		width: 100%;
-		height: 100%;
-		padding: 24px;
-		background: #f8fafc;
+	:global(.font-sans) {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	}
 
-	.status-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 24px;
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
 	}
 
-	@media (max-width: 1200px) {
-		.status-grid {
-			grid-template-columns: repeat(2, 1fr);
-		}
+	@keyframes scaleIn {
+		from { opacity: 0; transform: scale(0.95); }
+		to { opacity: 1; transform: scale(1); }
 	}
-
-	@media (max-width: 768px) {
-		.status-grid {
-			grid-template-columns: 1fr;
-		}
-	}
-
-	.status-card {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 16px;
-		padding: 32px 24px;
-		min-height: 200px;
-		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-		transition: all 0.3s ease;
-	}
-
-	.status-card.clickable {
-		cursor: pointer;
-		user-select: none;
-	}
-
-	.status-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-		border-color: #d1d5db;
-	}
-
-	.status-card.clickable:hover {
-		border-color: #3b82f6;
-	}
-
-	.card-title {
-		font-size: 1.1rem;
-		font-weight: 700;
-		color: #1f2937;
-		margin: 0 0 12px 0;
-		text-align: center;
-	}
-
-	.total-count {
-		font-size: 1rem;
-		font-weight: 600;
-		color: #3b82f6;
-		text-align: center;
-		margin-bottom: 16px;
-		padding-bottom: 12px;
-		border-bottom: 2px solid #e5e7eb;
-	}
-
-	.card-stats {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-		margin-bottom: 16px;
-		padding-bottom: 16px;
-		border-bottom: 2px solid #e5e7eb;
-	}
-
-	.stat-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.stat-label {
-		color: #6b7280;
-		font-size: 0.9rem;
-		font-weight: 500;
-	}
-
-	.stat-value {
-		color: #1f2937;
-		font-size: 1.25rem;
-		font-weight: 700;
-	}
-
-	.branch-breakdown {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-	}
-
-	.value-summary {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		margin-top: 12px;
-	}
-
-	.branch-section {
-		background: #f9fafb;
-		border-radius: 8px;
-		padding: 12px;
-	}
-
-	.branch-section-title {
-		font-size: 0.95rem;
-		font-weight: 600;
-		color: #1f2937;
-		margin: 0 0 10px 0;
-		padding-bottom: 8px;
-		border-bottom: 2px solid #e5e7eb;
-	}
-
-	.value-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 6px 8px;
-		margin: 4px 0;
-		background: white;
-		border-radius: 4px;
-	}
-
-	.value-label {
-		color: #6b7280;
-		font-size: 0.9rem;
-		font-weight: 500;
-	}
-
-	.value-count {
-		color: #3b82f6;
-		font-size: 0.9rem;
-		font-weight: 700;
-	}
-
-	.no-branch {
-		color: #9ca3af;
-		font-size: 0.85rem;
-		font-style: italic;
-		text-align: center;
-		margin: 8px 0;
-	}
-
-	.value-list {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.button-group {
-		display: flex;
-		gap: 16px;
-		margin-top: 24px;
-	}
-
-	.action-button {
-		padding: 12px 24px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.action-button:hover {
-		background: #2563eb;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.action-button:active {
-		transform: translateY(0);
-	}
-	.view-toggle {
-		display: flex;
-		gap: 12px;
-		margin-top: 24px;
-		justify-content: center;
-		align-items: center;
-	}
-
-	.filter-group {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-left: auto;
-	}
-
-	.filter-group label {
-		font-size: 0.9rem;
-		color: #374151;
-		font-weight: 500;
-	}
-
-	.filter-group select {
-		padding: 8px 12px;
-		background: white;
-		color: #374151;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		font-weight: 500;
-		font-size: 0.9rem;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.filter-group select:hover {
-		border-color: #3b82f6;
-	}
-
-	.filter-group select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.toggle-btn {
-		padding: 10px 20px;
-		background: white;
-		color: #374151;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.toggle-btn:hover {
-		border-color: #3b82f6;
-		color: #3b82f6;
-	}
-
-	.toggle-btn.active {
-		background: #3b82f6;
-		color: white;
-		border-color: #3b82f6;
-	}
-
-	.toggle-btn.refresh-btn {
-		background: #10b981;
-		color: white;
-		border-color: #10b981;
-	}
-
-	.toggle-btn.refresh-btn:hover {
-		background: #059669;
-		border-color: #059669;
-	}
-
-	.count-header {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 12px 16px;
-		margin-top: 24px;
-		background: #f0f9ff;
-		border: 1px solid #bfdbfe;
-		border-radius: 8px 8px 0 0;
-		font-weight: 600;
-	}
-
-	.count-label {
-		color: #374151;
-		font-size: 0.95rem;
-	}
-
-	.count-value {
-		color: #3b82f6;
-		font-size: 1.1rem;
-		font-weight: 700;
-	}
-
-	.table-container {
-		background: white;
-		border-radius: 0 0 12px 12px;
-		border: 1px solid #bfdbfe;
-		border-top: none;
-		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-		max-height: 500px;
-		overflow: auto;
-		position: relative;
-	}
-
-	.vouchers-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.9rem;
-	}
-
-	.vouchers-table thead {
-		position: sticky;
-		top: 0;
-		background: #f9fafb;
-		z-index: 10;
-	}
-
-	.vouchers-table th {
-		padding: 12px 8px;
-		text-align: left;
-		font-weight: 600;
-		color: #374151;
-		border-bottom: 2px solid #e5e7eb;
-		white-space: nowrap;
-		background: #f9fafb;
-	}
-
-	.vouchers-table td {
-		padding: 10px 8px;
-		border-bottom: 1px solid #f3f4f6;
-		color: #6b7280;
-	}
-
-	.vouchers-table tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.status-badge {
-		display: inline-block;
-		padding: 4px 12px;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-	}
-
-	.status-stocked {
-		background: #dbeafe;
-		color: #1e40af;
-	}
-
-	.status-issued {
-		background: #d1fae5;
-		color: #065f46;
-	}
-
-	.status-pending {
-		background: #fef3c7;
-		color: #92400e;
-	}
-
-	.status-available {
-		background: #e0e7ff;
-		color: #3730a3;
-	}
-
-	.badge {
-		display: inline-block;
-		padding: 4px 8px;
-		border-radius: 8px;
-		font-size: 0.75rem;
-		font-weight: 600;
-		background: #e5e7eb;
-		color: #374151;
-	}
-
-	.badge.stocked {
-		background: #dbeafe;
-		color: #1e40af;
-	}
-
-	.badge.issued {
-		background: #d1fae5;
-		color: #065f46;
-	}
-
-	.badge.closed {
-		background: #fee2e2;
-		color: #991b1b;
-	}
-
-	.load-more-container {
-		display: flex;
-		justify-content: center;
-		padding: 20px;
-		margin-top: 16px;
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e5e7eb;
-	}
-
-	.load-more-btn {
-		padding: 10px 24px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		min-width: 120px;
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		background: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.load-more-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.loading,
-	.no-data {
-		text-align: center;
-		padding: 40px;
-		color: #6b7280;
-		font-size: 1rem;
-	}</style>
+</style>

@@ -60,10 +60,12 @@
 
 	function handleAddBook() {
 		showAddBookForm = true;
+		showAddSingleVoucherForm = false;
 	}
 
 	function handleAddSingleVoucher() {
 		showAddSingleVoucherForm = true;
+		showAddBookForm = false;
 		loadExistingBooks();
 	}
 
@@ -349,410 +351,289 @@
 	}
 </script>
 
-<div class="add-purchase-voucher">
-	<div class="button-group">
-		<button class="action-button" on:click={handleAddBook}>Add Book</button>
-		<button class="action-button" on:click={handleAddSingleVoucher}>Add Single Voucher</button>
-	</div>
-
-	{#if showAddBookForm}
-		<div class="form-section">
-			<div class="form-group">
-				<label for="bookNumber">Book Number</label>
-				<input
-					id="bookNumber"
-					type="text"
-					placeholder="Enter book number"
-					bind:value={bookNumber}
-					class="form-input"
-				/>
-			</div>
-
-			<div class="form-row">
-				<div class="form-group">
-					<label for="serialStart">Serial Start</label>
-					<input
-						id="serialStart"
-						type="number"
-						placeholder="Start serial"
-						bind:value={serialStart}
-						on:input={handleSerialChange}
-						class="form-input"
-					/>
-				</div>
-
-				<div class="form-group">
-					<label for="serialEnd">Serial End</label>
-					<input
-						id="serialEnd"
-						type="number"
-						placeholder="End serial"
-						bind:value={serialEnd}
-						on:input={handleSerialChange}
-						class="form-input"
-					/>
-				</div>
-			</div>
-
-			<div class="form-group">
-				<label for="voucherCount">Voucher Count</label>
-				<input
-					id="voucherCount"
-					type="number"
-					value={voucherCount}
-					readonly
-					class="form-input readonly"
-				/>
-			</div>
-
-			<div class="form-group">
-				<label for="perVoucherValue">Per Voucher Value</label>
-				<input
-					id="perVoucherValue"
-					type="number"
-					placeholder="Enter per voucher value"
-					bind:value={perVoucherValue}
-					on:input={handlePerVoucherValueChange}
-					class="form-input"
-				/>
-			</div>
-
-			<div class="form-group">
-				<label for="totalValue">Total Value</label>
-				<input
-					id="totalValue"
-					type="number"
-					value={totalValue.toFixed(2)}
-					readonly
-					class="form-input readonly"
-				/>
-			</div>
-
-			<div class="button-group form-buttons">
-				<button class="action-button save-button" on:click={handleSaveBook} disabled={isLoading}>
-					{isLoading ? 'Saving...' : 'Save Book'}
-				</button>
-				<button class="action-button cancel-button" on:click={() => showAddBookForm = false}>
-					Cancel
-				</button>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header Bar with Action Buttons -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">➕</span>
+			<div>
+				<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">Add Purchase Vouchers</h2>
+				<p class="text-[11px] text-slate-500">Create new voucher books or add individual vouchers</p>
 			</div>
 		</div>
-	{/if}
 
-	{#if showAddSingleVoucherForm}
-		<div class="form-section">
-			<div class="form-group">
-				<label>Add Mode</label>
-				<div class="radio-group-inline">
-					<label class="radio-label">
-						<input
-							type="radio"
-							name="singleVoucherMode"
-							value="new"
-							bind:group={singleVoucherMode}
-						/>
-						<span>Add as New Book</span>
-					</label>
-					<label class="radio-label">
-						<input
-							type="radio"
-							name="singleVoucherMode"
-							value="existing"
-							bind:group={singleVoucherMode}
-						/>
-						<span>Add to Existing Book</span>
-					</label>
-				</div>
-			</div>
+		<!-- Action Buttons -->
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden {!showAddBookForm && !showAddSingleVoucherForm ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={handleAddBook}
+			>
+				<span class="text-base filter drop-shadow-sm">📖</span>
+				<span>Add Book</span>
+			</button>
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden {!showAddBookForm && !showAddSingleVoucherForm ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={handleAddSingleVoucher}
+			>
+				<span class="text-base filter drop-shadow-sm">🎫</span>
+				<span>Add Single Voucher</span>
+			</button>
+		</div>
+	</div>
 
-			{#if singleVoucherMode === 'new'}
-				<div class="form-group">
-					<label for="singleBookNumber">Book Number</label>
-					<input
-						id="singleBookNumber"
-						type="text"
-						placeholder="Enter book number"
-						bind:value={bookNumber}
-						class="form-input"
-					/>
-				</div>
-			{:else}
-				<div class="form-group searchable-dropdown">
-					<label for="existingBook">Select Book</label>
-					<div class="search-input-wrapper">
-						<input
-							id="existingBook"
-							type="text"
-							placeholder="Search voucher books..."
-							bind:value={bookSearchQuery}
-							on:focus={handleBookSearchFocus}
-							on:blur={handleBookSearchBlur}
-							class="form-input"
-							autocomplete="off"
-						/>
-						{#if selectedExistingBook}
-							<button class="clear-btn" on:click={clearBookSelection} type="button">&times;</button>
-						{/if}
-					</div>
-					{#if showBookDropdown}
-						<div class="dropdown-list">
-							{#if filteredBooks.length === 0}
-								<div class="dropdown-empty">No books found</div>
-							{:else}
-								{#each filteredBooks as book (book.id)}
-									<button
-										class="dropdown-item" 
-										class:selected={selectedExistingBook === book.id}
-										on:mousedown|preventDefault={() => selectBook(book)}
-										type="button"
-									>
-										{book.id} - Book {book.book_number}
-									</button>
-								{/each}
-							{/if}
+	<!-- Main Content -->
+	<div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<!-- Decorative blurs -->
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-cyan-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
+
+		<div class="relative max-w-2xl mx-auto">
+
+			<!-- Add Book Form -->
+			{#if showAddBookForm}
+				<div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-8">
+					<h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+						<span class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-xl">📖</span>
+						Create New Voucher Book
+					</h3>
+
+					<div class="space-y-5">
+						<!-- Book Number -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-bookNumber">Book Number</label>
+							<input
+								id="apv-bookNumber"
+								type="text"
+								placeholder="Enter book number (e.g., 001)"
+								bind:value={bookNumber}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+							/>
 						</div>
-					{/if}
+
+						<!-- Serial Range -->
+						<div class="grid grid-cols-2 gap-4">
+							<div>
+								<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-serialStart">Serial Start</label>
+								<input
+									id="apv-serialStart"
+									type="number"
+									placeholder="Start serial"
+									bind:value={serialStart}
+									on:input={handleSerialChange}
+									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+								/>
+							</div>
+							<div>
+								<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-serialEnd">Serial End</label>
+								<input
+									id="apv-serialEnd"
+									type="number"
+									placeholder="End serial"
+									bind:value={serialEnd}
+									on:input={handleSerialChange}
+									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+								/>
+							</div>
+						</div>
+
+						<!-- Voucher Count (readonly) -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-voucherCount">Voucher Count</label>
+							<input
+								id="apv-voucherCount"
+								type="number"
+								value={voucherCount}
+								readonly
+								class="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed"
+							/>
+						</div>
+
+						<!-- Per Voucher Value -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-perVoucherValue">Per Voucher Value</label>
+							<input
+								id="apv-perVoucherValue"
+								type="number"
+								placeholder="Enter per voucher value"
+								bind:value={perVoucherValue}
+								on:input={handlePerVoucherValueChange}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+							/>
+						</div>
+
+						<!-- Total Value (readonly) -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-totalValue">Total Value</label>
+							<input
+								id="apv-totalValue"
+								type="number"
+								value={totalValue.toFixed(2)}
+								readonly
+								class="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed font-bold"
+							/>
+						</div>
+
+						<!-- Action Buttons -->
+						<div class="flex gap-3 pt-4">
+							<button
+								class="flex-1 px-6 py-2.5 text-xs font-black uppercase tracking-wide bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg shadow-indigo-200"
+								on:click={handleSaveBook}
+								disabled={isLoading}
+							>
+								{isLoading ? '💫 Saving...' : '💾 Save Book'}
+							</button>
+							<button
+								class="flex-1 px-6 py-2.5 text-xs font-black uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
+								on:click={() => { showAddBookForm = false; bookNumber = ''; serialStart = ''; serialEnd = ''; perVoucherValue = ''; }}
+							>
+								Cancel
+							</button>
+						</div>
+					</div>
 				</div>
 			{/if}
 
-			<div class="form-group">
-				<label for="serialNumber">Serial Number</label>
-				<input
-					id="serialNumber"
-					type="number"
-					placeholder="Enter serial number"
-					bind:value={serialNumber}
-					class="form-input"
-				/>
-			</div>
+			<!-- Add Single Voucher Form -->
+			{#if showAddSingleVoucherForm}
+				<div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-8">
+					<h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+						<span class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-xl">🎫</span>
+						Add Single Voucher
+					</h3>
 
-			<div class="form-group">
-				<label for="singleVoucherValue">Per Voucher Value</label>
-				<input
-					id="singleVoucherValue"
-					type="number"
-					placeholder="Enter voucher value"
-					bind:value={singleVoucherValue}
-					class="form-input"
-				/>
-			</div>
+					<div class="space-y-5">
+						<!-- Mode Selection -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-3 uppercase tracking-wide">Mode</label>
+							<div class="flex gap-4">
+								<label class="flex items-center gap-2 cursor-pointer">
+									<input
+										type="radio"
+										name="singleVoucherMode"
+										value="new"
+										bind:group={singleVoucherMode}
+										class="w-4 h-4 cursor-pointer rounded accent-emerald-500"
+									/>
+									<span class="text-sm font-medium text-slate-700">Add as New Book</span>
+								</label>
+								<label class="flex items-center gap-2 cursor-pointer">
+									<input
+										type="radio"
+										name="singleVoucherMode"
+										value="existing"
+										bind:group={singleVoucherMode}
+										class="w-4 h-4 cursor-pointer rounded accent-emerald-500"
+									/>
+									<span class="text-sm font-medium text-slate-700">Add to Existing Book</span>
+								</label>
+							</div>
+						</div>
 
-			<div class="button-group form-buttons">
-				<button class="action-button save-button" on:click={handleSaveSingleVoucher} disabled={isLoading}>
-					{isLoading ? 'Saving...' : 'Save Voucher'}
-				</button>
-				<button class="action-button cancel-button" on:click={() => showAddSingleVoucherForm = false}>
-					Cancel
-				</button>
-			</div>
+						<!-- Conditional: Book Number (for new mode) -->
+						{#if singleVoucherMode === 'new'}
+							<div>
+								<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-singleBookNumber">Book Number</label>
+								<input
+									id="apv-singleBookNumber"
+									type="text"
+									placeholder="Enter book number"
+									bind:value={bookNumber}
+									class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+								/>
+							</div>
+						{:else}
+							<!-- Searchable Dropdown (for existing mode) -->
+							<div>
+								<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Select Book</label>
+								<div class="relative">
+									<input
+										type="text"
+										placeholder="Search voucher books..."
+										bind:value={bookSearchQuery}
+										on:focus={handleBookSearchFocus}
+										on:blur={handleBookSearchBlur}
+										class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+										autocomplete="off"
+									/>
+									{#if selectedExistingBook}
+										<button
+											class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 text-lg transition-colors"
+											on:click={clearBookSelection}
+											type="button"
+										>
+											&times;
+										</button>
+									{/if}
+									{#if showBookDropdown && filteredBooks.length > 0}
+										<div class="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-50">
+											{#each filteredBooks as book (book.id)}
+												<button
+													class="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0 transition-colors {selectedExistingBook === book.id ? 'bg-emerald-100 font-semibold text-emerald-800' : ''}"
+													on:mousedown|preventDefault={() => selectBook(book)}
+													type="button"
+												>
+													{book.id} <span class="text-slate-500">— Book {book.book_number}</span>
+												</button>
+											{/each}
+										</div>
+									{:else if showBookDropdown && filteredBooks.length === 0}
+										<div class="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 p-3 text-center text-sm text-slate-500">
+											No books found
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/if}
+
+						<!-- Serial Number -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-serialNumber">Serial Number</label>
+							<input
+								id="apv-serialNumber"
+								type="number"
+								placeholder="Enter serial number"
+								bind:value={serialNumber}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							/>
+						</div>
+
+						<!-- Voucher Value -->
+						<div>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="apv-singleVoucherValue">Per Voucher Value</label>
+							<input
+								id="apv-singleVoucherValue"
+								type="number"
+								placeholder="Enter voucher value"
+								bind:value={singleVoucherValue}
+								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							/>
+						</div>
+
+						<!-- Action Buttons -->
+						<div class="flex gap-3 pt-4">
+							<button
+								class="flex-1 px-6 py-2.5 text-xs font-black uppercase tracking-wide bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg shadow-emerald-200"
+								on:click={handleSaveSingleVoucher}
+								disabled={isLoading}
+							>
+								{isLoading ? '💫 Saving...' : '💾 Save Voucher'}
+							</button>
+							<button
+								class="flex-1 px-6 py-2.5 text-xs font-black uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
+								on:click={() => { showAddSingleVoucherForm = false; bookNumber = ''; serialNumber = ''; singleVoucherValue = ''; selectedExistingBook = ''; bookSearchQuery = ''; singleVoucherMode = 'new'; }}
+							>
+								Cancel
+							</button>
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
-	{/if}
+	</div>
 </div>
 
 <style>
-	.add-purchase-voucher {
-		width: 100%;
-		height: 100%;
-		padding: 24px;
-		background: #f8fafc;
-	}
-
-	.button-group {
-		display: flex;
-		gap: 16px;
-		margin-bottom: 24px;
-	}
-
-	.action-button {
-		padding: 12px 24px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.action-button:hover {
-		background: #2563eb;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.action-button:active {
-		transform: translateY(0);
-	}
-
-	.form-section {
-		background: white;
-		padding: 24px;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-	}
-
-	.form-group {
-		margin-bottom: 16px;
-	}
-
-	.form-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 16px;
-		margin-bottom: 16px;
-	}
-
-	.radio-group-inline {
-		display: flex;
-		gap: 24px;
-	}
-
-	.radio-label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-	}
-
-	.radio-label input {
-		cursor: pointer;
-	}
-
-	.radio-label span {
-		font-weight: 500;
-		color: #374151;
-	}
-
-	label {
-		display: block;
-		font-weight: 600;
-		color: #1e293b;
-		margin-bottom: 6px;
-		font-size: 0.95rem;
-	}
-
-	.form-input {
-		width: 100%;
-		padding: 10px 12px;
-		border: 1px solid #cbd5e1;
-		border-radius: 6px;
-		font-size: 0.95rem;
-		transition: border-color 0.2s;
-	}
-
-	.form-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.form-input.readonly {
-		background: #f1f5f9;
-		color: #64748b;
-		cursor: not-allowed;
-	}
-
-	.form-buttons {
-		margin-top: 24px;
-		justify-content: flex-start;
-	}
-
-	.save-button {
-		background: #10b981;
-	}
-
-	.save-button:hover:not(:disabled) {
-		background: #059669;
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-	}
-
-	.save-button:disabled {
-		background: #9ca3af;
-		cursor: not-allowed;
-	}
-
-	.cancel-button {
-		background: #6b7280;
-	}
-
-	.cancel-button:hover {
-		background: #4b5563;
-		box-shadow: 0 4px 12px rgba(107, 114, 128, 0.4);
-	}
-
-	.searchable-dropdown {
-		position: relative;
-	}
-
-	.search-input-wrapper {
-		position: relative;
-		display: flex;
-		align-items: center;
-	}
-
-	.search-input-wrapper .form-input {
-		padding-right: 32px;
-	}
-
-	.clear-btn {
-		position: absolute;
-		right: 8px;
-		background: none;
-		border: none;
-		font-size: 1.2rem;
-		color: #94a3b8;
-		cursor: pointer;
-		padding: 2px 6px;
-		line-height: 1;
-	}
-
-	.clear-btn:hover {
-		color: #ef4444;
-	}
-
-	.dropdown-list {
-		position: absolute;
-		top: 100%;
-		left: 0;
-		right: 0;
-		max-height: 240px;
-		overflow-y: auto;
-		background: white;
-		border: 1px solid #cbd5e1;
-		border-top: none;
-		border-radius: 0 0 6px 6px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-		z-index: 50;
-	}
-
-	.dropdown-item {
-		width: 100%;
-		padding: 10px 12px;
-		text-align: left;
-		background: none;
-		border: none;
-		border-bottom: 1px solid #f1f5f9;
-		cursor: pointer;
-		font-size: 0.9rem;
-		color: #334155;
-		transition: background 0.15s;
-	}
-
-	.dropdown-item:hover {
-		background: #f0f9ff;
-	}
-
-	.dropdown-item.selected {
-		background: #eff6ff;
-		color: #2563eb;
-		font-weight: 600;
-	}
-
-	.dropdown-empty {
-		padding: 12px;
-		text-align: center;
-		color: #94a3b8;
-		font-size: 0.9rem;
+	:global(.font-sans) {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	}
 </style>
