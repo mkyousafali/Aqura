@@ -10,19 +10,17 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>✨ Lease & Rent Finance Module, Receiving Overhaul & Clearance Certificate Improvements</h3>
-<p class="change-description">New Lease & Rent property management module, full i18n for the Receiving workflow with multi shelf-stocker selection, and clearance certificate print-only mode for edited bills.</p>
+<h3>✨ Purchase Voucher Workflow Overhaul & Approval Center Parity</h3>
+<p class="change-description">Refined Purchase Voucher flows across add/issue/close/manager/stock screens, clearer budget and vendor pending summaries, and aligned Approval Center behavior on desktop and mobile.</p>
 <div class="change-details">
 <h4>February 18, 2026 (Latest):</h4>
 <ul>
-<li>✅ <b>Lease & Rent Module:</b> New finance module for managing properties, spaces, lease/rent parties, and special changes. Full CRUD with tabbed interface, party management (lease & rent), property spaces, and RPC-powered data loading.</li>
-<li>✅ <b>Lease & Rent Database:</b> New tables (lease_rent_lease_parties, lease_rent_rent_parties, lease_rent_property_spaces, lease_rent_special_changes) and optimized RPC functions for fast data retrieval.</li>
-<li>✅ <b>Receiving i18n:</b> Full English/Arabic translation support across the entire StartReceiving workflow — step labels, branch selection, vendor selection, bill information, and finalization screens.</li>
-<li>✅ <b>Multi Shelf-Stocker Selection:</b> Receiving now supports selecting multiple shelf stockers instead of a single one, with keyboard navigation and highlight support.</li>
-<li>✅ <b>Clearance Certificate Print-Only Mode:</b> When editing a bill, the certificate can now be printed without re-assigning tasks (printOnly mode). Separate "Print & Assign Tasks" flow for new bills vs re-prints.</li>
-<li>✅ <b>Auto-Fill Bill Date:</b> Bill date now auto-fills with today's date in the receiving workflow.</li>
-<li>✅ <b>Vendor Search Keyboard Navigation:</b> Added highlight index support for vendor dropdown keyboard navigation.</li>
-<li>✅ <b>Branch Location Support:</b> Receiving now fetches and displays both English and Arabic branch locations.</li>
+<li>✅ <b>Purchase Voucher Flow:</b> Consolidated and cleaned up Add, Issue, Close, Manager, and Stock Manager screens for more consistent status handling, totals, and user flow.</li>
+<li>✅ <b>Day Budget & Monthly Manager:</b> Updated layouts and summaries to make daily and monthly finance tracking easier to read and review.</li>
+<li>✅ <b>Vendor Pending Payments:</b> Report refinements to improve pending summaries and make outstanding vendor balances easier to follow.</li>
+<li>✅ <b>Approval Center Parity:</b> Desktop and mobile approval center behavior aligned with UI tweaks and consistent request handling.</li>
+<li>✅ <b>Permission Controls:</b> Button access control updated to reflect the latest finance and approval center workflows.</li>
+<li>✅ <b>Request Generator:</b> Flow adjustments to match the updated purchase voucher lifecycle.</li>
 </ul>
 </div>
 </div>
