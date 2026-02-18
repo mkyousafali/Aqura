@@ -27,6 +27,7 @@
 		incidentTypeName?: string;
 		violationName?: string;
 		reporterName?: string;
+		claimedByName?: string;
 	}
 
 	let loading = true;
@@ -136,13 +137,33 @@
 						? ($currentLocale === 'ar' ? incident.warning_violation.name_ar : incident.warning_violation.name_en)
 						: null;
 
+					// Get claimed-by user name from user_statuses
+					let claimedByName = '';
+					const userStatuses = typeof incident.user_statuses === 'string'
+						? JSON.parse(incident.user_statuses)
+						: (incident.user_statuses || {});
+					const claimedUserId = Object.keys(userStatuses).find(
+						uid => userStatuses[uid]?.status?.toLowerCase() === 'claimed'
+					);
+					if (claimedUserId) {
+						const { data: claimedData } = await supabase
+							.from('hr_employee_master')
+							.select('name_en, name_ar')
+							.eq('user_id', claimedUserId)
+							.single();
+						if (claimedData) {
+							claimedByName = $currentLocale === 'ar' ? (claimedData.name_ar || claimedData.name_en) : claimedData.name_en;
+						}
+					}
+
 					return {
 						...incident,
 						employeeName,
 						branchName,
 						reporterName,
 						incidentTypeName,
-						violationName
+						violationName,
+						claimedByName
 					};
 				})
 			);
@@ -254,6 +275,13 @@
 								</div>
 							{/if}
 							
+							{#if incident.claimedByName}
+								<div class="incident-info claimed">
+									<span class="label">🔒 {$currentLocale === 'ar' ? 'مطالب من:' : 'Claimed by:'}</span>
+									<span class="value">{incident.claimedByName}</span>
+								</div>
+							{/if}
+
 							<div class="incident-footer">
 								<span class="reporter">
 									{$currentLocale === 'ar' ? 'بواسطة:' : 'By:'} {incident.reporterName}
@@ -441,6 +469,11 @@
 	
 	.incident-info.violation .value {
 		color: #dc2626;
+	}
+
+	.incident-info.claimed .value {
+		color: #b45309;
+		font-weight: 600;
 	}
 	
 	.incident-footer {

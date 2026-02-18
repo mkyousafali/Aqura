@@ -449,6 +449,27 @@
         }
     }
     
+    async function handleDeleteIncident(incident: any) {
+        const confirmMsg = $locale === 'ar'
+            ? `هل أنت متأكد من حذف الحادثة #${incident.id}؟ لا يمكن التراجع عن هذا الإجراء.`
+            : `Are you sure you want to delete incident #${incident.id}? This action cannot be undone.`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            // Use RPC to cascade-delete all related records
+            const { error: delErr } = await supabase.rpc('delete_incident_cascade', {
+                p_incident_id: incident.id
+            });
+            if (delErr) throw new Error(delErr.message);
+
+            await loadIncidents();
+            alert($locale === 'ar' ? '✅ تم حذف الحادثة بنجاح' : '✅ Incident deleted successfully');
+        } catch (err: any) {
+            console.error('Error deleting incident:', err);
+            alert($locale === 'ar' ? 'خطأ في حذف الحادثة' : 'Error deleting incident');
+        }
+    }
+
     function openResolutionModal(incident: any) {
         const hasResolution = incident.resolution_status === 'resolved';
         const windowId = `resolution-incident-${Date.now()}`;
@@ -988,6 +1009,9 @@
                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
                             {$locale === 'ar' ? 'مُبلّغ إلى' : 'Reports To'}
                         </th>
+                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'مطالب من' : 'Claimed By'}
+                        </th>
                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
                             {$locale === 'ar' ? 'الحالة' : 'Status'}
                         </th>
@@ -1009,6 +1033,11 @@
                         <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
                             {$locale === 'ar' ? 'حل' : 'Resolve'}
                         </th>
+                        {#if $currentUser?.isMasterAdmin}
+                            <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                                {$locale === 'ar' ? 'حذف' : 'Delete'}
+                            </th>
+                        {/if}
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200">
@@ -1046,13 +1075,6 @@
                             <td class="px-4 py-3 text-sm text-slate-700">
                                 {#if incident.reportToNames && incident.reportToNames.length > 0}
                                     <div class="flex flex-col gap-2">
-                                        {#if incident.claimedByName}
-                                            <div class="flex items-center gap-2">
-                                                <span class="px-2 py-1 {incident.resolution_status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'} rounded text-xs font-semibold">
-                                                    ✓ {incident.claimedByName}
-                                                </span>
-                                            </div>
-                                        {/if}
                                         {#if incident.reportToNames}
                                             {@const userStatusesObj = typeof incident.user_statuses === 'string' ? JSON.parse(incident.user_statuses) : (incident.user_statuses || {})}
                                             {@const acknowledgedCount = Object.values(userStatusesObj).filter((u: any) => u.status && u.status.toLowerCase() !== 'reported').length}
@@ -1067,6 +1089,18 @@
                                     </div>
                                 {:else}
                                     <span class="text-slate-400 italic">{$locale === 'ar' ? 'لا أحد' : 'None'}</span>
+                                {/if}
+                            </td>
+                            <!-- Claimed By -->
+                            <td class="px-4 py-3 text-sm text-slate-700">
+                                {#if incident.claimedByName}
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="px-2.5 py-1 rounded-full text-xs font-semibold shadow-sm {incident.resolution_status === 'resolved' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-yellow-100 text-yellow-700 border border-yellow-200'}">
+                                            {incident.resolution_status === 'resolved' ? '✅' : '🔒'} {incident.claimedByName}
+                                        </span>
+                                    </div>
+                                {:else}
+                                    <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لم يُطالب بها' : 'Unclaimed'}</span>
                                 {/if}
                             </td>
                             <td class="px-4 py-3 text-sm">
@@ -1201,6 +1235,18 @@
                                         : ($locale === 'ar' ? 'حل' : 'Resolve')}
                                 </button>
                             </td>
+                            {#if $currentUser?.isMasterAdmin}
+                                <!-- Delete -->
+                                <td class="px-3 py-3 text-center">
+                                    <button
+                                        on:click={() => handleDeleteIncident(incident)}
+                                        class="px-2.5 py-1.5 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs rounded-lg hover:from-red-600 hover:to-red-700 transition-all shadow-sm hover:shadow font-medium"
+                                        title={$locale === 'ar' ? 'حذف الحادثة' : 'Delete incident'}
+                                    >
+                                        {$locale === 'ar' ? '🗑️ حذف' : '🗑️ Delete'}
+                                    </button>
+                                </td>
+                            {/if}
                         </tr>
                     {/each}
                 </tbody>

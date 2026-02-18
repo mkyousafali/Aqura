@@ -116,13 +116,33 @@
 				? ($currentLocale === 'ar' ? data.warning_violation.name_ar : data.warning_violation.name_en)
 				: null;
 
+			// Get claimed-by user name from user_statuses
+			let claimedByName = '';
+			const userStatuses = typeof data.user_statuses === 'string'
+				? JSON.parse(data.user_statuses)
+				: (data.user_statuses || {});
+			const claimedUserId = Object.keys(userStatuses).find(
+				uid => userStatuses[uid]?.status?.toLowerCase() === 'claimed'
+			);
+			if (claimedUserId) {
+				const { data: claimedData } = await supabase
+					.from('hr_employee_master')
+					.select('name_en, name_ar')
+					.eq('user_id', claimedUserId)
+					.single();
+				if (claimedData) {
+					claimedByName = $currentLocale === 'ar' ? (claimedData.name_ar || claimedData.name_en) : claimedData.name_en;
+				}
+			}
+
 			incident = {
 				...data,
 				employeeName,
 				branchName,
 				reporterName,
 				incidentTypeName,
-				violationName
+				violationName,
+				claimedByName
 			};
 		} catch (err) {
 			console.error('Error loading incident:', err);
@@ -357,6 +377,12 @@
 					<span class="meta-label">{$currentLocale === 'ar' ? 'المُبلِّغ:' : 'Reported By:'}</span>
 					<span class="meta-value">{incident.reporterName}</span>
 				</div>
+				{#if incident.claimedByName}
+					<div class="meta-row">
+						<span class="meta-label">🔒 {$currentLocale === 'ar' ? 'مطالب من:' : 'Claimed By:'}</span>
+						<span class="meta-value" style="color: #b45309; font-weight: 600;">{incident.claimedByName}</span>
+					</div>
+				{/if}
 				<div class="meta-row">
 					<span class="meta-label">{$currentLocale === 'ar' ? 'التاريخ:' : 'Date:'}</span>
 					<span class="meta-value">{formatDate(incident.created_at)}</span>
