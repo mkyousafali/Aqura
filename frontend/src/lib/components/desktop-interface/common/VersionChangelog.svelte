@@ -11,8 +11,19 @@ export let onClose: () => void;
 
 <div class="latest-change">
 <h3>✨ Purchase Voucher Workflow Overhaul & Approval Center Parity</h3>
-<p class="change-description">Refined Purchase Voucher flows across add/issue/close/manager/stock screens, clearer budget and vendor pending summaries, and aligned Approval Center behavior on desktop and mobile.</p>
+<p class="change-description">Refined Purchase Voucher flows across add/issue/close/manager/stock screens, clearer budget and vendor pending summaries, aligned Approval Center behavior on desktop and mobile, and enhanced My Tasks with quick copy features.</p>
 <div class="change-details">
+<h4>February 19, 2026:</h4>
+<ul>
+<li>✅ <b>My Tasks — Double-Click Copy:</b> Barcode and New Price in Price Change tasks are now copyable with double-click. Barcode extracted from title (handles multiple formats), New Price extracted from description with blue highlight. Toast notifications show copied values.</li>
+<li>✅ <b>Paid Manager — Redesign:</b> Full UI overhaul matching ShiftAndDayOff design. Glassmorphism table wrappers, Tailwind-only styling, compact header bar with action buttons, and sticky date/filter controls.</li>
+<li>✅ <b>Paid Manager — Date Range:</b> Replaced single-day Month/Year/Day dropdowns with From/To date inputs and left/right arrow buttons for quick navigation. Load button to fetch data on demand.</li>
+<li>✅ <b>Paid Manager — Export Excel:</b> New Export Excel button generates a .xlsx file with 2 sheets — Vendor Payments (sorted by vendor name) and Expense Payments (sorted by branch name).</li>
+<li>✅ <b>Paid Manager — RPC Fast Loading:</b> Created <code>get_paid_vendor_payments</code> and <code>get_paid_expense_payments</code> PostgreSQL RPC functions for faster server-side queries using composite indexes.</li>
+<li>✅ <b>Incident Manager — Claimed By Column:</b> Added dedicated "Claimed By" column to the desktop incident table showing who claimed each incident with colored badges (yellow for claimed, green for resolved). Moved out of the Reports To column for better visibility.</li>
+<li>✅ <b>Incident Manager — Delete Button:</b> Master admins now see a Delete button on each incident row. Uses a cascade RPC (<code>delete_incident_cascade</code>) to safely remove all related records (actions, quick tasks, assignments, comments, completions, files).</li>
+<li>✅ <b>Mobile Incident Manager — Claimed By:</b> Added claimed employee name display to both the incident list cards and the incident detail page in the mobile interface.</li>
+</ul>
 <h4>February 18, 2026 (Latest):</h4>
 <ul>
 <li>✅ <b>Purchase Voucher Flow:</b> Consolidated and cleaned up Add, Issue, Close, Manager, and Stock Manager screens for more consistent status handling, totals, and user flow.</li>

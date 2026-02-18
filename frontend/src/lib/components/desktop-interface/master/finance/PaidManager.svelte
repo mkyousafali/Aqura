@@ -7,16 +7,22 @@
 	export let onRefresh = null;
 	export let setRefreshCallback = null;
 
-	let selectedMonth = new Date().getMonth();
-	let selectedYear = new Date().getFullYear();
-	let selectedDay = new Date().getDate();
+	// Date range
+	function toDateStr(d: Date) {
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+	let dateFrom = toDateStr(new Date());
+	let dateTo = toDateStr(new Date());
 
-	const months = [
-		'January', 'February', 'March', 'April', 'May', 'June',
-		'July', 'August', 'September', 'October', 'November', 'December'
-	];
-
-	$: daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+	// Shift date range by N days
+	function shiftDateRange(days: number) {
+		const f = new Date(dateFrom);
+		const t = new Date(dateTo);
+		f.setDate(f.getDate() + days);
+		t.setDate(t.getDate() + days);
+		dateFrom = toDateStr(f);
+		dateTo = toDateStr(t);
+	}
 
 	// Data
 	let paidVendorPayments = [];
@@ -106,23 +112,16 @@
 		}
 	}
 
-	// Load paid vendor payments for selected date
+	// Load paid vendor payments for selected date range (RPC)
 	async function loadPaidVendorPayments() {
 		try {
-			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-			// Calculate next day correctly (handles month/year boundaries)
-			const nextDayObj = new Date(selectedYear, selectedMonth, selectedDay + 1);
-			const nextDate = `${nextDayObj.getFullYear()}-${String(nextDayObj.getMonth() + 1).padStart(2, '0')}-${String(nextDayObj.getDate()).padStart(2, '0')}`;
-			console.log('🔍 Loading vendor payments for due date range:', selectedDate, 'to', nextDate);
+			console.log('🔍 Loading vendor payments via RPC:', dateFrom, 'to', dateTo);
 
 			const { data, error } = await supabase
-				.from('vendor_payment_schedule')
-				.select('id, bill_number, vendor_name, final_bill_amount, bill_date, branch_id, payment_method, bank_name, iban, is_paid, paid_date, due_date, payment_reference')
-				.eq('is_paid', true)
-				.gte('due_date', selectedDate)
-				.lt('due_date', nextDate)
-				.order('due_date', { ascending: false })
-				.limit(5000);
+				.rpc('get_paid_vendor_payments', {
+					p_date_from: dateFrom,
+					p_date_to: dateTo
+				});
 
 			if (error) {
 				console.error('Error loading paid vendor payments:', error);
@@ -136,31 +135,28 @@
 		}
 	}
 
-	// Load paid expense scheduler payments for selected date
+	// Load paid expense scheduler payments for selected date range (RPC)
 	async function loadPaidExpensePayments() {
 		try {
-			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-			// Calculate next day correctly (handles month/year boundaries)
-			const nextDayObj = new Date(selectedYear, selectedMonth, selectedDay + 1);
-			const nextDate = `${nextDayObj.getFullYear()}-${String(nextDayObj.getMonth() + 1).padStart(2, '0')}-${String(nextDayObj.getDate()).padStart(2, '0')}`;
-			console.log('🔍 Loading expense payments for due date range:', selectedDate, 'to', nextDate);
+			console.log('🔍 Loading expense payments via RPC:', dateFrom, 'to', dateTo);
 
 			const { data, error } = await supabase
-				.from('expense_scheduler')
-				.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, requisition_id, requisition_number, creator:users!created_by(username), payment_reference')
-				.eq('is_paid', true)
-				.gte('due_date', selectedDate)
-				.lt('due_date', nextDate)
-				.order('due_date', { ascending: false })
-				.limit(5000);
+				.rpc('get_paid_expense_payments', {
+					p_date_from: dateFrom,
+					p_date_to: dateTo
+				});
 
 			if (error) {
 				console.error('Error loading paid expense payments:', error);
 				return;
 			}
 
+			// Map creator_username to match the old shape { creator: { username } }
 			console.log('✅ Expense payments loaded:', data?.length || 0, 'records');
-			paidExpensePayments = data || [];
+			paidExpensePayments = (data || []).map(p => ({
+				...p,
+				creator: { username: p.creator_username || 'Unknown' }
+			}));
 		} catch (error) {
 			console.error('Error loading paid expense payments:', error);
 		}
@@ -171,6 +167,62 @@
 		...paidVendorPayments.map(p => p.payment_method).filter(Boolean),
 		...paidExpensePayments.map(p => p.payment_method).filter(Boolean)
 	])].sort();
+
+	// Export filtered data to XLSX with 2 sheets
+	async function exportToExcel() {
+		try {
+			const XLSX = await import('xlsx');
+			const wb = XLSX.utils.book_new();
+			const dateStr = dateFrom === dateTo ? dateFrom : `${dateFrom}_to_${dateTo}`;
+
+			// Sheet 1: Vendor Payments sorted by vendor name
+			const vendorData = [...filteredVendorPayments]
+				.sort((a, b) => (a.vendor_name || '').localeCompare(b.vendor_name || ''))
+				.map(p => ({
+					'Bill #': p.bill_number || 'N/A',
+					'Vendor Name': p.vendor_name || 'N/A',
+					'Amount': p.final_bill_amount || 0,
+					'Bill Date': formatDate(p.bill_date),
+					'Paid Date': formatDate(p.paid_date),
+					'Branch': getBranchName(p.branch_id),
+					'Payment Method': p.payment_method || 'N/A',
+					'ERP Reference': p.payment_reference || 'N/A'
+				}));
+			const ws1 = XLSX.utils.json_to_sheet(vendorData);
+			// Set column widths
+			ws1['!cols'] = [
+				{ wch: 12 }, { wch: 30 }, { wch: 14 }, { wch: 14 },
+				{ wch: 14 }, { wch: 25 }, { wch: 16 }, { wch: 18 }
+			];
+			XLSX.utils.book_append_sheet(wb, ws1, 'Vendor Payments');
+
+			// Sheet 2: Expense Payments sorted by branch name
+			const expenseData = [...filteredExpensePayments]
+				.sort((a, b) => (getBranchName(a.branch_id) || '').localeCompare(getBranchName(b.branch_id) || ''))
+				.map(p => ({
+					'Voucher #': p.id || 'N/A',
+					'Category': p.expense_category_name_en || p.expense_category_name_ar || 'Unknown',
+					'Branch': getBranchName(p.branch_id),
+					'Payment Method': p.payment_method || 'N/A',
+					'Amount': p.amount || 0,
+					'Paid Date': formatDate(p.paid_date),
+					'Created By': p.creator?.username || 'Unknown',
+					'Description': p.description || 'N/A',
+					'ERP Reference': p.payment_reference || 'N/A'
+				}));
+			const ws2 = XLSX.utils.json_to_sheet(expenseData);
+			ws2['!cols'] = [
+				{ wch: 12 }, { wch: 25 }, { wch: 25 }, { wch: 16 },
+				{ wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 30 }, { wch: 18 }
+			];
+			XLSX.utils.book_append_sheet(wb, ws2, 'Expense Payments');
+
+			XLSX.writeFile(wb, `Paid_Payments_${dateStr}.xlsx`);
+		} catch (err) {
+			console.error('Export failed:', err);
+			alert('Export failed: ' + err.message);
+		}
+	}
 
 	// Filtered payments
 	$: filteredVendorPayments = paidVendorPayments.filter(payment => {
@@ -391,12 +443,14 @@
 
 	// Handle vendor payment updates
 	function handleVendorPaymentUpdate(payload) {
-		const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-		const nextDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(Math.min(selectedDay + 1, 31)).padStart(2, '0')}`;
+		const startDate = dateFrom;
+		const endObj = new Date(dateTo);
+		endObj.setDate(endObj.getDate() + 1);
+		const endDate = toDateStr(endObj);
 
-		// Check if the updated payment matches the selected date
+		// Check if the updated payment matches the selected date range
 		const paymentDate = payload.new?.due_date || payload.old?.due_date;
-		if (paymentDate && paymentDate >= selectedDate && paymentDate < nextDate && payload.new?.is_paid === true) {
+		if (paymentDate && paymentDate >= startDate && paymentDate < endDate && payload.new?.is_paid === true) {
 			if (payload.eventType === 'INSERT') {
 				console.log('✨ New vendor payment added');
 				paidVendorPayments = [...paidVendorPayments, payload.new];
@@ -414,12 +468,14 @@
 
 	// Handle expense payment updates
 	function handleExpensePaymentUpdate(payload) {
-		const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-		const nextDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(Math.min(selectedDay + 1, 31)).padStart(2, '0')}`;
+		const startDate = dateFrom;
+		const endObj = new Date(dateTo);
+		endObj.setDate(endObj.getDate() + 1);
+		const endDate = toDateStr(endObj);
 
-		// Check if the updated payment matches the selected date
+		// Check if the updated payment matches the selected date range
 		const paymentDate = payload.new?.due_date || payload.old?.due_date;
-		if (paymentDate && paymentDate >= selectedDate && paymentDate < nextDate && payload.new?.is_paid === true) {
+		if (paymentDate && paymentDate >= startDate && paymentDate < endDate && payload.new?.is_paid === true) {
 			if (payload.eventType === 'INSERT') {
 				console.log('✨ New expense payment added');
 				paidExpensePayments = [...paidExpensePayments, payload.new];
@@ -434,168 +490,211 @@
 			}
 		}
 	}
-
-	$: if (selectedYear && selectedMonth !== undefined && selectedDay) {
-		loadData();
-	}
 </script>
 
-<div class="paid-manager-container">
-	{#if isLoading}
-		<div class="loading-overlay">
-			<div class="loading-content">
-				<div class="loading-spinner"></div>
-				<div class="loading-text">Loading paid transactions...</div>
-				<div class="progress-bar">
-					<div class="progress-fill" style="width: {loadingProgress}%"></div>
-				</div>
-				<div class="progress-text">{loadingProgress}%</div>
-			</div>
-		</div>
-	{/if}
-
-	<div class="header-section">
-		<div class="top-controls">
-			<div class="month-selector">
-				<label for="month-select">Choose Month:</label>
-				<select id="month-select" bind:value={selectedMonth}>
-					{#each months as month, index}
-						<option value={index}>{month}</option>
-					{/each}
-				</select>
-				<select id="year-select" bind:value={selectedYear}>
-					{#each Array(10) as _, i}
-						<option value={new Date().getFullYear() - 5 + i}>
-							{new Date().getFullYear() - 5 + i}
-						</option>
-					{/each}
-				</select>
-				<label for="day-select">Choose Day:</label>
-				<select id="day-select" bind:value={selectedDay}>
-					{#each Array(daysInMonth) as _, i}
-						<option value={i + 1}>{i + 1}</option>
-					{/each}
-				</select>
-			</div>
-		</div>
-
-		<!-- Filters -->
-		<div class="filters-section">
-			<div class="filter-group">
-				<label for="filter-branch">Branch:</label>
-				<select id="filter-branch" bind:value={filterBranch}>
-					<option value="">All Branches</option>
-					{#each branches as branch}
-						<option value={branch.id}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
-					{/each}
-				</select>
-			</div>
-			<div class="filter-group">
-				<label for="filter-payment-method">Payment Method:</label>
-				<select id="filter-payment-method" bind:value={filterPaymentMethod}>
-					<option value="">All Methods</option>
-					{#each availablePaymentMethods as method}
-						<option value={method}>{method}</option>
-					{/each}
-				</select>
-			</div>
-			<button class="pending-btn" on:click={showPendingERPReferences}>
-				⚠️ Pending ERP References
-				<span class="pending-count">
-					({paidVendorPayments.filter(p => !p.payment_reference).length + paidExpensePayments.filter(p => !p.payment_reference).length})
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header -->
+	<div class="bg-white border-b border-slate-200 px-4 py-1 flex items-center justify-end shadow-sm">
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden bg-orange-600 text-white shadow-lg shadow-orange-200 hover:bg-orange-700 hover:shadow-orange-300"
+				on:click={showPendingERPReferences}
+			>
+				<span class="text-base filter drop-shadow-sm">⚠️</span>
+				<span>Pending ERP</span>
+				<span class="bg-white/20 px-2 py-0.5 rounded-full text-[10px] font-black">
+					{paidVendorPayments.filter(p => !p.payment_reference).length + paidExpensePayments.filter(p => !p.payment_reference).length}
 				</span>
 			</button>
-			<button class="view-all-btn vendor-btn" on:click={openAllVendorPaidWindow}>
-				📦 View All Vendor Paid
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300"
+				on:click={openAllVendorPaidWindow}
+			>
+				<span class="text-base filter drop-shadow-sm">📦</span>
+				<span>All Vendor Paid</span>
 			</button>
-			<button class="view-all-btn expense-btn" on:click={openAllExpensePaidWindow}>
-				💳 View All Expense Paid
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden bg-purple-600 text-white shadow-lg shadow-purple-200 hover:bg-purple-700 hover:shadow-purple-300"
+				on:click={openAllExpensePaidWindow}
+			>
+				<span class="text-base filter drop-shadow-sm">💳</span>
+				<span>All Expense Paid</span>
+			</button>
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden bg-emerald-600 text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:shadow-emerald-300"
+				on:click={exportToExcel}
+			>
+				<span class="text-base filter drop-shadow-sm">📊</span>
+				<span>Export Excel</span>
 			</button>
 		</div>
 	</div>
 
-	<!-- Paid Vendor Payments Section -->
-	<div class="payment-section">
-		<div class="section-header">
-			<h3 class="section-title">📦 Paid Vendor Payments</h3>
-			<div class="section-summary">
-				{#if true}
-					{@const totalAmount = filteredVendorPayments.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
-					<span>{filteredVendorPayments.length} payment{filteredVendorPayments.length !== 1 ? 's' : ''}</span>
-					<span>Total: {formatCurrency(totalAmount)}</span>
-				{/if}
+	{#if isLoading}
+		<div class="flex-1 flex items-center justify-center">
+			<div class="text-center">
+				<div class="animate-spin inline-block mb-4">
+					<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+				</div>
+				<p class="text-slate-600 font-semibold">Loading paid transactions...</p>
+				<div class="w-64 h-2 bg-slate-200 rounded-full mt-4 mx-auto overflow-hidden">
+					<div class="h-full bg-blue-600 rounded-full transition-all" style="width: {loadingProgress}%"></div>
+				</div>
+				<p class="text-xs text-slate-400 mt-2">{loadingProgress}%</p>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Scrollable Content -->
+	<div class="flex-1 px-4 pt-1 pb-4 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse pointer-events-none"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
+
+		<div class="relative max-w-[99%] mx-auto flex flex-col gap-3">
+
+		<!-- Date Range & Filter Controls -->
+		<div class="sticky top-0 z-20 bg-white/80 backdrop-blur-md rounded-2xl shadow-sm border border-slate-200/50 px-5 py-4 flex flex-wrap gap-4 items-end">
+			<div class="min-w-[180px]">
+				<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="date-from">From</label>
+				<div class="flex items-center gap-1">
+					<button on:click={() => shiftDateRange(-1)} class="shrink-0 w-8 h-10 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 transition-all font-bold text-sm" title="Previous day">&larr;</button>
+					<input id="date-from" type="date" bind:value={dateFrom}
+						class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					/>
+					<button on:click={() => shiftDateRange(1)} class="shrink-0 w-8 h-10 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 transition-all font-bold text-sm" title="Next day">&rarr;</button>
+				</div>
+			</div>
+			<div class="min-w-[180px]">
+				<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="date-to">To</label>
+				<div class="flex items-center gap-1">
+					<button on:click={() => { const d = new Date(dateTo); d.setDate(d.getDate() - 1); dateTo = toDateStr(d); }} class="shrink-0 w-8 h-10 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 transition-all font-bold text-sm" title="Previous day">&larr;</button>
+					<input id="date-to" type="date" bind:value={dateTo}
+						class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					/>
+					<button on:click={() => { const d = new Date(dateTo); d.setDate(d.getDate() + 1); dateTo = toDateStr(d); }} class="shrink-0 w-8 h-10 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 transition-all font-bold text-sm" title="Next day">&rarr;</button>
+				</div>
+			</div>
+			<div>
+				<label class="block text-xs font-bold text-transparent mb-2">&nbsp;</label>
+				<button on:click={loadData}
+					class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-wide bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300 transition-all duration-300 {isLoading ? 'opacity-60 pointer-events-none' : ''}"
+				>
+					{#if isLoading}
+						<span class="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
+					{:else}
+						<span>🔄</span>
+					{/if}
+					<span>Load</span>
+				</button>
+			</div>
+			<div class="flex-1">
+				<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filter-branch">Branch</label>
+				<select id="filter-branch" bind:value={filterBranch}
+					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+					style="color: #000000 !important; background-color: #ffffff !important;"
+				>
+					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">All Branches</option>
+					{#each branches as branch}
+						<option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
+					{/each}
+				</select>
+			</div>
+			<div class="flex-1">
+				<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filter-payment-method">Payment Method</label>
+				<select id="filter-payment-method" bind:value={filterPaymentMethod}
+					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+					style="color: #000000 !important; background-color: #ffffff !important;"
+				>
+					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">All Methods</option>
+					{#each availablePaymentMethods as method}
+						<option value={method} style="color: #000000 !important; background-color: #ffffff !important;">{method}</option>
+					{/each}
+				</select>
 			</div>
 		</div>
 
-		<div class="simple-table-container">
-			<table class="simple-payments-table">
-				<thead>
+	<!-- Paid Vendor Payments Section -->
+	<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+
+		<div class="overflow-x-auto flex-1">
+			<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+				<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
 					<tr>
-						<th>Bill #</th>
-						<th>Vendor</th>
-						<th>Amount</th>
-						<th>Bill Date</th>
-						<th>Paid Date</th>
-						<th>Branch</th>
-						<th>Payment Method</th>
-						<th>ERP Payment Reference</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Bill #</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Vendor</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Amount</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Bill Date</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Paid Date</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Branch</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Payment Method</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">ERP Reference</th>
+						<th class="px-4 py-3 text-right text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">
+							{#if true}
+								{@const totalAmount = filteredVendorPayments.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
+								<span class="bg-blue-500/30 px-2 py-0.5 rounded text-[10px]">{filteredVendorPayments.length} items</span>
+								<span class="bg-blue-500/30 px-2 py-0.5 rounded text-[10px] ml-1">{formatCurrency(totalAmount)}</span>
+							{/if}
+						</th>
 					</tr>
 				</thead>
-				<tbody>
+				<tbody class="divide-y divide-slate-200">
 					{#if filteredVendorPayments.length > 0}
-						{#each filteredVendorPayments as payment}
-							<tr class="paid-row">
-								<td>
-									<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
+						{#each filteredVendorPayments as payment, index}
+							<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+								<td class="px-4 py-3 text-sm">
+									<span class="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-lg font-bold text-xs">#{payment.bill_number || 'N/A'}</span>
 								</td>
-								<td style="text-align: left; font-weight: 500;">
+								<td class="px-4 py-3 text-sm text-slate-700 font-medium">
 									{payment.vendor_name || 'N/A'}
 								</td>
-								<td style="text-align: right; font-weight: 600; color: #059669;">
+								<td class="px-4 py-3 text-sm font-bold text-center text-emerald-600">
 									{formatCurrency(payment.final_bill_amount)}
 								</td>
-								<td>{formatDate(payment.bill_date)}</td>
-								<td style="color: #059669; font-weight: 500;">{formatDate(payment.paid_date)}</td>
-							<td>{getBranchName(payment.branch_id)}</td>
-							<td>
-								<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
-							</td>
-							<td>
-								{#if editingVendorPaymentId === payment.id}
-									<div class="edit-cell">
-										<input 
-											type="text" 
-											value={editingVendorReference}
-											on:change={(e) => editingVendorReference = e.target.value}
-											on:keydown={(e) => {
-												if (e.key === 'Enter') {
-													updateVendorReference(payment.id, editingVendorReference);
-												} else if (e.key === 'Escape') {
-													editingVendorPaymentId = null;
-												}
-											}}
-											placeholder="Enter ERP Reference"
-											autoFocus
-										/>
-										<button class="save-btn" on:click={() => updateVendorReference(payment.id, editingVendorReference)}>✓</button>
-										<button class="cancel-btn" on:click={() => editingVendorPaymentId = null}>✕</button>
-									</div>
-								{:else}
-									<div class="editable-cell" on:click={() => {
-										editingVendorPaymentId = payment.id;
-										editingVendorReference = payment.payment_reference || '';
-									}}>
-										{payment.payment_reference || 'N/A'}
-										<span class="edit-icon">✏️</span>
-									</div>
-								{/if}
-							</td>
-						</tr>
+								<td class="px-4 py-3 text-sm text-center text-slate-600">{formatDate(payment.bill_date)}</td>
+								<td class="px-4 py-3 text-sm text-center font-semibold text-emerald-600">{formatDate(payment.paid_date)}</td>
+								<td class="px-4 py-3 text-sm text-slate-700">{getBranchName(payment.branch_id)}</td>
+								<td class="px-4 py-3 text-sm text-center">
+									<span class="inline-block bg-amber-100 text-amber-800 px-3 py-1 rounded-lg text-xs font-semibold">{payment.payment_method || 'Payment'}</span>
+								</td>
+								<td class="px-4 py-3 text-sm">
+									{#if editingVendorPaymentId === payment.id}
+										<div class="flex gap-2 items-center">
+											<input 
+												type="text" 
+												value={editingVendorReference}
+												on:change={(e) => editingVendorReference = e.target.value}
+												on:keydown={(e) => {
+													if (e.key === 'Enter') {
+														updateVendorReference(payment.id, editingVendorReference);
+													} else if (e.key === 'Escape') {
+														editingVendorPaymentId = null;
+													}
+												}}
+												placeholder="Enter ERP Reference"
+												class="flex-1 px-3 py-2 border-2 border-blue-400 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+												autoFocus
+											/>
+											<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all" on:click={() => updateVendorReference(payment.id, editingVendorReference)}>✓</button>
+											<button class="px-3 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all" on:click={() => editingVendorPaymentId = null}>✕</button>
+										</div>
+									{:else}
+										<div class="flex items-center gap-2 cursor-pointer hover:bg-blue-50 px-3 py-2 rounded-lg transition-all" on:click={() => {
+											editingVendorPaymentId = payment.id;
+											editingVendorReference = payment.payment_reference || '';
+										}}>
+											<span class="text-slate-700">{payment.payment_reference || 'N/A'}</span>
+											<span class="opacity-0 hover:opacity-100 transition-opacity">✏️</span>
+										</div>
+									{/if}
+								</td>
+							</tr>
 					{/each}
 					{:else}
 						<tr>
-							<td colspan="8" class="empty-payments-row">
-								<div class="empty-message">No paid vendor payments for this month</div>
+							<td colspan="8" class="px-8 py-12 text-center">
+								<div class="text-slate-500 text-sm">📭 No paid vendor payments for this date</div>
 							</td>
 						</tr>
 					{/if}
@@ -605,97 +704,93 @@
 	</div>
 
 	<!-- Paid Expense Payments Section -->
-	<div class="payment-section">
-		<div class="section-header">
-			<h3 class="section-title">💳 Paid Other Payments (Expense Scheduler)</h3>
-			<div class="section-summary">
-				{#if true}
-					{@const totalExpenses = filteredExpensePayments.reduce((sum, p) => sum + (p.amount || 0), 0)}
-					<span>{filteredExpensePayments.length} payment{filteredExpensePayments.length !== 1 ? 's' : ''}</span>
-					<span>Total: {formatCurrency(totalExpenses)}</span>
-				{/if}
-			</div>
-		</div>
+	<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
 
-		<div class="simple-table-container">
-			<table class="simple-payments-table">
-				<thead>
+		<div class="overflow-x-auto flex-1">
+			<table class="w-full border-collapse [&_th]:border-x [&_th]:border-purple-500/30 [&_td]:border-x [&_td]:border-slate-200">
+				<thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
 					<tr>
-						<th>Voucher Number</th>
-						<th>Sub-Category</th>
-						<th>Branch</th>
-						<th>Payment Method</th>
-						<th>Amount</th>
-						<th>Paid Date</th>
-						<th>Created By</th>
-						<th>Description</th>
-						<th>ERP Payment Reference</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Voucher #</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Category</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Branch</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Payment Method</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Amount</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Paid Date</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Created By</th>
+						<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Description</th>
+						<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">ERP Reference</th>
+						<th class="px-4 py-3 text-right text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">
+							{#if true}
+								{@const totalExpenses = filteredExpensePayments.reduce((sum, p) => sum + (p.amount || 0), 0)}
+								<span class="bg-purple-500/30 px-2 py-0.5 rounded text-[10px]">{filteredExpensePayments.length} items</span>
+								<span class="bg-purple-500/30 px-2 py-0.5 rounded text-[10px] ml-1">{formatCurrency(totalExpenses)}</span>
+							{/if}
+						</th>
 					</tr>
 				</thead>
-				<tbody>
+				<tbody class="divide-y divide-slate-200">
 					{#if filteredExpensePayments.length > 0}
-						{#each filteredExpensePayments as payment}
-							<tr class="paid-row">
-								<td>
-									<span class="bill-number-badge">#{payment.id || 'N/A'}</span>
+						{#each filteredExpensePayments as payment, index}
+							<tr class="hover:bg-purple-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+								<td class="px-4 py-3 text-sm">
+									<span class="inline-block bg-purple-100 text-purple-700 px-3 py-1 rounded-lg font-bold text-xs">#{payment.id || 'N/A'}</span>
 								</td>
-								<td style="text-align: left;">
+								<td class="px-4 py-3 text-sm text-slate-700 font-medium">
 									{#if payment.expense_category_name_en || payment.expense_category_name_ar}
 										{payment.expense_category_name_en || payment.expense_category_name_ar}
 									{:else}
-										<span style="color: #f59e0b; font-style: italic;">Unknown Category</span>
+										<span class="text-amber-600 italic">Unknown Category</span>
 									{/if}
 								</td>
-								<td style="text-align: left;">{getBranchName(payment.branch_id)}</td>
-								<td>
-									<span class="payment-method-badge">
-										{payment.payment_method || 'Expense'}
-									</span>
+								<td class="px-4 py-3 text-sm text-slate-700">{getBranchName(payment.branch_id)}</td>
+								<td class="px-4 py-3 text-sm text-center">
+									<span class="inline-block bg-purple-100 text-purple-800 px-3 py-1 rounded-lg text-xs font-semibold">{payment.payment_method || 'Expense'}</span>
 								</td>
-								<td style="text-align: right; font-weight: 600; color: #059669;">
+								<td class="px-4 py-3 text-sm font-bold text-center text-emerald-600">
 									{formatCurrency(payment.amount || 0)}
 								</td>
-								<td style="color: #059669; font-weight: 500;">{formatDate(payment.paid_date)}</td>
-						<td>{payment.creator?.username || 'Unknown'}</td>
-						<td style="text-align: left; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{payment.description || ''}">
-							{payment.description || 'N/A'}
-						</td>
-						<td>
-							{#if editingExpensePaymentId === payment.id}
-								<div class="edit-cell">
-									<input 
-										type="text" 
-										value={editingExpenseReference}
-										on:change={(e) => editingExpenseReference = e.target.value}
-										on:keydown={(e) => {
-											if (e.key === 'Enter') {
-												updateExpenseReference(payment.id, editingExpenseReference);
-											} else if (e.key === 'Escape') {
-												editingExpensePaymentId = null;
-											}
-										}}
-										placeholder="Enter ERP Reference"
-										autoFocus
-									/>
-									<button class="save-btn" on:click={() => updateExpenseReference(payment.id, editingExpenseReference)}>✓</button>
-									<button class="cancel-btn" on:click={() => editingExpensePaymentId = null}>✕</button>
-								</div>
-							{:else}
-								<div class="editable-cell" on:click={() => {
-									editingExpensePaymentId = payment.id;
-									editingExpenseReference = payment.payment_reference || '';
-								}}>
-									{payment.payment_reference || 'N/A'}
-									<span class="edit-icon">✏️</span>
-								</div>
-							{/if}
-						</td>
-					</tr>
+								<td class="px-4 py-3 text-sm text-center font-semibold text-emerald-600">{formatDate(payment.paid_date)}</td>
+								<td class="px-4 py-3 text-sm text-slate-700">{payment.creator?.username || 'Unknown'}</td>
+								<td class="px-4 py-3 text-sm text-slate-700 max-w-xs truncate" title="{payment.description || ''}">
+									{payment.description || 'N/A'}
+								</td>
+								<td class="px-4 py-3 text-sm">
+									{#if editingExpensePaymentId === payment.id}
+										<div class="flex gap-2 items-center">
+											<input 
+												type="text" 
+												value={editingExpenseReference}
+												on:change={(e) => editingExpenseReference = e.target.value}
+												on:keydown={(e) => {
+													if (e.key === 'Enter') {
+														updateExpenseReference(payment.id, editingExpenseReference);
+													} else if (e.key === 'Escape') {
+														editingExpensePaymentId = null;
+													}
+												}}
+												placeholder="Enter ERP Reference"
+												class="flex-1 px-3 py-2 border-2 border-purple-400 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-600"
+												autoFocus
+											/>
+											<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all" on:click={() => updateExpenseReference(payment.id, editingExpenseReference)}>✓</button>
+											<button class="px-3 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all" on:click={() => editingExpensePaymentId = null}>✕</button>
+										</div>
+									{:else}
+										<div class="flex items-center gap-2 cursor-pointer hover:bg-purple-50 px-3 py-2 rounded-lg transition-all" on:click={() => {
+											editingExpensePaymentId = payment.id;
+											editingExpenseReference = payment.payment_reference || '';
+										}}>
+											<span class="text-slate-700">{payment.payment_reference || 'N/A'}</span>
+											<span class="opacity-0 hover:opacity-100 transition-opacity">✏️</span>
+										</div>
+									{/if}
+								</td>
+							</tr>
 						{/each}
 					{:else}
 						<tr>
-							<td colspan="9" class="empty-payments-row">
-								<div class="empty-message">No paid expense payments for this month</div>
+							<td colspan="9" class="px-8 py-12 text-center">
+								<div class="text-slate-500 text-sm">📭 No paid expense payments for this date</div>
 							</td>
 						</tr>
 					{/if}
@@ -703,7 +798,10 @@
 			</table>
 		</div>
 	</div>
-</div>
+
+	</div><!-- /relative max-w wrapper -->
+	</div><!-- /scrollable content -->
+</div><!-- /root -->
 
 <!-- Pending ERP References Modal -->
 {#if showPendingModal}
@@ -711,7 +809,7 @@
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
 				<h2>⚠️ Pending ERP Payment References</h2>
-				<p class="modal-subtitle">Selected Date: {new Date(selectedYear, selectedMonth, selectedDay).toLocaleDateString()}</p>
+				<p class="modal-subtitle">Date Range: {dateFrom} to {dateTo}</p>
 			</div>
 
 			<div class="modal-body">
@@ -826,373 +924,6 @@
 {/if}
 
 <style>
-	.paid-manager-container {
-		width: 100%;
-		height: 100%;
-		padding: 24px;
-		background: #f8fafc;
-		overflow-y: auto;
-	}
-
-	.header-section {
-		margin-bottom: 24px;
-		padding: 16px;
-		background: white;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-	}
-
-	.top-controls {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 16px;
-	}
-
-	.month-selector {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		margin-bottom: 16px;
-	}
-
-	.month-selector label {
-		font-weight: 600;
-		color: #1e293b;
-		font-size: 14px;
-	}
-
-	.month-selector select {
-		padding: 8px 12px;
-		border: 1px solid #cbd5e1;
-		border-radius: 6px;
-		background: white;
-		font-size: 14px;
-		color: #1e293b;
-		cursor: pointer;
-		outline: none;
-		transition: border-color 0.2s;
-	}
-
-	.month-selector select:hover {
-		border-color: #3b82f6;
-	}
-
-	.month-selector select:focus {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.filters-section {
-		display: flex;
-		gap: 16px;
-		align-items: center;
-	}
-
-	.filter-group {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.filter-group label {
-		font-size: 14px;
-		color: #64748b;
-		font-weight: 500;
-	}
-
-	.filter-group select {
-		padding: 6px 10px;
-		border: 1px solid #cbd5e1;
-		border-radius: 4px;
-		background: white;
-		font-size: 13px;
-		color: #1e293b;
-		cursor: pointer;
-	}
-
-	.payment-section {
-		margin-bottom: 24px;
-		background: white;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		overflow: hidden;
-	}
-
-	.section-header {
-		padding: 16px;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.section-title {
-		color: white;
-		font-size: 18px;
-		font-weight: 600;
-		margin: 0;
-	}
-
-	.section-summary {
-		display: flex;
-		gap: 16px;
-		color: white;
-		font-size: 14px;
-	}
-
-	.section-summary span {
-		padding: 4px 8px;
-		background: rgba(255, 255, 255, 0.2);
-		border-radius: 4px;
-	}
-
-	.simple-table-container {
-		overflow-x: auto;
-		max-height: 600px;
-		overflow-y: auto;
-	}
-
-	.simple-payments-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 13px;
-	}
-
-	.simple-payments-table thead {
-		position: sticky;
-		top: 0;
-		z-index: 110;
-		background: #f1f5f9;
-	}
-
-	.simple-payments-table th {
-		padding: 12px 8px;
-		text-align: left;
-		font-weight: 600;
-		color: #475569;
-		border-bottom: 2px solid #e2e8f0;
-	}
-
-	.simple-payments-table td {
-		padding: 12px 8px;
-		border-bottom: 1px solid #f1f5f9;
-		color: #1e293b;
-	}
-
-	.simple-payments-table tbody tr:hover {
-		background: #f8fafc;
-	}
-
-	.bill-number-badge {
-		background: #e0e7ff;
-		color: #4338ca;
-		padding: 4px 8px;
-		border-radius: 4px;
-		font-weight: 600;
-		font-size: 11px;
-	}
-
-	.payment-method {
-		background: #fef3c7;
-		color: #92400e;
-		padding: 4px 8px;
-		border-radius: 4px;
-		font-size: 11px;
-		font-weight: 500;
-	}
-
-	.payment-method-badge {
-		background: #fee2e2;
-		color: #991b1b;
-		font-size: 11px;
-		padding: 4px 8px;
-		border-radius: 4px;
-		font-weight: 500;
-	}
-
-	.empty-payments-row {
-		text-align: center;
-		padding: 40px 20px !important;
-	}
-
-	.empty-message {
-		color: #94a3b8;
-		font-size: 14px;
-		font-style: italic;
-	}
-
-	.paid-row {
-		background: #f0fdf4;
-	}
-
-	.loading-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(255, 255, 255, 0.95);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		z-index: 9999;
-		backdrop-filter: blur(4px);
-	}
-
-	.loading-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 20px;
-	}
-
-	.loading-spinner {
-		width: 60px;
-		height: 60px;
-		border: 6px solid #e2e8f0;
-		border-top-color: #3b82f6;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.loading-text {
-		font-size: 18px;
-		color: #475569;
-		font-weight: 600;
-	}
-
-	.progress-bar {
-		width: 300px;
-		height: 8px;
-		background: #e2e8f0;
-		border-radius: 10px;
-		overflow: hidden;
-	}
-
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-		transition: width 0.3s ease;
-		border-radius: 10px;
-	}
-
-	.progress-text {
-		font-size: 16px;
-		color: #64748b;
-		font-weight: 600;
-	}
-
-	/* Editable cell styles */
-	.editable-cell {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-		padding: 4px 8px;
-		border-radius: 4px;
-		transition: background-color 0.2s;
-	}
-
-	.editable-cell:hover {
-		background-color: #f0f9ff;
-		color: #0284c7;
-	}
-
-	.edit-icon {
-		opacity: 0;
-		transition: opacity 0.2s;
-	}
-
-	.editable-cell:hover .edit-icon {
-		opacity: 1;
-	}
-
-	.edit-cell {
-		display: flex;
-		gap: 4px;
-		align-items: center;
-	}
-
-	.edit-cell input {
-		flex: 1;
-		padding: 6px 8px;
-		border: 1px solid #3b82f6;
-		border-radius: 4px;
-		font-size: 13px;
-		outline: none;
-	}
-
-	.edit-cell input:focus {
-		border-color: #1d4ed8;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-	}
-
-	.save-btn,
-	.cancel-btn {
-		padding: 4px 8px;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 600;
-		transition: all 0.2s;
-	}
-
-	.save-btn {
-		background: #10b981;
-		color: white;
-	}
-
-	.save-btn:hover {
-		background: #059669;
-	}
-
-	.cancel-btn {
-		background: #ef4444;
-		color: white;
-	}
-
-	.cancel-btn:hover {
-		background: #dc2626;
-	}
-
-	/* Pending ERP References Button */
-	.pending-btn {
-		padding: 8px 16px;
-		background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-weight: 600;
-		font-size: 14px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		transition: all 0.2s;
-		box-shadow: 0 2px 8px rgba(249, 115, 22, 0.2);
-	}
-
-	.pending-btn:hover {
-		background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
-		box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
-		transform: translateY(-2px);
-	}
-
-	.pending-count {
-		background: rgba(255, 255, 255, 0.3);
-		padding: 2px 8px;
-		border-radius: 12px;
-		font-size: 12px;
-		font-weight: 700;
-	}
-
 	/* Modal Styles */
 	.modal-overlay {
 		position: fixed;
@@ -1526,43 +1257,6 @@
 
 	.popup-save-btn:hover {
 		box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
-		transform: translateY(-2px);
-	}
-
-	/* View All Paid Buttons */
-	.view-all-btn {
-		padding: 8px 16px;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-weight: 600;
-		font-size: 14px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		transition: all 0.2s;
-	}
-
-	.view-all-btn.vendor-btn {
-		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
-	}
-
-	.view-all-btn.vendor-btn:hover {
-		background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-		transform: translateY(-2px);
-	}
-
-	.view-all-btn.expense-btn {
-		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-		box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2);
-	}
-
-	.view-all-btn.expense-btn:hover {
-		background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-		box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 		transform: translateY(-2px);
 	}
 </style>

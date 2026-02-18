@@ -8,6 +8,13 @@
 	let selectedDate = '';
 	let dailyBudget = 0;
 	
+	// Date range state
+	let showDateRange = false;
+	let dateRangeStart = '';
+	let dateRangeEnd = '';
+	let dateRangeData = [];
+	let dateRangeLoading = false;
+	
 	// Data arrays
 	let vendorPayments = [];
 	let expenseSchedules = [];
@@ -779,6 +786,83 @@
 		}
 	}
 
+	async function toggleDateRange() {
+		if (showDateRange) {
+			// Toggling OFF - revert to single day view
+			showDateRange = false;
+			await loadScheduledItems();
+		} else {
+			// Toggling ON - show date range inputs
+			showDateRange = true;
+		}
+	}
+
+	async function loadPeriodData() {
+		if (!dateRangeStart || !dateRangeEnd) {
+			alert('❌ Please select both start and end dates');
+			return;
+		}
+
+		if (new Date(dateRangeStart) > new Date(dateRangeEnd)) {
+			alert('❌ Start date must be before end date');
+			return;
+		}
+
+		dateRangeLoading = true;
+		try {
+			// Load vendor payments for the date range
+			const { data: vendorData, error: vendorError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('*')
+				.gte('due_date', dateRangeStart)
+				.lte('due_date', dateRangeEnd)
+				.eq('is_paid', false)
+				.in('approval_status', ['approved', 'pending'])
+				.order('due_date, vendor_name');
+
+			if (vendorError) throw vendorError;
+
+			// Load expense schedules for the date range
+			const { data: expenseData, error: expenseError } = await supabase
+				.from('expense_scheduler')
+				.select('*')
+				.gte('due_date', dateRangeStart)
+				.lte('due_date', dateRangeEnd)
+				.eq('is_paid', false)
+				.order('due_date, description');
+
+			if (expenseError) throw expenseError;
+
+			// Map branch info and store in main arrays
+			await loadBranches();
+			vendorPayments = (vendorData || []).map(payment => {
+				const branchInfo = branchMap.get(payment.branch_id);
+				return {
+					...payment,
+					branch_name: branchInfo ? branchInfo.display : payment.branch_name || 'Unknown Branch'
+				};
+			});
+
+			expenseSchedules = (expenseData || []).map(expense => {
+				const branchInfo = branchMap.get(expense.branch_id);
+				return {
+					...expense,
+					branch_name: branchInfo ? branchInfo.display : expense.branch_name || 'Unknown Branch'
+				};
+			});
+
+			showDateRange = true;
+			console.log('✅ Loaded period data from', dateRangeStart, 'to', dateRangeEnd, '. Vendor payments:', vendorPayments.length, 'Expense schedules:', expenseSchedules.length);
+		} catch (error) {
+			console.error('❌ Error loading period data:', error);
+			alert('❌ Error loading period data: ' + error.message);
+			vendorPayments = [];
+			expenseSchedules = [];
+		} finally {
+			dateRangeLoading = false;
+		}
+	}
+
 	async function loadVendorPayments() {
 		try {
 			const { data, error } = await supabase
@@ -1085,25 +1169,74 @@
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
-	<!-- Header Bar with Action Buttons -->
-	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-		<div class="flex items-center gap-3">
-			<span class="text-2xl">📊</span>
-			<div>
-				<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">Day Budget Planner</h2>
-				<p class="text-[11px] text-slate-500">Plan and manage daily cash flow with budget tracking</p>
+	<!-- Header Bar - Single Row with Title, Cards, and Buttons -->
+	<div class="bg-white border-b border-slate-200 px-6 py-3 shadow-sm">
+		<div class="flex items-center justify-between gap-4">
+			<!-- Title -->
+			<div class="flex items-center gap-3 flex-shrink-0">
+				<span class="text-2xl">📊</span>
+				<div>
+					<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">Day Budget Planner</h2>
+					<p class="text-[10px] text-slate-500">Plan and manage daily cash flow</p>
+				</div>
 			</div>
-		</div>
 
-		<!-- Action Button -->
-		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
-			<button
-				class="group relative flex items-center gap-2 px-5 py-2 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl overflow-hidden bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300"
-				on:click={generatePrintPreview}
-			>
-				<span class="text-base filter drop-shadow-sm">🖨️</span>
-				<span>Generate Schedule</span>
-			</button>
+			<!-- Summary Cards - Center -->
+			{#if vendorPayments.length > 0 || expenseSchedules.length > 0}
+				{@const vendorTotal = vendorPayments.reduce((sum, p) => sum + (p.final_bill_amount || p.bill_amount), 0)}
+				{@const expenseTotal = expenseSchedules.reduce((sum, e) => sum + e.amount, 0)}
+				{@const combinedTotal = vendorTotal + expenseTotal}
+				{@const vendorCount = groupedVendorPayments.length}
+				{@const expenseCount = filteredExpenseSchedules.length}
+				{@const totalItems = vendorPayments.length + expenseSchedules.length}
+				{@const totalSelected = Array.from(selectedVendorPayments).length + selectedExpenseSchedules.size}
+				
+				<div class="flex gap-2 flex-1 max-w-4xl">
+					<div class="bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 flex-1">
+						<p class="text-[9px] font-bold text-slate-600 uppercase mb-0.5">Total Items</p>
+						<p class="text-lg font-black text-blue-600">{totalItems}</p>
+					</div>
+					<div class="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 flex-1">
+						<p class="text-[9px] font-bold text-slate-600 uppercase mb-0.5">Combined Total</p>
+						<p class="text-lg font-black text-emerald-600">{formatCurrency(combinedTotal)}</p>
+					</div>
+					<div class="bg-purple-50 border border-purple-200 rounded-lg px-3 py-1.5 flex-1">
+						<p class="text-[9px] font-bold text-slate-600 uppercase mb-0.5">Groups + Schedules</p>
+						<p class="text-lg font-black text-purple-600">{vendorCount} + {expenseCount}</p>
+					</div>
+					<div class="bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 flex-1">
+						<p class="text-[9px] font-bold text-slate-600 uppercase mb-0.5">Selected</p>
+						<p class="text-lg font-black text-orange-600">{totalSelected}</p>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Action Buttons - Right -->
+			<div class="flex gap-2 flex-shrink-0">
+				{#if vendorPayments.length > 0 || expenseSchedules.length > 0}
+					<button 
+						class="px-3 py-2 text-xs font-black uppercase text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
+						on:click={selectAllVendorPayments}
+						disabled={vendorPayments.length === 0}
+					>
+						Select All
+					</button>
+					<button 
+						class="px-3 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-xl hover:bg-slate-300 transition-all disabled:opacity-50"
+						on:click={clearAllSelections}
+						disabled={selectedVendorPayments.size === 0 && selectedExpenseSchedules.size === 0}
+					>
+						Clear All
+					</button>
+				{/if}
+				<button
+					class="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300"
+					on:click={generatePrintPreview}
+				>
+					<span class="text-base">🖨️</span>
+					<span>Generate</span>
+				</button>
+			</div>
 		</div>
 	</div>
 
@@ -1125,6 +1258,43 @@
 						on:change={onDateChange}
 						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 					/>
+
+					<!-- Date Range Toggle -->
+					<button
+					on:click={toggleDateRange}
+					class="w-full mt-3 px-3 py-2 text-xs font-bold uppercase tracking-wide text-purple-600 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors duration-200"
+				>
+					{showDateRange ? '📊 Hide Date Range' : '📊 Show Date Range'}
+				</button>
+
+				<!-- Date Range Inputs -->
+				{#if showDateRange}
+						<div class="mt-4 pt-4 border-t border-slate-200 space-y-3">
+							<div>
+								<label class="block text-xs font-bold text-slate-600 mb-1">Start Date</label>
+								<input 
+									type="date" 
+									bind:value={dateRangeStart}
+									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+								/>
+							</div>
+							<div>
+								<label class="block text-xs font-bold text-slate-600 mb-1">End Date</label>
+								<input 
+									type="date" 
+									bind:value={dateRangeEnd}
+									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+								/>
+							</div>
+							<button
+								on:click={loadPeriodData}
+								disabled={dateRangeLoading}
+								class="w-full px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+							>
+								{dateRangeLoading ? '⏳ Loading...' : '📈 Load Period'}
+							</button>
+						</div>
+					{/if}
 				</div>
 
 				<!-- Daily Budget Card -->
@@ -1241,62 +1411,47 @@
 			</div>
 		</div>
 	{:else}
+		<!-- View Mode Indicator -->
+		{#if showDateRange}
+			<div class="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg flex items-center gap-2">
+				<span class="text-lg">📊</span>
+				<span class="text-sm font-semibold text-purple-700">Date Range: {dateRangeStart} to {dateRangeEnd}</span>
+			</div>
+		{/if}
+
 		<!-- Vendor Payments Section -->
 		<div class="mb-6 bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
-			<!-- Combined Header with Cards and Controls -->
-			<div class="space-y-4 mb-4">
-				<!-- Summary Cards (Combined from Both Tables) -->
-				{#if true}
-					{@const vendorTotal = vendorPayments.reduce((sum, p) => sum + (p.final_bill_amount || p.bill_amount), 0)}
-					{@const expenseTotal = expenseSchedules.reduce((sum, e) => sum + e.amount, 0)}
-					{@const combinedTotal = vendorTotal + expenseTotal}
-					{@const vendorCount = groupedVendorPayments.length}
-					{@const expenseCount = filteredExpenseSchedules.length}
-					{@const totalItems = vendorPayments.length + expenseSchedules.length}
-					{@const totalSelected = Array.from(selectedVendorPayments).length + selectedExpenseSchedules.size}
-					<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-					<div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
-						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Total Items</p>
-						<p class="text-lg font-black text-blue-600">{totalItems}</p>
-					</div>
-					<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Combined Total</p>
-						<p class="text-lg font-black text-emerald-600">{formatCurrency(combinedTotal)}</p>
-					</div>
-					<div class="bg-purple-50 border border-purple-200 rounded-lg p-3">
-						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Groups + Schedules</p>
-						<p class="text-lg font-black text-purple-600">{vendorCount} + {expenseCount}</p>
-					</div>
-					<div class="bg-orange-50 border border-orange-200 rounded-lg p-3">
-						<p class="text-xs font-bold text-slate-600 uppercase mb-1">Selected</p>
-						<p class="text-lg font-black text-orange-600">{totalSelected}</p>
-					</div>
-				</div>
-				<!-- Select/Clear All Controls -->
-				<div class="flex justify-end gap-2">
-					<button 
-						class="px-4 py-2 text-xs font-black uppercase text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
-						on:click={selectAllVendorPayments}
-						disabled={vendorPayments.length === 0}
-					>
-						Select All
-					</button>
-					<button 
-						class="px-4 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-xl hover:bg-slate-300 transition-all disabled:opacity-50"
-						on:click={clearAllSelections}
-						disabled={selectedVendorPayments.size === 0 && selectedExpenseSchedules.size === 0}
-					>
-						Clear All
-					</button>
-				</div>
-				{/if}
-			</div>
-
 			<div class="flex items-center justify-between mb-4">
 				<h3 class="text-lg font-black text-slate-800 flex items-center gap-2">
 					<span class="text-2xl">💰</span>
 					Vendor Payments Due ({filteredVendorPayments.length}{filteredVendorPayments.length !== vendorPayments.length ? ` of ${vendorPayments.length}` : ''})
 				</h3>
+				{#if vendorPayments.length > 0}
+					<div class="flex gap-2">
+						<button 
+							class="px-3 py-2 text-xs font-black uppercase text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all"
+							on:click={() => {
+								vendorPayments.forEach(p => selectedVendorPayments.add(p.id));
+								selectedVendorPayments = selectedVendorPayments;
+								calculateBudget();
+							}}
+							disabled={vendorPayments.length === 0}
+						>
+							Select All
+						</button>
+						<button 
+							class="px-3 py-2 text-xs font-black uppercase text-slate-700 bg-slate-200 rounded-lg hover:bg-slate-300 transition-all"
+							on:click={() => {
+								vendorPayments.forEach(p => selectedVendorPayments.delete(p.id));
+								selectedVendorPayments = selectedVendorPayments;
+								calculateBudget();
+							}}
+							disabled={selectedVendorPayments.size === 0}
+						>
+							Clear All
+						</button>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Filters Only -->
@@ -1366,6 +1521,9 @@
 										<th style="width: 40px;"></th>
 										<th class="vendor-name">Vendor</th>
 										<th class="vendor-branch">Branch</th>
+										{#if showDateRange}
+											<th class="vendor-due-date">Due Date</th>
+										{/if}
 										<th class="vendor-amount">Total Amount</th>
 										<th class="vendor-bill-number">Bills</th>
 										<th class="vendor-payment-method">Payment Method</th>
@@ -1415,6 +1573,9 @@
 											</td>
 											<td class="vendor-name font-semibold">{group.vendor_name}</td>
 											<td class="vendor-branch">{group.branch_name}</td>
+											{#if showDateRange}
+												<td class="vendor-due-date text-sm font-semibold">{new Date(group.bills[0]?.due_date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</td>
+											{/if}
 											<td class="amount vendor-amount font-bold text-blue-600">{formatCurrency(group.total_amount)}</td>
 											<td class="vendor-bill-number">
 												<button 
@@ -1464,6 +1625,9 @@
 													<td></td>
 													<td class="vendor-bill-number font-mono text-sm">Bill #{bill.bill_number}</td>
 													<td class="vendor-branch text-sm">{bill.branch_name}</td>
+													{#if showDateRange}
+														<td class="vendor-due-date text-sm">{new Date(bill.due_date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</td>
+													{/if}
 													<td class="amount vendor-amount">{formatCurrency(bill.final_bill_amount || bill.bill_amount)}</td>
 													<td class="adjust-amount-cell vendor-adjust-amount">
 														<input 
@@ -1499,14 +1663,16 @@
 															>
 																📅 Reschedule
 															</button>
-													{#if hasAdjustAmount}
-														<button 
-															class="split-btn"
-															on:click={() => openSplitModal(bill, 'vendor')}
-													></button>
-												{/if}
-											</div>
-										</td>
+															{#if hasAdjustAmount}
+																<button 
+																	class="split-btn"
+																	on:click={() => openSplitModal(bill, 'vendor')}
+																>
+																	✂️ Split
+																</button>
+															{/if}
+														</div>
+													</td>
 									</tr>
 									{/each}
 								{/if}
@@ -1633,6 +1799,9 @@
 										<th>Description</th>
 										<th>Category</th>
 										<th>Branch</th>
+										{#if showDateRange}
+											<th>Due Date</th>
+										{/if}
 										<th>Amount</th>
 										<th>Adjust Amount</th>
 										<th>Payment Method</th>
@@ -1661,6 +1830,9 @@
 											<td class="description">{expense.description}</td>
 											<td>{expense.expense_category_name_en || 'N/A'}</td>
 											<td>{expense.branch_name}</td>
+											{#if showDateRange}
+												<td class="text-sm font-semibold">{new Date(expense.due_date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</td>
+											{/if}
 											<td class="amount">{formatCurrency(expense.amount)}</td>
 											<td class="adjust-amount-cell">
 												<input 
@@ -1798,10 +1970,11 @@
 				</div>
 			</div>
 		{/if}
-
 	{/if}
+	</div>
+</div>
 
-	<!-- Group Details Modal -->
+<!-- Group Details Modal -->
 {#if showGroupDetailsModal && selectedGroup}
 	<div class="modal-overlay" on:click={closeGroupDetailsModal} style="--modal-z-index: 25;">
 		<div class="modal-content" on:click|stopPropagation style="max-width: 700px;">
@@ -2505,9 +2678,6 @@
 		</div>
 	</div>
 {/if}
-
-		</div>
-	</div>
 </div>
 
 <style>
