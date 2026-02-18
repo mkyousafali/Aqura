@@ -10,19 +10,33 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
+<h3>✨ Lease & Rent Finance Module, Receiving Overhaul & Clearance Certificate Improvements</h3>
+<p class="change-description">New Lease & Rent property management module, full i18n for the Receiving workflow with multi shelf-stocker selection, and clearance certificate print-only mode for edited bills.</p>
+<div class="change-details">
+<h4>February 18, 2026 (Latest):</h4>
+<ul>
+<li>✅ <b>Lease & Rent Module:</b> New finance module for managing properties, spaces, lease/rent parties, and special changes. Full CRUD with tabbed interface, party management (lease & rent), property spaces, and RPC-powered data loading.</li>
+<li>✅ <b>Lease & Rent Database:</b> New tables (lease_rent_lease_parties, lease_rent_rent_parties, lease_rent_property_spaces, lease_rent_special_changes) and optimized RPC functions for fast data retrieval.</li>
+<li>✅ <b>Receiving i18n:</b> Full English/Arabic translation support across the entire StartReceiving workflow — step labels, branch selection, vendor selection, bill information, and finalization screens.</li>
+<li>✅ <b>Multi Shelf-Stocker Selection:</b> Receiving now supports selecting multiple shelf stockers instead of a single one, with keyboard navigation and highlight support.</li>
+<li>✅ <b>Clearance Certificate Print-Only Mode:</b> When editing a bill, the certificate can now be printed without re-assigning tasks (printOnly mode). Separate "Print & Assign Tasks" flow for new bills vs re-prints.</li>
+<li>✅ <b>Auto-Fill Bill Date:</b> Bill date now auto-fills with today's date in the receiving workflow.</li>
+<li>✅ <b>Vendor Search Keyboard Navigation:</b> Added highlight index support for vendor dropdown keyboard navigation.</li>
+<li>✅ <b>Branch Location Support:</b> Receiving now fetches and displays both English and Arabic branch locations.</li>
+</ul>
+</div>
+</div>
+
+<div class="latest-change" style="margin-top: 20px; opacity: 0.9;">
 <h3>✨ Mobile Assignments — Completed Tasks View, Completion Photos & Image Compression</h3>
 <p class="change-description">New completed assignments page with task/completion photo separation, View buttons for all photos, and automatic image compression for quick task file uploads.</p>
 <div class="change-details">
-<h4>February 17, 2026 (Latest):</h4>
+<h4>February 17, 2026:</h4>
 <ul>
-<li>✅ <b>Completed Assignments Page:</b> New dedicated page at /assignments/completed showing all completed task assignments with search, green-bordered cards, completion date, and attachment support. Accessible via "View Completed" button on the main assignments page.</li>
-<li>✅ <b>Task Status Filter Tabs:</b> Added Active/Completed/All filter tabs in the task assignment wizard (Step 2) so users can view and re-assign completed tasks.</li>
-<li>✅ <b>Completion Photos & Notes:</b> Both assignments and completed assignments pages now load and display completion photos (from task_completions and quick_task_completions tables) separately from original task attachments — with distinct labels: 📎 Task Photos (blue) and 📸 Completion Photos (amber/yellow).</li>
-<li>✅ <b>View Button on Photos:</b> All photo thumbnails now include a 👁️ View button for full-size preview, replacing the old download-only overlay.</li>
-<li>✅ <b>Quick Task Image Compression:</b> Images uploaded via QuickTaskModal (file browser and camera) are now automatically compressed (1280×960, 60% JPEG quality) before upload — matching the PO request compression. Reduces 5-10MB phone photos to ~100-300KB.</li>
-<li>✅ <b>compressImageToFile Utility:</b> New utility function in imageCompression.ts that returns a compressed File object (vs base64 data URL), enabling compressed uploads to Supabase storage.</li>
-<li>✅ <b>Removed Price Tag/Issue Type:</b> Cleaned up assignment cards by removing the Price Tag and Issue Type info sections from quick task cards.</li>
-<li>✅ <b>i18n Support:</b> Full English and Arabic translations for taskPhotos, completionPhotos, completionNotes, View action, and all completed assignments page strings.</li>
+<li>✅ <b>Completed Assignments Page:</b> New dedicated page at /assignments/completed showing all completed task assignments with search, green-bordered cards, completion date, and attachment support.</li>
+<li>✅ <b>Completion Photos & Notes:</b> Both assignments and completed assignments pages now load and display completion photos separately from original task attachments.</li>
+<li>✅ <b>Quick Task Image Compression:</b> Images uploaded via QuickTaskModal are now automatically compressed before upload — reducing 5-10MB phone photos to ~100-300KB.</li>
+<li>✅ <b>i18n Support:</b> Full English and Arabic translations for all completed assignments page strings.</li>
 </ul>
 </div>
 </div>
