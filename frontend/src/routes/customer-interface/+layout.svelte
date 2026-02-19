@@ -8,11 +8,13 @@
 
   // Show top bar on all customer pages except auth pages
   $: showTopBar = !$page.url.pathname.includes('/auth/') && 
-                  !$page.url.pathname.includes('/login');
+                  !$page.url.pathname.includes('/login') &&
+                  !$page.url.pathname.includes('/register');
   
   // Hide cart bar on cart, checkout, profile, and home pages
   $: showCartBar = !$page.url.pathname.includes('/auth/') && 
                    !$page.url.pathname.includes('/login') &&
+                   !$page.url.pathname.includes('/register') &&
                    !$page.url.pathname.includes('/cart') && 
                    !$page.url.pathname.includes('/checkout') &&
                    !$page.url.pathname.includes('/profile') &&

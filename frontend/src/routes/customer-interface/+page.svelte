@@ -406,7 +406,7 @@
     // Check authentication and load user data
     const isAuthenticated = userActions.loadFromStorage();
     if (!isAuthenticated) {
-      goto("/customer-login");
+      goto("/customer-interface/login");
       return;
     }
 
@@ -683,7 +683,7 @@
 
   function logout() {
     userActions.logout();
-    goto("/customer-login");
+    goto("/customer-interface/login");
   }
 </script>
 
