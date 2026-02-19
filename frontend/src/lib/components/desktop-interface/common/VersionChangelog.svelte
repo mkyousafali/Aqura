@@ -10,11 +10,33 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>✨ Purchase Voucher Workflow Overhaul & Approval Center Parity</h3>
-<p class="change-description">Refined Purchase Voucher flows across add/issue/close/manager/stock screens, clearer budget and vendor pending summaries, aligned Approval Center behavior on desktop and mobile, and enhanced My Tasks with quick copy features.</p>
+<h3>✨ Branch Performance Dashboard, Receiving Tasks System, Bilingual Arabic Support, Multi-User Task Assignment & Purchase Voucher Overhaul</h3>
+<p class="change-description">New Branch Performance Dashboard (desktop + mobile) with RPC-powered KPI cards, branch comparison, employee rankings, and interactive filter popups. Full bilingual (EN/AR) support for receiving tasks — titles, descriptions, employee names, and detail labels all display in Arabic when in Arabic mode. Team Receiving Tasks page with member filters, completion photos, relative time, and pending badge count. RPC updated for multi-user task creation, plus Purchase Voucher workflow refinements.</p>
 <div class="change-details">
 <h4>February 19, 2026:</h4>
 <ul>
+<li>✅ <b>Branch Performance Dashboard — Desktop:</b> New <code>BranchPerformanceWindow</code> with KPI cards (total tasks, completion rate, on-time rate, overdue), task type pie chart, status pie chart, completion gauge, daily trend bar chart, branch comparison table, horizontal branch bar chart, and employee rankings with branch filter.</li>
+<li>✅ <b>Branch Performance Dashboard — Mobile:</b> Full mobile page with three tabs (Overview, Branches, Employees). Touch-optimized layout with swipeable cards and responsive design matching the desktop feature set.</li>
+<li>✅ <b>Branch Performance — RPC:</b> Created <code>get_branch_performance_dashboard</code> RPC returning totals, branch stats, task type stats, daily stats, and all employees with ≥1 task. Aggregates data from quick tasks, task assignments, and receiving tasks.</li>
+<li>✅ <b>Branch Performance — Filter Popups:</b> All period filters (Today, Yesterday, 7d, 14d, 30d, 60d, 90d, specific date) presented in a touch-friendly popup (bottom sheet on mobile, centered modal on desktop). Default loads Today on the Branches tab.</li>
+<li>✅ <b>Branch Performance — Branch Filter Popup:</b> Employee tab includes a branch filter as a popup selector — scalable for 10+ branches. Shows employee count per branch.</li>
+<li>✅ <b>Branch Performance — Date Info Sub-label:</b> Filter trigger button shows both the selected period label and the actual date context (e.g., "Thu, Feb 19" or "Jan 20 — Feb 19") as a sub-label.</li>
+<li>✅ <b>Branch Performance — Period Hint:</b> Styled "Tap to change period" hint integrated into the filter button with an indigo gradient strip for better discoverability.</li>
+<li>✅ <b>Branch Performance — Reactive Filters:</b> Filter label and date info reactively update when switching between Today, Yesterday, date ranges, and specific dates.</li>
+<li>✅ <b>Bilingual Task Templates:</b> All 7 receiving task templates updated with <code>EN|||AR</code> format for both titles and descriptions. Arabic side includes translated labels (الفرع، المورد، مبلغ الفاتورة، رقم الفاتورة، تاريخ الاستلام، الموعد النهائي).</li>
+<li>✅ <b>Bilingual Existing Tasks:</b> Bulk-updated ~29,674 existing receiving tasks in the database with Arabic translations appended using the <code>|||</code> separator.</li>
+<li>✅ <b>Bilingual Employee Names:</b> RPC now returns both <code>name_en</code> and <code>name_ar</code> for team members. Frontend uses the correct name based on current locale.</li>
+<li>✅ <b>localizedDesc() — Smart Detail Extraction:</b> For old tasks missing Arabic details, the function extracts vendor name, branch, bill amount, etc. from the English part and displays them with Arabic labels.</li>
+<li>✅ <b>getLocalizedContent() — ||| Format Support:</b> Updated across all task pages (tasks, task detail, task completion, assignments, completed assignments) to handle the new <code>|||</code> bilingual separator.</li>
+<li>✅ <b>Team Receiving Tasks — Full Arabic UI:</b> All labels, statuses, priorities, roles, filter chips, member popup, empty states, and period info fully translated to Arabic.</li>
+<li>✅ <b>Team Receiving Tasks — Completion Photos:</b> Completed tasks show photo thumbnails with fullscreen preview overlay. Click events use stopPropagation to prevent navigation.</li>
+<li>✅ <b>Team Receiving Tasks — Relative Time:</b> Completed tasks show time elapsed (e.g., "1 day 2 hr ago" / "منذ يوم و ساعتين") in green with checkmark icon.</li>
+<li>✅ <b>Team Receiving Tasks — Pending Badge:</b> Nav submenu shows pending task count badge fetched via RPC.</li>
+<li>✅ <b>Team Receiving Tasks — Member Filter Popup:</b> Searchable popup with per-member task counts matching current status filter (pending/completed).</li>
+<li>✅ <b>Team Receiving Tasks — All Pending Loaded:</b> RPC updated to load all pending tasks without time restriction. Only completed tasks limited to last 7 days.</li>
+<li>✅ <b>Receiving Tasks Page Removed:</b> Removed the individual receiving-tasks page — only the team-receiving-tasks page remains.</li>
+<li>✅ <b>RPC — Multi-User Task Creation:</b> Updated <code>process_clearance_certificate_generation</code> to loop through ALL users in night_supervisor_user_ids, warehouse_handler_user_ids, and shelf_stocker_user_ids arrays — creating a separate task + notification for each user instead of only the first.</li>
+<li>✅ <b>RPC — Dependency Check Update:</b> Updated <code>check_receiving_task_dependencies</code> to require ALL tasks of a dependent role to be completed (not just one). Shows progress like "All Shelf Stockers must complete their tasks (2/3 done)".</li>
 <li>✅ <b>My Tasks — Double-Click Copy:</b> Barcode and New Price in Price Change tasks are now copyable with double-click. Barcode extracted from title (handles multiple formats), New Price extracted from description with blue highlight. Toast notifications show copied values.</li>
 <li>✅ <b>Paid Manager — Redesign:</b> Full UI overhaul matching ShiftAndDayOff design. Glassmorphism table wrappers, Tailwind-only styling, compact header bar with action buttons, and sticky date/filter controls.</li>
 <li>✅ <b>Paid Manager — Date Range:</b> Replaced single-day Month/Year/Day dropdowns with From/To date inputs and left/right arrow buttons for quick navigation. Load button to fetch data on demand.</li>

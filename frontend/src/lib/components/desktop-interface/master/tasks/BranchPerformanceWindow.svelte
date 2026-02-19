@@ -1,1381 +1,738 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
-	import { t, currentLocale } from '$lib/i18n';
-
-	export let onClose: () => void;
-
-	let loading = false;
-	let fromDate = '';
-	let toDate = '';
-	let specificDate = '';
-	let loadingCard2 = false;
-	
-	// Stats for pie chart
-	let stats = {
-		completed: 0,
-		notCompleted: 0,
-		total: 0
-	};
-
-	// Card 2 stats
-	let statsCard2 = {
-		completed: 0,
-		notCompleted: 0,
-		total: 0
-	};
-
-	// Branch-wise stats
-	let branchStats: Record<string, { name: string; completed: number; notCompleted: number; total: number }> = {};
-	
-	// Card 2 branch-wise stats
-	let branchStatsCard2: Record<string, { name: string; completed: number; notCompleted: number; total: number }> = {};
-
-	// Card 3 - Last 3 Days
-	let selectedBranchCard3 = '';
-	let loadingCard3 = false;
-	let allBranches: Array<{ id: string; name_en: string; name_ar: string }> = [];
-	
-	// Card 3 stats for each day
-	let statsCard3Day1: Record<string, number> = {}; // Today
-	let statsCard3Day2: Record<string, number> = {}; // Yesterday
-	let statsCard3Day3: Record<string, number> = {}; // 2 days ago
-
-	onMount(async () => {
-		console.log('📊 [BranchPerformanceWindow] Component initialized');
-		// Load all branches for Card 3 dropdown
-		const { data: branchesData } = await supabase
-			.from('branches')
-			.select('id, name_en, name_ar');
-		if (branchesData) {
-			allBranches = branchesData;
-		}
-	});
-
-	async function loadBranchPerformance() {
-		if (!fromDate || !toDate) {
-			alert('Please select both From Date and To Date');
-			return;
-		}
-
-		loading = true;
-		console.log('📊 Loading branch performance for period:', fromDate, 'to', toDate);
-
-		try {
-			const startDate = `${fromDate}T00:00:00`;
-			const endDate = `${toDate}T23:59:59`;
-
-			// Fetch receiving tasks
-			const { data: receivingData, error: recError } = await supabase
-				.from('receiving_tasks')
-				.select('id, task_status, created_at, receiving_record_id')
-				.gte('created_at', startDate)
-				.lte('created_at', endDate);
-
-			if (recError) throw recError;
-
-			// Fetch task assignments with branch ID
-			const { data: tasksData, error: taskError } = await supabase
-				.from('task_assignments')
-				.select('id, status, assigned_at, assigned_to_branch_id')
-				.gte('assigned_at', startDate)
-				.lte('assigned_at', endDate);
-
-			if (taskError) throw taskError;
-
-			// Fetch quick task assignments
-			const { data: quickData, error: quickError } = await supabase
-				.from('quick_task_assignments')
-				.select('id, status, created_at, quick_task_id')
-				.gte('created_at', startDate)
-				.lte('created_at', endDate);
-
-			if (quickError) throw quickError;
-
-			// Fetch receiving records to map to branches
-			let recordMap: Record<string, string> = {};
-			const receiving = receivingData || [];
-			if (receiving.length > 0) {
-				const recordIds = [...new Set(receiving.map((r: any) => r.receiving_record_id).filter(Boolean))];
-				if (recordIds.length > 0) {
-					const { data: records } = await supabase
-						.from('receiving_records')
-						.select('id, branch_id');
-					if (records) {
-						records.forEach((r: any) => {
-							recordMap[r.id] = r.branch_id;
-						});
-					}
-				}
-			}
-
-			// Fetch all branches
-			const { data: branchesData } = await supabase
-				.from('branches')
-				.select('id, name_en, name_ar');
-			const branchMap: Record<string, string> = {};
-			if (branchesData) {
-				branchesData.forEach((b: any) => {
-					branchMap[b.id] = b.name_en || b.name_ar || `Branch ${b.id}`;
-				});
-			}
-
-			// Fetch quick tasks for branch mapping
-			let quickTaskMap: Record<string, string> = {};
-			const quick = quickData || [];
-			if (quick.length > 0) {
-				const quickTaskIds = [...new Set(quick.map((q: any) => q.quick_task_id).filter(Boolean))];
-				if (quickTaskIds.length > 0) {
-					const { data: quickTasks } = await supabase
-						.from('quick_tasks')
-						.select('id, assigned_to_branch_id');
-					if (quickTasks) {
-						quickTasks.forEach((qt: any) => {
-							quickTaskMap[qt.id] = qt.assigned_to_branch_id;
-						});
-					}
-				}
-			}
-
-			// Initialize branch stats
-			branchStats = {};
-
-			// Process receiving tasks
-			let totalCompleted = 0;
-			let totalTasks = 0;
-			
-			console.log('📦 Receiving tasks fetched:', receiving.length);
-			receiving.forEach((item: any) => {
-				if (item.task_status === 'cancelled') return;
-				
-				const branchId = recordMap[item.receiving_record_id];
-				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
-				const isCompleted = item.task_status === 'completed';
-
-				if (branchId) {
-					if (!branchStats[branchId]) {
-						branchStats[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
-					}
-					branchStats[branchId].total++;
-					if (isCompleted) branchStats[branchId].completed++;
-					else branchStats[branchId].notCompleted++;
-				}
-
-				totalTasks++;
-				if (isCompleted) totalCompleted++;
-			});
-
-			// Process task assignments
-			const tasks = tasksData || [];
-			console.log('📋 Task assignments fetched:', tasks.length);
-			tasks.forEach((item: any) => {
-				if (item.status === 'cancelled') return;
-				
-				const branchId = item.assigned_to_branch_id;
-				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
-				const isCompleted = item.status === 'completed';
-
-				if (branchId) {
-					if (!branchStats[branchId]) {
-						branchStats[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
-					}
-					branchStats[branchId].total++;
-					if (isCompleted) branchStats[branchId].completed++;
-					else branchStats[branchId].notCompleted++;
-				}
-
-				totalTasks++;
-				if (isCompleted) totalCompleted++;
-			});
-
-			// Process quick task assignments
-			console.log('⚡ Quick tasks fetched:', quick.length);
-			quick.forEach((item: any) => {
-				if (item.status === 'cancelled') return;
-				
-				const branchId = quickTaskMap[item.quick_task_id];
-				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
-				const isCompleted = item.status === 'completed';
-
-				if (branchId) {
-					if (!branchStats[branchId]) {
-						branchStats[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
-					}
-					branchStats[branchId].total++;
-					if (isCompleted) branchStats[branchId].completed++;
-					else branchStats[branchId].notCompleted++;
-				}
-
-				totalTasks++;
-				if (isCompleted) totalCompleted++;
-			});
-
-			// Set total stats
-			stats = {
-				completed: totalCompleted,
-				notCompleted: totalTasks - totalCompleted,
-				total: totalTasks
-			};
-
-			console.log('✅ Branch performance loaded:', stats);
-			console.log('🏢 Branch breakdown:', branchStats);
-		} catch (error) {
-			console.error('❌ Error loading branch performance:', error);
-			alert('Error loading branch performance data');
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function loadSpecificDatePerformance() {
-		if (!specificDate) {
-			alert('Please select a specific date');
-			return;
-		}
-
-		loadingCard2 = true;
-		console.log('📊 Loading specific date performance for:', specificDate);
-
-		try {
-			const startDate = `${specificDate}T00:00:00`;
-			const endDate = `${specificDate}T23:59:59`;
-
-			// Fetch receiving tasks
-			const { data: receivingData, error: recError } = await supabase
-				.from('receiving_tasks')
-				.select('id, task_status, created_at, receiving_record_id')
-				.gte('created_at', startDate)
-				.lte('created_at', endDate);
-
-			if (recError) throw recError;
-
-			// Fetch task assignments with branch ID
-			const { data: tasksData, error: taskError } = await supabase
-				.from('task_assignments')
-				.select('id, status, assigned_at, assigned_to_branch_id')
-				.gte('assigned_at', startDate)
-				.lte('assigned_at', endDate);
-
-			if (taskError) throw taskError;
-
-			// Fetch quick task assignments
-			const { data: quickData, error: quickError } = await supabase
-				.from('quick_task_assignments')
-				.select('id, status, created_at, quick_task_id')
-				.gte('created_at', startDate)
-				.lte('created_at', endDate);
-
-			if (quickError) throw quickError;
-
-			// Fetch receiving records to map to branches
-			let recordMap: Record<string, string> = {};
-			const receiving = receivingData || [];
-			if (receiving.length > 0) {
-				const recordIds = [...new Set(receiving.map((r: any) => r.receiving_record_id).filter(Boolean))];
-				if (recordIds.length > 0) {
-					const { data: records } = await supabase
-						.from('receiving_records')
-						.select('id, branch_id');
-					if (records) {
-						records.forEach((r: any) => {
-							recordMap[r.id] = r.branch_id;
-						});
-					}
-				}
-			}
-
-			// Fetch all branches
-			const { data: branchesData } = await supabase
-				.from('branches')
-				.select('id, name_en, name_ar');
-			const branchMap: Record<string, string> = {};
-			if (branchesData) {
-				branchesData.forEach((b: any) => {
-					branchMap[b.id] = b.name_en || b.name_ar || `Branch ${b.id}`;
-				});
-			}
-
-			// Fetch quick tasks for branch mapping
-			let quickTaskMap: Record<string, string> = {};
-			const quick = quickData || [];
-			if (quick.length > 0) {
-				const quickTaskIds = [...new Set(quick.map((q: any) => q.quick_task_id).filter(Boolean))];
-				if (quickTaskIds.length > 0) {
-					const { data: quickTasks } = await supabase
-						.from('quick_tasks')
-						.select('id, assigned_to_branch_id');
-					if (quickTasks) {
-						quickTasks.forEach((qt: any) => {
-							quickTaskMap[qt.id] = qt.assigned_to_branch_id;
-						});
-					}
-				}
-			}
-
-			// Initialize branch stats
-			branchStatsCard2 = {};
-
-			// Process receiving tasks
-			let totalCompleted = 0;
-			let totalTasks = 0;
-			
-			console.log('📦 Receiving tasks fetched:', receiving.length);
-			receiving.forEach((item: any) => {
-				if (item.task_status === 'cancelled') return;
-				
-				const branchId = recordMap[item.receiving_record_id];
-				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
-				const isCompleted = item.task_status === 'completed';
-
-				if (branchId) {
-					if (!branchStatsCard2[branchId]) {
-						branchStatsCard2[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
-					}
-					branchStatsCard2[branchId].total++;
-					if (isCompleted) branchStatsCard2[branchId].completed++;
-					else branchStatsCard2[branchId].notCompleted++;
-				}
-
-				totalTasks++;
-				if (isCompleted) totalCompleted++;
-			});
-
-			// Process task assignments
-			const tasks = tasksData || [];
-			console.log('📋 Task assignments fetched:', tasks.length);
-			tasks.forEach((item: any) => {
-				if (item.status === 'cancelled') return;
-				
-				const branchId = item.assigned_to_branch_id;
-				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
-				const isCompleted = item.status === 'completed';
-
-				if (branchId) {
-					if (!branchStatsCard2[branchId]) {
-						branchStatsCard2[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
-					}
-					branchStatsCard2[branchId].total++;
-					if (isCompleted) branchStatsCard2[branchId].completed++;
-					else branchStatsCard2[branchId].notCompleted++;
-				}
-
-				totalTasks++;
-				if (isCompleted) totalCompleted++;
-			});
-
-			// Process quick task assignments
-			console.log('⚡ Quick tasks fetched:', quick.length);
-			quick.forEach((item: any) => {
-				if (item.status === 'cancelled') return;
-				
-				const branchId = quickTaskMap[item.quick_task_id];
-				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
-				const isCompleted = item.status === 'completed';
-
-				if (branchId) {
-					if (!branchStatsCard2[branchId]) {
-						branchStatsCard2[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
-					}
-					branchStatsCard2[branchId].total++;
-					if (isCompleted) branchStatsCard2[branchId].completed++;
-					else branchStatsCard2[branchId].notCompleted++;
-				}
-
-				totalTasks++;
-				if (isCompleted) totalCompleted++;
-			});
-
-			// Set total stats for card 2
-			statsCard2 = {
-				completed: totalCompleted,
-				notCompleted: totalTasks - totalCompleted,
-				total: totalTasks
-			};
-
-			console.log('✅ Specific date performance loaded:', statsCard2);
-			console.log('🏢 Branch breakdown:', branchStatsCard2);
-		} catch (error) {
-			console.error('❌ Error loading specific date performance:', error);
-			alert('Error loading specific date performance data');
-		} finally {
-			loadingCard2 = false;
-		}
-	}
-
-	function calculatePieChart() {
-		if (stats.total === 0) return { completed: 0, notCompleted: 0 };
-
-		const completedPercent = (stats.completed / stats.total) * 100;
-		const notCompletedPercent = (stats.notCompleted / stats.total) * 100;
-
-		return { completedPercent, notCompletedPercent };
-	}
-
-	async function loadCard3Performance() {
-		if (!selectedBranchCard3) {
-			alert('Please select a branch');
-			return;
-		}
-
-		loadingCard3 = true;
-		console.log('📊 Loading Card 3 performance for branch:', selectedBranchCard3);
-
-		try {
-			// Get today's date
-			const today = new Date();
-			const day1 = new Date(today);
-			day1.setDate(day1.getDate()); // Today
-			const day2 = new Date(today);
-			day2.setDate(day2.getDate() - 1); // Yesterday
-			const day3 = new Date(today);
-			day3.setDate(day3.getDate() - 2); // 2 days ago
-
-			const formatDate = (date: Date) => date.toISOString().split('T')[0];
-			const dateStr1 = formatDate(day1);
-			const dateStr2 = formatDate(day2);
-			const dateStr3 = formatDate(day3);
-
-			console.log('📊 Card 3 dates:', dateStr1, dateStr2, dateStr3);
-
-			// Helper function to fetch stats for a specific date
-			const fetchDayStats = async (dateStr: string) => {
-				const startTime = `${dateStr}T00:00:00`;
-				const endTime = `${dateStr}T23:59:59`;
-
-				// Fetch receiving tasks
-				const { data: receivingData } = await supabase
-					.from('receiving_tasks')
-					.select('id, task_status, receiving_record_id')
-					.gte('created_at', startTime)
-					.lte('created_at', endTime);
-
-				// Fetch task assignments
-				const { data: tasksData } = await supabase
-					.from('task_assignments')
-					.select('id, status, assigned_to_branch_id')
-					.gte('assigned_at', startTime)
-					.lte('assigned_at', endTime);
-
-				// Fetch receiving records to map to branches
-				let recordMap: Record<string, string> = {};
-				const receiving = receivingData || [];
-				if (receiving.length > 0) {
-					const recordIds = [...new Set(receiving.map((r: any) => r.receiving_record_id).filter(Boolean))];
-					if (recordIds.length > 0) {
-						const { data: records } = await supabase
-							.from('receiving_records')
-							.select('id, branch_id');
-						if (records) {
-							records.forEach((r: any) => {
-								recordMap[r.id] = r.branch_id;
-							});
-						}
-					}
-				}
-
-				// Count tasks for selected branch
-				let completed = 0;
-				let notCompleted = 0;
-
-				// Count receiving tasks for branch
-				receiving.forEach((task: any) => {
-					const branchId = recordMap[task.receiving_record_id];
-					if (branchId === selectedBranchCard3) {
-						if (task.task_status === 'completed') {
-							completed++;
-						} else {
-							notCompleted++;
-						}
-					}
-				});
-
-				// Count task assignments for branch
-				(tasksData || []).forEach((task: any) => {
-					if (task.assigned_to_branch_id === selectedBranchCard3) {
-						if (task.status === 'completed') {
-							completed++;
-						} else {
-							notCompleted++;
-						}
-					}
-				});
-
-				return { completed, notCompleted, total: completed + notCompleted };
-			};
-
-			// Fetch stats for all 3 days
-			const [day1Stats, day2Stats, day3Stats] = await Promise.all([
-				fetchDayStats(dateStr1),
-				fetchDayStats(dateStr2),
-				fetchDayStats(dateStr3)
-			]);
-
-			statsCard3Day1 = day1Stats;
-			statsCard3Day2 = day2Stats;
-			statsCard3Day3 = day3Stats;
-
-			console.log('📊 Card 3 stats:', { day1: statsCard3Day1, day2: statsCard3Day2, day3: statsCard3Day3 });
-		} catch (error) {
-			console.error('❌ Error loading Card 3 performance:', error);
-			alert('Error loading performance data');
-		} finally {
-			loadingCard3 = false;
-		}
-	}
-
-	function polarToCartesian(centerX: number, centerY: number, radius: number, angleInDegrees: number) {
-		const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
-		return {
-			x: centerX + (radius * Math.cos(angleInRadians)),
-			y: centerY + (radius * Math.sin(angleInRadians))
-		};
-	}
-
-	function createArcPath(centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number) {
-		const start = polarToCartesian(centerX, centerY, radius, endAngle);
-		const end = polarToCartesian(centerX, centerY, radius, startAngle);
-		const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-		
-		return [
-			"M", centerX, centerY,
-			"L", start.x, start.y,
-			"A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
-			"Z"
-		].join(" ");
-	}
-
-	function createPieSegments(total: number, completed: number) {
-		if (total === 0) return [];
-		
-		const completedAngle = (completed / total) * 360;
-		const segments = [];
-		const notCompleted = total - completed;
-
-		// If no completed tasks, show full red circle (split into two 180° arcs)
-		if (completed === 0) {
-			segments.push({
-				path: createArcPath(60, 60, 50, 0, 180),
-				shadowPath: createArcPath(60, 62, 50, 0, 180),
-				color: '#fa003f',
-				shadowColor: '#c90030',
-				label: 'Not Completed'
-			});
-			segments.push({
-				path: createArcPath(60, 60, 50, 180, 360),
-				shadowPath: createArcPath(60, 62, 50, 180, 360),
-				color: '#fa003f',
-				shadowColor: '#c90030',
-				label: 'Not Completed'
-			});
-		} else {
-			// Not completed segment (drawn first for layering) - RED
-			if (notCompleted > 0) {
-				segments.push({
-					path: createArcPath(60, 60, 50, completedAngle, 360),
-					shadowPath: createArcPath(60, 62, 50, completedAngle, 360),
-					color: '#fa003f',
-					shadowColor: '#c90030',
-					label: 'Not Completed'
-				});
-			}
-
-			// Completed segment (drawn last to appear on top) - GREEN
-			segments.push({
-				path: createArcPath(60, 60, 50, 0, completedAngle),
-				shadowPath: createArcPath(60, 62, 50, 0, completedAngle),
-				color: '#008000',
-				shadowColor: '#005500',
-				label: 'Completed'
-			});
-		}
-
-		return segments;
-	}
-
-	function createSmallPieSegments(total: number, completed: number) {
-		if (total === 0) return [];
-		
-		const completedAngle = (completed / total) * 360;
-		const segments = [];
-		const notCompleted = total - completed;
-
-		// If no completed tasks, show full red circle (split into two 180° arcs)
-		if (completed === 0) {
-			segments.push({
-				path: createArcPath(50, 50, 40, 0, 180),
-				shadowPath: createArcPath(50, 51, 40, 0, 180),
-				color: '#fa003f',
-				shadowColor: '#c90030',
-				label: 'Not Completed'
-			});
-			segments.push({
-				path: createArcPath(50, 50, 40, 180, 360),
-				shadowPath: createArcPath(50, 51, 40, 180, 360),
-				color: '#fa003f',
-				shadowColor: '#c90030',
-				label: 'Not Completed'
-			});
-		} else {
-			// Not completed segment (drawn first for layering) - RED
-			if (notCompleted > 0) {
-				segments.push({
-					path: createArcPath(50, 50, 40, completedAngle, 360),
-					shadowPath: createArcPath(50, 51, 40, completedAngle, 360),
-					color: '#fa003f',
-					shadowColor: '#c90030',
-					label: 'Not Completed'
-				});
-			}
-
-			// Completed segment (drawn last to appear on top) - GREEN
-			segments.push({
-				path: createArcPath(50, 50, 40, 0, completedAngle),
-				shadowPath: createArcPath(50, 51, 40, 0, completedAngle),
-				color: '#008000',
-				shadowColor: '#005500',
-				label: 'Completed'
-			});
-		}
-
-		return segments;
-	}
-
+    import { onMount } from 'svelte';
+    import { _ as t, locale } from '$lib/i18n';
+
+    let supabase: any;
+    let loading = true;
+    let error = '';
+    let daysBack = 30;
+    let data: any = null;
+    let filterMode: 'range' | 'today' | 'yesterday' | 'specific' = 'today';
+    let specificDate = '';
+    let showDatePicker = false;
+    let showFilterPopup = false;
+    let empBranchFilter = 'all';
+    let showBranchPopup = false;
+
+    function selectBranch(val: string) {
+        empBranchFilter = val;
+        showBranchPopup = false;
+    }
+
+    function getBranchFilterLabel(): string {
+        if (empBranchFilter === 'all') return isRTL ? 'كل الفروع' : 'All Branches';
+        if (isRTL) {
+            const found = branchStats.find((b: any) => b.branch_name_en === empBranchFilter);
+            return found?.branch_name_ar || empBranchFilter;
+        }
+        return empBranchFilter;
+    }
+
+    $: isRTL = $locale === 'ar';
+    $: filterLabel = (filterMode, daysBack, specificDate, isRTL, getFilterLabel());
+    $: filterDateInfo = (filterMode, daysBack, specificDate, isRTL, getFilterDateInfo());
+
+    onMount(async () => {
+        const { supabase: client } = await import('$lib/utils/supabase');
+        supabase = client;
+        await loadData();
+    });
+
+    function getToday(): string {
+        return new Date().toISOString().split('T')[0];
+    }
+
+    function getYesterday(): string {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().split('T')[0];
+    }
+
+    function selectToday() {
+        filterMode = 'today';
+        showDatePicker = false;
+        loadData();
+    }
+
+    function selectYesterday() {
+        filterMode = 'yesterday';
+        showDatePicker = false;
+        loadData();
+    }
+
+    function selectRange(days: number) {
+        filterMode = 'range';
+        daysBack = days;
+        showDatePicker = false;
+        loadData();
+    }
+
+    function selectSpecificDate() {
+        if (!specificDate) return;
+        filterMode = 'specific';
+        showDatePicker = false;
+        loadData();
+    }
+
+    function getFilterLabel(): string {
+        if (filterMode === 'today') return isRTL ? 'اليوم' : 'Today';
+        if (filterMode === 'yesterday') return isRTL ? 'أمس' : 'Yesterday';
+        if (filterMode === 'specific') {
+            const d = new Date(specificDate + 'T00:00:00');
+            return d.toLocaleDateString(isRTL ? 'ar-SA' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+        return isRTL ? `آخر ${daysBack} يوم` : `Last ${daysBack} days`;
+    }
+
+    function getFilterDateInfo(): string {
+        const loc = isRTL ? 'ar-SA' : 'en-US';
+        const fmt: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+        if (filterMode === 'today') return new Date().toLocaleDateString(loc, fmt);
+        if (filterMode === 'yesterday') {
+            const d = new Date(); d.setDate(d.getDate() - 1);
+            return d.toLocaleDateString(loc, fmt);
+        }
+        if (filterMode === 'specific') {
+            return new Date(specificDate + 'T00:00:00').toLocaleDateString(loc, fmt);
+        }
+        const from = new Date(); from.setDate(from.getDate() - daysBack);
+        return `${from.toLocaleDateString(loc, { month: 'short', day: 'numeric' })} — ${new Date().toLocaleDateString(loc, { month: 'short', day: 'numeric' })}`;
+    }
+
+    async function loadData() {
+        loading = true;
+        error = '';
+        try {
+            const params: any = {};
+            if (filterMode === 'today') {
+                params.p_specific_date = getToday();
+            } else if (filterMode === 'yesterday') {
+                params.p_specific_date = getYesterday();
+            } else if (filterMode === 'specific' && specificDate) {
+                params.p_specific_date = specificDate;
+            } else {
+                params.p_days_back = daysBack;
+            }
+            const { data: result, error: err } = await supabase.rpc('get_branch_performance_dashboard', params);
+            if (err) throw err;
+            data = result;
+        } catch (e: any) {
+            console.error('Error loading branch performance:', e);
+            error = e.message || 'Failed to load data';
+        } finally {
+            loading = false;
+        }
+    }
+
+    // Period options
+    const periods = [
+        { value: 7, label: '7 Days', labelAr: '7 أيام' },
+        { value: 14, label: '14 Days', labelAr: '14 يوم' },
+        { value: 30, label: '30 Days', labelAr: '30 يوم' },
+        { value: 60, label: '60 Days', labelAr: '60 يوم' },
+        { value: 90, label: '90 Days', labelAr: '90 يوم' }
+    ];
+
+    // Chart helpers
+    function getBarChartMaxValue(stats: any[]) {
+        if (!stats || stats.length === 0) return 10;
+        return Math.max(...stats.map(s => s.total_tasks || 0), 10);
+    }
+
+    function getDailyMax(daily: any[]) {
+        if (!daily || daily.length === 0) return 10;
+        return Math.max(...daily.map(d => Math.max(d.completed || 0, d.created || 0)), 10);
+    }
+
+    function formatDay(dateStr: string) {
+        const d = new Date(dateStr);
+        return d.toLocaleDateString(isRTL ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function getBranchName(b: any) {
+        if (isRTL) {
+            return b.branch_name_ar
+                ? `${b.branch_name_ar}${b.branch_location_ar ? ' (' + b.branch_location_ar + ')' : ''}`
+                : b.branch_name_en || '';
+        }
+        return `${b.branch_name_en || ''}${b.branch_location_en ? ' (' + b.branch_location_en + ')' : ''}`;
+    }
+
+    function getCompletionColor(rate: number) {
+        if (rate >= 80) return '#22c55e';
+        if (rate >= 60) return '#eab308';
+        if (rate >= 40) return '#f97316';
+        return '#ef4444';
+    }
+
+    function getEmpName(emp: any) {
+        return isRTL ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar);
+    }
+
+    function getEmpBranch(emp: any) {
+        return isRTL ? (emp.branch_name_ar || emp.branch_name_en) : (emp.branch_name_en || emp.branch_name_ar);
+    }
+
+    // Pie chart calculations
+    function getPieSlices(typeStats: any) {
+        if (!typeStats) return [];
+        const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0);
+        if (total === 0) return [];
+
+        const slices = [];
+        let currentAngle = 0;
+
+        const types = [
+            { key: 'regular', color: '#3b82f6', label: isRTL ? 'مهام عادية' : 'Regular', count: typeStats.regular || 0 },
+            { key: 'quick', color: '#f59e0b', label: isRTL ? 'مهام سريعة' : 'Quick', count: typeStats.quick || 0 },
+            { key: 'receiving', color: '#8b5cf6', label: isRTL ? 'مهام استلام' : 'Receiving', count: typeStats.receiving || 0 }
+        ];
+
+        for (const type of types) {
+            if (type.count === 0) continue;
+            const pct = type.count / total;
+            const angle = pct * 360;
+            const startAngle = currentAngle;
+            const endAngle = currentAngle + angle;
+
+            const x1 = 50 + 40 * Math.cos((startAngle - 90) * Math.PI / 180);
+            const y1 = 50 + 40 * Math.sin((startAngle - 90) * Math.PI / 180);
+            const x2 = 50 + 40 * Math.cos((endAngle - 90) * Math.PI / 180);
+            const y2 = 50 + 40 * Math.sin((endAngle - 90) * Math.PI / 180);
+            const largeArc = angle > 180 ? 1 : 0;
+
+            slices.push({
+                ...type,
+                pct: Math.round(pct * 100),
+                path: `M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`
+            });
+
+            currentAngle = endAngle;
+        }
+
+        return slices;
+    }
+
+    // Status pie for totals
+    function getStatusPieSlices(totals: any) {
+        if (!totals) return [];
+        const completed = totals.completed_tasks || 0;
+        const pending = totals.pending_tasks || 0;
+        const overdue = totals.overdue_tasks || 0;
+        const total = completed + pending;
+        if (total === 0) return [];
+
+        const slices = [];
+        let currentAngle = 0;
+
+        const items = [
+            { label: isRTL ? 'مكتمل' : 'Completed', color: '#22c55e', count: completed },
+            { label: isRTL ? 'قيد الانتظار' : 'Pending', color: '#eab308', count: pending - overdue },
+            { label: isRTL ? 'متأخر' : 'Overdue', color: '#ef4444', count: overdue }
+        ].filter(i => i.count > 0);
+
+        for (const item of items) {
+            const pct = item.count / total;
+            const angle = pct * 360;
+            const startAngle = currentAngle;
+            const endAngle = currentAngle + angle;
+
+            const x1 = 50 + 40 * Math.cos((startAngle - 90) * Math.PI / 180);
+            const y1 = 50 + 40 * Math.sin((startAngle - 90) * Math.PI / 180);
+            const x2 = 50 + 40 * Math.cos((endAngle - 90) * Math.PI / 180);
+            const y2 = 50 + 40 * Math.sin((endAngle - 90) * Math.PI / 180);
+            const largeArc = angle > 180 ? 1 : 0;
+
+            slices.push({
+                ...item,
+                pct: Math.round(pct * 100),
+                path: `M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`
+            });
+
+            currentAngle = endAngle;
+        }
+
+        return slices;
+    }
+
+    $: pieSlices = data ? getPieSlices(data.task_type_stats) : [];
+    $: statusPieSlices = data ? getStatusPieSlices(data.totals) : [];
+    $: branchStats = data?.branch_stats || [];
+    $: dailyStats = data?.daily_stats || [];
+    $: topEmployees = data?.top_employees || [];
+    $: filteredEmployees = empBranchFilter === 'all'
+        ? topEmployees
+        : topEmployees.filter((e: any) => e.branch_name_en === empBranchFilter);
+    $: availableBranches = [...new Set(topEmployees.map((e: any) => e.branch_name_en).filter(Boolean))] as string[];
+    $: totals = data?.totals || {};
+    $: completionRate = totals.total_tasks > 0 ? Math.round((totals.completed_tasks / totals.total_tasks) * 100) : 0;
+
+    // For daily chart: show last 14 days max on screen
+    $: visibleDaily = dailyStats.length > 14 ? dailyStats.slice(-14) : dailyStats;
 </script>
 
-<div class="bp-container">
-	<div class="content">
-		<div class="cards-grid">
-			<!-- Card 1: Date Range -->
-			<div class="card">
-				<div class="card-header">
-					<h3 class="card-title">{t('mobile.dashboardContent.branchPerformance.dateRange') || '📅 Date Range'}</h3>
-				</div>
-				<div class="card-body">
-					<div class="date-range-form">
-						<div class="form-group">
-							<label for="from-date">{t('mobile.dashboardContent.branchPerformance.fromDate') || 'From Date'}</label>
-							<input
-								id="from-date"
-								type="date"
-								bind:value={fromDate}
-								class="date-input"
-								disabled={loading}
-							/>
-						</div>
-						<div class="form-group">
-							<label for="to-date">{t('mobile.dashboardContent.branchPerformance.toDate') || 'To Date'}</label>
-							<input
-								id="to-date"
-								type="date"
-								bind:value={toDate}
-								class="date-input"
-								disabled={loading}
-							/>
-						</div>
-						<button class="apply-btn" on:click={loadBranchPerformance} disabled={loading}>
-							{loading ? t('common.loading') || 'Loading...' : t('mobile.dashboardContent.branchPerformance.loadPerformance') || 'Load Performance'}
-						</button>
-					</div>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRTL ? 'rtl' : 'ltr'}>
+    <!-- Header Bar -->
+    <div class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl">📊</span>
+            <h1 class="text-lg font-black text-slate-800 uppercase tracking-wide">{isRTL ? 'أداء الفروع' : 'Branch Performance'}</h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- Period filter trigger -->
+            <button
+                class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:shadow-md transition-all cursor-pointer"
+                on:click={() => showFilterPopup = !showFilterPopup}
+            >
+                <span class="text-base">📆</span>
+                <div class="flex flex-col items-start">
+                    <span class="text-xs font-black text-slate-700 uppercase tracking-wide">{filterLabel}</span>
+                    <span class="text-[10px] font-semibold text-slate-400">{filterDateInfo}</span>
+                </div>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-slate-400"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <p class="text-[9px] font-semibold text-indigo-400 -mt-0.5 tracking-wide pointer-events-none opacity-70">{isRTL ? 'اضغط لتغيير الفترة ⟵' : '⟶ Click to change period'}</p>
+            {#if showFilterPopup}
+                <!-- Filter Popup Overlay -->
+                <div class="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center" style="animation: fadeIn 0.15s;"
+                    on:click|self={() => { showFilterPopup = false; }} on:keydown={(e) => e.key === 'Escape' && (showFilterPopup = false)} role="dialog" aria-modal="true">
+                    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-[320px] overflow-hidden" style="animation: scaleIn 0.2s ease-out;">
+                        <div class="px-5 py-3 bg-indigo-600">
+                            <h3 class="text-sm font-black text-white uppercase tracking-wide">{isRTL ? 'اختر الفترة' : 'Select Period'}</h3>
+                        </div>
+                        <div class="max-h-[400px] overflow-y-auto">
+                            <button class="flex items-center gap-3 w-full px-5 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-100
+                                {filterMode === 'today' ? 'bg-emerald-50' : ''}"
+                                on:click={selectToday}>
+                                <span class="text-base">🟢</span>
+                                <span class="flex-1 text-xs font-bold {filterMode === 'today' ? 'text-emerald-700' : 'text-slate-600'} uppercase">{isRTL ? 'اليوم' : 'Today'}</span>
+                                {#if filterMode === 'today'}<span class="text-emerald-600 font-black">✓</span>{/if}
+                            </button>
+                            <button class="flex items-center gap-3 w-full px-5 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-100
+                                {filterMode === 'yesterday' ? 'bg-amber-50' : ''}"
+                                on:click={selectYesterday}>
+                                <span class="text-base">🟡</span>
+                                <span class="flex-1 text-xs font-bold {filterMode === 'yesterday' ? 'text-amber-700' : 'text-slate-600'} uppercase">{isRTL ? 'أمس' : 'Yesterday'}</span>
+                                {#if filterMode === 'yesterday'}<span class="text-amber-600 font-black">✓</span>{/if}
+                            </button>
+                            <div class="h-px bg-slate-200"></div>
+                            {#each periods as period}
+                                <button class="flex items-center gap-3 w-full px-5 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-100
+                                    {filterMode === 'range' && daysBack === period.value ? 'bg-indigo-50' : ''}"
+                                    on:click={() => selectRange(period.value)}>
+                                    <span class="text-base">📅</span>
+                                    <span class="flex-1 text-xs font-bold {filterMode === 'range' && daysBack === period.value ? 'text-indigo-700' : 'text-slate-600'} uppercase">
+                                        {isRTL ? `آخر ${period.labelAr} يوم` : `Last ${period.label}`}
+                                    </span>
+                                    {#if filterMode === 'range' && daysBack === period.value}<span class="text-indigo-600 font-black">✓</span>{/if}
+                                </button>
+                            {/each}
+                            <div class="h-px bg-slate-200"></div>
+                            <div class="px-5 py-4">
+                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">{isRTL ? 'تاريخ محدد' : 'Specific Date'}</p>
+                                <input
+                                    type="date"
+                                    bind:value={specificDate}
+                                    max={getToday()}
+                                    class="w-full px-3 py-2.5 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-violet-500 focus:border-violet-500 focus:outline-none transition-all"
+                                />
+                                <button
+                                    class="w-full mt-2 px-3 py-2.5 bg-violet-600 text-white text-xs font-bold uppercase rounded-xl hover:bg-violet-700 transition-all disabled:opacity-50 shadow-lg shadow-violet-200"
+                                    disabled={!specificDate}
+                                    on:click={selectSpecificDate}
+                                >
+                                    {isRTL ? 'عرض' : 'Apply'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {/if}
+            <button
+                class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold uppercase rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                on:click={loadData}
+                disabled={loading}
+            >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class:animate-spin={loading}>
+                    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                {isRTL ? 'تحديث' : 'Refresh'}
+            </button>
+        </div>
+    </div>
 
-					{#if stats.total > 0}
-						{@const { completedPercent } = calculatePieChart()}
-						{@const segments = createPieSegments(stats.total, stats.completed)}
-						<div class="pie-chart-container">
-							<div class="pie-wrapper">
-								<h4 class="pie-title">📊 Total Performance</h4>
-							<div class="pie-chart-wrapper">
-								<svg class="pie-svg" viewBox="0 0 120 120">
-									<defs>
-										<filter id="shadow-large" x="-50%" y="-50%" width="200%" height="200%">
-											<feDropShadow dx="0" dy="3" stdDeviation="2" flood-opacity="0.3" flood-color="#000000" />
-										</filter>
-										<radialGradient id="grad-green" cx="35%" cy="35%">
-											<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-											<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-										</radialGradient>
-										<radialGradient id="grad-red" cx="35%" cy="35%">
-											<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-											<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-										</radialGradient>
-									</defs>
-									<!-- Shadow layer -->
-									{#each segments as segment}
-										<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-									{/each}
-									<!-- Main segments with gradient -->
-									{#each segments as segment}
-										<path 
-											d={segment.path} 
-											fill={segment.color === '#008000' ? 'url(#grad-green)' : 'url(#grad-red)'}
-											filter="url(#shadow-large)"
-											stroke="white"
-											stroke-width="1"
-										/>
-									{/each}
-								</svg>
-								<!-- Center text overlay -->
-								<div class="pie-text">
-									<div class="pie-percent">{completedPercent.toFixed(0)}%</div>
-									<div class="pie-count">{stats.completed}/{stats.total}</div>
-								</div>
-							</div>
-							</div>
-						</div>
+    <!-- Main Content -->
+    <div class="flex-1 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-violet-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-						<!-- Branch-wise performance -->
-						{#if Object.keys(branchStats).length > 0}
-							<div class="branches-grid">
-								<h4 class="branches-title">🏢 Branch-wise Performance</h4>
-								<div class="branches-container">
-									{#each Object.entries(branchStats) as [branchId, branch]}
-										{@const branchCompleted = branch.completed}
-										{@const branchTotal = branch.total}
-										{@const branchPercent = branchTotal > 0 ? (branchCompleted / branchTotal) * 100 : 0}
-										{@const branchSegments = createSmallPieSegments(branchTotal, branchCompleted)}
-										<div class="branch-item">
-											<h5 class="branch-name">{$currentLocale === 'ar' ? branch.name_ar : branch.name_en}</h5>
-										<div class="pie-chart-wrapper-small">
-											<svg class="pie-svg-small" viewBox="0 0 100 100">
-												<defs>
-													<filter id="shadow-small-{branchId}" x="-50%" y="-50%" width="200%" height="200%">
-														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
-													</filter>
-													<radialGradient id="grad-green-small-{branchId}" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-													</radialGradient>
-													<radialGradient id="grad-red-small-{branchId}" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-													</radialGradient>
-												</defs>
-												<!-- Shadow layer -->
-												{#each branchSegments as segment}
-													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-												{/each}
-												<!-- Main segments with gradient -->
-												{#each branchSegments as segment}
-													<path 
-														d={segment.path} 
-														fill={segment.color === '#008000' ? `url(#grad-green-small-${branchId})` : `url(#grad-red-small-${branchId})`}
-														filter="url(#shadow-small-{branchId})"
-														stroke="white"
-														stroke-width="0.8"
-													/>
-												{/each}
-											</svg>
-											<div class="pie-text-small">
-												<div class="pie-percent-small">{branchPercent.toFixed(0)}%</div>
-												<div class="pie-count-small">{branchCompleted}/{branchTotal}</div>
-											</div>
-										</div>
-										</div>
-									{/each}
-								</div>
-							</div>
-						{/if}
-					{/if}
-				</div>
-			</div>
+        <div class="relative max-w-[99%] mx-auto space-y-6">
+            {#if loading}
+                <div class="flex items-center justify-center h-64">
+                    <div class="text-center">
+                        <div class="animate-spin inline-block">
+                            <div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full"></div>
+                        </div>
+                        <p class="mt-4 text-slate-600 font-semibold">{isRTL ? 'جاري تحميل البيانات...' : 'Loading performance data...'}</p>
+                    </div>
+                </div>
+            {:else if error}
+                <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+                    <p class="text-red-600 font-semibold">{error}</p>
+                    <button class="mt-4 px-6 py-2 bg-red-600 text-white rounded-xl text-sm font-bold" on:click={loadData}>{isRTL ? 'إعادة المحاولة' : 'Retry'}</button>
+                </div>
+            {:else if data}
+                <!-- KPI Cards Row -->
+                <div class="grid grid-cols-5 gap-4">
+                    <!-- Total Tasks -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-blue-100/40 rounded-full -mr-6 -mt-6"></div>
+                        <div class="relative">
+                            <p class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{isRTL ? 'إجمالي المهام' : 'Total Tasks'}</p>
+                            <p class="text-3xl font-black text-slate-900">{totals.total_tasks?.toLocaleString() || 0}</p>
+                            <p class="text-xs text-slate-400 mt-1">{filterLabel}</p>
+                        </div>
+                    </div>
 
-			<!-- Card 2: Specific Date -->
-			<div class="card">
-				<div class="card-header">
-					<h3 class="card-title">{t('mobile.dashboardContent.branchPerformance.specificDate') || '📅 Specific Date'}</h3>
-				</div>
-				<div class="card-body">
-					<div class="date-range-form">
-						<div class="form-group">
-							<label for="specific-date">{t('mobile.dashboardContent.branchPerformance.selectDate') || 'Select Date'}</label>
-							<input
-								id="specific-date"
-								type="date"
-								bind:value={specificDate}
-								class="date-input"
-								disabled={loadingCard2}
-							/>
-						</div>
-						<button class="apply-btn" on:click={loadSpecificDatePerformance} disabled={loadingCard2}>
-							{loadingCard2 ? t('common.loading') || 'Loading...' : t('mobile.dashboardContent.branchPerformance.loadPerformance') || 'Load Performance'}
-						</button>
-					</div>
+                    <!-- Completed -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-green-100/40 rounded-full -mr-6 -mt-6"></div>
+                        <div class="relative">
+                            <p class="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-1">{isRTL ? 'مكتمل' : 'Completed'}</p>
+                            <p class="text-3xl font-black text-emerald-700">{totals.completed_tasks?.toLocaleString() || 0}</p>
+                            <p class="text-xs text-emerald-500 mt-1">{completionRate}% {isRTL ? 'معدل الإنجاز' : 'completion rate'}</p>
+                        </div>
+                    </div>
 
-					{#if statsCard2.total > 0}
-						{@const { completedPercent: completedPercentCard2 } = (() => {
-							const completed = (statsCard2.completed / statsCard2.total) * 100;
-							return { completedPercent: completed };
-						})()}
-						{@const segmentsCard2 = createPieSegments(statsCard2.total, statsCard2.completed)}
-						<div class="pie-chart-container">
-							<div class="pie-wrapper">
-								<h4 class="pie-title">📊 Total Performance</h4>
-							<div class="pie-chart-wrapper">
-								<svg class="pie-svg" viewBox="0 0 120 120">
-									<defs>
-										<filter id="shadow-large-card2" x="-50%" y="-50%" width="200%" height="200%">
-											<feDropShadow dx="0" dy="3" stdDeviation="2" flood-opacity="0.3" flood-color="#000000" />
-										</filter>
-										<radialGradient id="grad-green-card2" cx="35%" cy="35%">
-											<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-											<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-										</radialGradient>
-										<radialGradient id="grad-red-card2" cx="35%" cy="35%">
-											<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-											<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-										</radialGradient>
-									</defs>
-									<!-- Shadow layer -->
-									{#each segmentsCard2 as segment}
-										<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-									{/each}
-									<!-- Main segments with gradient -->
-									{#each segmentsCard2 as segment}
-										<path 
-											d={segment.path} 
-											fill={segment.color === '#008000' ? 'url(#grad-green-card2)' : 'url(#grad-red-card2)'}
-											filter="url(#shadow-large-card2)"
-											stroke="white"
-											stroke-width="1"
-										/>
-									{/each}
-								</svg>
-								<!-- Center text overlay -->
-								<div class="pie-text">
-									<div class="pie-percent">{completedPercentCard2.toFixed(0)}%</div>
-									<div class="pie-count">{statsCard2.completed}/{statsCard2.total}</div>
-								</div>
-							</div>
-							</div>
-						</div>
+                    <!-- Pending -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-yellow-100/40 rounded-full -mr-6 -mt-6"></div>
+                        <div class="relative">
+                            <p class="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1">{isRTL ? 'قيد الانتظار' : 'Pending'}</p>
+                            <p class="text-3xl font-black text-amber-700">{totals.pending_tasks?.toLocaleString() || 0}</p>
+                            <p class="text-xs text-amber-500 mt-1">{isRTL ? 'بحاجة لإكمال' : 'awaiting completion'}</p>
+                        </div>
+                    </div>
 
-						<!-- Branch-wise performance -->
-						{#if Object.keys(branchStatsCard2).length > 0}
-							<div class="branches-grid">
-								<h4 class="branches-title">🏢 Branch-wise Performance</h4>
-								<div class="branches-container">
-									{#each Object.entries(branchStatsCard2) as [branchId, branch]}
-										{@const branchCompleted = branch.completed}
-										{@const branchTotal = branch.total}
-										{@const branchPercent = branchTotal > 0 ? (branchCompleted / branchTotal) * 100 : 0}
-										{@const branchSegmentsCard2 = createSmallPieSegments(branchTotal, branchCompleted)}
-										<div class="branch-item">
-											<h5 class="branch-name">{$currentLocale === 'ar' ? branch.name_ar : branch.name_en}</h5>
-										<div class="pie-chart-wrapper-small">
-											<svg class="pie-svg-small" viewBox="0 0 100 100">
-												<defs>
-													<filter id="shadow-small-card2-{branchId}" x="-50%" y="-50%" width="200%" height="200%">
-														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
-													</filter>
-													<radialGradient id="grad-green-small-card2-{branchId}" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-													</radialGradient>
-													<radialGradient id="grad-red-small-card2-{branchId}" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-													</radialGradient>
-												</defs>
-												<!-- Shadow layer -->
-												{#each branchSegmentsCard2 as segment}
-													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-												{/each}
-												<!-- Main segments with gradient -->
-												{#each branchSegmentsCard2 as segment}
-													<path 
-														d={segment.path} 
-														fill={segment.color === '#008000' ? `url(#grad-green-small-card2-${branchId})` : `url(#grad-red-small-card2-${branchId})`}
-														filter="url(#shadow-small-card2-{branchId})"
-														stroke="white"
-														stroke-width="0.8"
-													/>
-												{/each}
-											</svg>
-											<div class="pie-text-small">
-												<div class="pie-percent-small">{branchPercent.toFixed(0)}%</div>
-												<div class="pie-count-small">{branchCompleted}/{branchTotal}</div>
-											</div>
-										</div>
-										</div>
-									{/each}
-								</div>
-							</div>
-						{/if}
-					{/if}
-				</div>
-			</div>
+                    <!-- Overdue -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-red-100/40 rounded-full -mr-6 -mt-6"></div>
+                        <div class="relative">
+                            <p class="text-xs font-bold text-red-600 uppercase tracking-wide mb-1">{isRTL ? 'متأخر' : 'Overdue'}</p>
+                            <p class="text-3xl font-black text-red-700">{totals.overdue_tasks?.toLocaleString() || 0}</p>
+                            <p class="text-xs text-red-400 mt-1">{isRTL ? 'تجاوز الموعد' : 'past deadline'}</p>
+                        </div>
+                    </div>
 
-			<!-- Card 3 -->
-			<div class="card">
-				<div class="card-header">
-					<h3 class="card-title">{t('mobile.dashboardContent.branchPerformance.last3Days') || 'Last 3 Days Performance'}</h3>
-				</div>
-				<div class="card-body">
-					<div class="input-group">
-						<label>{t('mobile.dashboardContent.branchPerformance.selectBranch') || 'Select Branch:'}</label>
-						<select bind:value={selectedBranchCard3}>
-							<option value="">{t('common.chooseBranch') || '-- Choose Branch --'}</option>
-							{#each allBranches as branch (branch.id)}
-								<option value={branch.id}>{$currentLocale === 'ar' ? branch.name_ar : branch.name_en}</option>
-							{/each}
-						</select>
-					</div>
+                    <!-- Avg Completion Time -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-20 h-20 bg-violet-100/40 rounded-full -mr-6 -mt-6"></div>
+                        <div class="relative">
+                            <p class="text-xs font-bold text-violet-600 uppercase tracking-wide mb-1">{isRTL ? 'متوسط الإنجاز' : 'Avg Completion'}</p>
+                            <p class="text-3xl font-black text-violet-700">{totals.avg_completion_hours || 0}<span class="text-sm font-bold text-violet-400 ml-1">{isRTL ? 'ساعة' : 'hrs'}</span></p>
+                            <p class="text-xs text-violet-400 mt-1">{isRTL ? 'وقت الإنجاز' : 'avg response time'}</p>
+                        </div>
+                    </div>
+                </div>
 
-				<button class="load-btn" on:click={loadCard3Performance} disabled={loadingCard3}>
-					{loadingCard3 ? t('common.loading') || '⏳ Loading...' : t('mobile.dashboardContent.branchPerformance.loadPerformance') || '📊 Load Performance'}
-				</button>					{#if !loadingCard3}
-						<div class="days-container">
-							<!-- Day 1: Today -->
-							<div class="day-card">
-								{#if true}
-									{@const today = new Date()}
-									{@const day1Str = today.toLocaleDateString('en-GB')}
-									{@const day1Str2 = today.getDate()}
-									<h4 class="day-title">{t('common.today') || 'Today'} ({day1Str})</h4>
-									{#if statsCard3Day1 && statsCard3Day1.total > 0}
-										{@const day1Segments = createSmallPieSegments(statsCard3Day1.total, statsCard3Day1.completed)}
-										{@const day1Percent = statsCard3Day1.total > 0 ? (statsCard3Day1.completed / statsCard3Day1.total) * 100 : 0}
-										<div class="pie-chart-wrapper-small">
-											<svg class="pie-svg-small" viewBox="0 0 100 100">
-												<defs>
-													<filter id="shadow-day1" x="-50%" y="-50%" width="200%" height="200%">
-														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
-													</filter>
-													<radialGradient id="grad-green-day1" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-													</radialGradient>
-													<radialGradient id="grad-red-day1" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-													</radialGradient>
-												</defs>
-												<!-- Shadow layer -->
-												{#each day1Segments as segment}
-													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-												{/each}
-												<!-- Main segments with gradient -->
-												{#each day1Segments as segment}
-													<path 
-														d={segment.path} 
-														fill={segment.color === '#008000' ? 'url(#grad-green-day1)' : 'url(#grad-red-day1)'}
-														filter="url(#shadow-day1)"
-														stroke="white"
-														stroke-width="0.8"
-													/>
-												{/each}
-											</svg>
-											<div class="pie-text-small">
-												<div class="pie-percent-small">{day1Percent.toFixed(0)}%</div>
-												<div class="pie-count-small">{statsCard3Day1.completed}/{statsCard3Day1.total}</div>
-											</div>
-										</div>
-									{:else}
-										<div class="no-data">{t('mobile.dashboardContent.branchPerformance.noDataToday') || 'No data for today'}</div>
-									{/if}
-								{/if}
-							</div>
+                <!-- Charts Row -->
+                <div class="grid grid-cols-3 gap-4">
+                    <!-- Task Type Distribution (Pie) -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wide mb-4">{isRTL ? 'توزيع أنواع المهام' : 'Task Type Distribution'}</h3>
+                        <div class="flex items-center justify-center gap-6">
+                            <svg viewBox="0 0 100 100" class="w-28 h-28">
+                                {#if pieSlices.length === 0}
+                                    <circle cx="50" cy="50" r="40" fill="#e2e8f0"/>
+                                {:else}
+                                    {#each pieSlices as slice}
+                                        <path d={slice.path} fill={slice.color} opacity="0.85">
+                                            <title>{slice.label}: {slice.count} ({slice.pct}%)</title>
+                                        </path>
+                                    {/each}
+                                {/if}
+                            </svg>
+                            <div class="space-y-2">
+                                {#each pieSlices as slice}
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full" style="background-color: {slice.color}"></div>
+                                        <span class="text-xs font-semibold text-slate-700">{slice.label}</span>
+                                        <span class="text-xs font-bold text-slate-900">{slice.count}</span>
+                                        <span class="text-xs text-slate-400">({slice.pct}%)</span>
+                                    </div>
+                                {/each}
+                                {#if pieSlices.length === 0}
+                                    <p class="text-xs text-slate-400">{isRTL ? 'لا توجد بيانات' : 'No data'}</p>
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
 
-							<!-- Day 2: Yesterday -->
-							<div class="day-card">
-								{#if true}
-									{@const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; })()}
-									{@const day2Str = yesterday.toLocaleDateString('en-GB')}
-									<h4 class="day-title">{t('common.yesterday') || 'Yesterday'} ({day2Str})</h4>
-									{#if statsCard3Day2 && statsCard3Day2.total > 0}
-										{@const day2Segments = createSmallPieSegments(statsCard3Day2.total, statsCard3Day2.completed)}
-										{@const day2Percent = statsCard3Day2.total > 0 ? (statsCard3Day2.completed / statsCard3Day2.total) * 100 : 0}
-										<div class="pie-chart-wrapper-small">
-											<svg class="pie-svg-small" viewBox="0 0 100 100">
-												<defs>
-													<filter id="shadow-day2" x="-50%" y="-50%" width="200%" height="200%">
-														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
-													</filter>
-													<radialGradient id="grad-green-day2" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-													</radialGradient>
-													<radialGradient id="grad-red-day2" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-													</radialGradient>
-												</defs>
-												<!-- Shadow layer -->
-												{#each day2Segments as segment}
-													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-												{/each}
-												<!-- Main segments with gradient -->
-												{#each day2Segments as segment}
-													<path 
-														d={segment.path} 
-														fill={segment.color === '#008000' ? 'url(#grad-green-day2)' : 'url(#grad-red-day2)'}
-														filter="url(#shadow-day2)"
-														stroke="white"
-														stroke-width="0.8"
-													/>
-												{/each}
-											</svg>
-											<div class="pie-text-small">
-												<div class="pie-percent-small">{day2Percent.toFixed(0)}%</div>
-												<div class="pie-count-small">{statsCard3Day2.completed}/{statsCard3Day2.total}</div>
-											</div>
-										</div>
-									{:else}
-										<div class="no-data">{t('mobile.dashboardContent.branchPerformance.noDataYesterday') || 'No data for yesterday'}</div>
-									{/if}
-								{/if}
-							</div>
+                    <!-- Status Distribution (Pie) -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wide mb-4">{isRTL ? 'حالة المهام' : 'Task Status Overview'}</h3>
+                        <div class="flex items-center justify-center gap-6">
+                            <svg viewBox="0 0 100 100" class="w-28 h-28">
+                                {#if statusPieSlices.length === 0}
+                                    <circle cx="50" cy="50" r="40" fill="#e2e8f0"/>
+                                {:else}
+                                    {#each statusPieSlices as slice}
+                                        <path d={slice.path} fill={slice.color} opacity="0.85">
+                                            <title>{slice.label}: {slice.count} ({slice.pct}%)</title>
+                                        </path>
+                                    {/each}
+                                {/if}
+                            </svg>
+                            <div class="space-y-2">
+                                {#each statusPieSlices as slice}
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full" style="background-color: {slice.color}"></div>
+                                        <span class="text-xs font-semibold text-slate-700">{slice.label}</span>
+                                        <span class="text-xs font-bold text-slate-900">{slice.count}</span>
+                                        <span class="text-xs text-slate-400">({slice.pct}%)</span>
+                                    </div>
+                                {/each}
+                                {#if statusPieSlices.length === 0}
+                                    <p class="text-xs text-slate-400">{isRTL ? 'لا توجد بيانات' : 'No data'}</p>
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
 
-							<!-- Day 3: 2 Days Ago -->
-							<div class="day-card">
-								{#if true}
-									{@const twodaysago = (() => { const d = new Date(); d.setDate(d.getDate() - 2); return d; })()}
-									{@const day3Str = twodaysago.toLocaleDateString('en-GB')}
-									<h4 class="day-title">{t('mobile.dashboardContent.branchPerformance.twoDaysAgo') || '2 Days Ago'} ({day3Str})</h4>
-									{#if statsCard3Day3 && statsCard3Day3.total > 0}
-										{@const day3Segments = createSmallPieSegments(statsCard3Day3.total, statsCard3Day3.completed)}
-										{@const day3Percent = statsCard3Day3.total > 0 ? (statsCard3Day3.completed / statsCard3Day3.total) * 100 : 0}
-										<div class="pie-chart-wrapper-small">
-											<svg class="pie-svg-small" viewBox="0 0 100 100">
-												<defs>
-													<filter id="shadow-day3" x="-50%" y="-50%" width="200%" height="200%">
-														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
-													</filter>
-													<radialGradient id="grad-green-day3" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
-													</radialGradient>
-													<radialGradient id="grad-red-day3" cx="35%" cy="35%">
-														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
-														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
-													</radialGradient>
-												</defs>
-												<!-- Shadow layer -->
-												{#each day3Segments as segment}
-													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
-												{/each}
-												<!-- Main segments with gradient -->
-												{#each day3Segments as segment}
-													<path 
-														d={segment.path} 
-														fill={segment.color === '#008000' ? 'url(#grad-green-day3)' : 'url(#grad-red-day3)'}
-														filter="url(#shadow-day3)"
-														stroke="white"
-														stroke-width="0.8"
-													/>
-												{/each}
-											</svg>
-											<div class="pie-text-small">
-												<div class="pie-percent-small">{day3Percent.toFixed(0)}%</div>
-												<div class="pie-count-small">{statsCard3Day3.completed}/{statsCard3Day3.total}</div>
-											</div>
-										</div>
-									{:else}
-										<div class="no-data">{t('mobile.dashboardContent.branchPerformance.noDataTwoDaysAgo') || 'No data for 2 days ago'}</div>
-									{/if}
-								{/if}
-							</div>
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-	</div>
+                    <!-- Completion Rate Gauge -->
+                    <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-wide mb-4">{isRTL ? 'معدل الإنجاز الكلي' : 'Overall Completion Rate'}</h3>
+                        <div class="flex items-center justify-center">
+                            <div class="relative">
+                                <svg viewBox="0 0 100 100" class="w-32 h-32">
+                                    <circle cx="50" cy="50" r="42" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                                    <circle cx="50" cy="50" r="42" fill="none"
+                                        stroke={getCompletionColor(completionRate)}
+                                        stroke-width="8"
+                                        stroke-dasharray="{completionRate * 2.64} 264"
+                                        stroke-linecap="round"
+                                        transform="rotate(-90 50 50)"
+                                        class="transition-all duration-1000"
+                                    />
+                                </svg>
+                                <div class="absolute inset-0 flex items-center justify-center flex-col">
+                                    <span class="text-2xl font-black" style="color: {getCompletionColor(completionRate)}">{completionRate}%</span>
+                                    <span class="text-[10px] text-slate-400 font-bold">{isRTL ? 'إنجاز' : 'completed'}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex justify-center gap-4 mt-3">
+                            <div class="text-center">
+                                <p class="text-lg font-black text-emerald-600">{totals.completed_tasks || 0}</p>
+                                <p class="text-[10px] text-slate-400 font-bold uppercase">{isRTL ? 'مكتمل' : 'Done'}</p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-lg font-black text-amber-600">{totals.pending_tasks || 0}</p>
+                                <p class="text-[10px] text-slate-400 font-bold uppercase">{isRTL ? 'متبقي' : 'Left'}</p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-lg font-black text-red-600">{totals.overdue_tasks || 0}</p>
+                                <p class="text-[10px] text-slate-400 font-bold uppercase">{isRTL ? 'متأخر' : 'Late'}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Trend Chart -->
+                <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
+                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wide mb-4">
+                        {isRTL ? 'الاتجاه اليومي (إنشاء مقابل إنجاز)' : 'Daily Trend (Created vs Completed)'}
+                    </h3>
+                    {#if visibleDaily.length > 0}
+                        <div class="overflow-x-auto">
+                            <svg viewBox="0 0 {visibleDaily.length * 50 + 40} 160" class="w-full min-w-[600px]" style="max-height: 200px;">
+                                <!-- Grid lines -->
+                                {#each [0, 25, 50, 75, 100] as pct}
+                                    <line x1="30" y1={10 + (100 - pct)} x2={visibleDaily.length * 50 + 30} y2={10 + (100 - pct)} stroke="#e2e8f0" stroke-width="0.5"/>
+                                    <text x="25" y={14 + (100 - pct)} text-anchor="end" class="text-[8px] fill-slate-400">{Math.round(getDailyMax(visibleDaily) * pct / 100)}</text>
+                                {/each}
+
+                                {#each visibleDaily as day, i}
+                                    {@const barX = 35 + i * 50}
+                                    {@const maxVal = getDailyMax(visibleDaily)}
+                                    {@const createdH = maxVal > 0 ? (day.created / maxVal) * 100 : 0}
+                                    {@const completedH = maxVal > 0 ? (day.completed / maxVal) * 100 : 0}
+
+                                    <!-- Created bar -->
+                                    <rect x={barX} y={110 - createdH} width="16" height={createdH} rx="3" fill="#93c5fd" opacity="0.7">
+                                        <title>{isRTL ? 'تم إنشاء' : 'Created'}: {day.created}</title>
+                                    </rect>
+                                    <!-- Completed bar -->
+                                    <rect x={barX + 18} y={110 - completedH} width="16" height={completedH} rx="3" fill="#22c55e" opacity="0.8">
+                                        <title>{isRTL ? 'مكتمل' : 'Completed'}: {day.completed}</title>
+                                    </rect>
+                                    <!-- Date label -->
+                                    <text x={barX + 17} y="125" text-anchor="middle" class="text-[7px] fill-slate-500 font-semibold">{formatDay(day.day)}</text>
+                                {/each}
+
+                                <!-- Legend -->
+                                <rect x={visibleDaily.length * 50 - 30} y="135" width="10" height="6" rx="2" fill="#93c5fd" opacity="0.7"/>
+                                <text x={visibleDaily.length * 50 - 16} y="141" class="text-[7px] fill-slate-500">{isRTL ? 'إنشاء' : 'Created'}</text>
+                                <rect x={visibleDaily.length * 50 + 20} y="135" width="10" height="6" rx="2" fill="#22c55e" opacity="0.8"/>
+                                <text x={visibleDaily.length * 50 + 34} y="141" class="text-[7px] fill-slate-500">{isRTL ? 'إنجاز' : 'Done'}</text>
+                            </svg>
+                        </div>
+                    {:else}
+                        <p class="text-center text-sm text-slate-400 py-8">{isRTL ? 'لا توجد بيانات يومية' : 'No daily data available'}</p>
+                    {/if}
+                </div>
+
+                <!-- Branch Comparison Table + Top Employees -->
+                <div class="grid grid-cols-3 gap-4">
+                    <!-- Branch Table (2/3) -->
+                    <div class="col-span-2 bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden">
+                        <div class="px-5 py-3 bg-indigo-600">
+                            <h3 class="text-sm font-black text-white uppercase tracking-wide">{isRTL ? 'أداء الفروع' : 'Branch Comparison'}</h3>
+                        </div>
+                        <div class="overflow-x-auto max-h-[320px] overflow-y-auto">
+                            <table class="w-full border-collapse text-xs">
+                                <thead class="sticky top-0 bg-indigo-50 z-10">
+                                    <tr>
+                                        <th class="px-4 py-2.5 {isRTL ? 'text-right' : 'text-left'} font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'الفرع' : 'Branch'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'إجمالي' : 'Total'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'مكتمل' : 'Done'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'متبقي' : 'Pending'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'متأخر' : 'Overdue'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'عادي' : 'Regular'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'سريع' : 'Quick'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'استلام' : 'Recv'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'إنجاز %' : 'Rate'}</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    {#each branchStats as branch, idx}
+                                        <tr class="hover:bg-indigo-50/50 transition-colors {idx % 2 === 0 ? 'bg-white/50' : 'bg-slate-50/30'}">
+                                            <td class="px-4 py-2.5 font-semibold text-slate-800">{getBranchName(branch)}</td>
+                                            <td class="px-3 py-2.5 text-center font-bold text-slate-900">{branch.total_tasks}</td>
+                                            <td class="px-3 py-2.5 text-center font-bold text-emerald-600">{branch.completed}</td>
+                                            <td class="px-3 py-2.5 text-center font-bold text-amber-600">{branch.pending}</td>
+                                            <td class="px-3 py-2.5 text-center font-bold {branch.overdue > 0 ? 'text-red-600' : 'text-slate-400'}">{branch.overdue}</td>
+                                            <td class="px-3 py-2.5 text-center text-blue-600">{branch.regular_count}</td>
+                                            <td class="px-3 py-2.5 text-center text-amber-600">{branch.quick_count}</td>
+                                            <td class="px-3 py-2.5 text-center text-violet-600">{branch.receiving_count}</td>
+                                            <td class="px-3 py-2.5 text-center">
+                                                <div class="flex items-center gap-1.5 justify-center">
+                                                    <div class="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                                        <div class="h-full rounded-full transition-all" style="width: {branch.completion_rate}%; background-color: {getCompletionColor(branch.completion_rate)}"></div>
+                                                    </div>
+                                                    <span class="font-bold" style="color: {getCompletionColor(branch.completion_rate)}">{branch.completion_rate}%</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {/each}
+                                    {#if branchStats.length === 0}
+                                        <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">{isRTL ? 'لا توجد بيانات' : 'No branch data'}</td></tr>
+                                    {/if}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Top Employees (1/3) -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden">
+                        <div class="px-5 py-3 bg-emerald-600 flex items-center justify-between">
+                            <h3 class="text-sm font-black text-white uppercase tracking-wide">{isRTL ? 'أفضل الموظفين' : 'Top Performers'}</h3>
+                            <span class="text-[10px] font-bold text-emerald-100">{filteredEmployees.length} {isRTL ? 'موظف' : 'emp'}</span>
+                        </div>
+                        <div class="px-3 py-2 border-b border-slate-100 relative">
+                            <button class="flex items-center gap-2 w-full px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all text-left"
+                                on:click={() => showBranchPopup = !showBranchPopup}>
+                                <span class="text-sm">🏢</span>
+                                <span class="flex-1 text-[11px] font-bold text-slate-700">{getBranchFilterLabel()}</span>
+                                <span class="text-[9px] font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded">{filteredEmployees.length}</span>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-slate-400"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            {#if showBranchPopup}
+                                <div class="absolute {isRTL ? 'right-2' : 'left-2'} top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 w-56 max-h-64 overflow-y-auto" style="animation: fadeIn 0.15s;">
+                                    <button class="flex items-center gap-2 w-full px-3 py-2 hover:bg-slate-50 transition-colors text-left
+                                        {empBranchFilter === 'all' ? 'bg-emerald-50' : ''}"
+                                        on:click={() => selectBranch('all')}>
+                                        <span class="text-sm">🌐</span>
+                                        <span class="flex-1 text-[11px] font-semibold {empBranchFilter === 'all' ? 'text-emerald-700' : 'text-slate-600'}">{isRTL ? 'كل الفروع' : 'All Branches'}</span>
+                                        {#if empBranchFilter === 'all'}<span class="text-emerald-600 font-black text-xs">✓</span>{/if}
+                                    </button>
+                                    {#each availableBranches as br}
+                                        <button class="flex items-center gap-2 w-full px-3 py-2 hover:bg-slate-50 transition-colors text-left border-t border-slate-100
+                                            {empBranchFilter === br ? 'bg-emerald-50' : ''}"
+                                            on:click={() => selectBranch(br)}>
+                                            <span class="text-sm">🏢</span>
+                                            <span class="flex-1 text-[11px] font-semibold {empBranchFilter === br ? 'text-emerald-700' : 'text-slate-600'}">
+                                                {isRTL ? (branchStats.find((b) => b.branch_name_en === br)?.branch_name_ar || br) : br}
+                                            </span>
+                                            {#if empBranchFilter === br}<span class="text-emerald-600 font-black text-xs">✓</span>{/if}
+                                        </button>
+                                    {/each}
+                                </div>
+                                <!-- Click-away backdrop -->
+                                <button class="fixed inset-0 z-40" on:click={() => showBranchPopup = false} aria-label="Close" tabindex="-1"></button>
+                            {/if}
+                        </div>
+                        <div class="overflow-y-auto max-h-[280px]">
+                            {#each filteredEmployees as emp, idx}
+                                <div class="flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 hover:bg-emerald-50/50 transition-colors">
+                                    <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black
+                                        {idx === 0 ? 'bg-amber-100 text-amber-700' : idx === 1 ? 'bg-slate-200 text-slate-700' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}">
+                                        {idx + 1}
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-xs font-bold text-slate-800 truncate">{getEmpName(emp)}</p>
+                                        <p class="text-[10px] text-slate-400 truncate">{getEmpBranch(emp)}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-sm font-black text-emerald-600">{emp.completed}</p>
+                                        <p class="text-[10px] text-slate-400">{isRTL ? `من ${emp.total}` : `of ${emp.total}`}</p>
+                                    </div>
+                                    <div class="w-10">
+                                        <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                            <div class="h-full rounded-full" style="width: {emp.rate}%; background-color: {getCompletionColor(emp.rate)}"></div>
+                                        </div>
+                                        <p class="text-[9px] text-center font-bold mt-0.5" style="color: {getCompletionColor(emp.rate)}">{emp.rate}%</p>
+                                    </div>
+                                </div>
+                            {/each}
+                            {#if filteredEmployees.length === 0}
+                                <div class="px-4 py-8 text-center text-slate-400 text-xs">{isRTL ? 'لا توجد بيانات' : 'No data'}</div>
+                            {/if}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Branch Horizontal Bar Chart -->
+                <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
+                    <h3 class="text-sm font-black text-slate-800 uppercase tracking-wide mb-4">{isRTL ? 'مقارنة حجم المهام بين الفروع' : 'Branch Task Volume Comparison'}</h3>
+                    {#if branchStats.length > 0}
+                        <div class="space-y-2.5">
+                            {#each branchStats.slice(0, 10) as branch}
+                                {@const maxVal = getBarChartMaxValue(branchStats)}
+                                {@const pct = maxVal > 0 ? (branch.total_tasks / maxVal) * 100 : 0}
+                                <div class="flex items-center gap-3">
+                                    <div class="w-40 text-xs font-semibold text-slate-700 truncate {isRTL ? 'text-right' : 'text-left'}" title={getBranchName(branch)}>{getBranchName(branch)}</div>
+                                    <div class="flex-1 h-5 bg-slate-100 rounded-lg overflow-hidden relative">
+                                        <div class="h-full rounded-lg flex items-center transition-all duration-700" style="width: {pct}%; background: linear-gradient(90deg, #6366f1, #8b5cf6);">
+                                            {#if pct > 15}
+                                                <span class="text-[10px] font-bold text-white px-2">{branch.total_tasks}</span>
+                                            {/if}
+                                        </div>
+                                        {#if pct <= 15}
+                                            <span class="absolute top-0.5 text-[10px] font-bold text-slate-600" style="{isRTL ? 'right' : 'left'}: {pct + 2}%">{branch.total_tasks}</span>
+                                        {/if}
+                                    </div>
+                                    <div class="w-14 text-right">
+                                        <span class="text-xs font-bold" style="color: {getCompletionColor(branch.completion_rate)}">{branch.completion_rate}%</span>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+                    {:else}
+                        <p class="text-center text-sm text-slate-400 py-8">{isRTL ? 'لا توجد بيانات' : 'No data'}</p>
+                    {/if}
+                </div>
+            {/if}
+        </div>
+    </div>
 </div>
-
-<style>
-	.bp-container {
-		background: white;
-		border-radius: 12px;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		padding: 24px;
-	}
-
-	.content {
-		flex: 1;
-		overflow-y: auto;
-	}
-
-	.cards-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 20px;
-	}
-
-	.card {
-		background: white;
-		border: 2px solid #ff9800;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		overflow: hidden;
-		transition: all 0.2s ease;
-	}
-
-	.card:hover {
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-		transform: translateY(-2px);
-		border-color: #f57c00;
-	}
-
-	.card-header {
-		padding: 16px;
-		background: white;
-		border-bottom: 2px solid #ff9800;
-	}
-
-	.card-title {
-		margin: 0;
-		font-size: 16px;
-		font-weight: 600;
-		color: #ff9800;
-	}
-
-	.card-body {
-		padding: 16px;
-		min-height: auto;
-		color: #9ca3af;
-		font-size: 14px;
-	}
-
-	.card:first-child .card-body {
-		display: flex;
-		flex-direction: column;
-		min-height: auto;
-	}
-
-	.date-range-form {
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.form-group {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.form-group label {
-		font-size: 13px;
-		font-weight: 500;
-		color: #374151;
-	}
-
-	.date-input {
-		padding: 8px 12px;
-		border: 1px solid #ff9800;
-		border-radius: 6px;
-		font-size: 14px;
-		font-family: inherit;
-	}
-
-	.date-input:focus {
-		outline: none;
-		border-color: #f57c00;
-		box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
-	}
-
-	.apply-btn {
-		padding: 10px 16px;
-		background: #ff9800;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 14px;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.apply-btn:hover {
-		background: #f57c00;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 8px rgba(255, 152, 0, 0.3);
-	}
-
-	.apply-btn:active {
-		transform: translateY(0);
-	}
-
-	.apply-btn:disabled {
-		background: #d3d3d3;
-		cursor: not-allowed;
-		transform: none;
-	}
-
-	.pie-chart-container {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		margin-top: 20px;
-		padding-top: 20px;
-		border-top: 1px solid #f3f4f6;
-	}
-
-	.pie-wrapper {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.pie-title {
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-		margin: 0;
-	}
-
-	.pie-svg {
-		width: 180px;
-		height: 180px;
-	}
-
-	.pie-svg-small {
-		width: 140px;
-		height: 140px;
-	}
-
-	.pie-percent {
-		font-size: 22px;
-		font-weight: bold;
-		color: #0066cc;
-	}
-
-	.pie-percent-small {
-		font-size: 16px;
-		font-weight: bold;
-		color: #0066cc;
-	}
-
-	.pie-label {
-		font-size: 12px;
-		color: #0066cc;
-		font-weight: 500;
-	}
-
-	.pie-count {
-		font-size: 11px;
-		color: #0066cc;
-	}
-
-	.pie-count-small {
-		font-size: 10px;
-		color: #0066cc;
-	}
-
-	.branches-grid {
-		margin-top: 24px;
-		padding-top: 24px;
-		border-top: 1px solid #f3f4f6;
-	}
-
-	.branches-title {
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-		margin: 0 0 16px 0;
-	}
-
-	.branches-container {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 16px;
-	}
-
-	.branch-item {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 8px;
-		padding: 12px;
-		background: #fafafa;
-		border-radius: 8px;
-		border: 1px solid #f0f0f0;
-	}
-
-	.branch-name {
-		font-size: 12px;
-		font-weight: 600;
-		color: #008000;
-		text-align: center;
-	}
-
-	.input-group {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		margin-bottom: 12px;
-	}
-
-	.input-group label {
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.input-group select {
-		padding: 8px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 14px;
-		background-color: white;
-		color: #374151;
-		cursor: pointer;
-		background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-		background-repeat: no-repeat;
-		background-position: right 8px center;
-		padding-right: 32px;
-		appearance: none;
-		-webkit-appearance: none;
-		-moz-appearance: none;
-	}
-
-	:global([dir="rtl"]) .input-group select {
-		background-position: left 8px center;
-		padding-right: 12px;
-		padding-left: 32px;
-	}
-
-	.input-group select:focus {
-		outline: none;
-		border-color: #ff9800;
-		box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
-	}
-
-	.days-container {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-		margin-top: 20px;
-	}
-
-	.day-card {
-		background: #f9fafb;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		padding: 12px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.day-title {
-		font-size: 13px;
-		font-weight: 600;
-		color: #374151;
-		margin: 0;
-		text-align: center;
-	}
-
-	.no-data {
-		font-size: 12px;
-		color: #9ca3af;
-		text-align: center;
-		padding: 20px 0;
-	}
-</style>

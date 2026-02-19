@@ -634,12 +634,17 @@
 	}
 
 	/** Extract the correct language portion from bilingual text.
-	 * Title format: "English | العربية" (pipe separator)
-	 * Description format: "English\n---\nالعربية" (line separator)
+	 * Supports: "English|||العربية", "English | العربية", "English\n---\nالعربية"
 	 */
 	function getLocalizedContent(text) {
 		if (!text) return '';
 		const currentLocale = $locale;
+		
+		// New format: "English|||العربية"
+		if (text.includes('|||')) {
+			const parts = text.split('|||');
+			return currentLocale === 'ar' ? (parts[1] || parts[0]).trim() : parts[0].trim();
+		}
 		
 		// Check for title format: "English | العربية"
 		if (text.includes(' | ')) {
