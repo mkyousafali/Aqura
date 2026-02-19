@@ -1,8 +1,8 @@
-# Coming Soon Mask Toggle Guide (Customer Login Pages)
+# Currently Not Available Mask Toggle Guide (Customer Login Pages)
 
 ## Overview
 
-The customer login pages have "Coming Soon" masks/overlays that can be toggled on and off. These were used to indicate that the **Home Delivery & Store Pickup** feature via access code login is not yet available. There are **3 files** that need to be changed to fully enable or disable the masks.
+The customer login pages have "Currently Not Available" masks/overlays that can be toggled on and off. These were used to indicate that the **Home Delivery & Store Pickup** feature via access code login is not yet available. There are **3 files** that need to be changed to fully enable or disable the masks.
 
 ---
 
@@ -10,7 +10,7 @@ The customer login pages have "Coming Soon" masks/overlays that can be toggled o
 
 ### 1. `frontend/src/lib/components/customer-interface/common/CustomerLogin.svelte`
 
-**What it controls:** A white overlay with clock icon and "Coming Soon: Home Delivery & Store Pickup" text that covers the access code input section. Also disables the access code input fields, submit button, forgot/register links.
+**What it controls:** A white overlay with "Currently Not Available: Home Delivery & Store Pickup" text that covers the access code input section. Also disables the access code input fields, submit button, forgot/register links.
 
 **Line ~13 — `showMask` prop default value:**
 
@@ -25,7 +25,7 @@ export let showMask: boolean = true;
 **How it works:**
 - `showMask` prop → sets `blockAccessCodeInput` variable (line ~39)
 - `blockAccessCodeInput` controls:
-  - The "Coming Soon" mask overlay (line ~611: `{#if blockAccessCodeInput}`)
+  - The "Currently Not Available" mask overlay (line ~611: `{#if blockAccessCodeInput}`)
   - Disabling digit inputs (line ~640: `disabled={isLoading || blockAccessCodeInput}`)
   - Disabling remember device checkbox (line ~658)
   - Disabling submit button (line ~669)
@@ -75,7 +75,7 @@ let showMask = true;
 
 ## Quick Reference
 
-### To REMOVE all "Coming Soon" masks (allow customer login):
+### To REMOVE all "Currently Not Available" masks (allow customer login):
 
 | File | Change |
 |------|--------|
@@ -83,7 +83,7 @@ let showMask = true;
 | `login/+page.svelte` line ~23 | `let showMask = false;` |
 | `login/customer/+page.svelte` line ~10 | `let showMask = false;` |
 
-### To ADD BACK all "Coming Soon" masks (block customer login):
+### To ADD BACK all "Currently Not Available" masks (block customer login):
 
 | File | Change |
 |------|--------|

@@ -8,9 +8,9 @@
 
 	// Props
 	export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
-	// NOTE: showMask controls the "Coming Soon: Home Delivery & Store Pickup" mask
-	// Set to false to allow customer login access code input
-	export let showMask: boolean = false;
+	// NOTE: showMask controls the "Currently Not Available" mask
+	// Set to true to block customer login access code input
+	export let showMask: boolean = true;
 	// Auto-login code from URL (WhatsApp login button redirect)
 	export let autoLoginCode: string | null = null;
 
@@ -714,13 +714,13 @@
 						{/if}
 						<div class="mask-message">
 							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
-								<path d="M12.5 7H11v6l5.2 3.2.8-1.3-4.5-2.7z"/>
+								<circle cx="12" cy="12" r="10"/>
+								<path d="M4.93 4.93l14.14 14.14"/>
 							</svg>
 							<h3>
 								{$currentLocale === 'ar' 
-									? 'قريباً: التوصيل المنزلي والاستلام من المتجر' 
-									: 'Coming Soon: Home Delivery & Store Pickup'}
+									? 'غير متاح حالياً: التوصيل المنزلي والاستلام من المتجر' 
+									: 'Currently Not Available: Home Delivery & Store Pickup'}
 							</h3>
 						</div>
 					</div>

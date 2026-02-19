@@ -39,6 +39,11 @@
 	let branches = [];
 	let loadingBranches = false;
 	let selectedBranch = null;
+
+	// Customer login mask toggle
+	let customerLoginMaskEnabled = true;
+	let maskToggleLoading = false;
+	let maskToggleSaved = false;
 	let branchSettingsForm = {
 		minimumOrderAmount: 15.00,
 		deliveryServiceEnabled: true,
@@ -55,7 +60,43 @@
 	
 	onMount(async () => {
 		await loadData();
+		await loadMaskSetting();
 	});
+	
+	async function loadMaskSetting() {
+		try {
+			const { data, error } = await supabase
+				.from('delivery_service_settings')
+				.select('customer_login_mask_enabled')
+				.single();
+			if (!error && data) {
+				customerLoginMaskEnabled = data.customer_login_mask_enabled;
+			}
+		} catch (e) {
+			console.error('Error loading mask setting:', e);
+		}
+	}
+
+	async function toggleMaskSetting() {
+		maskToggleLoading = true;
+		maskToggleSaved = false;
+		try {
+			const newValue = !customerLoginMaskEnabled;
+			const { error } = await supabase
+				.from('delivery_service_settings')
+				.update({ customer_login_mask_enabled: newValue })
+				.eq('id', '00000000-0000-0000-0000-000000000001');
+			if (error) throw error;
+			customerLoginMaskEnabled = newValue;
+			maskToggleSaved = true;
+			setTimeout(() => { maskToggleSaved = false; }, 2000);
+		} catch (e) {
+			console.error('Error toggling mask:', e);
+			alert('❌ Failed to update setting');
+		} finally {
+			maskToggleLoading = false;
+		}
+	}
 	
 	async function loadData() {
 		await deliveryActions.initialize();
@@ -328,6 +369,41 @@
 	<!-- General Settings Tab -->
 	{#if activeTab === 'settings'}
 		<div class="tab-content">
+			<!-- Customer Login Access Section -->
+			<div class="mask-toggle-section">
+				<div class="mask-toggle-header">
+					<div class="mask-toggle-info">
+						<h3>🔐 Customer Login Access</h3>
+						<p>Control whether the customer login (access code) is available or blocked with a "Currently Not Available" overlay.</p>
+					</div>
+					<div class="mask-toggle-control">
+						<button 
+							class="mask-toggle-btn {customerLoginMaskEnabled ? 'masked' : 'unmasked'}"
+							on:click={toggleMaskSetting}
+							disabled={maskToggleLoading}
+						>
+							{#if maskToggleLoading}
+								⏳ Saving...
+							{:else if customerLoginMaskEnabled}
+								🚫 Login Blocked (Mask ON)
+							{:else}
+								✅ Login Active (Mask OFF)
+							{/if}
+						</button>
+						{#if maskToggleSaved}
+							<span class="mask-saved-badge">✓ Saved</span>
+						{/if}
+					</div>
+				</div>
+				<div class="mask-status-note">
+					{#if customerLoginMaskEnabled}
+						⚠️ Customers see a "Currently Not Available" overlay on the login page and cannot enter access codes.
+					{:else}
+						✅ Customers can enter their access codes and log in normally. Auto-login from WhatsApp always works.
+					{/if}
+				</div>
+			</div>
+
 			<div class="section-header">
 				<h2>Branch Delivery Settings</h2>
 				<button class="btn-primary" on:click={saveSettings} disabled={!selectedBranch}>
@@ -882,6 +958,98 @@
 		text-align: center;
 		padding: 3rem;
 		color: #6b7280;
+	}
+
+	.mask-toggle-section {
+		background: white;
+		border: 2px solid #e5e7eb;
+		border-radius: 12px;
+		padding: 1.5rem;
+		margin-bottom: 2rem;
+	}
+
+	.mask-toggle-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1.5rem;
+		flex-wrap: wrap;
+	}
+
+	.mask-toggle-info h3 {
+		margin: 0 0 0.25rem 0;
+		font-size: 1.15rem;
+		color: #1f2937;
+	}
+
+	.mask-toggle-info p {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	.mask-toggle-control {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.mask-toggle-btn {
+		padding: 0.75rem 1.5rem;
+		border: 2px solid;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.mask-toggle-btn.masked {
+		background: #fef2f2;
+		border-color: #ef4444;
+		color: #dc2626;
+	}
+
+	.mask-toggle-btn.masked:hover {
+		background: #fee2e2;
+	}
+
+	.mask-toggle-btn.unmasked {
+		background: #f0fdf4;
+		border-color: #22c55e;
+		color: #16a34a;
+	}
+
+	.mask-toggle-btn.unmasked:hover {
+		background: #dcfce7;
+	}
+
+	.mask-toggle-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.mask-saved-badge {
+		color: #16a34a;
+		font-weight: 600;
+		font-size: 0.9rem;
+		animation: fadeIn 0.3s ease;
+	}
+
+	@keyframes fadeIn {
+		from { opacity: 0; transform: translateY(-4px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.mask-status-note {
+		margin-top: 1rem;
+		padding: 0.75rem 1rem;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		background: #f9fafb;
+		color: #374151;
+		border: 1px solid #e5e7eb;
 	}
 
 	.notice {
