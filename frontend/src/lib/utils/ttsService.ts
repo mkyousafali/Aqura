@@ -198,7 +198,8 @@ export function stopSpeaking() {
 
 export async function speakWithGoogleTTS(
 	text: string,
-	locale: string = 'en'
+	locale: string = 'en',
+	voiceIdOverride?: string
 ): Promise<void> {
 	const apiKey = await getGoogleTTSApiKey();
 	if (!apiKey) {
@@ -229,7 +230,7 @@ export async function speakWithGoogleTTS(
 		.join('<break time="600ms"/>') + '</speak>';
 
 	const isArabic = locale === 'ar';
-	const voiceId = getSelectedVoiceId(locale);
+	const voiceId = voiceIdOverride || getSelectedVoiceId(locale);
 	const voiceConfig = VOICE_OPTIONS.find(v => v.id === voiceId) || VOICE_OPTIONS[0];
 
 	const requestBody: TTSRequest = {
@@ -272,11 +273,16 @@ export async function speakWithGoogleTTS(
 			return;
 		}
 
-		// Play the audio
+		// Play the audio and wait for it to finish
 		const audioSrc = `data:audio/mp3;base64,${data.audioContent}`;
 		currentAudio = new Audio(audioSrc);
 		currentAudio.volume = 1;
-		await currentAudio.play();
+		await new Promise<void>((resolve, reject) => {
+			if (!currentAudio) { resolve(); return; }
+			currentAudio.onended = () => resolve();
+			currentAudio.onerror = () => reject(new Error('Audio playback error'));
+			currentAudio.play().catch(reject);
+		});
 	} catch (err) {
 		console.error('[TTS] Error calling Google TTS:', err);
 		fallbackBrowserSpeak(text, locale);
