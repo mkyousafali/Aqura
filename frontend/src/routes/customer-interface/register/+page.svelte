@@ -2,67 +2,138 @@
   import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { isAuthenticated } from '$lib/utils/persistentAuth';
+  import { isAuthenticated, currentUser } from '$lib/utils/persistentAuth';
+  import { _, switchLocale, currentLocale } from '$lib/i18n';
 
-  // Redirect if already logged in
+  let mounted = false;
+  let showContent = false;
+
   onMount(() => {
-    if ($isAuthenticated) {
-      goto('/');
+    mounted = true;
+    setTimeout(() => {
+      showContent = true;
+    }, 300);
+
+    if ($isAuthenticated && $currentUser) {
+      goto('/customer-interface');
     }
   });
+
+  function handleRegistrationSuccess(event: CustomEvent) {
+    const { detail } = event;
+    if (detail.type === 'customer_login' || detail.type === 'customer_register') {
+      goto('/customer-interface');
+    }
+  }
+
+  function goToLogin() {
+    goto('/customer-interface/login');
+  }
 </script>
 
 <svelte:head>
-  <title>Customer Registration - Aqura</title>
+  <title>{$_('customer.login.registerTitle') || 'Customer Registration'} - Aqura</title>
   <meta name="description" content="Register for Aqura Customer Portal access" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+  <meta name="theme-color" content="#059669" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="google" content="notranslate" />
   <meta name="notranslate" content="notranslate" />
 </svelte:head>
 
-<div class="registration-page">
-  <div class="registration-container">
-    <div class="registration-header">
-      <div class="company-logo">
-        <h1>أیکورا</h1>
-        <span class="logo-subtitle">AQURA</span>
+<div class="register-page" class:mounted>
+  {#if showContent}
+    <div class="register-content">
+      <div class="register-card">
+        <!-- Header -->
+        <div class="page-header">
+          <button 
+            class="back-btn"
+            on:click={goToLogin}
+            title={$_('common.back') || 'Back'}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            {$_('customer.login.loginButton') || 'Login'}
+          </button>
+
+          <div class="header-title">
+            <h1>{$_('customer.login.registerTitle') || 'Create Account'}</h1>
+          </div>
+
+          <button 
+            class="language-toggle" 
+            on:click={() => {
+              switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+              setTimeout(() => {
+                window.location.reload();
+              }, 100);
+            }}
+            title={$_('nav.languageToggle') || 'Switch Language'}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 12h8"/>
+              <path d="M12 8v8"/>
+            </svg>
+            {$currentLocale === 'ar' ? 'EN' : 'AR'}
+          </button>
+        </div>
+
+        <!-- Registration Form -->
+        <div class="register-form-container">
+          <CustomerLogin 
+            initialView="register"
+            showMask={false}
+            on:success={handleRegistrationSuccess}
+          />
+        </div>
       </div>
-      <button class="lang-toggle">العربية</button>
     </div>
-
-    <div class="registration-content">
-      <CustomerLogin initialView="register" />
-    </div>
-
-    <div class="registration-footer">
-      <p>Already have an account? <a href="/login">Sign in here</a></p>
-    </div>
-  </div>
+  {/if}
 </div>
 
 <style>
-  .registration-page {
+  .register-page {
     min-height: 100vh;
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
+    background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+    padding: 1rem;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
   }
 
-  .registration-container {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
+  .register-page.mounted {
+    opacity: 1;
+  }
+
+  .register-content {
     width: 100%;
-    max-width: 500px;
-    animation: fadeInUp 0.6s ease-out;
+    max-width: 480px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  @keyframes fadeInUp {
+  .register-card {
+    width: 100%;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1),
+      0 10px 20px rgba(5, 150, 105, 0.08);
+    overflow: hidden;
+    animation: slideUp 0.5s ease-out;
+  }
+
+  @keyframes slideUp {
     from {
       opacity: 0;
-      transform: translateY(30px);
+      transform: translateY(20px);
     }
     to {
       opacity: 1;
@@ -70,103 +141,132 @@
     }
   }
 
-  .registration-header {
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #059669 0%, #10B981 100%);
     color: white;
-    padding: 2rem;
-    text-align: center;
-    position: relative;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 
-  .company-logo {
-    background: #ffc107;
-    color: #2d3748;
-    padding: 1rem 1.5rem;
-    border-radius: 12px;
-    display: inline-block;
-    margin-bottom: 1rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  }
-
-  .company-logo h1 {
-    font-size: 1.8rem;
-    font-weight: 700;
-    margin: 0;
-    font-family: 'Arial', sans-serif;
-  }
-
-  .logo-subtitle {
-    font-size: 0.9rem;
-    font-weight: 500;
-    display: block;
-    margin-top: 0.25rem;
-  }
-
-  .lang-toggle {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
+  .back-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     padding: 0.5rem 1rem;
-    font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: white;
     cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .lang-toggle:hover {
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .registration-content {
-    padding: 0;
-  }
-
-  .registration-footer {
-    background: #f8fafc;
-    padding: 1.5rem 2rem;
-    text-align: center;
-    border-top: 1px solid #e2e8f0;
-  }
-
-  .registration-footer p {
-    margin: 0;
-    color: #64748b;
-    font-size: 0.9rem;
-  }
-
-  .registration-footer a {
-    color: #48bb78;
-    text-decoration: none;
+    font-size: 0.875rem;
     font-weight: 500;
+    transition: all 0.3s ease;
   }
 
-  .registration-footer a:hover {
-    text-decoration: underline;
+  .back-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .header-title {
+    flex: 1;
+    text-align: center;
+  }
+
+  .header-title h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .language-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    min-width: 80px;
+    justify-content: center;
+  }
+
+  .language-toggle:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .register-form-container {
+    padding: 2rem 1.5rem;
   }
 
   /* Responsive Design */
-  @media (max-width: 768px) {
-    .registration-page {
+  @media (max-width: 640px) {
+    .register-page {
+      padding: 0;
+    }
+
+    .register-card {
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    .page-header {
       padding: 1rem;
+      gap: 0.5rem;
     }
 
-    .registration-container {
-      border-radius: 12px;
+    .header-title h1 {
+      font-size: 1.25rem;
     }
 
-    .registration-header {
-      padding: 1.5rem;
+    .back-btn,
+    .language-toggle {
+      font-size: 0.75rem;
+      padding: 0.4rem 0.8rem;
     }
 
-    .company-logo h1 {
-      font-size: 1.5rem;
+    .register-form-container {
+      padding: 1.5rem 1rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .page-header {
+      flex-wrap: wrap;
+      gap: 0.75rem;
     }
 
-    .registration-footer {
-      padding: 1rem 1.5rem;
+    .header-title {
+      width: 100%;
+      order: 1;
+    }
+
+    .header-title h1 {
+      font-size: 1.125rem;
+    }
+
+    .back-btn {
+      order: 2;
+      flex: 1;
+    }
+
+    .language-toggle {
+      order: 3;
+      flex: 1;
+    }
+
+    .register-form-container {
+      padding: 1.25rem;
     }
   }
 </style>

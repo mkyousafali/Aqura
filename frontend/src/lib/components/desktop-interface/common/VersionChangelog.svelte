@@ -5,11 +5,32 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ58.24.16.17</p>
-<p class="version-details">Desktop: 58 | Mobile: 24 | Cashier: 16 | Customer: 17</p>
+<p class="version-title">Version AQ59.25.16.17</p>
+<p class="version-details">Desktop: 59 | Mobile: 25 | Cashier: 16 | Customer: 17</p>
 </div>
 
 <div class="latest-change">
+<h3>✨ Desktop Print Settings, Mobile Orders Manager & Order Workflow Enhancements</h3>
+<p class="change-description">New Print Settings tab in Desktop Orders Manager with A4/Thermal printer configuration, test print popup, and auto-print toggle for new orders. Full Mobile Orders Manager with delivery icon in bottom nav bar, order list with status tabs, accept/reject, assign picker/delivery with search, mark ready/picked up/delivered — all with quick task creation and bilingual notifications matching desktop behavior.</p>
+<div class="change-details">
+<h4>February 19, 2026:</h4>
+<ul>
+<li>✅ <b>Desktop — Print Settings Tab:</b> New tab in OrdersManager with A4 (indigo) and 80mm Thermal (amber) printer cards. Test print opens popup with formatted test page and manual print button. After printing, user enters printer name which is saved via postMessage callback.</li>
+<li>✅ <b>Desktop — Print Config Persistence:</b> Printer names and auto-print toggle saved to localStorage (<code>aqura_print_config</code>). Loaded on mount, auto-saved reactively on changes.</li>
+<li>✅ <b>Desktop — Auto-Print New Orders:</b> Toggle switch enables automatic printing of new order slips when realtime INSERT events are received. Formatted order slip with customer info, items, and totals.</li>
+<li>✅ <b>Mobile — Orders Manager Page:</b> Full mobile orders manager at <code>/mobile-interface/orders-manager</code>. Status filter tabs (New, In Progress, Ready, Delivering, Done, Cancelled) with live counts. Card-based order list with search by order number, customer name, or phone.</li>
+<li>✅ <b>Mobile — Order Detail Panel:</b> Slide-up detail panel with customer info, assigned staff badges, product list with image previews, order summary (subtotal, delivery fee, discount, total), and customer notes.</li>
+<li>✅ <b>Mobile — Accept/Reject:</b> Accept and reject buttons on new orders with audit logs and bilingual <code>send_order_notification</code> RPC.</li>
+<li>✅ <b>Mobile — Assign Picker:</b> User selection modal with search bar. Creates bilingual quick task (<code>order-start-picking</code>, 10min deadline) and assigns to picker. Sends notification via RPC.</li>
+<li>✅ <b>Mobile — Assign Delivery:</b> User selection modal with search. Creates bilingual quick task (<code>order-delivery</code>, 15min deadline, photo required). Updates status to <code>out_for_delivery</code>. Two audit logs (assignment + status change). Sends notification via RPC.</li>
+<li>✅ <b>Mobile — Mark Ready / Picked Up / Delivered:</b> Status progression buttons appear at appropriate stages. Mark Ready (for in_picking with picker assigned), Picked Up (for pickup orders when ready), Mark Delivered (for out_for_delivery). All with audit logs and bilingual notifications.</li>
+<li>✅ <b>Mobile — Bottom Nav Orders Button:</b> Delivery truck icon as first popup menu button in bottom nav bar. Green theme (<code>#059669</code>), badge showing new orders count, submenu with Orders Manager link.</li>
+<li>✅ <b>Mobile — Realtime Updates:</b> Orders list auto-refreshes via Supabase realtime subscription on orders table changes.</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
 <h3>✨ Branch Performance Dashboard, Receiving Tasks System, Bilingual Arabic Support, Multi-User Task Assignment & Purchase Voucher Overhaul</h3>
 <p class="change-description">New Branch Performance Dashboard (desktop + mobile) with RPC-powered KPI cards, branch comparison, employee rankings, and interactive filter popups. Full bilingual (EN/AR) support for receiving tasks — titles, descriptions, employee names, and detail labels all display in Arabic when in Arabic mode. Team Receiving Tasks page with member filters, completion photos, relative time, and pending badge count. RPC updated for multi-user task creation, plus Purchase Voucher workflow refinements.</p>
 <div class="change-details">
