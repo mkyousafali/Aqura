@@ -32,6 +32,7 @@
 	let assignmentCount = 0;
 	let approvalCount = 0;
 	let incidentCount = 0;
+	let teamReceivingTaskCount = 0;
 	
 	// Employee display name from hr_employee_master
 	let employeeName = '';
@@ -284,6 +285,19 @@
 
 		// Set task count (include receiving tasks)
 		taskCount = (tasksResult.count || 0) + (quickTasksResult.count || 0) + (receivingTasksResult.count || 0);
+
+		// Load team receiving task pending count via RPC
+		try {
+			const { data: rpcData } = await supabase.rpc('get_receiving_tasks_for_user', {
+				p_user_id: currentUserData.id,
+				p_completed_days: 0
+			});
+			if (rpcData?.team_tasks) {
+				teamReceivingTaskCount = rpcData.team_tasks.filter((t: any) => t.task_status !== 'completed').length;
+			}
+		} catch (e) {
+			console.warn('Could not load team receiving task count:', e);
+		}
 
 		// Handle approval permissions and counts
 		if (!userDataResult.error && userDataResult.data) {
@@ -921,7 +935,7 @@
 		<nav class="bottom-nav">
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
+				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance') || $page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
 					{#if taskCount > 0}
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
@@ -955,6 +969,18 @@
 							<span>{getTranslation('mobile.assignments')}</span>
 							{#if assignmentCount > 0}
 								<span class="submenu-badge">{assignmentCount > 99 ? '99+' : assignmentCount}</span>
+							{/if}
+						</a>
+						<a href="/mobile-interface/team-receiving-tasks" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+								<circle cx="9" cy="7" r="4"/>
+								<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+								<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+							</svg>
+							<span>{$localeData.code === 'ar' ? 'مهام فريق الاستلام' : 'Team Receiving Tasks'}</span>
+							{#if teamReceivingTaskCount > 0}
+								<span class="submenu-badge">{teamReceivingTaskCount > 99 ? '99+' : teamReceivingTaskCount}</span>
 							{/if}
 						</a>
 						{#if hasBranchPerformancePermission}

@@ -4,7 +4,10 @@
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db, resolveStorageUrl } from '$lib/utils/supabase';
 	import { locale, getTranslation } from '$lib/i18n';
+	import { localeData } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
+
+	$: isRTL = $localeData.code === 'ar';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -25,6 +28,61 @@
 	let showImagePreview = false;
 	let previewImageSrc = '';
 	let previewImageAlt = '';
+
+	/** Extract localized text from bilingual string (EN|||AR format) */
+	function localized(text: string): string {
+		if (!text) return '';
+		if (text.includes('|||')) {
+			const parts = text.split('|||');
+			return isRTL ? (parts[1] || parts[0]).trim() : parts[0].trim();
+		}
+		return text;
+	}
+
+	/** Localized description - extracts dynamic details from English part for old Arabic descriptions */
+	function localizedDesc(text: string): string {
+		if (!text) return '';
+		if (!text.includes('|||')) return text;
+
+		const parts = text.split('|||');
+		if (!isRTL) return parts[0].trim();
+
+		let arabicPart = (parts[1] || parts[0]).trim();
+		const englishPart = parts[0];
+
+		// If Arabic part already has details (new template format), return as is
+		if (arabicPart.includes('\u0627\u0644\u0641\u0631\u0639:') || arabicPart.includes('\u0627\u0644\u0645\u0648\u0631\u062f:')) return arabicPart;
+
+		// Extract details from English part and add Arabic labels
+		const detailLines: string[] = [];
+		const patterns: [RegExp, string][] = [
+			[/Branch:\s*(.+)/,          '\u0627\u0644\u0641\u0631\u0639'],
+			[/Vendor:\s*(.+)/,          '\u0627\u0644\u0645\u0648\u0631\u062f'],
+			[/Bill Amount:\s*(.+)/,     '\u0645\u0628\u0644\u063a \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629'],
+			[/Bill Number:\s*(.+)/,     '\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629'],
+			[/Received Date:\s*(.+)/,   '\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0627\u0633\u062a\u0644\u0627\u0645'],
+			[/Received By:\s*(.+)/,     '\u0627\u0633\u062a\u0644\u0645\u0647\u0627'],
+			[/Deadline:\s*(.+)/,        '\u0627\u0644\u0645\u0648\u0639\u062f \u0627\u0644\u0646\u0647\u0627\u0626\u064a']
+		];
+
+		for (const [pattern, label] of patterns) {
+			const match = englishPart.match(pattern);
+			if (match) detailLines.push(`${label}: ${match[1].trim()}`);
+		}
+
+		if (detailLines.length > 0) {
+			const breakMatch = arabicPart.match(/(\r?\n){2}/);
+			if (breakMatch && breakMatch.index !== undefined) {
+				const intro = arabicPart.substring(0, breakMatch.index);
+				const rest = arabicPart.substring(breakMatch.index);
+				arabicPart = intro + '\n\n' + detailLines.join('\n') + rest;
+			} else {
+				arabicPart = arabicPart + '\n\n' + detailLines.join('\n');
+			}
+		}
+
+		return arabicPart;
+	}
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -986,7 +1044,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							tabindex="0"
 						>
 							<div class="task-title-section">
-								<h3>{task.title}</h3>
+								<h3>{localized(task.title)}</h3>
 								<div class="task-meta">
 									{#if task.task_type === 'quick'}
 										<span class="task-type-badge quick-task">⚡ {getTranslation('mobile.tasksContent.taskCard.quickTask')}</span>
@@ -1016,7 +1074,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							role="button" 
 							tabindex="0"
 						>
-							<p class="task-description">{task.description}</p>
+							<p class="task-description">{task.clearance_certificate_url ? localizedDesc(task.description).replace(/https?:\/\/\S+/g, '').trim() : localizedDesc(task.description)}</p>
 							
 							{#if task.task_type === 'quick' && task.incident_id}
 								<div class="incident-attachments-section">

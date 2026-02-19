@@ -364,6 +364,11 @@
 	function getLocalizedContent(text) {
 		if (!text) return '';
 		const currentLocale = $locale;
+		// New format: "English|||العربية"
+		if (text.includes('|||')) {
+			const parts = text.split('|||');
+			return currentLocale === 'ar' ? (parts[1] || parts[0]).trim() : parts[0].trim();
+		}
 		if (text.includes(' | ')) {
 			const parts = text.split(' | ');
 			if (parts.length === 2) {

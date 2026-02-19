@@ -41,24 +41,35 @@ Button (🚀 Assign Tasks)
 - Calculates due date using `deadline_hours` from template (UTC+3 timezone)
 - Assigns user based on `role_type`:
 
+**Single-user roles** (one task per role):
+
 | Role Type | Source Field |
 |-----------|-------------|
 | `branch_manager` | `receiving_records.branch_manager_user_id` |
 | `purchase_manager` | `receiving_records.purchasing_manager_user_id` |
 | `inventory_manager` | `receiving_records.inventory_manager_user_id` |
 | `accountant` | `receiving_records.accountant_user_id` |
-| `night_supervisor` | `receiving_records.night_supervisor_user_ids[1]` |
-| `warehouse_handler` | `receiving_records.warehouse_handler_user_ids[1]` |
-| `shelf_stocker` | `receiving_records.shelf_stocker_user_ids[1]` |
+
+**Array roles** (one task per user in the array — loops through ALL users):
+
+| Role Type | Source Field |
+|-----------|-------------|
+| `night_supervisor` | `receiving_records.night_supervisor_user_ids[]` — ALL supervisors |
+| `warehouse_handler` | `receiving_records.warehouse_handler_user_ids[]` — ALL handlers |
+| `shelf_stocker` | `receiving_records.shelf_stocker_user_ids[]` — ALL stockers |
+
+> **Note:** Previously only the first element `[1]` was used. Updated to create a separate task + notification for each user in these arrays.
 
 #### Step 4: Insert into `receiving_tasks`
 - Standalone table — does NOT insert into `tasks` or `task_assignments`
 - Fields: `id`, `receiving_record_id`, `template_id`, `role_type`, `assigned_user_id`, `title`, `description`, `priority`, `due_date`, `task_status` (pending), `task_completed` (false), `clearance_certificate_url`
+- For array roles, multiple rows are inserted (one per user in the array)
 
 #### Step 5: Send Notification (if user assigned)
 - Inserts into `notifications` table with full task details in message
 - Inserts into `notification_recipients` table
 - Uses `ON CONFLICT DO NOTHING` to prevent duplicate recipients
+- For array roles, each user receives their own notification
 
 #### Step 6: Return Success Response
 
@@ -68,8 +79,8 @@ Button (🚀 Assign Tasks)
 ```json
 {
   "success": true,
-  "tasks_created": 7,
-  "notifications_sent": 5,
+  "tasks_created": 12,
+  "notifications_sent": 10,
   "receiving_record_id": "uuid",
   "certificate_url": "https://..."
 }
