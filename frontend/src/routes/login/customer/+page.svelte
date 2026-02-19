@@ -38,6 +38,18 @@
 			return;
 		}
 
+		// Check if already logged in as customer
+		try {
+			const customerSession = localStorage.getItem('customer_session');
+			if (customerSession) {
+				const data = JSON.parse(customerSession);
+				if (data?.customer_id && data?.registration_status === 'approved') {
+					goto('/customer-interface');
+					return;
+				}
+			}
+		} catch {}
+
 		// Check for ?code= parameter in URL (from WhatsApp login button)
 		const codeParam = $page.url.searchParams.get('code');
 		if (codeParam && /^\d{6}$/.test(codeParam)) {

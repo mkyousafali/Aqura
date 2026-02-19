@@ -31,9 +31,22 @@
 	});
 
 	function checkExistingAuth() {
+		// Check employee auth
 		if ($isAuthenticated && $currentUser) {
 			goto('/customer-interface');
+			return;
 		}
+		// Check customer session (customer_session in localStorage)
+		try {
+			const customerSession = localStorage.getItem('customer_session');
+			if (customerSession) {
+				const data = JSON.parse(customerSession);
+				if (data?.customer_id && data?.registration_status === 'approved') {
+					goto('/customer-interface');
+					return;
+				}
+			}
+		} catch {}
 	}
 
 	function handleCustomerSuccess(event) {
