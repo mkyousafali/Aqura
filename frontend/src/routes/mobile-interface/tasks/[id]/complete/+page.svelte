@@ -12,11 +12,6 @@
     // Get localized content from bilingual strings
     function getLocalizedContent(text: string | null | undefined, type: 'title' | 'description' = 'title'): string {
         if (!text) return '';
-        // New format: "English|||العربية"
-        if (text.includes('|||')) {
-            const parts = text.split('|||');
-            return $locale === 'ar' ? (parts[1] || parts[0]).trim() : parts[0].trim();
-        }
         const separator = type === 'title' ? '|' : '\n---\n';
         const parts = text.split(separator);
         if (parts.length < 2) return text.trim();

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 
 	const dispatch = createEventDispatcher();
@@ -9,8 +9,10 @@
 	// Props
 	export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
 	// NOTE: showMask controls the "Coming Soon: Home Delivery & Store Pickup" mask
-	// Set to true to block customer login access code input
-	export let showMask: boolean = true;
+	// Set to false to allow customer login access code input
+	export let showMask: boolean = false;
+	// Auto-login code from URL (WhatsApp login button redirect)
+	export let autoLoginCode: string | null = null;
 
 	// Component states
 	let currentView: 'login' | 'register' | 'forgot' | 'loyalty' = initialView;
@@ -38,6 +40,20 @@
 	// Temporary block access code - set to true to show white mask
 	let manualUnlock = false;
 	$: blockAccessCodeInput = showMask && !manualUnlock;
+
+	// Auto-login: when autoLoginCode is provided, fill digits and submit
+	$: if (autoLoginCode && autoLoginCode.length === 6 && !isLoading) {
+		// Fill the digit boxes
+		customerDigits = autoLoginCode.split('');
+		customerAccessCode = autoLoginCode;
+		accessCodeValid = true;
+		// Auto-submit after a short delay
+		setTimeout(() => {
+			handleCustomerLogin();
+		}, 500);
+		// Clear to prevent re-triggering
+		autoLoginCode = null;
+	}
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClickCount = 0;
@@ -206,8 +222,35 @@
 			if (error) throw error;
 
 			if (data && data.success) {
-				console.log('✅ [CustomerRegistration] Registration successful');
-				successMessage = 'Registration request submitted successfully! You will be notified when approved.';
+				console.log('✅ [CustomerRegistration] Registration successful, sending access code via WhatsApp');
+				
+				// Send access code via WhatsApp
+				try {
+					const waResponse = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+						},
+						body: JSON.stringify({
+							action: 'send_access_code',
+							phone_number: data.whatsapp_number,
+							access_code: data.access_code,
+							customer_name: data.customer_name,
+							language: $currentLocale === 'ar' ? 'ar' : 'en'
+						})
+					});
+					const waResult = await waResponse.json();
+					if (waResult.success) {
+						console.log('✅ [CustomerRegistration] Access code sent via WhatsApp');
+					} else {
+						console.warn('⚠️ [CustomerRegistration] WhatsApp send failed:', waResult.error);
+					}
+				} catch (waError) {
+					console.warn('⚠️ [CustomerRegistration] WhatsApp send error:', waError);
+				}
+				
+				successMessage = 'Registration successful! Your access code has been sent to your WhatsApp.';
 				
 				// Clear form
 				customerName = '';
@@ -217,9 +260,9 @@
 				setTimeout(() => {
 					currentView = 'login';
 					successMessage = '';
-				}, 3000);
+				}, 5000);
 			} else {
-				errorMessage = data?.error || 'Registration failed. Please try again.';
+				errorMessage = data?.message || data?.error || 'Registration failed. Please try again.';
 			}
 
 		} catch (error) {
@@ -241,8 +284,15 @@
 		successMessage = '';
 
 		try {
-			const { data, error } = await supabase.rpc('request_new_access_code', {
-				p_whatsapp_number: forgotWhatsappNumber
+			// Format the phone number for lookup
+			let formattedForgotNumber = forgotWhatsappNumber.replace(/\D/g, '');
+			if (!formattedForgotNumber.startsWith('966')) {
+				formattedForgotNumber = '966' + formattedForgotNumber.replace(/^0/, '');
+			}
+			formattedForgotNumber = '+' + formattedForgotNumber;
+
+			const { data, error } = await supabase.rpc('request_access_code_resend', {
+				p_whatsapp_number: formattedForgotNumber
 			});
 
 			if (error) {
@@ -250,18 +300,40 @@
 			}
 
 			if (data.success) {
-				successMessage = data.message;
+				// Send access code via WhatsApp
+				try {
+					const waResponse = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+						},
+						body: JSON.stringify({
+							action: 'send_access_code',
+							phone_number: data.whatsapp_number,
+							access_code: data.access_code,
+							customer_name: data.customer_name,
+							language: $currentLocale === 'ar' ? 'ar' : 'en'
+						})
+					});
+					const waResult = await waResponse.json();
+					if (waResult.success) {
+						console.log('✅ [ForgotCode] Access code resent via WhatsApp');
+					} else {
+						console.warn('⚠️ [ForgotCode] WhatsApp send failed:', waResult.error);
+					}
+				} catch (waError) {
+					console.warn('⚠️ [ForgotCode] WhatsApp send error:', waError);
+				}
+				
+				successMessage = 'Your access code has been sent to your WhatsApp!';
 				// Switch back to login view after successful request
 				setTimeout(() => {
 					currentView = 'login';
 					successMessage = '';
 				}, 5000);
 			} else {
-				errorMessage = data.error;
-				if (data.retry_after_seconds) {
-					retryAfterSeconds = data.retry_after_seconds;
-					startRetryCountdown();
-				}
+				errorMessage = data.message || data.error;
 			}
 
 		} catch (error) {

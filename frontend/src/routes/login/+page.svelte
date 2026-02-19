@@ -21,7 +21,7 @@
 	let mounted = false;
 	let showContent = false;
 	// NOTE: showMask controls the dark overlay on customer login section
-	let showMask = true;
+	let showMask = false;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;

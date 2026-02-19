@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
@@ -8,7 +9,10 @@
 	let mounted = false;
 	let showContent = false;
 	// NOTE: showMask controls the blur overlay on customer login section
-	let showMask = true;
+	let showMask = false;
+
+	// Auto-login code from URL ?code=123456
+	let autoLoginCode: string | null = null;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -31,6 +35,15 @@
 
 		if ($isAuthenticated && $currentUser) {
 			goto('/customer-interface');
+			return;
+		}
+
+		// Check for ?code= parameter in URL (from WhatsApp login button)
+		const codeParam = $page.url.searchParams.get('code');
+		if (codeParam && /^\d{6}$/.test(codeParam)) {
+			autoLoginCode = codeParam;
+			// Unlock the mask so auto-login can proceed
+			showMask = false;
 		}
 	});
 
@@ -87,7 +100,7 @@
 								{/if}
 							</div>
 						{/if}
-						<CustomerLogin showMask={showMask} on:success={handleCustomerSuccess} />
+						<CustomerLogin showMask={showMask} autoLoginCode={autoLoginCode} on:success={handleCustomerSuccess} />
 					</div>
 				</div>
 			</div>

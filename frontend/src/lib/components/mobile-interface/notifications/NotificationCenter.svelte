@@ -7,16 +7,6 @@
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 	import { locale, getTranslation } from '$lib/i18n';
-
-	/** Extract localized text from bilingual string (EN|||AR format) */
-	function localized(text: string): string {
-		if (!text) return '';
-		if (text.includes('|||')) {
-			const parts = text.split('|||');
-			return $locale === 'ar' ? (parts[1] || parts[0]).trim() : parts[0].trim();
-		}
-		return text;
-	}
 	import { 
 		isPushSupported, 
 		hasActiveSubscription,
@@ -1456,7 +1446,7 @@
 									{getNotificationIcon(notification.type)}
 								</div>
 								<div class="notification-meta">
-									<h3 class="notification-title">{localized(notification.title)}</h3>
+									<h3 class="notification-title">{notification.title}</h3>
 									<div class="notification-details">
 										<span class="notification-timestamp">{notification.timestamp}</span>
 										{#if isAdminOrMaster}
@@ -1475,7 +1465,7 @@
 							</div>
 							
 							<div class="notification-message">
-								{#each splitMessageParts(localized(notification.message)) as part}
+								{#each splitMessageParts(notification.message) as part}
 									{#if part.type === 'url'}
 										{#if isImageUrl(part.value)}
 											<button class="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold rounded-lg border border-purple-200 cursor-pointer transition-all" on:click|stopPropagation={() => openImageModal(part.value)}>🖼️ View Image</button>
