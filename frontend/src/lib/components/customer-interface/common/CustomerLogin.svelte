@@ -8,6 +8,8 @@
 
 	// Props
 	export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
+	// NOTE: showMask controls the "Coming Soon: Home Delivery & Store Pickup" mask
+	// Set to true to block customer login access code input
 	export let showMask: boolean = true;
 
 	// Component states
@@ -34,7 +36,21 @@
 	let retryAfterSeconds = 0;
 
 	// Temporary block access code - set to true to show white mask
-	let blockAccessCodeInput = showMask;
+	let manualUnlock = false;
+	$: blockAccessCodeInput = showMask && !manualUnlock;
+
+	// Secret dev unmask: click 15 times to dismiss
+	let maskClickCount = 0;
+	let maskClickTimer: any = null;
+	function handleMaskClick() {
+		maskClickCount++;
+		clearTimeout(maskClickTimer);
+		maskClickTimer = setTimeout(() => { maskClickCount = 0; }, 3000);
+		if (maskClickCount >= 15) {
+			manualUnlock = true;
+			maskClickCount = 0;
+		}
+	}
 
 	// Loyalty member login form
 	let loyaltyMobileNumber = '';
@@ -121,7 +137,20 @@
 				}, 1500);
 			} else {
 				console.log('❌ [CustomerLogin] Authentication failed:', data);
-				errorMessage = data?.error || 'Authentication failed. Please check your access code.';
+				// If account was deleted, redirect to register
+				if (data?.error === 'ACCOUNT_DELETED') {
+					const lang = localStorage.getItem('language') || 'ar';
+					errorMessage = lang === 'ar'
+						? 'تم حذف هذا الحساب. يرجى التسجيل بحساب جديد.'
+						: 'This account has been deleted. Please register a new account.';
+					customerAccessCode = '';
+					setTimeout(() => {
+						currentView = 'register';
+						errorMessage = '';
+					}, 2500);
+				} else {
+					errorMessage = data?.error || 'Authentication failed. Please check your access code.';
+				}
 			}
 
 		} catch (error) {
@@ -607,7 +636,10 @@
 
 			<div class="access-code-section" class:blocked={blockAccessCodeInput}>
 				{#if blockAccessCodeInput}
-					<div class="access-code-mask">
+					<div class="access-code-mask" on:click={handleMaskClick}>
+						{#if maskClickCount >= 10}
+							<div class="mask-click-counter">{maskClickCount}/15</div>
+						{/if}
 						<div class="mask-message">
 							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
@@ -1703,6 +1735,17 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	.mask-click-counter {
+		position: absolute;
+		bottom: 8px;
+		right: 10px;
+		font-size: 0.7rem;
+		color: #9ca3af;
+		font-weight: 600;
+		pointer-events: none;
+		opacity: 0.6;
 	}
 
 	.mask-message {

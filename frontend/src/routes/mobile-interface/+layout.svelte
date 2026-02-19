@@ -62,8 +62,14 @@
 	// Stock Menu state
 	let showStockMenu = false;
 	
+	// Orders Menu state
+	let showOrdersMenu = false;
+	
+	// Orders count for badge
+	let newOrdersCount = 0;
+	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ23';
+	let mobileVersion = 'AQ24';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
@@ -370,6 +376,17 @@
 			} catch (incErr) {
 				console.warn('Error loading incident count:', incErr);
 				incidentCount = 0;
+			}
+
+			// Load new orders count for badge
+			try {
+				const { count: ordCount } = await supabase
+					.from('orders')
+					.select('id', { count: 'exact', head: true })
+					.eq('order_status', 'new');
+				newOrdersCount = ordCount || 0;
+			} catch (e) {
+				console.warn('Error loading new orders count:', e);
 			}
 
 		} catch (error) {
@@ -933,9 +950,48 @@
 		
 		<!-- Global Bottom Navigation Bar -->
 		<nav class="bottom-nav">
+			<!-- Orders / Delivery Menu Button (FIRST) -->
+			<div class="nav-item-menu-container">
+				<button class="nav-item orders-btn" on:click={() => { showOrdersMenu = !showOrdersMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showOrdersMenu || $page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
+					{#if newOrdersCount > 0}
+						<span class="nav-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
+					{/if}
+					<div class="nav-icon">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="1" y="3" width="15" height="13" rx="2"/>
+							<path d="M16 8h4l3 3v5a2 2 0 0 1-2 2h-1"/>
+							<circle cx="5.5" cy="18.5" r="2.5"/>
+							<circle cx="18.5" cy="18.5" r="2.5"/>
+						</svg>
+					</div>
+					<span class="nav-label">{$currentLocale === 'ar' ? 'الطلبات' : 'Orders'}</span>
+				</button>
+				
+				<!-- Orders Submenu -->
+				{#if showOrdersMenu}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="orders-submenu-overlay" on:click={() => showOrdersMenu = false}></div>
+					<div class="orders-submenu">
+						<a href="/mobile-interface/orders-manager" class="orders-submenu-item" on:click={() => showOrdersMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<rect x="1" y="3" width="15" height="13" rx="2"/>
+								<path d="M16 8h4l3 3v5a2 2 0 0 1-2 2h-1"/>
+								<circle cx="5.5" cy="18.5" r="2.5"/>
+								<circle cx="18.5" cy="18.5" r="2.5"/>
+							</svg>
+							<span>{$currentLocale === 'ar' ? 'إدارة الطلبات' : 'Orders Manager'}</span>
+							{#if newOrdersCount > 0}
+								<span class="submenu-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
+							{/if}
+						</a>
+					</div>
+				{/if}
+			</div>
+
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance') || $page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
+				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showOrdersMenu = false; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance') || $page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
 					{#if taskCount > 0}
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
@@ -1000,7 +1056,7 @@
 
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
 					{#if incidentCount > 0}
 						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
 					{/if}
@@ -1044,7 +1100,7 @@
 
 			<!-- Human Resources Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -1082,7 +1138,7 @@
 
 			<!-- Stock Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') }>
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') }>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -1141,7 +1197,7 @@
 			</div>
 
 			<!-- AI Chat Button -->
-			<a href="/mobile-interface/ai-chat" class="nav-item ai-chat-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/ai-chat')} on:click={() => { showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
+			<a href="/mobile-interface/ai-chat" class="nav-item ai-chat-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/ai-chat')} on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
 				<div class="nav-icon ai-chat-icon">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -2229,6 +2285,87 @@
 
 	.nav-item.tasks-btn.active .nav-icon {
 		color: #3B82F6;
+	}
+
+	/* Orders Button & Submenu Styles */
+	.nav-item.orders-btn {
+		color: #6B7280;
+	}
+	.nav-item.orders-btn:hover {
+		color: #059669;
+		background: rgba(5, 150, 105, 0.05);
+	}
+	.nav-item.orders-btn.active {
+		color: #059669;
+	}
+	.nav-item.orders-btn.active .nav-icon {
+		color: #059669;
+	}
+
+	.orders-submenu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 95;
+	}
+
+	.orders-submenu {
+		position: fixed;
+		bottom: 3.8rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 -2px 16px rgba(5, 150, 105, 0.2);
+		min-width: 180px;
+		max-width: calc(100vw - 32px);
+		z-index: 100;
+		overflow: hidden;
+		animation: slideUp 0.2s ease;
+		border: 1px solid rgba(5, 150, 105, 0.2);
+	}
+
+	:global([dir="rtl"]) .orders-submenu {
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.orders-submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		color: #374151;
+		text-decoration: none;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		width: 100%;
+		text-align: left;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.orders-submenu-item:last-child {
+		border-bottom: none;
+	}
+
+	.orders-submenu-item:hover {
+		background: rgba(5, 150, 105, 0.05);
+		color: #059669;
+	}
+
+	.orders-submenu-item.active {
+		background: rgba(5, 150, 105, 0.1);
+		color: #059669;
+		font-weight: 600;
+	}
+
+	.orders-submenu-item svg {
+		flex-shrink: 0;
+		color: #059669;
 	}
 
 	/* Stock Submenu Styles */

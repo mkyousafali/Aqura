@@ -8,10 +8,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { db, supabase, resolveStorageUrl } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import { notificationSoundManager } from '$lib/utils/inAppNotificationSounds';
+	import { currentLocale } from '$lib/i18n';
 	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
 	import AdminReadStatusModal from '$lib/components/desktop-interface/master/communication/AdminReadStatusModal.svelte';
 	import TaskCompletionModal from '$lib/components/desktop-interface/master/tasks/TaskCompletionModal.svelte';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
+
+	/** Extract localized text from bilingual string (EN|||AR format) */
+	function localized(text: string): string {
+		if (!text) return '';
+		if (text.includes('|||')) {
+			const parts = text.split('|||');
+			return $currentLocale === 'ar' ? (parts[1] || parts[0]).trim() : parts[0].trim();
+		}
+		return text;
+	}
 	import { 
 		isPushSupported, 
 		hasActiveSubscription,
@@ -26,7 +37,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Auto-load notifications when activeUser becomes available (after initial mount)
 	let hasAttemptedInitialLoad = false;
-	$: if (activeUser?.id && allNotifications.length === 0 && !isLoading && hasAttemptedInitialLoad) {
+	let hasCompletedLoad = false;
+	$: if (activeUser?.id && allNotifications.length === 0 && !isLoading && hasAttemptedInitialLoad && !hasCompletedLoad) {
 		console.log('🔄 [Desktop NotificationCenter] Reactive: User available, auto-loading notifications');
 		forceRefreshNotifications();
 	}
@@ -579,10 +591,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				await loadUserCache();
 			}
 			
-			console.log('✅ [Desktop NotificationCenter] Force refresh completed. Total:', allNotifications.length);
+				console.log('✅ [Desktop NotificationCenter] Force refresh completed. Total:', allNotifications.length);
+			hasCompletedLoad = true;
 		} catch (error) {
 			console.error('❌ [Desktop NotificationCenter] Error force refreshing notifications:', error);
 			errorMessage = 'Failed to refresh notifications. Please try again.';
+			hasCompletedLoad = true;
 		} finally {
 			isLoading = false;
 		}
@@ -1150,7 +1164,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									{getNotificationIcon(notification.type)}
 								</div>
 								<div class="notification-meta">
-									<h3 class="notification-title">{notification.title}</h3>
+									<h3 class="notification-title">{localized(notification.title)}</h3>
 									<div class="notification-details">
 										<span class="notification-timestamp">{notification.timestamp}</span>
 										{#if isAdminOrMaster}
@@ -1192,7 +1206,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								</div>
 							</div>
 							<div class="notification-message">
-								{#each splitMessageParts(notification.message) as part}
+								{#each splitMessageParts(localized(notification.message)) as part}
 									{#if part.type === 'url'}
 										{#if isImageUrl(part.value)}
 											<button class="inline-flex items-center gap-1 px-2.5 py-1 my-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-lg border border-purple-200 cursor-pointer transition-all" on:click|stopPropagation={() => openImageModal(part.value)}>🖼️ View Image</button>

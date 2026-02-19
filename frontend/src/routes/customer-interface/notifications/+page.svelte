@@ -1,95 +1,301 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { supabase } from '$lib/utils/supabase';
   
   let currentLanguage = 'ar';
+  let notifications = [];
+  let loading = true;
+  let subscription;
 
-  // Load language from localStorage
-  onMount(() => {
-    const savedLanguage = localStorage.getItem('language');
-    if (savedLanguage) {
-      currentLanguage = savedLanguage;
-    }
-  });
-
-  // Listen for language changes
-  function handleStorageChange(event) {
-    if (event.key === 'language') {
-      currentLanguage = event.newValue || 'ar';
+  function getLocalCustomerSession() {
+    try {
+      const customerSessionRaw = localStorage.getItem('customer_session');
+      if (customerSessionRaw) {
+        const customerSession = JSON.parse(customerSessionRaw);
+        if (customerSession?.customer_id && customerSession?.registration_status === 'approved') {
+          return { customerId: customerSession.customer_id };
+        }
+      }
+      const raw = localStorage.getItem('aqura-device-session');
+      if (!raw) return { customerId: null };
+      const session = JSON.parse(raw);
+      const currentId = session?.currentUserId;
+      const user = Array.isArray(session?.users)
+        ? session.users.find((u) => u.id === currentId && u.isActive)
+        : null;
+      return { customerId: user?.customerId || null };
+    } catch (e) {
+      return { customerId: null };
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
+    const savedLanguage = localStorage.getItem('language');
+    if (savedLanguage) currentLanguage = savedLanguage;
+
     window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    window.addEventListener('languageChanged', handleLanguageEvent);
+
+    await loadNotifications();
+    setupRealtime();
   });
-  
-  let notifications = [
-    {
-      id: 1,
-      type: 'order_delivered',
-      titleAr: 'تم تسليم طلبك #2847',
-      titleEn: 'Your order #2847 has been delivered',
-      messageAr: 'تم تسليم طلبك بنجاح',
-      messageEn: 'Your order has been successfully delivered',
-      time: '2024-09-28T14:30:00',
-      read: false
-    },
-    {
-      id: 2,
-      type: 'order_pickup',
-      titleAr: 'تم استلام طلبك #2856',
-      titleEn: 'Your order #2856 has been picked up',
-      messageAr: 'قام السائق باستلام طلبك وهو في طريقه إليك',
-      messageEn: 'Driver has picked up your order and is on the way',
-      time: '2024-10-01T13:15:00',
-      read: false
-    },
-    {
-      id: 3,
-      type: 'order_confirmed',
-      titleAr: 'تم تأكيد طلبك #2865',
-      titleEn: 'Your order #2865 has been confirmed',
-      messageAr: 'تم تأكيد طلبك وجاري تحضيره',
-      messageEn: 'Your order has been confirmed and is being prepared',
-      time: '2024-10-01T12:00:00',
-      read: true
+
+  onDestroy(() => {
+    if (subscription) supabase.removeChannel(subscription);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('languageChanged', handleLanguageEvent);
     }
-  ];
+  });
+
+  function handleStorageChange(event) {
+    if (event.key === 'language' && event.newValue) {
+      currentLanguage = event.newValue;
+    }
+  }
+
+  function handleLanguageEvent(event) {
+    currentLanguage = event.detail || localStorage.getItem('language') || 'ar';
+  }
+
+  function setupRealtime() {
+    const { customerId } = getLocalCustomerSession();
+    if (!customerId) return;
+
+    subscription = supabase
+      .channel('customer-notifications')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'order_audit_logs' },
+        (payload) => {
+          // Reload to get the full joined data
+          loadNotifications();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+  }
+
+  async function loadNotifications() {
+    const { customerId } = getLocalCustomerSession();
+    if (!customerId) {
+      loading = false;
+      notifications = [];
+      return;
+    }
+
+    try {
+      // Get the customer's orders
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, order_number')
+        .eq('customer_id', customerId);
+
+      if (ordersError || !orders || orders.length === 0) {
+        notifications = [];
+        loading = false;
+        return;
+      }
+
+      const orderIds = orders.map(o => o.id);
+      const orderMap = {};
+      orders.forEach(o => { orderMap[o.id] = o.order_number; });
+
+      // Get audit logs for customer's orders (only status changes are customer-relevant)
+      const { data: logs, error: logsError } = await supabase
+        .from('order_audit_logs')
+        .select('id, order_id, action_type, from_status, to_status, notes, created_at')
+        .in('order_id', orderIds)
+        .eq('action_type', 'status_change')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (logsError) {
+        console.error('Error loading notifications:', logsError);
+        notifications = [];
+      } else {
+        // Read notifications from localStorage
+        const readIds = getReadNotificationIds();
+        
+        notifications = (logs || []).map(log => ({
+          id: log.id,
+          orderId: log.order_id,
+          orderNumber: orderMap[log.order_id] || '',
+          type: mapActionToType(log.action_type, log.to_status),
+          titleAr: getNotificationTitleAr(log, orderMap[log.order_id]),
+          titleEn: getNotificationTitleEn(log, orderMap[log.order_id]),
+          messageAr: getNotificationMessageAr(log),
+          messageEn: getNotificationMessageEn(log),
+          time: log.created_at,
+          read: readIds.has(log.id)
+        })).filter(n => !n.read);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      notifications = [];
+    } finally {
+      loading = false;
+    }
+  }
+
+  function getReadNotificationIds() {
+    try {
+      const raw = localStorage.getItem('customer_read_notifications');
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+  }
+
+  function saveReadNotificationId(id) {
+    const readIds = getReadNotificationIds();
+    readIds.add(id);
+    localStorage.setItem('customer_read_notifications', JSON.stringify([...readIds]));
+  }
+
+  function mapActionToType(actionType, toStatus) {
+    if (actionType === 'status_change') {
+      switch (toStatus) {
+        case 'accepted': return 'order_confirmed';
+        case 'in_picking': return 'order_picking';
+        case 'ready': return 'order_ready';
+        case 'out_for_delivery': return 'order_pickup';
+        case 'delivered': return 'order_delivered';
+        case 'picked_up': return 'order_delivered';
+        case 'cancelled': return 'order_cancelled';
+        default: return 'order_update';
+      }
+    }
+    if (actionType === 'order_created') return 'order_created';
+    if (actionType === 'picker_assigned' || actionType === 'delivery_assigned') return 'order_update';
+    return 'order_update';
+  }
+
+  function getNotificationTitleAr(log, orderNumber) {
+    const num = orderNumber || '';
+    if (log.action_type === 'order_created') return `تم إنشاء الطلب #${num}`;
+    if (log.action_type === 'status_change') {
+      switch (log.to_status) {
+        case 'accepted': return `تم قبول طلبك #${num}`;
+        case 'in_picking': return `جاري تحضير طلبك #${num}`;
+        case 'ready': return `طلبك #${num} جاهز`;
+        case 'out_for_delivery': return `طلبك #${num} في الطريق`;
+        case 'delivered': return `تم تسليم طلبك #${num}`;
+        case 'picked_up': return `تم استلام طلبك #${num}`;
+        case 'cancelled': return `تم إلغاء طلبك #${num}`;
+        default: return `تحديث على طلبك #${num}`;
+      }
+    }
+    if (log.action_type === 'picker_assigned') return `تم تعيين محضّر لطلبك #${num}`;
+    if (log.action_type === 'delivery_assigned') return `تم تعيين سائق لطلبك #${num}`;
+    return `تحديث على طلبك #${num}`;
+  }
+
+  function getNotificationTitleEn(log, orderNumber) {
+    const num = orderNumber || '';
+    if (log.action_type === 'order_created') return `Order #${num} created`;
+    if (log.action_type === 'status_change') {
+      switch (log.to_status) {
+        case 'accepted': return `Order #${num} accepted`;
+        case 'in_picking': return `Order #${num} is being prepared`;
+        case 'ready': return `Order #${num} is ready`;
+        case 'out_for_delivery': return `Order #${num} out for delivery`;
+        case 'delivered': return `Order #${num} delivered`;
+        case 'picked_up': return `Order #${num} picked up`;
+        case 'cancelled': return `Order #${num} cancelled`;
+        default: return `Order #${num} updated`;
+      }
+    }
+    if (log.action_type === 'picker_assigned') return `Picker assigned for order #${num}`;
+    if (log.action_type === 'delivery_assigned') return `Driver assigned for order #${num}`;
+    return `Order #${num} updated`;
+  }
+
+  function getNotificationMessageAr(log) {
+    if (log.action_type === 'order_created') return 'تم استلام طلبك وبانتظار التأكيد';
+    if (log.action_type === 'status_change') {
+      switch (log.to_status) {
+        case 'accepted': return 'تم قبول طلبك وسيتم تحضيره قريباً';
+        case 'in_picking': return 'فريقنا يقوم بتحضير طلبك الآن';
+        case 'ready': return 'طلبك جاهز للتسليم أو الاستلام';
+        case 'out_for_delivery': return 'السائق في طريقه إليك';
+        case 'delivered': return 'تم تسليم طلبك بنجاح';
+        case 'picked_up': return 'تم استلام طلبك من الفرع';
+        case 'cancelled': return 'تم إلغاء طلبك';
+        default: return 'تم تحديث حالة طلبك';
+      }
+    }
+    if (log.action_type === 'picker_assigned') return 'تم تعيين محضّر لتجهيز طلبك';
+    if (log.action_type === 'delivery_assigned') return 'تم تعيين سائق توصيل لطلبك';
+    return log.notes || 'تحديث على الطلب';
+  }
+
+  function getNotificationMessageEn(log) {
+    if (log.action_type === 'order_created') return 'Your order has been received and is awaiting confirmation';
+    if (log.action_type === 'status_change') {
+      switch (log.to_status) {
+        case 'accepted': return 'Your order has been accepted and will be prepared soon';
+        case 'in_picking': return 'Our team is preparing your order now';
+        case 'ready': return 'Your order is ready for delivery or pickup';
+        case 'out_for_delivery': return 'Driver is on the way to you';
+        case 'delivered': return 'Your order has been delivered successfully';
+        case 'picked_up': return 'Your order has been picked up from the branch';
+        case 'cancelled': return 'Your order has been cancelled';
+        default: return 'Your order status has been updated';
+      }
+    }
+    if (log.action_type === 'picker_assigned') return 'A picker has been assigned to prepare your order';
+    if (log.action_type === 'delivery_assigned') return 'A delivery driver has been assigned to your order';
+    return log.notes || 'Order update';
+  }
 
   $: texts = currentLanguage === 'ar' ? {
     title: 'الإشعارات',
     markAllRead: 'تعيين الكل كمقروء',
     noNotifications: 'لا توجد إشعارات',
     noNotificationsDesc: 'ستظهر جميع إشعاراتك هنا',
-    viewOrder: 'عرض الطلب'
+    viewOrder: 'عرض الطلب',
+    loading: 'جاري التحميل...'
   } : {
     title: 'Notifications',
     markAllRead: 'Mark All Read',
     noNotifications: 'No notifications',
     noNotificationsDesc: 'All your notifications will appear here',
-    viewOrder: 'View Order'
+    viewOrder: 'View Order',
+    loading: 'Loading...'
   };
 
-  function markAllAsRead() {
-    notifications = notifications.map(n => ({ ...n, read: true }));
+  async function markAllAsRead() {
+    const ids = notifications.map(n => n.id);
+    notifications = [];
+    // Delete from database
+    if (ids.length > 0) {
+      await supabase.from('order_audit_logs').delete().in('id', ids);
+    }
   }
 
-  function markAsRead(notificationId) {
-    notifications = notifications.map(n => 
-      n.id === notificationId ? { ...n, read: true } : n
-    );
+  async function markAsRead(notificationId) {
+    notifications = notifications.filter(n => n.id !== notificationId);
+    // Delete from database
+    await supabase.from('order_audit_logs').delete().eq('id', notificationId);
   }
 
   function formatTime(timeString) {
+    if (!timeString) return '';
     const time = new Date(timeString);
     const now = new Date();
     const diff = now - time;
+    const minutes = Math.floor(diff / (1000 * 60));
     const hours = Math.floor(diff / (1000 * 60 * 60));
     
-    if (hours < 1) {
-      return currentLanguage === 'ar' ? 'منذ قليل' : 'Just now';
+    if (minutes < 1) {
+      return currentLanguage === 'ar' ? 'الآن' : 'Just now';
+    } else if (minutes < 60) {
+      return currentLanguage === 'ar' ? `منذ ${minutes} دقيقة` : `${minutes}m ago`;
     } else if (hours < 24) {
       return currentLanguage === 'ar' ? `منذ ${hours} ساعة` : `${hours}h ago`;
     } else {
@@ -100,11 +306,14 @@
 
   function getNotificationIcon(type) {
     switch(type) {
-      case 'order_delivered': return '✅';
+      case 'order_created': return '🛒';
+      case 'order_confirmed': return '✅';
+      case 'order_picking': return '📦';
+      case 'order_ready': return '✨';
       case 'order_pickup': return '🚚';
-      case 'order_confirmed': return '📦';
+      case 'order_delivered': return '🏠';
       case 'order_cancelled': return '❌';
-      case 'promotion': return '🎉';
+      case 'order_update': return '🔔';
       default: return '🔔';
     }
   }
@@ -142,14 +351,19 @@
   </div>
   <div class="page-header">
     <h1 class="page-title">{texts.title}</h1>
-    {#if notifications.some(n => !n.read)}
+    {#if notifications.length > 0}
       <button class="mark-all-btn" on:click={markAllAsRead}>
         {texts.markAllRead}
       </button>
     {/if}
   </div>
 
-  {#if notifications.length === 0}
+  {#if loading}
+    <div class="empty-notifications">
+      <div class="empty-icon">⏳</div>
+      <p>{texts.loading}</p>
+    </div>
+  {:else if notifications.length === 0}
     <div class="empty-notifications">
       <div class="empty-icon">🔔</div>
       <h2>{texts.noNotifications}</h2>

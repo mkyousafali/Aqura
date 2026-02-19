@@ -20,7 +20,21 @@
 
 	let mounted = false;
 	let showContent = false;
-	let showMask = true; // Mask for login form only
+	// NOTE: showMask controls the dark overlay on customer login section
+	let showMask = true;
+
+	// Secret dev unmask: click 15 times to dismiss
+	let maskClicks = 0;
+	let maskTimer: any = null;
+	function handleMaskClick() {
+		maskClicks++;
+		clearTimeout(maskTimer);
+		maskTimer = setTimeout(() => { maskClicks = 0; }, 3000);
+		if (maskClicks >= 15) {
+			showMask = false;
+			maskClicks = 0;
+		}
+	}
 	let loginMode: 'selection' | 'customer' | 'team' = 'selection'; // 'selection' | 'customer' | 'team'
 
 	onMount(async () => {
@@ -160,9 +174,13 @@
 					<div class="auth-section">
 						<div class="customer-login-wrapper">
 							{#if showMask}
-								<div class="login-mask"></div>
+							<div class="login-mask" on:click={handleMaskClick}>
+								{#if maskClicks >= 10}
+									<span class="mask-click-counter">{maskClicks}/15</span>
+								{/if}
+							</div>
 							{/if}
-							<CustomerLogin on:success={handleCustomerSuccess} />
+							<CustomerLogin showMask={showMask} on:success={handleCustomerSuccess} />
 						</div>
 					</div>
 				</div>
@@ -783,8 +801,19 @@
 			right: 0;
 			bottom: 0;
 			background: rgba(0, 0, 0, 0.75);
-			z-index: 10;
+			z-index: 100;
 			backdrop-filter: blur(3px);
+			display: flex;
+			align-items: flex-end;
+			justify-content: flex-end;
+		}
+
+		.mask-click-counter {
+			font-size: 0.7rem;
+			color: rgba(255,255,255,0.4);
+			font-weight: 600;
+			padding: 6px 10px;
+			pointer-events: none;
 		}
 
 		.employee-login-btn {

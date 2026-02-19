@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { supabase } from '$lib/utils/supabase';
   import { notifications } from '$lib/stores/notifications';
   import { t, currentLocale } from '$lib/i18n';
@@ -14,6 +14,7 @@
 
   let order: any = null;
   let loading = true;
+  let orderChannel: any = null;
 
   // User assignment
   let availablePickers: any[] = [];
@@ -58,6 +59,7 @@
     ready: 'bg-purple-500',
     out_for_delivery: 'bg-teal-500',
     delivered: 'bg-green-700',
+    picked_up: 'bg-green-700',
     cancelled: 'bg-red-600'
   };
 
@@ -69,6 +71,7 @@
     ready: isRTL ? 'جاهز' : 'Ready',
     out_for_delivery: isRTL ? 'قيد التوصيل' : 'Out for Delivery',
     delivered: isRTL ? 'تم التوصيل' : 'Delivered',
+    picked_up: isRTL ? 'تم الاستلام' : 'Picked Up',
     cancelled: isRTL ? 'ملغي' : 'Cancelled'
   };
 
@@ -76,7 +79,52 @@
     getUserLocation();
     await loadUsers();
     await loadOrderDetails();
+    setupRealtime();
   });
+
+  onDestroy(() => {
+    if (orderChannel) {
+      supabase.removeChannel(orderChannel);
+    }
+  });
+
+  function setupRealtime() {
+    orderChannel = supabase
+      .channel(`order-detail-${orderId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
+        (payload) => {
+          console.log('📡 Order detail update:', payload);
+          loadOrderDetails();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'order_audit_logs' },
+        (payload) => {
+          const changed = payload.new || payload.old;
+          if (changed && changed.order_id === orderId) {
+            console.log('📡 Audit log change for this order:', payload);
+            loadOrderDetails();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'order_items' },
+        (payload) => {
+          const changed = payload.new || payload.old;
+          if (changed && changed.order_id === orderId) {
+            console.log('📡 Order items change:', payload);
+            loadOrderDetails();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Order detail realtime status:', status);
+      });
+  }
 
   // Get user's current location
   function getUserLocation() {
@@ -467,6 +515,7 @@
       const { error } = await supabase.from('orders')
         .update({ 
           picker_id: pickerId,
+          picker_assigned_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', order.id);
@@ -476,19 +525,21 @@
       // Get picker details
       const pickerUser = availablePickers.find(p => p.id === pickerId);
 
-      // Create a quick task for the picker to start picking
+      // Create a quick task for the picker to start picking (bilingual EN|||AR)
+      const pickTaskTitle = `Start Picking #${order.order_number}|||بدء تحضير #${order.order_number}`;
+      const pickTaskDesc = `Start picking products for order #${order.order_number}\nCustomer: ${order.customer_name}\nAddress: ${order.customer_address || 'N/A'}|||ابدأ بتحضير المنتجات للطلب رقم ${order.order_number}\nالعميل: ${order.customer_name}\nالعنوان: ${order.customer_address || 'غير متوفر'}`;
+      
       const { data: taskData, error: taskError } = await supabase
         .from('quick_tasks')
         .insert({
-          title: isRTL ? `تحضير طلب #${order.order_number}` : `Pick Order #${order.order_number}`,
-          description: isRTL 
-            ? `قم بتحضير المنتجات للطلب رقم ${order.order_number}\nالعميل: ${order.customer_name}\nعنوان التوصيل: ${order.customer_address}`
-            : `Pick products for order #${order.order_number}\nCustomer: ${order.customer_name}\nDelivery Address: ${order.customer_address}`,
+          title: pickTaskTitle,
+          description: pickTaskDesc,
           priority: 'high',
-          issue_type: 'order-picking',
+          issue_type: 'order-start-picking',
           price_tag: 'high',
           assigned_by: $currentUser?.id,
           assigned_to_branch_id: order.branch_id,
+          order_id: order.id,
           deadline_datetime: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 minutes from now
           require_task_finished: true,
           require_photo_upload: false,
@@ -521,16 +572,29 @@
       }
 
       // Log the assignment in audit_logs
-      await supabase.from('order_audit_logs').insert({
-        order_id: order.id,
-        action_type: 'assignment',
-        assignment_type: 'picker',
-        assigned_user_id: pickerId,
-        assigned_user_name: pickerUser?.username,
-        performed_by: $currentUser?.id,
-        performed_by_name: $currentUser?.username,
-        performed_by_role: $currentUser?.role,
-        notes: `Picker assigned: ${pickerUser?.username}`
+      await supabase.from('order_audit_logs').insert([
+        {
+          order_id: order.id,
+          action_type: 'assignment',
+          assignment_type: 'picker',
+          assigned_user_id: pickerId,
+          assigned_user_name: pickerUser?.username,
+          performed_by: $currentUser?.id,
+          performed_by_name: $currentUser?.username,
+          performed_by_role: $currentUser?.role,
+          notes: `Picker assigned: ${pickerUser?.username}`
+        }
+      ]);
+
+      // Send bilingual notification to picker
+      await supabase.rpc('send_order_notification', {
+        p_order_id: order.id,
+        p_title: `Picking Task: Order #${order.order_number}|||مهمة تحضير: طلب #${order.order_number}`,
+        p_message: `You have been assigned to pick order #${order.order_number}. Customer: ${order.customer_name}|||تم تعيينك لتحضير الطلب #${order.order_number}. العميل: ${order.customer_name}`,
+        p_type: 'order_picking',
+        p_priority: 'high',
+        p_performed_by: $currentUser?.id,
+        p_target_user_id: pickerId
       });
 
       notifications.add({
@@ -565,6 +629,8 @@
       const { error } = await supabase.from('orders')
         .update({ 
           delivery_person_id: deliveryId,
+          delivery_assigned_at: new Date().toISOString(),
+          order_status: 'out_for_delivery',
           updated_at: new Date().toISOString()
         })
         .eq('id', order.id);
@@ -574,20 +640,22 @@
       // Get delivery person details
       const deliveryUser = availableDelivery.find(d => d.id === deliveryId);
 
-      // Create a quick task for the delivery person
+      // Create a bilingual quick task for the delivery person (EN|||AR)
+      const deliveryTaskTitle = `Deliver Order #${order.order_number}|||توصيل طلب #${order.order_number}`;
+      const deliveryTaskDesc = `Deliver order #${order.order_number}\nCustomer: ${order.customer_name}\nPhone: ${order.customer_phone}\nAddress: ${order.customer_address || 'N/A'}\n\nNote: Photo proof of delivery is required|||قم بتوصيل الطلب رقم ${order.order_number}\nالعميل: ${order.customer_name}\nرقم الهاتف: ${order.customer_phone}\nالعنوان: ${order.customer_address || 'غير متوفر'}\n\nملاحظة: يجب تحميل صورة إثبات التسليم`;
+      
       const { data: taskData, error: taskError } = await supabase
         .from('quick_tasks')
         .insert({
-          title: isRTL ? `توصيل طلب #${order.order_number}` : `Deliver Order #${order.order_number}`,
-          description: isRTL 
-            ? `قم بتوصيل الطلب رقم ${order.order_number}\nالعميل: ${order.customer_name}\nرقم الهاتف: ${order.customer_phone}\nعنوان التوصيل: ${order.customer_address}\n\nملاحظة: يجب تحميل صورة إثبات التسليم لإكمال المهمة`
-            : `Deliver order #${order.order_number}\nCustomer: ${order.customer_name}\nPhone: ${order.customer_phone}\nDelivery Address: ${order.customer_address}\n\nNote: Photo proof of delivery is required to complete this task`,
+          title: deliveryTaskTitle,
+          description: deliveryTaskDesc,
           priority: 'high',
           issue_type: 'order-delivery',
           price_tag: 'high',
           assigned_by: $currentUser?.id,
           assigned_to_branch_id: order.branch_id,
-          deadline_datetime: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15 minutes from now
+          order_id: order.id,
+          deadline_datetime: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
           require_task_finished: true,
           require_photo_upload: true,
           require_erp_reference: false
@@ -597,9 +665,7 @@
 
       if (taskError) {
         console.error('Error creating delivery task:', taskError);
-        // Continue even if task creation fails
       } else if (taskData) {
-        // Assign the task to the delivery person
         const { error: assignmentError } = await supabase
           .from('quick_task_assignments')
           .insert({
@@ -619,16 +685,39 @@
       }
 
       // Log the assignment in audit_logs
-      await supabase.from('order_audit_logs').insert({
-        order_id: order.id,
-        action_type: 'assignment',
-        assignment_type: 'delivery',
-        assigned_user_id: deliveryId,
-        assigned_user_name: deliveryUser?.username,
-        performed_by: $currentUser?.id,
-        performed_by_name: $currentUser?.username,
-        performed_by_role: $currentUser?.role,
-        notes: `Delivery person assigned: ${deliveryUser?.username}`
+      await supabase.from('order_audit_logs').insert([
+        {
+          order_id: order.id,
+          action_type: 'assignment',
+          assignment_type: 'delivery',
+          assigned_user_id: deliveryId,
+          assigned_user_name: deliveryUser?.username,
+          performed_by: $currentUser?.id,
+          performed_by_name: $currentUser?.username,
+          performed_by_role: $currentUser?.role,
+          notes: `Delivery person assigned: ${deliveryUser?.username}`
+        },
+        {
+          order_id: order.id,
+          action_type: 'status_change',
+          from_status: order.order_status,
+          to_status: 'out_for_delivery',
+          performed_by: $currentUser?.id,
+          performed_by_name: $currentUser?.username,
+          performed_by_role: $currentUser?.role,
+          notes: `Status changed to out_for_delivery (delivery assigned: ${deliveryUser?.username})`
+        }
+      ]);
+
+      // Send bilingual notification to delivery person
+      await supabase.rpc('send_order_notification', {
+        p_order_id: order.id,
+        p_title: `Delivery Task: Order #${order.order_number}|||مهمة توصيل: طلب #${order.order_number}`,
+        p_message: `You have been assigned to deliver order #${order.order_number} to ${order.customer_name}. Address: ${order.customer_address || 'N/A'}|||تم تعيينك لتوصيل الطلب #${order.order_number} إلى ${order.customer_name}. العنوان: ${order.customer_address || 'غير متوفر'}`,
+        p_type: 'order_delivery',
+        p_priority: 'high',
+        p_performed_by: $currentUser?.id,
+        p_target_user_id: deliveryId
       });
 
       notifications.add({
@@ -654,6 +743,7 @@
       const { error } = await supabase.from('orders')
         .update({ 
           order_status: 'accepted',
+          accepted_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', order.id);
@@ -669,6 +759,16 @@
         performed_by_name: $currentUser?.username,
         performed_by_role: $currentUser?.role,
         notes: 'Order accepted'
+      });
+
+      // Send bilingual notification: Order Accepted
+      await supabase.rpc('send_order_notification', {
+        p_order_id: order.id,
+        p_title: `Order #${order.order_number} Accepted|||تم قبول الطلب #${order.order_number}`,
+        p_message: `Order #${order.order_number} has been accepted. Please assign a picker.|||تم قبول الطلب #${order.order_number}. يرجى تعيين محضّر.`,
+        p_type: 'order_accepted',
+        p_priority: 'high',
+        p_performed_by: $currentUser?.id
       });
 
       notifications.add({
@@ -727,6 +827,167 @@
     }
   }
 
+  // Mark order as picked up (for pickup orders)
+  async function markAsPickedUp() {
+    if (!confirm(isRTL ? 'هل أنت متأكد أن العميل استلم الطلب؟' : 'Confirm customer has picked up the order?')) {
+      return;
+    }
+    try {
+      const { error } = await supabase.from('orders')
+        .update({
+          order_status: 'picked_up',
+          picked_up_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      await supabase.from('order_audit_logs').insert({
+        order_id: order.id,
+        action_type: 'status_change',
+        from_status: order.order_status,
+        to_status: 'picked_up',
+        performed_by: $currentUser?.id,
+        performed_by_name: $currentUser?.username,
+        performed_by_role: $currentUser?.role,
+        notes: 'Order picked up by customer'
+      });
+
+      // Bilingual notification
+      await supabase.rpc('send_order_notification', {
+        p_order_id: order.id,
+        p_title: `Order #${order.order_number} Picked Up|||تم استلام الطلب #${order.order_number}`,
+        p_message: `Order #${order.order_number} has been picked up by ${order.customer_name}|||تم استلام الطلب #${order.order_number} من قبل ${order.customer_name}`,
+        p_type: 'order_picked_up',
+        p_priority: 'medium',
+        p_performed_by: $currentUser?.id
+      });
+
+      notifications.add({
+        message: isRTL ? 'تم تأكيد استلام الطلب' : 'Order marked as picked up',
+        type: 'success'
+      });
+
+      await loadOrderDetails();
+    } catch (error: any) {
+      console.error('Error marking as picked up:', error);
+      notifications.add({
+        message: isRTL ? 'فشل تحديث حالة الطلب' : 'Failed to update order status',
+        type: 'error'
+      });
+    }
+  }
+
+  // Mark order as delivered (manual fallback)
+  async function markAsDelivered() {
+    if (!confirm(isRTL ? 'هل أنت متأكد أن الطلب تم توصيله؟' : 'Confirm order has been delivered?')) {
+      return;
+    }
+    try {
+      const { error } = await supabase.from('orders')
+        .update({
+          order_status: 'delivered',
+          delivered_at: new Date().toISOString(),
+          actual_delivery_time: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      await supabase.from('order_audit_logs').insert({
+        order_id: order.id,
+        action_type: 'status_change',
+        from_status: order.order_status,
+        to_status: 'delivered',
+        performed_by: $currentUser?.id,
+        performed_by_name: $currentUser?.username,
+        performed_by_role: $currentUser?.role,
+        notes: 'Order manually marked as delivered'
+      });
+
+      // Bilingual notification
+      await supabase.rpc('send_order_notification', {
+        p_order_id: order.id,
+        p_title: `Order #${order.order_number} Delivered|||تم توصيل الطلب #${order.order_number}`,
+        p_message: `Order #${order.order_number} has been delivered to ${order.customer_name}|||تم توصيل الطلب #${order.order_number} إلى ${order.customer_name}`,
+        p_type: 'order_delivered',
+        p_priority: 'medium',
+        p_performed_by: $currentUser?.id
+      });
+
+      notifications.add({
+        message: isRTL ? 'تم تأكيد توصيل الطلب' : 'Order marked as delivered',
+        type: 'success'
+      });
+
+      await loadOrderDetails();
+    } catch (error: any) {
+      console.error('Error marking as delivered:', error);
+      notifications.add({
+        message: isRTL ? 'فشل تحديث حالة الطلب' : 'Failed to update order status',
+        type: 'error'
+      });
+    }
+  }
+
+  // Mark order as ready (manual fallback if trigger doesn't fire)
+  async function markAsReady() {
+    if (!confirm(isRTL ? 'هل أنت متأكد أن الطلب جاهز؟' : 'Confirm order is ready?')) {
+      return;
+    }
+    try {
+      const { error } = await supabase.from('orders')
+        .update({
+          order_status: 'ready',
+          ready_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      await supabase.from('order_audit_logs').insert({
+        order_id: order.id,
+        action_type: 'status_change',
+        from_status: order.order_status,
+        to_status: 'ready',
+        performed_by: $currentUser?.id,
+        performed_by_name: $currentUser?.username,
+        performed_by_role: $currentUser?.role,
+        notes: 'Order manually marked as ready'
+      });
+
+      // Bilingual notification
+      const readyMsg = order.fulfillment_method === 'pickup'
+        ? `Order #${order.order_number} is ready for pickup|||الطلب #${order.order_number} جاهز للاستلام`
+        : `Order #${order.order_number} is ready. Assign delivery person|||الطلب #${order.order_number} جاهز. عيّن مندوب التوصيل`;
+
+      await supabase.rpc('send_order_notification', {
+        p_order_id: order.id,
+        p_title: `Order #${order.order_number} Ready|||الطلب #${order.order_number} جاهز`,
+        p_message: readyMsg,
+        p_type: 'order_ready',
+        p_priority: 'high',
+        p_performed_by: $currentUser?.id
+      });
+
+      notifications.add({
+        message: isRTL ? 'تم تحديث الطلب كجاهز' : 'Order marked as ready',
+        type: 'success'
+      });
+
+      await loadOrderDetails();
+    } catch (error: any) {
+      console.error('Error marking as ready:', error);
+      notifications.add({
+        message: isRTL ? 'فشل تحديث حالة الطلب' : 'Failed to update order status',
+        type: 'error'
+      });
+    }
+  }
+
   function openPrintModal(type: 'slip' | 'delivery' | 'invoice') {
     printType = type;
     showPrintModal = true;
@@ -758,10 +1019,17 @@
     <div class="order-layout">
       <!-- Main Content Area -->
       <div class="order-main-content">
-        <!-- Status Badge -->
-        <div class="mb-4">
+        <!-- Status Badge + Fulfillment Method -->
+        <div class="mb-4 flex items-center gap-3 flex-wrap">
           <span class="status-badge {statusColors[order.order_status]} text-lg px-4 py-2">
             {statusLabels[order.order_status]}
+          </span>
+          <span class="status-badge {order.fulfillment_method === 'pickup' ? 'bg-amber-500' : 'bg-indigo-500'} text-sm px-3 py-1">
+            {#if order.fulfillment_method === 'pickup'}
+              📦 {isRTL ? 'استلام من الفرع' : 'Pickup'}
+            {:else}
+              🚚 {isRTL ? 'توصيل' : 'Delivery'}
+            {/if}
           </span>
         </div>
 
@@ -960,7 +1228,34 @@
             </button>
           {/if}
 
-          {#if order.order_status !== 'cancelled' && order.order_status !== 'delivered'}
+          {#if order.order_status === 'in_picking'}
+            <button on:click={markAsReady} class="action-button ready">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              {isRTL ? 'تحديد كجاهز' : 'Mark as Ready'}
+            </button>
+          {/if}
+
+          {#if order.order_status === 'ready' && order.fulfillment_method === 'pickup'}
+            <button on:click={markAsPickedUp} class="action-button pickup">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+              </svg>
+              {isRTL ? 'تأكيد الاستلام' : 'Mark as Picked Up'}
+            </button>
+          {/if}
+
+          {#if order.order_status === 'out_for_delivery'}
+            <button on:click={markAsDelivered} class="action-button delivered">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+              </svg>
+              {isRTL ? 'تأكيد التوصيل' : 'Mark as Delivered'}
+            </button>
+          {/if}
+
+          {#if order.order_status !== 'cancelled' && order.order_status !== 'delivered' && order.order_status !== 'picked_up'}
             <button on:click={cancelOrder} class="action-button cancel">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -986,7 +1281,7 @@
                 <button 
                   on:click={() => showPickerDropdown = !showPickerDropdown}
                   class="assignment-select"
-                  disabled={order.order_status === 'delivered' || order.order_status === 'cancelled'}
+                  disabled={order.order_status === 'delivered' || order.order_status === 'cancelled' || order.order_status === 'picked_up'}
                 >
                   <span>{order.picker?.username || t('orders.detail.selectPicker', 'Select Picker')}</span>
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1047,8 +1342,8 @@
           {/if}
         {/if}
 
-        <!-- 6. Delivery Person Assignment Section - Only show if picker is assigned -->
-        {#if order.picker_id}
+        <!-- 6. Delivery Person Assignment Section - Only show for delivery orders when picker is assigned -->
+        {#if order.picker_id && order.fulfillment_method !== 'pickup'}
           <div class="detail-section">
             <h3 class="section-title">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1062,7 +1357,7 @@
                 <button 
                   on:click={() => showDeliveryDropdown = !showDeliveryDropdown}
                   class="assignment-select"
-                  disabled={order.order_status === 'delivered' || order.order_status === 'cancelled'}
+                  disabled={order.order_status === 'delivered' || order.order_status === 'cancelled' || order.order_status === 'picked_up'}
                 >
                   <span>{order.delivery?.username || t('orders.detail.selectDelivery', 'Select Delivery')}</span>
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1186,7 +1481,7 @@
                 {/if}
               </div>
             </div>
-          {:else if order.order_status === 'accepted' || ['in_picking', 'ready', 'out_for_delivery', 'delivered'].includes(order.order_status)}
+          {:else if order.order_status === 'accepted' || ['in_picking', 'ready', 'out_for_delivery', 'delivered', 'picked_up'].includes(order.order_status)}
             <div class="timeline-item timeline-pending">
               <div class="timeline-dot bg-gray-300"></div>
               <div class="timeline-content">
@@ -1195,7 +1490,75 @@
             </div>
           {/if}
 
-          <!-- 4. Delivery Person Assigned -->
+          <!-- 3b. Start Picking Completed (Preparing) -->
+          {#if order.audit_logs?.find(log => log.action_type === 'status_change' && log.notes && log.notes.includes('Start picking completed'))}
+            {@const startPickLog = order.audit_logs.find(log => log.action_type === 'status_change' && log.notes && log.notes.includes('Start picking completed'))}
+            <div class="timeline-item">
+              <div class="timeline-dot bg-yellow-500"></div>
+              <div class="timeline-content">
+                <p class="timeline-title">{isRTL ? 'بدأ التحضير' : 'Picking Started'}</p>
+                <p class="timeline-time">{new Date(startPickLog.created_at).toLocaleString()}</p>
+              </div>
+            </div>
+          {:else if order.picker_id && ['accepted', 'in_picking'].includes(order.order_status)}
+            <div class="timeline-item timeline-pending">
+              <div class="timeline-dot bg-gray-300"></div>
+              <div class="timeline-content">
+                <p class="timeline-title text-gray-400">{isRTL ? 'في انتظار بدء التحضير' : 'Pending Start Picking'}</p>
+              </div>
+            </div>
+          {/if}
+
+          <!-- 4. Finish Picking / Order Ready -->
+          {#if ['ready', 'out_for_delivery', 'delivered', 'picked_up'].includes(order.order_status)}
+            {@const readyLog = order.audit_logs?.find(log => log.action_type === 'status_change' && log.to_status === 'ready')}
+            <div class="timeline-item">
+              <div class="timeline-dot bg-purple-500"></div>
+              <div class="timeline-content">
+                <p class="timeline-title">{isRTL ? 'تم إنهاء التحضير - الطلب جاهز' : 'Picking Finished - Order Ready'}</p>
+                {#if readyLog}
+                  <p class="timeline-time">{new Date(readyLog.created_at).toLocaleString()}</p>
+                {/if}
+              </div>
+            </div>
+          {:else if order.order_status === 'in_picking'}
+            <div class="timeline-item timeline-pending">
+              <div class="timeline-dot bg-gray-300"></div>
+              <div class="timeline-content">
+                <p class="timeline-title text-gray-400">{isRTL ? 'في انتظار إنهاء التحضير' : 'Pending Finish Picking'}</p>
+              </div>
+            </div>
+          {/if}
+
+          <!-- 5. Delivery/Pickup Branch -->
+          {#if order.fulfillment_method === 'pickup'}
+            <!-- Pickup Flow -->
+            {#if order.order_status === 'picked_up'}
+              {@const pickedUpLog = order.audit_logs?.find(log => log.action_type === 'status_change' && log.to_status === 'picked_up')}
+              <div class="timeline-item">
+                <div class="timeline-dot bg-green-700"></div>
+                <div class="timeline-content">
+                  <p class="timeline-title">{isRTL ? 'تم استلام الطلب' : 'Order Picked Up'}</p>
+                  {#if pickedUpLog}
+                    <p class="timeline-time">{new Date(pickedUpLog.created_at).toLocaleString()}</p>
+                    {#if pickedUpLog.performed_by_name}
+                      <p class="timeline-performer">{isRTL ? 'بواسطة:' : 'By:'} {pickedUpLog.performed_by_name}</p>
+                    {/if}
+                  {/if}
+                </div>
+              </div>
+            {:else if order.order_status === 'ready'}
+              <div class="timeline-item timeline-pending">
+                <div class="timeline-dot bg-gray-300"></div>
+                <div class="timeline-content">
+                  <p class="timeline-title text-gray-400">{isRTL ? 'في انتظار استلام العميل' : 'Waiting for Customer Pickup'}</p>
+                </div>
+              </div>
+            {/if}
+          {:else}
+            <!-- Delivery Flow -->
+
+            <!-- Delivery Person Assigned -->
           {#if order.delivery_person_id}
             {@const deliveryLog = order.audit_logs?.find(log => log.action_type === 'assignment' && log.assignment_type === 'delivery')}
             <div class="timeline-item">
@@ -1220,7 +1583,7 @@
             </div>
           {/if}
 
-          <!-- 5. Out for Delivery -->
+          <!-- Out for Delivery -->
           {#if order.order_status === 'out_for_delivery' || order.order_status === 'delivered'}
             {@const outForDeliveryLog = order.audit_logs?.find(log => log.action_type === 'status_change' && log.to_status === 'out_for_delivery')}
             <div class="timeline-item">
@@ -1244,7 +1607,7 @@
             </div>
           {/if}
 
-          <!-- 6. Order Delivered -->
+          <!-- Order Delivered -->
           {#if order.order_status === 'delivered'}
             {@const deliveredLog = order.audit_logs?.find(log => log.action_type === 'status_change' && log.to_status === 'delivered')}
             <div class="timeline-item">
@@ -1267,6 +1630,10 @@
               </div>
             </div>
           {/if}
+
+          {/if}
+          <!-- End of Delivery/Pickup branch -->
+
         </div>
       </div>
       <!-- End of Timeline Sidebar -->
@@ -1982,6 +2349,33 @@
 
   .action-button.cancel:hover {
     background: #dc2626;
+  }
+
+  .action-button.ready {
+    background: #8b5cf6;
+    color: white;
+  }
+
+  .action-button.ready:hover {
+    background: #7c3aed;
+  }
+
+  .action-button.pickup {
+    background: #059669;
+    color: white;
+  }
+
+  .action-button.pickup:hover {
+    background: #047857;
+  }
+
+  .action-button.delivered {
+    background: #0d9488;
+    color: white;
+  }
+
+  .action-button.delivered:hover {
+    background: #0f766e;
   }
 
   .action-button.print {

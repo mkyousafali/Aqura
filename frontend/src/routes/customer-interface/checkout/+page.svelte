@@ -25,6 +25,7 @@
   let cancellationTimer = null;
   let timeRemaining = 60; // 60 seconds for order cancellation
   let canCancelOrder = false;
+  let isSubmittingOrder = false; // Guard to prevent duplicate order creation
   let fulfillmentMethod = 'delivery'; // Default to delivery
   let locationOptions = [];
   let currentBranchId = null; // Track branch ID locally
@@ -715,11 +716,14 @@
   // Order placement
   async function placeOrder() {
     if (cartItems.length === 0) return;
+    if (isSubmittingOrder) return; // Prevent duplicate submissions
+    isSubmittingOrder = true;
     
     // Get customer ID
     const { customerId } = getLocalCustomerSession();
     if (!customerId) {
       alert(currentLanguage === 'ar' ? 'يرجى تسجيل الدخول أولاً' : 'Please log in first');
+      isSubmittingOrder = false;
       goto('/login/customer');
       return;
     }
@@ -728,6 +732,7 @@
     if (fulfillmentMethod === 'delivery') {
       if (!selectedLocationKey || selectedLocationIndex < 0) {
         alert(currentLanguage === 'ar' ? 'يرجى اختيار موقع التوصيل' : 'Please select delivery location');
+        isSubmittingOrder = false;
         return;
       }
     }
@@ -735,6 +740,7 @@
     // Validate payment method
     if (!selectedPaymentMethod) {
       alert(currentLanguage === 'ar' ? 'يرجى اختيار طريقة الدفع' : 'Please select payment method');
+      isSubmittingOrder = false;
       return;
     }
 
@@ -804,6 +810,7 @@
           code: orderError?.code
         });
         alert(currentLanguage === 'ar' ? 'فشل إنشاء الطلب: ' + (orderError?.message || 'خطأ غير معروف') : 'Failed to create order: ' + (orderError?.message || 'Unknown error'));
+        isSubmittingOrder = false;
         return;
       }
 
@@ -811,6 +818,7 @@
       
       if (!orderData.success) {
         alert(currentLanguage === 'ar' ? 'فشل إنشاء الطلب: ' + orderData.message : 'Failed to create order: ' + orderData.message);
+        isSubmittingOrder = false;
         return;
       }
 
@@ -822,8 +830,8 @@
       
       // Lookup product data for cart items (cart uses barcode as id, DB stores barcode but needs product id)
       console.log('Looking up product data for cart items...');
-      console.log('Cart items:', cartItems.map(item => ({ id: item.id, name: item.nameEn, quantity: item.quantity })));
-      const barcodes = cartItems.map(item => item.id);
+      console.log('Cart items:', cartItems.map(item => ({ id: item.id, barcode: item.barcode, name: item.nameEn, quantity: item.quantity })));
+      const barcodes = [...new Set(cartItems.map(item => item.barcode || item.id).filter(Boolean))];
       const { data: productsData, error: productsError } = await supabase
         .from('products')
         .select('id, barcode, unit_id')
@@ -844,15 +852,19 @@
       });
       console.log('Product data map:', productDataMap);
       
-      // Now insert order items with proper UUIDs
-      const orderItems = cartItems.map(item => {
-        const productData = productDataMap[item.id];
+      // Now insert order items with proper UUIDs - skip items with missing product data instead of throwing
+      const orderItems = [];
+      let skippedItems = [];
+      for (const item of cartItems) {
+        const itemBarcode = item.barcode || item.id;
+        const productData = productDataMap[itemBarcode];
         if (!productData) {
-          console.warn('⚠️ Product data not found for barcode:', item.id, 'Available barcodes:', Object.keys(productDataMap));
-          throw new Error(`Product data not found for barcode: ${item.id}. This product may have been deleted or is inactive.`);
+          console.warn('⚠️ Product data not found for barcode:', itemBarcode, '(item.id:', item.id, ', item.barcode:', item.barcode, ') Skipping item:', item.nameEn, 'Available barcodes:', Object.keys(productDataMap));
+          skippedItems.push(item.nameEn || item.name || itemBarcode);
+          continue;
         }
         
-        return {
+        orderItems.push({
           order_id: orderData.order_id,
           product_id: productData.id,
           product_name_ar: item.name,
@@ -868,31 +880,45 @@
           item_type: item.offerType === 'bogo' ? 'bogo_buy' : (item.offerType === 'bogo_get' ? 'bogo_get' : (item.offerType === 'bundle' ? 'bundle' : 'regular')),
           is_bundle_item: item.isBundleItem || false,
           is_bogo_free: item.offerType === 'bogo_get' ? true : false
-        };
-      });
+        });
+      }
 
       // Use REST API insert with workaround for REST API issue
       console.log('📤 Inserting order items via REST API:', orderItems.length, 'items');
+      console.log('📤 Order items data:', JSON.stringify(orderItems, null, 2));
       
+      console.log(`📊 Prepared ${orderItems.length} items for insert, ${skippedItems.length} skipped`);
+      if (skippedItems.length > 0) {
+        alert(`Warning: ${skippedItems.length} item(s) could not be saved (product lookup failed):\n${skippedItems.join(', ')}`);
+      }
+
       // Insert items one at a time to avoid REST API columns parameter issue
       let successCount = 0;
       let failedCount = 0;
+      let insertErrors = [];
       
       for (const item of orderItems) {
+        console.log('📤 Inserting item:', item.product_name_en, item.product_id);
         const { error: itemError } = await supabase
           .from('order_items')
           .insert([item]);
         
         if (itemError) {
-          console.error('❌ Failed to insert item:', item.product_id, itemError);
+          console.error('❌ Failed to insert item:', item.product_id, item.product_name_en, itemError);
+          insertErrors.push(`${item.product_name_en}: ${itemError.message}`);
           failedCount++;
         } else {
-          console.log('✅ Inserted item:', item.product_id);
+          console.log('✅ Inserted item:', item.product_id, item.product_name_en);
           successCount++;
         }
       }
       
       console.log(`📊 Order items insert complete: ${successCount} success, ${failedCount} failed`);
+      
+      if (failedCount > 0) {
+        console.error('❌ Failed items:', insertErrors);
+        alert(`Warning: ${failedCount} item(s) failed to save:\n${insertErrors.join('\n')}`);
+      }
 
       // Extract order number from response
       orderNumber = orderData.order_number;
@@ -904,16 +930,18 @@
       
       // Clear cart
       cartActions.clearCart();
+      isSubmittingOrder = false;
       
       // Hide success popup after 2 seconds and redirect
       setTimeout(() => {
         showOrderSuccess = false;
-        goto('/customer-interface/products');
+        goto('/customer-interface/start');
       }, 2000);
       
     } catch (err) {
       console.error('Order placement error:', err);
       alert(currentLanguage === 'ar' ? 'حدث خطأ أثناء إنشاء الطلب' : 'An error occurred while creating the order');
+      isSubmittingOrder = false; // Allow retry on error
     }
   }
 
@@ -1045,8 +1073,8 @@
     if (cartItems.length === 0) {
       goto('/customer-interface/start');
     } else {
-      // If cart has items, go to products to continue shopping
-      goto('/customer-interface/products');
+      // Go to start page
+      goto('/customer-interface/start');
     }
   }
 

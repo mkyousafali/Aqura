@@ -107,11 +107,20 @@
     const saved = flow;
     if (!saved?.branchId || !saved?.fulfillment) {
       try { goto('/customer-interface/start'); } catch (e) { console.error(e); }
+      return () => {}; // Stop — no branch/fulfillment selected
     }
     await loadCategories();
     await loadProducts();
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) currentLanguage = savedLanguage;
+
+    // Check for category param from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const catParam = urlParams.get('category');
+    if (catParam && catParam !== 'all') {
+      selectedCategory = catParam;
+    }
+
     const onStorage = (e) => { if (e.key === 'language') currentLanguage = e.newValue || 'ar'; };
     window.addEventListener('storage', onStorage);
 
@@ -709,6 +718,21 @@
   </div>
 
   <!-- PRODUCTS: Grid 2-up on phones -->
+  {#if loading}
+    <!-- Loading skeleton grid -->
+    <div class="products-wrap">
+      {#each Array(8) as _, i}
+        <div class="product-card skeleton-card" aria-hidden="true">
+          <div class="skeleton-image shimmer"></div>
+          <div class="skeleton-info">
+            <div class="skeleton-line shimmer" style="width:80%"></div>
+            <div class="skeleton-line shimmer" style="width:50%"></div>
+            <div class="skeleton-line shimmer" style="width:40%"></div>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {:else}
   <div class="products-wrap">
     <!-- BOGO Offer Cards -->
     {#each filteredBogoOffers as bogoOffer}
@@ -1061,6 +1085,7 @@
       <div class="no-products-icon">📦</div>
       <div class="no-products-text">{currentLanguage === 'ar' ? 'لا توجد منتجات مطابقة' : 'No matching products found'}</div>
     </div>
+  {/if}
   {/if}
 
   <!-- Search slide -->
@@ -2083,6 +2108,44 @@
   .no-products{ text-align:center; padding:3rem 2rem; color:var(--ink-3); }
   .no-products-icon{ font-size:3.6rem; margin-bottom:.6rem; }
   .no-products-text{ font-size:1.05rem; }
+
+  /* Loading skeleton */
+  .skeleton-card{
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .skeleton-image{
+    width: 100%;
+    aspect-ratio: 1;
+    background: #e6e8eb;
+    border-radius: 12px 12px 0 0;
+  }
+  .skeleton-info{
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .skeleton-line{
+    height: 12px;
+    border-radius: 6px;
+    background: #e6e8eb;
+  }
+  .shimmer{
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after{
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.55) 50%, transparent 100%);
+    animation: shimmerSlide 1.3s infinite;
+  }
+  @keyframes shimmerSlide{
+    0%{ transform: translateX(-100%); }
+    100%{ transform: translateX(100%); }
+  }
 
   /* Search slide */
   .search-slide{ position:fixed; left:0; right:0; top:-64px; z-index:25; transition:transform .25s ease; transform: translateY(-100%); display:flex; align-items:center; gap:.4rem; background:var(--bg); padding:.4rem .6rem; border-bottom:1px solid var(--border); }

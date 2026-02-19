@@ -1,6 +1,7 @@
 import { writable } from "svelte/store";
 import { browser } from "$app/environment";
 import { supabase } from "./supabase";
+import { autoSubscribePush, autoUnsubscribePush } from "./pushNotifications";
 import type { User, UserPermissions } from "$lib/types/auth";
 
 // Database types matching our deployed schema
@@ -383,9 +384,9 @@ export class PersistentAuthService {
       await this.setCurrentUser(userSession);
       console.log("✅ [PersistentAuth] Current user set successfully");
 
-      // Push notification initialization removed
+      // Push notifications auto-initialized in setCurrentUser()
       console.log(
-        "✅ [PersistentAuth] Push notification initialization skipped (removed)",
+        "✅ [PersistentAuth] Push notification auto-subscribe triggered via setCurrentUser",
       );
 
       // Log login activity (with timeout protection)
@@ -744,7 +745,8 @@ export class PersistentAuthService {
           console.warn("Failed to log logout activity:", err),
         );
 
-        // Push notification unregister removed
+        // Unsubscribe from push notifications on this device (non-blocking)
+        autoUnsubscribePush().catch(() => {});
 
         // Remove user from device sessions
         await this.removeUserSession(current.id);
@@ -1009,6 +1011,10 @@ export class PersistentAuthService {
 
     // 🔴 DISABLED: updateLastActivity disabled
     // await this.updateLastActivity();
+
+    // Auto-subscribe to push notifications (non-blocking)
+    // Sends to ALL devices belonging to this user
+    autoSubscribePush().catch(() => {});
   }
 
   private async updateLastActivity(): Promise<void> {

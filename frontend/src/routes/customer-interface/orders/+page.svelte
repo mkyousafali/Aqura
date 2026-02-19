@@ -102,6 +102,9 @@
           order_number,
           order_status,
           total_amount,
+          total_items,
+          total_quantity,
+          fulfillment_method,
           created_at,
           branch:branches(name_ar, name_en)
         `)
@@ -119,7 +122,9 @@
           status: order.order_status,
           total: order.total_amount,
           date: new Date(order.created_at).toLocaleDateString(currentLanguage === 'ar' ? 'ar-SA' : 'en-US'),
-          itemCount: 0, // Would need to join order_items for accurate count
+          itemCount: order.total_items || 0,
+          totalQuantity: order.total_quantity || 0,
+          fulfillmentMethod: order.fulfillment_method,
           branch: order.branch
         }));
       }
@@ -220,7 +225,7 @@
               <span class="detail-value total-amount">{order.total.toFixed(2)} {texts.sar}</span>
             </div>
           </div>
-          <button class="view-details-btn">
+          <button class="view-details-btn" on:click={() => goto('/customer-interface/track-order')} type="button">
             {texts.viewDetails}
           </button>
         </div>

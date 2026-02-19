@@ -33,6 +33,10 @@
   let customLocationName = ''; // User-provided name for the location
   let savingLocation = false;
 
+  // Delete account state
+  let showDeleteConfirm = false;
+  let deletingAccount = false;
+
   // Load language from localStorage
   onMount(() => {
     const savedLanguage = localStorage.getItem('language');
@@ -363,7 +367,13 @@
     orderInProgress: 'طلب قيد التوصيل',
     orderPickedUp: 'تم تحضير الطلب',
     viewDetails: 'عرض التفاصيل',
-    backToHome: 'العودة للرئيسية'
+    backToHome: 'العودة للرئيسية',
+    deleteAccount: 'حذف حسابي',
+    deleteConfirmTitle: 'هل أنت متأكد؟',
+    deleteConfirmMsg: 'سيتم حذف حسابك نهائياً ولن تتمكن من تسجيل الدخول مرة أخرى. هل تريد المتابعة؟',
+    deleteConfirm: 'نعم، احذف حسابي',
+    deleteCancelBtn: 'إلغاء',
+    deleting: 'جاري الحذف...'
   } : {
     title: 'Profile - Aqua Express',
     personalInfo: 'Personal Information',
@@ -405,7 +415,13 @@
     orderInProgress: 'Order In Transit',
     orderPickedUp: 'Order Prepared',
     viewDetails: 'View Details',
-    backToHome: 'Back to Home'
+    backToHome: 'Back to Home',
+    deleteAccount: 'Delete My Account',
+    deleteConfirmTitle: 'Are you sure?',
+    deleteConfirmMsg: 'Your account will be permanently deleted and you will no longer be able to log in. Do you want to continue?',
+    deleteConfirm: 'Yes, Delete My Account',
+    deleteCancelBtn: 'Cancel',
+    deleting: 'Deleting...'
   };
 
   function handleLogout() {
@@ -416,6 +432,29 @@
       goto('/login/customer');
     } catch (error) {
       console.error('❌ [Profile] Logout error:', error);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!customerRecord?.id) return;
+    deletingAccount = true;
+    try {
+      const { data, error } = await supabase.rpc('delete_customer_account', {
+        p_customer_id: customerRecord.id
+      });
+      if (error) throw error;
+      if (data?.success) {
+        localStorage.clear();
+        goto('/customer-interface/register');
+      } else {
+        alert(data?.error || 'Failed to delete account');
+      }
+    } catch (err) {
+      console.error('❌ [Profile] Delete account error:', err);
+      alert('Failed to delete account. Please try again.');
+    } finally {
+      deletingAccount = false;
+      showDeleteConfirm = false;
     }
   }
 
@@ -646,6 +685,33 @@
       🚪 {texts.logout}
     </button>
   </div>
+
+  <!-- Delete Account -->
+  <div class="delete-account-section">
+    <button class="delete-account-btn" on:click={() => showDeleteConfirm = true} type="button">
+      🗑️ {texts.deleteAccount}
+    </button>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  {#if showDeleteConfirm}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="modal-overlay" on:click={() => showDeleteConfirm = false}>
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <div class="delete-confirm-modal" on:click|stopPropagation>
+        <h3>⚠️ {texts.deleteConfirmTitle}</h3>
+        <p>{texts.deleteConfirmMsg}</p>
+        <div class="delete-confirm-actions">
+          <button class="cancel-delete-btn" on:click={() => showDeleteConfirm = false} disabled={deletingAccount}>
+            {texts.deleteCancelBtn}
+          </button>
+          <button class="confirm-delete-btn" on:click={handleDeleteAccount} disabled={deletingAccount}>
+            {deletingAccount ? texts.deleting : texts.deleteConfirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <!-- Location Picker Modal -->
@@ -1512,6 +1578,108 @@
   .logout-btn:active {
     transform: scale(0.98);
     background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  }
+
+  /* Delete Account */
+  .delete-account-section {
+    margin-top: 0.75rem;
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .delete-account-btn {
+    width: 100%;
+    background: transparent;
+    color: #9ca3af;
+    border: 1px dashed #6b7280;
+    padding: 0.75rem;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+    min-height: 38px;
+  }
+
+  .delete-account-btn:hover {
+    color: #ef4444;
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.05);
+  }
+
+  /* Delete Confirmation Modal */
+  .delete-confirm-modal {
+    background: white;
+    border-radius: 16px;
+    padding: 1.5rem;
+    max-width: 340px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  }
+
+  .delete-confirm-modal h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+    color: #111827;
+  }
+
+  .delete-confirm-modal p {
+    font-size: 0.85rem;
+    color: #6b7280;
+    margin-bottom: 1.25rem;
+    line-height: 1.5;
+  }
+
+  .delete-confirm-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .cancel-delete-btn {
+    flex: 1;
+    padding: 0.75rem;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    background: white;
+    color: #374151;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .cancel-delete-btn:hover {
+    background: #f3f4f6;
+  }
+
+  .confirm-delete-btn {
+    flex: 1;
+    padding: 0.75rem;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .confirm-delete-btn:hover {
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+  }
+
+  .confirm-delete-btn:disabled,
+  .cancel-delete-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   /* Responsive adjustments */

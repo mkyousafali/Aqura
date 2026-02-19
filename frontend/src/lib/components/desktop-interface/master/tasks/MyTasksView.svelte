@@ -1,1423 +1,747 @@
-<script>
-	import { onMount } from 'svelte';
+<script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { cashierUser, isCashierAuthenticated } from '$lib/stores/cashierAuth';
 	import { windowManager } from '$lib/stores/windowManager';
-import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { locale } from '$lib/i18n';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
 	import QuickTaskDetailsModal from './QuickTaskDetailsModal.svelte';
 	import QuickTaskCompletionDialog from './QuickTaskCompletionDialog.svelte';
 	import ReceivingTaskDetailsModal from './ReceivingTaskDetailsModal.svelte';
 	import ReceivingTaskCompletionDialog from '$lib/components/desktop-interface/master/operations/receiving/ReceivingTaskCompletionDialog.svelte';
-	
-	let tasks = [];
-	let filteredTasks = [];
-	let loading = false; // Don't load by default
-	let searchTerm = '';
-	let filterStatus = 'all';
-	let filterPriority = 'all';
-	let filterTaskType = 'all';
-	let filterDateRange = 'all'; // 'all', 'today', 'week', 'month', 'overdue'
+
+	let allTasks: any[] = [];
+	let filteredTasks: any[] = [];
+	let visibleTasks: any[] = [];
+	let isLoading = true;
+	let searchQuery = '';
+	let selectedType = '';
+	let selectedStatus = '';
+	let selectedPriority = '';
 	let showCompleted = false;
-	
-	// Track which task types are loaded to avoid duplicate loads
-	let loadedTaskTypes = new Set(); // Start with empty set - lazy load
-	let hasInitialized = false; // Track if we've shown the view once
-	
-	// Live countdown state
-	let countdownInterval = null;
-	
-	// Copy notification state
-	let copyNotification = null;
-	let copyNotificationTimeout = null;
-	
-	// Get current user from persistent auth service (check cashier first, then desktop)
+	const VISIBLE_BATCH = 100;
+	let visibleCount = VISIBLE_BATCH;
+
+	let branches: string[] = [];
+	let selectedBranch = '';
+	let selectedTask: any = null;
+	let showDetailPopup = false;
+	let showDeleteConfirm = false;
+	let deletingTaskId: string | null = null;
+	let deletingTaskType: string | null = null;
+	let isDeleting = false;
+
+	// Copy notification
+	let copyNotification: string | null = null;
+	let copyNotificationTimeout: any = null;
+
+	// Countdown timer
+	let countdownInterval: any = null;
+
+	$: isRTL = $locale === 'ar';
 	$: activeUser = $cashierUser || $currentUser;
 	$: authenticated = $isCashierAuthenticated || $isAuthenticated;
-	$: currentUserData = activeUser;
-	$: console.log('🔍 [MyTasks] Auth state:', { authenticated, currentUserData, isCashier: !!$cashierUser });
+	$: isMasterAdmin = $currentUser?.isMasterAdmin || false;
 
-	// Subscribe to auth changes - don't auto-load, wait for filter change
-	$: if (authenticated && activeUser?.id && !hasInitialized) {
-		hasInitialized = true;
-	}
-
-	// Reactive filtering when any filter changes
-	$: searchTerm, filterStatus, filterPriority, filterTaskType, filterDateRange, showCompleted, filterTasks();
-
-	// Load task types when filter changes
-	$: if (authenticated && activeUser?.id && hasInitialized) {
-		if (filterTaskType === 'all') {
-			loadTasksByType('all'); // Load all types when 'all' is selected
-		} else if (filterTaskType !== 'all') {
-			loadTasksByType(filterTaskType);
-		}
-	}
-
-	// Load completed tasks when checkbox is checked
-	$: if (showCompleted && authenticated && activeUser?.id && !loadedTaskTypes.has('completed')) {
-		loadCompletedTasks();
-	}
-
-	onMount(() => {
-		// Auto-load quick tasks (picking/delivery) since those are created from orders
-		const checkAndLoadQuickTasks = async () => {
-			if ($isCashierAuthenticated || $isAuthenticated) {
-				const user = $cashierUser || $currentUser;
-				if (user?.id && !loadedTaskTypes.has('quick_task')) {
-					await loadTasksByType('quick_task');
-					filterTaskType = 'quick_task'; // Set the filter to show loaded tasks
-				}
-			}
-		};
-		
-		checkAndLoadQuickTasks();
+	onMount(async () => {
+		await loadTasks();
 		startCountdownTimer();
-		
-		// Cleanup on unmount
-		return () => {
-			stopCountdownTimer();
-		};
 	});
 
-	// Function to smoothly remove a completed task from the list
-	function removeCompletedTask(taskId) {
-		console.log('✨ [MyTasks] Smoothly removing completed task:', taskId);
-		tasks = tasks.filter(t => t.id !== taskId);
-		filterTasks();
-	}
+	onDestroy(() => {
+		stopCountdownTimer();
+		if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
+	});
 
-	async function loadTasksByType(taskType) {
-		let userId = activeUser?.id;
-		
-		if (!authenticated || !userId) {
-			console.warn('❌ [MyTasks] No user ID available');
-			return;
-		}
-
-		// Determine which task types to load
-		const typesToLoad = [];
-		
-		if (taskType === 'all') {
-			if (!loadedTaskTypes.has('receiving')) typesToLoad.push('receiving');
-			if (!loadedTaskTypes.has('regular')) typesToLoad.push('regular');
-			if (!loadedTaskTypes.has('quick_task')) typesToLoad.push('quick_task');
-		} else if (taskType === 'receiving' && !loadedTaskTypes.has('receiving')) {
-			typesToLoad.push('receiving');
-		} else if (taskType === 'regular' && !loadedTaskTypes.has('regular')) {
-			typesToLoad.push('regular');
-		} else if (taskType === 'quick_task' && !loadedTaskTypes.has('quick_task')) {
-			typesToLoad.push('quick_task');
-		}
-
-		if (typesToLoad.length === 0) {
-			console.log('📦 [MyTasks] Task types already loaded, skipping load');
-			return;
-		}
-
-		console.log('🔄 [MyTasks] Loading task types on demand:', typesToLoad);
-		loading = true;
-		
+	async function loadTasks() {
+		if (!authenticated || !activeUser?.id) return;
 		try {
-			let newTasks = [];
+			isLoading = true;
+			allTasks = [];
+			visibleCount = VISIBLE_BATCH;
 
-			// Load Receiving Tasks if needed - MINIMAL columns only + pagination
-			if (typesToLoad.includes('receiving')) {
-				console.log('📥 [MyTasks] Loading receiving tasks...');
-				const startTime = performance.now();
-				
-				// CRITICAL: Only load PENDING and IN_PROGRESS tasks, not all 1261
-				const { data: receivingTasks, error: receivingError } = await supabase
-					.from('receiving_tasks')
-					.select('id, title, description, priority, task_status, created_at, due_date, assigned_user_id, role_type, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
-					.eq('assigned_user_id', userId)
-					.in('task_status', ['pending', 'in_progress'])  // ONLY load active tasks
-					.limit(200);  // Hard limit to prevent huge queries
-
-				if (receivingError) {
-					console.warn('⚠️ [MyTasks] Error loading receiving tasks:', receivingError);
-				}
-
-				if (receivingTasks) {
-					const loadTime = performance.now() - startTime;
-					console.log(`⏱️ Receiving tasks loaded in ${loadTime.toFixed(0)}ms`, { count: receivingTasks.length });
-					const receivingTasksFormatted = receivingTasks.map(task => ({
-						id: task.id,
-						title: task.title,
-						description: task.description,
-						priority: task.priority,
-						status: task.task_status,
-						created_at: task.created_at,
-						due_date: task.due_date,
-						due_time: null,
-						deadline_datetime: task.due_date,
-						assignment_id: task.id,
-						assignment_status: task.task_status,
-						assigned_at: task.created_at,
-						assigned_by: null,
-						assigned_by_name: 'System (Receiving)',
-						assigned_to_user_id: task.assigned_user_id,
-						schedule_date: null,
-						schedule_time: null,
-						role_type: task.role_type,
-						receiving_record_id: task.receiving_record_id,
-						clearance_certificate_url: task.clearance_certificate_url,
-						require_task_finished: true,
-						require_photo_upload: task.requires_original_bill_upload || false,
-						require_erp_reference: task.requires_erp_reference || false,
-						images: [],
-						task_type: 'receiving'
-					}));
-					newTasks.push(...receivingTasksFormatted);
-					loadedTaskTypes.add('receiving');
-					console.log('✅ [MyTasks] Loaded receiving tasks:', { count: receivingTasksFormatted.length });
-				}
-			}
-
-			// Load Regular Tasks if needed - SKIP nested joins and heavy operations
-			if (typesToLoad.includes('regular')) {
-				console.log('📝 [MyTasks] Loading regular tasks...');
-				const startTime = performance.now();
-				const { data: regularTasks, error: regularError } = await supabase
-					.from('task_assignments')
-					.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, assigned_by, assigned_by_name')
-					.eq('assigned_to_user_id', userId)
-					.in('status', ['pending', 'assigned', 'in_progress'])  // ONLY active tasks
-					.limit(200);  // Hard limit
-
-				if (regularError) {
-					console.warn('⚠️ [MyTasks] Error loading regular tasks:', regularError);
-				}
-
-				if (regularTasks && regularTasks.length > 0) {
-					// Get task details separately without join
-					const taskIds = regularTasks.map(a => a.task_id);
-					const { data: taskDetails } = await supabase
-						.from('tasks')
-						.select('id, title, description, priority, status, created_at')
-						.in('id', taskIds);
-
-					const taskMap = {};
-					(taskDetails || []).forEach(t => {
-						taskMap[t.id] = t;
-					});
-
-					const regularTasksFormatted = regularTasks.map(assignment => {
-						const taskData = taskMap[assignment.task_id] || {};
-						return {
-							id: assignment.task_id,
-							title: taskData.title || 'Untitled Task',
-							description: taskData.description || '',
-							priority: taskData.priority || 'medium',
-							status: taskData.status || 'pending',
-							created_at: taskData.created_at || assignment.assigned_at,
-							due_date: null,
-							due_time: null,
-							deadline_datetime: assignment.deadline_datetime,
-							assignment_id: assignment.id,
-							assignment_status: assignment.status,
-							assigned_at: assignment.assigned_at,
-							assigned_by: assignment.assigned_by,
-							assigned_by_name: assignment.assigned_by_name || 'Unknown User',
-							assigned_to_user_id: assignment.assigned_to_user_id,
-							schedule_date: null,
-							schedule_time: null,
-							require_task_finished: false,
-							require_photo_upload: false,
-							require_erp_reference: false,
-							images: [],
-							task_type: 'regular'
-						};
-					});
-
-					const loadTime = performance.now() - startTime;
-					console.log(`⏱️ Regular tasks loaded in ${loadTime.toFixed(0)}ms`, { count: regularTasksFormatted.length });
-					newTasks.push(...regularTasksFormatted);
-					loadedTaskTypes.add('regular');
-					console.log('✅ [MyTasks] Loaded regular tasks:', { count: regularTasksFormatted.length });
-				}
-			}
-
-			// Load Quick Tasks if needed - MINIMAL approach
-			if (typesToLoad.includes('quick_task')) {
-				console.log('⚡ [MyTasks] Loading quick tasks...');
-				const startTime = performance.now();
-				const { data: quickTasks, error: quickError } = await supabase
-					.from('quick_task_assignments')
-					.select('id, quick_task_id, assigned_to_user_id, status, created_at')
-					.eq('assigned_to_user_id', userId)
-					.limit(200);  // Hard limit - removed status filter to debug
-
-				if (quickError) {
-					console.warn('⚠️ [MyTasks] Error loading quick tasks:', quickError);
-				}
-
-				if (quickTasks && quickTasks.length > 0) {
-					console.log('🔍 [MyTasks] Found quick task assignments:', { 
-						count: quickTasks.length, 
-						statuses: quickTasks.map(q => q.status),
-						firstTask: quickTasks[0]
-					});
-					
-					// Log all unique statuses
-					const uniqueStatuses = [...new Set(quickTasks.map(q => q.status))];
-					console.log('📋 [MyTasks] Unique statuses found:', uniqueStatuses);
-					
-					// Filter to only active statuses (pending or in_progress, not completed)
-					const activeQuickTasks = quickTasks.filter(q => 
-						q.status === 'pending' || q.status === 'in_progress' || q.status === 'assigned'
-					);
-					
-					console.log('🔍 [MyTasks] Filtered active quick tasks:', { 
-						totalFound: quickTasks.length,
-						activeCount: activeQuickTasks.length,
-						filtered: activeQuickTasks
-					});
-					
-					// Get quick task details separately
-					const quickTaskIds = activeQuickTasks.map(a => a.quick_task_id);
-					const { data: qtDetails } = await supabase
-						.from('quick_tasks')
-						.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by, incident_id, issue_type, product_request_id, product_request_type')
-						.in('id', quickTaskIds);
-
-					const qtMap = {};
-					(qtDetails || []).forEach(qt => {
-						qtMap[qt.id] = qt;
-					});
-
-					const quickTasksFormatted = activeQuickTasks.map(assignment => {
-						const qt = qtMap[assignment.quick_task_id] || {};
-						return {
-							id: assignment.quick_task_id,
-							title: qt.title || 'Untitled Quick Task',
-							description: qt.description || '',
-							priority: qt.priority || 'medium',
-							status: qt.status || 'pending',
-							created_at: qt.created_at || assignment.created_at,
-							due_date: null,
-							due_time: null,
-							deadline_datetime: qt.deadline_datetime,
-							assignment_id: assignment.id,
-							assignment_status: assignment.status,
-							assigned_at: assignment.created_at,
-							assigned_by: qt.assigned_by,
-							assigned_by_name: 'Assigned By',
-							assigned_to_user_id: assignment.assigned_to_user_id,
-							schedule_date: null,
-							schedule_time: null,
-							require_task_finished: false,
-							require_photo_upload: false,
-							require_erp_reference: false,
-							images: [],
-							task_type: 'quick_task',
-							issue_type: qt.issue_type,
-							incident_id: qt.incident_id,
-							product_request_id: qt.product_request_id,
-							product_request_type: qt.product_request_type
-						};
-					});
-
-					const loadTime = performance.now() - startTime;
-					console.log(`⏱️ Quick tasks loaded in ${loadTime.toFixed(0)}ms`, { count: quickTasksFormatted.length });
-					newTasks.push(...quickTasksFormatted);
-					loadedTaskTypes.add('quick_task');
-					console.log('✅ [MyTasks] Loaded quick tasks:', { count: quickTasksFormatted.length });
-				}
-			}
-
-			// Merge with existing tasks - avoid duplicates
-			const existingIds = new Set(tasks.map(t => t.assignment_id));
-			const uniqueNewTasks = newTasks.filter(t => !existingIds.has(t.assignment_id));
-			tasks = [...tasks, ...uniqueNewTasks];
-			tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-			filterTasks();
-			
-			console.log('✅ [MyTasks] Successfully loaded all tasks:', { 
-				total: tasks.length, 
-				loadedTypes: Array.from(loadedTaskTypes),
-				newTasksAdded: uniqueNewTasks.length,
-				duplicatesFiltered: newTasks.length - uniqueNewTasks.length
+			const { data, error } = await supabase.rpc('get_my_tasks', {
+				p_user_id: activeUser.id,
+				p_include_completed: showCompleted,
+				p_limit: 500
 			});
-		} catch (error) {
-			console.error('❌ [MyTasks] Error loading tasks:', error);
-		} finally {
-			loading = false;
+			if (error) throw error;
+
+			allTasks = data?.tasks || [];
+			extractBranches();
+			applyFilters();
+			isLoading = false;
+		} catch (err) {
+			console.error('❌ Error loading tasks:', err);
+			isLoading = false;
 		}
 	}
 
-	async function loadCompletedTasks() {
-		let userId = activeUser?.id;
-		
-		if (!authenticated || !userId) {
-			console.warn('❌ [MyTasks] No user ID available');
-			return;
-		}
+	function extractBranches() {
+		const branchSet = new Set<string>();
+		allTasks.forEach((t: any) => {
+			const bName = isRTL ? (t.branch_name_ar || t.branch_name) : t.branch_name;
+			if (bName && bName !== 'No Branch') branchSet.add(bName);
+		});
+		branches = Array.from(branchSet).sort();
+	}
 
-		console.log('⏳ [MyTasks] Loading completed tasks...');
-		loading = true;
-		
+	function applyFilters() {
+		const filtered = allTasks.filter(task => {
+			if (!showCompleted && (task.assignment_status === 'completed' || task.assignment_status === 'cancelled')) return false;
+			const q = searchQuery.toLowerCase();
+			const matchesSearch = !q ||
+				task.title?.toLowerCase().includes(q) ||
+				task.description?.toLowerCase().includes(q) ||
+				task.assigned_by_name?.toLowerCase().includes(q);
+			const bName = isRTL ? (task.branch_name_ar || task.branch_name) : task.branch_name;
+			const matchesBranch = !selectedBranch || bName === selectedBranch;
+			const matchesType = !selectedType || task.task_type === selectedType;
+			const matchesPriority = !selectedPriority || task.priority === selectedPriority;
+			const matchesStatus = !selectedStatus || task.assignment_status === selectedStatus;
+			return matchesSearch && matchesBranch && matchesType && matchesPriority && matchesStatus;
+		});
+		filteredTasks = filtered;
+		visibleCount = VISIBLE_BATCH;
+		updateVisibleTasks();
+	}
+
+	function updateVisibleTasks() {
+		visibleTasks = filteredTasks.slice(0, visibleCount);
+	}
+
+	function showMore() {
+		visibleCount += VISIBLE_BATCH;
+		updateVisibleTasks();
+	}
+
+	$: if (showCompleted !== undefined) loadTasks();
+
+	// ─── Formatting ───
+	function formatDate(date: any): string {
+		if (!date) return '—';
 		try {
-			let completedTasks = [];
-			const startTime = performance.now();
+			const d = new Date(date);
+			return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+		} catch { return '—'; }
+	}
 
-			// Load completed receiving tasks
-			const { data: completedReceiving, error: rcvError } = await supabase
-				.from('receiving_tasks')
-				.select('id, title, description, priority, task_status, created_at, due_date, assigned_user_id, role_type, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
-				.eq('assigned_user_id', userId)
-				.eq('task_status', 'completed')
-				.limit(100);
+	function getTypeInfo(type: string): { label: string; icon: string; color: string; bg: string } {
+		if (type === 'quick_task') return { label: isRTL ? 'سريع' : 'Quick', icon: '⚡', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' };
+		if (type === 'receiving') return { label: isRTL ? 'استلام' : 'Receiving', icon: '📦', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' };
+		return { label: isRTL ? 'عادي' : 'Regular', icon: '📋', color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' };
+	}
 
-			if (rcvError) {
-				console.warn('⚠️ [MyTasks] Error loading completed receiving tasks:', rcvError);
-			}
+	function getPriorityInfo(p: string): { label: string; color: string; dot: string } {
+		if (p === 'high' || p === 'urgent') return { label: isRTL ? 'عاجل' : 'High', color: 'text-red-600', dot: 'bg-red-500' };
+		if (p === 'low') return { label: isRTL ? 'منخفض' : 'Low', color: 'text-slate-500', dot: 'bg-slate-400' };
+		return { label: isRTL ? 'متوسط' : 'Medium', color: 'text-amber-600', dot: 'bg-amber-500' };
+	}
 
-			if (completedReceiving) {
-				const completed = completedReceiving.map(task => ({
-					id: task.id,
-					title: task.title,
-					description: task.description,
-					priority: task.priority,
-					status: task.task_status,
-					created_at: task.created_at,
-					due_date: task.due_date,
-					due_time: null,
-					deadline_datetime: task.due_date,
-					assignment_id: task.id,
-					assignment_status: task.task_status,
-					assigned_at: task.created_at,
-					assigned_by: null,
-					assigned_by_name: 'System (Receiving)',
-					assigned_to_user_id: task.assigned_user_id,
-					schedule_date: null,
-					schedule_time: null,
-					role_type: task.role_type,
-					receiving_record_id: task.receiving_record_id,
-					clearance_certificate_url: task.clearance_certificate_url,
-					require_task_finished: true,
-					require_photo_upload: task.requires_original_bill_upload || false,
-					require_erp_reference: task.requires_erp_reference || false,
-					images: [],
-					task_type: 'receiving'
-				}));
-				completedTasks.push(...completed);
-				console.log('✅ Loaded completed receiving tasks:', { count: completed.length });
-			}
+	function getStatusInfo(s: string): { label: string; color: string; bg: string } {
+		if (s === 'completed') return { label: isRTL ? 'مكتمل' : 'Completed', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' };
+		if (s === 'in_progress') return { label: isRTL ? 'قيد التنفيذ' : 'In Progress', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' };
+		if (s === 'cancelled') return { label: isRTL ? 'ملغي' : 'Cancelled', color: 'text-red-700', bg: 'bg-red-50 border-red-200' };
+		if (s === 'pending') return { label: isRTL ? 'معلق' : 'Pending', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' };
+		return { label: isRTL ? 'معين' : 'Assigned', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' };
+	}
 
-			// Load completed regular tasks
-			const { data: completedRegular, error: regError } = await supabase
-				.from('task_assignments')
-				.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, assigned_by, assigned_by_name')
-				.eq('assigned_to_user_id', userId)
-				.neq('status', 'pending')
-				.neq('status', 'assigned')
-				.neq('status', 'in_progress')
-				.limit(100);
+	function getBranch(task: any): string {
+		if (isRTL) return task.branch_name_ar || task.branch_name || 'بدون فرع';
+		return task.branch_name || 'No Branch';
+	}
 
-			if (regError) {
-				console.warn('⚠️ [MyTasks] Error loading completed regular tasks:', regError);
-			}
+	function isOverdue(task: any): boolean {
+		if (task.assignment_status === 'completed' || task.assignment_status === 'cancelled' || !task.deadline_datetime) return false;
+		try { return new Date(task.deadline_datetime) < new Date(); } catch { return false; }
+	}
 
-			if (completedRegular && completedRegular.length > 0) {
-				const taskIds = completedRegular.map(a => a.task_id);
-				const { data: taskDetails } = await supabase
-					.from('tasks')
-					.select('id, title, description, priority, status, created_at')
-					.in('id', taskIds);
-
-				const taskMap = {};
-				(taskDetails || []).forEach(t => {
-					taskMap[t.id] = t;
-				});
-
-				const completed = completedRegular.map(assignment => {
-					const taskData = taskMap[assignment.task_id] || {};
-					return {
-						id: assignment.task_id,
-						title: taskData.title || 'Untitled Task',
-						description: taskData.description || '',
-						priority: taskData.priority || 'medium',
-						status: taskData.status || assignment.status,
-						created_at: taskData.created_at || assignment.assigned_at,
-						due_date: null,
-						due_time: null,
-						deadline_datetime: assignment.deadline_datetime,
-						assignment_id: assignment.id,
-						assignment_status: assignment.status,
-						assigned_at: assignment.assigned_at,
-						assigned_by: assignment.assigned_by,
-						assigned_by_name: assignment.assigned_by_name || 'Unknown User',
-						assigned_to_user_id: assignment.assigned_to_user_id,
-						schedule_date: null,
-						schedule_time: null,
-						require_task_finished: false,
-						require_photo_upload: false,
-						require_erp_reference: false,
-						images: [],
-						task_type: 'regular'
-					};
-				});
-				completedTasks.push(...completed);
-				console.log('✅ Loaded completed regular tasks:', { count: completed.length });
-			}
-
-			// Load completed quick tasks
-			const { data: completedQuick, error: qtError } = await supabase
-				.from('quick_task_assignments')
-				.select('id, quick_task_id, assigned_to_user_id, status, created_at')
-				.eq('assigned_to_user_id', userId)
-				.neq('status', 'assigned')
-				.neq('status', 'in_progress')
-				.limit(100);
-
-			if (qtError) {
-				console.warn('⚠️ [MyTasks] Error loading completed quick tasks:', qtError);
-			}
-
-			if (completedQuick && completedQuick.length > 0) {
-				const quickTaskIds = completedQuick.map(a => a.quick_task_id);
-				const { data: qtDetails } = await supabase
-					.from('quick_tasks')
-					.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by')
-					.in('id', quickTaskIds);
-
-				const qtMap = {};
-				(qtDetails || []).forEach(qt => {
-					qtMap[qt.id] = qt;
-				});
-
-				const completed = completedQuick.map(assignment => {
-					const qt = qtMap[assignment.quick_task_id] || {};
-					return {
-						id: assignment.quick_task_id,
-						title: qt.title || 'Untitled Quick Task',
-						description: qt.description || '',
-						priority: qt.priority || 'medium',
-						status: qt.status || assignment.status,
-						created_at: qt.created_at || assignment.created_at,
-						due_date: null,
-						due_time: null,
-						deadline_datetime: qt.deadline_datetime,
-						assignment_id: assignment.id,
-						assignment_status: assignment.status,
-						assigned_at: assignment.created_at,
-						assigned_by: qt.assigned_by,
-						assigned_by_name: 'Assigned By',
-						assigned_to_user_id: assignment.assigned_to_user_id,
-						schedule_date: null,
-						schedule_time: null,
-						require_task_finished: false,
-						require_photo_upload: false,
-						require_erp_reference: false,
-						images: [],
-						task_type: 'quick_task'
-					};
-				});
-				completedTasks.push(...completed);
-				console.log('✅ Loaded completed quick tasks:', { count: completed.length });
-			}
-
-			const loadTime = performance.now() - startTime;
-			console.log(`⏱️ Completed tasks loaded in ${loadTime.toFixed(0)}ms`, { count: completedTasks.length });
-
-			// Merge with existing tasks
-			tasks = [...tasks, ...completedTasks];
-			tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-			loadedTaskTypes.add('completed');
-			filterTasks();
-
-			console.log('✅ [MyTasks] Successfully loaded completed tasks:', { total: tasks.length });
-		} catch (error) {
-			console.error('❌ [MyTasks] Error loading completed tasks:', error);
-		} finally {
-			loading = false;
+	function getCountdown(task: any): { text: string; urgent: boolean } {
+		if (!task.deadline_datetime) return { text: isRTL ? 'بدون موعد' : 'No deadline', urgent: false };
+		const now = new Date();
+		const deadline = new Date(task.deadline_datetime);
+		if (task.assignment_status === 'completed' || task.assignment_status === 'cancelled') {
+			return { text: formatDate(task.deadline_datetime), urgent: false };
 		}
+		if (deadline < now) return { text: isRTL ? 'متأخر!' : 'Overdue!', urgent: true };
+		const diffMs = deadline.getTime() - now.getTime();
+		const days = Math.floor(diffMs / 86400000);
+		const hours = Math.floor((diffMs % 86400000) / 3600000);
+		const mins = Math.floor((diffMs % 3600000) / 60000);
+		let s = '';
+		if (days > 0) s += `${days}d `;
+		if (hours > 0) s += `${hours}h `;
+		s += `${mins}m`;
+		return { text: s, urgent: days === 0 };
 	}
 
-	async function loadMyTasks() {
-		// Refresh all currently loaded task types
-		console.log('🔄 [MyTasks] Refreshing tasks...');
-		loading = true;
-		
-		try {
-			tasks = []; // Clear existing tasks
-			loadedTaskTypes.clear(); // Reset loaded types
-			
-			// Reload completed tasks if they were being shown
-			if (showCompleted) {
-				await loadCompletedTasks();
-			}
-			
-			// Reload task types that were previously loaded
-			if (loadedTaskTypes.size === 0 && filterTaskType !== 'all') {
-				await loadTasksByType(filterTaskType);
-			} else if (filterTaskType !== 'all') {
-				await loadTasksByType(filterTaskType);
-			}
-			
-			console.log('✅ [MyTasks] Tasks refreshed successfully');
-		} catch (error) {
-			console.error('❌ [MyTasks] Error refreshing tasks:', error);
-		} finally {
-			loading = false;
-			filterTasks();
-		}
-	}
-
-	function filterTasks() {
-		filteredTasks = tasks.filter(task => {
-			// Hide completed tasks unless showCompleted is true
-			if (!showCompleted && task.assignment_status === 'completed') {
-				return false;
-			}
-
-			const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				task.description.toLowerCase().includes(searchTerm.toLowerCase());
-			
-			const matchesStatus = filterStatus === 'all' || task.assignment_status === filterStatus;
-			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
-			const matchesTaskType = filterTaskType === 'all' || 
-				task.task_type === filterTaskType;
-			
-			// Date range filtering
-			let matchesDateRange = true;
-			if (filterDateRange !== 'all' && task.deadline_datetime) {
-				const now = new Date();
-				const deadline = new Date(task.deadline_datetime);
-				const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-				const taskDate = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
-				
-				if (filterDateRange === 'overdue') {
-					matchesDateRange = deadline < now;
-				} else if (filterDateRange === 'today') {
-					matchesDateRange = taskDate.getTime() === today.getTime();
-				} else if (filterDateRange === 'week') {
-					const weekFromNow = new Date(today);
-					weekFromNow.setDate(weekFromNow.getDate() + 7);
-					matchesDateRange = taskDate >= today && taskDate < weekFromNow;
-				} else if (filterDateRange === 'month') {
-					const monthFromNow = new Date(today);
-					monthFromNow.setMonth(monthFromNow.getMonth() + 1);
-					matchesDateRange = taskDate >= today && taskDate < monthFromNow;
-				}
-			}
-			
-			return matchesSearch && matchesStatus && matchesPriority && matchesTaskType && matchesDateRange;
-		});
-	}
-
-	function openTaskCompletion(task) {
-		if (task.task_type === 'quick_task') {
-			openQuickTaskCompletion(task);
-		} else if (task.task_type === 'receiving') {
-			openReceivingTaskCompletion(task);
-		} else {
-			const windowId = `task-completion-${task.id}`;
-			openWindow({
-				id: windowId,
-				title: `Complete Task: ${task.title}`,
-				component: TaskCompletionModal,
-				props: {
-					task: task,
-					assignmentId: task.assignment_id,
-					// Use actual requirements from the task/assignment data instead of forcing all to true
-					requireTaskFinished: task.require_task_finished ?? false,
-					requirePhotoUpload: task.require_photo_upload ?? false,
-					requireErpReference: task.require_erp_reference ?? false,
-					onTaskCompleted: () => {
-						removeCompletedTask(task.id);
-						windowManager.closeWindow(windowId);
-					}
-				},
-				icon: '✅',
-				size: { width: 600, height: 700 },
-				position: { 
-					x: 100 + (Math.random() * 200), 
-					y: 50 + (Math.random() * 100) 
-				},
-				resizable: true,
-				minimizable: true,
-				maximizable: true,
-				closable: true
-			});
-		}
-	}
-
-	async function openQuickTaskCompletion(task) {
-		// Open a proper completion modal instead of simple confirm
-		const windowId = `quick-task-completion-${task.assignment_id}`;
-		openWindow({
-			id: windowId,
-			title: `Complete Quick Task: ${task.title}`,
-			component: QuickTaskCompletionDialog,
-			props: {
-				task: task,
-				assignmentId: task.assignment_id,
-				onComplete: () => {
-					windowManager.closeWindow(windowId);
-					removeCompletedTask(task.id);
-				}
-			},
-			icon: '⚡',
-			size: { width: 600, height: 700 },
-			position: { 
-				x: window.innerWidth / 2 - 300, 
-				y: window.innerHeight / 2 - 350 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	async function openReceivingTaskCompletion(task) {
-		const windowId = `receiving-task-completion-${task.id}`;
-		openWindow({
-			id: windowId,
-			title: 'Complete Receiving Task',
-			component: ReceivingTaskCompletionDialog,
-			props: {
-				taskId: task.id,
-				receivingRecordId: task.receiving_record_id,
-				onComplete: () => {
-					windowManager.closeWindow(windowId);
-					removeCompletedTask(task.id); // Smooth removal instead of full reload
-				}
-			},
-			icon: '✅',
-			size: { width: 500, height: 300 },
-			position: { 
-				x: window.innerWidth / 2 - 250, 
-				y: window.innerHeight / 2 - 150 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	// Extract barcode from task title (format: "Price Change | BARCODE | Arabic")
-	function extractBarcode(title) {
+	// ─── Barcode & Price copy ───
+	function extractBarcode(title: string): string | null {
 		if (!title) return null;
-		
-		// Try to extract barcode from different formats:
-		// 1. "Price Change | 259261 | تغيير السعر" (split by |)
 		const parts = title.split('|');
-		if (parts.length >= 2) {
-			const barcode = parts[1].trim();
-			// Check if it's numeric
-			if (/^\d+$/.test(barcode)) {
-				return barcode;
-			}
-		}
-		
-		// 2. "تغيير السعر: 259261" - extract number after colon
-		const colonMatch = title.match(/:\s*(\d+)/);
-		if (colonMatch && colonMatch[1]) {
-			return colonMatch[1];
-		}
-		
-		// 3. Look for any long number sequence (barcode) that's 5+ digits
-		const numberMatch = title.match(/\b(\d{5,})\b/);
-		if (numberMatch && numberMatch[1]) {
-			return numberMatch[1];
-		}
-		
+		if (parts.length >= 2) { const b = parts[1].trim(); if (/^\d+$/.test(b)) return b; }
+		const cm = title.match(/:\s*(\d+)/); if (cm?.[1]) return cm[1];
+		const nm = title.match(/\b(\d{5,})\b/); if (nm?.[1]) return nm[1];
 		return null;
 	}
 
-	// Copy barcode to clipboard and show notification
-	async function copyBarcodeToClipboard(task) {
-		const barcode = extractBarcode(task.title);
-		console.log('📋 Barcode Copy:', { title: task.title, extracted: barcode });
-		if (!barcode) {
-			console.warn('❌ No barcode found in title:', task.title);
-			return;
-		}
+	function extractPrice(desc: string): string | null {
+		if (!desc) return null;
+		const m = desc.match(/New Price:\s*([\d.]+)/i);
+		return m?.[1] || null;
+	}
 
+	async function copyToClipboard(text: string) {
 		try {
-			await navigator.clipboard.writeText(barcode);
-			copyNotification = barcode;
-			console.log('✅ Barcode copied:', barcode);
-			
-			// Clear previous timeout if any
+			await navigator.clipboard.writeText(text);
+			copyNotification = text;
 			if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
-			
-			// Hide notification after 2 seconds
-			copyNotificationTimeout = setTimeout(() => {
-				copyNotification = null;
-			}, 2000);
-		} catch (err) {
-			console.error('Failed to copy barcode:', err);
-		}
+			copyNotificationTimeout = setTimeout(() => { copyNotification = null; }, 2000);
+		} catch (err) { console.error('Copy failed:', err); }
 	}
 
-	// Get description with parts separated
-	function getDescriptionParts(description) {
-		if (!description) return { text: '', price: null };
-		
-		const priceMatch = description.match(/New Price:\s*([\d.]+)/i);
-		if (priceMatch) {
-			const beforePrice = description.substring(0, priceMatch.index);
-			const afterPrice = description.substring(priceMatch.index + priceMatch[0].length);
-			return {
-				before: beforePrice,
-				price: priceMatch[1],
-				after: afterPrice,
-				hasPrice: true
-			};
-		}
-		
-		return { text: description, hasPrice: false };
-	}
-	
-	// Copy price to clipboard and show notification
-	async function copyPriceToClipboard(task) {
-		const parts = getDescriptionParts(task.description);
-		console.log('💰 Price Copy:', { description: task.description, extracted: parts.price, hasPrice: parts.hasPrice });
-		if (!parts.hasPrice) {
-			console.warn('❌ No price found in description:', task.description);
-			return;
-		}
-
-		try {
-			await navigator.clipboard.writeText(parts.price);
-			copyNotification = parts.price;
-			console.log('✅ Price copied:', parts.price);
-			
-			// Clear previous timeout if any
-			if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
-			
-			// Hide notification after 2 seconds
-			copyNotificationTimeout = setTimeout(() => {
-				copyNotification = null;
-			}, 2000);
-		} catch (err) {
-			console.error('Failed to copy price:', err);
-		}
-	}
-
-	function openTaskDetails(task) {
-		if (task.task_type === 'quick_task') {
-			openQuickTaskDetails(task);
-		} else if (task.task_type === 'receiving') {
-			openReceivingTaskDetails(task);
-		} else {
-			const windowId = `task-details-${task.id}`;
-			openWindow({
-				id: windowId,
-				title: `Task Details: ${task.title}`,
-				component: TaskDetailsModal,
-				props: {
-					task: task,
-					windowId: windowId,
-					onTaskCompleted: () => {
-						removeCompletedTask(task.id);
-					}
-				},
-				icon: '📋',
-				size: { width: 800, height: 600 },
-				position: { 
-					x: 150 + (Math.random() * 100), 
-					y: 100 + (Math.random() * 50) 
-				},
-				resizable: true,
-				minimizable: true,
-				maximizable: true,
-				closable: true
-			});
-		}
-	}
-
-	function openQuickTaskDetails(task) {
-		const windowId = `quick-task-details-${task.id}`;
-		openWindow({
-			id: windowId,
-			title: `⚡ Quick Task Details: ${task.title}`,
-			component: QuickTaskDetailsModal,
-			props: {
-				task: task,
-				windowId: windowId,
-				onTaskCompleted: () => {
-					removeCompletedTask(task.id);
-				}
-			},
-			icon: '⚡',
-			size: { width: 800, height: 600 },
-			position: { 
-				x: 150 + (Math.random() * 100), 
-				y: 100 + (Math.random() * 50) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	function openReceivingTaskDetails(task) {
-		const windowId = `receiving-task-details-${task.id}`;
-		openWindow({
-			id: windowId,
-			title: `📦 Receiving Task: ${task.title}`,
-			component: ReceivingTaskDetailsModal,
-			props: {
-				task: task,
-				windowId: windowId,
-				onTaskCompleted: () => {
-					removeCompletedTask(task.id);
-				}
-			},
-			icon: '📦',
-			size: { width: 800, height: 600 },
-			position: { 
-				x: 100 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 50) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	function formatDate(dateString) {
-		if (!dateString) return '';
-		return new Date(dateString).toLocaleDateString();
-	}
-
-	function formatTime(timeString) {
-		if (!timeString) return '';
-		return timeString.slice(0, 5);
-	}
-
-	function getPriorityColor(priority) {
-		switch (priority) {
-			case 'high': return 'text-red-600 bg-red-100';
-			case 'medium': return 'text-yellow-600 bg-yellow-100';
-			case 'low': return 'text-green-600 bg-green-100';
-			default: return 'text-gray-600 bg-gray-100';
-		}
-	}
-
-	function getStatusColor(status) {
-		switch (status) {
-			case 'pending': return 'text-blue-600 bg-blue-100';
-			case 'in_progress': return 'text-yellow-600 bg-yellow-100';
-			case 'completed': return 'text-green-600 bg-green-100';
-			case 'cancelled': return 'text-red-600 bg-red-100';
-			default: return 'text-gray-600 bg-gray-100';
-		}
-	}
-
-	function isOverdue(deadlineDate, deadlineTime) {
-		if (!deadlineDate) return false;
-		
-		const now = new Date();
-		const deadline = new Date(deadlineDate);
-		
-		if (deadlineTime) {
-			const [hours, minutes] = deadlineTime.split(':');
-			deadline.setHours(parseInt(hours), parseInt(minutes));
-		}
-		
-		return now > deadline;
-	}
-
-	function getDeadlineDisplay(deadlineDate, deadlineTime) {
-		if (!deadlineDate) return { text: 'No deadline set', class: 'text-gray-500' };
-		
-		const isLate = isOverdue(deadlineDate, deadlineTime);
-		
-		if (isLate) {
-			const dateText = formatDate(deadlineDate);
-			const timeText = deadlineTime ? ` at ${formatTime(deadlineTime)}` : '';
-			return {
-				text: `${dateText}${timeText}`,
-				class: 'text-red-600 font-semibold',
-				isOverdue: true
-			};
-		}
-		
-		// Calculate live countdown for non-overdue tasks
-		const now = new Date();
-		const deadline = new Date(deadlineDate);
-		
-		if (deadlineTime) {
-			const [hours, minutes] = deadlineTime.split(':');
-			deadline.setHours(parseInt(hours), parseInt(minutes));
-		}
-		
-		const diffMs = deadline.getTime() - now.getTime();
-		
-		if (diffMs <= 0) {
-			return {
-				text: `Overdue`,
-				class: 'text-red-600 font-semibold',
-				isOverdue: true
-			};
-		}
-		
-		// Calculate exact time remaining
-		const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-		const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-		const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-		
-		// Format the countdown string
-		let timeString = '';
-		if (days > 0) {
-			timeString += `${days} day${days !== 1 ? 's' : ''}`;
-		}
-		if (hours > 0) {
-			if (timeString) timeString += ', ';
-			timeString += `${hours} hour${hours !== 1 ? 's' : ''}`;
-		}
-		if (minutes > 0 || timeString === '') {
-			if (timeString) timeString += ', ';
-			timeString += `${minutes} minute${minutes !== 1 ? 's' : ''}`;
-		}
-		
-		timeString += ' remaining';
-		
-		return {
-			text: timeString,
-			class: days > 1 ? 'text-gray-700' : days >= 1 ? 'text-yellow-600 font-medium' : 'text-red-600 font-semibold',
-			isOverdue: false
-		};
-	}
-
-	function getDeadlineDisplayFromDatetime(deadlineDatetime) {
-		if (!deadlineDatetime) return { text: 'No deadline set', class: 'text-gray-500' };
-		
-		const now = new Date();
-		const deadline = new Date(deadlineDatetime);
-		
-		// Check if overdue
-		const isLate = now > deadline;
-		
-		if (isLate) {
-			return {
-				text: `Overdue since ${formatDate(deadline.toISOString().split('T')[0])} at ${formatTime(deadline.toTimeString().substring(0, 5))}`,
-				class: 'text-red-600 font-semibold',
-				isOverdue: true
-			};
-		}
-		
-		// Calculate time remaining
-		const diffMs = deadline.getTime() - now.getTime();
-		const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-		const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-		const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-		
-		// Format the countdown string
-		let timeString = '';
-		if (days > 0) {
-			timeString += `${days} day${days !== 1 ? 's' : ''}`;
-		}
-		if (hours > 0) {
-			if (timeString) timeString += ', ';
-			timeString += `${hours} hour${hours !== 1 ? 's' : ''}`;
-		}
-		if (minutes > 0 || timeString === '') {
-			if (timeString) timeString += ', ';
-			timeString += `${minutes} minute${minutes !== 1 ? 's' : ''}`;
-		}
-		
-		timeString += ' remaining';
-		
-		return {
-			text: timeString,
-			class: days > 1 ? 'text-gray-700' : days >= 1 ? 'text-yellow-600 font-medium' : 'text-red-600 font-semibold',
-			isOverdue: false
-		};
-	}
-
+	// ─── Countdown timer ───
 	function startCountdownTimer() {
-		// Clear any existing interval
-		if (countdownInterval) {
-			clearInterval(countdownInterval);
-		}
-		
-		// Update every minute (60000 ms)
-		countdownInterval = setInterval(() => {
-			// Force reactivity by updating the tasks array
-			tasks = [...tasks];
-		}, 60000);
+		if (countdownInterval) clearInterval(countdownInterval);
+		countdownInterval = setInterval(() => { allTasks = [...allTasks]; }, 60000);
 	}
-
 	function stopCountdownTimer() {
-		if (countdownInterval) {
-			clearInterval(countdownInterval);
-			countdownInterval = null;
+		if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+	}
+
+	// ─── Task actions (open windows) ───
+	function removeCompletedTask(taskId: string) {
+		allTasks = allTasks.filter(t => t.id !== taskId);
+		applyFilters();
+	}
+
+	function openTaskCompletion(task: any) {
+		if (task.task_type === 'quick_task') {
+			const wId = `quick-task-completion-${task.assignment_id}`;
+			openWindow({ id: wId, title: `Complete Quick Task: ${task.title}`, component: QuickTaskCompletionDialog,
+				props: { task, assignmentId: task.assignment_id, onComplete: () => { windowManager.closeWindow(wId); removeCompletedTask(task.id); } },
+				icon: '⚡', size: { width: 600, height: 700 }, position: { x: window.innerWidth/2-300, y: window.innerHeight/2-350 },
+				resizable: true, minimizable: true, maximizable: true, closable: true });
+		} else if (task.task_type === 'receiving') {
+			const wId = `receiving-task-completion-${task.id}`;
+			openWindow({ id: wId, title: 'Complete Receiving Task', component: ReceivingTaskCompletionDialog,
+				props: { taskId: task.id, receivingRecordId: task.receiving_record_id, onComplete: () => { windowManager.closeWindow(wId); removeCompletedTask(task.id); } },
+				icon: '✅', size: { width: 500, height: 300 }, position: { x: window.innerWidth/2-250, y: window.innerHeight/2-150 },
+				resizable: true, minimizable: true, maximizable: true, closable: true });
+		} else {
+			const wId = `task-completion-${task.id}`;
+			openWindow({ id: wId, title: `Complete Task: ${task.title}`, component: TaskCompletionModal,
+				props: { task, assignmentId: task.assignment_id,
+					requireTaskFinished: task.require_task_finished ?? false,
+					requirePhotoUpload: task.require_photo_upload ?? false,
+					requireErpReference: task.require_erp_reference ?? false,
+					onTaskCompleted: () => { removeCompletedTask(task.id); windowManager.closeWindow(wId); } },
+				icon: '✅', size: { width: 600, height: 700 }, position: { x: 100+Math.random()*200, y: 50+Math.random()*100 },
+				resizable: true, minimizable: true, maximizable: true, closable: true });
 		}
 	}
 
-	// Reactive statements
-	$: {
-		filterTasks();
+	function openTaskDetails(task: any) {
+		if (task.task_type === 'quick_task') {
+			const wId = `quick-task-details-${task.id}`;
+			openWindow({ id: wId, title: `⚡ Quick Task: ${task.title}`, component: QuickTaskDetailsModal,
+				props: { task, windowId: wId, onTaskCompleted: () => removeCompletedTask(task.id) },
+				icon: '⚡', size: { width: 800, height: 600 }, position: { x: 150+Math.random()*100, y: 100+Math.random()*50 },
+				resizable: true, minimizable: true, maximizable: true, closable: true });
+		} else if (task.task_type === 'receiving') {
+			const wId = `receiving-task-details-${task.id}`;
+			openWindow({ id: wId, title: `📦 Receiving: ${task.title}`, component: ReceivingTaskDetailsModal,
+				props: { task, windowId: wId, onTaskCompleted: () => removeCompletedTask(task.id) },
+				icon: '📦', size: { width: 800, height: 600 }, position: { x: 100+Math.random()*100, y: 50+Math.random()*50 },
+				resizable: true, minimizable: true, maximizable: true, closable: true });
+		} else {
+			const wId = `task-details-${task.id}`;
+			openWindow({ id: wId, title: `Task: ${task.title}`, component: TaskDetailsModal,
+				props: { task, windowId: wId, onTaskCompleted: () => removeCompletedTask(task.id) },
+				icon: '📋', size: { width: 800, height: 600 }, position: { x: 150+Math.random()*100, y: 100+Math.random()*50 },
+				resizable: true, minimizable: true, maximizable: true, closable: true });
+		}
 	}
+
+	// ─── Delete (master admin only) ───
+	function confirmDelete(task: any) {
+		deletingTaskId = task.assignment_id;
+		deletingTaskType = task.task_type;
+		selectedTask = task;
+		showDeleteConfirm = true;
+	}
+
+	function cancelDelete() {
+		showDeleteConfirm = false;
+		deletingTaskId = null;
+		deletingTaskType = null;
+	}
+
+	async function deleteAssignment() {
+		if (!deletingTaskId || !deletingTaskType) return;
+		try {
+			isDeleting = true;
+			let table = 'task_assignments';
+			if (deletingTaskType === 'quick_task') table = 'quick_task_assignments';
+			else if (deletingTaskType === 'receiving') table = 'receiving_tasks';
+
+			const { error } = await supabase.from(table).delete().eq('id', deletingTaskId);
+			if (error) throw error;
+
+			allTasks = allTasks.filter(t => t.assignment_id !== deletingTaskId);
+			applyFilters();
+			showDeleteConfirm = false;
+			showDetailPopup = false;
+			deletingTaskId = null;
+			deletingTaskType = null;
+			selectedTask = null;
+		} catch (err) {
+			console.error('❌ Error deleting:', err);
+		} finally {
+			isDeleting = false;
+		}
+	}
+
+	function openDetail(task: any) { selectedTask = task; showDetailPopup = true; }
+	function closeDetail() { showDetailPopup = false; selectedTask = null; }
+
+	// Stats
+	$: totalCount = filteredTasks.length;
+	$: activeCount = filteredTasks.filter(t => t.assignment_status !== 'completed' && t.assignment_status !== 'cancelled').length;
+	$: completedCount = allTasks.filter(t => t.assignment_status === 'completed').length;
+	$: overdueCount = filteredTasks.filter(t => isOverdue(t)).length;
+	$: regularCount = filteredTasks.filter(t => t.task_type === 'regular').length;
+	$: quickCount = filteredTasks.filter(t => t.task_type === 'quick_task').length;
+	$: receivingCount = filteredTasks.filter(t => t.task_type === 'receiving').length;
 </script>
 
-<div class="my-tasks-view h-full flex flex-col bg-gray-50">
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRTL ? 'rtl' : 'ltr'}>
 	<!-- Copy Notification Toast -->
 	{#if copyNotification}
-		<div class="fixed top-4 right-4 z-50 animate-fade-in">
-			<div class="bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-				</svg>
-				<span><strong>{copyNotification}</strong> copied</span>
+		<div class="fixed top-4 {isRTL ? 'left-4' : 'right-4'} z-50" style="animation: fadeIn 0.2s ease-out;">
+			<div class="bg-emerald-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold">
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+				<span>{copyNotification} {isRTL ? 'تم النسخ' : 'copied'}</span>
 			</div>
 		</div>
 	{/if}
 
-	<!-- Header -->
-	<div class="bg-white shadow-sm border-b p-6">
-		<div class="flex items-center justify-between">
+	<!-- Header Bar -->
+	<div class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">📝</span>
 			<div>
-				<h1 class="text-2xl font-bold text-gray-900">My Tasks</h1>
-				<p class="text-gray-600 mt-1">Tasks assigned to you</p>
+				<h2 class="text-sm font-black text-slate-800 uppercase tracking-wide">{isRTL ? 'مهامي' : 'My Tasks'}</h2>
+				<p class="text-[10px] text-slate-400 font-semibold">
+					{isRTL ? `${allTasks.length} مهمة مسندة إليك` : `${allTasks.length} tasks assigned to you`}
+				</p>
 			</div>
-			<div class="flex items-center space-x-2">
-				<span class="text-sm text-gray-500">Total: {filteredTasks.length}</span>
-				<button
-					on:click={loadMyTasks}
-					class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-				>
-					Refresh
-				</button>
-			</div>
+		</div>
+		<div class="flex items-center gap-2">
+			<label class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all {showCompleted ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}">
+				<input type="checkbox" bind:checked={showCompleted} class="w-3 h-3 rounded" />
+				{isRTL ? 'المكتملة' : 'Completed'}
+			</label>
+			<button
+				class="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded-xl text-xs font-bold hover:bg-teal-600 transition-all shadow-sm hover:shadow-md"
+				on:click={loadTasks}
+				disabled={isLoading}
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class:animate-spin={isLoading}>
+					<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+				</svg>
+				{isRTL ? 'تحديث' : 'Refresh'}
+			</button>
 		</div>
 	</div>
 
-	<!-- Filters -->
-	<div class="bg-white border-b p-4 space-y-4">
-		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Search</label>
-				<input
-					type="text"
-					bind:value={searchTerm}
-					placeholder="Search tasks..."
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-				/>
-			</div>
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-				<select
-					bind:value={filterStatus}
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-				>
-					<option value="all">All Status</option>
-					<option value="pending">Pending</option>
-					<option value="in_progress">In Progress</option>
-					<option value="completed">Completed</option>
-					<option value="cancelled">Cancelled</option>
-				</select>
-			</div>
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-				<select
-					bind:value={filterPriority}
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-				>
-					<option value="all">All Priorities</option>
-					<option value="high">High</option>
-					<option value="medium">Medium</option>
-					<option value="low">Low</option>
-				</select>
-			</div>
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
-				<select
-					bind:value={filterTaskType}
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-				>
-					<option value="all">All Types</option>
-					<option value="regular">Regular Tasks</option>
-					<option value="quick_task">Quick Tasks (Picking/Delivery)</option>
-					<option value="receiving">Receiving Tasks</option>
-				</select>
-			</div>
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
-				<select
-					bind:value={filterDateRange}
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-				>
-					<option value="all">All Dates</option>
-					<option value="overdue">⚠️ Overdue</option>
-					<option value="today">📅 Today</option>
-					<option value="week">📆 This Week</option>
-					<option value="month">🗓️ This Month</option>
-				</select>
-			</div>
-		</div>
-		
-		<!-- Show Completed Toggle -->
-		<div class="mt-4 px-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
-			<div class="flex items-start space-x-3">
-				<div class="flex-1">
-					<label class="flex items-center space-x-2 cursor-pointer">
-						<input 
-							type="checkbox" 
-							bind:checked={showCompleted}
-							class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-						/>
-						<span class="text-sm font-medium text-gray-700">Show completed tasks</span>
-					</label>
-					<p class="text-xs text-gray-600 mt-1">💡 Only active tasks are loaded for performance. Load completed tasks if needed.</p>
+	<!-- Content -->
+	<div class="flex-1 p-6 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<div class="absolute top-0 right-0 w-[400px] h-[400px] bg-teal-100/20 rounded-full blur-[120px] -mr-48 -mt-48 animate-pulse pointer-events-none"></div>
+		<div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-cyan-100/15 rounded-full blur-[120px] -ml-48 -mb-48 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
+
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+			{#if isLoading}
+				<div class="flex items-center justify-center h-full">
+					<div class="text-center">
+						<div class="animate-spin inline-block">
+							<div class="w-12 h-12 border-4 border-teal-200 border-t-teal-600 rounded-full"></div>
+						</div>
+						<p class="mt-4 text-slate-600 font-semibold">{isRTL ? 'جاري تحميل المهام...' : 'Loading tasks...'}</p>
+					</div>
 				</div>
-			</div>
-		</div>
-	</div>
+			{:else if allTasks.length === 0}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+					<div class="text-5xl mb-4">📭</div>
+					<p class="text-slate-600 font-semibold text-lg">{isRTL ? 'لا توجد مهام' : 'No tasks assigned to you'}</p>
+				</div>
+			{:else}
+				<!-- KPI Cards -->
+				<div class="grid grid-cols-5 gap-3 mb-4">
+					<div class="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/80 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-slate-800">{totalCount}</p>
+						<p class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{isRTL ? 'المعروض' : 'Showing'}</p>
+					</div>
+					<div class="bg-teal-50/60 backdrop-blur-sm rounded-2xl border border-teal-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-teal-600">{activeCount}</p>
+						<p class="text-[10px] font-bold text-teal-500 uppercase tracking-wide">{isRTL ? 'نشط' : 'Active'}</p>
+					</div>
+					<div class="bg-red-50/60 backdrop-blur-sm rounded-2xl border border-red-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-red-600">{overdueCount}</p>
+						<p class="text-[10px] font-bold text-red-500 uppercase tracking-wide">{isRTL ? 'متأخر' : 'Overdue'}</p>
+					</div>
+					<div class="bg-blue-50/60 backdrop-blur-sm rounded-2xl border border-blue-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-blue-600">{quickCount}</p>
+						<p class="text-[10px] font-bold text-blue-500 uppercase tracking-wide">{isRTL ? 'سريع' : 'Quick'}</p>
+					</div>
+					<div class="bg-purple-50/60 backdrop-blur-sm rounded-2xl border border-purple-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-purple-600">{receivingCount}</p>
+						<p class="text-[10px] font-bold text-purple-500 uppercase tracking-wide">{isRTL ? 'استلام' : 'Receiving'}</p>
+					</div>
+				</div>
 
-	<!-- Tasks List -->
-	<div class="flex-1 overflow-y-auto p-6">
-		{#if loading}
-			<div class="flex items-center justify-center h-64">
-				<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-			</div>
-		{:else if tasks.length === 0}
-			<div class="text-center py-12">
-				<svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-				</svg>
-				<h3 class="text-lg font-medium text-gray-900 mb-2">No tasks loaded yet</h3>
-				<p class="text-gray-600 mb-4">Select a task type from the filters above to load your tasks</p>
-				<button 
-					on:click={() => filterTaskType = 'receiving'}
-					class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-				>
-					Load Receiving Tasks
-				</button>
-			</div>
-		{:else if filteredTasks.length === 0}
-			<div class="text-center py-12">
-				<svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-				</svg>
-				<h3 class="text-lg font-medium text-gray-900 mb-2">No tasks found</h3>
-				<p class="text-gray-600">No tasks match your current filters.</p>
-			</div>
-		{:else}
-			<div class="grid gap-4">
-				{#each filteredTasks as task (task.assignment_id)}
-					<div class="bg-white rounded-lg shadow-sm border hover:shadow-md transition-shadow">
-						<div class="p-6">
-							<div class="flex items-start justify-between">
-								<div class="flex-1">
-									<div class="flex items-center space-x-3 mb-2">
-										<h3 
-											class="text-lg font-semibold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
-											on:dblclick={() => copyBarcodeToClipboard(task)}
-											title="Double-click to copy barcode"
-										>
-											{task.title}
-										</h3>
-										{#if task.task_type === 'quick_task'}
-											<span class="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-												⚡ QUICK TASK
+				<!-- Filters -->
+				<div class="mb-4 flex gap-3">
+					<div class="flex-[2]">
+						<span class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'بحث' : 'Search'}</span>
+						<input type="text" placeholder={isRTL ? 'بحث بالعنوان...' : 'Search by title...'} bind:value={searchQuery} on:input={applyFilters}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-1">
+						<span class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'النوع' : 'Type'}</span>
+						<select bind:value={selectedType} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'الكل' : 'All Types'}</option>
+							<option value="regular">{isRTL ? 'عادي' : 'Regular'}</option>
+							<option value="quick_task">{isRTL ? 'سريع' : 'Quick'}</option>
+							<option value="receiving">{isRTL ? 'استلام' : 'Receiving'}</option>
+						</select>
+					</div>
+					<div class="flex-1">
+						<span class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'الحالة' : 'Status'}</span>
+						<select bind:value={selectedStatus} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'الكل' : 'All'}</option>
+							<option value="pending">{isRTL ? 'معلق' : 'Pending'}</option>
+							<option value="assigned">{isRTL ? 'معين' : 'Assigned'}</option>
+							<option value="in_progress">{isRTL ? 'قيد التنفيذ' : 'In Progress'}</option>
+							{#if showCompleted}<option value="completed">{isRTL ? 'مكتمل' : 'Completed'}</option>{/if}
+						</select>
+					</div>
+					<div class="flex-1">
+						<span class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'الأولوية' : 'Priority'}</span>
+						<select bind:value={selectedPriority} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'الكل' : 'All'}</option>
+							<option value="high">{isRTL ? 'عاجل' : 'High'}</option>
+							<option value="medium">{isRTL ? 'متوسط' : 'Medium'}</option>
+							<option value="low">{isRTL ? 'منخفض' : 'Low'}</option>
+						</select>
+					</div>
+					<div class="flex-1">
+						<span class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'الفرع' : 'Branch'}</span>
+						<select bind:value={selectedBranch} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'كل الفروع' : 'All Branches'}</option>
+							{#each branches as b}<option value={b}>{b}</option>{/each}
+						</select>
+					</div>
+				</div>
+
+				<!-- Table -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+					<div class="overflow-x-auto flex-1 overflow-y-auto">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-teal-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 bg-teal-600 text-white shadow-lg z-10">
+								<tr>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">#</th>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'المهمة' : 'Task'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'النوع' : 'Type'}</th>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'الفرع' : 'Branch'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'الحالة' : 'Status'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'الأولوية' : 'Priority'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'الموعد / المتبقي' : 'Deadline'}</th>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'من' : 'From'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-teal-400">{isRTL ? 'إجراء' : 'Action'}</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-slate-200">
+								{#each visibleTasks as task, index (task.assignment_id)}
+									{@const typeInfo = getTypeInfo(task.task_type)}
+									{@const prioInfo = getPriorityInfo(task.priority)}
+									{@const statusInfo = getStatusInfo(task.assignment_status)}
+									{@const overdue = isOverdue(task)}
+									{@const countdown = getCountdown(task)}
+									{@const barcode = extractBarcode(task.title)}
+									<tr class="hover:bg-teal-50/30 transition-colors duration-200 {overdue ? 'bg-red-50/40' : index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-4 py-2.5 text-xs text-slate-400 font-mono">{index + 1}</td>
+										<td class="px-4 py-2.5">
+<div class="text-sm font-semibold text-slate-800 truncate max-w-[280px] {barcode ? 'cursor-pointer hover:text-teal-600' : ''}"
+											role={barcode ? 'button' : undefined} tabindex={barcode ? 0 : undefined}
+												on:dblclick={() => barcode && copyToClipboard(barcode)}
+												title={barcode ? (isRTL ? 'نقر مزدوج لنسخ الباركود' : 'Double-click to copy barcode') : ''}
+											>{task.title}</div>
+											{#if task.description}
+												{@const price = extractPrice(task.description)}
+												<div class="text-[10px] text-slate-400 truncate max-w-[280px]">
+													{#if price}
+														<span>{task.description.split(/New Price:/i)[0]}</span>
+														<span class="font-bold text-blue-600 cursor-pointer hover:text-blue-800" role="button" tabindex="0" on:dblclick={() => copyToClipboard(price)} title={isRTL ? 'نقر مزدوج لنسخ السعر' : 'Double-click to copy price'}>
+															{price}
+														</span>
+													{:else}
+														{task.description.substring(0, 80)}
+													{/if}
+												</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-bold {typeInfo.bg} {typeInfo.color}">
+												<span>{typeInfo.icon}</span> {typeInfo.label}
 											</span>
-										{/if}
-										<span class="px-2 py-1 rounded-full text-xs font-medium {getPriorityColor(task.priority)}">
-											{task.priority?.toUpperCase()}
-										</span>
-										<span class="px-2 py-1 rounded-full text-xs font-medium {getStatusColor(task.assignment_status)}">
-											{task.assignment_status?.replace('_', ' ').toUpperCase()}
-										</span>
-									</div>
-									
-									<!-- Description with copyable new price -->
-									{#if task.description}
-										{#if getDescriptionParts(task.description).hasPrice}
-											{@const parts = getDescriptionParts(task.description)}
-											<p class="text-gray-600 mb-3">
-												{parts.before}
-												New Price: 
-												<span 
-													class="font-bold text-blue-600 cursor-pointer hover:text-blue-800 transition-colors"
-													on:dblclick={() => copyPriceToClipboard(task)}
-													title="Double-click to copy price"
+										</td>
+										<td class="px-4 py-2.5 text-sm text-slate-700">{getBranch(task)}</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-bold {statusInfo.bg} {statusInfo.color}">
+												{statusInfo.label}
+											</span>
+											{#if overdue}
+												<span class="block text-[9px] font-bold text-red-600 mt-0.5">⚠ {isRTL ? 'متأخر' : 'OVERDUE'}</span>
+											{/if}
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="inline-flex items-center gap-1.5 {prioInfo.color} text-xs font-bold">
+												<span class="w-2 h-2 rounded-full {prioInfo.dot}"></span>
+												{prioInfo.label}
+											</span>
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="text-xs font-bold {countdown.urgent ? 'text-red-600' : 'text-slate-600'}">
+												{countdown.text}
+											</span>
+										</td>
+										<td class="px-4 py-2.5 text-sm text-slate-600">{task.assigned_by_name}</td>
+										<td class="px-4 py-2.5 text-center">
+											<div class="flex items-center justify-center gap-1">
+												{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+													<button
+														class="px-2.5 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-bold hover:bg-emerald-600 transition-all shadow-sm active:scale-95"
+														on:click={() => openTaskCompletion(task)}
+														title={isRTL ? 'إكمال' : 'Complete'}
+													>
+														✅
+													</button>
+												{/if}
+												<button
+													class="px-2.5 py-1.5 bg-teal-500 text-white rounded-lg text-[10px] font-bold hover:bg-teal-600 transition-all shadow-sm active:scale-95"
+													on:click={() => openDetail(task)}
 												>
-													{parts.price}
-												</span>
-												{parts.after}
-											</p>
-										{:else}
-											<p class="text-gray-600 mb-3">{task.description}</p>
-										{/if}
-									{/if}
-									
-									<!-- Quick Task specific fields -->
-									{#if task.task_type === 'quick_task'}
-										<div class="mb-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
-											<div class="grid grid-cols-2 gap-2 text-sm">
-												{#if task.issue_type}
-													<div>
-														<span class="font-medium text-purple-700">Issue Type:</span>
-														<span class="text-purple-900">{task.issue_type.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-													</div>
-												{/if}
-												{#if task.price_tag}
-													<div>
-														<span class="font-medium text-purple-700">Price Tag:</span>
-														<span class="text-purple-900">{task.price_tag.toUpperCase()}</span>
-													</div>
+													{isRTL ? 'تفاصيل' : 'Details'}
+												</button>
+												{#if isMasterAdmin}
+													<button
+														class="px-2 py-1.5 bg-red-500 text-white rounded-lg text-[10px] font-bold hover:bg-red-600 transition-all shadow-sm active:scale-95"
+														on:click={() => confirmDelete(task)}
+														title={isRTL ? 'حذف' : 'Delete'}
+													>
+														<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+													</button>
 												{/if}
 											</div>
-										</div>
-									{/if}
-									
-									<!-- Task Attachments Indicator -->
-									{#if task.images && task.images.length > 0}
-										<div class="mb-4">
-											<div class="inline-flex items-center space-x-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200">
-												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-												</svg>
-												<span class="text-sm font-medium">
-													{task.task_type === 'quick_task' ? 'Quick task has' : 'Task has'} {task.images.length} attachment{task.images.length !== 1 ? 's' : ''}
-												</span>
-											</div>
-										</div>
-									{/if}
-									
-									<div class="grid grid-cols-2 gap-4 text-sm text-gray-500">
-										<div>
-											<span class="font-medium">Priority:</span> {task.priority || 'Not set'}
-										</div>
-										<div>
-											<span class="font-medium">Task Status:</span> {task.status || 'Unknown'}
-										</div>
-										{#if (task.task_type === 'quick_task' || task.task_type === 'receiving') && task.deadline_datetime}
-											{@const deadlineInfo = getDeadlineDisplayFromDatetime(task.deadline_datetime)}
-											<div class="col-span-2">
-												<span class="font-medium">Deadline:</span> 
-												<span class="{deadlineInfo.class}">
-													{deadlineInfo.text}
-													{#if deadlineInfo.isOverdue}
-														<span class="inline-flex items-center px-2 py-0.5 ml-2 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-															⚠️ OVERDUE
-														</span>
-													{/if}
-												</span>
-											</div>
-										{:else if task.deadline_date}
-											{@const deadlineInfo = getDeadlineDisplay(task.deadline_date, task.deadline_time)}
-											<div class="col-span-2">
-												<span class="font-medium">Deadline:</span> 
-												<span class="{deadlineInfo.class}">
-													{deadlineInfo.text}
-													{#if deadlineInfo.isOverdue}
-														<span class="inline-flex items-center px-2 py-0.5 ml-2 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-															⚠️ OVERDUE
-														</span>
-													{/if}
-												</span>
-											</div>
-										{:else}
-											<div class="col-span-2">
-												<span class="font-medium">Deadline:</span> 
-												<span class="text-gray-500">No deadline set</span>
-											</div>
-										{/if}
-										{#if task.schedule_date}
-											<div>
-												<span class="font-medium">Scheduled:</span> 
-												{formatDate(task.schedule_date)}
-												{#if task.schedule_time}
-													at {formatTime(task.schedule_time)}
-												{/if}
-											</div>
-										{/if}
-										<div>
-											<span class="font-medium">Assignment Status:</span> 
-											<span class="px-2 py-1 rounded-full text-xs font-medium {getStatusColor(task.assignment_status)}">
-												{task.assignment_status?.replace('_', ' ').toUpperCase()}
-											</span>
-										</div>
-										<div>
-											<span class="font-medium">Assigned by:</span> 
-											{task.assigned_by_name || 'Unknown'}
-										</div>
-										<div>
-											<span class="font-medium">Assigned to:</span> 
-											{currentUserData?.name || currentUserData?.username || 'You'}
-										</div>
-										<div>
-											<span class="font-medium">Assigned on:</span> 
-											{formatDate(task.assigned_at)}
-										</div>
-										<div>
-											<span class="font-medium">Assigned by:</span> 
-											{task.assigned_by_name || 'Unknown'}
-										</div>
-									</div>
-
-								</div>
-								
-								<div class="ml-4 flex flex-col space-y-2">
-									{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
-										<button
-											on:click={() => {
-												console.log('🔵 [MyTasks] Complete button clicked:', { task, currentUserData });
-												openTaskCompletion(task);
-											}}
-											class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
-										>
-											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-											</svg>
-											<span>Complete</span>
-										</button>
-									{/if}
-									
-									<button
-										on:click={() => {
-											console.log('🔵 [MyTasks] View Details button clicked:', { task, currentUserData });
-											openTaskDetails(task);
-										}}
-										class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
-									>
-										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-										</svg>
-										<span>View Details</span>
-									</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if filteredTasks.length === 0 && allTasks.length > 0}
+							<div class="flex items-center justify-center py-12">
+								<div class="text-center">
+									<div class="text-4xl mb-3">🔍</div>
+									<p class="text-slate-500 font-semibold">{isRTL ? 'لا نتائج مطابقة' : 'No matching results'}</p>
+									<p class="text-slate-400 text-xs mt-1">{isRTL ? 'حاول تغيير الفلاتر' : 'Try changing filters'}</p>
 								</div>
 							</div>
-						</div>
+						{/if}
+						{#if visibleCount < filteredTasks.length}
+							<div class="flex items-center justify-center py-4 border-t border-slate-200">
+								<button class="px-6 py-2.5 bg-teal-500 text-white rounded-xl text-xs font-bold hover:bg-teal-600 transition-all shadow-sm hover:shadow-md" on:click={showMore}>
+									{isRTL ? `عرض المزيد (${filteredTasks.length - visibleCount} متبقي)` : `Show More (${filteredTasks.length - visibleCount} remaining)`}
+								</button>
+							</div>
+						{/if}
 					</div>
-				{/each}
-			</div>
-		{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
 
+<!-- Task Detail Popup -->
+{#if showDetailPopup && selectedTask}
+	{@const t = selectedTask}
+	{@const typeInfo = getTypeInfo(t.task_type)}
+	{@const prioInfo = getPriorityInfo(t.priority)}
+	{@const statusInfo = getStatusInfo(t.assignment_status)}
+	{@const countdown = getCountdown(t)}
+	<div
+		class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center"
+		style="animation: fadeIn 0.15s ease-out;"
+		on:click|self={closeDetail}
+		on:keydown={(e) => e.key === 'Escape' && closeDetail()}
+		role="dialog"
+		tabindex="-1"
+		aria-modal="true"
+	>
+		<div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-[560px] max-h-[80vh] overflow-hidden" style="animation: scaleIn 0.2s ease-out;" dir={isRTL ? 'rtl' : 'ltr'}>
+			<div class="bg-gradient-to-r from-teal-500 to-cyan-500 px-6 py-4 flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<span class="text-2xl">{typeInfo.icon}</span>
+					<div>
+						<h3 class="text-sm font-black text-white uppercase tracking-wide">{isRTL ? 'تفاصيل المهمة' : 'Task Details'}</h3>
+						<p class="text-[10px] text-teal-100 font-semibold">{typeInfo.label} • ID: {t.assignment_id?.substring(0, 8)}...</p>
+					</div>
+				</div>
+				<button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 transition-all flex items-center justify-center" on:click={closeDetail} aria-label="Close">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+				</button>
+			</div>
+			<div class="p-6 overflow-y-auto max-h-[60vh]">
+				<div class="mb-5">
+					<h4 class="text-lg font-bold text-slate-800 mb-1">{t.title}</h4>
+					{#if t.description}
+						<p class="text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">{t.description}</p>
+					{/if}
+				</div>
+				<div class="grid grid-cols-2 gap-3 mb-5">
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'النوع' : 'Type'}</p>
+						<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-bold {typeInfo.bg} {typeInfo.color}">{typeInfo.icon} {typeInfo.label}</span>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الحالة' : 'Status'}</p>
+						<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-bold {statusInfo.bg} {statusInfo.color}">{statusInfo.label}</span>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الأولوية' : 'Priority'}</p>
+						<span class="inline-flex items-center gap-1.5 {prioInfo.color} text-sm font-bold">
+							<span class="w-2.5 h-2.5 rounded-full {prioInfo.dot}"></span> {prioInfo.label}
+						</span>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'تاريخ الإسناد' : 'Assigned Date'}</p>
+						<span class="text-sm font-semibold text-slate-700">{formatDate(t.assigned_at)}</span>
+					</div>
+				</div>
+				{#if t.deadline_datetime}
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-5 {isOverdue(t) ? 'bg-red-50 border-red-200' : ''}">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الموعد النهائي' : 'Deadline'}</p>
+						<div class="flex items-center gap-3">
+							<span class="text-sm font-semibold {isOverdue(t) ? 'text-red-600' : 'text-slate-700'}">{formatDate(t.deadline_datetime)}</span>
+							<span class="inline-block px-2 py-0.5 rounded-lg text-[10px] font-bold {countdown.urgent ? 'bg-red-100 text-red-700' : 'bg-teal-100 text-teal-700'}">{countdown.text}</span>
+						</div>
+					</div>
+				{/if}
+				{#if t.completed_at}
+					<div class="bg-emerald-50 rounded-xl p-3 border border-emerald-100 mb-5">
+						<p class="text-[10px] font-bold text-emerald-500 uppercase tracking-wide mb-1">{isRTL ? 'تاريخ الإكمال' : 'Completed'}</p>
+						<span class="text-sm font-semibold text-emerald-700">{formatDate(t.completed_at)}</span>
+					</div>
+				{/if}
+				<div class="grid grid-cols-2 gap-3 mb-5">
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'من' : 'Assigned By'}</p>
+						<p class="text-sm font-semibold text-slate-700">{t.assigned_by_name}</p>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الفرع' : 'Branch'}</p>
+						<p class="text-sm font-semibold text-slate-700">{getBranch(t)}</p>
+					</div>
+				</div>
+				{#if t.task_type === 'quick_task' && (t.issue_type || t.price_tag)}
+					<div class="bg-blue-50 rounded-xl p-3 border border-blue-100 mb-5">
+						<p class="text-[10px] font-bold text-blue-500 uppercase tracking-wide mb-2">{isRTL ? 'تفاصيل المهمة السريعة' : 'Quick Task Details'}</p>
+						<div class="grid grid-cols-2 gap-3">
+							{#if t.issue_type}<div><p class="text-[10px] text-blue-400 font-bold">{isRTL ? 'نوع المشكلة' : 'Issue Type'}</p><p class="text-sm font-semibold text-blue-700 capitalize">{t.issue_type}</p></div>{/if}
+							{#if t.price_tag}<div><p class="text-[10px] text-blue-400 font-bold">{isRTL ? 'السعر' : 'Price Tag'}</p><p class="text-sm font-semibold text-blue-700 capitalize">{t.price_tag}</p></div>{/if}
+						</div>
+					</div>
+				{/if}
+				{#if t.task_type === 'receiving' && (t.role_type || t.clearance_certificate_url)}
+					<div class="bg-purple-50 rounded-xl p-3 border border-purple-100 mb-5">
+						<p class="text-[10px] font-bold text-purple-500 uppercase tracking-wide mb-2">{isRTL ? 'تفاصيل الاستلام' : 'Receiving Details'}</p>
+						{#if t.role_type}<p class="text-sm text-purple-700"><span class="font-bold">{isRTL ? 'الدور:' : 'Role:'}</span> {t.role_type}</p>{/if}
+					</div>
+				{/if}
+			</div>
+			<div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					{#if t.assignment_status !== 'completed' && t.assignment_status !== 'cancelled'}
+						<button class="px-4 py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all flex items-center gap-2"
+							on:click={() => { closeDetail(); openTaskCompletion(t); }}>
+							✅ {isRTL ? 'إكمال' : 'Complete'}
+						</button>
+					{/if}
+					<button class="px-4 py-2 bg-teal-500 text-white rounded-xl text-xs font-bold hover:bg-teal-600 transition-all flex items-center gap-2"
+						on:click={() => { closeDetail(); openTaskDetails(t); }}>
+						{isRTL ? 'عرض كامل' : 'Full View'}
+					</button>
+					{#if isMasterAdmin}
+						<button class="px-4 py-2 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition-all flex items-center gap-2"
+							on:click={() => confirmDelete(t)}>
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+							{isRTL ? 'حذف' : 'Delete'}
+						</button>
+					{/if}
+				</div>
+				<button class="px-5 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all" on:click={closeDetail}>
+					{isRTL ? 'إغلاق' : 'Close'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Delete Confirmation Modal -->
+{#if showDeleteConfirm}
+	<div
+		class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[300] flex items-center justify-center"
+		style="animation: fadeIn 0.15s ease-out;"
+		on:click|self={cancelDelete}
+		on:keydown={(e) => e.key === 'Escape' && cancelDelete()}
+		role="dialog"
+		tabindex="-1"
+		aria-modal="true"
+	>
+		<div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-[400px] overflow-hidden" style="animation: scaleIn 0.2s ease-out;" dir={isRTL ? 'rtl' : 'ltr'}>
+			<div class="p-6 text-center">
+				<div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+					<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+				</div>
+				<h3 class="text-lg font-bold text-slate-800 mb-2">{isRTL ? 'تأكيد الحذف' : 'Confirm Delete'}</h3>
+				<p class="text-sm text-slate-500 mb-1">{isRTL ? 'هل أنت متأكد من حذف هذه المهمة؟' : 'Are you sure you want to delete this task?'}</p>
+				{#if selectedTask}
+					<p class="text-sm font-semibold text-slate-700 bg-slate-50 rounded-lg px-3 py-2 mt-3">{selectedTask.title}</p>
+				{/if}
+				<p class="text-[10px] text-red-500 font-bold mt-3">⚠️ {isRTL ? 'لا يمكن التراجع عن هذا الإجراء' : 'This action cannot be undone'}</p>
+			</div>
+			<div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-center gap-3">
+				<button class="px-5 py-2.5 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all" on:click={cancelDelete} disabled={isDeleting}>
+					{isRTL ? 'إلغاء' : 'Cancel'}
+				</button>
+				<button class="px-5 py-2.5 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition-all flex items-center gap-2 disabled:opacity-50" on:click={deleteAssignment} disabled={isDeleting}>
+					{#if isDeleting}<div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>{/if}
+					{isRTL ? 'حذف نهائي' : 'Delete Permanently'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
-	.my-tasks-view {
-		background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-	}
-
-	:global(.animate-fade-in) {
-		animation: fadeInSlide 0.3s ease-out forwards;
-	}
-
-	@keyframes fadeInSlide {
-		from {
-			opacity: 0;
-			transform: translateY(-10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+	@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+	@keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+	:global([dir="rtl"] select) {
+		background-position: left 0.75rem center !important;
+		padding-left: 2.5rem !important;
+		padding-right: 1rem !important;
 	}
 </style>
