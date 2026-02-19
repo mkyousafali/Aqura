@@ -1093,6 +1093,8 @@
 	$: isMobileRoute = $page.url.pathname.startsWith('/mobile-interface');
 	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-interface/login');
 	$: isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
+	$: isCustomerInterfaceRoute = $page.url.pathname.startsWith('/customer-interface');
+	$: isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
@@ -1117,7 +1119,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">
@@ -1125,8 +1127,8 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute}
-	<!-- Mobile and cashier routes get no desktop layout - completely independent -->
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute}
+	<!-- Mobile, cashier, and customer routes get no desktop layout - completely independent -->
 	<slot />
 {:else}
 	<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>

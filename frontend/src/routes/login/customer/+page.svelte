@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
@@ -34,7 +33,7 @@
 		}, 300);
 
 		if ($isAuthenticated && $currentUser) {
-			goto('/customer-interface');
+			window.location.href = '/customer-interface';
 			return;
 		}
 
@@ -44,7 +43,7 @@
 			if (customerSession) {
 				const data = JSON.parse(customerSession);
 				if (data?.customer_id && data?.registration_status === 'approved') {
-					goto('/customer-interface');
+					window.location.href = '/customer-interface';
 					return;
 				}
 			}
@@ -62,7 +61,9 @@
 	function handleCustomerSuccess(event) {
 		const { detail } = event;
 		if (detail.type === 'customer_login') {
-			goto('/customer-interface');
+			// Use window.location.href instead of goto() to ensure a full page load
+			// This prevents redirect loops when navigating across route trees
+			window.location.href = '/customer-interface';
 		}
 	}
 </script>
