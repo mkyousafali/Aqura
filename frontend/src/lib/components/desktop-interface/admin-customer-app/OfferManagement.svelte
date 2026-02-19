@@ -1077,7 +1077,7 @@
       <div class="empty-icon">🎁</div>
       <h2 class="empty-title">{texts.noOffers}</h2>
       <p class="empty-desc">{texts.noOffersDesc}</p>
-      <button class="btn-primary" on:click={createNewOffer}>
+      <button class="btn-primary" on:click={() => createOfferWithType('percentage')}>
         ➕ {texts.createNew}
       </button>
     </div>
