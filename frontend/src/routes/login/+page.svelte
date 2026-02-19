@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { supabase } from '$lib/utils/supabase';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
 	function t(keyPath: string): string {
@@ -21,7 +22,8 @@
 	let mounted = false;
 	let showContent = false;
 	// NOTE: showMask controls the dark overlay on customer login section
-	let showMask = false;
+	// Value loaded from DB (delivery_service_settings.customer_login_mask_enabled)
+	let showMask = true;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -44,6 +46,15 @@
 		}, 300);
 
 		checkExistingAuth();
+
+		// Load mask setting from DB
+		try {
+			const { data } = await supabase
+				.from('delivery_service_settings')
+				.select('customer_login_mask_enabled')
+				.single();
+			if (data) showMask = data.customer_login_mask_enabled;
+		} catch {}
 	});
 
 	function checkExistingAuth() {

@@ -3,12 +3,14 @@
 	import { page } from '$app/stores';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { supabase } from '$lib/utils/supabase';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
 	let mounted = false;
 	let showContent = false;
 	// NOTE: showMask controls the blur overlay on customer login section
-	let showMask = false;
+	// Value loaded from DB (delivery_service_settings.customer_login_mask_enabled)
+	let showMask = true;
 
 	// Auto-login code from URL ?code=123456
 	let autoLoginCode: string | null = null;
@@ -47,6 +49,15 @@
 					return;
 				}
 			}
+		} catch {}
+
+		// Load mask setting from DB
+		try {
+			const { data } = await supabase
+				.from('delivery_service_settings')
+				.select('customer_login_mask_enabled')
+				.single();
+			if (data) showMask = data.customer_login_mask_enabled;
 		} catch {}
 
 		// Check for ?code= parameter in URL (from WhatsApp login button)
