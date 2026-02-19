@@ -6,7 +6,8 @@
 	import { supabase } from '$lib/utils/supabase';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
-	let maskChannel: any = null;
+	let maskPollInterval: any = null;
+	let autoLoginActive = false;
 
 	let mounted = false;
 	let showContent = false;
@@ -62,30 +63,30 @@
 			if (data) showMask = data.customer_login_mask_enabled;
 		} catch {}
 
-		// Subscribe to real-time changes so mask updates instantly
-		maskChannel = supabase
-			.channel('mask-setting-customer')
-			.on('postgres_changes',
-				{ event: 'UPDATE', schema: 'public', table: 'delivery_service_settings' },
-				(payload: any) => {
-					if (payload.new && typeof payload.new.customer_login_mask_enabled === 'boolean') {
-						showMask = payload.new.customer_login_mask_enabled;
-					}
-				}
-			)
-			.subscribe();
+		// Poll for mask setting changes every 3 seconds
+		maskPollInterval = setInterval(async () => {
+			if (autoLoginActive) return; // Don't override mask during auto-login
+			try {
+				const { data } = await supabase
+					.from('delivery_service_settings')
+					.select('customer_login_mask_enabled')
+					.single();
+				if (data) showMask = data.customer_login_mask_enabled;
+			} catch {}
+		}, 3000);
 
 		// Check for ?code= parameter in URL (from WhatsApp login button)
 		const codeParam = $page.url.searchParams.get('code');
 		if (codeParam && /^\d{6}$/.test(codeParam)) {
 			autoLoginCode = codeParam;
+			autoLoginActive = true;
 			// Unlock the mask so auto-login can proceed
 			showMask = false;
 		}
 	});
 
 	onDestroy(() => {
-		if (maskChannel) supabase.removeChannel(maskChannel);
+		if (maskPollInterval) clearInterval(maskPollInterval);
 	});
 
 	function handleCustomerSuccess(event) {

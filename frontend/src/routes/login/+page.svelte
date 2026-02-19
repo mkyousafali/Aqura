@@ -5,7 +5,7 @@
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 
-	let maskChannel: any = null;
+	let maskPollInterval: any = null;
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
 	function t(keyPath: string): string {
@@ -58,22 +58,20 @@
 			if (data) showMask = data.customer_login_mask_enabled;
 		} catch {}
 
-		// Subscribe to real-time changes so mask updates instantly
-		maskChannel = supabase
-			.channel('mask-setting-login')
-			.on('postgres_changes',
-				{ event: 'UPDATE', schema: 'public', table: 'delivery_service_settings' },
-				(payload: any) => {
-					if (payload.new && typeof payload.new.customer_login_mask_enabled === 'boolean') {
-						showMask = payload.new.customer_login_mask_enabled;
-					}
-				}
-			)
-			.subscribe();
+		// Poll for mask setting changes every 3 seconds
+		maskPollInterval = setInterval(async () => {
+			try {
+				const { data } = await supabase
+					.from('delivery_service_settings')
+					.select('customer_login_mask_enabled')
+					.single();
+				if (data) showMask = data.customer_login_mask_enabled;
+			} catch {}
+		}, 3000);
 	});
 
 	onDestroy(() => {
-		if (maskChannel) supabase.removeChannel(maskChannel);
+		if (maskPollInterval) clearInterval(maskPollInterval);
 	});
 
 	function checkExistingAuth() {
