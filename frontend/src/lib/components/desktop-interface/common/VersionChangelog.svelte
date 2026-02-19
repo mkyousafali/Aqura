@@ -5,11 +5,28 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ59.26.16.17</p>
-<p class="version-details">Desktop: 59 | Mobile: 26 | Cashier: 16 | Customer: 17</p>
+<p class="version-title">Version AQ60.26.16.18</p>
+<p class="version-details">Desktop: 60 | Mobile: 26 | Cashier: 16 | Customer: 18</p>
 </div>
 
 <div class="latest-change">
+<h3>🔒 Customer Login Mask Toggle, Auto-Login Fix & Offer Management Fix</h3>
+<p class="change-description">New admin toggle in Delivery Settings to activate/deactivate the "Currently Not Available" mask on customer login pages in real-time. Fixed auto-login redirect loop from WhatsApp button. Fixed OfferManagement crash when no offers exist.</p>
+<div class="change-details">
+<h4>February 20, 2026:</h4>
+<ul>
+<li>✅ <b>Customer Login Mask — DB Toggle:</b> Added <code>customer_login_mask_enabled</code> column to <code>delivery_service_settings</code> table. Login pages now read mask state from DB instead of hardcoded values.</li>
+<li>✅ <b>Customer Login Mask — Admin UI:</b> New toggle button in Delivery Settings → General Settings tab. Green "Active" / red "Disabled" with instant save and confirmation feedback.</li>
+<li>✅ <b>Customer Login Mask — Live Polling:</b> Both login pages (<code>/login</code> and <code>/login/customer</code>) poll the DB every 3 seconds so mask changes take effect without page refresh.</li>
+<li>✅ <b>Customer Login Mask — Auto-Login Bypass:</b> WhatsApp auto-login (<code>?code=</code> parameter) always bypasses the mask regardless of the toggle setting.</li>
+<li>✅ <b>Auto-Login Redirect Loop Fix:</b> Customer routes (<code>/customer-interface</code>, <code>/login/customer</code>) now bypass the root layout's employee auth loading screen. Post-login navigation uses <code>window.location.href</code> instead of SvelteKit <code>goto()</code> to prevent cross-route-tree navigation issues.</li>
+<li>✅ <b>OfferManagement — Empty State Fix:</b> Fixed <code>createNewOffer is not defined</code> ReferenceError when no offers exist. Empty state button now correctly calls <code>createOfferWithType('percentage')</code>.</li>
+<li>✅ <b>Access Code Hashing:</b> Customer access codes now stored as SHA-256 hashes using <code>extensions.digest()</code>. All 5 related RPCs updated for secure hash comparison.</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
 <h3>📞 Push Notifications for Calls & Texts, Call Rebroadcast & Mobile Communication Page</h3>
 <p class="change-description">Push notifications now fire when initiating a call or sending a text, so the recipient's device wakes even if the app is closed. Incoming call signals are re-broadcast every 5 seconds until answered. New dedicated Mobile Communication page with employee search, call and message buttons per employee, and inline text input.</p>
 <div class="change-details">
