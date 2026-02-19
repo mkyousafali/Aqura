@@ -3,7 +3,7 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentLocale, switchLocale, getAvailableLocales } from '$lib/i18n';
 	import { t } from '$lib/i18n';
-	import { onMount, createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
@@ -17,6 +17,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { supabase } from '$lib/utils/supabase';
+	import { initiateCall, sendTextMessage } from '$lib/stores/callStore';
 
 	// Event dispatcher for communicating with layout
 	const dispatch = createEventDispatcher();
@@ -60,6 +61,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Active orders count
 	let activeOrderCount = 0;
 	let ordersChannel: any = null;
+
+	// Call popup state
+	let showCallPopup = false;
+	let callEmployees: any[] = [];
+	let callSearchQuery = '';
+	let loadingCallEmployees = false;
+
+	// Text message popup state
+	let showTextInput = false;
+	let textTargetEmployee: any = null;
+	let textInputValue = '';
+	let textInputRef: HTMLTextAreaElement;
+
+	$: filteredCallEmployees = callSearchQuery.trim()
+		? callEmployees.filter(e => 
+			(e.name_en || '').toLowerCase().includes(callSearchQuery.toLowerCase()) ||
+			(e.name_ar || '').includes(callSearchQuery)
+		)
+		: callEmployees;
 
 	onMount(() => {
 		updateTime();
@@ -534,6 +554,90 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 
 
+	async function toggleCallPopup() {
+		showCallPopup = !showCallPopup;
+		if (showCallPopup && callEmployees.length === 0) {
+			await loadCallEmployees();
+		}
+	}
+
+	async function loadCallEmployees() {
+		loadingCallEmployees = true;
+		try {
+			const { data, error } = await supabase
+				.from('hr_employee_master')
+				.select('id, user_id, name_en, name_ar, employment_status')
+				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+				.order('name_en', { ascending: true });
+			if (error) throw error;
+			callEmployees = data || [];
+		} catch (err) {
+			console.error('Failed to load employees for call popup:', err);
+		} finally {
+			loadingCallEmployees = false;
+		}
+	}
+
+	async function handleCallEmployee(employee: any) {
+		if (!employee.user_id) return;
+
+		// Get caller info
+		const caller = $currentUser;
+		const callerName = caller?.employeeName || caller?.username || 'Someone';
+		const callerEmp = callEmployees.find(e => e.user_id === caller?.id);
+		const callerNameAr = callerEmp?.name_ar || '';
+
+		// Initiate call via the call store (IncomingCallOverlay handles WebRTC)
+		initiateCall({
+			targetUserId: employee.user_id,
+			targetName: employee.name_en || employee.name_ar || 'Employee',
+			targetNameAr: employee.name_ar || '',
+			callerName,
+			callerNameAr
+		});
+
+		// Close the popup
+		showCallPopup = false;
+	}
+
+	async function handleTextEmployee(employee: any) {
+		if (!employee.user_id) return;
+		textTargetEmployee = employee;
+		textInputValue = '';
+		showTextInput = true;
+		showCallPopup = false;
+		await tick();
+		textInputRef?.focus();
+	}
+
+	function sendText() {
+		if (!textInputValue.trim() || !textTargetEmployee?.user_id) return;
+
+		const caller = $currentUser;
+		const senderName = caller?.employeeName || caller?.username || 'Someone';
+		const senderEmp = callEmployees.find(e => e.user_id === caller?.id);
+		const senderNameAr = senderEmp?.name_ar || '';
+
+		sendTextMessage({
+			targetUserId: textTargetEmployee.user_id,
+			targetName: textTargetEmployee.name_en || textTargetEmployee.name_ar || 'Employee',
+			targetNameAr: textTargetEmployee.name_ar || '',
+			senderName,
+			senderNameAr,
+			message: textInputValue.trim()
+		});
+
+		showTextInput = false;
+		textTargetEmployee = null;
+		textInputValue = '';
+	}
+
+	function cancelText() {
+		showTextInput = false;
+		textTargetEmployee = null;
+		textInputValue = '';
+	}
+
 	function toggleUserMenu() {
 		showUserMenu = !showUserMenu;
 	}
@@ -551,6 +655,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const confirmDialog = target.closest('.logout-confirm-dialog');
 			if (!confirmDialog) {
 				showLogoutConfirm = false;
+			}
+		}
+		if (showCallPopup) {
+			const target = event.target as Element;
+			const callPopup = target.closest('.call-popup-wrapper');
+			if (!callPopup) {
+				showCallPopup = false;
 			}
 		}
 	}
@@ -654,6 +765,77 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge">{activeOrderCount > 99 ? '99+' : activeOrderCount}</div>
 			{/if}
 		</button>
+
+		<!-- Call -->
+		<div class="call-popup-wrapper">
+			<button 
+				class="quick-btn call-btn"
+				class:active={showCallPopup}
+				on:click|stopPropagation={toggleCallPopup}
+				title="Call"
+			>
+				<div class="quick-icon">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+						<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
+					</svg>
+				</div>
+			</button>
+
+			{#if showCallPopup}
+				<div class="call-popup" on:click|stopPropagation>
+					<div class="call-popup-header">
+						<h3>📞 Employees</h3>
+						<button class="call-popup-close" on:click={() => showCallPopup = false}>
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M18 6L6 18M6 6l12 12"/>
+							</svg>
+						</button>
+					</div>
+					<div class="call-popup-search">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2">
+							<circle cx="11" cy="11" r="8"/>
+							<path d="M21 21l-4.35-4.35"/>
+						</svg>
+						<input 
+							type="text" 
+							placeholder="Search employee..." 
+							bind:value={callSearchQuery}
+							class="call-search-input"
+						/>
+					</div>
+					<div class="call-popup-list">
+						{#if loadingCallEmployees}
+							<div class="call-popup-loading">Loading...</div>
+						{:else if filteredCallEmployees.length === 0}
+							<div class="call-popup-empty">No employees found</div>
+						{:else}
+							{#each filteredCallEmployees as emp (emp.id)}
+								<div class="call-popup-row">
+									<div class="call-emp-name">
+										<span class="emp-name-en">{emp.name_en || '—'}</span>
+										{#if emp.name_ar}
+											<span class="emp-name-ar">{emp.name_ar}</span>
+										{/if}
+									</div>
+									<div class="call-emp-actions">
+										<button class="call-action-btn call-phone" on:click={() => handleCallEmployee(emp)} title="Call">
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+												<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
+											</svg>
+										</button>
+										<button class="call-action-btn call-text" on:click={() => handleTextEmployee(emp)} title="Text">
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+											</svg>
+										</button>
+									</div>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<!-- System Tray -->
@@ -757,6 +939,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<div class="dialog-actions">
 				<button class="cancel-button" on:click={cancelLogout}>{t('nav.cancel')}</button>
 				<button class="confirm-button" on:click={confirmLogout}>{t('auth.logout')}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Text Input Popup (outside taskbar to avoid stacking context) -->
+{#if showTextInput && textTargetEmployee}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="text-input-backdrop" on:click={cancelText}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="text-input-popup" on:click|stopPropagation>
+			<div class="text-input-header">
+				<span>💬 Send to {textTargetEmployee.name_en || textTargetEmployee.name_ar}</span>
+				<button class="text-input-close" on:click={cancelText} aria-label="Close">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M18 6L6 18M6 6l12 12"/>
+					</svg>
+				</button>
+			</div>
+			<textarea
+				class="text-input-area"
+				placeholder="Type your message..."
+				bind:this={textInputRef}
+				bind:value={textInputValue}
+				on:keydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); } }}
+				rows="3"
+			></textarea>
+			<div class="text-input-actions">
+				<button class="text-cancel-btn" on:click={cancelText}>Cancel</button>
+				<button class="text-send-btn" on:click={sendText} disabled={!textInputValue.trim()}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="white" stroke="none">
+						<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+					</svg>
+					Send
+				</button>
 			</div>
 		</div>
 	</div>
@@ -977,6 +1196,327 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.orders-btn .quick-badge {
 		background: #10b981;
 		animation: pulse 2s infinite;
+	}
+
+	.call-btn {
+		background: rgba(34, 197, 94, 0.2) !important;
+		color: #16a34a !important;
+	}
+
+	.call-btn:hover {
+		background: rgba(34, 197, 94, 0.4) !important;
+		box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+	}
+
+	.call-btn .quick-icon {
+		color: #16a34a;
+	}
+
+	.call-btn.active {
+		background: rgba(34, 197, 94, 0.4) !important;
+		box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+	}
+
+	.call-popup-wrapper {
+		position: relative;
+	}
+
+	.call-popup {
+		position: absolute;
+		bottom: 50px;
+		right: 0;
+		width: 320px;
+		max-height: 420px;
+		background: #1e293b;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 12px;
+		box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4);
+		z-index: 9999;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		animation: callPopupSlide 0.2s ease-out;
+	}
+
+	@keyframes callPopupSlide {
+		from { opacity: 0; transform: translateY(10px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.call-popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 14px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		background: rgba(34, 197, 94, 0.1);
+	}
+
+	.call-popup-header h3 {
+		margin: 0;
+		font-size: 0.9rem;
+		color: #e2e8f0;
+		font-weight: 600;
+	}
+
+	.call-popup-close {
+		background: none;
+		border: none;
+		color: #94a3b8;
+		cursor: pointer;
+		padding: 4px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+	}
+
+	.call-popup-close:hover {
+		background: rgba(255, 255, 255, 0.1);
+		color: white;
+	}
+
+	.call-popup-search {
+		padding: 8px 12px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	}
+
+	.call-search-input {
+		flex: 1;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 6px;
+		padding: 6px 10px;
+		color: #e2e8f0;
+		font-size: 0.8rem;
+		outline: none;
+	}
+
+	.call-search-input::placeholder {
+		color: #64748b;
+	}
+
+	.call-search-input:focus {
+		border-color: rgba(34, 197, 94, 0.5);
+	}
+
+	.call-popup-list {
+		overflow-y: auto;
+		flex: 1;
+		max-height: 320px;
+	}
+
+	.call-popup-loading,
+	.call-popup-empty {
+		padding: 24px;
+		text-align: center;
+		color: #64748b;
+		font-size: 0.85rem;
+	}
+
+	.call-popup-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 8px 12px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+		transition: background 0.15s;
+	}
+
+	.call-popup-row:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.call-emp-name {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.emp-name-en {
+		color: #e2e8f0;
+		font-size: 0.82rem;
+		font-weight: 500;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.emp-name-ar {
+		color: #94a3b8;
+		font-size: 0.72rem;
+		direction: rtl;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.call-emp-actions {
+		display: flex;
+		gap: 6px;
+		flex-shrink: 0;
+		margin-left: 8px;
+	}
+
+	.call-action-btn {
+		width: 30px;
+		height: 30px;
+		border-radius: 8px;
+		border: none;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.15s;
+	}
+
+	.call-action-btn.call-phone {
+		background: rgba(34, 197, 94, 0.2);
+		color: #22c55e;
+	}
+
+	.call-action-btn.call-phone:hover {
+		background: rgba(34, 197, 94, 0.4);
+	}
+
+	.call-action-btn.call-text {
+		background: rgba(59, 130, 246, 0.2);
+		color: #3b82f6;
+	}
+
+	.call-action-btn.call-text:hover {
+		background: rgba(59, 130, 246, 0.4);
+	}
+
+	/* ── Text Input Popup (global - rendered outside taskbar stacking context) ── */
+	:global(.text-input-backdrop) {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 10000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		animation: overlayFadeIn 0.2s ease-out;
+	}
+
+	@keyframes overlayFadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	:global(.text-input-popup) {
+		background: #1e293b;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 16px;
+		padding: 20px;
+		width: 380px;
+		max-width: 90vw;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+	}
+
+	:global(.text-input-header) {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 14px;
+		color: white;
+		font-weight: 600;
+		font-size: 0.95rem;
+	}
+
+	:global(.text-input-close) {
+		background: none;
+		border: none;
+		color: #9ca3af;
+		cursor: pointer;
+		padding: 4px;
+		border-radius: 6px;
+		transition: all 0.15s;
+	}
+
+	:global(.text-input-close:hover) {
+		color: white;
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	:global(.text-input-area) {
+		width: 100%;
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 10px;
+		padding: 12px 14px;
+		color: white;
+		font-size: 0.9rem;
+		resize: none;
+		outline: none;
+		font-family: inherit;
+		line-height: 1.5;
+		box-sizing: border-box;
+	}
+
+	:global(.text-input-area::placeholder) {
+		color: #6b7280;
+	}
+
+	:global(.text-input-area:focus) {
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+	}
+
+	:global(.text-input-actions) {
+		display: flex;
+		justify-content: flex-end;
+		gap: 10px;
+		margin-top: 14px;
+	}
+
+	:global(.text-cancel-btn) {
+		padding: 8px 18px;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		color: #d1d5db;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	:global(.text-cancel-btn:hover) {
+		background: rgba(255, 255, 255, 0.15);
+		color: white;
+	}
+
+	:global(.text-send-btn) {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 20px;
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	:global(.text-send-btn:hover:not(:disabled)) {
+		background: linear-gradient(135deg, #2563eb, #1d4ed8);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+	}
+
+	:global(.text-send-btn:disabled) {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 
 	.system-tray {

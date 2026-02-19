@@ -5,11 +5,28 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ59.25.16.17</p>
-<p class="version-details">Desktop: 59 | Mobile: 25 | Cashier: 16 | Customer: 17</p>
+<p class="version-title">Version AQ59.26.16.17</p>
+<p class="version-details">Desktop: 59 | Mobile: 26 | Cashier: 16 | Customer: 17</p>
 </div>
 
 <div class="latest-change">
+<h3>📞 Push Notifications for Calls & Texts, Call Rebroadcast & Mobile Communication Page</h3>
+<p class="change-description">Push notifications now fire when initiating a call or sending a text, so the recipient's device wakes even if the app is closed. Incoming call signals are re-broadcast every 5 seconds until answered. New dedicated Mobile Communication page with employee search, call and message buttons per employee, and inline text input.</p>
+<div class="change-details">
+<h4>February 19, 2026:</h4>
+<ul>
+<li>✅ <b>Push Notification — Incoming Call:</b> When a call is initiated, a push notification (<code>incoming_call</code> type) is sent to the target user via the <code>send-push-notification</code> Edge Function. Service worker shows urgent notification with repeating vibration pattern, <code>requireInteraction: true</code>, and "Open App" action button.</li>
+<li>✅ <b>Push Notification — Incoming Text:</b> When a text message is sent, a push notification (<code>incoming_text</code> type) is sent to the target user. Service worker shows "💬 Message from [Name]" with standard vibration and <code>requireInteraction: true</code>.</li>
+<li>✅ <b>Call Signal Rebroadcast:</b> While a call is in the "outgoing" phase, the caller re-sends the <code>incoming_call</code> Realtime broadcast every 5 seconds. This ensures that if the recipient's app opens late (e.g., woken by push notification), it still receives the call signal. Interval is cleared on accept, decline, cancel, or end.</li>
+<li>✅ <b>Service Worker — Call/Text Handlers:</b> Updated <code>sw.js</code> to handle <code>incoming_call</code> and <code>incoming_text</code> push types with distinct notification styles. Notification click focuses any open app window or opens the root URL.</li>
+<li>✅ <b>Mobile — Communication Page:</b> New dedicated page at <code>/mobile-interface/communication</code> with employee search bar, avatar cards showing English and Arabic names, green Call button and blue Message button per employee row.</li>
+<li>✅ <b>Mobile — Inline Text Input:</b> Tapping Message on an employee expands an inline textarea below their card with Cancel and Send buttons. Uses <code>sendTextMessage()</code> from callStore.</li>
+<li>✅ <b>Mobile — Emergencies Submenu Link:</b> Single "Call & Message" link in the emergencies submenu navigates to the communication page. Replaced previous popup-based approach.</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
 <h3>✨ Desktop Print Settings, Mobile Orders Manager & Order Workflow Enhancements</h3>
 <p class="change-description">New Print Settings tab in Desktop Orders Manager with A4/Thermal printer configuration, test print popup, and auto-print toggle for new orders. Full Mobile Orders Manager with delivery icon in bottom nav bar, order list with status tabs, accept/reject, assign picker/delivery with search, mark ready/picked up/delivered — all with quick task creation and bilingual notifications matching desktop behavior.</p>
 <div class="change-details">

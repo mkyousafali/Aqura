@@ -800,6 +800,62 @@ self.addEventListener('push', (event) => {
 		const data = event.data.json();
 		console.log('[ServiceWorker] Push data:', data);
 
+		const notificationType = data.type;
+
+		// ── Incoming call: urgent, persistent notification ──
+		if (notificationType === 'incoming_call') {
+			const callerName = (data.data && data.data.caller_name) || 'Someone';
+			const title = '📞 Incoming Call — Aqura';
+			const options = {
+				body: `Urgent call from ${callerName}`,
+				icon: '/icons/icon-192x192.png',
+				badge: '/icons/icon-72x72.png',
+				vibrate: [300, 100, 300, 100, 300, 100, 300], // urgent pattern
+				tag: 'incoming-call',
+				requireInteraction: true, // stays until user acts
+				renotify: true,
+				data: {
+					url: data.url || '/',
+					notificationId: data.notificationId,
+					type: 'incoming_call',
+					...data.data
+				},
+				actions: [
+					{ action: 'open', title: 'Open App' }
+				]
+			};
+			event.waitUntil(self.registration.showNotification(title, options));
+			return;
+		}
+
+		// ── Incoming text message ──
+		if (notificationType === 'incoming_text') {
+			const senderName = (data.data && data.data.sender_name) || 'Someone';
+			const message = (data.data && data.data.message) || data.body || '';
+			const title = `💬 Message from ${senderName}`;
+			const options = {
+				body: message,
+				icon: '/icons/icon-192x192.png',
+				badge: '/icons/icon-72x72.png',
+				vibrate: [200, 100, 200],
+				tag: `incoming-text-${Date.now()}`,
+				requireInteraction: true,
+				renotify: true,
+				data: {
+					url: data.url || '/',
+					notificationId: data.notificationId,
+					type: 'incoming_text',
+					...data.data
+				},
+				actions: [
+					{ action: 'open', title: 'Open' }
+				]
+			};
+			event.waitUntil(self.registration.showNotification(title, options));
+			return;
+		}
+
+		// ── Default / other notification types ──
 		const title = data.title || 'New Notification';
 		const options = {
 			body: data.body || data.message || 'You have a new notification',
@@ -848,11 +904,26 @@ self.addEventListener('notificationclick', (event) => {
 
 	const notificationData = event.notification.data || {};
 	const urlToOpen = notificationData.url || '/';
+	const notifType = notificationData.type;
 
 	event.waitUntil(
 		clients.matchAll({ type: 'window', includeUncontrolled: true })
 			.then((clientList) => {
-				// Check if app is already open
+				// For incoming calls/texts, focus ANY open app window
+				if (notifType === 'incoming_call' || notifType === 'incoming_text') {
+					for (const client of clientList) {
+						if ('focus' in client) {
+							return client.focus();
+						}
+					}
+					// No window open — open the app root
+					if (clients.openWindow) {
+						return clients.openWindow('/');
+					}
+					return;
+				}
+
+				// Default: check for matching URL
 				for (const client of clientList) {
 					if (client.url === new URL(urlToOpen, self.location.origin).href && 'focus' in client) {
 						return client.focus();

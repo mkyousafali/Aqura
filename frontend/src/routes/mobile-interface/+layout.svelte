@@ -10,6 +10,7 @@
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
+	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 
 	async function handleUpdateClick() {
@@ -69,7 +70,7 @@
 	let newOrdersCount = 0;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ25';
+	let mobileVersion = 'AQ26';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
@@ -653,7 +654,7 @@
 			hasIncidentManagerPermission = false;
 		}
 	}
-	
+
 	function getPageTitle(path, locale = null) {
 		// Main pages
 		if (path === '/mobile-interface' || path === '/mobile-interface/') return getTranslation('mobile.dashboard');
@@ -672,6 +673,7 @@
 		if (path === '/mobile-interface/expiry-manager' || path === '/mobile-interface/expiry-manager/') return locale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager';
 		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'فحص الأسعار' : 'Price Checker';
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
+		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1094,6 +1096,13 @@
 								<span>{getTranslation('mobile.incidentManager')}</span>
 							</a>
 						{/if}
+						<!-- Communication (Call & Message) -->
+						<a href="/mobile-interface/communication" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/communication')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
+							</svg>
+							<span>{$currentLocale === 'ar' ? 'اتصال ورسائل' : 'Call & Message'}</span>
+						</a>
 					</div>
 				{/if}
 			</div>
@@ -1208,6 +1217,9 @@
 			</a>
 		</nav>
 	</div>
+
+	<!-- Incoming Call Overlay -->
+	<IncomingCallOverlay />
 {:else}
 	<div class="mobile-error">
 		<h2>{getTranslation('mobile.error.accessRequired')}</h2>
