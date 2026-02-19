@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
+
+	let maskChannel: any = null;
 
 	let mounted = false;
 	let showContent = false;
@@ -60,6 +62,19 @@
 			if (data) showMask = data.customer_login_mask_enabled;
 		} catch {}
 
+		// Subscribe to real-time changes so mask updates instantly
+		maskChannel = supabase
+			.channel('mask-setting-customer')
+			.on('postgres_changes',
+				{ event: 'UPDATE', schema: 'public', table: 'delivery_service_settings' },
+				(payload: any) => {
+					if (payload.new && typeof payload.new.customer_login_mask_enabled === 'boolean') {
+						showMask = payload.new.customer_login_mask_enabled;
+					}
+				}
+			)
+			.subscribe();
+
 		// Check for ?code= parameter in URL (from WhatsApp login button)
 		const codeParam = $page.url.searchParams.get('code');
 		if (codeParam && /^\d{6}$/.test(codeParam)) {
@@ -67,6 +82,10 @@
 			// Unlock the mask so auto-login can proceed
 			showMask = false;
 		}
+	});
+
+	onDestroy(() => {
+		if (maskChannel) supabase.removeChannel(maskChannel);
 	});
 
 	function handleCustomerSuccess(event) {

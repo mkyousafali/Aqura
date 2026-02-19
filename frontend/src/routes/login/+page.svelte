@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
+
+	let maskChannel: any = null;
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
 	function t(keyPath: string): string {
@@ -55,6 +57,23 @@
 				.single();
 			if (data) showMask = data.customer_login_mask_enabled;
 		} catch {}
+
+		// Subscribe to real-time changes so mask updates instantly
+		maskChannel = supabase
+			.channel('mask-setting-login')
+			.on('postgres_changes',
+				{ event: 'UPDATE', schema: 'public', table: 'delivery_service_settings' },
+				(payload: any) => {
+					if (payload.new && typeof payload.new.customer_login_mask_enabled === 'boolean') {
+						showMask = payload.new.customer_login_mask_enabled;
+					}
+				}
+			)
+			.subscribe();
+	});
+
+	onDestroy(() => {
+		if (maskChannel) supabase.removeChannel(maskChannel);
 	});
 
 	function checkExistingAuth() {
