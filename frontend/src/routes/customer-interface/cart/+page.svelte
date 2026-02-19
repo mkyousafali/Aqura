@@ -260,6 +260,7 @@
     emptyCart: 'السلة فارغة',
     emptyCartMessage: 'لم تقم بإضافة أي منتجات بعد',
     continueShopping: 'متابعة التسوق',
+    trackMyOrder: 'تتبع طلباتي',
     item: 'منتج',
     items: 'منتجات',
     subtotal: 'المجموع الفرعي',
@@ -278,6 +279,7 @@
     emptyCart: 'Cart is Empty',
     emptyCartMessage: 'You haven\'t added any products yet',
     continueShopping: 'Continue Shopping',
+    trackMyOrder: 'Track My Orders',
     item: 'item',
     items: 'items',
     subtotal: 'Subtotal',
@@ -346,6 +348,9 @@
       <button class="continue-shopping-btn" on:click={continueShopping} on:touchend|preventDefault={continueShopping}>
         {texts.continueShopping}
       </button>
+      <a href="/customer-interface/track-order" class="track-order-btn">
+        📦 {texts.trackMyOrder}
+      </a>
     </div>
   {:else}
     <!-- Cart Items -->
@@ -603,6 +608,9 @@
             {texts.checkout}
           </button>
         </div>
+        <a href="/customer-interface/track-order" class="track-order-link">
+          📦 {texts.trackMyOrder}
+        </a>
       </div>
   {/if}
 </div>
@@ -1010,6 +1018,33 @@
 
   .continue-shopping-btn:hover {
     background: var(--brand-green-dark);
+  }
+
+  .track-order-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: transparent;
+    color: var(--brand-blue, #2196F3);
+    border: 2px solid var(--brand-blue, #2196F3);
+    padding: 0.7rem 1.4rem;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    margin-top: 0.8rem;
+    position: relative;
+    z-index: 100;
+    touch-action: manipulation;
+    pointer-events: auto;
+    user-select: none;
+  }
+
+  .track-order-btn:hover {
+    background: var(--brand-blue, #2196F3);
+    color: white;
   }
 
   /* Cart Items Section */
@@ -1444,6 +1479,25 @@
 
   .checkout-btn:hover {
     background: var(--brand-green-dark);
+  }
+
+  .track-order-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    color: var(--brand-blue, #2196F3);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 0.6rem;
+    margin-top: 0.5rem;
+    border-radius: 8px;
+    transition: background 0.2s ease;
+  }
+
+  .track-order-link:hover {
+    background: rgba(33, 150, 243, 0.08);
   }
 
   /* Mobile optimizations for bubbles */

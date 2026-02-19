@@ -32,6 +32,7 @@
   let specialPriceOffers: any[] = [];
   let editingOfferId: number | null = null;
   let productsInOtherOffers: Set<string> = new Set();
+  let previewImageUrl: string | null = null;
 
   // Get current Saudi local time in datetime-local format
   function getSaudiLocalDateTime(daysToAdd: number = 0): string {
@@ -95,112 +96,30 @@
   async function loadProducts() {
     loading = true;
     try {
-      const pageSize = 500;
-      let allProducts: any[] = [];
-      let page = 0;
-      let hasMore = true;
+      const { data, error: err } = await supabase.rpc('get_offer_products_data', {
+        p_exclude_offer_id: offerId || 0
+      });
 
-      while (hasMore) {
-        const { data, error: err } = await supabase
-          .from('products')
-          .select('*')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (err || !data) {
-          hasMore = false;
-          break;
-        }
-
-        allProducts = [...allProducts, ...data];
-        hasMore = data.length === pageSize;
-        page++;
+      if (err) {
+        console.error('❌ Error loading products:', err);
+        return;
       }
 
-      products = allProducts
-        .filter(p => p.is_active !== false && p.is_customer_product !== false)
-        .map(p => ({
-        id: p.id,
-        name_ar: p.product_name_ar,
-        name_en: p.product_name_en,
-        barcode: p.barcode,
-        product_serial: p.barcode || '',
-        price: parseFloat(p.sale_price) || 0,
+      products = (data?.products || []).map((p: any) => ({
+        ...p,
+        price: parseFloat(p.price) || 0,
         cost: parseFloat(p.cost) || 0,
-        unit_name_en: p.unit_name_en || '',
-        unit_name_ar: p.unit_name_ar || '',
-        unit_qty: p.unit_qty || 1,
-        image_url: p.image_url,
-        stock: p.current_stock || 0,
-        minim_qty: 1,
-        minimum_qty_alert: 0
+        unit_qty: parseFloat(p.unit_qty) || 1,
+        stock: p.stock || 0,
+        minim_qty: p.minim_qty || 1
       }));
+
+      productsInOtherOffers = new Set(data?.products_in_other_offers || []);
+    } catch (e) {
+      console.error('❌ Error loading products:', e);
     } finally {
       loading = false;
     }
-
-    await loadProductsInOtherOffers();
-  }
-
-  async function loadProductsInOtherOffers() {
-    const { data: offerProducts } = await supabase
-      .from('offer_products')
-      .select(`
-        product_id,
-        offers!inner(id, is_active, end_date, type)
-      `)
-      .eq('offers.is_active', true)
-      .gte('offers.end_date', new Date().toISOString())
-      .neq('offers.id', offerId || 0);
-
-    const { data: bundleData } = await supabase
-      .from('offer_bundles')
-      .select(`
-        required_products,
-        offers!inner(id, is_active, end_date)
-      `)
-      .eq('offers.is_active', true)
-      .gte('offers.end_date', new Date().toISOString())
-      .neq('offers.id', offerId || 0);
-
-    // Load products from BOGO offers
-    let bogoQuery = supabase
-      .from('bogo_offer_rules')
-      .select(`
-        buy_product_id,
-        get_product_id,
-        offers!inner(id, is_active, end_date)
-      `)
-      .eq('offers.is_active', true)
-      .gte('offers.end_date', new Date().toISOString());
-    
-    if (editMode && offerId) {
-      bogoQuery = bogoQuery.neq('offers.id', offerId);
-    }
-
-    const { data: bogoData } = await bogoQuery;
-
-    productsInOtherOffers = new Set();
-    
-    offerProducts?.forEach(op => {
-      productsInOtherOffers.add(op.product_id);
-    });
-
-    bundleData?.forEach(bundle => {
-      if (bundle.required_products && Array.isArray(bundle.required_products)) {
-        bundle.required_products.forEach((p: any) => {
-          productsInOtherOffers.add(p.product_id);
-        });
-      }
-    });
-
-    bogoData?.forEach((rule: any) => {
-      if (rule.buy_product_id) {
-        productsInOtherOffers.add(rule.buy_product_id);
-      }
-      if (rule.get_product_id) {
-        productsInOtherOffers.add(rule.get_product_id);
-      }
-    });
   }
 
   function toSaudiTimeInput(utcDateString: string) {
@@ -461,137 +380,87 @@
   }
 </script>
 
-<div class="special-price-offer-window" class:rtl={isRTL}>
-  <!-- Header with Steps -->
-  <div class="window-header">
-    <h2 class="window-title">
-      {editMode
-        ? isRTL
-          ? '💰 تعديل سعر خاص'
-          : '💰 Edit Special Price Offer'
-        : isRTL
-          ? '💰 إنشاء سعر خاص'
-          : '💰 Create Special Price Offer'}
-    </h2>
-    <div class="step-indicator">
-      <div class="step-item" class:active={currentStep === 1} class:completed={currentStep > 1}>
-        <div class="step-circle">1</div>
-        <span class="step-label">{isRTL ? 'تفاصيل العرض' : 'Offer Details'}</span>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRTL ? 'rtl' : 'ltr'}>
+  <!-- Header -->
+  <div class="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 text-white relative overflow-hidden">
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.1),transparent_70%)]"></div>
+    <div class="relative flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-black tracking-wide">
+          {editMode
+            ? isRTL ? '💰 تعديل سعر خاص' : '💰 Edit Special Price Offer'
+            : isRTL ? '💰 إنشاء سعر خاص' : '💰 Create Special Price Offer'}
+        </h2>
       </div>
-      <div class="step-divider"></div>
-      <div class="step-item" class:active={currentStep === 2}>
-        <div class="step-circle">2</div>
-        <span class="step-label">{isRTL ? 'اختيار المنتجات' : 'Product Selection'}</span>
+      <!-- Step Indicator -->
+      <div class="flex items-center gap-3">
+        <button class="flex items-center gap-2 transition-opacity" class:opacity-100={currentStep === 1} class:opacity-50={currentStep !== 1} on:click={() => { if (currentStep > 1) prevStep(); }}>
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all {currentStep >= 1 ? 'bg-white text-amber-600' : 'bg-white/20 text-white'}">1</div>
+          <span class="text-xs font-semibold hidden sm:inline">{isRTL ? 'تفاصيل العرض' : 'Details'}</span>
+        </button>
+        <div class="w-8 h-0.5 {currentStep >= 2 ? 'bg-white' : 'bg-white/30'}"></div>
+        <div class="flex items-center gap-2 transition-opacity" class:opacity-100={currentStep === 2} class:opacity-50={currentStep !== 2}>
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all {currentStep >= 2 ? 'bg-white text-amber-600' : 'bg-white/20 text-white'}">2</div>
+          <span class="text-xs font-semibold hidden sm:inline">{isRTL ? 'المنتجات' : 'Products'}</span>
+        </div>
       </div>
     </div>
   </div>
 
   {#if error}
-    <div class="error-message">
-      ⚠️ {error}
+    <div class="px-6 py-3 bg-red-50 border-b border-red-200 text-red-700 text-sm font-semibold flex items-center gap-2">
+      <span>⚠️</span> {error}
     </div>
   {/if}
 
   {#if currentStep === 1}
     <!-- Step 1: Offer Details -->
-    <div class="step-content">
-      <div class="form-section">
-        <h3 class="section-title">{isRTL ? 'معلومات العرض الأساسية' : 'Basic Offer Information'}</h3>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="name_ar">
-              {isRTL ? 'اسم العرض (عربي)' : 'Offer Name (Arabic)'}
-              <span class="required">*</span>
-            </label>
-            <input
-              type="text"
-              id="name_ar"
-              bind:value={offerData.name_ar}
-              placeholder={isRTL ? 'أدخل اسم العرض بالعربية' : 'Enter offer name in Arabic'}
-            />
+    <div class="flex-1 overflow-y-auto p-6">
+      <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-6 max-w-3xl mx-auto space-y-5">
+        <h3 class="text-sm font-black text-slate-700 uppercase tracking-wider">{isRTL ? 'معلومات العرض الأساسية' : 'Basic Offer Information'}</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="name_ar" class="text-xs font-bold text-slate-600">{isRTL ? 'اسم العرض (عربي)' : 'Offer Name (Arabic)'} <span class="text-red-500">*</span></label>
+            <input type="text" id="name_ar" bind:value={offerData.name_ar} placeholder={isRTL ? 'أدخل اسم العرض بالعربية' : 'Enter offer name in Arabic'} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80" />
           </div>
-          <div class="form-group">
-            <label for="name_en">
-              {isRTL ? 'اسم العرض (إنجليزي)' : 'Offer Name (English)'}
-              <span class="required">*</span>
-            </label>
-            <input
-              type="text"
-              id="name_en"
-              bind:value={offerData.name_en}
-              placeholder={isRTL ? 'أدخل اسم العرض بالإنجليزية' : 'Enter offer name in English'}
-            />
+          <div class="flex flex-col gap-1.5">
+            <label for="name_en" class="text-xs font-bold text-slate-600">{isRTL ? 'اسم العرض (إنجليزي)' : 'Offer Name (English)'} <span class="text-red-500">*</span></label>
+            <input type="text" id="name_en" bind:value={offerData.name_en} placeholder={isRTL ? 'أدخل اسم العرض بالإنجليزية' : 'Enter offer name in English'} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80" />
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="description_ar">
-              {isRTL ? 'وصف العرض (عربي)' : 'Offer Description (Arabic)'}
-            </label>
-            <textarea
-              id="description_ar"
-              bind:value={offerData.description_ar}
-              placeholder={isRTL ? 'أدخل وصف العرض بالعربية (اختياري)' : 'Enter offer description in Arabic (optional)'}
-              rows="3"
-            />
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="description_ar" class="text-xs font-bold text-slate-600">{isRTL ? 'وصف العرض (عربي)' : 'Description (Arabic)'}</label>
+            <textarea id="description_ar" bind:value={offerData.description_ar} placeholder={isRTL ? 'أدخل وصف العرض بالعربية (اختياري)' : 'Enter description in Arabic (optional)'} rows="3" class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80 resize-y font-sans"></textarea>
           </div>
-          <div class="form-group">
-            <label for="description_en">
-              {isRTL ? 'وصف العرض (إنجليزي)' : 'Offer Description (English)'}
-            </label>
-            <textarea
-              id="description_en"
-              bind:value={offerData.description_en}
-              placeholder={isRTL ? 'أدخل وصف العرض بالإنجليزية (اختياري)' : 'Enter offer description in English (optional)'}
-              rows="3"
-            />
+          <div class="flex flex-col gap-1.5">
+            <label for="description_en" class="text-xs font-bold text-slate-600">{isRTL ? 'وصف العرض (إنجليزي)' : 'Description (English)'}</label>
+            <textarea id="description_en" bind:value={offerData.description_en} placeholder={isRTL ? 'أدخل وصف العرض بالإنجليزية (اختياري)' : 'Enter description in English (optional)'} rows="3" class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80 resize-y font-sans"></textarea>
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="start_date">
-              {isRTL ? 'تاريخ البدء' : 'Start Date'}
-              <span class="required">*</span>
-            </label>
-            <input
-              type="datetime-local"
-              id="start_date"
-              bind:value={offerData.start_date}
-              placeholder={isRTL ? 'يوم-شهر-سنة ساعة:دقيقة' : 'dd-mm-yyyy hh:mm'}
-            />
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="start_date" class="text-xs font-bold text-slate-600">{isRTL ? 'تاريخ البدء' : 'Start Date'} <span class="text-red-500">*</span></label>
+            <input type="datetime-local" id="start_date" bind:value={offerData.start_date} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80" />
           </div>
-          <div class="form-group">
-            <label for="end_date">
-              {isRTL ? 'تاريخ الانتهاء' : 'End Date'}
-              <span class="required">*</span>
-            </label>
-            <input
-              type="datetime-local"
-              id="end_date"
-              bind:value={offerData.end_date}
-              placeholder={isRTL ? 'يوم-شهر-سنة ساعة:دقيقة' : 'dd-mm-yyyy hh:mm'}
-            />
+          <div class="flex flex-col gap-1.5">
+            <label for="end_date" class="text-xs font-bold text-slate-600">{isRTL ? 'تاريخ الانتهاء' : 'End Date'} <span class="text-red-500">*</span></label>
+            <input type="datetime-local" id="end_date" bind:value={offerData.end_date} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80" />
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="branch">
-              {isRTL ? 'الفرع المستهدف' : 'Target Branch'}
-            </label>
-            <select id="branch" bind:value={offerData.branch_id}>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="branch" class="text-xs font-bold text-slate-600">{isRTL ? 'الفرع المستهدف' : 'Target Branch'}</label>
+            <select id="branch" bind:value={offerData.branch_id} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80">
               <option value={null}>{isRTL ? 'جميع الفروع' : 'All Branches'}</option>
               {#each branches as branch}
-                <option value={branch.id}>
-                  {isRTL ? branch.name_ar : branch.name_en}
-                </option>
+                <option value={branch.id}>{isRTL ? branch.name_ar : branch.name_en}</option>
               {/each}
             </select>
           </div>
-          <div class="form-group">
-            <label for="service_type">
-              {isRTL ? 'نوع الخدمة' : 'Service Type'}
-            </label>
-            <select id="service_type" bind:value={offerData.service_type}>
+          <div class="flex flex-col gap-1.5">
+            <label for="service_type" class="text-xs font-bold text-slate-600">{isRTL ? 'نوع الخدمة' : 'Service Type'}</label>
+            <select id="service_type" bind:value={offerData.service_type} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80">
               <option value="both">{isRTL ? 'التوصيل والاستلام' : 'Delivery & Pickup'}</option>
               <option value="delivery">{isRTL ? 'التوصيل فقط' : 'Delivery Only'}</option>
               <option value="pickup">{isRTL ? 'الاستلام فقط' : 'Pickup Only'}</option>
@@ -602,107 +471,80 @@
     </div>
   {:else if currentStep === 2}
     <!-- Step 2: Product Selection -->
-    <div class="step-content step-content-full">
-      <div class="offer-table-container">
-        <div class="table-header">
-          <h3 class="table-title">
-            💰 {isRTL ? 'منتجات السعر الخاص' : 'Special Price Products'}
-          </h3>
-        </div>
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+        <h3 class="text-sm font-black text-slate-700 uppercase tracking-wider px-2">💰 {isRTL ? 'منتجات السعر الخاص' : 'Special Price Products'}</h3>
 
         <!-- Saved Offers -->
         {#if specialPriceOffers.length > 0}
-          <div class="saved-offers-section">
-            <h4 class="section-subtitle">{isRTL ? 'المنتجات المحفوظة' : 'Saved Offers'}</h4>
-            <div class="table-wrapper">
-              <table class="offers-table">
-                <thead>
-                  <tr>
-                    <th>{isRTL ? 'التسلسل' : 'Serial'}</th>
-                    <th>{isRTL ? 'الباركود' : 'Barcode'}</th>
-                    <th>{isRTL ? 'الصورة' : 'Image'}</th>
-                    <th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
-                    <th>{isRTL ? 'اسم المنتج (AR)' : 'Product Name (AR)'}</th>
-                    <th>{isRTL ? 'المخزون' : 'Stock'}</th>
-                    <th>{isRTL ? 'اسم الوحدة' : 'Unit Name'}</th>
-                    <th>{isRTL ? 'كمية الوحدة' : 'Unit Qty'}</th>
-                    <th>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</th>
-                    <th>{isRTL ? 'سعر البيع' : 'Sale Price'}</th>
-                    <th>{isRTL ? 'كمية العرض' : 'Offer Qty'}</th>
-                    <th>{isRTL ? 'سعر العرض' : 'Offer Price'}</th>
-                    <th>{isRTL ? 'الربح بعد العرض' : 'Profit After Offer'}</th>
-                    <th>{isRTL ? 'مرات الاستخدام' : 'Max Uses'}</th>
-                    <th>{isRTL ? 'الإجراءات' : 'Actions'}</th>
+          <div class="flex flex-col gap-2">
+            <h4 class="text-xs font-bold text-amber-700 uppercase tracking-wider px-2">{isRTL ? 'المنتجات المحفوظة' : 'Saved Offers'} ({specialPriceOffers.length})</h4>
+            <div class="overflow-auto rounded-xl border border-amber-200 shadow-sm" style="max-height: 280px;">
+              <table class="w-full border-collapse text-xs">
+                <thead class="sticky top-0 z-10">
+                  <tr class="bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'التسلسل' : 'Serial'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الباركود' : 'Barcode'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الصورة' : 'Img'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المنتج (EN)' : 'Product (EN)'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المنتج (AR)' : 'Product (AR)'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المخزون' : 'Stock'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الوحدة' : 'Unit'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'كمية' : 'U.Qty'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'التكلفة' : 'Cost'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'السعر' : 'Price'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'كمية العرض' : 'Offer Qty'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'سعر العرض' : 'Offer $'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الربح' : 'Profit'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الاستخدام' : 'Uses'}</th>
+                    <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'إجراء' : 'Action'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {#each specialPriceOffers as offer (offer.id)}
                     {@const profitAfterOffer = offer.offer_price - (offer.product.cost * offer.offer_qty)}
-                    <tr class="saved-offer-row">
-                      <td>{offer.product.product_serial}</td>
-                      <td>{offer.product.barcode}</td>
-                      <td>
-                        <img src={offer.product.image_url || '/placeholder.png'} alt={offer.product.name_en} class="product-image" />
-                      </td>
-                      <td>{offer.product.name_en}</td>
-                      <td>{offer.product.name_ar}</td>
-                      <td>{offer.product.stock}</td>
-                      <td>{isRTL ? offer.product.unit_name_ar : offer.product.unit_name_en}</td>
-                      <td>{offer.product.unit_qty}</td>
-                      <td>{offer.product.cost.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}</td>
-                      <td>{offer.product.price.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}</td>
-                      <td>
+                    <tr class="bg-amber-50/60 hover:bg-amber-100/60 transition-colors border-b border-amber-100">
+                      <td class="px-2 py-2">{offer.product.product_serial}</td>
+                      <td class="px-2 py-2 font-mono text-[10px]">{offer.product.barcode}</td>
+                      <td class="px-2 py-2">{#if offer.product.image_url}<button class="cursor-pointer hover:opacity-80 transition-opacity" on:click={() => previewImageUrl = offer.product.image_url}><img src={offer.product.image_url} alt={offer.product.name_en} class="w-8 h-8 object-cover rounded ring-1 ring-amber-200 hover:ring-amber-400" /></button>{:else}<span class="text-[9px] text-slate-400 font-semibold">No Image</span>{/if}</td>
+                      <td class="px-2 py-2">{offer.product.name_en}</td>
+                      <td class="px-2 py-2">{offer.product.name_ar}</td>
+                      <td class="px-2 py-2 text-center">{offer.product.stock}</td>
+                      <td class="px-2 py-2">{isRTL ? offer.product.unit_name_ar : offer.product.unit_name_en}</td>
+                      <td class="px-2 py-2 text-center">{offer.product.unit_qty}</td>
+                      <td class="px-2 py-2 font-semibold">{offer.product.cost.toFixed(2)}</td>
+                      <td class="px-2 py-2 font-semibold">{offer.product.price.toFixed(2)}</td>
+                      <td class="px-2 py-2">
                         {#if offer.isEditing}
-                          <input 
-                            type="number" 
-                            min="1" 
-                            bind:value={offer.offer_qty} 
-                            class="input-qty"
-                            on:input={() => specialPriceOffers = [...specialPriceOffers]}
-                          />
+                          <input type="number" min="1" bind:value={offer.offer_qty} on:input={() => specialPriceOffers = [...specialPriceOffers]} class="w-16 px-1.5 py-1 border border-amber-300 rounded-lg text-xs text-center focus:ring-1 focus:ring-amber-500 outline-none" />
                         {:else}
-                          {offer.offer_qty}
+                          <span class="font-bold text-amber-700">{offer.offer_qty}</span>
                         {/if}
                       </td>
-                      <td>
+                      <td class="px-2 py-2">
                         {#if offer.isEditing}
-                          <input 
-                            type="number" 
-                            min="0" 
-                            step="0.01"
-                            bind:value={offer.offer_price} 
-                            class="input-price"
-                            on:input={() => specialPriceOffers = [...specialPriceOffers]}
-                          />
+                          <input type="number" min="0" step="0.01" bind:value={offer.offer_price} on:input={() => specialPriceOffers = [...specialPriceOffers]} class="w-20 px-1.5 py-1 border border-amber-300 rounded-lg text-xs text-center focus:ring-1 focus:ring-amber-500 outline-none" />
                         {:else}
-                          <span class="offer-price">
-                            {offer.offer_price.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}
-                          </span>
+                          <span class="font-bold text-amber-700">{offer.offer_price.toFixed(2)}</span>
                         {/if}
                       </td>
-                      <td class={profitAfterOffer >= 0 ? 'profit-positive' : 'profit-negative'}>
-                        {profitAfterOffer.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}
-                      </td>
-                      <td>
+                      <td class="px-2 py-2 font-bold {profitAfterOffer >= 0 ? 'text-emerald-700' : 'text-red-600'}">{profitAfterOffer.toFixed(2)}</td>
+                      <td class="px-2 py-2">
                         {#if offer.isEditing}
-                          <input type="number" min="1" bind:value={offer.max_uses} class="input-uses" />
+                          <input type="number" min="1" bind:value={offer.max_uses} class="w-14 px-1.5 py-1 border border-amber-300 rounded-lg text-xs text-center focus:ring-1 focus:ring-amber-500 outline-none" />
                         {:else}
-                          {offer.max_uses}
+                          {offer.max_uses || '—'}
                         {/if}
                       </td>
-                      <td>
-                        {#if offer.isEditing}
-                          <button class="btn-action btn-save" on:click={() => saveSpecialPriceOffer(offer)}>
-                            ✓
-                          </button>
-                        {:else}
-                          <button class="btn-action btn-edit" on:click={() => editSpecialPriceOffer(offer.id)}>
-                            ✏️
-                          </button>
-                          <button class="btn-action btn-delete" on:click={() => deleteSpecialPriceOffer(offer.id)}>
-                            🗑️
-                          </button>
-                        {/if}
+                      <td class="px-2 py-2">
+                        <div class="flex items-center gap-1">
+                          {#if offer.isEditing}
+                            <button class="px-2 py-1 bg-emerald-500 text-white rounded-lg text-[10px] font-bold hover:bg-emerald-600 transition-colors" on:click={() => saveSpecialPriceOffer(offer)}>✓</button>
+                          {:else}
+                            <button class="px-1.5 py-1 bg-blue-500 text-white rounded-lg text-[10px] hover:bg-blue-600 transition-colors" on:click={() => editSpecialPriceOffer(offer.id)}>✏️</button>
+                            <button class="px-1.5 py-1 bg-red-500 text-white rounded-lg text-[10px] hover:bg-red-600 transition-colors" on:click={() => deleteSpecialPriceOffer(offer.id)}>🗑️</button>
+                          {/if}
+                        </div>
                       </td>
                     </tr>
                   {/each}
@@ -713,53 +555,46 @@
         {/if}
 
         <!-- Available Products -->
-        <div class="available-products-section">
-          <h4 class="section-subtitle">{isRTL ? 'المنتجات المتاحة' : 'Available Products'}</h4>
-          <div class="search-box">
-            <input
-              type="text"
-              bind:value={productSearchTerm}
-              placeholder={isRTL ? 'ابحث بالتسلسل أو الباركود أو اسم المنتج...' : 'Search by serial, barcode or product name...'}
-              class="search-input"
-            />
+        <div class="flex-1 flex flex-col gap-2 min-h-0">
+          <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider px-2">{isRTL ? 'المنتجات المتاحة' : 'Available Products'} ({filteredProducts.length})</h4>
+          <div class="px-2">
+            <input type="text" bind:value={productSearchTerm} placeholder={isRTL ? 'ابحث بالتسلسل أو الباركود أو اسم المنتج...' : 'Search by serial, barcode or product name...'} class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-white/80 placeholder:text-slate-400" />
           </div>
-          <div class="table-wrapper">
-            <table class="offers-table">
-              <thead>
-                <tr>
-                  <th>{isRTL ? 'التسلسل' : 'Serial'}</th>
-                  <th>{isRTL ? 'الباركود' : 'Barcode'}</th>
-                  <th>{isRTL ? 'الصورة' : 'Image'}</th>
-                  <th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
-                  <th>{isRTL ? 'اسم المنتج (AR)' : 'Product Name (AR)'}</th>
-                  <th>{isRTL ? 'المخزون' : 'Stock'}</th>
-                  <th>{isRTL ? 'اسم الوحدة' : 'Unit Name'}</th>
-                  <th>{isRTL ? 'كمية الوحدة' : 'Unit Qty'}</th>
-                  <th>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</th>
-                  <th>{isRTL ? 'سعر البيع' : 'Sale Price'}</th>
-                  <th>{isRTL ? 'الإجراءات' : 'Actions'}</th>
+          <div class="flex-1 overflow-auto rounded-xl border border-slate-200 shadow-sm mx-2">
+            <table class="w-full border-collapse text-xs">
+              <thead class="sticky top-0 z-10">
+                <tr class="bg-gradient-to-r from-slate-700 to-slate-600 text-white">
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'التسلسل' : 'Serial'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الباركود' : 'Barcode'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الصورة' : 'Img'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المنتج (EN)' : 'Product (EN)'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المنتج (AR)' : 'Product (AR)'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المخزون' : 'Stock'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الوحدة' : 'Unit'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'كمية' : 'U.Qty'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'التكلفة' : 'Cost'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'السعر' : 'Price'}</th>
+                  <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'إجراء' : 'Action'}</th>
                 </tr>
               </thead>
               <tbody>
                 {#each filteredProducts as product}
-                  <tr>
-                    <td>{product.product_serial}</td>
-                    <td>{product.barcode}</td>
-                    <td>
-                      <img src={product.image_url || '/placeholder.png'} alt={product.name_en} class="product-image" />
-                    </td>
-                    <td>{product.name_en}</td>
-                    <td>{product.name_ar}</td>
-                    <td>{product.stock}</td>
-                    <td>{isRTL ? product.unit_name_ar : product.unit_name_en}</td>
-                    <td>{product.unit_qty}</td>
-                    <td>{product.cost.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}</td>
-                    <td>{product.price.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}</td>
-                    <td>
+                  <tr class="hover:bg-amber-50/50 transition-colors border-b border-slate-100">
+                    <td class="px-2 py-2">{product.product_serial}</td>
+                    <td class="px-2 py-2 font-mono text-[10px]">{product.barcode}</td>
+                    <td class="px-2 py-2">{#if product.image_url}<button class="cursor-pointer hover:opacity-80 transition-opacity" on:click={() => previewImageUrl = product.image_url}><img src={product.image_url} alt={product.name_en} class="w-8 h-8 object-cover rounded ring-1 ring-slate-200 hover:ring-amber-400" /></button>{:else}<span class="text-[9px] text-slate-400 font-semibold">No Image</span>{/if}</td>
+                    <td class="px-2 py-2">{product.name_en}</td>
+                    <td class="px-2 py-2">{product.name_ar}</td>
+                    <td class="px-2 py-2 text-center">{product.stock}</td>
+                    <td class="px-2 py-2">{isRTL ? product.unit_name_ar : product.unit_name_en}</td>
+                    <td class="px-2 py-2 text-center">{product.unit_qty}</td>
+                    <td class="px-2 py-2 font-semibold">{product.cost.toFixed(2)}</td>
+                    <td class="px-2 py-2 font-semibold">{product.price.toFixed(2)}</td>
+                    <td class="px-2 py-2">
                       {#if product.stock < product.minim_qty}
-                        <span class="stock-warning">{isRTL ? 'مخزون غير كافٍ' : 'Not enough stock'}</span>
+                        <span class="text-red-500 text-[10px] font-bold">{isRTL ? 'مخزون غير كافٍ' : 'Low stock'}</span>
                       {:else}
-                        <button class="btn-add" on:click={() => addSpecialPriceOffer(product)}>
+                        <button class="px-2.5 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-bold hover:bg-amber-600 transition-all active:scale-95 shadow-sm" on:click={() => addSpecialPriceOffer(product)}>
                           + {isRTL ? 'إضافة' : 'Add'}
                         </button>
                       {/if}
@@ -774,380 +609,36 @@
     </div>
   {/if}
 
-  <!-- Footer Actions -->
-  <div class="window-footer">
+  <!-- Footer -->
+  <div class="flex items-center justify-between px-6 py-3 bg-white border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
     {#if currentStep === 1}
-      <button type="button" class="btn-secondary" on:click={cancel} disabled={loading}>
+      <button type="button" class="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all active:scale-95" on:click={cancel} disabled={loading}>
         {isRTL ? 'إلغاء' : 'Cancel'}
       </button>
-      <button type="button" class="btn-primary" on:click={nextStep} disabled={loading}>
+      <button type="button" class="px-5 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-all active:scale-95 shadow-md hover:shadow-lg disabled:opacity-50" on:click={nextStep} disabled={loading}>
         {isRTL ? 'التالي' : 'Next'} →
       </button>
     {:else if currentStep === 2}
-      <button type="button" class="btn-secondary" on:click={prevStep} disabled={loading}>
+      <button type="button" class="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all active:scale-95" on:click={prevStep} disabled={loading}>
         ← {isRTL ? 'السابق' : 'Previous'}
       </button>
-      <button type="button" class="btn-primary" on:click={saveOffer} disabled={loading}>
+      <button type="button" class="px-5 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-all active:scale-95 shadow-md hover:shadow-lg disabled:opacity-50" on:click={saveOffer} disabled={loading}>
         {#if loading}
-          ⏳ {isRTL ? 'جارٍ الحفظ...' : 'Saving...'}
+          <span class="animate-spin inline-block mr-1">⏳</span> {isRTL ? 'جارٍ الحفظ...' : 'Saving...'}
         {:else}
           ✓ {isRTL ? 'حفظ العرض' : 'Save Offer'}
         {/if}
       </button>
     {/if}
   </div>
+
+  <!-- Image Preview Overlay -->
+  {#if previewImageUrl}
+    <button class="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center cursor-pointer" on:click={() => previewImageUrl = null}>
+      <div class="relative">
+        <img src={previewImageUrl} alt="Preview" class="max-w-[80vw] max-h-[80vh] rounded-2xl shadow-2xl object-contain" />
+        <span class="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-600 font-bold shadow-lg text-sm">✕</span>
+      </div>
+    </button>
+  {/if}
 </div>
-
-<style>
-  .special-price-offer-window {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    background: white;
-    border-radius: 12px;
-    overflow: hidden;
-  }
-
-  .window-header {
-    padding: 24px;
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    color: white;
-  }
-
-  .window-title {
-    font-size: 24px;
-    font-weight: 600;
-    margin: 0 0 16px 0;
-  }
-
-  .step-indicator {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .step-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    opacity: 0.6;
-  }
-
-  .step-item.active,
-  .step-item.completed {
-    opacity: 1;
-  }
-
-  .step-circle {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-  }
-
-  .step-item.active .step-circle,
-  .step-item.completed .step-circle {
-    background: white;
-    color: #f59e0b;
-  }
-
-  .step-label {
-    font-size: 14px;
-  }
-
-  .step-divider {
-    flex: 1;
-    height: 2px;
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .error-message {
-    padding: 16px;
-    background: #fee;
-    color: #c33;
-    border-bottom: 1px solid #fcc;
-  }
-
-  .step-content {
-    flex: 1;
-    padding: 24px;
-    overflow-y: auto;
-  }
-
-  .step-content-full {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .form-section {
-    background: #f9fafb;
-    border-radius: 8px;
-    padding: 24px;
-  }
-
-  .section-title {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0 0 16px 0;
-    color: #1f2937;
-  }
-
-  .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 16px;
-  }
-
-  .form-group {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .form-group label {
-    font-weight: 500;
-    margin-bottom: 8px;
-    color: #374151;
-  }
-
-  .required {
-    color: #ef4444;
-  }
-
-  .date-format-hint {
-    font-size: 11px;
-    font-weight: 400;
-    color: #6b7280;
-    margin-left: 8px;
-  }
-
-  .form-group input,
-  .form-group select,
-  .form-group textarea {
-    padding: 10px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    font-size: 14px;
-  }
-
-  .form-group textarea {
-    resize: vertical;
-    font-family: inherit;
-  }
-
-  .offer-table-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    padding: 24px;
-  }
-
-  .table-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-
-  .table-title {
-    font-size: 20px;
-    font-weight: 600;
-    margin: 0;
-  }
-
-  .saved-offers-section,
-  .available-products-section {
-    margin-bottom: 24px;
-  }
-
-  .section-subtitle {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0 0 12px 0;
-    color: #1f2937;
-  }
-
-  .search-box {
-    margin-bottom: 12px;
-  }
-
-  .search-input {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    font-size: 14px;
-  }
-
-  .table-wrapper {
-    max-height: calc(100vh - 420px);
-    overflow-y: auto;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-  }
-
-  .offers-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  .offers-table thead {
-    position: sticky;
-    top: 0;
-    background: #f9fafb;
-    z-index: 1;
-  }
-
-  .offers-table th {
-    padding: 12px;
-    text-align: left;
-    font-weight: 600;
-    border-bottom: 2px solid #e5e7eb;
-    font-size: 13px;
-  }
-
-  .offers-table td {
-    padding: 12px;
-    border-bottom: 1px solid #e5e7eb;
-    font-size: 13px;
-  }
-
-  .product-image {
-    width: 40px;
-    height: 40px;
-    object-fit: cover;
-    border-radius: 4px;
-  }
-
-  .saved-offer-row {
-    background: #fffbeb;
-  }
-
-  .input-qty,
-  .input-price,
-  .input-uses {
-    width: 80px;
-    padding: 6px 8px;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
-    font-size: 13px;
-  }
-
-  .offer-price {
-    font-weight: 600;
-    color: #d97706;
-  }
-
-  .profit-positive {
-    color: #16a34a;
-    font-weight: 600;
-  }
-
-  .profit-negative {
-    color: #dc2626;
-    font-weight: 600;
-  }
-
-  .stock-warning {
-    color: #dc2626;
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  .btn-action {
-    padding: 6px 10px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    margin: 0 4px;
-  }
-
-  .btn-save {
-    background: #22c55e;
-    color: white;
-  }
-
-  .btn-edit {
-    background: #3b82f6;
-    color: white;
-  }
-
-  .btn-delete {
-    background: #ef4444;
-    color: white;
-  }
-
-  .btn-add {
-    padding: 6px 12px;
-    background: #f59e0b;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .btn-add:hover {
-    background: #d97706;
-  }
-
-  .window-footer {
-    display: flex;
-    justify-content: space-between;
-    padding: 16px 24px;
-    border-top: 1px solid #e5e7eb;
-    background: #f9fafb;
-  }
-
-  .btn-primary,
-  .btn-secondary {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .btn-primary {
-    background: #f59e0b;
-    color: white;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #d97706;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    background: #e5e7eb;
-    color: #374151;
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: #d1d5db;
-  }
-
-  .rtl {
-    direction: rtl;
-  }
-
-  .rtl .offers-table th,
-  .rtl .offers-table td {
-    text-align: right;
-  }
-</style>

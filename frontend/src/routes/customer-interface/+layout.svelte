@@ -1,8 +1,10 @@
 <script>
   import '../../app.css';
   import { page } from '$app/stores';
+  import { onMount } from 'svelte';
   import TopBar from '$lib/components/customer-interface/common/TopBar.svelte';
   import BottomCartBar from '$lib/components/customer-interface/cart/BottomCartBar.svelte';
+  import { isCustomerPushSupported, subscribeCustomerToPush, wasCustomerPushSubscribed } from '$lib/utils/customerPushNotifications';
 
   // Show top bar on all customer pages except auth pages
   $: showTopBar = !$page.url.pathname.includes('/auth/') && 
@@ -20,6 +22,26 @@
   // Check if we're on the home page
   $: isHomePage = $page.url.pathname === '/customer-interface' || $page.url.pathname === '/customer-interface/';
 
+  // Auto-subscribe to push notifications if customer is logged in
+  onMount(() => {
+    if (isCustomerPushSupported()) {
+      // Check if customer is logged in
+      try {
+        const session = localStorage.getItem('customer_session');
+        if (session) {
+          const parsed = JSON.parse(session);
+          if (parsed?.customer_id && parsed?.registration_status === 'approved') {
+            // Small delay to not block initial page load
+            setTimeout(() => {
+              subscribeCustomerToPush().catch(e => {
+                console.log('📬 [CustomerPush] Auto-subscribe skipped:', e.message || e);
+              });
+            }, 3000);
+          }
+        }
+      } catch {}
+    }
+  });
 </script>
 
 {#if showTopBar}

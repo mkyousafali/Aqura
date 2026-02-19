@@ -1,10 +1,11 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { cartCount } from '$lib/stores/cart.js';
   import { t } from '$lib/i18n';
   import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+  import { supabase } from '$lib/utils/supabase';
 
   async function handleUpdateClick() {
     const fn = $triggerUpdate;
@@ -13,15 +14,10 @@
 
   let currentLanguage = 'ar';
   let notificationCount = 0;
-  
-  // Customer interface version
-  let customerVersion = 'AQ16';
+  let notifChannel = null;
 
   // Subscribe to cart count updates using reactive syntax
   $: cartItemCount = $cartCount;
-  
-  // Determine if we should show back button (not on home page)
-  $: showBackButton = $page.url.pathname !== '/customer-interface' && $page.url.pathname !== '/customer-interface/';
 
   // Load language from localStorage
   onMount(() => {
@@ -29,12 +25,108 @@
     if (savedLanguage) {
       currentLanguage = savedLanguage;
     }
+    fetchNotificationCount();
+    setupNotifRealtime();
   });
+
+  onDestroy(() => {
+    if (notifChannel) {
+      supabase.removeChannel(notifChannel);
+    }
+  });
+
+  function getCustomerId() {
+    try {
+      const customerSessionRaw = localStorage.getItem('customer_session');
+      if (customerSessionRaw) {
+        const customerSession = JSON.parse(customerSessionRaw);
+        if (customerSession?.customer_id && customerSession?.registration_status === 'approved') {
+          return customerSession.customer_id;
+        }
+      }
+      const raw = localStorage.getItem('aqura-device-session');
+      if (!raw) return null;
+      const session = JSON.parse(raw);
+      const currentId = session?.currentUserId;
+      const user = Array.isArray(session?.users)
+        ? session.users.find((u) => u.id === currentId && u.isActive)
+        : null;
+      return user?.customerId || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function fetchNotificationCount() {
+    const customerId = getCustomerId();
+    if (!customerId) {
+      notificationCount = 0;
+      return;
+    }
+
+    try {
+      // Get customer's order IDs
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('customer_id', customerId);
+
+      if (!orders || orders.length === 0) {
+        notificationCount = 0;
+        return;
+      }
+
+      const orderIds = orders.map(o => o.id);
+
+      // Get read IDs from localStorage
+      let readIds = new Set();
+      try {
+        const raw = localStorage.getItem('customer_read_notifications');
+        readIds = new Set(raw ? JSON.parse(raw) : []);
+      } catch {}
+
+      // Count only status_change audit logs (customer-relevant notifications)
+      const { data: logs } = await supabase
+        .from('order_audit_logs')
+        .select('id')
+        .in('order_id', orderIds)
+        .eq('action_type', 'status_change');
+
+      // Unread = total - read
+      const unread = (logs || []).filter(l => !readIds.has(l.id)).length;
+      notificationCount = unread;
+    } catch (e) {
+      console.error('Error fetching notification count:', e);
+    }
+  }
+
+  function setupNotifRealtime() {
+    notifChannel = supabase
+      .channel('topbar-notif-count')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'order_audit_logs'
+      }, () => {
+        fetchNotificationCount();
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'order_audit_logs'
+      }, () => {
+        fetchNotificationCount();
+      })
+      .subscribe();
+  }
 
   // Listen for language changes
   function handleStorageChange(event) {
     if (event.key === 'language') {
       currentLanguage = event.newValue || 'ar';
+    }
+    if (event.key === 'customer_read_notifications') {
+      fetchNotificationCount();
     }
   }
 
@@ -65,14 +157,9 @@
   function goToProfile() {
     goto('/customer-interface/profile');
   }
-  
-  function goBack() {
-    // If coming from checkout, always go to home
-    if ($page.url.pathname === '/customer-interface/checkout') {
-      goto('/customer-interface');
-    } else {
-      window.history.back();
-    }
+
+  function goHome() {
+    goto('/customer-interface');
   }
 
   onMount(() => {
@@ -95,14 +182,8 @@
 
 <header class="top-bar">
   <div class="top-bar-content">
-    <!-- Left side - Back button and version -->
+    <!-- Left side -->
     <div class="left-section">
-      {#if showBackButton}
-        <button class="back-btn" on:click={goBack}>
-          <span class="back-icon">←</span>
-        </button>
-      {/if}
-      <span class="version-badge">{customerVersion}</span>
       {#if $updateAvailable}
         <button class="customer-update-btn update-available" on:click={handleUpdateClick} title={currentLanguage === 'ar' ? 'تحديث متاح' : 'Update Available'}>
           🔄
@@ -115,7 +196,16 @@
     </div>
     
     <!-- Right side actions -->
-    <div class="top-actions" class:full-width={!showBackButton}>
+    <div class="top-actions">
+      <!-- Home -->
+      <button class="action-btn" on:click={goHome} on:touchend|preventDefault={goHome}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+          </svg>
+        </div>
+      </button>
+
       <!-- Language Toggle -->
       <button class="action-btn lang-btn" on:click={toggleLanguage} on:touchend|preventDefault={toggleLanguage}>
         <div class="icon-container">
@@ -180,53 +270,12 @@
     gap: 0.38rem;
   }
   
-  .back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    border: none;
-    cursor: pointer;
-    padding: 0.5rem 0.75rem;
-    color: white;
-    transition: all 0.2s ease;
-    border-radius: 8px;
-    margin: 0 0.5rem;
-    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
-  }
-  
-  .back-btn:hover {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    transform: translateX(-2px);
-    box-shadow: 0 3px 8px rgba(59, 130, 246, 0.4);
-  }
-
-  .back-btn:active {
-    transform: scale(0.95);
-  }
-  
-  .back-icon {
-    font-size: 1.2rem;
-    font-weight: bold;
-    line-height: 1;
-  }
-  
   .left-section {
     display: flex;
     align-items: center;
     gap: 0.5rem;
   }
   
-  .version-badge {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #64748b;
-    background: #f1f5f9;
-    padding: 0.25rem 0.5rem;
-    border-radius: 6px;
-    letter-spacing: 0.5px;
-  }
-
   .customer-update-btn {
     border-radius: 6px;
     padding: 0.2rem 0.4rem;
@@ -259,10 +308,6 @@
     gap: 0.19rem;
     margin-left: auto;
     padding-right: 0.38rem;
-  }
-  
-  .top-actions.full-width {
-    margin-left: auto;
   }
 
   .action-btn {

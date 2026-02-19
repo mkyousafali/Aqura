@@ -55,25 +55,45 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // Parse request body
-    const { notificationId, userIds, payload } = await req.json() as {
+    const { notificationId, userIds, customerIds, payload } = await req.json() as {
       notificationId: string;
-      userIds: string[];
+      userIds?: string[];
+      customerIds?: string[];
       payload: PushPayload;
     }
 
-    console.log('📬 [Push Function] Sending push to', userIds.length, 'users')
+    console.log('📬 [Push Function] Sending push to', (userIds?.length || 0), 'users and', (customerIds?.length || 0), 'customers')
     console.log('📬 [Push Function] Payload received:', JSON.stringify(payload, null, 2))
 
-    // Get active push subscriptions for these users
-    const { data: subscriptions, error: subError } = await supabase
-      .from('push_subscriptions')
-      .select('*')
-      .in('user_id', userIds)
-      .eq('is_active', true)
+    // Get active push subscriptions for staff users and/or customers
+    let subscriptions: PushSubscriptionData[] = [];
 
-    if (subError) {
-      console.error('Error fetching subscriptions:', subError)
-      throw subError
+    if (userIds && userIds.length > 0) {
+      const { data: userSubs, error: userSubError } = await supabase
+        .from('push_subscriptions')
+        .select('*')
+        .in('user_id', userIds)
+        .eq('is_active', true)
+
+      if (userSubError) {
+        console.error('Error fetching user subscriptions:', userSubError)
+      } else {
+        subscriptions = subscriptions.concat(userSubs || [])
+      }
+    }
+
+    if (customerIds && customerIds.length > 0) {
+      const { data: customerSubs, error: custSubError } = await supabase
+        .from('push_subscriptions')
+        .select('*')
+        .in('customer_id', customerIds)
+        .eq('is_active', true)
+
+      if (custSubError) {
+        console.error('Error fetching customer subscriptions:', custSubError)
+      } else {
+        subscriptions = subscriptions.concat(customerSubs || [])
+      }
     }
 
     if (!subscriptions || subscriptions.length === 0) {

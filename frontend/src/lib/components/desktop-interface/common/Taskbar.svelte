@@ -57,6 +57,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Unresolved incident count
 	let unresolvedIncidentCount = 0;
 
+	// Active orders count
+	let activeOrderCount = 0;
+	let ordersChannel: any = null;
+
 	onMount(() => {
 		updateTime();
 		timeInterval = setInterval(updateTime, 1000);
@@ -80,12 +84,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		// Fetch initial unresolved incident count
 		fetchUnresolvedIncidentCount();
 		const incidentInterval = setInterval(fetchUnresolvedIncidentCount, 60000);
+
+		// Fetch initial active orders count
+		fetchActiveOrderCount();
+		const ordersInterval = setInterval(fetchActiveOrderCount, 30000);
+		setupOrdersRealtime();
 		
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
 			if (notificationInterval) clearInterval(notificationInterval);
 			if (checklistInterval) clearInterval(checklistInterval);
 			if (incidentInterval) clearInterval(incidentInterval);
+			if (ordersInterval) clearInterval(ordersInterval);
+			if (ordersChannel) supabase.removeChannel(ordersChannel);
 		};
 	});
 
@@ -364,6 +375,58 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		setTimeout(fetchUnresolvedIncidentCount, 1000);
 	}
 
+	async function fetchActiveOrderCount() {
+		try {
+			const { count, error } = await supabase
+				.from('orders')
+				.select('*', { count: 'exact', head: true })
+				.not('order_status', 'in', '("delivered","cancelled","picked_up")');
+
+			if (error) {
+				console.error('Error fetching active order count:', error);
+				return;
+			}
+			activeOrderCount = count || 0;
+		} catch (err) {
+			console.error('Error fetching active order count:', err);
+		}
+	}
+
+	function setupOrdersRealtime() {
+		ordersChannel = supabase
+			.channel('taskbar-orders')
+			.on(
+				'postgres_changes',
+				{ event: '*', schema: 'public', table: 'orders' },
+				() => {
+					fetchActiveOrderCount();
+				}
+			)
+			.subscribe();
+	}
+
+	function openOrdersWindow() {
+		const windowId = generateWindowId('orders');
+		import('$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte').then(({ default: OrdersManager }) => {
+			openWindow({
+				id: windowId,
+				title: `Orders (${activeOrderCount})`,
+				component: OrdersManager,
+				icon: '🛒',
+				size: { width: 1200, height: 700 },
+				position: { x: 100, y: 50 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}).catch(error => {
+			console.error('Failed to load OrdersManager:', error);
+		});
+
+		setTimeout(fetchActiveOrderCount, 1000);
+	}
+
 	function openQuickNotifications() {
 		const windowId = generateWindowId('quick-notifications');
 		
@@ -577,6 +640,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<div class="quick-icon">⚠️</div>
 			{#if unresolvedIncidentCount > 0}
 				<div class="quick-badge">{unresolvedIncidentCount > 99 ? '99+' : unresolvedIncidentCount}</div>
+			{/if}
+		</button>
+
+		<!-- Active Orders -->
+		<button 
+			class="quick-btn orders-btn"
+			on:click={openOrdersWindow}
+			title="Active Orders ({activeOrderCount})"
+		>
+			<div class="quick-icon">🛒</div>
+			{#if activeOrderCount > 0}
+				<div class="quick-badge">{activeOrderCount > 99 ? '99+' : activeOrderCount}</div>
 			{/if}
 		</button>
 	</div>
@@ -888,6 +963,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.incident-btn .quick-badge {
 		background: #ef4444;
+		animation: pulse 2s infinite;
+	}
+
+	.orders-btn {
+		background: rgba(16, 185, 129, 0.15) !important;
+	}
+
+	.orders-btn:hover {
+		background: rgba(16, 185, 129, 0.3) !important;
+	}
+
+	.orders-btn .quick-badge {
+		background: #10b981;
 		animation: pulse 2s infinite;
 	}
 

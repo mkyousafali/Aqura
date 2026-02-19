@@ -7,7 +7,21 @@
 
 	let mounted = false;
 	let showContent = false;
+	// NOTE: showMask controls the blur overlay on customer login section
 	let showMask = true;
+
+	// Secret dev unmask: click 15 times to dismiss
+	let maskClicks = 0;
+	let maskTimer: any = null;
+	function handleMaskClick() {
+		maskClicks++;
+		clearTimeout(maskTimer);
+		maskTimer = setTimeout(() => { maskClicks = 0; }, 3000);
+		if (maskClicks >= 15) {
+			showMask = false;
+			maskClicks = 0;
+		}
+	}
 
 	onMount(async () => {
 		mounted = true;
@@ -67,9 +81,13 @@
 				<div class="auth-section">
 					<div class="customer-login-wrapper">
 						{#if showMask}
-							<div class="login-mask"></div>
+							<div class="login-mask" on:click={handleMaskClick}>
+								{#if maskClicks >= 10}
+									<span class="mask-click-counter">{maskClicks}/15</span>
+								{/if}
+							</div>
 						{/if}
-						<CustomerLogin on:success={handleCustomerSuccess} />
+						<CustomerLogin showMask={showMask} on:success={handleCustomerSuccess} />
 					</div>
 				</div>
 			</div>
@@ -259,9 +277,21 @@
 		bottom: 0;
 		background: rgba(255, 255, 255, 0.3);
 		backdrop-filter: blur(0px);
-		pointer-events: none;
+		pointer-events: auto;
 		border-radius: 12px;
-		z-index: 1;
+		z-index: 100;
+		display: flex;
+		align-items: flex-end;
+		justify-content: flex-end;
+	}
+
+	.mask-click-counter {
+		font-size: 0.7rem;
+		color: #9ca3af;
+		font-weight: 600;
+		padding: 6px 10px;
+		pointer-events: none;
+		opacity: 0.6;
 	}
 
 	@media (max-width: 768px) {

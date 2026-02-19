@@ -2,694 +2,671 @@
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
-	import { notifications } from '$lib/stores/notifications';
+	import { locale } from '$lib/i18n';
 
 	export let windowId: string = '';
 
-	// Data
-	let assignments = [];
-	let filteredAssignments = [];
-	let totalStats = {
-		total: 0,
-		completed: 0,
-		in_progress: 0,
-		assigned: 0,
-		overdue: 0
-	};
-
-	// Loading states
+	let allTasks: any[] = [];
+	let filteredTasks: any[] = [];
+	let visibleTasks: any[] = [];
 	let isLoading = true;
-	let isRefreshing = false;
+	let searchQuery = '';
+	let selectedBranch = '';
+	let selectedType = '';
+	let selectedPriority = '';
+	let selectedStatus = '';
+	let showCompleted = false;
+	const VISIBLE_BATCH = 100;
+	let visibleCount = VISIBLE_BATCH;
 
-	// Search and filters
-	let searchTerm = '';
-	let statusFilter = '';
-	let priorityFilter = '';
-	let selectedUser = '';
-	let selectedTask = '';
-	let showCompleted = false; // Toggle to show/hide completed assignments
+	let branches: string[] = [];
+	let selectedTask: any = null;
+	let showDetailPopup = false;
+	let showDeleteConfirm = false;
+	let deletingTaskId: string | null = null;
+	let isDeleting = false;
 
-	// Get unique users and tasks for filters
-	let uniqueUsers = [];
-	let uniqueTasks = [];
+	$: isRTL = $locale === 'ar';
+	$: isMasterAdmin = $currentUser?.isMasterAdmin || false;
 
 	onMount(async () => {
-		await loadMyAssignments();
+		await loadTasks();
 	});
 
-	async function loadMyAssignments() {
+	async function loadTasks() {
 		if (!$currentUser) return;
-
 		try {
 			isLoading = true;
+			allTasks = [];
+			visibleCount = VISIBLE_BATCH;
 
-			// Get regular task assignments where current user is the assigner
-			const { data: regularAssignmentData, error: regularAssignmentError } = await supabase
-				.from('task_assignments')
-				.select('*')
-				.eq('assigned_by', $currentUser.id)
-				.order('assigned_at', { ascending: false });
+			const { data, error } = await supabase.rpc('get_my_assignments', { p_user_id: $currentUser.id, p_limit: 500 });
+			if (error) throw error;
 
-			if (regularAssignmentError) {
-				throw new Error(regularAssignmentError.message);
-			}
-
-			// Get quick task assignments where current user is the assigner
-			const { data: quickAssignmentData, error: quickAssignmentError } = await supabase
-				.from('quick_task_assignments')
-				.select(`
-					*,
-					quick_task:quick_tasks!inner(
-						id,
-						title,
-						description,
-						priority,
-						price_tag,
-						issue_type,
-						status,
-						created_at,
-						deadline_datetime,
-						assigned_by
-					)
-				`)
-				.eq('quick_task.assigned_by', $currentUser.id)
-				.order('created_at', { ascending: false });
-
-			if (quickAssignmentError) {
-				console.warn('Quick tasks might not be available:', quickAssignmentError);
-			}
-
-			// Process regular assignments
-			let regularAssignments = [];
-			if (regularAssignmentData && regularAssignmentData.length > 0) {
-				// Get unique task IDs and user IDs
-				const taskIds = [...new Set(regularAssignmentData.map(a => a.task_id))];
-				const userIds = [...new Set(regularAssignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
-
-				// Fetch tasks
-				const { data: tasksData, error: tasksError } = await supabase
-					.from('tasks')
-					.select('id, title, description, priority, due_date, status, created_at')
-					.in('id', taskIds);
-
-				if (tasksError) {
-					throw new Error(tasksError.message);
-				}
-
-				// Fetch users - since assigned_to_user_id might be username (text), try both approaches
-				let usersData = [];
-				if (userIds.length > 0) {
-					// First try as IDs
-					const { data: userData1, error: userError1 } = await supabase
-						.from('users')
-						.select('id, username')
-						.in('id', userIds);
-
-					if (userError1) {
-						// If that fails, try as usernames
-						const { data: userData2, error: userError2 } = await supabase
-							.from('users')
-							.select('id, username')
-							.in('username', userIds);
-
-						if (userError2) {
-							throw new Error(userError2.message);
-						}
-						usersData = userData2 || [];
-					} else {
-						usersData = userData1 || [];
-					}
-				}
-
-				// Create lookup maps
-				const tasksMap = new Map(tasksData?.map(task => [task.id, task]) || []);
-				
-				// Create user lookup map that handles both ID and username lookups
-				const usersMap = new Map();
-				usersData?.forEach(user => {
-					usersMap.set(user.id, user);
-					usersMap.set(user.username, user);
-				});
-
-				// Combine the regular assignment data
-				regularAssignments = regularAssignmentData.map(assignment => ({
-					...assignment,
-					task: tasksMap.get(assignment.task_id),
-					assigned_user: usersMap.get(assignment.assigned_to_user_id),
-					task_type: 'regular'
-				}));
-			}
-
-			// Process quick task assignments
-			let quickAssignments = [];
-			if (quickAssignmentData && quickAssignmentData.length > 0) {
-				// Get unique user IDs for quick task assignments
-				const quickUserIds = [...new Set(quickAssignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
-
-				// Fetch users for quick task assignments
-				let quickUsersData = [];
-				if (quickUserIds.length > 0) {
-					const { data: userData, error: userError } = await supabase
-						.from('users')
-						.select('id, username')
-						.in('id', quickUserIds);
-
-					if (userError) {
-						console.error('Error fetching quick task users:', userError);
-					} else {
-						quickUsersData = userData || [];
-					}
-				}
-
-				// Create user lookup map for quick tasks
-				const quickUsersMap = new Map();
-				quickUsersData?.forEach(user => {
-					quickUsersMap.set(user.id, user);
-				});
-
-				// Transform quick assignments to match regular assignment structure
-				quickAssignments = quickAssignmentData.map(assignment => ({
-					...assignment,
-					task_id: assignment.quick_task.id,
-					task: {
-						id: assignment.quick_task.id,
-						title: assignment.quick_task.title,
-						description: assignment.quick_task.description,
-						priority: assignment.quick_task.priority,
-						due_date: null, // Quick tasks use deadline_datetime
-						status: assignment.quick_task.status,
-						created_at: assignment.quick_task.created_at,
-						price_tag: assignment.quick_task.price_tag,
-						issue_type: assignment.quick_task.issue_type,
-						deadline_datetime: assignment.quick_task.deadline_datetime
-					},
-					assigned_user: quickUsersMap.get(assignment.assigned_to_user_id),
-					assigned_at: assignment.created_at,
-					deadline_date: assignment.quick_task.deadline_datetime ? new Date(assignment.quick_task.deadline_datetime).toISOString().split('T')[0] : null,
-					deadline_time: assignment.quick_task.deadline_datetime ? new Date(assignment.quick_task.deadline_datetime).toTimeString().split(' ')[0].slice(0, 5) : null,
-					task_type: 'quick_task'
-				}));
-			}
-
-			// Combine both types of assignments
-			assignments = [...regularAssignments, ...quickAssignments];
-			
-			// Sort by creation date (newest first)
-			assignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
-			
-			// Calculate statistics
-			calculateStats();
-			
-			// Extract unique users and tasks for filters
-			extractUniqueFilters();
-			
-			// Apply initial filters
+			allTasks = data?.tasks || [];
+			// Auto-enable showCompleted if all tasks are completed (otherwise table looks empty)
+			const hasIncomplete = allTasks.some((t: any) => t.status !== 'completed');
+			if (!hasIncomplete && allTasks.length > 0) showCompleted = true;
+			extractBranches();
 			applyFilters();
-			
-			// Calculate statistics
-			calculateStats();
-			
-			// Extract unique users and tasks for filters
-			extractUniqueFilters();
-			
-			// Apply initial filters
-			applyFilters();
-
-		} catch (error) {
-			console.error('Error loading assignments:', error);
-			notifications.add({
-				type: 'error',
-				message: 'Failed to load assignments: ' + error.message,
-				duration: 5000
-			});
-		} finally {
+			isLoading = false;
+		} catch (err) {
+			console.error('❌ Error loading assignments:', err);
 			isLoading = false;
 		}
 	}
 
-	function calculateStats() {
-		totalStats.total = assignments.length;
-		totalStats.completed = assignments.filter(a => a.status === 'completed').length;
-		totalStats.in_progress = assignments.filter(a => a.status === 'in_progress').length;
-		totalStats.assigned = assignments.filter(a => a.status === 'assigned' || a.status === 'pending').length;
-		
-		// Calculate overdue (assignments with deadline passed and not completed)
-		const now = new Date();
-		totalStats.overdue = assignments.filter(a => {
-			if (a.status === 'completed') return false;
-			
-			let deadline = null;
-			
-			// Handle quick tasks with deadline_datetime
-			if (a.task_type === 'quick_task' && a.task?.deadline_datetime) {
-				deadline = new Date(a.task.deadline_datetime);
-			}
-			// Handle regular tasks with deadline_date
-			else if (a.deadline_date) {
-				deadline = new Date(a.deadline_date);
-				if (a.deadline_time) {
-					const [hours, minutes] = a.deadline_time.split(':');
-					deadline.setHours(parseInt(hours), parseInt(minutes));
-				}
-			}
-			
-			return deadline ? deadline < now : false;
-		}).length;
-	}
-
-	function extractUniqueFilters() {
-		// Get unique users
-		const userMap = new Map();
-		assignments.forEach(assignment => {
-			if (assignment.assigned_user) {
-				const user = assignment.assigned_user;
-				userMap.set(user.id, {
-					id: user.id,
-					name: user.username
-				});
-			}
+	function extractBranches() {
+		const branchSet = new Set<string>();
+		allTasks.forEach((t: any) => {
+			const bName = isRTL ? (t.branch_name_ar || t.branch_name) : t.branch_name;
+			if (bName && bName !== 'No Branch') branchSet.add(bName);
 		});
-		uniqueUsers = Array.from(userMap.values());
-
-		// Get unique tasks
-		const taskMap = new Map();
-		assignments.forEach(assignment => {
-			if (assignment.task) {
-				const task = assignment.task;
-				taskMap.set(task.id, {
-					id: task.id,
-					title: task.title
-				});
-			}
-		});
-		uniqueTasks = Array.from(taskMap.values());
+		branches = Array.from(branchSet).sort();
 	}
 
 	function applyFilters() {
-		filteredAssignments = assignments.filter(assignment => {
-			// Hide completed if toggle is off
-			if (!showCompleted && assignment.status === 'completed') {
-				return false;
-			}
-			
-			// Search filter
-			if (searchTerm) {
-				const searchLower = searchTerm.toLowerCase();
-				const taskTitle = assignment.task?.title?.toLowerCase() || '';
-				const userName = assignment.assigned_user?.username?.toLowerCase() || '';
-				
-				if (!taskTitle.includes(searchLower) && !userName.includes(searchLower)) {
-					return false;
-				}
-			}
-
-			// Status filter
-			if (statusFilter && assignment.status !== statusFilter) {
-				return false;
-			}
-
-			// Priority filter
-			if (priorityFilter && assignment.task?.priority !== priorityFilter) {
-				return false;
-			}
-
-			// User filter
-			if (selectedUser && assignment.assigned_to_user_id !== selectedUser) {
-				return false;
-			}
-
-			// Task filter
-			if (selectedTask && assignment.task_id !== selectedTask) {
-				return false;
-			}
-
-			return true;
+		const filtered = allTasks.filter(task => {
+			// Hide completed unless toggled
+			if (!showCompleted && task.status === 'completed') return false;
+			const q = searchQuery.toLowerCase();
+			const matchesSearch = !q ||
+				task.task_title?.toLowerCase().includes(q) ||
+				task.task_description?.toLowerCase().includes(q) ||
+				task.assigned_to_name?.toLowerCase().includes(q) ||
+				task.assigned_by_name?.toLowerCase().includes(q);
+			const bName = isRTL ? (task.branch_name_ar || task.branch_name) : task.branch_name;
+			const matchesBranch = !selectedBranch || bName === selectedBranch;
+			const matchesType = !selectedType || task.task_type === selectedType;
+			const matchesPriority = !selectedPriority || task.priority === selectedPriority;
+			const matchesStatus = !selectedStatus || task.status === selectedStatus;
+			return matchesSearch && matchesBranch && matchesType && matchesPriority && matchesStatus;
 		});
+		filteredTasks = filtered;
+		visibleCount = VISIBLE_BATCH;
+		updateVisibleTasks();
 	}
 
-	function clearFilters() {
-		searchTerm = '';
-		statusFilter = '';
-		priorityFilter = '';
-		selectedUser = '';
-		selectedTask = '';
-		showCompleted = false;
-		applyFilters();
+	function updateVisibleTasks() {
+		visibleTasks = filteredTasks.slice(0, visibleCount);
 	}
 
-	// Reactive statement to reapply filters when showCompleted changes
-	$: if (showCompleted !== undefined) {
-		applyFilters();
+	function showMore() {
+		visibleCount += VISIBLE_BATCH;
+		updateVisibleTasks();
 	}
 
-	async function refreshData() {
-		isRefreshing = true;
-		await loadMyAssignments();
-		isRefreshing = false;
-		
-		notifications.add({
-			type: 'success',
-			message: 'Assignments refreshed successfully',
-			duration: 3000
-		});
+	function formatDate(date: any): string {
+		if (!date) return '—';
+		try {
+			const d = new Date(date);
+			return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+		} catch { return '—'; }
 	}
 
-	function formatDate(dateString) {
-		if (!dateString) return 'No deadline';
-		const date = new Date(dateString);
-		return date.toLocaleDateString();
+	function formatCompletionTime(hours: any): string {
+		if (hours == null) return '—';
+		const h = parseFloat(hours);
+		if (h < 1) return isRTL ? 'أقل من ساعة' : '< 1h';
+		if (h < 24) return isRTL ? `${Math.round(h)} ساعة` : `${Math.round(h)}h`;
+		const days = Math.round(h / 24);
+		return isRTL ? `${days} يوم` : `${days}d`;
 	}
 
-	function formatDateTime(dateString, timeString) {
-		if (!dateString) return 'No deadline';
-		const date = new Date(dateString);
-		if (timeString) {
-			const [hours, minutes] = timeString.split(':');
-			date.setHours(parseInt(hours), parseInt(minutes));
-			return date.toLocaleString();
+	function getTypeInfo(type: string): { label: string; icon: string; color: string; bg: string } {
+		if (type === 'quick') return { label: isRTL ? 'سريع' : 'Quick', icon: '⚡', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' };
+		return { label: isRTL ? 'عادي' : 'Regular', icon: '📋', color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' };
+	}
+
+	function getPriorityInfo(p: string): { label: string; color: string; dot: string } {
+		if (p === 'high' || p === 'urgent') return { label: isRTL ? 'عاجل' : 'High', color: 'text-red-600', dot: 'bg-red-500' };
+		if (p === 'low') return { label: isRTL ? 'منخفض' : 'Low', color: 'text-slate-500', dot: 'bg-slate-400' };
+		return { label: isRTL ? 'متوسط' : 'Medium', color: 'text-amber-600', dot: 'bg-amber-500' };
+	}
+
+	function getStatusInfo(s: string): { label: string; color: string; bg: string } {
+		if (s === 'completed') return { label: isRTL ? 'مكتمل' : 'Completed', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' };
+		if (s === 'in_progress') return { label: isRTL ? 'قيد التنفيذ' : 'In Progress', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' };
+		if (s === 'cancelled') return { label: isRTL ? 'ملغي' : 'Cancelled', color: 'text-red-700', bg: 'bg-red-50 border-red-200' };
+		if (s === 'escalated') return { label: isRTL ? 'مرفوع' : 'Escalated', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' };
+		return { label: isRTL ? 'معين' : 'Assigned', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' };
+	}
+
+	function getEmpName(task: any): string {
+		if (isRTL) return task.assigned_to_name_ar || task.assigned_to_name_en || task.assigned_to_name || 'غير محدد';
+		return task.assigned_to_name_en || task.assigned_to_name || 'Unassigned';
+	}
+
+	function getBranch(task: any): string {
+		if (isRTL) return task.branch_name_ar || task.branch_name || 'بدون فرع';
+		return task.branch_name || 'No Branch';
+	}
+
+	function isOverdue(task: any): boolean {
+		if (task.status === 'completed' || !task.deadline) return false;
+		try { return new Date(task.deadline) < new Date(); } catch { return false; }
+	}
+
+	function openDetail(task: any) {
+		selectedTask = task;
+		showDetailPopup = true;
+	}
+
+	function closeDetail() {
+		showDetailPopup = false;
+		selectedTask = null;
+	}
+
+	function confirmDelete(task: any) {
+		deletingTaskId = task.id;
+		selectedTask = task;
+		showDeleteConfirm = true;
+	}
+
+	function cancelDelete() {
+		showDeleteConfirm = false;
+		deletingTaskId = null;
+	}
+
+	async function deleteAssignment() {
+		if (!deletingTaskId || !selectedTask) return;
+		try {
+			isDeleting = true;
+			const table = selectedTask.task_type === 'quick' ? 'quick_task_assignments' : 'task_assignments';
+			const { error } = await supabase.from(table).delete().eq('id', deletingTaskId);
+			if (error) throw error;
+
+			// Remove from local list
+			allTasks = allTasks.filter(t => t.id !== deletingTaskId);
+			applyFilters();
+			showDeleteConfirm = false;
+			showDetailPopup = false;
+			deletingTaskId = null;
+			selectedTask = null;
+		} catch (err) {
+			console.error('❌ Error deleting assignment:', err);
+		} finally {
+			isDeleting = false;
 		}
-		return date.toLocaleDateString();
 	}
 
-	function getStatusColor(status) {
-		switch (status) {
-			case 'assigned': return 'bg-blue-100 text-blue-800';
-			case 'in_progress': return 'bg-yellow-100 text-yellow-800';
-			case 'completed': return 'bg-green-100 text-green-800';
-			case 'cancelled': return 'bg-red-100 text-red-800';
-			case 'escalated': return 'bg-purple-100 text-purple-800';
-			default: return 'bg-gray-100 text-gray-800';
-		}
-	}
+	$: if (showCompleted !== undefined) applyFilters();
 
-	function getPriorityColor(priority) {
-		switch (priority) {
-			case 'high': return 'bg-red-100 text-red-800';
-			case 'medium': return 'bg-yellow-100 text-yellow-800';
-			case 'low': return 'bg-green-100 text-green-800';
-			default: return 'bg-gray-100 text-gray-800';
-		}
-	}
-
-	function getStatusDisplayText(status) {
-		switch (status) {
-			case 'assigned': return 'ASSIGNED';
-			case 'in_progress': return 'IN PROGRESS';
-			case 'completed': return 'COMPLETED';
-			case 'cancelled': return 'CANCELLED';
-			case 'escalated': return 'ESCALATED';
-			case 'reassigned': return 'REASSIGNED';
-			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
-		}
-	}
-
-	function isOverdue(assignment) {
-		if (assignment.status === 'completed') return false;
-		
-		const now = new Date();
-		let deadline = null;
-		
-		// Handle quick tasks with deadline_datetime
-		if (assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime) {
-			deadline = new Date(assignment.task.deadline_datetime);
-		}
-		// Handle regular tasks with deadline_date
-		else if (assignment.deadline_date) {
-			deadline = new Date(assignment.deadline_date);
-			if (assignment.deadline_time) {
-				const [hours, minutes] = assignment.deadline_time.split(':');
-				deadline.setHours(parseInt(hours), parseInt(minutes));
-			}
-		}
-		
-		return deadline ? deadline < now : false;
-	}
-
-	// Reactive statements
-	$: {
-		searchTerm, statusFilter, priorityFilter, selectedUser, selectedTask;
-		applyFilters();
-	}
+	// Stats
+	$: totalCount = allTasks.length;
+	$: completedCount = allTasks.filter(t => t.status === 'completed').length;
+	$: inProgressCount = allTasks.filter(t => t.status === 'in_progress').length;
+	$: assignedCount = allTasks.filter(t => t.status === 'assigned' || t.status === 'pending').length;
+	$: overdueCount = allTasks.filter(t => isOverdue(t)).length;
+	$: regularCount = filteredTasks.filter(t => t.task_type === 'regular').length;
+	$: quickCount = filteredTasks.filter(t => t.task_type === 'quick').length;
 </script>
 
-<div class="my-assignments-view bg-white rounded-lg shadow-lg h-full flex flex-col">
-	<!-- Header -->
-	<div class="flex items-center justify-between border-b pb-4 p-6">
-		<div class="flex items-center space-x-3">
-			<div class="bg-indigo-100 p-2 rounded-lg">
-				<svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-				</svg>
-			</div>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRTL ? 'rtl' : 'ltr'}>
+	<!-- Header Bar -->
+	<div class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">📋</span>
 			<div>
-				<h2 class="text-xl font-bold text-gray-900">My Assignments</h2>
-				<p class="text-sm text-gray-500">Tasks assigned by you to other users</p>
+				<h2 class="text-sm font-black text-slate-800 uppercase tracking-wide">{isRTL ? 'مهامي المسندة' : 'My Assignments'}</h2>
+				<p class="text-[10px] text-slate-400 font-semibold">
+					{isRTL ? `${allTasks.length} مهمة أسندتها` : `${allTasks.length} tasks you assigned`}
+				</p>
 			</div>
 		</div>
-		<div class="flex items-center space-x-3">
+		<div class="flex items-center gap-2">
+			<!-- Show Completed Toggle -->
+			<label class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all {showCompleted ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}">
+				<input type="checkbox" bind:checked={showCompleted} class="w-3 h-3 rounded" />
+				{isRTL ? 'المكتملة' : 'Completed'}
+			</label>
 			<button
-				on:click={refreshData}
-				disabled={isRefreshing}
-				class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 disabled:opacity-50"
-				title="Refresh Data"
+				class="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-xs font-bold hover:bg-indigo-600 transition-all shadow-sm hover:shadow-md"
+				on:click={loadTasks}
+				disabled={isLoading}
 			>
-				<svg class="w-4 h-4 {isRefreshing ? 'animate-spin' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class:animate-spin={isLoading}>
+					<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
 				</svg>
-				<span>Refresh</span>
+				{isRTL ? 'تحديث' : 'Refresh'}
 			</button>
 		</div>
 	</div>
 
-	<!-- Statistics Cards -->
-	<div class="p-6 border-b">
-		<div class="grid grid-cols-5 gap-4">
-			<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-				<div class="text-2xl font-bold text-blue-600">{totalStats.total}</div>
-				<div class="text-sm text-blue-700">Total Assigned</div>
-			</div>
-			<div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-				<div class="text-2xl font-bold text-green-600">{totalStats.completed}</div>
-				<div class="text-sm text-green-700">Completed</div>
-			</div>
-			<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-				<div class="text-2xl font-bold text-yellow-600">{totalStats.in_progress}</div>
-				<div class="text-sm text-yellow-700">In Progress</div>
-			</div>
-			<div class="bg-purple-50 border border-purple-200 rounded-lg p-4 text-center">
-				<div class="text-2xl font-bold text-purple-600">{totalStats.assigned}</div>
-				<div class="text-sm text-purple-700">Pending</div>
-			</div>
-			<div class="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-				<div class="text-2xl font-bold text-red-600">{totalStats.overdue}</div>
-				<div class="text-sm text-red-700">Overdue</div>
-			</div>
-		</div>
-	</div>
-
-	<!-- Filters -->
-	<div class="p-6 border-b bg-gray-50">
-		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-			<!-- Search -->
-			<div class="lg:col-span-2">
-				<label class="block text-sm font-medium text-gray-700 mb-1">Search</label>
-				<input
-					type="text"
-					bind:value={searchTerm}
-					placeholder="Search tasks or users..."
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-				/>
-			</div>
-
-			<!-- Status Filter -->
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-				<select bind:value={statusFilter} class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-					<option value="">All Statuses</option>
-					<option value="assigned">Assigned</option>
-					<option value="in_progress">In Progress</option>
-					<option value="completed">Completed</option>
-					<option value="cancelled">Cancelled</option>
-					<option value="escalated">Escalated</option>
-				</select>
-			</div>
-
-			<!-- Priority Filter -->
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-				<select bind:value={priorityFilter} class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-					<option value="">All Priorities</option>
-					<option value="high">High</option>
-					<option value="medium">Medium</option>
-					<option value="low">Low</option>
-				</select>
-			</div>
-
-			<!-- User Filter -->
-			<div>
-				<label class="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
-				<select bind:value={selectedUser} class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-					<option value="">All Users</option>
-					{#each uniqueUsers as user}
-						<option value={user.id}>{user.name}</option>
-					{/each}
-				</select>
-			</div>
-
-			<!-- Clear Filters -->
-			<div class="flex items-end">
-				<button
-					on:click={clearFilters}
-					class="w-full px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
-				>
-					Clear Filters
-				</button>
-			</div>
-		</div>
-		
-		<!-- Show Completed Toggle -->
-		<div class="mt-4 px-6">
-			<label class="flex items-center space-x-2 cursor-pointer">
-				<input 
-					type="checkbox" 
-					bind:checked={showCompleted}
-					class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-				/>
-				<span class="text-sm font-medium text-gray-700">Show completed assignments</span>
-			</label>
-		</div>
-	</div>
-
 	<!-- Content -->
-	<div class="flex-1 overflow-auto p-6">
-		{#if isLoading}
-			<div class="flex items-center justify-center h-64">
-				<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-			</div>
-		{:else if filteredAssignments.length === 0}
-			<div class="text-center py-12">
-				<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-				</svg>
-				<h3 class="mt-2 text-lg font-medium text-gray-900">No assignments found</h3>
-				<p class="mt-1 text-gray-500">
-					{assignments.length === 0 ? 'You haven\'t assigned any tasks yet.' : 'No assignments match your current filters.'}
-				</p>
-			</div>
-		{:else}
-			<div class="space-y-4">
-				{#each filteredAssignments as assignment}
-					<div class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow {isOverdue(assignment) ? 'border-red-300 bg-red-50' : ''}">
-						<div class="flex items-start justify-between">
-							<div class="flex-1">
-								<!-- Task Title -->
-								<div class="flex items-center space-x-3 mb-2">
-									<h3 class="text-lg font-semibold text-gray-900">{assignment.task?.title || 'Unknown Task'}</h3>
-									{#if assignment.task_type === 'quick_task'}
-										<span class="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
-											⚡ QUICK TASK
-										</span>
-									{/if}
-									{#if assignment.task?.priority}
-										<span class="px-2 py-1 text-xs font-medium rounded-full {getPriorityColor(assignment.task.priority)}">
-											{assignment.task.priority.toUpperCase()}
-										</span>
-									{/if}
-									{#if isOverdue(assignment)}
-										<span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
-											OVERDUE
-										</span>
-									{/if}
-								</div>
+	<div class="flex-1 p-6 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<!-- Decorative blurs -->
+		<div class="absolute top-0 right-0 w-[400px] h-[400px] bg-indigo-100/20 rounded-full blur-[120px] -mr-48 -mt-48 animate-pulse pointer-events-none"></div>
+		<div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-violet-100/15 rounded-full blur-[120px] -ml-48 -mb-48 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
 
-								<!-- Task Description -->
-								{#if assignment.task?.description}
-									<p class="text-gray-600 mb-3 line-clamp-2">{assignment.task.description}</p>
-								{/if}
-
-								<!-- Assignment Details -->
-								<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-									<div>
-										<span class="font-medium text-gray-700">Assigned To:</span>
-										<p class="text-gray-900">
-											{assignment.assigned_user?.username || 'Unknown User'}
-										</p>
-									</div>
-									<div>
-										<span class="font-medium text-gray-700">Assigned Date:</span>
-										<p class="text-gray-900">{formatDate(assignment.assigned_at)}</p>
-									</div>
-									<div>
-										<span class="font-medium text-gray-700">Deadline:</span>
-										<p class="text-gray-900">
-											{#if assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime}
-												{new Date(assignment.task.deadline_datetime).toLocaleString()}
-											{:else}
-												{formatDateTime(assignment.deadline_date, assignment.deadline_time)}
-											{/if}
-										</p>
-									</div>
-									<div>
-										<span class="font-medium text-gray-700">Status:</span>
-										<span class="px-2 py-1 text-xs font-medium rounded-full {getStatusColor(assignment.status)}">
-											{getStatusDisplayText(assignment.status)}
-										</span>
-									</div>
-								</div>
-
-								{#if assignment.task_type === 'quick_task'}
-									<!-- Quick Task specific details -->
-									<div class="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
-										<div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-											{#if assignment.task?.price_tag}
-												<div>
-													<span class="font-medium text-purple-700">Price Tag:</span>
-													<p class="text-purple-900 capitalize">{assignment.task.price_tag}</p>
-												</div>
-											{/if}
-											{#if assignment.task?.issue_type}
-												<div>
-													<span class="font-medium text-purple-700">Issue Type:</span>
-													<p class="text-purple-900 capitalize">{assignment.task.issue_type}</p>
-												</div>
-											{/if}
-											<div>
-												<span class="font-medium text-purple-700">Type:</span>
-												<p class="text-purple-900">Quick Task Assignment</p>
-											</div>
-										</div>
-									</div>
-								{/if}
-
-								<!-- Notes -->
-								{#if assignment.notes}
-									<div class="mt-3 p-3 bg-gray-50 rounded-lg">
-										<span class="font-medium text-gray-700">Notes:</span>
-										<p class="text-gray-900 mt-1">{assignment.notes}</p>
-									</div>
-								{/if}
-							</div>
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+			{#if isLoading}
+				<div class="flex items-center justify-center h-full">
+					<div class="text-center">
+						<div class="animate-spin inline-block">
+							<div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full"></div>
 						</div>
+						<p class="mt-4 text-slate-600 font-semibold">{isRTL ? 'جاري تحميل المهام...' : 'Loading assignments...'}</p>
 					</div>
-				{/each}
-			</div>
-		{/if}
-	</div>
+				</div>
+			{:else if allTasks.length === 0}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+					<div class="text-5xl mb-4">📭</div>
+					<p class="text-slate-600 font-semibold text-lg">{isRTL ? 'لا توجد مهام مسندة' : 'No assignments found'}</p>
+					<p class="text-slate-400 text-sm mt-1">{isRTL ? 'لم تسند أي مهام بعد' : 'You haven\'t assigned any tasks yet'}</p>
+				</div>
+			{:else}
+				<!-- KPI Cards -->
+				<div class="grid grid-cols-5 gap-3 mb-4">
+					<div class="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/80 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-slate-800">{totalCount}</p>
+						<p class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{isRTL ? 'إجمالي' : 'Total'}</p>
+					</div>
+					<div class="bg-emerald-50/60 backdrop-blur-sm rounded-2xl border border-emerald-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-emerald-600">{completedCount}</p>
+						<p class="text-[10px] font-bold text-emerald-500 uppercase tracking-wide">{isRTL ? 'مكتمل' : 'Completed'}</p>
+					</div>
+					<div class="bg-amber-50/60 backdrop-blur-sm rounded-2xl border border-amber-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-amber-600">{inProgressCount}</p>
+						<p class="text-[10px] font-bold text-amber-500 uppercase tracking-wide">{isRTL ? 'قيد التنفيذ' : 'In Progress'}</p>
+					</div>
+					<div class="bg-blue-50/60 backdrop-blur-sm rounded-2xl border border-blue-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-blue-600">{assignedCount}</p>
+						<p class="text-[10px] font-bold text-blue-500 uppercase tracking-wide">{isRTL ? 'معلق' : 'Pending'}</p>
+					</div>
+					<div class="bg-red-50/60 backdrop-blur-sm rounded-2xl border border-red-100 shadow-sm p-3 text-center">
+						<p class="text-2xl font-black text-red-600">{overdueCount}</p>
+						<p class="text-[10px] font-bold text-red-500 uppercase tracking-wide">{isRTL ? 'متأخر' : 'Overdue'}</p>
+					</div>
+				</div>
 
-	<!-- Footer -->
-	<div class="border-t p-4 bg-gray-50">
-		<div class="flex items-center justify-between text-sm text-gray-600">
-			<span>Showing {filteredAssignments.length} of {assignments.length} assignments</span>
-			<span>Total Completion Rate: {assignments.length > 0 ? Math.round((totalStats.completed / assignments.length) * 100) : 0}%</span>
+				<!-- Filters -->
+				<div class="mb-4 flex gap-3">
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'بحث' : 'Search'}</label>
+						<input
+							type="text"
+							placeholder={isRTL ? 'بحث بالعنوان، الموظف...' : 'Search by title, employee...'}
+							bind:value={searchQuery}
+							on:input={applyFilters}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+						/>
+					</div>
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'الفرع' : 'Branch'}</label>
+						<select bind:value={selectedBranch} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'كل الفروع' : 'All Branches'}</option>
+							{#each branches as b}
+								<option value={b}>{b}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'النوع' : 'Type'}</label>
+						<select bind:value={selectedType} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'الكل' : 'All Types'}</option>
+							<option value="regular">{isRTL ? 'عادي' : 'Regular'}</option>
+							<option value="quick">{isRTL ? 'سريع' : 'Quick'}</option>
+						</select>
+					</div>
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'الحالة' : 'Status'}</label>
+						<select bind:value={selectedStatus} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'الكل' : 'All'}</option>
+							<option value="assigned">{isRTL ? 'معين' : 'Assigned'}</option>
+							<option value="in_progress">{isRTL ? 'قيد التنفيذ' : 'In Progress'}</option>
+							<option value="completed">{isRTL ? 'مكتمل' : 'Completed'}</option>
+							<option value="cancelled">{isRTL ? 'ملغي' : 'Cancelled'}</option>
+						</select>
+					</div>
+					<div class="flex-1">
+						<label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">{isRTL ? 'الأولوية' : 'Priority'}</label>
+						<select bind:value={selectedPriority} on:change={applyFilters} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all">
+							<option value="">{isRTL ? 'الكل' : 'All'}</option>
+							<option value="high">{isRTL ? 'عاجل' : 'High'}</option>
+							<option value="medium">{isRTL ? 'متوسط' : 'Medium'}</option>
+							<option value="low">{isRTL ? 'منخفض' : 'Low'}</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- Table -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+					<div class="overflow-x-auto flex-1 overflow-y-auto">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-indigo-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 bg-indigo-600 text-white shadow-lg z-10">
+								<tr>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">#</th>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'المهمة' : 'Task'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'النوع' : 'Type'}</th>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'الفرع' : 'Branch'}</th>
+									<th class="px-4 py-3 {isRTL ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'مسند إلى' : 'Assigned To'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'الحالة' : 'Status'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'الأولوية' : 'Priority'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'الموعد' : 'Deadline'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'تاريخ الإسناد' : 'Assigned'}</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-indigo-400">{isRTL ? 'إجراء' : 'Action'}</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-slate-200">
+								{#each visibleTasks as task, index (task.id + ':' + task.task_type)}
+									{@const typeInfo = getTypeInfo(task.task_type)}
+									{@const prioInfo = getPriorityInfo(task.priority)}
+									{@const statusInfo = getStatusInfo(task.status)}
+									{@const overdue = isOverdue(task)}
+									<tr class="hover:bg-indigo-50/30 transition-colors duration-200 {overdue ? 'bg-red-50/40' : index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-4 py-2.5 text-xs text-slate-400 font-mono">{index + 1}</td>
+										<td class="px-4 py-2.5">
+											<div class="text-sm font-semibold text-slate-800 truncate max-w-[280px]">{task.task_title}</div>
+											{#if task.task_description}
+												<div class="text-[10px] text-slate-400 truncate max-w-[280px]">{task.task_description.substring(0, 80)}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-bold {typeInfo.bg} {typeInfo.color}">
+												<span>{typeInfo.icon}</span> {typeInfo.label}
+											</span>
+										</td>
+										<td class="px-4 py-2.5 text-sm text-slate-700">{getBranch(task)}</td>
+										<td class="px-4 py-2.5">
+											<div class="text-sm text-slate-700 font-medium">{getEmpName(task)}</div>
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-bold {statusInfo.bg} {statusInfo.color}">
+												{statusInfo.label}
+											</span>
+											{#if overdue}
+												<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 mt-0.5">
+													{isRTL ? 'متأخر' : 'OVERDUE'}
+												</span>
+											{/if}
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="inline-flex items-center gap-1.5 {prioInfo.color} text-xs font-bold">
+												<span class="w-2 h-2 rounded-full {prioInfo.dot}"></span>
+												{prioInfo.label}
+											</span>
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="text-xs text-slate-700 font-medium {overdue ? 'text-red-600 font-bold' : ''}">{task.deadline ? formatDate(task.deadline) : (isRTL ? 'بدون' : 'None')}</span>
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<span class="text-xs text-slate-700 font-medium">{formatDate(task.assigned_date)}</span>
+										</td>
+										<td class="px-4 py-2.5 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<button
+													class="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-bold hover:bg-indigo-600 transition-all shadow-sm hover:shadow-md active:scale-95"
+													on:click={() => openDetail(task)}
+												>
+													{isRTL ? 'تفاصيل' : 'Details'}
+												</button>
+												{#if isMasterAdmin}
+													<button
+														class="px-2 py-1.5 bg-red-500 text-white rounded-lg text-[10px] font-bold hover:bg-red-600 transition-all shadow-sm hover:shadow-md active:scale-95"
+														on:click={() => confirmDelete(task)}
+														title={isRTL ? 'حذف' : 'Delete'}
+													>
+														<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+													</button>
+												{/if}
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if filteredTasks.length === 0 && allTasks.length > 0}
+							<div class="flex items-center justify-center py-12">
+								<div class="text-center">
+									<div class="text-4xl mb-3">🔍</div>
+									<p class="text-slate-500 font-semibold">{isRTL ? 'لا نتائج مطابقة' : 'No matching results'}</p>
+									<p class="text-slate-400 text-xs mt-1">{isRTL ? 'حاول تغيير الفلاتر' : 'Try changing filters'}</p>
+								</div>
+							</div>
+						{/if}
+						{#if visibleCount < filteredTasks.length}
+							<div class="flex items-center justify-center py-4 border-t border-slate-200">
+								<button
+									class="px-6 py-2.5 bg-indigo-500 text-white rounded-xl text-xs font-bold hover:bg-indigo-600 transition-all shadow-sm hover:shadow-md"
+									on:click={showMore}
+								>
+									{isRTL ? `عرض المزيد (${filteredTasks.length - visibleCount} متبقي)` : `Show More (${filteredTasks.length - visibleCount} remaining)`}
+								</button>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>
 
+<!-- Task Detail Popup -->
+{#if showDetailPopup && selectedTask}
+	{@const t = selectedTask}
+	{@const typeInfo = getTypeInfo(t.task_type)}
+	{@const prioInfo = getPriorityInfo(t.priority)}
+	{@const statusInfo = getStatusInfo(t.status)}
+	<div
+		class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center"
+		style="animation: fadeIn 0.15s ease-out;"
+		on:click|self={closeDetail}
+		on:keydown={(e) => e.key === 'Escape' && closeDetail()}
+		role="dialog"
+		tabindex="-1"
+		aria-modal="true"
+	>
+		<div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-[560px] max-h-[80vh] overflow-hidden" style="animation: scaleIn 0.2s ease-out;" dir={isRTL ? 'rtl' : 'ltr'}>
+			<!-- Popup Header -->
+			<div class="bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-4 flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<span class="text-2xl">{typeInfo.icon}</span>
+					<div>
+						<h3 class="text-sm font-black text-white uppercase tracking-wide">{isRTL ? 'تفاصيل المهمة' : 'Assignment Details'}</h3>
+						<p class="text-[10px] text-indigo-100 font-semibold">{typeInfo.label} • ID: {t.id.substring(0, 8)}...</p>
+					</div>
+				</div>
+				<button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 transition-all flex items-center justify-center" on:click={closeDetail} aria-label="Close">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+				</button>
+			</div>
+
+			<!-- Popup Body -->
+			<div class="p-6 overflow-y-auto max-h-[60vh]">
+				<!-- Title & Description -->
+				<div class="mb-5">
+					<h4 class="text-lg font-bold text-slate-800 mb-1">{t.task_title}</h4>
+					{#if t.task_description}
+						<p class="text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">{t.task_description}</p>
+					{/if}
+				</div>
+
+				<!-- Info Grid -->
+				<div class="grid grid-cols-2 gap-3 mb-5">
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'النوع' : 'Type'}</p>
+						<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-bold {typeInfo.bg} {typeInfo.color}">
+							{typeInfo.icon} {typeInfo.label}
+						</span>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الحالة' : 'Status'}</p>
+						<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-bold {statusInfo.bg} {statusInfo.color}">
+							{statusInfo.label}
+						</span>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الأولوية' : 'Priority'}</p>
+						<span class="inline-flex items-center gap-1.5 {prioInfo.color} text-sm font-bold">
+							<span class="w-2.5 h-2.5 rounded-full {prioInfo.dot}"></span>
+							{prioInfo.label}
+						</span>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'تاريخ الإسناد' : 'Assigned Date'}</p>
+						<span class="text-sm font-semibold text-slate-700">{formatDate(t.assigned_date)}</span>
+					</div>
+				</div>
+
+				<!-- Deadline -->
+				{#if t.deadline}
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-5 {isOverdue(t) ? 'bg-red-50 border-red-200' : ''}">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الموعد النهائي' : 'Deadline'}</p>
+						<p class="text-sm font-semibold {isOverdue(t) ? 'text-red-600' : 'text-slate-700'}">
+							{formatDate(t.deadline)}
+							{#if isOverdue(t)}
+								<span class="text-[10px] text-red-500 font-bold {isRTL ? 'mr-2' : 'ml-2'}">⚠️ {isRTL ? 'متأخر' : 'OVERDUE'}</span>
+							{/if}
+						</p>
+					</div>
+				{/if}
+
+				<!-- Completed Date -->
+				{#if t.completed_date}
+					<div class="bg-emerald-50 rounded-xl p-3 border border-emerald-100 mb-5">
+						<p class="text-[10px] font-bold text-emerald-500 uppercase tracking-wide mb-1">{isRTL ? 'تاريخ الإكمال' : 'Completed Date'}</p>
+						<div class="flex items-center gap-3">
+							<span class="text-sm font-semibold text-emerald-700">{formatDate(t.completed_date)}</span>
+							{#if t.completion_hours != null}
+								<span class="inline-block px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-700">
+									{formatCompletionTime(t.completion_hours)}
+								</span>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
+				<!-- People & Branch -->
+				<div class="grid grid-cols-2 gap-3 mb-5">
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'مسند إلى' : 'Assigned To'}</p>
+						<p class="text-sm font-semibold text-slate-700">{getEmpName(t)}</p>
+					</div>
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'الفرع' : 'Branch'}</p>
+						<p class="text-sm font-semibold text-slate-700">{getBranch(t)}</p>
+					</div>
+				</div>
+
+				<!-- Quick Task extras -->
+				{#if t.task_type === 'quick' && (t.price_tag || t.issue_type)}
+					<div class="bg-blue-50 rounded-xl p-3 border border-blue-100 mb-5">
+						<p class="text-[10px] font-bold text-blue-500 uppercase tracking-wide mb-2">{isRTL ? 'تفاصيل المهمة السريعة' : 'Quick Task Details'}</p>
+						<div class="grid grid-cols-2 gap-3">
+							{#if t.price_tag}
+								<div>
+									<p class="text-[10px] text-blue-400 font-bold">{isRTL ? 'السعر' : 'Price Tag'}</p>
+									<p class="text-sm font-semibold text-blue-700 capitalize">{t.price_tag}</p>
+								</div>
+							{/if}
+							{#if t.issue_type}
+								<div>
+									<p class="text-[10px] text-blue-400 font-bold">{isRTL ? 'نوع المشكلة' : 'Issue Type'}</p>
+									<p class="text-sm font-semibold text-blue-700 capitalize">{t.issue_type}</p>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Notes -->
+				{#if t.notes}
+					<div class="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+						<p class="text-[10px] font-bold text-indigo-500 uppercase tracking-wide mb-1">{isRTL ? 'ملاحظات' : 'Notes'}</p>
+						<p class="text-sm text-slate-700 whitespace-pre-wrap">{t.notes}</p>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Popup Footer -->
+			<div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center {isRTL ? 'flex-row-reverse' : ''} justify-between">
+				{#if isMasterAdmin}
+					<button
+						class="px-4 py-2 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition-all flex items-center gap-2"
+						on:click={() => confirmDelete(t)}
+					>
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+						{isRTL ? 'حذف' : 'Delete'}
+					</button>
+				{:else}
+					<div></div>
+				{/if}
+				<button
+					class="px-5 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all"
+					on:click={closeDetail}
+				>
+					{isRTL ? 'إغلاق' : 'Close'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Delete Confirmation Modal -->
+{#if showDeleteConfirm}
+	<div
+		class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[300] flex items-center justify-center"
+		style="animation: fadeIn 0.15s ease-out;"
+		on:click|self={cancelDelete}
+		on:keydown={(e) => e.key === 'Escape' && cancelDelete()}
+		role="dialog"
+		tabindex="-1"
+		aria-modal="true"
+	>
+		<div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-[400px] overflow-hidden" style="animation: scaleIn 0.2s ease-out;" dir={isRTL ? 'rtl' : 'ltr'}>
+			<div class="p-6 text-center">
+				<div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+					<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+				</div>
+				<h3 class="text-lg font-bold text-slate-800 mb-2">{isRTL ? 'تأكيد الحذف' : 'Confirm Delete'}</h3>
+				<p class="text-sm text-slate-500 mb-1">
+					{isRTL ? 'هل أنت متأكد من حذف هذا التعيين؟' : 'Are you sure you want to delete this assignment?'}
+				</p>
+				{#if selectedTask}
+					<p class="text-sm font-semibold text-slate-700 bg-slate-50 rounded-lg px-3 py-2 mt-3">
+						{selectedTask.task_title}
+					</p>
+				{/if}
+				<p class="text-[10px] text-red-500 font-bold mt-3">
+					{isRTL ? '⚠️ لا يمكن التراجع عن هذا الإجراء' : '⚠️ This action cannot be undone'}
+				</p>
+			</div>
+			<div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-center gap-3">
+				<button
+					class="px-5 py-2.5 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all"
+					on:click={cancelDelete}
+					disabled={isDeleting}
+				>
+					{isRTL ? 'إلغاء' : 'Cancel'}
+				</button>
+				<button
+					class="px-5 py-2.5 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition-all flex items-center gap-2 disabled:opacity-50"
+					on:click={deleteAssignment}
+					disabled={isDeleting}
+				>
+					{#if isDeleting}
+						<div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+					{/if}
+					{isRTL ? 'حذف نهائي' : 'Delete Permanently'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
-	.line-clamp-2 {
-		overflow: hidden;
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+	@keyframes scaleIn {
+		from { opacity: 0; transform: scale(0.95); }
+		to { opacity: 1; transform: scale(1); }
+	}
+	:global([dir="rtl"] select) {
+		background-position: left 0.75rem center !important;
+		padding-left: 2.5rem !important;
+		padding-right: 1rem !important;
 	}
 </style>

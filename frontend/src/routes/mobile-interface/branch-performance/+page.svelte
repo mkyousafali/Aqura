@@ -348,22 +348,22 @@
 					<h3 class="card-title">{isRTL ? 'الاتجاه اليومي' : 'Daily Trend'}</h3>
 					{#if visibleDaily.length > 0}
 						<div class="daily-chart-wrap">
-							<svg viewBox="0 0 {visibleDaily.length * 46 + 20} 130" class="daily-svg">
+							<svg viewBox="0 0 {Math.max(visibleDaily.length * 32 + 16, 200)} 95" class="daily-svg">
 								{#each visibleDaily as day, i}
-									{@const barX = 10 + i * 46}
+									{@const barX = 8 + i * 32}
 									{@const maxVal = getDailyMax(visibleDaily)}
-									{@const createdH = maxVal > 0 ? (day.created / maxVal) * 85 : 0}
-									{@const completedH = maxVal > 0 ? (day.completed / maxVal) * 85 : 0}
-									<rect x={barX} y={95 - createdH} width="15" height={createdH} rx="2" fill="#93c5fd" opacity="0.7"/>
-									<rect x={barX + 17} y={95 - completedH} width="15" height={completedH} rx="2" fill="#22c55e" opacity="0.8"/>
-									<text x={barX + 16} y="108" text-anchor="middle" class="chart-day-label">{formatDay(day.day)}</text>
-									<text x={barX + 7} y={90 - createdH} text-anchor="middle" class="chart-val-label">{day.created}</text>
-									<text x={barX + 24} y={90 - completedH} text-anchor="middle" class="chart-val-label">{day.completed}</text>
+									{@const createdH = maxVal > 0 ? (day.created / maxVal) * 55 : 0}
+									{@const completedH = maxVal > 0 ? (day.completed / maxVal) * 55 : 0}
+									<rect x={barX} y={65 - createdH} width="10" height={createdH} rx="2" fill="#93c5fd" opacity="0.7"/>
+									<rect x={barX + 12} y={65 - completedH} width="10" height={completedH} rx="2" fill="#22c55e" opacity="0.8"/>
+									<text x={barX + 11} y="76" text-anchor="middle" class="chart-day-label">{formatDay(day.day)}</text>
+									<text x={barX + 5} y={61 - createdH} text-anchor="middle" class="chart-val-label">{day.created}</text>
+									<text x={barX + 17} y={61 - completedH} text-anchor="middle" class="chart-val-label">{day.completed}</text>
 								{/each}
-								<rect x="5" y="118" width="8" height="5" rx="1" fill="#93c5fd" opacity="0.7"/>
-								<text x="16" y="123" class="chart-legend-text">{isRTL ? 'إنشاء' : 'Created'}</text>
-								<rect x="55" y="118" width="8" height="5" rx="1" fill="#22c55e" opacity="0.8"/>
-								<text x="66" y="123" class="chart-legend-text">{isRTL ? 'إنجاز' : 'Done'}</text>
+								<rect x="5" y="85" width="7" height="4" rx="1" fill="#93c5fd" opacity="0.7"/>
+								<text x="15" y="89" class="chart-legend-text">{isRTL ? 'إنشاء' : 'Created'}</text>
+								<rect x="50" y="85" width="7" height="4" rx="1" fill="#22c55e" opacity="0.8"/>
+								<text x="60" y="89" class="chart-legend-text">{isRTL ? 'إنجاز' : 'Done'}</text>
 							</svg>
 						</div>
 					{:else}
@@ -811,11 +811,11 @@
 	.no-data-text { font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 1rem 0; }
 
 	/* Daily chart */
-	.daily-chart-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-	.daily-svg { width: 100%; min-width: 280px; }
-	.chart-day-label { font-size: 6.5px; fill: #64748b; font-weight: 600; }
-	.chart-val-label { font-size: 5.5px; fill: #94a3b8; font-weight: 700; }
-	.chart-legend-text { font-size: 6px; fill: #64748b; }
+	.daily-chart-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; }
+	.daily-svg { height: 120px; min-width: 200px; }
+	.chart-day-label { font-size: 5.5px; fill: #64748b; font-weight: 600; }
+	.chart-val-label { font-size: 4.5px; fill: #94a3b8; font-weight: 700; }
+	.chart-legend-text { font-size: 5px; fill: #64748b; }
 
 	/* Branch cards */
 	.branch-card {

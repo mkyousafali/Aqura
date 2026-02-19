@@ -23,7 +23,7 @@
 	let currentTime = '';
 	
 	// Cashier interface version
-	let cashierVersion = 'AQ15';
+	let cashierVersion = 'AQ16';
 
 	function updateTime() {
 		const locale = $currentLocale === 'ar' ? 'ar-SA' : 'en-US';

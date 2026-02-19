@@ -333,3 +333,91 @@ export async function sendTestNotification(): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * Auto-subscribe to push notifications silently on login.
+ * Does NOT throw — safe to call fire-and-forget.
+ * Works on all devices; each device registers its own subscription.
+ */
+export async function autoSubscribePush(): Promise<void> {
+  try {
+    if (!isPushSupported()) {
+      console.log('📬 [Push-Auto] Push not supported in this browser, skipping');
+      return;
+    }
+
+    // Skip in dev mode — service workers don't work with Vite HMR
+    if (!import.meta.env.PROD) {
+      console.log('📬 [Push-Auto] Skipping in dev mode');
+      return;
+    }
+
+    const user = get(currentUser);
+    if (!user?.id) {
+      console.log('📬 [Push-Auto] No user logged in, skipping');
+      return;
+    }
+
+    // Request permission silently (browser may remember previous grant)
+    const permission = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+
+    if (permission !== 'granted') {
+      console.log('📬 [Push-Auto] Permission not granted:', permission);
+      return;
+    }
+
+    // Get or create service worker registration
+    let registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) {
+      registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      await navigator.serviceWorker.ready;
+    }
+
+    // Get or create push subscription
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        console.warn('📬 [Push-Auto] No VAPID key configured');
+        return;
+      }
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      });
+      console.log('📬 [Push-Auto] New push subscription created');
+    }
+
+    // Save / upsert subscription to database for this user + device
+    await savePushSubscription(subscription);
+    console.log('📬 [Push-Auto] ✅ Push auto-subscribed for user:', user.id);
+  } catch (err) {
+    console.warn('📬 [Push-Auto] Auto-subscribe failed (non-fatal):', err);
+  }
+}
+
+/**
+ * Unsubscribe from push on this device (called on logout).
+ * Does NOT throw.
+ */
+export async function autoUnsubscribePush(): Promise<void> {
+  try {
+    if (!isPushSupported()) return;
+    if (!import.meta.env.PROD) return;
+
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return;
+
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      await subscription.unsubscribe();
+      await removePushSubscription(subscription.endpoint);
+      console.log('📬 [Push-Auto] ✅ Push unsubscribed on logout');
+    }
+  } catch (err) {
+    console.warn('📬 [Push-Auto] Unsubscribe failed (non-fatal):', err);
+  }
+}

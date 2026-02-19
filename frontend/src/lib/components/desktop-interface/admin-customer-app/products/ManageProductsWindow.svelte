@@ -1,18 +1,49 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import ExcelJS from 'exceljs';
 
 	let products: any[] = [];
 	let loading = true;
-	let currentPage = 1;
-	let pageSize = 50;
 	let totalProducts = 0;
-	let totalPages = 0;
 	let updatingProductId: string | null = null;
 	let showImportPreview = false;
 	let importedData: any[] = [];
 	let importStats = { matched: 0, unmatched: 0 };
+	let previewImageUrl: string | null = null;
+	let searchQuery = '';
+	let scanBarcode = '';
+	let bulkUpdating = false;
+	let editingProduct: any = null;
+	let editForm = {
+		product_name_en: '',
+		product_name_ar: '',
+		sale_price: 0,
+		cost: 0,
+		current_stock: 0,
+		minim_qty: 0,
+		minimum_qty_alert: 0,
+		maximum_qty: 0
+	};
+	let saving = false;
+
+	$: isRTL = $currentLocale === 'ar';
+
+	$: filteredProducts = products.filter(p => {
+		if (scanBarcode.trim()) {
+			return p.barcode.toLowerCase().includes(scanBarcode.trim().toLowerCase());
+		}
+		if (searchQuery.trim()) {
+			const q = searchQuery.trim().toLowerCase();
+			return (
+				(p.product_name_en && p.product_name_en.toLowerCase().includes(q)) ||
+				(p.product_name_ar && p.product_name_ar.includes(q)) ||
+				(p.barcode && p.barcode.toLowerCase().includes(q))
+			);
+		}
+		return true;
+	});
 
 	onMount(async () => {
 		await loadProducts();
@@ -21,52 +52,35 @@
 	async function loadProducts() {
 		loading = true;
 		
-		const offset = (currentPage - 1) * pageSize;
-		
-		// Parallel queries for data and count
-		const [dataResult, countResult] = await Promise.all([
-			supabase
+		// Fetch all products in batches of 1000
+		let allProducts: any[] = [];
+		let offset = 0;
+		let hasMore = true;
+
+		while (hasMore) {
+			const { data, error } = await supabase
 				.from('products')
 				.select('barcode, product_name_en, product_name_ar, image_url, sale_price, cost, current_stock, minim_qty, minimum_qty_alert, maximum_qty, is_customer_product')
-				.range(offset, offset + pageSize - 1)
-				.order('barcode'),
-			
-			supabase
-				.from('products')
-				.select('*', { count: 'exact', head: true })
-		]);
-		
-		if (dataResult.data) {
-			products = dataResult.data;
+				.order('barcode')
+				.range(offset, offset + 999);
+
+			if (error) {
+				console.error('Error loading products:', error);
+				break;
+			}
+
+			if (data && data.length > 0) {
+				allProducts = allProducts.concat(data);
+				offset += 1000;
+				hasMore = data.length === 1000;
+			} else {
+				hasMore = false;
+			}
 		}
-		
-		if (countResult.count !== null) {
-			totalProducts = countResult.count;
-			totalPages = Math.ceil(totalProducts / pageSize);
-		}
-		
+
+		products = allProducts;
+		totalProducts = allProducts.length;
 		loading = false;
-	}
-
-	function nextPage() {
-		if (currentPage < totalPages) {
-			currentPage++;
-			loadProducts();
-		}
-	}
-
-	function previousPage() {
-		if (currentPage > 1) {
-			currentPage--;
-			loadProducts();
-		}
-	}
-
-	function goToPage(page: number) {
-		if (page >= 1 && page <= totalPages) {
-			currentPage = page;
-			loadProducts();
-		}
 	}
 
 	async function toggleCustomerProduct(product: any) {
@@ -310,7 +324,6 @@
 			// Reset and reload
 			showImportPreview = false;
 			importedData = [];
-			currentPage = 1;
 			await loadProducts();
 		} catch (err) {
 			console.error('Error applying import updates:', err);
@@ -324,729 +337,495 @@
 		showImportPreview = false;
 		importedData = [];
 	}
+
+	async function enableAll() {
+		const targets = filteredProducts.filter(p => !p.is_customer_product);
+		if (targets.length === 0) return;
+		if (!confirm(isRTL ? `تفعيل ${targets.length} منتج؟` : `Enable ${targets.length} products?`)) return;
+		bulkUpdating = true;
+		try {
+			const barcodes = targets.map(p => p.barcode);
+			const { data, error } = await supabase.rpc('bulk_toggle_customer_product', {
+				p_barcodes: barcodes,
+				p_value: true
+			});
+			if (error) {
+				alert('Failed: ' + error.message);
+			} else {
+				targets.forEach(p => p.is_customer_product = true);
+				products = products;
+			}
+		} catch (err) {
+			alert('Exception: ' + (err instanceof Error ? err.message : String(err)));
+		} finally {
+			bulkUpdating = false;
+		}
+	}
+
+	async function disableAll() {
+		const targets = filteredProducts.filter(p => p.is_customer_product);
+		if (targets.length === 0) return;
+		if (!confirm(isRTL ? `تعطيل ${targets.length} منتج؟` : `Disable ${targets.length} products?`)) return;
+		bulkUpdating = true;
+		try {
+			const barcodes = targets.map(p => p.barcode);
+			const { data, error } = await supabase.rpc('bulk_toggle_customer_product', {
+				p_barcodes: barcodes,
+				p_value: false
+			});
+			if (error) {
+				alert('Failed: ' + error.message);
+			} else {
+				targets.forEach(p => p.is_customer_product = false);
+				products = products;
+			}
+		} catch (err) {
+			alert('Exception: ' + (err instanceof Error ? err.message : String(err)));
+		} finally {
+			bulkUpdating = false;
+		}
+	}
+
+	function handleScanKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			// Already reactive, just keep focus
+			e.preventDefault();
+		}
+	}
+
+	function openEdit(product: any) {
+		editingProduct = product;
+		editForm = {
+			product_name_en: product.product_name_en || '',
+			product_name_ar: product.product_name_ar || '',
+			sale_price: product.sale_price ?? 0,
+			cost: product.cost ?? 0,
+			current_stock: product.current_stock ?? 0,
+			minim_qty: product.minim_qty ?? 0,
+			minimum_qty_alert: product.minimum_qty_alert ?? 0,
+			maximum_qty: product.maximum_qty ?? 0
+		};
+	}
+
+	function cancelEdit() {
+		editingProduct = null;
+	}
+
+	async function saveProduct() {
+		if (!editingProduct) return;
+		saving = true;
+
+		try {
+			const { error } = await supabase
+				.from('products')
+				.update({
+					product_name_en: editForm.product_name_en,
+					product_name_ar: editForm.product_name_ar,
+					sale_price: Number(editForm.sale_price),
+					cost: Number(editForm.cost),
+					current_stock: Number(editForm.current_stock),
+					minim_qty: Number(editForm.minim_qty),
+					minimum_qty_alert: Number(editForm.minimum_qty_alert),
+					maximum_qty: Number(editForm.maximum_qty)
+				})
+				.eq('barcode', editingProduct.barcode);
+
+			if (error) {
+				console.error('Error saving product:', error);
+				alert('Failed to save: ' + error.message);
+			} else {
+				// Update local state
+				Object.assign(editingProduct, {
+					product_name_en: editForm.product_name_en,
+					product_name_ar: editForm.product_name_ar,
+					sale_price: Number(editForm.sale_price),
+					cost: Number(editForm.cost),
+					current_stock: Number(editForm.current_stock),
+					minim_qty: Number(editForm.minim_qty),
+					minimum_qty_alert: Number(editForm.minimum_qty_alert),
+					maximum_qty: Number(editForm.maximum_qty)
+				});
+				products = products; // Trigger reactivity
+				editingProduct = null;
+			}
+		} catch (err) {
+			console.error('Exception saving product:', err);
+			alert('Exception occurred during save');
+		} finally {
+			saving = false;
+		}
+	}
 </script>
 
-<div class="window">
-	<div class="header">
-		<h2>📦 Products</h2>
-		<div class="stats">
-			<span class="badge">Total: {totalProducts}</span>
-			<span class="badge">Page {currentPage} of {totalPages}</span>
-		</div>
-		<div class="header-buttons">
-			<button class="btn-export" on:click={exportToExcel} disabled={loading || products.length === 0} title="Export all products to Excel">
-				📥 Export to Excel
-			</button>
-			<label class="btn-import" title="Import products from Excel">
-				📤 Import from Excel
-				<input type="file" accept=".xlsx,.xls" on:change={handleImportFile} style="display: none;" />
-			</label>
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<div class="relative flex flex-col h-full overflow-hidden" dir={isRTL ? 'rtl' : 'ltr'}>
+	<!-- Decorative Blur Orbs -->
+	<div class="pointer-events-none absolute -top-32 -right-32 h-96 w-96 rounded-full bg-blue-400/20 blur-3xl"></div>
+	<div class="pointer-events-none absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-indigo-400/20 blur-3xl"></div>
+
+	<!-- Header -->
+	<div class="relative flex-shrink-0 bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white">
+		<div class="flex items-center justify-between flex-wrap gap-3">
+			<div class="flex items-center gap-4">
+				<h2 class="m-0 text-xl font-bold tracking-tight">
+					📦 {isRTL ? 'إدارة المنتجات' : 'Products'}
+				</h2>
+				<div class="flex items-center gap-2">
+					<span class="rounded-full bg-white/20 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+						{isRTL ? 'الإجمالي:' : 'Total:'} {totalProducts}
+					</span>
+					{#if searchQuery || scanBarcode}
+						<span class="rounded-full bg-yellow-400/30 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+							{isRTL ? 'نتائج:' : 'Showing:'} {filteredProducts.length}
+						</span>
+					{/if}
+				</div>
+			</div>
+			<div class="flex items-center gap-2">
+				<button on:click={exportToExcel} disabled={loading || products.length === 0}
+					title={isRTL ? 'تصدير إلى Excel' : 'Export all products to Excel'}
+					class="inline-flex items-center gap-1.5 rounded-xl bg-white/20 backdrop-blur-sm px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+					📥 {isRTL ? 'تصدير Excel' : 'Export Excel'}
+				</button>
+				<label class="inline-flex items-center gap-1.5 rounded-xl bg-white/20 backdrop-blur-sm px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/30 hover:-translate-y-0.5 cursor-pointer"
+					title={isRTL ? 'استيراد من Excel' : 'Import products from Excel'}>
+					📤 {isRTL ? 'استيراد Excel' : 'Import Excel'}
+					<input type="file" accept=".xlsx,.xls" on:change={handleImportFile} class="hidden" />
+				</label>
+			</div>
 		</div>
 	</div>
-	
-	{#if loading}
-		<div class="loading">
-			<div class="spinner"></div>
-			<p>Loading products...</p>
-		</div>
-	{:else if products.length === 0}
-		<p>No products found</p>
-	{:else}
-		<div class="table-container">
-			<table>
-				<thead>
-					<tr>
-						<th class="col-image">Image</th>
-						<th class="col-barcode">Barcode</th>
-						<th class="col-name">Name En</th>
-						<th class="col-name">Name Ar</th>
-						<th class="col-price">Price</th>
-						<th class="col-price">Cost</th>
-						<th class="col-price">Profit</th>
-						<th class="col-number">Profit %</th>
-						<th class="col-number">Stock</th>
-						<th class="col-number">Min Stock</th>
-						<th class="col-number">Min Alert</th>
-						<th class="col-number">Max Stock</th>
-						<th class="col-customer">Customer</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each products as product}
-						<tr>
-							<td class="image-cell">
-								{#if product.image_url}
-									<img src={product.image_url} alt={product.product_name_en} class="product-img" />
-								{:else}
-									<div class="no-img">📦</div>
-								{/if}
-							</td>
-						<td class="barcode">{product.barcode}</td>
-						<td class="name-cell">{product.product_name_en || '-'}</td>
-						<td class="name-cell arabic">{product.product_name_ar || '-'}</td>
-						<td class="price">{product.sale_price.toFixed(2)}</td>
-						<td class="price">{product.cost.toFixed(2)}</td>
-						<td class="price">{(product.sale_price - product.cost).toFixed(2)}</td>
-						<td class="number">{product.cost > 0 ? (((product.sale_price - product.cost) / product.cost) * 100).toFixed(2) : '0.00'}%</td>
-						<td class="number">{product.current_stock}</td>
-						<td class="number">{product.minim_qty}</td>
-						<td class="number">{product.minimum_qty_alert}</td>
-						<td class="number">{product.maximum_qty}</td>
-					<td class="center">
-						<button 
-							class="toggle-btn {product.is_customer_product ? 'active' : 'inactive'}"
-							on:click={() => toggleCustomerProduct(product)}
-							disabled={updatingProductId === product.barcode}
-							title={product.is_customer_product ? 'Click to disable' : 'Click to enable'}
-						>
-							<span class="toggle-indicator"></span>
-						</button>
-					</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
 
-		<div class="pagination">
-			<button on:click={previousPage} disabled={currentPage === 1 || loading}>
-				← Previous
+	<!-- Search / Scan / Bulk Actions Bar -->
+	<div class="relative flex-shrink-0 flex items-center gap-3 flex-wrap px-4 py-3 bg-white/40 backdrop-blur-md border-b border-white/30">
+		<!-- Search by Name -->
+		<div class="relative flex-1 min-w-[180px] max-w-xs">
+			<span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+			<input type="text" bind:value={searchQuery}
+				placeholder={isRTL ? 'بحث بالاسم...' : 'Search by name...'}
+				class="w-full rounded-xl border border-slate-300 bg-white/80 pl-9 pr-3 py-2 text-sm text-slate-700 shadow-sm placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all" />
+		</div>
+		<!-- Scan Barcode -->
+		<div class="relative min-w-[160px] max-w-[200px]">
+			<span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">📷</span>
+			<input type="text" bind:value={scanBarcode} on:keydown={handleScanKeydown}
+				placeholder={isRTL ? 'مسح الباركود...' : 'Scan barcode...'}
+				class="w-full rounded-xl border border-slate-300 bg-white/80 pl-9 pr-3 py-2 text-sm text-slate-700 shadow-sm placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+		</div>
+		<!-- Clear -->
+		{#if searchQuery || scanBarcode}
+			<button type="button" on:click={() => { searchQuery = ''; scanBarcode = ''; }}
+				class="rounded-xl border border-slate-300 bg-white/80 px-3 py-2 text-sm text-slate-500 transition-all hover:bg-slate-100">
+				✕ {isRTL ? 'مسح' : 'Clear'}
 			</button>
-			
-			<div class="page-numbers">
-				{#each Array(Math.min(5, totalPages)) as _, i}
-					{@const page = currentPage - 2 + i}
-					{#if page > 0 && page <= totalPages}
-						<button 
-							class:active={page === currentPage}
-							on:click={() => goToPage(page)}
-							disabled={loading}
-						>
-							{page}
-						</button>
-					{/if}
-				{/each}
+		{/if}
+		<!-- Spacer -->
+		<div class="flex-1"></div>
+		<!-- Enable All / Disable All -->
+		<button type="button" on:click={enableAll} disabled={bulkUpdating || loading}
+			class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 transition-all hover:bg-emerald-600 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+			✅ {isRTL ? 'تفعيل الكل' : 'Enable All'}
+		</button>
+		<button type="button" on:click={disableAll} disabled={bulkUpdating || loading}
+			class="inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+			🚫 {isRTL ? 'تعطيل الكل' : 'Disable All'}
+		</button>
+	</div>
+
+	<!-- Content -->
+	<div class="relative flex-1 flex flex-col overflow-hidden p-4">
+		{#if loading}
+			<div class="flex flex-1 flex-col items-center justify-center gap-4">
+				<div class="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-500"></div>
+				<p class="text-sm text-slate-500">{isRTL ? 'جاري تحميل المنتجات...' : 'Loading products...'}</p>
 			</div>
-			
-			<button on:click={nextPage} disabled={currentPage === totalPages || loading}>
-				Next →
-			</button>
-		</div>
-	{/if}
-
-	<!-- Import Preview Modal -->
-	{#if showImportPreview}
-		<div class="modal-overlay" on:click={cancelImport}>
-			<div class="modal-content" on:click|stopPropagation>
-				<div class="modal-header">
-					<h3>Import Preview</h3>
-					<button class="close-btn" on:click={cancelImport}>✕</button>
-				</div>
-
-				<div class="modal-stats">
-					<div class="stat-item matched">
-						<span class="stat-label">Matched Products:</span>
-						<span class="stat-value">{importStats.matched}</span>
-					</div>
-					<div class="stat-item unmatched">
-						<span class="stat-label">Unmatched Products:</span>
-						<span class="stat-value">{importStats.unmatched}</span>
-					</div>
-				</div>
-
-				<div class="preview-table-container">
-					<table class="preview-table">
-						<thead>
-							<tr>
-								<th>Status</th>
-								<th>Barcode</th>
-								<th>Price</th>
-								<th>Cost</th>
-								<th>Profit</th>
-								<th>Profit %</th>
-								<th>Stock</th>
-								<th>Stock Min</th>
-								<th>Min Alert</th>
-								<th>Max Stock</th>
+		{:else if filteredProducts.length === 0}
+			<div class="flex flex-1 flex-col items-center justify-center gap-3">
+				<div class="text-5xl">{searchQuery || scanBarcode ? '🔍' : '📦'}</div>
+				<p class="text-base text-slate-500">{searchQuery || scanBarcode ? (isRTL ? 'لا توجد نتائج' : 'No results found') : (isRTL ? 'لا توجد منتجات' : 'No products found')}</p>
+			</div>
+		{:else}
+			<!-- Products Table -->
+			<div class="flex-1 overflow-hidden rounded-2xl bg-white/60 backdrop-blur-xl border border-white/40 shadow-xl">
+				<div class="h-full overflow-auto">
+					<table class="w-full border-collapse text-sm">
+						<thead class="sticky top-0 z-10">
+							<tr class="bg-gradient-to-r from-slate-700 to-slate-800 text-white">
+								<th class="px-3 py-3 text-center font-semibold w-[70px]">{isRTL ? 'الصورة' : 'Image'}</th>
+								<th class="px-3 py-3 text-left font-semibold">{isRTL ? 'الباركود' : 'Barcode'}</th>
+								<th class="px-3 py-3 text-left font-semibold">{isRTL ? 'الاسم (EN)' : 'Name (EN)'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'الاسم (AR)' : 'Name (AR)'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'السعر' : 'Price'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'التكلفة' : 'Cost'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'الربح' : 'Profit'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'الربح %' : 'Profit %'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'المخزون' : 'Stock'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'الحد الأدنى' : 'Min'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'تنبيه' : 'Alert'}</th>
+								<th class="px-3 py-3 text-right font-semibold">{isRTL ? 'الحد الأقصى' : 'Max'}</th>
+								<th class="px-3 py-3 text-center font-semibold w-[80px]">{isRTL ? 'عميل' : 'Customer'}</th>
+								<th class="px-3 py-3 text-center font-semibold w-[60px]">{isRTL ? 'تعديل' : 'Edit'}</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each importedData as item}
-								<tr class={item.matched ? 'matched-row' : 'unmatched-row'}>
-									<td class="status-cell">
-										<span class={`status-badge ${item.matched ? 'matched' : 'unmatched'}`}>
-											{item.matched ? '✓' : '✗'}
-										</span>
+							{#each filteredProducts as product}
+								<tr class="border-b border-slate-100 transition-colors hover:bg-blue-50/40">
+									<td class="px-3 py-1.5 text-center">
+										{#if product.image_url}
+											<button type="button" on:click={() => previewImageUrl = product.image_url}
+												class="border-0 bg-transparent p-0 cursor-pointer">
+												<img src={product.image_url} alt={product.product_name_en}
+													class="h-12 w-12 rounded-md object-contain ring-1 ring-slate-200 hover:ring-blue-400 transition-all" />
+											</button>
+										{:else}
+											<div class="mx-auto flex h-12 w-12 items-center justify-center rounded-md bg-slate-100 text-[10px] text-slate-400">
+												No Image
+											</div>
+										{/if}
 									</td>
-									<td class="barcode">{item.barcode}</td>
-									<td>{item.sale_price.toFixed(2)}</td>
-									<td>{item.cost.toFixed(2)}</td>
-									<td>{item.profit.toFixed(2)}</td>
-									<td>{item.profitPercent.toFixed(2)}%</td>
-									<td>{item.current_stock}</td>
-									<td>{item.minim_qty}</td>
-									<td>{item.minimum_qty_alert}</td>
-									<td>{item.maximum_qty}</td>
+									<td class="px-3 py-2.5 font-mono text-xs font-medium text-blue-600">{product.barcode}</td>
+									<td class="px-3 py-2.5 text-slate-700 max-w-[200px] truncate">{product.product_name_en || '-'}</td>
+									<td class="px-3 py-2.5 text-slate-700 max-w-[200px] truncate text-right" dir="rtl">{product.product_name_ar || '-'}</td>
+									<td class="px-3 py-2.5 text-right font-mono text-sm font-medium text-slate-700">{product.sale_price.toFixed(2)}</td>
+									<td class="px-3 py-2.5 text-right font-mono text-sm text-slate-600">{product.cost.toFixed(2)}</td>
+									<td class="px-3 py-2.5 text-right font-mono text-sm font-medium {(product.sale_price - product.cost) >= 0 ? 'text-emerald-600' : 'text-red-500'}">
+										{(product.sale_price - product.cost).toFixed(2)}
+									</td>
+									<td class="px-3 py-2.5 text-right text-sm font-medium {product.cost > 0 && ((product.sale_price - product.cost) / product.cost) * 100 >= 0 ? 'text-emerald-600' : 'text-red-500'}">
+										{product.cost > 0 ? (((product.sale_price - product.cost) / product.cost) * 100).toFixed(1) : '0.0'}%
+									</td>
+									<td class="px-3 py-2.5 text-right font-medium text-slate-700">{product.current_stock}</td>
+									<td class="px-3 py-2.5 text-right text-slate-600">{product.minim_qty}</td>
+									<td class="px-3 py-2.5 text-right text-slate-600">{product.minimum_qty_alert}</td>
+									<td class="px-3 py-2.5 text-right text-slate-600">{product.maximum_qty}</td>
+									<td class="px-3 py-2.5 text-center">
+										<button
+											on:click={() => toggleCustomerProduct(product)}
+											disabled={updatingProductId === product.barcode}
+											title={product.is_customer_product ? (isRTL ? 'اضغط للتعطيل' : 'Click to disable') : (isRTL ? 'اضغط للتفعيل' : 'Click to enable')}
+											class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed {product.is_customer_product ? 'bg-emerald-500 shadow-sm shadow-emerald-500/40' : 'bg-slate-300'}">
+											<span class="inline-block h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-300 {product.is_customer_product ? 'translate-x-5.5' : 'translate-x-0.5'}"></span>
+										</button>
+									</td>
+									<td class="px-3 py-2.5 text-center">
+										<button type="button" on:click={() => openEdit(product)}
+											title={isRTL ? 'تعديل' : 'Edit'}
+											class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600 transition-all hover:bg-blue-200 hover:scale-110">
+											✏️
+										</button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 				</div>
-
-				<div class="modal-actions">
-					<button class="btn-cancel" on:click={cancelImport}>Cancel</button>
-					<button class="btn-confirm" on:click={applyImportUpdates} disabled={importStats.matched === 0}>
-						Apply Updates ({importStats.matched})
-					</button>
-				</div>
 			</div>
-		</div>
-	{/if}
+
+
+		{/if}
+	</div>
 </div>
 
+<!-- Import Preview Modal -->
+{#if showImportPreview}
+	<!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events -->
+	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+		on:click={cancelImport}>
+		<!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events a11y-interactive-supports-focus -->
+		<div class="flex flex-col overflow-hidden rounded-2xl bg-white/95 backdrop-blur-xl shadow-2xl border border-white/40 w-[90vw] max-w-5xl max-h-[85vh]"
+			on:click|stopPropagation role="dialog" aria-modal="true" tabindex="-1">
+			<!-- Modal Header -->
+			<div class="flex-shrink-0 flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+				<h3 class="m-0 text-lg font-bold">
+					📄 {isRTL ? 'معاينة الاستيراد' : 'Import Preview'}
+				</h3>
+				<button type="button" on:click={cancelImport}
+					class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-white text-lg font-bold transition-all hover:bg-white/30"
+					aria-label="Close">✕</button>
+			</div>
+
+			<!-- Stats Bar -->
+			<div class="flex-shrink-0 flex items-center gap-4 px-6 py-3 bg-slate-50/80 border-b border-slate-200">
+				<div class="inline-flex items-center gap-2 rounded-lg bg-emerald-100 px-4 py-2 text-emerald-800">
+					<span class="text-sm font-medium">{isRTL ? 'متطابقة:' : 'Matched:'}</span>
+					<span class="text-lg font-bold">{importStats.matched}</span>
+				</div>
+				<div class="inline-flex items-center gap-2 rounded-lg bg-red-100 px-4 py-2 text-red-800">
+					<span class="text-sm font-medium">{isRTL ? 'غير متطابقة:' : 'Unmatched:'}</span>
+					<span class="text-lg font-bold">{importStats.unmatched}</span>
+				</div>
+			</div>
+
+			<!-- Preview Table -->
+			<div class="flex-1 overflow-auto">
+				<table class="w-full border-collapse text-sm">
+					<thead class="sticky top-0 z-10">
+						<tr class="bg-gradient-to-r from-slate-600 to-slate-700 text-white">
+							<th class="px-3 py-2.5 text-center font-semibold">{isRTL ? 'الحالة' : 'Status'}</th>
+							<th class="px-3 py-2.5 text-left font-semibold">{isRTL ? 'الباركود' : 'Barcode'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'السعر' : 'Price'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'التكلفة' : 'Cost'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'الربح' : 'Profit'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'الربح %' : 'Profit %'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'المخزون' : 'Stock'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'الحد الأدنى' : 'Min'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'تنبيه' : 'Alert'}</th>
+							<th class="px-3 py-2.5 text-right font-semibold">{isRTL ? 'الحد الأقصى' : 'Max'}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each importedData as item}
+							<tr class="border-b border-slate-100 {item.matched ? 'bg-emerald-50/50' : 'bg-red-50/50 opacity-70'}">
+								<td class="px-3 py-2.5 text-center">
+									<span class="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white {item.matched ? 'bg-emerald-500' : 'bg-red-500'}">
+										{item.matched ? '✓' : '✗'}
+									</span>
+								</td>
+								<td class="px-3 py-2.5 font-mono text-xs font-medium text-blue-600">{item.barcode}</td>
+								<td class="px-3 py-2.5 text-right font-mono">{item.sale_price.toFixed(2)}</td>
+								<td class="px-3 py-2.5 text-right font-mono">{item.cost.toFixed(2)}</td>
+								<td class="px-3 py-2.5 text-right font-mono">{item.profit.toFixed(2)}</td>
+								<td class="px-3 py-2.5 text-right">{item.profitPercent.toFixed(1)}%</td>
+								<td class="px-3 py-2.5 text-right">{item.current_stock}</td>
+								<td class="px-3 py-2.5 text-right">{item.minim_qty}</td>
+								<td class="px-3 py-2.5 text-right">{item.minimum_qty_alert}</td>
+								<td class="px-3 py-2.5 text-right">{item.maximum_qty}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Modal Actions -->
+			<div class="flex-shrink-0 flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-white/80">
+				<button type="button" on:click={cancelImport}
+					class="rounded-xl border border-slate-300 bg-white/80 px-5 py-2.5 text-sm font-medium text-slate-500 transition-all hover:bg-slate-100">
+					{isRTL ? 'إلغاء' : 'Cancel'}
+				</button>
+				<button type="button" on:click={applyImportUpdates} disabled={importStats.matched === 0}
+					class="rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+					{isRTL ? 'تطبيق التحديثات' : 'Apply Updates'} ({importStats.matched})
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Edit Product Modal -->
+{#if editingProduct}
+	<!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events -->
+	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+		on:click={cancelEdit}>
+		<!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events a11y-interactive-supports-focus -->
+		<div class="flex flex-col overflow-hidden rounded-2xl bg-white/95 backdrop-blur-xl shadow-2xl border border-white/40 w-[90vw] max-w-lg max-h-[85vh]"
+			on:click|stopPropagation role="dialog" aria-modal="true" tabindex="-1">
+			<!-- Modal Header -->
+			<div class="flex-shrink-0 flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+				<div>
+					<h3 class="m-0 text-lg font-bold">✏️ {isRTL ? 'تعديل المنتج' : 'Edit Product'}</h3>
+					<p class="m-0 mt-0.5 text-xs text-white/70 font-mono">{editingProduct.barcode}</p>
+				</div>
+				<button type="button" on:click={cancelEdit}
+					class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-white text-lg font-bold transition-all hover:bg-white/30"
+					aria-label="Close">✕</button>
+			</div>
+
+			<!-- Form -->
+			<div class="flex-1 overflow-auto p-6 space-y-4">
+				<!-- Names -->
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'الاسم (EN)' : 'Name (EN)'}</span>
+						<input type="text" bind:value={editForm.product_name_en}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all" />
+					</label>
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'الاسم (AR)' : 'Name (AR)'}</span>
+						<input type="text" bind:value={editForm.product_name_ar} dir="rtl"
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all" />
+					</label>
+				</div>
+
+				<!-- Price & Cost -->
+				<div class="grid grid-cols-2 gap-4">
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'السعر' : 'Price'}</span>
+						<input type="number" step="0.01" bind:value={editForm.sale_price}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+					</label>
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'التكلفة' : 'Cost'}</span>
+						<input type="number" step="0.01" bind:value={editForm.cost}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+					</label>
+				</div>
+
+				<!-- Profit Preview -->
+				<div class="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 flex items-center justify-between">
+					<span class="text-xs font-semibold text-slate-500 uppercase">{isRTL ? 'الربح' : 'Profit'}</span>
+					<div class="flex items-center gap-3">
+						<span class="font-mono text-sm font-semibold {(Number(editForm.sale_price) - Number(editForm.cost)) >= 0 ? 'text-emerald-600' : 'text-red-500'}">{(Number(editForm.sale_price) - Number(editForm.cost)).toFixed(2)}</span>
+						<span class="text-sm font-medium {(Number(editForm.sale_price) - Number(editForm.cost)) >= 0 ? 'text-emerald-600' : 'text-red-500'}">({Number(editForm.cost) > 0 ? (((Number(editForm.sale_price) - Number(editForm.cost)) / Number(editForm.cost)) * 100).toFixed(1) : '0.0'}%)</span>
+					</div>
+				</div>
+
+				<!-- Stock Fields -->
+				<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'المخزون' : 'Stock'}</span>
+						<input type="number" bind:value={editForm.current_stock}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+					</label>
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'الحد الأدنى' : 'Min'}</span>
+						<input type="number" bind:value={editForm.minim_qty}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+					</label>
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'تنبيه' : 'Alert'}</span>
+						<input type="number" bind:value={editForm.minimum_qty_alert}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+					</label>
+					<label class="block">
+						<span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{isRTL ? 'الحد الأقصى' : 'Max'}</span>
+						<input type="number" bind:value={editForm.maximum_qty}
+							class="mt-1 block w-full rounded-xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 focus:outline-none transition-all font-mono" />
+					</label>
+				</div>
+			</div>
+
+			<!-- Modal Actions -->
+			<div class="flex-shrink-0 flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-white/80">
+				<button type="button" on:click={cancelEdit}
+					class="rounded-xl border border-slate-300 bg-white/80 px-5 py-2.5 text-sm font-medium text-slate-500 transition-all hover:bg-slate-100">
+					{isRTL ? 'إلغاء' : 'Cancel'}
+				</button>
+				<button type="button" on:click={saveProduct} disabled={saving}
+					class="rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+					{#if saving}
+						<span class="inline-flex items-center gap-2">
+							<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
+							{isRTL ? 'جاري الحفظ...' : 'Saving...'}
+						</span>
+					{:else}
+						💾 {isRTL ? 'حفظ' : 'Save'}
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Image Preview Overlay -->
+{#if previewImageUrl}
+	<button type="button" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm border-0 p-0 cursor-default"
+		on:click={() => previewImageUrl = null} aria-label="Close preview">
+		<img src={previewImageUrl} alt="Preview" class="max-h-[85vh] max-w-[85vw] rounded-2xl shadow-2xl object-contain" />
+	</button>
+{/if}
+
 <style>
-	.window {
-		padding: 20px;
-		background: white;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 20px;
-	}
-
-	.header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding-bottom: 16px;
-		border-bottom: 2px solid #e5e7eb;
-	}
-
-	h2 {
-		margin: 0;
-		font-size: 24px;
-		font-weight: 600;
-	}
-
-	.stats {
-		display: flex;
-		gap: 12px;
-	}
-
-	.badge {
-		background: #e3f2fd;
-		color: #1976d2;
-		padding: 6px 12px;
-		border-radius: 16px;
-		font-size: 14px;
-		font-weight: 500;
-	}
-
-	.loading {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 48px;
-		gap: 16px;
-	}
-
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #f3f4f6;
-		border-top: 4px solid #1976d2;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		0% { transform: rotate(0deg); }
-		100% { transform: rotate(360deg); }
-	}
-
-	.table-container {
-		flex: 1;
-		overflow: auto;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-	}
-
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		table-layout: fixed;
-	}
-
-	th, td {
-		padding: 10px 12px;
-		border-bottom: 1px solid #f3f4f6;
-		font-size: 14px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	th {
-		background: #f9fafb;
-		font-weight: 600;
-		position: sticky;
-		top: 0;
-		color: #374151;
-		text-transform: capitalize;
-		z-index: 10;
-		white-space: nowrap;
-		text-align: left;
-	}
-
-	th.col-price,
-	th.col-number {
-		text-align: right;
-	}
-
-	th.col-customer,
-	th.col-image {
-		text-align: center;
-	}
-
-	.col-barcode {
-		width: 140px;
-	}
-
-	.col-name {
-		width: 250px;
-	}
-
-	.col-image {
-		width: 90px;
-	}
-
-	.col-price {
-		width: 90px;
-	}
-
-	.col-number {
-		width: 100px;
-	}
-
-	.col-customer {
-		width: 120px;
-	}
-
-	tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.barcode {
-		font-family: monospace;
-		font-weight: 500;
-		color: #1976d2;
-		text-align: left;
-	}
-
-	.image-cell {
-		padding: 4px !important;
-		text-align: center;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.product-img {
-		width: 60px;
-		height: 60px;
-		object-fit: contain;
-		border-radius: 4px;
-		border: 1px solid #e5e7eb;
-		display: block;
-		margin: 0 auto;
-	}
-
-	.no-img {
-		width: 60px;
-		height: 60px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: #f3f4f6;
-		border-radius: 4px;
-		font-size: 24px;
-		margin: 0 auto;
-	}
-
-	.price {
-		text-align: right;
-		font-family: monospace;
-		font-weight: 500;
-	}
-
-	.number {
-		text-align: right;
-		font-weight: 500;
-	}
-
-	.name-cell {
-		text-align: left;
-	}
-
-	.center {
-		text-align: center;
-	}
-
-	.arabic {
-		font-family: 'Tajawal', 'Cairo', Arial, sans-serif;
-		direction: rtl;
-		text-align: right;
-	}
-
-	.badge-yes {
-		display: inline-block;
-		padding: 4px 8px;
-		background: #d1fae5;
-		color: #065f46;
-		border-radius: 12px;
-		font-weight: 600;
-		font-size: 12px;
-	}
-
-	.badge-no {
-		display: inline-block;
-		padding: 4px 8px;
-		background: #fee2e2;
-		color: #991b1b;
-		border-radius: 12px;
-		font-weight: 600;
-		font-size: 12px;
-	}
-
-	.toggle-btn {
-		position: relative;
-		width: 50px;
-		height: 28px;
-		padding: 0;
-		border: none;
-		border-radius: 14px;
-		cursor: pointer;
-		transition: background-color 0.3s ease, box-shadow 0.3s ease;
-		background-color: #e5e7eb;
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-	}
-
-	.toggle-btn.active {
-		background-color: #10b981;
-		justify-content: flex-end;
-		box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
-	}
-
-	.toggle-btn.inactive {
-		background-color: #d1d5db;
-		box-shadow: 0 0 4px rgba(107, 114, 128, 0.3);
-	}
-
-	.toggle-indicator {
-		display: block;
-		width: 24px;
-		height: 24px;
-		background-color: white;
-		border-radius: 50%;
-		transition: transform 0.3s ease;
-		margin: 0 2px;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-	}
-
-	.toggle-btn:hover:not(:disabled) {
-		opacity: 0.9;
-		transform: scale(1.05);
-	}
-
-	.toggle-btn:active:not(:disabled) .toggle-indicator {
-		transform: scale(0.95);
-	}
-
-	.toggle-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.pagination {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		gap: 8px;
-		padding: 16px;
-		border-top: 1px solid #e5e7eb;
-	}
-
-	.pagination button {
-		padding: 8px 16px;
-		border: 1px solid #d1d5db;
-		background: white;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-
-	.pagination button:hover:not(:disabled) {
-		background: #f9fafb;
-		border-color: #1976d2;
-		color: #1976d2;
-	}
-
-	.pagination button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.pagination button.active {
-		background: #1976d2;
-		color: white;
-		border-color: #1976d2;
-	}
-
-	.page-numbers {
-		display: flex;
-		gap: 4px;
-	}
-
-	.header-buttons {
-		display: flex;
-		gap: 8px;
-	}
-
-	.btn-export,
-	.btn-import {
-		padding: 8px 16px;
-		background: #1976d2;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.btn-import {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.btn-export:hover:not(:disabled),
-	.btn-import:hover:not(:disabled) {
-		background: #1565c0;
-		transform: translateY(-1px);
-		box-shadow: 0 2px 8px rgba(25, 118, 210, 0.3);
-	}
-
-	.btn-export:disabled,
-	.btn-import:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-	}
-
-	.modal-content {
-		background: white;
-		border-radius: 12px;
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-		max-width: 90vw;
-		max-height: 90vh;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 20px;
-		border-bottom: 2px solid #e5e7eb;
-		flex-shrink: 0;
-	}
-
-	.modal-header h3 {
-		margin: 0;
-		font-size: 20px;
-		font-weight: 600;
-	}
-
-	.close-btn {
-		background: none;
-		border: none;
-		font-size: 24px;
-		cursor: pointer;
-		color: #6b7280;
-		padding: 0;
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: color 0.2s;
-	}
-
-	.close-btn:hover {
-		color: #111827;
-	}
-
-	.modal-stats {
-		display: flex;
-		gap: 16px;
-		padding: 16px 20px;
-		background: #f9fafb;
-		flex-shrink: 0;
-	}
-
-	.stat-item {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		border-radius: 8px;
-	}
-
-	.stat-item.matched {
-		background: #d1fae5;
-		color: #065f46;
-	}
-
-	.stat-item.unmatched {
-		background: #fee2e2;
-		color: #991b1b;
-	}
-
-	.stat-label {
-		font-weight: 500;
-		font-size: 14px;
-	}
-
-	.stat-value {
-		font-size: 18px;
-		font-weight: 700;
-	}
-
-	.preview-table-container {
-		flex: 1;
-		overflow: auto;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.preview-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 13px;
-	}
-
-	.preview-table th {
-		background: #f3f4f6;
-		padding: 12px 8px;
-		text-align: left;
-		font-weight: 600;
-		position: sticky;
-		top: 0;
-		border-bottom: 1px solid #d1d5db;
-		white-space: nowrap;
-	}
-
-	.preview-table td {
-		padding: 10px 8px;
-		border-bottom: 1px solid #f3f4f6;
-	}
-
-	.preview-table .matched-row {
-		background: #f0fdf4;
-	}
-
-	.preview-table .unmatched-row {
-		background: #fef2f2;
-		opacity: 0.7;
-	}
-
-	.status-cell {
-		text-align: center;
-	}
-
-	.status-badge {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px;
-		height: 24px;
-		border-radius: 50%;
-		font-weight: 700;
-		font-size: 12px;
-	}
-
-	.status-badge.matched {
-		background: #10b981;
-		color: white;
-	}
-
-	.status-badge.unmatched {
-		background: #ef4444;
-		color: white;
-	}
-
-	.modal-actions {
-		display: flex;
-		gap: 12px;
-		padding: 16px 20px;
-		justify-content: flex-end;
-		flex-shrink: 0;
-	}
-
-	.btn-cancel,
-	.btn-confirm {
-		padding: 10px 20px;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-
-	.btn-cancel {
-		background: #e5e7eb;
-		color: #374151;
-	}
-
-	.btn-cancel:hover {
-		background: #d1d5db;
-	}
-
-	.btn-confirm {
-		background: #10b981;
-		color: white;
-	}
-
-	.btn-confirm:hover:not(:disabled) {
-		background: #059669;
-		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-	}
-
-	.btn-confirm:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
+	/* Tailwind handles all styling */
+	.translate-x-5\.5 { transform: translateX(1.375rem); }
+	.translate-x-0\.5 { transform: translateX(0.125rem); }
 </style>

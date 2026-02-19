@@ -33,6 +33,7 @@
   let selectingFor: 'buy' | 'get' = 'buy';
   let showRuleForm = false;
   let usedProductIds: Set<string> = new Set();
+  let previewImageUrl: string | null = null;
   
   // Get current Saudi local time in datetime-local format
   function getSaudiLocalDateTime(daysToAdd: number = 0): string {
@@ -99,17 +100,6 @@
     // Exclude products used in OTHER offers
     const notUsedInOtherOffers = !usedProductIds.has(p.id);
     
-    // Debug log for Butter Croissant products
-    if (p.name_en.includes('Butter Croissant')) {
-      console.log(`🥐 ${p.name_en} (${p.barcode}):`, {
-        productId: p.id,
-        isInUsedSet: usedProductIds.has(p.id),
-        matchesSearch,
-        notUsedInOtherOffers,
-        willShow: matchesSearch && notUsedInOtherOffers
-      });
-    }
-    
     return matchesSearch && notUsedInOtherOffers;
   }).sort((a, b) => {
     const serialA = a.product_serial || '';
@@ -119,111 +109,48 @@
   
   onMount(async () => {
     await loadBranches();
-    await loadProducts();
-    await loadUsedProductIds(); // Load products from other BOGO offers
+    await loadProductsData();
     if (editMode && offerId) {
       await loadOfferData();
     }
   });
   
-  // Load product IDs used in OTHER offers (exclude current offer if editing)
-  async function loadUsedProductIds() {
+  // Load all products + used product IDs via single RPC
+  async function loadProductsData() {
+    loading = true;
     try {
-      const tempSet = new Set<string>();
+      const { data, error: err } = await supabase.rpc('get_offer_products_data', {
+        p_exclude_offer_id: offerId || 0
+      });
       
-      // 1. Load products from BOGO offers
-      let bogoQuery = supabase
-        .from('bogo_offer_rules')
-        .select('buy_product_id, get_product_id, offer_id');
-      
-      // If editing, exclude rules from the current offer
-      if (editMode && offerId) {
-        bogoQuery = bogoQuery.neq('offer_id', offerId);
+      if (err) {
+        console.error('Error loading products data:', err);
+        return;
       }
       
-      const { data: bogoData, error: bogoError } = await bogoQuery;
-      
-      if (bogoError) {
-        console.error('Error loading BOGO rules:', bogoError);
-      } else {
-        console.log('BOGO rules loaded:', bogoData);
-        bogoData?.forEach((rule: any) => {
-          if (rule.buy_product_id) {
-            console.log('Adding BOGO buy product:', rule.buy_product_id);
-            tempSet.add(rule.buy_product_id);
-          }
-          if (rule.get_product_id) {
-            console.log('Adding BOGO get product:', rule.get_product_id);
-            tempSet.add(rule.get_product_id);
-          }
-        });
+      if (data) {
+        products = (data.products || []).map((p: any) => ({
+          id: p.id,
+          name_ar: p.product_name_ar,
+          name_en: p.product_name_en,
+          barcode: p.barcode,
+          product_serial: p.barcode || '',
+          price: parseFloat(p.sale_price) || 0,
+          cost: parseFloat(p.cost) || 0,
+          unit_name_en: p.unit_name_en || '',
+          unit_name_ar: p.unit_name_ar || '',
+          unit_qty: p.unit_qty || 1,
+          image_url: p.image_url,
+          stock: p.current_stock || 0
+        }));
+        
+        usedProductIds = new Set(data.products_in_other_offers || []);
       }
-      
-      // 2. Load products from Bundle offers
-      let bundleQuery = supabase
-        .from('offer_bundles')
-        .select('required_products, offer_id, bundle_name_en');
-      
-      // If editing, exclude bundles from the current offer
-      if (editMode && offerId) {
-        bundleQuery = bundleQuery.neq('offer_id', offerId);
-      }
-      
-      const { data: bundleData, error: bundleError } = await bundleQuery;
-      
-      if (bundleError) {
-        console.error('Error loading bundles:', bundleError);
-      } else {
-        console.log('Bundles loaded:', bundleData);
-        bundleData?.forEach((bundle: any) => {
-          console.log(`Processing bundle: ${bundle.bundle_name_en}`, bundle.required_products);
-          if (Array.isArray(bundle.required_products)) {
-            bundle.required_products.forEach((item: any) => {
-              if (item.product_id) {
-                console.log('Adding bundle product:', item.product_id);
-                tempSet.add(item.product_id);
-              }
-            });
-          }
-        });
-      }
-      
-      // 3. Load products from offer_products table (Percentage & Special Price offers)
-      let offerProductsQuery = supabase
-        .from('offer_products')
-        .select(`
-          product_id,
-          offers!inner(id, is_active, end_date, type)
-        `)
-        .eq('offers.is_active', true)
-        .gte('offers.end_date', new Date().toISOString());
-      
-      // If editing, exclude products from the current offer
-      if (editMode && offerId) {
-        offerProductsQuery = offerProductsQuery.neq('offers.id', offerId);
-      }
-      
-      const { data: offerProducts, error: offerProductsError } = await offerProductsQuery;
-      
-      if (offerProductsError) {
-        console.error('Error loading offer products:', offerProductsError);
-      } else {
-        console.log('Offer products loaded:', offerProducts);
-        offerProducts?.forEach((op: any) => {
-          console.log('Adding product from offer_products:', op.product_id);
-          tempSet.add(op.product_id);
-        });
-      }
-      
-      console.log('✅ Final used product IDs:', Array.from(tempSet));
-      
-      // Reassign to trigger reactivity
-      usedProductIds = tempSet;
-    } catch (err) {
-      console.error('Error loading used product IDs:', err);
+    } finally {
+      loading = false;
     }
   }
-  
+      
   async function loadBranches() {
     const { data, error: err } = await supabase
       .from('branches')
@@ -236,50 +163,7 @@
     }
   }
   
-  async function loadProducts() {
-    loading = true;
-    try {
-      const pageSize = 500;
-      let allProducts: any[] = [];
-      let page = 0;
-      let hasMore = true;
 
-      while (hasMore) {
-        const { data, error: err } = await supabase
-          .from('products')
-          .select('*')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (err || !data) {
-          hasMore = false;
-          break;
-        }
-
-        allProducts = [...allProducts, ...data];
-        hasMore = data.length === pageSize;
-        page++;
-      }
-
-      products = allProducts
-        .filter(p => p.is_active !== false && p.is_customer_product !== false)
-        .map(p => ({
-        id: p.id,
-        name_ar: p.product_name_ar,
-        name_en: p.product_name_en,
-        barcode: p.barcode,
-        product_serial: p.barcode || '',
-        price: parseFloat(p.sale_price) || 0,
-        cost: parseFloat(p.cost) || 0,
-        unit_name_en: p.unit_name_en || '',
-        unit_name_ar: p.unit_name_ar || '',
-        unit_qty: p.unit_qty || 1,
-        image_url: p.image_url,
-        stock: p.current_stock || 0
-      }));
-    } finally {
-      loading = false;
-    }
-  }
   
   // Convert UTC datetime to Saudi timezone for datetime-local input
   function toSaudiTimeInput(utcDateString) {
@@ -520,15 +404,6 @@
     loading = true;
     error = null;
     
-    // DEBUG: Log editMode and offerId values
-    console.log('🔍 saveOffer called with:', {
-      editMode,
-      offerId,
-      editModeType: typeof editMode,
-      offerIdType: typeof offerId,
-      condition: editMode && offerId
-    });
-    
     try {
       const offerPayload = {
         type: 'bogo',
@@ -548,10 +423,7 @@
       
       let offer;
       
-      console.log('🔍 About to check condition - editMode:', editMode, 'offerId:', offerId);
-      
       if (editMode && offerId) {
-        console.log('✅ Taking UPDATE path');
 
         // Update existing offer
         const { data, error: offerError } = await supabase
@@ -572,7 +444,6 @@
         
         if (deleteError) throw deleteError;
       } else {
-        console.log('❌ Taking CREATE path - creating new offer');
         // Create new offer
         const { data, error: offerError } = await supabase
           .from('offers')
@@ -632,169 +503,87 @@
   }
 </script>
 
-<div class="buy-x-get-y-window" class:rtl={isRTL}>
-  <!-- Header with Steps -->
-  <div class="window-header">
-    <h2 class="window-title">
-      {editMode
-        ? isRTL
-          ? '🎁 تعديل عرض اشتري واحصل'
-          : '🎁 Edit Buy X Get Y Offer'
-        : isRTL
-          ? '🎁 إنشاء عرض اشتري واحصل'
-          : '🎁 Create Buy X Get Y Offer'}
-    </h2>
-    <div class="step-indicator">
-      <div class="step-item" class:active={currentStep === 1} class:completed={currentStep > 1}>
-        <div class="step-circle">1</div>
-        <span class="step-label">{isRTL ? 'تفاصيل العرض' : 'Offer Details'}</span>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRTL ? 'rtl' : 'ltr'}>
+  <!-- Header -->
+  <div class="bg-gradient-to-r from-violet-500 to-purple-600 px-6 py-4 text-white relative overflow-hidden">
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.1),transparent_70%)]"></div>
+    <div class="relative flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-black tracking-wide">
+          {editMode
+            ? isRTL ? '🎁 تعديل عرض اشتري واحصل' : '🎁 Edit Buy X Get Y Offer'
+            : isRTL ? '🎁 إنشاء عرض اشتري واحصل' : '🎁 Create Buy X Get Y Offer'}
+        </h2>
       </div>
-      <div class="step-divider"></div>
-      <div class="step-item" class:active={currentStep === 2}>
-        <div class="step-circle">2</div>
-        <span class="step-label">{isRTL ? 'إعدادات العرض' : 'Offer Configuration'}</span>
+      <!-- Step Indicator -->
+      <div class="flex items-center gap-3">
+        <button class="flex items-center gap-2 transition-opacity" class:opacity-100={currentStep === 1} class:opacity-50={currentStep !== 1} on:click={() => { if (currentStep > 1) prevStep(); }}>
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all {currentStep >= 1 ? 'bg-white text-violet-600' : 'bg-white/20 text-white'}">1</div>
+          <span class="text-xs font-semibold hidden sm:inline">{isRTL ? 'تفاصيل العرض' : 'Details'}</span>
+        </button>
+        <div class="w-8 h-0.5 {currentStep >= 2 ? 'bg-white' : 'bg-white/30'}"></div>
+        <div class="flex items-center gap-2 transition-opacity" class:opacity-100={currentStep === 2} class:opacity-50={currentStep !== 2}>
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all {currentStep >= 2 ? 'bg-white text-violet-600' : 'bg-white/20 text-white'}">2</div>
+          <span class="text-xs font-semibold hidden sm:inline">{isRTL ? 'الإعدادات' : 'Config'}</span>
+        </div>
       </div>
     </div>
   </div>
 
   {#if error}
-    <div class="error-banner">
-      <span class="error-icon">⚠️</span>
-      <span class="error-text">{error}</span>
+    <div class="px-6 py-3 bg-red-50 border-b border-red-200 text-red-700 text-sm font-semibold flex items-center gap-2">
+      <span>⚠️</span> {error}
     </div>
   {/if}
 
-  <!-- Step Content -->
-  <div class="window-content">
-    {#if currentStep === 1}
-      <!-- Step 1: Offer Details -->
-      <div class="step-content">
-        <h3 class="section-title">
-          {isRTL ? 'معلومات العرض الأساسية' : 'Basic Offer Information'}
-        </h3>
-
-        <!-- Offer Names -->
-        <div class="form-row">
-          <div class="form-group">
-            <label for="name_ar">
-              {isRTL ? 'اسم العرض (عربي)' : 'Offer Name (Arabic)'}
-              <span class="required">*</span>
-            </label>
-            <input
-              id="name_ar"
-              type="text"
-              bind:value={offerData.name_ar}
-              placeholder={isRTL
-                ? 'أدخل اسم العرض بالعربية'
-                : 'Enter offer name in Arabic'}
-              required
-            />
+  {#if currentStep === 1}
+    <!-- Step 1: Offer Details -->
+    <div class="flex-1 overflow-y-auto p-6">
+      <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-6 max-w-3xl mx-auto space-y-5">
+        <h3 class="text-sm font-black text-slate-700 uppercase tracking-wider">{isRTL ? 'معلومات العرض الأساسية' : 'Basic Offer Information'}</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="name_ar" class="text-xs font-bold text-slate-600">{isRTL ? 'اسم العرض (عربي)' : 'Offer Name (Arabic)'} <span class="text-red-500">*</span></label>
+            <input type="text" id="name_ar" bind:value={offerData.name_ar} placeholder={isRTL ? 'أدخل اسم العرض بالعربية' : 'Enter offer name in Arabic'} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80" />
           </div>
-          <div class="form-group">
-            <label for="name_en">
-              {isRTL ? 'اسم العرض (إنجليزي)' : 'Offer Name (English)'}
-              <span class="required">*</span>
-            </label>
-            <input
-              id="name_en"
-              type="text"
-              bind:value={offerData.name_en}
-              placeholder={isRTL
-                ? 'أدخل اسم العرض بالإنجليزية'
-                : 'Enter offer name in English'}
-              required
-            />
+          <div class="flex flex-col gap-1.5">
+            <label for="name_en" class="text-xs font-bold text-slate-600">{isRTL ? 'اسم العرض (إنجليزي)' : 'Offer Name (English)'} <span class="text-red-500">*</span></label>
+            <input type="text" id="name_en" bind:value={offerData.name_en} placeholder={isRTL ? 'أدخل اسم العرض بالإنجليزية' : 'Enter offer name in English'} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80" />
           </div>
         </div>
-
-        <!-- Descriptions -->
-        <div class="form-row">
-          <div class="form-group">
-            <label for="desc_ar">
-              {isRTL ? 'الوصف (عربي)' : 'Description (Arabic)'}
-            </label>
-            <textarea
-              id="desc_ar"
-              bind:value={offerData.description_ar}
-              placeholder={isRTL
-                ? 'أدخل وصف العرض بالعربية'
-                : 'Enter description in Arabic'}
-              rows="3"
-            ></textarea>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="desc_ar" class="text-xs font-bold text-slate-600">{isRTL ? 'وصف العرض (عربي)' : 'Description (Arabic)'}</label>
+            <textarea id="desc_ar" bind:value={offerData.description_ar} placeholder={isRTL ? 'أدخل وصف العرض بالعربية (اختياري)' : 'Enter description in Arabic (optional)'} rows="3" class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80 resize-y font-sans"></textarea>
           </div>
-          <div class="form-group">
-            <label for="desc_en">
-              {isRTL ? 'الوصف (إنجليزي)' : 'Description (English)'}
-            </label>
-            <textarea
-              id="desc_en"
-              bind:value={offerData.description_en}
-              placeholder={isRTL
-                ? 'أدخل وصف العرض بالإنجليزية'
-                : 'Enter description in English'}
-              rows="3"
-            ></textarea>
+          <div class="flex flex-col gap-1.5">
+            <label for="desc_en" class="text-xs font-bold text-slate-600">{isRTL ? 'وصف العرض (إنجليزي)' : 'Description (English)'}</label>
+            <textarea id="desc_en" bind:value={offerData.description_en} placeholder={isRTL ? 'أدخل وصف العرض بالإنجليزية (اختياري)' : 'Enter description in English (optional)'} rows="3" class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80 resize-y font-sans"></textarea>
           </div>
         </div>
-
-        <h3 class="section-title">
-          {isRTL ? 'الفترة الزمنية' : 'Time Period'}
-        </h3>
-
-        <!-- Date Range -->
-        <div class="form-row">
-          <div class="form-group">
-            <label for="start_date">
-              {isRTL ? 'تاريخ البدء' : 'Start Date & Time'}
-              <span class="required">*</span>
-              <span class="timezone-hint">({isRTL ? 'التوقيت السعودي' : 'Saudi Time Zone'})</span>
-            </label>
-            <input
-              id="start_date"
-              type="datetime-local"
-              bind:value={offerData.start_date}
-              required
-            />
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="start_date" class="text-xs font-bold text-slate-600">{isRTL ? 'تاريخ البدء' : 'Start Date'} <span class="text-red-500">*</span></label>
+            <input type="datetime-local" id="start_date" bind:value={offerData.start_date} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80" />
           </div>
-          <div class="form-group">
-            <label for="end_date">
-              {isRTL ? 'تاريخ الانتهاء' : 'End Date & Time'}
-              <span class="required">*</span>
-              <span class="timezone-hint">({isRTL ? 'التوقيت السعودي' : 'Saudi Time Zone'})</span>
-            </label>
-            <input
-              id="end_date"
-              type="datetime-local"
-              bind:value={offerData.end_date}
-              required
-            />
+          <div class="flex flex-col gap-1.5">
+            <label for="end_date" class="text-xs font-bold text-slate-600">{isRTL ? 'تاريخ الانتهاء' : 'End Date'} <span class="text-red-500">*</span></label>
+            <input type="datetime-local" id="end_date" bind:value={offerData.end_date} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80" />
           </div>
         </div>
-
-        <h3 class="section-title">
-          {isRTL ? 'النطاق والاستهداف' : 'Scope & Targeting'}
-        </h3>
-
-        <!-- Branch & Service Type -->
-        <div class="form-row">
-          <div class="form-group">
-            <label for="branch">
-              {isRTL ? 'الفرع المستهدف' : 'Target Branch'}
-            </label>
-            <select id="branch" bind:value={offerData.branch_id}>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label for="branch" class="text-xs font-bold text-slate-600">{isRTL ? 'الفرع المستهدف' : 'Target Branch'}</label>
+            <select id="branch" bind:value={offerData.branch_id} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80">
               <option value={null}>{isRTL ? 'جميع الفروع' : 'All Branches'}</option>
               {#each branches as branch}
-                <option value={branch.id}>
-                  {isRTL ? branch.name_ar : branch.name_en}
-                </option>
+                <option value={branch.id}>{isRTL ? branch.name_ar : branch.name_en}</option>
               {/each}
             </select>
           </div>
-          <div class="form-group">
-            <label for="service_type">
-              {isRTL ? 'نوع الخدمة' : 'Service Type'}
-            </label>
-            <select id="service_type" bind:value={offerData.service_type}>
+          <div class="flex flex-col gap-1.5">
+            <label for="service_type" class="text-xs font-bold text-slate-600">{isRTL ? 'نوع الخدمة' : 'Service Type'}</label>
+            <select id="service_type" bind:value={offerData.service_type} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80">
               <option value="both">{isRTL ? 'التوصيل والاستلام' : 'Delivery & Pickup'}</option>
               <option value="delivery">{isRTL ? 'التوصيل فقط' : 'Delivery Only'}</option>
               <option value="pickup">{isRTL ? 'الاستلام فقط' : 'Pickup Only'}</option>
@@ -802,126 +591,83 @@
           </div>
         </div>
       </div>
-    {:else if currentStep === 2}
-      <!-- Step 2: Buy X Get Y Configuration -->
-      <div class="step-content">
-        <h3 class="section-title">
-          {isRTL ? 'إعدادات اشتري واحصل' : 'Buy X Get Y Configuration'}
-        </h3>
+    </div>
+  {:else if currentStep === 2}
+    <!-- Step 2: Buy X Get Y Configuration -->
+    <div class="flex-1 overflow-y-auto p-6 space-y-4">
+      <h3 class="text-sm font-black text-slate-700 uppercase tracking-wider px-1">🎁 {isRTL ? 'إعدادات اشتري واحصل' : 'Buy X Get Y Configuration'}</h3>
 
-        <!-- Add Rule Form -->
-        {#if !showRuleForm}
-          <button type="button" class="btn-add-new-rule" on:click={startNewRule}>
-            <span class="plus-icon">+</span>
-            {isRTL ? 'إضافة قاعدة جديدة' : 'Add New Rule'}
-          </button>
-        {/if}
-        
-        {#if showRuleForm}
-        <div class="bogo-form">
-          <div class="rule-form-container">
-          <h4 class="form-subtitle">{isRTL ? 'إضافة قاعدة جديدة' : 'Add New Rule'}</h4>
-          
+      <!-- Add Rule Button -->
+      {#if !showRuleForm}
+        <button type="button" class="px-5 py-2.5 bg-violet-500 text-white rounded-xl text-xs font-bold hover:bg-violet-600 transition-all active:scale-95 shadow-md inline-flex items-center gap-2" on:click={startNewRule}>
+          <span class="text-base font-bold">+</span> {isRTL ? 'إضافة قاعدة جديدة' : 'Add New Rule'}
+        </button>
+      {/if}
+
+      <!-- Rule Form -->
+      {#if showRuleForm}
+        <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-6 space-y-5">
+          <h4 class="text-sm font-bold text-slate-700">{isRTL ? 'إضافة قاعدة جديدة' : 'Add New Rule'}</h4>
+
           <!-- Buy Product (X) -->
-          <div class="form-section">
-            <label class="section-label">{isRTL ? 'اشتري منتج X' : 'Buy Product X'}</label>
-            
-            <div class="product-row">
-              <button 
-                type="button" 
-                class="btn-select-product"
-                on:click={() => openProductModal('buy')}
-              >
-                {currentRule.buyProduct 
-                  ? (isRTL ? currentRule.buyProduct.name_ar : currentRule.buyProduct.name_en)
-                  : (isRTL ? 'اختر المنتج' : 'Select Product')
-                }
+          <div class="space-y-3 pb-4 border-b border-slate-200">
+            <span class="text-xs font-bold text-violet-700 uppercase tracking-wider">{isRTL ? '🛒 اشتري منتج X' : '🛒 Buy Product X'}</span>
+            <div class="grid grid-cols-[1fr_140px] gap-3">
+              <button type="button" class="px-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm {isRTL ? 'text-right' : 'text-left'} bg-white/80 hover:border-violet-400 hover:bg-violet-50/50 transition-all truncate font-medium" on:click={() => openProductModal('buy')}>
+                {currentRule.buyProduct ? (isRTL ? currentRule.buyProduct.name_ar : currentRule.buyProduct.name_en) : (isRTL ? 'اختر المنتج' : 'Select Product')}
               </button>
-              
-              <div class="qty-group">
-                <label>{isRTL ? 'الكمية' : 'Qty'}</label>
-                <input 
-                  type="number" 
-                  min="1" 
-                  bind:value={currentRule.buyQuantity}
-                  class="qty-input"
-                />
+              <div class="flex flex-col gap-1">
+                <span class="text-[10px] font-bold text-slate-500">{isRTL ? 'الكمية' : 'Qty'}</span>
+                <input type="number" min="1" bind:value={currentRule.buyQuantity} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-center font-bold focus:ring-2 focus:ring-violet-500 outline-none bg-white/80" />
               </div>
             </div>
-            
             {#if currentRule.buyProduct}
-              <div class="product-info">
-                <span class="info-label">{isRTL ? 'السعر:' : 'Price:'}</span>
-                <span class="info-value">{currentRule.buyProduct.price.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</span>
-                <span class="info-divider">|</span>
-                <span class="info-label">{isRTL ? 'باركود:' : 'Barcode:'}</span>
-                <span class="info-value">{currentRule.buyProduct.barcode || '-'}</span>
+              <div class="flex items-center gap-3 text-xs bg-violet-50/60 rounded-lg px-3 py-2">
+                <span class="text-slate-500">{isRTL ? 'السعر:' : 'Price:'}</span>
+                <span class="font-bold text-slate-800">{currentRule.buyProduct.price.toFixed(2)}</span>
+                <span class="text-slate-300">|</span>
+                <span class="text-slate-500">{isRTL ? 'باركود:' : 'Barcode:'}</span>
+                <span class="font-bold text-slate-800">{currentRule.buyProduct.barcode || '-'}</span>
               </div>
             {/if}
           </div>
 
           <!-- Get Product (Y) -->
-          <div class="form-section">
-            <label class="section-label">{isRTL ? 'احصل على منتج Y' : 'Get Product Y'}</label>
-            
-            <div class="product-row">
-              <button 
-                type="button" 
-                class="btn-select-product"
-                on:click={() => openProductModal('get')}
-              >
-                {currentRule.getProduct 
-                  ? (isRTL ? currentRule.getProduct.name_ar : currentRule.getProduct.name_en)
-                  : (isRTL ? 'اختر المنتج' : 'Select Product')
-                }
+          <div class="space-y-3 pb-4 border-b border-slate-200">
+            <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">{isRTL ? '🎁 احصل على منتج Y' : '🎁 Get Product Y'}</span>
+            <div class="grid grid-cols-[1fr_140px] gap-3">
+              <button type="button" class="px-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm {isRTL ? 'text-right' : 'text-left'} bg-white/80 hover:border-emerald-400 hover:bg-emerald-50/50 transition-all truncate font-medium" on:click={() => openProductModal('get')}>
+                {currentRule.getProduct ? (isRTL ? currentRule.getProduct.name_ar : currentRule.getProduct.name_en) : (isRTL ? 'اختر المنتج' : 'Select Product')}
               </button>
-              
-              <div class="qty-group">
-                <label>{isRTL ? 'الكمية' : 'Qty'}</label>
-                <input 
-                  type="number" 
-                  min="1" 
-                  bind:value={currentRule.getQuantity}
-                  class="qty-input"
-                />
+              <div class="flex flex-col gap-1">
+                <span class="text-[10px] font-bold text-slate-500">{isRTL ? 'الكمية' : 'Qty'}</span>
+                <input type="number" min="1" bind:value={currentRule.getQuantity} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-center font-bold focus:ring-2 focus:ring-emerald-500 outline-none bg-white/80" />
               </div>
             </div>
-            
             {#if currentRule.getProduct}
-              <div class="product-info">
-                <span class="info-label">{isRTL ? 'السعر:' : 'Price:'}</span>
-                <span class="info-value">{currentRule.getProduct.price.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</span>
-                <span class="info-divider">|</span>
-                <span class="info-label">{isRTL ? 'باركود:' : 'Barcode:'}</span>
-                <span class="info-value">{currentRule.getProduct.barcode || '-'}</span>
+              <div class="flex items-center gap-3 text-xs bg-emerald-50/60 rounded-lg px-3 py-2">
+                <span class="text-slate-500">{isRTL ? 'السعر:' : 'Price:'}</span>
+                <span class="font-bold text-slate-800">{currentRule.getProduct.price.toFixed(2)}</span>
+                <span class="text-slate-300">|</span>
+                <span class="text-slate-500">{isRTL ? 'باركود:' : 'Barcode:'}</span>
+                <span class="font-bold text-slate-800">{currentRule.getProduct.barcode || '-'}</span>
               </div>
             {/if}
           </div>
 
-          <!-- Discount Configuration -->
-          <div class="form-section">
-            <label class="section-label">{isRTL ? 'نوع الخصم' : 'Discount Type'}</label>
-            
-            <div class="discount-row">
-              <div class="discount-type-wrapper">
-                <select class="discount-select" bind:value={currentRule.discountType}>
-                  <option value="free">{isRTL ? 'مجاني' : 'Free'}</option>
-                  <option value="percentage">{isRTL ? 'نسبة مئوية' : 'Percentage'}</option>
-                  <option value="amount">{isRTL ? 'مبلغ ثابت' : 'Fixed Amount'}</option>
-                </select>
-              </div>
-              
+          <!-- Discount Type -->
+          <div class="space-y-3">
+            <span class="text-xs font-bold text-slate-600 uppercase tracking-wider">{isRTL ? 'نوع الخصم' : 'Discount Type'}</span>
+            <div class="grid grid-cols-2 gap-3">
+              <select bind:value={currentRule.discountType} class="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 outline-none bg-white/80 font-medium">
+                <option value="free">{isRTL ? 'مجاني' : 'Free'}</option>
+                <option value="percentage">{isRTL ? 'نسبة مئوية' : 'Percentage'}</option>
+                <option value="amount">{isRTL ? 'مبلغ ثابت' : 'Fixed Amount'}</option>
+              </select>
               {#if currentRule.discountType !== 'free'}
-                <div class="discount-value-wrapper">
-                  <input 
-                    type="number" 
-                    min="0"
-                    step="0.01"
-                    bind:value={currentRule.discountValue}
-                    placeholder={isRTL ? 'القيمة' : 'Value'}
-                    class="value-input"
-                  />
-                  <span class="value-suffix">
+                <div class="flex items-center gap-2">
+                  <input type="number" min="0" step="0.01" bind:value={currentRule.discountValue} placeholder={isRTL ? 'القيمة' : 'Value'} class="flex-1 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 outline-none bg-white/80 font-medium" />
+                  <span class="text-sm font-bold text-slate-500 min-w-[40px] text-center">
                     {currentRule.discountType === 'percentage' ? '%' : (isRTL ? 'ر.س' : 'SAR')}
                   </span>
                 </div>
@@ -929,203 +675,171 @@
             </div>
           </div>
 
-          <!-- Offer Price Summary -->
+          <!-- Price Summary -->
           {#if currentRule.buyProduct && currentRule.getProduct}
-          <div class="offer-price-summary">
-            <div class="summary-row">
-              <span class="summary-label">{isRTL ? 'سعر الشراء:' : 'Buy Price:'}</span>
-              <span class="summary-value">{(currentRule.buyProduct.price * currentRule.buyQuantity).toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</span>
+            <div class="bg-gradient-to-r from-violet-50 to-purple-50 border-2 border-violet-200 rounded-xl p-4 space-y-2">
+              <div class="flex justify-between items-center text-sm py-1.5 border-b border-violet-100">
+                <span class="text-slate-600">{isRTL ? 'سعر الشراء:' : 'Buy Price:'}</span>
+                <span class="font-bold text-slate-800">{(currentRule.buyProduct.price * currentRule.buyQuantity).toFixed(2)}</span>
+              </div>
+              <div class="flex justify-between items-center text-sm py-1.5 border-b border-violet-100">
+                <span class="text-slate-600">{isRTL ? 'سعر المنتج Y:' : 'Get Product Price:'}</span>
+                <span class="font-bold text-slate-800">{(currentRule.getProduct.price * currentRule.getQuantity).toFixed(2)}</span>
+              </div>
+              <div class="flex justify-between items-center text-sm py-1.5 border-b border-violet-100">
+                <span class="text-slate-600">{isRTL ? 'الخصم:' : 'Discount:'}</span>
+                <span class="font-bold text-emerald-600">
+                  {#if currentRule.discountType === 'free'}
+                    -{(currentRule.getProduct.price * currentRule.getQuantity).toFixed(2)} ({isRTL ? 'مجاني' : 'Free'})
+                  {:else if currentRule.discountType === 'percentage'}
+                    -{((currentRule.getProduct.price * currentRule.getQuantity * currentRule.discountValue) / 100).toFixed(2)} ({currentRule.discountValue}%)
+                  {:else if currentRule.discountType === 'amount'}
+                    -{currentRule.discountValue.toFixed(2)}
+                  {/if}
+                </span>
+              </div>
+              <div class="flex justify-between items-center pt-2 border-t-2 border-violet-300">
+                <span class="text-base font-black text-slate-800">{isRTL ? 'السعر النهائي:' : 'Final Price:'}</span>
+                <span class="text-xl font-black text-violet-600">{calculatedOfferPrice.toFixed(2)}</span>
+              </div>
             </div>
-            <div class="summary-row">
-              <span class="summary-label">{isRTL ? 'سعر المنتج Y:' : 'Get Product Price:'}</span>
-              <span class="summary-value">{(currentRule.getProduct.price * currentRule.getQuantity).toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</span>
-            </div>
-            {#if currentRule.discountType !== 'free' || (currentRule.discountType === 'free')}
-            <div class="summary-row discount-row-summary">
-              <span class="summary-label">{isRTL ? 'الخصم:' : 'Discount:'}</span>
-              <span class="summary-value discount-value">
-                {#if currentRule.discountType === 'free'}
-                  -{(currentRule.getProduct.price * currentRule.getQuantity).toFixed(2)} {isRTL ? 'ر.س' : 'SAR'} ({isRTL ? 'مجاني' : 'Free'})
-                {:else if currentRule.discountType === 'percentage'}
-                  -{((currentRule.getProduct.price * currentRule.getQuantity * currentRule.discountValue) / 100).toFixed(2)} {isRTL ? 'ر.س' : 'SAR'} ({currentRule.discountValue}%)
-                {:else if currentRule.discountType === 'amount'}
-                  -{currentRule.discountValue.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}
-                {/if}
-              </span>
-            </div>
-            {/if}
-            <div class="summary-row total-row">
-              <span class="summary-label">{isRTL ? 'السعر النهائي للعرض:' : 'Final Offer Price:'}</span>
-              <span class="summary-value total-value">{calculatedOfferPrice.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</span>
-            </div>
-          </div>
           {/if}
 
           <!-- Form Actions -->
-          <div class="form-actions">
-            <button type="button" class="btn-cancel" on:click={cancelRule}>
+          <div class="grid grid-cols-[1fr_2fr] gap-3 pt-4 border-t border-slate-200">
+            <button type="button" class="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all active:scale-95" on:click={cancelRule}>
               {isRTL ? 'إلغاء' : 'Cancel'}
             </button>
-            <button type="button" class="btn-save-rule" on:click={addRule}>
-              {isRTL ? 'حفظ القاعدة' : 'Save Rule'}
+            <button type="button" class="px-4 py-2.5 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all active:scale-95 shadow-md" on:click={addRule}>
+              ✓ {isRTL ? 'حفظ القاعدة' : 'Save Rule'}
             </button>
           </div>
         </div>
-        </div>
-        {/if}
+      {/if}
 
-        <!-- Saved Rules -->
-        {#if bogoRules.length > 0}
-          <h3 class="section-title" style="margin-top: 2rem;">
-            {isRTL ? 'القواعد المحفوظة' : 'Saved Rules'}
-          </h3>
-          
-          <div class="rules-list">
-            {#each bogoRules as rule}
-              <div class="rule-card">
-                <div class="rule-content">
-                  <!-- Buy Section -->
-                  <div class="rule-part buy-part">
-                    <div class="part-header">
-                      <span class="part-icon">🛒</span>
-                      <span class="part-title">{isRTL ? 'اشتري' : 'Buy'}</span>
-                    </div>
-                    <div class="part-details">
-                      <div class="product-name">
-                        {isRTL ? rule.buyProduct.name_ar : rule.buyProduct.name_en}
-                      </div>
-                      <div class="product-meta">
-                        <span class="qty-badge">× {rule.buyQuantity}</span>
-                        <span class="price-text">{rule.buyProduct.price.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</span>
-                      </div>
-                    </div>
+      <!-- Saved Rules -->
+      {#if bogoRules.length > 0}
+        <h4 class="text-xs font-bold text-violet-700 uppercase tracking-wider px-1 mt-4">{isRTL ? 'القواعد المحفوظة' : 'Saved Rules'} ({bogoRules.length})</h4>
+        <div class="flex flex-col gap-3">
+          {#each bogoRules as rule}
+            <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-sm p-4 relative hover:shadow-md transition-all group">
+              <div class="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
+                <!-- Buy Section -->
+                <div class="space-y-2">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-base">🛒</span>
+                    <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">{isRTL ? 'اشتري' : 'Buy'}</span>
                   </div>
-
-                  <!-- Arrow -->
-                  <div class="rule-arrow">→</div>
-
-                  <!-- Get Section -->
-                  <div class="rule-part get-part">
-                    <div class="part-header">
-                      <span class="part-icon">🎁</span>
-                      <span class="part-title">{isRTL ? 'احصل' : 'Get'}</span>
-                    </div>
-                    <div class="part-details">
-                      <div class="product-name">
-                        {isRTL ? rule.getProduct.name_ar : rule.getProduct.name_en}
-                      </div>
-                      <div class="product-meta">
-                        <span class="qty-badge">× {rule.getQuantity}</span>
-                        <span class="discount-badge">
-                          {#if rule.discountType === 'free'}
-                            {isRTL ? 'مجاني' : 'Free'}
-                          {:else if rule.discountType === 'percentage'}
-                            {rule.discountValue}% {isRTL ? 'خصم' : 'OFF'}
-                          {:else}
-                            {rule.discountValue} {isRTL ? 'ر.س خصم' : 'SAR OFF'}
-                          {/if}
-                        </span>
-                      </div>
+                  <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p class="text-sm font-bold text-slate-800 truncate">{isRTL ? rule.buyProduct.name_ar : rule.buyProduct.name_en}</p>
+                    <div class="flex items-center gap-2 mt-1.5">
+                      <span class="px-2 py-0.5 bg-white rounded-lg text-xs font-bold text-violet-600">× {rule.buyQuantity}</span>
+                      <span class="text-xs font-semibold text-slate-500">{rule.buyProduct.price.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
-                <!-- Action Buttons -->
-                <div class="rule-actions">
-                  <button 
-                    type="button"
-                    class="btn-edit"
-                    on:click={() => editRule(rule)}
-                    title={isRTL ? 'تعديل' : 'Edit'}
-                  >
-                    ✏️
-                  </button>
-                  <button 
-                    type="button"
-                    class="btn-delete"
-                    on:click={() => deleteRule(rule.id)}
-                    title={isRTL ? 'حذف' : 'Delete'}
-                  >
-                    🗑️
-                  </button>
+                <!-- Arrow -->
+                <div class="text-2xl font-black text-violet-400">→</div>
+
+                <!-- Get Section -->
+                <div class="space-y-2">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-base">🎁</span>
+                    <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">{isRTL ? 'احصل' : 'Get'}</span>
+                  </div>
+                  <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                    <p class="text-sm font-bold text-slate-800 truncate">{isRTL ? rule.getProduct.name_ar : rule.getProduct.name_en}</p>
+                    <div class="flex items-center gap-2 mt-1.5">
+                      <span class="px-2 py-0.5 bg-white rounded-lg text-xs font-bold text-violet-600">× {rule.getQuantity}</span>
+                      <span class="px-2 py-0.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold">
+                        {#if rule.discountType === 'free'}
+                          {isRTL ? 'مجاني' : 'Free'}
+                        {:else if rule.discountType === 'percentage'}
+                          {rule.discountValue}% {isRTL ? 'خصم' : 'OFF'}
+                        {:else}
+                          {rule.discountValue} {isRTL ? 'ر.س خصم' : 'SAR OFF'}
+                        {/if}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
+
+              <!-- Action Buttons -->
+              <div class="absolute top-3 {isRTL ? 'left-3' : 'right-3'} flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button type="button" class="px-2 py-1 bg-blue-500 text-white rounded-lg text-xs hover:bg-blue-600 transition-colors" on:click={() => editRule(rule)} title={isRTL ? 'تعديل' : 'Edit'}>✏️</button>
+                <button type="button" class="px-2 py-1 bg-red-500 text-white rounded-lg text-xs hover:bg-red-600 transition-colors" on:click={() => deleteRule(rule.id)} title={isRTL ? 'حذف' : 'Delete'}>🗑️</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Product Selection Modal -->
   {#if showProductModal}
-    <div class="modal-overlay" on:click={closeProductModal}>
-      <div class="modal-content" on:click|stopPropagation>
-        <div class="modal-header">
-          <h3>
-            {isRTL 
-              ? (selectingFor === 'buy' ? 'اختر منتج الشراء (X)' : 'اختر منتج الحصول (Y)')
-              : (selectingFor === 'buy' ? 'Select Buy Product (X)' : 'Select Get Product (Y)')
+    <button class="fixed inset-0 z-[999] bg-black/50 backdrop-blur-sm" on:click={closeProductModal} aria-label="Close modal"></button>
+    <div class="fixed inset-4 z-[1000] flex items-center justify-center pointer-events-none">
+      <div class="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col pointer-events-auto border border-white">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-violet-500 to-purple-600 rounded-t-2xl">
+          <h3 class="text-sm font-bold text-white">
+            {isRTL
+              ? (selectingFor === 'buy' ? '🛒 اختر منتج الشراء (X)' : '🎁 اختر منتج الحصول (Y)')
+              : (selectingFor === 'buy' ? '🛒 Select Buy Product (X)' : '🎁 Select Get Product (Y)')
             }
           </h3>
-          <button type="button" class="btn-close" on:click={closeProductModal}>✕</button>
+          <button type="button" class="w-7 h-7 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white font-bold text-sm transition-colors" on:click={closeProductModal}>✕</button>
         </div>
-        
-        <div class="modal-search">
-          <input 
-            type="text" 
-            bind:value={productSearchTerm}
-            placeholder={isRTL ? 'ابحث بالتسلسل أو الباركود أو اسم المنتج...' : 'Search by serial, barcode or product name...'}
-            class="search-input"
-          />
+
+        <!-- Modal Search -->
+        <div class="px-5 py-3 border-b border-slate-100">
+          <input type="text" bind:value={productSearchTerm} placeholder={isRTL ? 'ابحث بالتسلسل أو الباركود أو اسم المنتج...' : 'Search by serial, barcode or product name...'} class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all bg-white/80 placeholder:text-slate-400" />
         </div>
-        
-        <div class="modal-body">
-          <table class="products-table">
-            <thead>
-              <tr>
-                <th>{isRTL ? 'التسلسل' : 'Serial'}</th>
-                <th>{isRTL ? 'الباركود' : 'Barcode'}</th>
-                <th>{isRTL ? 'الصورة' : 'Image'}</th>
-                <th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
-                <th>{isRTL ? 'اسم المنتج (AR)' : 'Product Name (AR)'}</th>
-                <th>{isRTL ? 'المخزون' : 'Stock'}</th>
-                <th>{isRTL ? 'اسم الوحدة' : 'Unit Name'}</th>
-                <th>{isRTL ? 'كمية الوحدة' : 'Unit Qty'}</th>
-                <th>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</th>
-                <th>{isRTL ? 'سعر البيع' : 'Sale Price'}</th>
-                <th>{isRTL ? 'اختيار' : 'Select'}</th>
+
+        <!-- Modal Body -->
+        <div class="flex-1 overflow-auto">
+          <table class="w-full border-collapse text-xs">
+            <thead class="sticky top-0 z-10">
+              <tr class="bg-gradient-to-r from-slate-700 to-slate-600 text-white">
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'التسلسل' : 'Serial'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الباركود' : 'Barcode'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الصورة' : 'Img'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المنتج (EN)' : 'Product (EN)'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المنتج (AR)' : 'Product (AR)'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'المخزون' : 'Stock'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'الوحدة' : 'Unit'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'كمية' : 'U.Qty'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'التكلفة' : 'Cost'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'السعر' : 'Price'}</th>
+                <th class="px-2 py-2 {isRTL ? 'text-right' : 'text-left'} font-bold">{isRTL ? 'اختيار' : 'Select'}</th>
               </tr>
             </thead>
             <tbody>
               {#each filteredProducts as product}
-                <tr>
-                  <td>{product.product_serial}</td>
-                  <td>{product.barcode || '-'}</td>
-                  <td>
+                <tr class="hover:bg-violet-50/50 transition-colors border-b border-slate-100">
+                  <td class="px-2 py-2">{product.product_serial}</td>
+                  <td class="px-2 py-2 font-mono text-[10px]">{product.barcode || '-'}</td>
+                  <td class="px-2 py-2">
                     {#if product.image_url}
-                      <img src={product.image_url} alt="" class="product-img" />
+                      <button class="cursor-pointer hover:opacity-80 transition-opacity" on:click|stopPropagation={() => previewImageUrl = product.image_url}>
+                        <img src={product.image_url} alt="" class="w-8 h-8 object-cover rounded ring-1 ring-slate-200 hover:ring-violet-400" />
+                      </button>
                     {:else}
-                      <div class="product-placeholder">📦</div>
+                      <span class="text-[9px] text-slate-400 font-semibold">No Image</span>
                     {/if}
                   </td>
-                  <td>{product.name_en}</td>
-                  <td>{product.name_ar}</td>
-                  <td>{product.stock}</td>
-                  <td>{isRTL ? product.unit_name_ar : product.unit_name_en}</td>
-                  <td>{product.unit_qty}</td>
-                  <td>{product.cost.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</td>
-                  <td>{product.price.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</td>
-                  <td>
-                    <button 
-                      type="button"
-                      class="btn-select"
-                      disabled={
-                        (currentRule.buyProduct && currentRule.buyProduct.id === product.id) ||
-                        (currentRule.getProduct && currentRule.getProduct.id === product.id)
-                      }
-                      on:click={() => selectProduct(product)}
-                    >
+                  <td class="px-2 py-2">{product.name_en}</td>
+                  <td class="px-2 py-2">{product.name_ar}</td>
+                  <td class="px-2 py-2 text-center">{product.stock}</td>
+                  <td class="px-2 py-2">{isRTL ? product.unit_name_ar : product.unit_name_en}</td>
+                  <td class="px-2 py-2 text-center">{product.unit_qty}</td>
+                  <td class="px-2 py-2 font-semibold">{product.cost.toFixed(2)}</td>
+                  <td class="px-2 py-2 font-semibold">{product.price.toFixed(2)}</td>
+                  <td class="px-2 py-2">
+                    <button type="button" class="px-2.5 py-1 bg-violet-500 text-white rounded-lg text-[10px] font-bold hover:bg-violet-600 transition-all active:scale-95 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-violet-500" disabled={(currentRule.buyProduct && currentRule.buyProduct.id === product.id) || (currentRule.getProduct && currentRule.getProduct.id === product.id)} on:click={() => selectProduct(product)}>
                       {isRTL ? 'اختيار' : 'Select'}
                     </button>
                   </td>
@@ -1138,936 +852,39 @@
     </div>
   {/if}
 
-  <!-- Footer Actions -->
-  <div class="window-footer">
+  <!-- Footer -->
+  <div class="flex items-center justify-between px-6 py-3 bg-white border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
     {#if currentStep === 1}
-      <button type="button" class="btn btn-next" on:click={nextStep}>
+      <div></div>
+      <button type="button" class="px-5 py-2.5 bg-violet-500 text-white rounded-xl text-xs font-bold hover:bg-violet-600 transition-all active:scale-95 shadow-md hover:shadow-lg disabled:opacity-50" on:click={nextStep} disabled={loading}>
         {isRTL ? 'التالي' : 'Next'} →
       </button>
-    {:else}
-      <button type="button" class="btn btn-secondary" on:click={prevStep}>
+    {:else if currentStep === 2}
+      <button type="button" class="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all active:scale-95" on:click={prevStep} disabled={loading}>
         ← {isRTL ? 'السابق' : 'Previous'}
       </button>
-      <button 
-        type="button" 
-        class="btn btn-primary" 
-        disabled={bogoRules.length === 0 || loading}
-        on:click={saveOffer}
-      >
-        {loading ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'حفظ العرض' : 'Save Offer')}
+      <button type="button" class="px-5 py-2.5 bg-violet-500 text-white rounded-xl text-xs font-bold hover:bg-violet-600 transition-all active:scale-95 shadow-md hover:shadow-lg disabled:opacity-50" on:click={saveOffer} disabled={bogoRules.length === 0 || loading}>
+        {#if loading}
+          <span class="animate-spin inline-block mr-1">⏳</span> {isRTL ? 'جارٍ الحفظ...' : 'Saving...'}
+        {:else}
+          ✓ {isRTL ? 'حفظ العرض' : 'Save Offer'}
+        {/if}
       </button>
     {/if}
   </div>
+
+  <!-- Image Preview Overlay -->
+  {#if previewImageUrl}
+    <button class="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center cursor-pointer" on:click={() => previewImageUrl = null}>
+      <div class="relative">
+        <img src={previewImageUrl} alt="Preview" class="max-w-[80vw] max-h-[80vh] rounded-2xl shadow-2xl object-contain" />
+        <span class="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-600 font-bold shadow-lg text-sm">✕</span>
+      </div>
+    </button>
+  {/if}
 </div>
 
 <style>
-  .buy-x-get-y-window {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    background: #f8fafc;
-    overflow: hidden;
-  }
-  
-  .buy-x-get-y-window.rtl {
-    direction: rtl;
-  }
-  
-  .window-header {
-    padding: 1.5rem 2rem;
-    background: white;
-    border-bottom: 2px solid #e5e7eb;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-  }
-  
-  .window-title {
-    margin: 0 0 1rem 0;
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #1e293b;
-  }
-  
-  .step-indicator {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .step-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    opacity: 0.4;
-    transition: opacity 0.2s;
-  }
-  
-  .step-item.active {
-    opacity: 1;
-  }
-  
-  .step-item.completed {
-    opacity: 0.7;
-  }
-  
-  .step-circle {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #e2e8f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: #64748b;
-    transition: all 0.2s;
-  }
-  
-  .step-item.active .step-circle {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-  }
-  
-  .step-item.completed .step-circle {
-    background: #10b981;
-    color: white;
-  }
-  
-  .step-label {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #475569;
-  }
-  
-  .step-divider {
-    width: 40px;
-    height: 2px;
-    background: #e2e8f0;
-    margin: 0 0.25rem;
-  }
-  
-  .error-banner {
-    padding: 1rem 2rem;
-    background: #fee2e2;
-    border-bottom: 2px solid #ef4444;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  
-  .error-icon {
-    font-size: 1.25rem;
-  }
-  
-  .error-text {
-    color: #991b1b;
-    font-weight: 500;
-  }
-  
-  .window-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 2rem;
-  }
-  
-  .step-content {
-    width: 100%;
-    margin: 0;
-    max-width: none;
-  }
-  
-  .section-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #1e293b;
-    margin: 0 0 1.5rem 0;
-    padding-bottom: 0.75rem;
-    border-bottom: 2px solid #e5e7eb;
-  }
-  
-  .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  
-  .form-group label {
-    font-weight: 600;
-    color: #475569;
-    font-size: 0.95rem;
-  }
-  
-  .required {
-    color: #ef4444;
-    margin-left: 0.25rem;
-  }
-  
-  .rtl .required {
-    margin-left: 0;
-    margin-right: 0.25rem;
-  }
-  
-  .timezone-hint {
-    font-weight: 400;
-    color: #94a3b8;
-    font-size: 0.85rem;
-  }
-  
-  .form-group input,
-  .form-group textarea,
-  .form-group select {
-    padding: 0.75rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    transition: all 0.2s;
-    background: white;
-  }
-  
-  .form-group input:focus,
-  .form-group textarea:focus,
-  .form-group select:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-  
-  .form-group textarea {
-    resize: vertical;
-    min-height: 80px;
-    font-family: inherit;
-  }
-  
-  .placeholder {
-    text-align: center;
-    padding: 4rem 2rem;
-  }
-  
-  .placeholder-icon {
-    font-size: 4rem;
-    margin-bottom: 1rem;
-    animation: float 3s ease-in-out infinite;
-  }
-  
-  @keyframes float {
-    0%, 100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-10px);
-    }
-  }
-  
-  .placeholder h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #475569;
-  }
-  
-  .placeholder p {
-    margin: 0;
-    font-size: 1rem;
-    color: #94a3b8;
-  }
-  
-  .window-footer {
-    padding: 1.5rem 2rem;
-    background: white;
-    border-top: 2px solid #e5e7eb;
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.04);
-  }
-  
-  .rtl .window-footer {
-    flex-direction: row-reverse;
-  }
-  
-  .btn {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .btn-next,
-  .btn-primary {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-  }
-  
-  .btn-next:hover,
-  .btn-primary:hover {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-  }
-  
-  .btn-secondary {
-    background: #f1f5f9;
-    color: #475569;
-  }
-  
-  .btn-secondary:hover {
-    background: #e2e8f0;
-  }
-  
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  
-  .btn:disabled:hover {
-    transform: none;
-    box-shadow: none;
-  }
-  
-  /* Step 2 Styles */
-  .btn-add-new-rule {
-    padding: 0.875rem 1.5rem;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-    margin-bottom: 1.5rem;
-  }
-  
-  .btn-add-new-rule:hover {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
-  }
-  
-  .plus-icon {
-    font-size: 1.125rem;
-    font-weight: 700;
-  }
-  
-  .bogo-form {
-    background: white;
-    border: 2px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 2rem;
-    width: 100%;
-  }
-  
-  .rule-form-container {
-    animation: slideDown 0.3s ease-out;
-  }
-  
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  
-  .form-subtitle {
-    margin: 0 0 1.5rem 0;
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #1e293b;
-  }
-  
-  .form-section {
-    margin-bottom: 1.5rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
-  }
-  
-  .form-section:last-of-type {
-    border-bottom: none;
-  }
-  
-  .section-label {
-    display: block;
-    font-weight: 600;
-    color: #475569;
-    margin-bottom: 0.75rem;
-    font-size: 0.95rem;
-  }
-  
-  .product-row {
-    display: grid;
-    grid-template-columns: 1fr 180px;
-    gap: 1rem;
-    align-items: flex-end;
-  }
-  
-  .btn-select-product {
-    padding: 1rem 1.25rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    background: white;
-    font-size: 0.95rem;
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: #1e293b;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    height: 52px;
-    display: flex;
-    align-items: center;
-  }
-  
-  .rtl .btn-select-product {
-    text-align: right;
-  }
-  
-  .btn-select-product:hover {
-    border-color: #3b82f6;
-    background: #f0f9ff;
-  }
-  
-  .qty-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    width: 100%;
-  }
-  
-  .qty-group label {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #64748b;
-  }
-  
-  .qty-input {
-    width: 100%;
-    padding: 1rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    text-align: center;
-    font-weight: 600;
-    height: 52px;
-  }
-  
-  .qty-input:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-  
-  .product-info {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    background: #f8fafc;
-    border-radius: 6px;
-    font-size: 0.875rem;
-  }
-  
-  .info-label {
-    color: #64748b;
-    font-weight: 500;
-  }
-  
-  .info-value {
-    color: #1e293b;
-    font-weight: 600;
-  }
-  
-  .info-divider {
-    color: #cbd5e1;
-    margin: 0 0.25rem;
-  }
-  
-  .discount-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-  
-  .discount-type-wrapper {
-    width: 100%;
-  }
-  
-  .discount-select {
-    width: 100%;
-    padding: 1rem 1.25rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    background: white;
-    cursor: pointer;
-    font-weight: 500;
-  }
-  
-  .discount-select:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-  
-  .discount-value-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-  }
-  
-  .value-input {
-    flex: 1;
-    padding: 1rem 1.25rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-  
-  .value-input:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-  
-  .value-suffix {
-    font-weight: 700;
-    color: #64748b;
-    min-width: 50px;
-    text-align: center;
-    font-size: 1rem;
-  }
-  
-  /* Offer Price Summary */
-  .offer-price-summary {
-    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-    border: 2px solid #3b82f6;
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin: 1.5rem 0;
-  }
-  
-  .summary-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid #bae6fd;
-  }
-  
-  .summary-row:last-child {
-    border-bottom: none;
-  }
-  
-  .summary-label {
-    font-size: 0.95rem;
-    color: #475569;
-    font-weight: 500;
-  }
-  
-  .summary-value {
-    font-size: 1rem;
-    color: #1e293b;
-    font-weight: 600;
-  }
-  
-  .discount-row-summary .summary-value {
-    color: #10b981;
-  }
-  
-  .total-row {
-    margin-top: 0.5rem;
-    padding-top: 1rem;
-    border-top: 2px solid #3b82f6;
-    border-bottom: none;
-  }
-  
-  .total-row .summary-label {
-    font-size: 1.125rem;
-    font-weight: 700;
-    color: #1e293b;
-  }
-  
-  .total-row .total-value {
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: #3b82f6;
-  }
-  
-  .form-actions {
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 1rem;
-    margin-top: 2rem;
-    padding-top: 2rem;
-    border-top: 2px solid #e5e7eb;
-  }
-  
-  .btn-cancel {
-    padding: 1rem 1.5rem;
-    background: white;
-    color: #64748b;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .btn-cancel:hover {
-    background: #f8fafc;
-    border-color: #cbd5e1;
-    color: #475569;
-  }
-  
-  .btn-save-rule {
-    padding: 1rem 1.5rem;
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .btn-save-rule:hover {
-    background: linear-gradient(135deg, #059669 0%, #047857 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-  }
-  
-  /* Rules List */
-  .rules-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .rule-card {
-    background: white;
-    border: 2px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 1.5rem;
-    position: relative;
-    transition: all 0.2s;
-  }
-  
-  .rule-card:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
-  }
-  
-  .rule-content {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 1.5rem;
-    align-items: center;
-  }
-  
-  .rule-part {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  
-  .part-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .part-icon {
-    font-size: 1.25rem;
-  }
-  
-  .part-title {
-    font-weight: 700;
-    color: #64748b;
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  
-  .part-details {
-    padding: 1rem;
-    background: #f8fafc;
-    border-radius: 8px;
-  }
-  
-  .buy-part .part-details {
-    background: #fef3c7;
-    border: 1px solid #fbbf24;
-  }
-  
-  .get-part .part-details {
-    background: #dcfce7;
-    border: 1px solid #86efac;
-  }
-  
-  .product-name {
-    font-weight: 600;
-    color: #1e293b;
-    margin-bottom: 0.5rem;
-  }
-  
-  .product-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  
-  .qty-badge {
-    padding: 0.25rem 0.75rem;
-    background: white;
-    border-radius: 6px;
-    font-weight: 700;
-    color: #3b82f6;
-    font-size: 0.875rem;
-  }
-  
-  .price-text {
-    font-weight: 600;
-    color: #64748b;
-    font-size: 0.875rem;
-  }
-  
-  .discount-badge {
-    padding: 0.25rem 0.75rem;
-    background: #15803d;
-    color: white;
-    border-radius: 6px;
-    font-weight: 700;
-    font-size: 0.875rem;
-  }
-  
-  .rule-arrow {
-    font-size: 2rem;
-    color: #3b82f6;
-    font-weight: 700;
-  }
-  
-  .rule-actions {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-    display: flex;
-    gap: 0.5rem;
-  }
-  
-  .rtl .rule-actions {
-    right: auto;
-    left: 1rem;
-  }
-  
-  .btn-edit,
-  .btn-delete {
-    background: white;
-    border: 2px solid #3b82f6;
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    font-size: 1.125rem;
-    transition: all 0.2s;
-  }
-  
-  .btn-edit {
-    border-color: #3b82f6;
-  }
-  
-  .btn-delete {
-    border-color: #ef4444;
-  }
-  
-  .btn-edit:hover {
-    background: #3b82f6;
-    transform: scale(1.1);
-  }
-  
-  .btn-delete:hover {
-    background: #ef4444;
-    transform: scale(1.1);
-  }
-  
-  /* Modal Styles */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 2rem;
-  }
-  
-  .modal-content {
-    background: white;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 1200px;
-    max-height: 85vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-  }
-  
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.5rem;
-    border-bottom: 2px solid #e5e7eb;
-  }
-  
-  .modal-header h3 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #1e293b;
-  }
-  
-  .btn-close {
-    background: transparent;
-    border: none;
-    font-size: 1.5rem;
-    cursor: pointer;
-    color: #64748b;
-    padding: 0.25rem 0.5rem;
-    transition: all 0.2s;
-  }
-  
-  .btn-close:hover {
-    color: #ef4444;
-    transform: scale(1.1);
-  }
-  
-  .modal-search {
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
-  }
-  
-  .search-input {
-    width: 100%;
-    padding: 0.875rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 0.95rem;
-  }
-  
-  .search-input:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-  
-  .modal-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
-  }
-  
-  .products-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  
-  .products-table th {
-    padding: 0.875rem;
-    text-align: left;
-    font-weight: 600;
-    color: #475569;
-    background: #f8fafc;
-    border-bottom: 2px solid #e5e7eb;
-    font-size: 0.875rem;
-    position: sticky;
-    top: 0;
-  }
-  
-  .rtl .products-table th {
-    text-align: right;
-  }
-  
-  .products-table td {
-    padding: 1rem 0.875rem;
-    border-bottom: 1px solid #e5e7eb;
-    font-size: 0.9rem;
-  }
-  
-  .products-table tr:hover {
-    background: #f8fafc;
-  }
-  
-  .product-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  
-  .product-img {
-    width: 40px;
-    height: 40px;
-    object-fit: cover;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
-  }
-  
-  .btn-select {
-    padding: 0.5rem 1.25rem;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .btn-select:hover:not(:disabled) {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
-  }
-  
-  .btn-select:disabled {
-    background: #e5e7eb;
-    color: #9ca3af;
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
+  /* Tailwind handles all styling */
 </style>
 

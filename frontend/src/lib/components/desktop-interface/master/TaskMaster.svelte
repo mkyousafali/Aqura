@@ -1,7 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { locale } from '$lib/i18n';
 
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
@@ -10,1144 +13,276 @@
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import QuickTaskWindow from '$lib/components/desktop-interface/master/tasks/QuickTaskWindow.svelte';
-	
-	// ✅ NEW: Import separate task view components
 	import TotalTasksView from '$lib/components/desktop-interface/master/tasks/TotalTasksView.svelte';
 	import CompletedTasksView from '$lib/components/desktop-interface/master/tasks/CompletedTasksView.svelte';
 	import IncompleteTasksView from '$lib/components/desktop-interface/master/tasks/IncompleteTasksView.svelte';
 
-	// Task statistics
 	let taskStats = {
 		total_tasks: 0,
-		active_tasks: 0,
 		completed_tasks: 0,
 		incomplete_tasks: 0,
 		my_assigned_tasks: 0,
 		my_completed_tasks: 0,
-		my_assignments: 0,
-		my_assignments_completed: 0
+		my_assignments: 0
 	};
 
 	let isLoading = true;
+	let refreshInterval: any = null;
 
-	// Generate unique window ID using timestamp and random number
+	$: isRTL = $locale === 'ar';
+
 	function generateWindowId(type: string): string {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 	}
 
-	// Fetch task statistics from Supabase with optimized queries and parallel loading
 	async function fetchTaskStatistics() {
+		if (!$currentUser?.id) return;
 		try {
 			isLoading = true;
-			
-			// Import dependencies
-			const { supabase } = await import('$lib/utils/supabase');
-			const { currentUser } = await import('$lib/utils/persistentAuth');
-			const { get } = await import('svelte/store');
-			
-			const user = get(currentUser);
-			if (!user) {
-				console.error('No current user found');
-				isLoading = false;
-				return;
-			}
-
-			const startTime = Date.now();
-			console.log('🚀 Starting TaskMaster Statistics Loading...');
-
-			// 🚀 OPTIMIZATION 1: Use optimized count-only queries in parallel
-			// Fetch all counts in a single parallel batch (no data selection, count only)
-			const statsPromises = [
-				// Total tasks count - parallel query set 1
-				supabase.from('task_assignments').select('id', { count: 'exact', head: true }).limit(1),
-				supabase.from('quick_task_assignments').select('id', { count: 'exact', head: true }).limit(1),
-				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true }).limit(1),
-				
-				// Active tasks - parallel query set 2
-				supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'active').limit(1),
-				
-				// Completed tasks - parallel query set 3
-				supabase.from('task_completions').select('id', { count: 'exact', head: true }).limit(1),
-				supabase.from('quick_task_completions').select('id', { count: 'exact', head: true }).limit(1),
-				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true }).eq('task_status', 'completed').limit(1),
-				
-				// My assigned tasks - parallel query set 4
-				supabase.from('task_assignments').select('id', { count: 'exact', head: true })
-					.eq('assigned_to_user_id', user.id)
-					.in('status', ['assigned', 'in_progress', 'pending']).limit(1),
-				supabase.from('quick_task_assignments').select('id', { count: 'exact', head: true })
-					.eq('assigned_to_user_id', user.id)
-					.in('status', ['assigned', 'in_progress', 'pending']).limit(1),
-				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true })
-					.eq('assigned_user_id', user.id)
-					.in('task_status', ['pending', 'in_progress']).limit(1),
-				
-				// My completed tasks - parallel query set 5
-				supabase.from('task_completions').select('id', { count: 'exact', head: true })
-					.eq('completed_by', user.id).limit(1),
-				supabase.from('quick_task_completions').select('id', { count: 'exact', head: true })
-					.eq('completed_by_user_id', user.id).limit(1),
-				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true })
-					.eq('completed_by_user_id', user.id)
-					.eq('task_status', 'completed').limit(1),
-				
-				// My assignments - parallel query set 6
-				supabase.from('task_assignments').select('id', { count: 'exact', head: true })
-					.eq('assigned_by', user.id).limit(1),
-				supabase.from('quick_tasks').select('id', { count: 'exact', head: true })
-					.eq('assigned_by', user.id).limit(1),
-				
-				// Incomplete tasks - parallel query set 7
-				supabase.from('task_assignments').select('id', { count: 'exact', head: true })
-					.neq('status', 'completed')
-					.neq('status', 'closed').limit(1),
-				supabase.from('quick_task_assignments').select('id', { count: 'exact', head: true })
-					.neq('status', 'completed')
-					.neq('status', 'closed').limit(1),
-				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true })
-					.neq('task_status', 'completed')
-					.eq('task_completed', false).limit(1)
-			];
-
-			console.log('🔄 Loading', statsPromises.length, 'optimized queries in parallel...');
-
-			// Execute all queries in parallel
-			const results = await Promise.allSettled(statsPromises);
-
-			// Extract results with error handling
-			let resultIndex = 0;
-			const getCount = (index: number) => {
-				try {
-					const result = results[index];
-					if (!result) {
-						console.warn(`⚠️ Query ${index} - no result`);
-						return 0;
-					}
-					
-					if (result.status === 'fulfilled') {
-						const response = result.value;
-						if (!response) {
-							console.warn(`⚠️ Query ${index} - empty response`);
-							return 0;
-						}
-						
-						const { count, error } = response;
-						if (error) {
-							console.warn(`⚠️ Query ${index} error:`, error.message);
-							return 0;
-						}
-						return count || 0;
-					} else {
-						console.warn(`⚠️ Query ${index} failed:`, result.reason);
-						return 0;
-					}
-				} catch (e) {
-					console.warn(`⚠️ Query ${index} exception:`, e);
-					return 0;
-				}
-			};
-
-			// Extract counts from results
-			const taskAssignCount = getCount(resultIndex++);
-			const quickAssignCount = getCount(resultIndex++);
-			const receivingTasksCount = getCount(resultIndex++);
-			const activeTasksCount = getCount(resultIndex++);
-			const taskCompCount = getCount(resultIndex++);
-			const quickCompCount = getCount(resultIndex++);
-			const receivingCompCount = getCount(resultIndex++);
-			const myTaskAssignCount = getCount(resultIndex++);
-			const myQuickAssignCount = getCount(resultIndex++);
-			const myReceivingAssignCount = getCount(resultIndex++);
-			const myTaskCompCount = getCount(resultIndex++);
-			const myQuickCompCount = getCount(resultIndex++);
-			const myReceivingCompCount = getCount(resultIndex++);
-			const myTaskAssignedByCount = getCount(resultIndex++);
-			const myQuickTasksByCount = getCount(resultIndex++);
-			const incompleteTaskAssignCount = getCount(resultIndex++);
-			const incompleteQuickAssignCount = getCount(resultIndex++);
-			const incompleteReceivingCount = getCount(resultIndex++);
-
-			// Calculate totals
-			const totalTasksCount = taskAssignCount + quickAssignCount + receivingTasksCount;
-			const completedTasksCount = taskCompCount + quickCompCount + receivingCompCount;
-			const myAssignedCount = myTaskAssignCount + myQuickAssignCount + myReceivingAssignCount;
-			const myCompletedCount = myTaskCompCount + myQuickCompCount + myReceivingCompCount;
-			const myAssignmentsCount = myTaskAssignedByCount + myQuickTasksByCount;
-			const myAssignmentsCompletedCount = 0; // Removed complex subquery
-			const incompleteTasksCount = incompleteTaskAssignCount + incompleteQuickAssignCount + incompleteReceivingCount;
-
-			// Update stats
+			const { data, error } = await supabase.rpc('get_task_master_stats', { p_user_id: $currentUser.id });
+			if (error) throw error;
 			taskStats = {
-				total_tasks: totalTasksCount,
-				active_tasks: activeTasksCount,
-				completed_tasks: completedTasksCount,
-				incomplete_tasks: incompleteTasksCount,
-				my_assigned_tasks: myAssignedCount,
-				my_completed_tasks: myCompletedCount,
-				my_assignments: myAssignmentsCount,
-				my_assignments_completed: myAssignmentsCompletedCount
+				total_tasks: data?.total_tasks || 0,
+				completed_tasks: data?.completed_tasks || 0,
+				incomplete_tasks: data?.incomplete_tasks || 0,
+				my_assigned_tasks: data?.my_assigned_tasks || 0,
+				my_completed_tasks: data?.my_completed_tasks || 0,
+				my_assignments: data?.my_assignments || 0
 			};
-
-			const loadTime = Date.now() - startTime;
-			console.log(`✅ TaskMaster Statistics Loaded in ${loadTime}ms`);
-			console.log('📊 Final Statistics:', taskStats);
-
-			isLoading = false;
-		} catch (error) {
-			console.error('❌ Error fetching task statistics:', error);
+		} catch (err) {
+			console.error('❌ Error fetching task statistics:', err);
+		} finally {
 			isLoading = false;
 		}
 	}
 
 	onMount(() => {
 		fetchTaskStatistics();
-		// Refresh statistics every 60 seconds
-		const interval = setInterval(fetchTaskStatistics, 60000);
-		return () => clearInterval(interval);
+		refreshInterval = setInterval(fetchTaskStatistics, 60000);
 	});
 
+	onDestroy(() => {
+		if (refreshInterval) clearInterval(refreshInterval);
+	});
+
+	// ─── Window openers ───
 	function openCreateTask() {
-		const windowId = generateWindowId('create-task');
-		
 		openWindow({
-			id: windowId,
-			title: 'Create New Task Template',
-			component: TaskCreateForm,
-			icon: '📝',
-			size: { width: 600, height: 500 },
-			position: { 
-				x: 100 + (Math.random() * 100), 
-				y: 100 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
+			id: generateWindowId('create-task'), title: isRTL ? 'إنشاء قالب مهمة' : 'Create Task Template',
+			component: TaskCreateForm, icon: '📝',
+			size: { width: 600, height: 500 }, position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
 		});
 	}
 
 	function openViewTasks() {
-		const windowId = generateWindowId('view-tasks');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
 		openWindow({
-			id: windowId,
-			title: `View Task Templates #${instanceNumber}`,
-			component: TaskViewTable,
-			icon: '📋',
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 50), 
-				y: 50 + (Math.random() * 50) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
+			id: generateWindowId('view-tasks'), title: isRTL ? 'قوالب المهام' : 'Task Templates',
+			component: TaskViewTable, icon: '📋',
+			size: { width: 1000, height: 700 }, position: { x: 50 + Math.random() * 50, y: 50 + Math.random() * 50 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
 		});
 	}
 
 	function openAssignTasks() {
-		const windowId = generateWindowId('assign-tasks');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
 		openWindow({
-			id: windowId,
-			title: `Assign Tasks #${instanceNumber}`,
-			component: TaskAssignmentView,
-			icon: '👥',
-			size: { width: 900, height: 600 },
-			position: { 
-				x: 100 + (Math.random() * 100), 
-				y: 100 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
+			id: generateWindowId('assign-tasks'), title: isRTL ? 'تعيين المهام' : 'Assign Tasks',
+			component: TaskAssignmentView, icon: '👥',
+			size: { width: 900, height: 600 }, position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
 		});
 	}
 
 	function openTaskStatus() {
-		const windowId = generateWindowId('task-status');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
 		openWindow({
-			id: windowId,
-			title: `Task Status #${instanceNumber}`,
-			component: TaskStatusView,
-			icon: '📊',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
+			id: generateWindowId('task-status'), title: isRTL ? 'حالة المهام' : 'Task Status',
+			component: TaskStatusView, icon: '📊',
+			size: { width: 1200, height: 800 }, position: { x: 50 + Math.random() * 100, y: 50 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
 		});
 	}
 
+	function openMyTasks() {
+		openWindow({
+			id: generateWindowId('my-tasks'), title: isRTL ? 'مهامي' : 'My Tasks',
+			component: MyTasksView, icon: '📝',
+			size: { width: 1000, height: 700 }, position: { x: 50 + Math.random() * 100, y: 50 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
+		});
+	}
+
+	function openMyAssignments() {
+		openWindow({
+			id: generateWindowId('my-assignments'), title: isRTL ? 'تعييناتي' : 'My Assignments',
+			component: MyAssignmentsView, icon: '👨‍💼',
+			size: { width: 1200, height: 800 }, position: { x: 75 + Math.random() * 100, y: 75 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
+		});
+	}
+
+	function openQuickTaskWindow() {
+		openWindow({
+			id: generateWindowId('quick-task'), title: isRTL ? 'مهمة سريعة' : 'Quick Task',
+			component: QuickTaskWindow, icon: '⚡',
+			size: { width: 600, height: 500 }, position: { x: 150 + Math.random() * 100, y: 100 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
+		});
+	}
 
 	function openTaskDetails(cardType: string) {
-		const windowId = generateWindowId('task-details');
-		
-		// Map card types to components
-		const componentMap = {
+		const componentMap: Record<string, any> = {
 			total_tasks: TotalTasksView,
 			completed_tasks: CompletedTasksView,
 			incomplete_tasks: IncompleteTasksView,
 			my_assigned_tasks: MyTasksView,
 			my_completed_tasks: MyTasksView,
-			my_assignments: MyAssignmentsView,
-			my_assignments_completed: MyAssignmentsView
+			my_assignments: MyAssignmentsView
 		};
-
-		const titleMap = {
-			total_tasks: '📋 Total Tasks',
-			active_tasks: '🟢 Active Tasks',
-			completed_tasks: '✅ Completed Tasks',
-			incomplete_tasks: '⏳ Incomplete Tasks',
-			my_assigned_tasks: '👤 My Assigned Tasks',
-			my_completed_tasks: '✅ My Completed Tasks',
-			my_assignments: '📌 My Assignments',
-			my_assignments_completed: '✅ My Assignments Completed'
+		const titleMap: Record<string, string> = {
+			total_tasks: isRTL ? '📋 إجمالي المهام' : '📋 Total Tasks',
+			completed_tasks: isRTL ? '✅ المهام المكتملة' : '✅ Completed Tasks',
+			incomplete_tasks: isRTL ? '⏳ المهام غير المكتملة' : '⏳ Incomplete Tasks',
+			my_assigned_tasks: isRTL ? '👤 مهامي' : '👤 My Tasks',
+			my_completed_tasks: isRTL ? '✅ مهامي المكتملة' : '✅ My Completed',
+			my_assignments: isRTL ? '📌 تعييناتي' : '📌 My Assignments'
 		};
-
-		const colorMap = {
-			total_tasks: { icon: '📋', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-			completed_tasks: { icon: '✅', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' },
-			incomplete_tasks: { icon: '⏳', gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' },
-			my_assigned_tasks: { icon: '👤', gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)' },
-			my_completed_tasks: { icon: '✅', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' },
-			my_assignments: { icon: '📌', gradient: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' },
-			my_assignments_completed: { icon: '✅', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }
+		const iconMap: Record<string, string> = {
+			total_tasks: '📋', completed_tasks: '✅', incomplete_tasks: '⏳',
+			my_assigned_tasks: '👤', my_completed_tasks: '✅', my_assignments: '📌'
 		};
-
-		const component = componentMap[cardType] || TotalTasksView;
-		const title = titleMap[cardType] || 'Task Details';
-		const colorInfo = colorMap[cardType] || { icon: '📋', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' };
-		
 		openWindow({
-			id: windowId,
-			title: title,
-			component: component,
-			icon: colorInfo.icon,
-			size: { width: 1200, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
+			id: generateWindowId('task-details'), title: titleMap[cardType] || 'Task Details',
+			component: componentMap[cardType] || TotalTasksView, icon: iconMap[cardType] || '📋',
+			size: { width: 1200, height: 700 }, position: { x: 50 + Math.random() * 100, y: 50 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
 		});
 	}
 
-	function openMyTasks() {
-		const windowId = generateWindowId('my-tasks');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `My Tasks #${instanceNumber}`,
-			component: MyTasksView,
-			icon: '📋',
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
+	// Stats card definitions
+	const statCards = [
+		{ key: 'total_tasks', icon: '📋', labelAr: 'إجمالي المهام', labelEn: 'Total Tasks', bg: 'bg-blue-50/70', border: 'border-blue-200', text: 'text-blue-700' },
+		{ key: 'completed_tasks', icon: '✅', labelAr: 'المكتملة', labelEn: 'Completed', bg: 'bg-emerald-50/70', border: 'border-emerald-200', text: 'text-emerald-700' },
+		{ key: 'incomplete_tasks', icon: '⏳', labelAr: 'غير المكتملة', labelEn: 'Incomplete', bg: 'bg-amber-50/70', border: 'border-amber-200', text: 'text-amber-700' },
+		{ key: 'my_assigned_tasks', icon: '📝', labelAr: 'مهامي', labelEn: 'My Tasks', bg: 'bg-teal-50/70', border: 'border-teal-200', text: 'text-teal-700' },
+		{ key: 'my_completed_tasks', icon: '🏆', labelAr: 'مكتملاتي', labelEn: 'My Completed', bg: 'bg-violet-50/70', border: 'border-violet-200', text: 'text-violet-700' },
+		{ key: 'my_assignments', icon: '📌', labelAr: 'تعييناتي', labelEn: 'Assigned By Me', bg: 'bg-indigo-50/70', border: 'border-indigo-200', text: 'text-indigo-700' }
+	];
 
-	function openMyAssignments() {
-		const windowId = generateWindowId('my-assignments');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `My Assignments #${instanceNumber}`,
-			component: MyAssignmentsView,
-			icon: '👨‍💼',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 75 + (Math.random() * 100), 
-				y: 75 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
+	// Action card definitions
+	const actionCards = [
+		{ fn: 'createTask', icon: '✨', labelAr: 'إنشاء قالب مهمة', labelEn: 'Create Template', descAr: 'إنشاء قوالب مهام جديدة', descEn: 'Add new task templates', color: 'from-emerald-500 to-green-600', hover: 'hover:shadow-emerald-200/50' },
+		{ fn: 'viewTasks', icon: '📋', labelAr: 'قوالب المهام', labelEn: 'Templates', descAr: 'عرض وإدارة القوالب', descEn: 'Browse & manage templates', color: 'from-blue-500 to-blue-600', hover: 'hover:shadow-blue-200/50' },
+		{ fn: 'myTasks', icon: '📝', labelAr: 'مهامي', labelEn: 'My Tasks', descAr: 'عرض وإكمال مهامك', descEn: 'View & complete your tasks', color: 'from-teal-500 to-cyan-600', hover: 'hover:shadow-teal-200/50' },
+		{ fn: 'myAssignments', icon: '👨‍💼', labelAr: 'تعييناتي', labelEn: 'My Assignments', descAr: 'تتبع المهام المعينة للآخرين', descEn: 'Track tasks assigned to others', color: 'from-indigo-500 to-violet-600', hover: 'hover:shadow-indigo-200/50' },
+		{ fn: 'assignTasks', icon: '👥', labelAr: 'تعيين المهام', labelEn: 'Assign Tasks', descAr: 'تعيين المهام للمستخدمين', descEn: 'Assign tasks to users', color: 'from-purple-500 to-fuchsia-600', hover: 'hover:shadow-purple-200/50' },
+		{ fn: 'taskStatus', icon: '📊', labelAr: 'حالة المهام', labelEn: 'Task Status', descAr: 'مراقبة التقدم والتذكيرات', descEn: 'Monitor progress & reminders', color: 'from-rose-500 to-pink-600', hover: 'hover:shadow-rose-200/50' }
+	];
 
-	function refreshData() {
-		fetchTaskStatistics();
-	}
-
-	function openQuickTaskWindow() {
-		const windowId = generateWindowId('quick-task');
-		openWindow({
-			id: windowId,
-			title: 'Quick Task',
-			component: QuickTaskWindow
-		});
+	function handleAction(fn: string) {
+		const map: Record<string, () => void> = {
+			createTask: openCreateTask,
+			viewTasks: openViewTasks,
+			myTasks: openMyTasks,
+			myAssignments: openMyAssignments,
+			assignTasks: openAssignTasks,
+			taskStatus: openTaskStatus
+		};
+		map[fn]?.();
 	}
 </script>
 
-<div class="task-master-dashboard">
-	<!-- Dashboard Header -->
-	<div class="header">
-		<div class="title-section">
-			<div class="flex items-center justify-center space-x-3 mb-4">
-				<div class="bg-blue-100 p-3 rounded-lg">
-					<svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-					</svg>
-				</div>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRTL ? 'rtl' : 'ltr'}>
+	<!-- Header -->
+	<div class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<span class="text-2xl">📋</span>
+			<div>
+				<h2 class="text-sm font-black text-slate-800 uppercase tracking-wide">{isRTL ? 'لوحة إدارة المهام' : 'Task Master'}</h2>
+				<p class="text-[10px] text-slate-400 font-semibold">{isRTL ? 'نظام إدارة المهام الشامل' : 'Comprehensive Task Management'}</p>
 			</div>
-			<h1 class="title">Task Master Dashboard</h1>
-			<p class="subtitle">Comprehensive Task Management System</p>
-			<div class="header-buttons">
-				<button
-					on:click={openQuickTaskWindow}
-					class="quick-task-btn"
-					title="Create Quick Task"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-					</svg>
-					<span>Quick Task</span>
-				</button>
-				<button
-					on:click={refreshData}
-					class="refresh-btn"
-					title="Refresh Data"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-					</svg>
-					<span>Refresh</span>
-				</button>
-
-			</div>
+		</div>
+		<div class="flex items-center gap-2">
+			<button
+				class="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-bold hover:bg-blue-600 transition-all shadow-sm hover:shadow-md active:scale-95"
+				on:click={openQuickTaskWindow}
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7h14"/></svg>
+				{isRTL ? 'مهمة سريعة' : 'Quick Task'}
+			</button>
+			<button
+				class="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all shadow-sm active:scale-95"
+				on:click={fetchTaskStatistics}
+				disabled={isLoading}
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class:animate-spin={isLoading}>
+					<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+				</svg>
+				{isRTL ? 'تحديث' : 'Refresh'}
+			</button>
 		</div>
 	</div>
 
-	<!-- Task Statistics Cards -->
-	<div class="stats-grid">
-		{#if isLoading}
-			{#each Array(5) as _}
-				<div class="stat-card loading">
-					<div class="loading-bar"></div>
-					<div class="loading-number"></div>
-				</div>
-			{/each}
-		{:else}
-			<div class="stat-card clickable" role="button" tabindex="0" 
-				on:click={() => openTaskDetails('total_tasks')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('total_tasks')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-blue-100">
-						<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">Total Tasks</p>
-						<p class="stat-value">{taskStats.total_tasks}</p>
-					</div>
-				</div>
+	<!-- Content -->
+	<div class="flex-1 p-6 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50 relative">
+		<div class="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-100/20 rounded-full blur-[120px] -mr-48 -mt-48 animate-pulse pointer-events-none"></div>
+		<div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-violet-100/15 rounded-full blur-[120px] -ml-48 -mb-48 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
+
+		<div class="relative max-w-5xl mx-auto space-y-6">
+
+			<!-- Stats Cards -->
+			<div class="grid grid-cols-6 gap-3">
+				{#if isLoading}
+					{#each Array(6) as _}
+						<div class="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/80 shadow-sm p-4 text-center animate-pulse">
+							<div class="h-6 w-10 bg-slate-200 rounded mx-auto mb-2"></div>
+							<div class="h-3 w-16 bg-slate-200 rounded mx-auto"></div>
+						</div>
+					{/each}
+				{:else}
+					{#each statCards as card}
+						<button
+							class="{card.bg} backdrop-blur-sm rounded-2xl border {card.border} shadow-sm p-4 text-center transition-all duration-300 hover:shadow-lg hover:-translate-y-1 cursor-pointer group active:scale-95"
+							on:click={() => openTaskDetails(card.key)}
+						>
+							<div class="text-xl mb-1 group-hover:scale-110 transition-transform">{card.icon}</div>
+							<p class="text-2xl font-black {card.text}">{taskStats[card.key as keyof typeof taskStats]}</p>
+							<p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-1">{isRTL ? card.labelAr : card.labelEn}</p>
+						</button>
+					{/each}
+				{/if}
 			</div>
 
-			<div class="stat-card clickable" role="button" tabindex="0"
-				on:click={() => openTaskDetails('completed_tasks')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('completed_tasks')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-purple-100">
-						<svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">Total Completed Tasks</p>
-						<p class="stat-value">{taskStats.completed_tasks}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="stat-card clickable" role="button" tabindex="0"
-				on:click={() => openTaskDetails('incomplete_tasks')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('incomplete_tasks')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-red-100">
-						<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">Total Incomplete Tasks</p>
-						<p class="stat-value">{taskStats.incomplete_tasks}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="stat-card clickable" role="button" tabindex="0"
-				on:click={() => openTaskDetails('my_assigned_tasks')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_assigned_tasks')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-orange-100">
-						<svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">My Assigned Tasks</p>
-						<p class="stat-value">{taskStats.my_assigned_tasks}</p>
-					</div>
+			<!-- Action Cards -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6">
+				<h3 class="text-xs font-black text-slate-500 uppercase tracking-wider mb-4 {isRTL ? 'text-right' : 'text-left'}">{isRTL ? 'الإجراءات السريعة' : 'Quick Actions'}</h3>
+				<div class="grid grid-cols-3 gap-4">
+					{#each actionCards as card}
+						<button
+							class="group relative overflow-hidden bg-white/70 backdrop-blur rounded-2xl border border-slate-200 p-5 text-{isRTL ? 'right' : 'left'} transition-all duration-300 hover:shadow-xl {card.hover} hover:-translate-y-1 active:scale-[0.98]"
+							on:click={() => handleAction(card.fn)}
+						>
+							<div class="absolute top-0 {isRTL ? 'right-0' : 'left-0'} w-1 h-full bg-gradient-to-b {card.color} rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+							<div class="flex items-start gap-3">
+								<div class="w-10 h-10 rounded-xl bg-gradient-to-br {card.color} flex items-center justify-center text-white text-lg shadow-md group-hover:scale-110 transition-transform flex-shrink-0">
+									{card.icon}
+								</div>
+								<div class="flex-1 min-w-0">
+									<h4 class="text-sm font-bold text-slate-800 mb-0.5">{isRTL ? card.labelAr : card.labelEn}</h4>
+									<p class="text-[10px] text-slate-400 font-semibold leading-relaxed">{isRTL ? card.descAr : card.descEn}</p>
+								</div>
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-300 group-hover:text-slate-500 transition-all group-hover:{isRTL ? '-translate-x-1' : 'translate-x-1'} flex-shrink-0 mt-1 {isRTL ? 'rotate-180' : ''}">
+									<path d="M9 18l6-6-6-6"/>
+								</svg>
+							</div>
+						</button>
+					{/each}
 				</div>
 			</div>
 
-			<div class="stat-card clickable" role="button" tabindex="0"
-				on:click={() => openTaskDetails('my_completed_tasks')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_completed_tasks')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-teal-100">
-						<svg class="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">My Completed Tasks</p>
-						<p class="stat-value">{taskStats.my_completed_tasks}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="stat-card clickable" role="button" tabindex="0"
-				on:click={() => openTaskDetails('my_assignments')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_assignments')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-indigo-100">
-						<svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">My Assignments</p>
-						<p class="stat-value">{taskStats.my_assignments}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="stat-card clickable" role="button" tabindex="0"
-				on:click={() => openTaskDetails('my_assignments_completed')}
-				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_assignments_completed')}>
-				<div class="stat-content">
-					<div class="stat-icon bg-teal-100">
-						<svg class="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">My Assignments Completed</p>
-						<p class="stat-value">{taskStats.my_assignments_completed}</p>
-					</div>
-				</div>
-			</div>
-		{/if}
-	</div>
-
-	<!-- Action Buttons -->
-	<div class="dashboard-grid">
-		<div class="dashboard-card" on:click={openCreateTask}>
-			<div class="card-icon bg-green-100">
-				<span class="icon text-green-600">✨</span>
-			</div>
-			<div class="card-content">
-				<h3 class="card-title">Create Task Template</h3>
-				<p class="card-description">Add new task templates with details, criteria, and assignments</p>
-			</div>
-			<div class="card-arrow">
-				<span>→</span>
-			</div>
-		</div>
-
-		<div class="dashboard-card" on:click={openViewTasks}>
-			<div class="card-icon bg-blue-100">
-				<span class="icon text-blue-600">📋</span>
-			</div>
-			<div class="card-content">
-				<h3 class="card-title">View Task Templates</h3>
-				<p class="card-description">Browse, search, and manage all created task templates</p>
-			</div>
-			<div class="card-arrow">
-				<span>→</span>
-			</div>
-		</div>
-
-		<div class="dashboard-card" on:click={openMyTasks}>
-			<div class="card-icon bg-orange-100">
-				<span class="icon text-orange-600">📝</span>
-			</div>
-			<div class="card-content">
-				<h3 class="card-title">View My Tasks</h3>
-				<p class="card-description">View and complete tasks assigned to you</p>
-			</div>
-			<div class="card-arrow">
-				<span>→</span>
-			</div>
-		</div>
-
-		<div class="dashboard-card" on:click={openMyAssignments}>
-			<div class="card-icon bg-teal-100">
-				<span class="icon text-teal-600">👨‍💼</span>
-			</div>
-			<div class="card-content">
-				<h3 class="card-title">View My Assignments</h3>
-				<p class="card-description">Track tasks you assigned to others with progress and completion stats</p>
-			</div>
-			<div class="card-arrow">
-				<span>→</span>
-			</div>
-		</div>
-
-		<div class="dashboard-card" on:click={openAssignTasks}>
-			<div class="card-icon bg-purple-100">
-				<span class="icon text-purple-600">👥</span>
-			</div>
-			<div class="card-content">
-				<h3 class="card-title">Assign Tasks</h3>
-				<p class="card-description">Assign tasks to users with advanced filtering</p>
-			</div>
-			<div class="card-arrow">
-				<span>→</span>
-			</div>
-		</div>
-
-		<div class="dashboard-card" on:click={openTaskStatus}>
-			<div class="card-icon bg-indigo-100">
-				<span class="icon text-indigo-600">📊</span>
-			</div>
-			<div class="card-content">
-				<h3 class="card-title">Task Status</h3>
-				<p class="card-description">Monitor task progress, send reminders, and generate warnings</p>
-			</div>
-			<div class="card-arrow">
-				<span>→</span>
-			</div>
-		</div>
-	</div>
-
-	<!-- Quick Info Section -->
-	<div class="features-section">
-		<div class="features-header">
-			<div class="features-icon">
-				<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-				</svg>
-			</div>
-			<h3 class="features-title">Task Master Features</h3>
-		</div>
-		<div class="features-grid">
-			<div class="feature-item">
-				<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-				</svg>
-				<span>Create task templates with detailed criteria and attachments</span>
-			</div>
-			<div class="feature-item">
-				<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-				</svg>
-				<span>Advanced search and filtering capabilities</span>
-			</div>
-			<div class="feature-item">
-				<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-				</svg>
-				<span>View and complete assigned tasks</span>
-			</div>
-			<div class="feature-item">
-				<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-				</svg>
-				<span>Bulk task assignment with role-based access</span>
-			</div>
-			<div class="feature-item">
-				<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-				</svg>
-				<span>Real-time task status tracking and notifications</span>
-			</div>
 		</div>
 	</div>
 </div>
 
 <style>
-	.task-master-dashboard {
-		padding: 24px;
-		height: 100%;
-		background: white;
-		overflow-y: auto;
-		width: 100%;
-		box-sizing: border-box;
-	}
-
-	.header {
-		margin-bottom: 32px;
-		max-width: 1200px;
-		margin-left: auto;
-		margin-right: auto;
-	}
-
-	.title-section {
-		text-align: center;
-		position: relative;
-	}
-
-	.title {
-		font-size: 32px;
-		font-weight: 700;
-		color: #111827;
-		margin: 0 0 8px 0;
-	}
-
-	.subtitle {
-		font-size: 18px;
-		color: #6b7280;
-		margin: 0 0 20px 0;
-	}
-
-	.refresh-btn {
-		display: inline-flex;
-		align-items: center;
-		space-x: 8px;
-		padding: 8px 16px;
-		background: #f3f4f6;
-		color: #374151;
-		border: 1px solid #d1d5db;
-		border-radius: 8px;
-		font-size: 14px;
-		font-weight: 500;
-		transition: all 0.2s ease;
-		cursor: pointer;
-	}
-
-	.refresh-btn:hover {
-		background: #e5e7eb;
-		border-color: #9ca3af;
-	}
-
-	.refresh-btn span {
-		margin-left: 8px;
-	}
-
-	/* Header Buttons Container */
-	.header-buttons {
-		display: flex;
-		gap: 12px;
-		align-items: center;
-	}
-
-	/* Quick Task Button */
-	.quick-task-btn {
-		display: flex;
-		align-items: center;
-		padding: 8px 16px;
-		background: #3b82f6;
-		color: white;
-		border: 1px solid #3b82f6;
-		border-radius: 8px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.quick-task-btn:hover {
-		background: #2563eb;
-		border-color: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-	}
-
-	.quick-task-btn span {
-		margin-left: 8px;
-	}
-
-	/* Branch Performance Button */
-	.branch-performance-btn {
-		display: flex;
-		align-items: center;
-		padding: 8px 16px;
-		background: #10b981;
-		color: white;
-		border: 1px solid #10b981;
-		border-radius: 8px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.branch-performance-btn:hover {
-		background: #059669;
-		border-color: #059669;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-	}
-
-	.branch-performance-btn span {
-		margin-left: 8px;
-	}
-
-	/* Branch Performance Button */
-	.branch-performance-btn {
-		display: flex;
-		align-items: center;
-		padding: 8px 16px;
-		background: #10b981;
-		color: white;
-		border: 1px solid #10b981;
-		border-radius: 8px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.branch-performance-btn:hover {
-		background: #059669;
-		border-color: #059669;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-	}
-
-	.branch-performance-btn span {
-		margin-left: 8px;
-	}
-
-	/* Statistics Grid */
-	.stats-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 16px;
-		margin-bottom: 32px;
-		max-width: 1200px;
-		margin-left: auto;
-		margin-right: auto;
-	}
-
-	.stat-card {
-		background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
-		border: 2px solid transparent;
-		border-radius: 16px;
-		padding: 20px;
-		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-		position: relative;
-		overflow: hidden;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-		min-height: 120px;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-	}
-
-	.stat-card.clickable {
-		cursor: pointer;
-	}
-
-	.stat-card.clickable:active {
-		transform: translateY(-2px) scale(0.98);
-	}
-
-	.stat-card.clickable:focus {
-		outline: 3px solid #667eea;
-		outline-offset: 2px;
-	}
-
-	.stat-card::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 4px;
-		background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);
-		opacity: 0;
-		transition: opacity 0.3s ease;
-	}
-
-	.stat-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
-		border-color: rgba(59, 130, 246, 0.2);
-	}
-
-	.stat-card:hover::before {
-		opacity: 1;
-	}
-
-	.stat-card.loading {
-		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-	}
-
-	.stat-content {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-	}
-
-	.stat-icon {
-		width: 48px;
-		height: 48px;
-		border-radius: 12px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		position: relative;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-		transition: transform 0.3s ease;
-	}
-
-	.stat-card:hover .stat-icon {
-		transform: scale(1.1) rotate(5deg);
-	}
-
-	.stat-info {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.stat-label {
-		font-size: 11px;
-		font-weight: 600;
-		color: #9ca3af;
-		margin: 0 0 8px 0;
-		text-transform: uppercase;
-		letter-spacing: 0.8px;
-		line-height: 1.2;
-	}
-
-	.stat-value {
-		font-size: 28px;
-		font-weight: 800;
-		background: linear-gradient(135deg, #111827 0%, #4b5563 100%);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		background-clip: text;
-		margin: 0;
-		line-height: 1.1;
-	}
-
-	.loading-bar {
-		height: 16px;
-		background: #e5e7eb;
-		border-radius: 4px;
-		margin-bottom: 8px;
-		width: 60%;
-	}
-
-	.loading-number {
-		height: 20px;
-		background: #e5e7eb;
-		border-radius: 4px;
-		width: 40%;
-	}
-
-	/* Dashboard Grid */
-	.dashboard-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-		gap: 24px;
-		margin-bottom: 32px;
-		max-width: 1200px;
-		margin-left: auto;
-		margin-right: auto;
-	}
-
-	.dashboard-card {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		padding: 24px;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		position: relative;
-		overflow: hidden;
-	}
-
-	.dashboard-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-		border-color: #d1d5db;
-	}
-
-	.dashboard-card::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 4px;
-		background: var(--card-color, #3b82f6);
-		transition: all 0.3s ease;
-	}
-
-	.dashboard-card:hover::before {
-		height: 6px;
-	}
-
-	.card-content {
-		display: flex;
-		flex-direction: column;
-		position: relative;
-		z-index: 1;
-	}
-
-	.card-icon {
-		font-size: 32px;
-		width: 48px;
-		height: 48px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 8px;
-		flex-shrink: 0;
-		margin-bottom: 16px;
-	}
-
-	.card-icon .icon {
-		font-size: 24px;
-	}
-
-	.card-title {
-		font-size: 20px;
-		font-weight: 600;
-		color: #111827;
-		margin: 0 0 8px 0;
-	}
-
-	.card-description {
-		font-size: 14px;
-		color: #6b7280;
-		margin: 0;
-		line-height: 1.5;
-	}
-
-	.card-arrow {
-		position: absolute;
-		top: 50%;
-		right: 20px;
-		transform: translateY(-50%);
-		font-size: 20px;
-		color: #9ca3af;
-		transition: all 0.3s ease;
-	}
-
-	.dashboard-card:hover .card-arrow {
-		color: #6b7280;
-		transform: translateY(-50%) translateX(4px);
-	}
-
-	/* Color variations for different cards */
-	.dashboard-card:nth-child(1) { --card-color: #10b981; }
-	.dashboard-card:nth-child(2) { --card-color: #3b82f6; }
-	.dashboard-card:nth-child(3) { --card-color: #f59e0b; }
-	.dashboard-card:nth-child(4) { --card-color: #14b8a6; }
-	.dashboard-card:nth-child(5) { --card-color: #8b5cf6; }
-	.dashboard-card:nth-child(6) { --card-color: #6366f1; }
-
-	/* Features Section */
-	.features-section {
-		background: #f9fafb;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		padding: 24px;
-		max-width: 1200px;
-		margin-left: auto;
-		margin-right: auto;
-	}
-
-	.features-header {
-		display: flex;
-		align-items: center;
-		margin-bottom: 20px;
-	}
-
-	.features-icon {
-		background: #dbeafe;
-		padding: 12px;
-		border-radius: 8px;
-		margin-right: 16px;
-	}
-
-	.features-title {
-		font-size: 18px;
-		font-weight: 600;
-		color: #111827;
-		margin: 0;
-	}
-
-	.features-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 16px;
-	}
-
-	.feature-item {
-		display: flex;
-		align-items: center;
-		font-size: 14px;
-		color: #6b7280;
-	}
-
-	.feature-item svg {
-		margin-right: 8px;
-		flex-shrink: 0;
-	}
-
-	@keyframes pulse {
-		0%, 100% {
-			opacity: 1;
-		}
-		50% {
-			opacity: .5;
-		}
-	}
-
-	@keyframes fadeIn {
-		from { 
-			opacity: 0; 
-			transform: translateY(20px); 
-		}
-		to { 
-			opacity: 1; 
-			transform: translateY(0); 
-		}
-	}
-
-	.task-master-dashboard > * {
-		animation: fadeIn 0.6s ease-out;
-	}
-
-	@media (max-width: 768px) {
-		.dashboard-grid,
-		.stats-grid {
-			grid-template-columns: 1fr;
-		}
-		
-		.features-grid {
-			grid-template-columns: 1fr;
-		}
-	}
+	@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 </style>
