@@ -16,14 +16,20 @@
         updated_at: string;
     }
 
+    const tabs = [
+        { id: 'accounts', label: 'Connected Accounts', icon: '📱', color: 'green' },
+        { id: 'create', label: 'Create Account', icon: '➕', color: 'orange' }
+    ];
+
     let supabase: any = null;
     let accounts: WAAccount[] = [];
     let loading = true;
     let error = '';
-    let showAddForm = false;
+    let activeTab = 'accounts';
     let saving = false;
     let testingConnection = false;
     let testResult: { success: boolean; message: string } | null = null;
+    let searchQuery = '';
 
     // New account form
     let newAccount = {
@@ -37,6 +43,16 @@
     // Edit mode
     let editingId: string | null = null;
     let editAccount = { ...newAccount };
+
+    // Filtered accounts
+    $: filteredAccounts = accounts.filter(a => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return (a.display_name || '').toLowerCase().includes(q) ||
+            (a.phone_number || '').toLowerCase().includes(q) ||
+            (a.waba_id || '').toLowerCase().includes(q) ||
+            (a.phone_number_id || '').toLowerCase().includes(q);
+    });
 
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
@@ -66,8 +82,8 @@
         testingConnection = true;
         testResult = null;
         try {
-            const phoneId = showAddForm ? newAccount.phone_number_id : editAccount.phone_number_id;
-            const token = showAddForm ? newAccount.access_token : editAccount.access_token;
+            const phoneId = activeTab === 'create' ? newAccount.phone_number_id : editAccount.phone_number_id;
+            const token = activeTab === 'create' ? newAccount.access_token : editAccount.access_token;
             if (!phoneId || !token) {
                 testResult = { success: false, message: 'Phone Number ID and Access Token are required' };
                 return;
@@ -78,12 +94,13 @@
             const data = await res.json();
             if (res.ok && data.id) {
                 testResult = { success: true, message: `Connected! Verified phone: ${data.display_phone_number || data.id}` };
-                // Auto-fill display name if available
-                if (data.display_phone_number && showAddForm && !newAccount.display_name) {
-                    newAccount.display_name = data.verified_name || '';
-                }
-                if (data.display_phone_number && !showAddForm && !editAccount.display_name) {
-                    editAccount.display_name = data.verified_name || '';
+                if (data.verified_name) {
+                    if (activeTab === 'create' && !newAccount.display_name) {
+                        newAccount.display_name = data.verified_name;
+                    }
+                    if (activeTab !== 'create' && !editAccount.display_name) {
+                        editAccount.display_name = data.verified_name;
+                    }
                 }
             } else {
                 testResult = { success: false, message: data.error?.message || 'Connection failed' };
@@ -97,6 +114,7 @@
 
     async function saveAccount() {
         saving = true;
+        error = '';
         try {
             if (!newAccount.phone_number || !newAccount.phone_number_id || !newAccount.access_token) {
                 throw new Error('Phone Number, Phone Number ID, and Access Token are required');
@@ -114,8 +132,8 @@
             });
             if (err) throw err;
 
-            showAddForm = false;
             resetForm();
+            activeTab = 'accounts';
             await loadAccounts();
         } catch (e: any) {
             error = e.message;
@@ -127,6 +145,7 @@
     async function updateAccount() {
         if (!editingId) return;
         saving = true;
+        error = '';
         try {
             const { error: err } = await supabase
                 .from('wa_accounts')
@@ -142,6 +161,7 @@
             if (err) throw err;
 
             editingId = null;
+            testResult = null;
             await loadAccounts();
         } catch (e: any) {
             error = e.message;
@@ -152,9 +172,7 @@
 
     async function setDefault(accountId: string) {
         try {
-            // Remove default from all
             await supabase.from('wa_accounts').update({ is_default: false }).neq('id', '');
-            // Set new default
             const { error: err } = await supabase
                 .from('wa_accounts')
                 .update({ is_default: true, updated_at: new Date().toISOString() })
@@ -166,26 +184,13 @@
         }
     }
 
-    async function disconnectAccount(accountId: string) {
-        if (!confirm('Are you sure you want to disconnect this WhatsApp account?')) return;
+    async function toggleStatus(account: WAAccount) {
+        const newStatus = account.status === 'connected' ? 'disconnected' : 'connected';
+        if (newStatus === 'disconnected' && !confirm('Are you sure you want to disconnect this WhatsApp account?')) return;
         try {
-            const { error: err } = await supabase
-                .from('wa_accounts')
-                .update({ status: 'disconnected', is_default: false, updated_at: new Date().toISOString() })
-                .eq('id', accountId);
-            if (err) throw err;
-            await loadAccounts();
-        } catch (e: any) {
-            error = e.message;
-        }
-    }
-
-    async function reconnectAccount(accountId: string) {
-        try {
-            const { error: err } = await supabase
-                .from('wa_accounts')
-                .update({ status: 'connected', updated_at: new Date().toISOString() })
-                .eq('id', accountId);
+            const updates: any = { status: newStatus, updated_at: new Date().toISOString() };
+            if (newStatus === 'disconnected') updates.is_default = false;
+            const { error: err } = await supabase.from('wa_accounts').update(updates).eq('id', account.id);
             if (err) throw err;
             await loadAccounts();
         } catch (e: any) {
@@ -245,86 +250,282 @@
     }
 
     function maskToken(token: string) {
-        if (!token) return '';
+        if (!token) return '—';
         if (token.length <= 12) return '••••••••';
         return token.substring(0, 6) + '••••••••' + token.substring(token.length - 4);
+    }
+
+    function formatDate(dateStr: string) {
+        if (!dateStr) return '—';
+        try {
+            return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        } catch { return dateStr; }
     }
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
-    <!-- Header -->
-    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div class="flex items-center gap-3">
-            <span class="text-2xl">🔗</span>
-            <div>
-                <h2 class="text-lg font-black text-slate-800 uppercase tracking-wide">{$t('nav.whatsappAccounts')}</h2>
-                <p class="text-xs text-slate-500">{$t('whatsapp.accounts.subtitle')}</p>
-            </div>
+    <!-- Header/Navigation -->
+    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end shadow-sm">
+        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+            {#each tabs as tab}
+                <button
+                    class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+                    {activeTab === tab.id
+                        ? (tab.color === 'green' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]' : 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]')
+                        : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                    on:click={() => { activeTab = tab.id; testResult = null; }}
+                >
+                    <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">{tab.icon}</span>
+                    <span class="relative z-10">{tab.label}</span>
+                    {#if activeTab === tab.id}
+                        <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+                    {/if}
+                </button>
+            {/each}
         </div>
-        <button
-            class="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:scale-[1.02]"
-            on:click={() => { showAddForm = !showAddForm; resetForm(); }}
-        >
-            <span class="text-base">{showAddForm ? '✕' : '+'}</span>
-            {showAddForm ? $t('common.cancel') : $t('whatsapp.accounts.connectNew')}
-        </button>
     </div>
 
-    <!-- Main Content -->
+    <!-- Main Content Area -->
     <div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+        <!-- Background decorative elements -->
         <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
-        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-green-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
+        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-        <div class="relative max-w-4xl mx-auto">
-            {#if loading}
-                <div class="flex items-center justify-center h-64">
-                    <div class="text-center">
-                        <div class="animate-spin inline-block">
-                            <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
-                        </div>
-                        <p class="mt-4 text-slate-600 font-semibold">{$t('common.loading')}</p>
-                    </div>
+        <div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+
+            {#if error}
+                <div class="bg-red-50 border border-red-200 rounded-2xl p-4 mb-4 flex items-center justify-between">
+                    <p class="text-red-700 font-semibold text-sm">❌ {error}</p>
+                    <button class="text-xs text-red-600 underline font-bold" on:click={() => error = ''}>{$t('common.dismiss') || 'Dismiss'}</button>
                 </div>
-            {:else}
-                {#if error}
-                    <div class="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 text-center">
-                        <p class="text-red-700 font-semibold text-sm">{error}</p>
-                        <button class="mt-2 text-xs text-red-600 underline" on:click={() => error = ''}>{$t('common.dismiss')}</button>
+            {/if}
+
+            <!-- ===== CONNECTED ACCOUNTS TAB ===== -->
+            {#if activeTab === 'accounts'}
+                {#if loading}
+                    <div class="flex items-center justify-center h-full">
+                        <div class="text-center">
+                            <div class="animate-spin inline-block">
+                                <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
+                            </div>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('common.loading')}</p>
+                        </div>
+                    </div>
+                {:else if accounts.length === 0}
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+                        <div class="text-5xl mb-4">📱</div>
+                        <p class="text-slate-600 font-semibold text-lg">{$t('whatsapp.accounts.noAccounts')}</p>
+                        <p class="text-slate-400 text-sm mt-2">{$t('whatsapp.accounts.noAccountsDesc')}</p>
+                        <button
+                            class="mt-6 px-6 py-3 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-all shadow-lg shadow-orange-200"
+                            on:click={() => { activeTab = 'create'; resetForm(); }}
+                        >
+                            ➕ {$t('whatsapp.accounts.connectFirst')}
+                        </button>
+                    </div>
+                {:else}
+                    <!-- Search -->
+                    <div class="mb-4 flex gap-3">
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="account-search">Search Accounts</label>
+                            <input
+                                id="account-search"
+                                type="text"
+                                bind:value={searchQuery}
+                                placeholder="Search by name, phone, WABA ID..."
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                        <div class="flex items-end">
+                            <button
+                                class="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02]"
+                                on:click={loadAccounts}
+                            >
+                                🔄 Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Accounts Table -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+                        <div class="overflow-x-auto flex-1">
+                            <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+                                <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
+                                    <tr>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">#</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Display Name</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Phone Number</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Status</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Quality</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Default</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">WABA ID</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Phone Number ID</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Access Token</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Updated</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200">
+                                    {#each filteredAccounts as account, index}
+                                        <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                            <td class="px-4 py-3 text-sm text-slate-500 font-mono">{index + 1}</td>
+                                            <td class="px-4 py-3 text-sm">
+                                                {#if editingId === account.id}
+                                                    <input type="text" bind:value={editAccount.display_name}
+                                                        class="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                                                {:else}
+                                                    <span class="font-bold text-slate-800">{account.display_name || '—'}</span>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-sm">
+                                                {#if editingId === account.id}
+                                                    <input type="text" bind:value={editAccount.phone_number}
+                                                        class="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" />
+                                                {:else}
+                                                    <span class="text-slate-700 font-mono">{account.phone_number}</span>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-center">
+                                                <span class="inline-flex items-center px-2.5 py-1 text-[10px] font-bold uppercase rounded-full border
+                                                    {account.status === 'connected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}">
+                                                    {account.status === 'connected' ? '● Connected' : '● Disconnected'}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 text-center">
+                                                <span class="inline-flex items-center px-2.5 py-1 text-[10px] font-bold uppercase rounded-full border {getQualityColor(account.quality_rating)}">
+                                                    {getQualityDot(account.quality_rating)} {account.quality_rating || 'N/A'}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 text-center">
+                                                {#if account.is_default}
+                                                    <span class="inline-flex items-center px-2.5 py-1 text-[10px] font-bold uppercase rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                                        ⭐ Default
+                                                    </span>
+                                                {:else if account.status === 'connected'}
+                                                    <button class="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline uppercase"
+                                                        on:click={() => setDefault(account.id)}>
+                                                        Set Default
+                                                    </button>
+                                                {:else}
+                                                    <span class="text-slate-400 text-xs">—</span>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-sm">
+                                                {#if editingId === account.id}
+                                                    <input type="text" bind:value={editAccount.waba_id}
+                                                        class="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" />
+                                                {:else}
+                                                    <span class="text-slate-600 font-mono text-xs">{account.waba_id || '—'}</span>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-sm">
+                                                {#if editingId === account.id}
+                                                    <input type="text" bind:value={editAccount.phone_number_id}
+                                                        class="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" />
+                                                {:else}
+                                                    <span class="text-slate-600 font-mono text-xs">{account.phone_number_id || '—'}</span>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-sm">
+                                                {#if editingId === account.id}
+                                                    <input type="password" bind:value={editAccount.access_token}
+                                                        class="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" />
+                                                {:else}
+                                                    <span class="text-slate-500 font-mono text-xs">{maskToken(account.access_token)}</span>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-xs text-slate-500">{formatDate(account.updated_at || account.created_at)}</td>
+                                            <td class="px-4 py-3 text-center">
+                                                <div class="flex items-center justify-center gap-1.5 flex-wrap">
+                                                    {#if editingId === account.id}
+                                                        <button class="px-3 py-1.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-lg hover:bg-slate-200 border border-slate-200"
+                                                            on:click={testConnection} disabled={testingConnection}>
+                                                            {testingConnection ? '⏳' : '🔌'} Test
+                                                        </button>
+                                                        <button class="px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                                                            on:click={updateAccount} disabled={saving}>
+                                                            {saving ? '⏳' : '💾'} Save
+                                                        </button>
+                                                        <button class="px-3 py-1.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-lg hover:bg-slate-200 border border-slate-200"
+                                                            on:click={cancelEdit}>
+                                                            ✕
+                                                        </button>
+                                                    {:else}
+                                                        <button class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
+                                                            on:click={() => startEdit(account)} title="Edit">
+                                                            ✏️ Edit
+                                                        </button>
+                                                        <button class="px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all hover:scale-105
+                                                            {account.status === 'connected'
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}"
+                                                            on:click={() => toggleStatus(account)}>
+                                                            {account.status === 'connected' ? '🔌 Disconnect' : '🔗 Reconnect'}
+                                                        </button>
+                                                        <button class="px-3 py-1.5 bg-red-50 text-red-600 text-[10px] font-bold rounded-lg hover:bg-red-100 border border-red-200 transition-all hover:scale-105"
+                                                            on:click={() => deleteAccount(account.id)} title="Delete">
+                                                            🗑️
+                                                        </button>
+                                                    {/if}
+                                                </div>
+                                                {#if editingId === account.id && testResult}
+                                                    <div class="mt-1.5 px-2 py-1 rounded-lg text-[10px] font-semibold {testResult.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}">
+                                                        {testResult.success ? '✅' : '❌'} {testResult.message}
+                                                    </div>
+                                                {/if}
+                                            </td>
+                                        </tr>
+                                    {/each}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Table Footer -->
+                        <div class="px-6 py-3 border-t border-slate-200 bg-white/50 flex items-center justify-between">
+                            <span class="text-xs text-slate-500 font-semibold">
+                                Showing {filteredAccounts.length} of {accounts.length} accounts
+                            </span>
+                            <span class="text-xs text-slate-400">
+                                {accounts.filter(a => a.status === 'connected').length} connected · {accounts.filter(a => a.is_default).length} default
+                            </span>
+                        </div>
                     </div>
                 {/if}
 
-                <!-- Add New Account Form -->
-                {#if showAddForm}
-                    <div class="bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-8 mb-8">
-                        <h3 class="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+            <!-- ===== CREATE ACCOUNT TAB ===== -->
+            {:else if activeTab === 'create'}
+                <div class="max-w-3xl mx-auto w-full">
+                    <div class="bg-white/60 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-8">
+                        <h3 class="text-lg font-black text-slate-800 mb-2 flex items-center gap-2">
                             <span>📲</span> {$t('whatsapp.accounts.connectNew')}
                         </h3>
+                        <p class="text-xs text-slate-500 mb-6">Fill in the details from your Meta WhatsApp Business Platform.</p>
 
                         <div class="grid grid-cols-2 gap-5">
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('whatsapp.accounts.phoneNumber')} *</label>
-                                <input type="text" bind:value={newAccount.phone_number} placeholder="+966 5X XXX XXXX"
-                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="new-phone">{$t('whatsapp.accounts.phoneNumber')} *</label>
+                                <input id="new-phone" type="text" bind:value={newAccount.phone_number} placeholder="+966 5X XXX XXXX"
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('whatsapp.accounts.displayName')}</label>
-                                <input type="text" bind:value={newAccount.display_name} placeholder="Business Name"
-                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="new-name">{$t('whatsapp.accounts.displayName')}</label>
+                                <input id="new-name" type="text" bind:value={newAccount.display_name} placeholder="Business Name"
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">WABA ID</label>
-                                <input type="text" bind:value={newAccount.waba_id} placeholder="WhatsApp Business Account ID"
-                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="new-waba">WABA ID</label>
+                                <input id="new-waba" type="text" bind:value={newAccount.waba_id} placeholder="WhatsApp Business Account ID"
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('whatsapp.accounts.phoneNumberId')} *</label>
-                                <input type="text" bind:value={newAccount.phone_number_id} placeholder="Meta Phone Number ID"
-                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="new-phone-id">{$t('whatsapp.accounts.phoneNumberId')} *</label>
+                                <input id="new-phone-id" type="text" bind:value={newAccount.phone_number_id} placeholder="Meta Phone Number ID"
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
                             </div>
                             <div class="col-span-2">
-                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('whatsapp.accounts.accessToken')} *</label>
-                                <input type="password" bind:value={newAccount.access_token} placeholder="WhatsApp Cloud API Access Token"
-                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all font-mono" />
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="new-token">{$t('whatsapp.accounts.accessToken')} *</label>
+                                <input id="new-token" type="password" bind:value={newAccount.access_token} placeholder="WhatsApp Cloud API Access Token"
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-mono" />
                             </div>
                         </div>
 
@@ -336,14 +537,20 @@
 
                         <div class="flex justify-end gap-3 mt-6">
                             <button
-                                class="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold uppercase rounded-xl hover:bg-slate-200 transition-all"
+                                class="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold uppercase rounded-xl hover:bg-slate-200 transition-all border border-slate-200"
                                 on:click={testConnection}
                                 disabled={testingConnection}
                             >
                                 {testingConnection ? '⏳' : '🔌'} {$t('whatsapp.accounts.testConnection')}
                             </button>
                             <button
-                                class="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold uppercase rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 disabled:opacity-50"
+                                class="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold uppercase rounded-xl hover:bg-slate-200 transition-all border border-slate-200"
+                                on:click={resetForm}
+                            >
+                                🔄 Reset
+                            </button>
+                            <button
+                                class="px-6 py-2.5 bg-orange-600 text-white text-xs font-bold uppercase rounded-xl hover:bg-orange-700 transition-all shadow-lg shadow-orange-200 disabled:opacity-50 hover:scale-[1.02]"
                                 on:click={saveAccount}
                                 disabled={saving}
                             >
@@ -351,160 +558,20 @@
                             </button>
                         </div>
                     </div>
-                {/if}
 
-                <!-- Account Cards -->
-                {#if accounts.length === 0 && !showAddForm}
-                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 text-center border-dashed border-2 border-slate-200">
-                        <div class="text-5xl mb-4">📱</div>
-                        <p class="text-slate-600 font-semibold text-lg">{$t('whatsapp.accounts.noAccounts')}</p>
-                        <p class="text-slate-400 text-sm mt-2">{$t('whatsapp.accounts.noAccountsDesc')}</p>
-                        <button
-                            class="mt-6 px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
-                            on:click={() => { showAddForm = true; resetForm(); }}
-                        >
-                            + {$t('whatsapp.accounts.connectFirst')}
-                        </button>
+                    <!-- Info Card -->
+                    <div class="mt-6 bg-blue-50/50 backdrop-blur-xl rounded-2xl border border-blue-100 p-6">
+                        <h4 class="font-bold text-blue-800 text-sm mb-3 flex items-center gap-2">
+                            <span>ℹ️</span> {$t('whatsapp.accounts.howToConnect')}
+                        </h4>
+                        <ol class="text-xs text-blue-700 space-y-2 list-decimal list-inside">
+                            <li>{$t('whatsapp.accounts.step1')}</li>
+                            <li>{$t('whatsapp.accounts.step2')}</li>
+                            <li>{$t('whatsapp.accounts.step3')}</li>
+                            <li>{$t('whatsapp.accounts.step4')}</li>
+                            <li>{$t('whatsapp.accounts.step5')}</li>
+                        </ol>
                     </div>
-                {:else}
-                    <div class="space-y-4">
-                        {#each accounts as account}
-                            <div class="bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.06)] p-6 hover:shadow-[0_24px_64px_-16px_rgba(0,0,0,0.1)] transition-all duration-300">
-                                {#if editingId === account.id}
-                                    <!-- Edit Mode -->
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label class="block text-xs font-bold text-slate-600 mb-1 uppercase">{$t('whatsapp.accounts.phoneNumber')}</label>
-                                            <input type="text" bind:value={editAccount.phone_number}
-                                                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-slate-600 mb-1 uppercase">{$t('whatsapp.accounts.displayName')}</label>
-                                            <input type="text" bind:value={editAccount.display_name}
-                                                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-slate-600 mb-1 uppercase">WABA ID</label>
-                                            <input type="text" bind:value={editAccount.waba_id}
-                                                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-slate-600 mb-1 uppercase">{$t('whatsapp.accounts.phoneNumberId')}</label>
-                                            <input type="text" bind:value={editAccount.phone_number_id}
-                                                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                                        </div>
-                                        <div class="col-span-2">
-                                            <label class="block text-xs font-bold text-slate-600 mb-1 uppercase">{$t('whatsapp.accounts.accessToken')}</label>
-                                            <input type="password" bind:value={editAccount.access_token}
-                                                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" />
-                                        </div>
-                                    </div>
-                                    {#if testResult}
-                                        <div class="mt-3 p-3 rounded-xl text-sm font-semibold {testResult.success ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}">
-                                            {testResult.success ? '✅' : '❌'} {testResult.message}
-                                        </div>
-                                    {/if}
-                                    <div class="flex justify-end gap-3 mt-4">
-                                        <button class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200" on:click={testConnection}>
-                                            🔌 {$t('whatsapp.accounts.testConnection')}
-                                        </button>
-                                        <button class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200" on:click={cancelEdit}>
-                                            {$t('common.cancel')}
-                                        </button>
-                                        <button class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 disabled:opacity-50" on:click={updateAccount} disabled={saving}>
-                                            {saving ? '⏳' : '💾'} {$t('common.save')}
-                                        </button>
-                                    </div>
-                                {:else}
-                                    <!-- View Mode -->
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center gap-4">
-                                            <div class="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center text-2xl shadow-inner">
-                                                {account.status === 'connected' ? '📱' : '📵'}
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center gap-2">
-                                                    <h3 class="font-black text-slate-800 text-base">{account.display_name || account.phone_number}</h3>
-                                                    {#if account.is_default}
-                                                        <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold uppercase rounded-full border border-emerald-200">
-                                                            {$t('whatsapp.accounts.default')}
-                                                        </span>
-                                                    {/if}
-                                                </div>
-                                                <p class="text-sm text-slate-500 font-mono mt-0.5">{account.phone_number}</p>
-                                                <div class="flex items-center gap-3 mt-1.5">
-                                                    <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border {account.status === 'connected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}">
-                                                        {account.status === 'connected' ? '● Connected' : '● Disconnected'}
-                                                    </span>
-                                                    <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border {getQualityColor(account.quality_rating)}">
-                                                        {getQualityDot(account.quality_rating)} Quality: {account.quality_rating || 'N/A'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div class="flex items-center gap-2">
-                                            {#if !account.is_default && account.status === 'connected'}
-                                                <button class="px-3 py-2 bg-blue-50 text-blue-700 text-xs font-bold rounded-xl hover:bg-blue-100 transition-all border border-blue-200"
-                                                    on:click={() => setDefault(account.id)}>
-                                                    ⭐ {$t('whatsapp.accounts.setDefault')}
-                                                </button>
-                                            {/if}
-                                            <button class="px-3 py-2 bg-slate-50 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-100 transition-all border border-slate-200"
-                                                on:click={() => startEdit(account)}>
-                                                ✏️ {$t('common.edit')}
-                                            </button>
-                                            {#if account.status === 'connected'}
-                                                <button class="px-3 py-2 bg-amber-50 text-amber-700 text-xs font-bold rounded-xl hover:bg-amber-100 transition-all border border-amber-200"
-                                                    on:click={() => disconnectAccount(account.id)}>
-                                                    🔌 {$t('whatsapp.accounts.disconnect')}
-                                                </button>
-                                            {:else}
-                                                <button class="px-3 py-2 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl hover:bg-emerald-100 transition-all border border-emerald-200"
-                                                    on:click={() => reconnectAccount(account.id)}>
-                                                    🔗 {$t('whatsapp.accounts.reconnect')}
-                                                </button>
-                                            {/if}
-                                            <button class="px-3 py-2 bg-red-50 text-red-700 text-xs font-bold rounded-xl hover:bg-red-100 transition-all border border-red-200"
-                                                on:click={() => deleteAccount(account.id)}>
-                                                🗑️
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <!-- Account Details Row -->
-                                    <div class="mt-4 grid grid-cols-3 gap-4 pt-4 border-t border-slate-100">
-                                        <div>
-                                            <span class="text-[10px] font-bold text-slate-400 uppercase">WABA ID</span>
-                                            <p class="text-xs text-slate-600 font-mono mt-0.5">{account.waba_id || '—'}</p>
-                                        </div>
-                                        <div>
-                                            <span class="text-[10px] font-bold text-slate-400 uppercase">Phone Number ID</span>
-                                            <p class="text-xs text-slate-600 font-mono mt-0.5">{account.phone_number_id || '—'}</p>
-                                        </div>
-                                        <div>
-                                            <span class="text-[10px] font-bold text-slate-400 uppercase">Access Token</span>
-                                            <p class="text-xs text-slate-600 font-mono mt-0.5">{maskToken(account.access_token)}</p>
-                                        </div>
-                                    </div>
-                                {/if}
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
-
-                <!-- Info Card -->
-                <div class="mt-8 bg-blue-50/50 backdrop-blur-xl rounded-2xl border border-blue-100 p-6">
-                    <h4 class="font-bold text-blue-800 text-sm mb-3 flex items-center gap-2">
-                        <span>ℹ️</span> {$t('whatsapp.accounts.howToConnect')}
-                    </h4>
-                    <ol class="text-xs text-blue-700 space-y-2 list-decimal list-inside">
-                        <li>{$t('whatsapp.accounts.step1')}</li>
-                        <li>{$t('whatsapp.accounts.step2')}</li>
-                        <li>{$t('whatsapp.accounts.step3')}</li>
-                        <li>{$t('whatsapp.accounts.step4')}</li>
-                        <li>{$t('whatsapp.accounts.step5')}</li>
-                    </ol>
                 </div>
             {/if}
         </div>

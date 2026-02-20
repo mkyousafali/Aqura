@@ -615,33 +615,38 @@
     }
 </script>
 
-<div class="h-full flex bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+<div class="wa-live-chat h-full flex overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Left Panel: Conversation List -->
-    <div class="w-96 flex flex-col border-r border-slate-200 bg-white">
-        <!-- Search & Filters -->
-        <div class="p-4 border-b border-slate-200 bg-emerald-600">
-            <div class="flex items-center gap-2 mb-3">
+    <div class="w-[300px] flex flex-col border-r border-slate-200/80 bg-gradient-to-b from-orange-50/40 via-white to-orange-50/20">
+        <!-- Brand Header -->
+        <!-- Account Header -->
+        <div class="left-panel-header">
+            <div class="flex items-center gap-2.5">
                 {#if waProfilePicUrl}
-                    <img src={waProfilePicUrl} alt="" class="w-8 h-8 rounded-full object-cover border-2 border-white/40" />
+                    <img src={waProfilePicUrl} alt="" class="w-9 h-9 rounded-full object-cover ring-2 ring-orange-300/40 flex-shrink-0" />
                 {:else}
-                    <span class="text-xl text-white">💬</span>
+                    <div class="w-9 h-9 rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">💬</div>
                 {/if}
-                <div class="flex flex-col">
-                    <h2 class="text-sm font-black text-white uppercase tracking-wide">{$t('nav.whatsappLiveChat')}</h2>
-                    {#if waAccountName}
-                        <span class="text-[10px] text-emerald-100 font-medium">{waAccountName}</span>
-                    {/if}
+                <div class="flex-1 min-w-0">
+                    <h2 class="text-slate-800 font-semibold text-[13px] truncate">{waAccountName || 'Live Chat'}</h2>
+                    <p class="text-slate-400 text-[10px]">WhatsApp Business</p>
                 </div>
             </div>
-            <input type="text" bind:value={searchQuery} placeholder="Search conversations..."
-                class="w-full px-3 py-2 bg-white/20 text-white placeholder-white/60 border border-white/20 rounded-xl text-xs focus:outline-none focus:bg-white/30" />
+        </div>
+        <!-- Search & Filters -->
+        <div class="px-3 py-2 border-b border-slate-100">
+            <div class="relative">
+                <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+                <input type="text" bind:value={searchQuery} placeholder="Search conversations..."
+                    class="w-full pl-8 pr-3 py-1.5 bg-slate-50 text-slate-700 placeholder-slate-400 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 focus:border-orange-300 transition-all" />
+            </div>
             <div class="flex gap-1 mt-2">
                 {#each [
                     { id: 'all', label: 'All' },
-                    { id: 'unread', label: '🔵 Unread' }
+                    { id: 'unread', label: 'Unread' }
                 ] as f}
-                    <button class="px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all
-                        {chatFilter === f.id ? 'bg-white text-emerald-700' : 'text-white/80 hover:bg-white/20'}"
+                    <button class="px-3 py-1 text-[10px] font-medium rounded-md transition-all
+                        {chatFilter === f.id ? 'bg-orange-500 text-white' : 'text-slate-500 hover:bg-slate-100'}"
                         on:click={() => chatFilter = f.id}>
                         {f.label}
                     </button>
@@ -650,44 +655,44 @@
         </div>
 
         <!-- Conversation List -->
-        <div class="flex-1 overflow-y-auto">
+        <div class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
             {#if loading}
                 <div class="flex justify-center py-12">
-                    <div class="animate-spin w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full"></div>
+                    <div class="animate-spin w-8 h-8 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
                 </div>
             {:else if filteredConversations.length === 0}
                 <div class="text-center py-12 text-slate-400">
-                    <div class="text-3xl mb-2">💬</div>
-                    <p class="text-sm">No conversations yet</p>
+                    <div class="text-4xl mb-3 opacity-40">💬</div>
+                    <p class="text-xs font-medium">No conversations yet</p>
                 </div>
             {:else}
                 {#each filteredConversations as conv}
-                    <button class="w-full px-4 py-3 flex items-center gap-3 hover:bg-emerald-50/50 transition-colors border-b border-slate-100 text-left
-                        {selectedConv?.id === conv.id ? 'bg-emerald-50 border-l-4 border-l-emerald-500' : ''}"
+                    <button class="conv-card w-full px-3 py-2.5 flex items-center gap-2.5 transition-all text-left
+                        {selectedConv?.id === conv.id ? 'conv-card-active' : ''}"
                         on:click={() => selectConversation(conv)}>
                         <!-- Avatar -->
                         <div class="relative flex-shrink-0">
-                            <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
                                 {(conv.customer_name || '?')[0].toUpperCase()}
                             </div>
-                            <span class="absolute -bottom-0.5 -right-0.5 text-sm">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
+                            <span class="absolute -bottom-0.5 -right-0.5 text-[9px]">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
                         </div>
                         <!-- Info -->
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between">
-                                <span class="font-bold text-sm text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
+                                <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
                                 <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5">
-                                <p class="text-xs text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
+                                <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
                                 <div class="flex items-center gap-1 flex-shrink-0">
                                     {#if conv.is_bot_handling}
-                                        <span class="text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-600 font-bold">
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 font-bold">
                                             {conv.bot_type === 'ai' ? '🤖' : '🔧'}
                                         </span>
                                     {/if}
                                     {#if conv.unread_count > 0}
-                                        <span class="w-5 h-5 bg-emerald-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                                        <span class="unread-badge">
                                             {conv.unread_count}
                                         </span>
                                     {/if}
@@ -701,29 +706,30 @@
     </div>
 
     <!-- Right Panel: Chat Area -->
-    <div class="flex-1 flex flex-col bg-[#ECE5DD]">
+    <div class="flex-1 flex flex-col bg-slate-50">
         {#if selectedConv}
             <!-- Chat Header -->
-            <div class="bg-emerald-600 text-white px-5 py-3 flex items-center justify-between shadow-sm">
+            <div class="chat-header">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white" style="background:{avatarColor(selectedConv.customer_name || selectedConv.customer_phone)}">
+                    <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm" style="background:{avatarColor(selectedConv.customer_name || selectedConv.customer_phone)}">
                         {(selectedConv.customer_name || '?')[0].toUpperCase()}
                     </div>
                     <div>
-                        <h3 class="font-bold text-sm">{selectedConv.customer_name || 'Unknown'}</h3>
-                        <p class="text-emerald-100 text-xs font-mono">{selectedConv.customer_phone}</p>
+                        <h3 class="font-semibold text-sm text-slate-800">{selectedConv.customer_name || 'Unknown'}</h3>
+                        <p class="text-slate-400 text-[11px] font-mono">{selectedConv.customer_phone}</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="px-2 py-1 text-[10px] font-bold rounded-full {selectedConv.is_inside_24hr ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}">
-                        {selectedConv.is_inside_24hr ? '🟢 24hr Window' : '🔴 Templates Only'}
+                    <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold {selectedConv.is_inside_24hr ? 'bg-green-50 text-green-600 border border-green-200' : 'bg-red-50 text-red-500 border border-red-200'}">
+                        {selectedConv.is_inside_24hr ? '● 24hr Window' : '● Templates Only'}
                     </span>
-                    <button class="px-3 py-1.5 bg-red-500/30 text-white text-xs font-bold rounded-lg hover:bg-red-500/50 transition-colors"
-                        on:click={() => showIncidentPopup = true}>
-                        🚨 Report Incident
+                    <button class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
+                        on:click={() => showIncidentPopup = true}
+                        title="Report Incident">
+                        🚨
                     </button>
                     {#if selectedConv.is_bot_handling}
-                        <button class="px-3 py-1.5 bg-white/20 text-white text-xs font-bold rounded-lg hover:bg-white/30"
+                        <button class="px-3 py-1.5 bg-orange-50 text-orange-600 text-[11px] font-medium rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors"
                             on:click={takeOverFromBot}>
                             👤 Take Over
                         </button>
@@ -732,33 +738,33 @@
             </div>
 
             <!-- Messages Area -->
-            <div class="flex-1 overflow-y-auto p-4 space-y-2" bind:this={messagesContainer}>
+            <div class="flex-1 overflow-y-auto p-5 space-y-2 chat-messages-area" bind:this={messagesContainer}>
                 {#if loadingMessages}
                     <div class="flex justify-center py-12">
-                        <div class="animate-spin w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full"></div>
+                        <div class="animate-spin w-8 h-8 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
                     </div>
                 {:else if messages.length === 0}
-                    <div class="text-center py-12">
-                        <div class="text-4xl mb-3">💬</div>
-                        <p class="text-slate-500 text-sm">No messages in this conversation</p>
+                    <div class="text-center py-16">
+                        <div class="text-5xl mb-3 opacity-30">💬</div>
+                        <p class="text-slate-400 text-sm font-medium">No messages in this conversation</p>
                     </div>
                 {:else}
                     {#each messages as msg}
                         <div class="flex {msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}">
-                            <div class="max-w-[65%] px-3 py-2 rounded-xl text-sm shadow-sm
+                            <div class="msg-bubble max-w-[65%] px-3.5 py-2.5 text-sm
                                 {msg.direction === 'outbound'
-                                    ? 'bg-[#DCF8C6] text-slate-800 rounded-tr-none'
-                                    : 'bg-white text-slate-800 rounded-tl-none'}">
+                                    ? 'msg-outbound'
+                                    : 'msg-inbound'}">
                                 <!-- Sender label at top of bubble -->
                                 {#if msg.direction === 'outbound'}
                                     {#if msg.sent_by === 'ai_bot'}
-                                        <div class="text-[10px] font-semibold text-purple-600 mb-1">🤖 {$locale === 'ar' ? 'بوت الذكاء الاصطناعي' : 'AI Bot'}</div>
+                                        <div class="text-[10px] font-semibold text-purple-500 mb-1">🤖 {$locale === 'ar' ? 'بوت الذكاء الاصطناعي' : 'AI Bot'}</div>
                                     {:else if msg.sent_by === 'auto_reply' || msg.sent_by === 'auto_reply_bot'}
-                                        <div class="text-[10px] font-semibold text-blue-600 mb-1">🔧 {$locale === 'ar' ? 'بوت الرد التلقائي' : 'Auto Reply Bot'}</div>
+                                        <div class="text-[10px] font-semibold text-blue-500 mb-1">🔧 {$locale === 'ar' ? 'بوت الرد التلقائي' : 'Auto Reply Bot'}</div>
                                     {:else if msg.sent_by === 'user' && msg.sent_by_user_id}
-                                        <div class="text-[10px] font-semibold text-green-700 mb-1">👤 {userNameCache[msg.sent_by_user_id] || ($locale === 'ar' ? 'مستخدم' : 'User')}</div>
+                                        <div class="text-[10px] font-semibold text-orange-600 mb-1">👤 {userNameCache[msg.sent_by_user_id] || ($locale === 'ar' ? 'مستخدم' : 'User')}</div>
                                     {:else if msg.sent_by === 'user'}
-                                        <div class="text-[10px] font-semibold text-green-700 mb-1">👤 {$locale === 'ar' ? 'مستخدم' : 'User'}</div>
+                                        <div class="text-[10px] font-semibold text-orange-600 mb-1">👤 {$locale === 'ar' ? 'مستخدم' : 'User'}</div>
                                     {/if}
                                 {/if}
                                 {#if msg.message_type === 'image' && msg.media_url}
@@ -807,12 +813,12 @@
                                     {/if}
                                 {/if}
                                 {#if msg.template_name}
-                                    <span class="text-[10px] text-slate-400 italic">📝 {msg.template_name}</span>
+                                    <span class="text-[10px] text-slate-400/80 italic">📝 {msg.template_name}</span>
                                 {/if}
-                                <div class="flex items-center justify-end gap-1 mt-1">
-                                    <span class="text-[9px] text-slate-400">{formatMsgTime(msg.created_at)}</span>
+                                <div class="flex items-center justify-end gap-1.5 mt-1.5">
+                                    <span class="text-[9px] text-slate-400/70">{formatMsgTime(msg.created_at)}</span>
                                     {#if msg.direction === 'outbound'}
-                                        <span class="text-[10px] {msg.status === 'read' ? 'text-blue-500' : 'text-slate-400'}">{getStatusTick(msg.status)}</span>
+                                        <span class="text-[10px] {msg.status === 'read' ? 'text-blue-500' : 'text-slate-400/60'}">{getStatusTick(msg.status)}</span>
                                     {/if}
                                 </div>
                             </div>
@@ -822,12 +828,12 @@
             </div>
 
             <!-- Input Area -->
-            <div class="bg-white border-t border-slate-200 px-4 py-3">
+            <div class="input-area">
                 {#if !selectedConv.is_inside_24hr}
                     <!-- Outside 24hr — Templates only -->
                     <div class="flex items-center gap-3">
-                        <p class="text-xs text-red-500 font-semibold">🔴 Outside 24-hour window. You can only send templates.</p>
-                        <button class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700"
+                        <p class="text-xs text-red-500 font-semibold">● Outside 24-hour window. Templates only.</p>
+                        <button class="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-xs font-bold rounded-xl hover:from-orange-600 hover:to-orange-700 shadow-sm transition-all"
                             on:click={() => showTemplatePicker = !showTemplatePicker}>
                             📝 Send Template
                         </button>
@@ -845,7 +851,7 @@
                                 <span class="text-sm text-red-600 font-mono">{formatRecordTime(recordingDuration)}</span>
                                 <span class="text-xs text-red-400">Recording...</span>
                             </div>
-                            <button class="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors"
+                            <button class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full flex items-center justify-center hover:from-green-600 hover:to-green-700 shadow-md transition-all"
                                 on:click={stopRecording} title="Send voice message">
                                 ➤
                             </button>
@@ -858,23 +864,23 @@
 
                             <!-- Attach menu -->
                             <div class="relative">
-                                <button class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg hover:bg-slate-200 transition-colors"
+                                <button class="w-10 h-10 bg-orange-50 border border-orange-200/60 rounded-full flex items-center justify-center text-lg hover:bg-orange-100 transition-all"
                                     on:click={() => showAttachMenu = !showAttachMenu} title="Attach">
                                     📎
                                 </button>
                                 {#if showAttachMenu}
-                                    <div class="absolute bottom-12 left-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex flex-col gap-1 min-w-[140px] z-50">
-                                        <button class="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                                    <div class="attach-menu">
+                                        <button class="attach-menu-item"
                                             on:click={() => { imageInput.click(); showAttachMenu = false; }}>
-                                            <span>📷</span> Photo
+                                            <span class="text-base">📷</span> <span>Photo</span>
                                         </button>
-                                        <button class="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                                        <button class="attach-menu-item"
                                             on:click={() => { fileInput.click(); showAttachMenu = false; }}>
-                                            <span>📄</span> Document / Video
+                                            <span class="text-base">📄</span> <span>Document / Video</span>
                                         </button>
-                                        <button class="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                                        <button class="attach-menu-item"
                                             on:click={() => { showTemplatePicker = !showTemplatePicker; showAttachMenu = false; }}>
-                                            <span>📝</span> Template
+                                            <span class="text-base">📝</span> <span>Template</span>
                                         </button>
                                     </div>
                                 {/if}
@@ -882,15 +888,15 @@
 
                             <textarea bind:value={messageInput} rows="1"
                                 placeholder="Type a message..."
-                                class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none max-h-24"
+                                class="flex-1 px-4 py-2.5 bg-white/80 border border-orange-300 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 resize-none max-h-24 backdrop-blur-sm transition-all"
                                 on:keydown={handleKeydown}></textarea>
                             {#if messageInput.trim()}
-                                <button class="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                                <button class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full flex items-center justify-center hover:from-green-600 hover:to-green-700 shadow-md transition-all disabled:opacity-50"
                                     on:click={sendMessage} disabled={sending}>
                                     {sending ? '⏳' : '➤'}
                                 </button>
                             {:else}
-                                <button class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg hover:bg-slate-200 transition-colors"
+                                <button class="w-10 h-10 bg-orange-50 border border-orange-200/60 rounded-full flex items-center justify-center text-lg hover:bg-orange-100 transition-all"
                                     on:click={startRecording} title="Record voice message">
                                     🎤
                                 </button>
@@ -901,21 +907,21 @@
 
                 <!-- Template Picker Popup -->
                 {#if showTemplatePicker}
-                    <div class="mt-3 bg-white border border-slate-200 rounded-xl shadow-xl p-4 max-h-64 overflow-y-auto">
+                    <div class="template-picker">
                         <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-xs font-bold text-slate-700 uppercase">Select Template</h4>
-                            <button class="text-slate-400 hover:text-slate-600 text-sm" on:click={() => showTemplatePicker = false}>✕</button>
+                            <h4 class="text-xs font-bold text-orange-600 uppercase tracking-wider">Select Template</h4>
+                            <button class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 text-xs transition-colors" on:click={() => showTemplatePicker = false}>✕</button>
                         </div>
                         {#if templates.length === 0}
                             <p class="text-xs text-slate-400 text-center py-4">No approved templates available</p>
                         {:else}
-                            <div class="space-y-2">
+                            <div class="space-y-1.5">
                                 {#each templates as tmpl}
-                                    <button class="w-full text-left px-3 py-2 bg-slate-50 rounded-lg hover:bg-emerald-50 transition-colors border border-slate-100"
+                                    <button class="w-full text-left px-3 py-2.5 bg-white/60 rounded-xl hover:bg-orange-50 transition-all border border-orange-100/50 hover:border-orange-200"
                                         on:click={() => sendTemplate(tmpl)}>
                                         <p class="text-xs font-bold text-slate-700">{tmpl.name}</p>
                                         <p class="text-[10px] text-slate-500 truncate mt-0.5">{tmpl.body_text}</p>
-                                        <span class="text-[9px] text-blue-500">{tmpl.language === 'ar' ? '🇸🇦' : '🇺🇸'} {tmpl.language.toUpperCase()}</span>
+                                        <span class="text-[9px] text-orange-500 font-medium">{tmpl.language === 'ar' ? '🇸🇦' : '🇺🇸'} {tmpl.language.toUpperCase()}</span>
                                     </button>
                                 {/each}
                             </div>
@@ -927,8 +933,10 @@
             <!-- No conversation selected -->
             <div class="flex-1 flex items-center justify-center">
                 <div class="text-center">
-                    <div class="text-6xl mb-4">💬</div>
-                    <h3 class="text-lg font-bold text-slate-600">WhatsApp Live Chat</h3>
+                    <div class="w-20 h-20 mx-auto rounded-2xl bg-orange-50 flex items-center justify-center mb-4 border border-orange-100">
+                        <span class="text-3xl">💬</span>
+                    </div>
+                    <h3 class="text-base font-semibold text-slate-700">WhatsApp Live Chat</h3>
                     <p class="text-sm text-slate-400 mt-1">Select a conversation to start chatting</p>
                 </div>
             </div>
@@ -942,7 +950,7 @@
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <div class="bg-white rounded-2xl w-[520px] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative" on:click|stopPropagation>
                 <!-- Header -->
-                <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-red-600 to-red-500 flex-shrink-0">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-red-600 to-orange-500 flex-shrink-0">
                     <div class="flex items-center gap-2">
                         <span class="text-lg">🚨</span>
                         <h3 class="text-white font-bold text-sm">Report Incident</h3>
@@ -965,6 +973,167 @@
 </div>
 
 <style>
+    /* === Clean Integrated Theme === */
+
+    .wa-live-chat {
+        background: white;
+    }
+
+    /* --- Left Panel Header --- */
+    .left-panel-header {
+        padding: 12px 14px;
+        border-bottom: 1px solid #f1f5f9;
+        background: white;
+    }
+
+    /* --- Chat Header --- */
+    .chat-header {
+        background: white;
+        padding: 10px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    /* --- Conversation Cards (Glass) --- */
+    .conv-card {
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        cursor: pointer;
+        border-radius: 12px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(249, 115, 22, 0.04);
+        transition: all 0.2s ease;
+    }
+    .conv-card:hover {
+        background: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 2px 8px rgba(249, 115, 22, 0.1), 0 0 0 1px rgba(249, 115, 22, 0.1);
+        transform: translateY(-1px);
+    }
+    .conv-card-active {
+        background: rgba(255, 247, 237, 0.85) !important;
+        border: 1px solid rgba(249, 115, 22, 0.3) !important;
+        box-shadow: 0 2px 10px rgba(249, 115, 22, 0.15), inset 0 0 0 1px rgba(249, 115, 22, 0.1) !important;
+    }
+
+    /* --- Unread Badge --- */
+    .unread-badge {
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        background: #f97316;
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 9999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* --- Chat Messages Area (Glass BG) --- */
+    .chat-messages-area {
+        background: linear-gradient(135deg, rgba(249, 115, 22, 0.04) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(34, 197, 94, 0.04) 100%);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        background-image:
+            linear-gradient(135deg, rgba(249, 115, 22, 0.04) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(34, 197, 94, 0.04) 100%),
+            url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f97316' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+
+    /* --- Message Bubbles (Glass) --- */
+    .msg-bubble {
+        border-radius: 14px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 1px rgba(0, 0, 0, 0.08);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+    }
+    .msg-outbound {
+        background: rgba(220, 252, 231, 0.75);
+        border: 1px solid rgba(187, 247, 208, 0.6);
+        color: #1e293b;
+        border-top-right-radius: 4px;
+    }
+    .msg-inbound {
+        background: rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(226, 232, 240, 0.6);
+        color: #1e293b;
+        border-top-left-radius: 4px;
+    }
+
+    /* --- Input Area --- */
+    .input-area {
+        background: white;
+        border-top: 1px solid #e2e8f0;
+        padding: 10px 14px;
+    }
+
+    /* --- Attach Menu --- */
+    .attach-menu {
+        position: absolute;
+        bottom: 48px;
+        left: 0;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 160px;
+        z-index: 50;
+    }
+    .attach-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: #475569;
+        border-radius: 8px;
+        transition: all 0.15s;
+        cursor: pointer;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+    }
+    .attach-menu-item:hover {
+        background: #f8fafc;
+        color: #ea580c;
+    }
+
+    /* --- Template Picker --- */
+    .template-picker {
+        margin-top: 10px;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        padding: 14px;
+        max-height: 260px;
+        overflow-y: auto;
+    }
+
+    /* --- Scrollbar Styling --- */
+    .wa-live-chat ::-webkit-scrollbar {
+        width: 4px;
+    }
+    .wa-live-chat ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .wa-live-chat ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+    }
+    .wa-live-chat ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+
+    /* --- Incident Popup --- */
     .incident-popup-body :global(.mobile-page) {
         min-height: auto;
         background: white;
