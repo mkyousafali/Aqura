@@ -38,6 +38,16 @@
     // Cache for user display names
     let userNameCache: Record<string, string> = {};
 
+    // Generate a consistent HSL color from a string (name or phone)
+    function avatarColor(str: string): string {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const hue = ((hash % 360) + 360) % 360;
+        return `hsl(${hue}, 55%, 45%)`;
+    }
+
     interface WATemplate {
         id: string;
         name: string;
@@ -612,7 +622,7 @@
                         on:click={() => selectConversation(conv)}>
                         <!-- Avatar -->
                         <div class="relative flex-shrink-0">
-                            <div class="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-lg font-bold text-slate-500">
+                            <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
                                 {(conv.customer_name || '?')[0].toUpperCase()}
                             </div>
                             <span class="absolute -bottom-0.5 -right-0.5 text-sm">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
@@ -651,7 +661,7 @@
             <!-- Chat Header -->
             <div class="bg-emerald-600 text-white px-5 py-3 flex items-center justify-between shadow-sm">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white" style="background:{avatarColor(selectedConv.customer_name || selectedConv.customer_phone)}">
                         {(selectedConv.customer_name || '?')[0].toUpperCase()}
                     </div>
                     <div>
