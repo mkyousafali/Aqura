@@ -1438,20 +1438,42 @@ async function sendWhatsAppMessage(
       messagePayload.interactive?.body?.text ||
       `[${messagePayload.type}]`;
 
+    // Extract media_url from the payload for image/video/document/audio
+    const msgType = messagePayload.type || "text";
+    let mediaUrl: string | null = null;
+    let mediaMimeType: string | null = null;
+    if (msgType === "image" && messagePayload.image?.link) {
+      mediaUrl = messagePayload.image.link;
+      mediaMimeType = "image/jpeg";
+    } else if (msgType === "video" && messagePayload.video?.link) {
+      mediaUrl = messagePayload.video.link;
+      mediaMimeType = "video/mp4";
+    } else if (msgType === "document" && messagePayload.document?.link) {
+      mediaUrl = messagePayload.document.link;
+      mediaMimeType = "application/pdf";
+    } else if (msgType === "audio" && messagePayload.audio?.link) {
+      mediaUrl = messagePayload.audio.link;
+      mediaMimeType = "audio/ogg";
+    }
+
     await supabase.from("wa_messages").insert({
       conversation_id: conversationId,
       whatsapp_message_id: waMessageId,
       direction: "outbound",
-      message_type: messagePayload.type || "text",
+      message_type: msgType,
       content,
+      media_url: mediaUrl,
+      media_mime_type: mediaMimeType,
       status: "sent",
       sent_by: sentBy,
     });
 
-    // Update conversation last_message_at
+    // Update conversation last_message_at and preview
+    const previewMap: Record<string, string> = { image: "📷 Image", video: "🎥 Video", document: "📎 Document", audio: "🎵 Audio" };
+    const preview = previewMap[msgType] || content?.substring(0, 100) || "";
     await supabase
       .from("wa_conversations")
-      .update({ last_message_at: new Date().toISOString() })
+      .update({ last_message_at: new Date().toISOString(), last_message_preview: preview })
       .eq("id", conversationId);
 
     return true;

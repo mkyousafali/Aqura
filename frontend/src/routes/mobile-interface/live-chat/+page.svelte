@@ -28,8 +28,12 @@
 		template_name: string | null;
 		status: string;
 		sent_by: string;
+		sent_by_user_id: string | null;
 		created_at: string;
 	}
+
+	// Cache for user display names
+	let userNameCache: Record<string, string> = {};
 
 	interface WATemplate {
 		id: string;
@@ -175,11 +179,22 @@
 		try {
 			const { data } = await supabase
 				.from('wa_messages')
-				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, created_at')
+				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, created_at')
 				.eq('conversation_id', convId)
 				.order('created_at', { ascending: true })
 				.limit(200);
 			messages = data || [];
+			// Load employee names for messages sent by users
+			const userIds = [...new Set((data || []).filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
+			if (userIds.length > 0) {
+				const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
+				if (employees) {
+					for (const emp of employees) {
+						userNameCache[emp.user_id] = (isRTL ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
+					}
+					userNameCache = { ...userNameCache };
+				}
+			}
 			if (!silent) {
 				await tick();
 				scrollToBottom();
@@ -207,7 +222,8 @@
 				message_type: 'text',
 				content: messageInput.trim(),
 				status: 'sending',
-				sent_by: 'user'
+				sent_by: 'user',
+				sent_by_user_id: $currentUser?.id || null
 			});
 
 			const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
@@ -281,7 +297,8 @@
 				content: template.body_text,
 				template_name: template.name,
 				status: 'sent',
-				sent_by: 'user'
+				sent_by: 'user',
+				sent_by_user_id: $currentUser?.id || null
 			});
 
 			await supabase.from('wa_conversations').update({
@@ -403,7 +420,8 @@
 				media_url: publicUrl,
 				media_mime_type: file.type,
 				status: 'sent',
-				sent_by: 'user'
+				sent_by: 'user',
+				sent_by_user_id: $currentUser?.id || null
 			});
 
 			await supabase.from('wa_conversations').update({
@@ -517,7 +535,8 @@
 				media_url: publicUrl,
 				media_mime_type: 'audio/ogg; codecs=opus',
 				status: 'sent',
-				sent_by: 'user'
+				sent_by: 'user',
+				sent_by_user_id: $currentUser?.id || null
 			});
 
 			await supabase.from('wa_conversations').update({
@@ -676,6 +695,18 @@
 					{#each messages as msg}
 						<div class="wa-msg-row" class:outbound={msg.direction === 'outbound'} class:inbound={msg.direction !== 'outbound'}>
 							<div class="wa-msg-bubble" class:wa-msg-out={msg.direction === 'outbound'} class:wa-msg-in={msg.direction !== 'outbound'}>
+								<!-- Sender label -->
+								{#if msg.direction === 'outbound'}
+									{#if msg.sent_by === 'ai_bot'}
+										<div class="wa-sender-label" style="color: #7c3aed;">🤖 {isRTL ? 'بوت الذكاء الاصطناعي' : 'AI Bot'}</div>
+									{:else if msg.sent_by === 'auto_reply' || msg.sent_by === 'auto_reply_bot'}
+										<div class="wa-sender-label" style="color: #2563eb;">🔧 {isRTL ? 'بوت الرد التلقائي' : 'Auto Reply Bot'}</div>
+									{:else if msg.sent_by === 'user' && msg.sent_by_user_id}
+										<div class="wa-sender-label" style="color: #15803d;">👤 {userNameCache[msg.sent_by_user_id] || (isRTL ? 'مستخدم' : 'User')}</div>
+									{:else if msg.sent_by === 'user'}
+										<div class="wa-sender-label" style="color: #15803d;">👤 {isRTL ? 'مستخدم' : 'User'}</div>
+									{/if}
+								{/if}
 								<!-- Image -->
 								{#if msg.message_type === 'image' && msg.media_url}
 									<img src={msg.media_url} alt="" class="wa-msg-image" on:click={() => window.open(msg.media_url || '', '_blank')} />
@@ -715,11 +746,6 @@
 									<span class="wa-msg-time">{formatMsgTime(msg.created_at)}</span>
 									{#if msg.direction === 'outbound'}
 										<span class="wa-msg-tick" class:read={msg.status === 'read'}>{getStatusTick(msg.status)}</span>
-									{/if}
-									{#if msg.sent_by === 'ai_bot'}
-										<span class="wa-msg-bot-tag">🤖</span>
-									{:else if msg.sent_by === 'auto_reply_bot'}
-										<span class="wa-msg-bot-tag">🔧</span>
 									{/if}
 								</div>
 							</div>
@@ -1290,6 +1316,11 @@
 		font-style: italic;
 		display: block;
 		margin-top: 2px;
+	}
+	.wa-sender-label {
+		font-size: 11px;
+		font-weight: 600;
+		margin-bottom: 2px;
 	}
 	.wa-msg-meta {
 		display: flex;
