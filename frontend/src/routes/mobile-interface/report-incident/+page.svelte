@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { get } from 'svelte/store';
 	import { supabase } from '$lib/utils/supabase';
 	import { _ as t, currentLocale } from '$lib/i18n';
+
+	// Accept optional preset from parent (desktop popup) or query param (mobile nav)
+	export let presetTypeId: string = '';
+	export let presetCustomerName: string = '';
+	export let presetCustomerPhone: string = '';
 	
 	interface IncidentType {
 		id: string;
@@ -147,6 +153,19 @@
 			loadViolations(),
 			loadEmployees()
 		]);
+
+		// Auto-select incident type from prop or query param
+		const typeToSelect = presetTypeId || $page.url.searchParams.get('type') || '';
+		if (typeToSelect && incidentTypes.length > 0) {
+			const match = incidentTypes.find(it => it.id === typeToSelect);
+			if (match) selectedIncidentType = match;
+		}
+
+		// Auto-fill customer name and contact from props or query params
+		const nameToFill = presetCustomerName || $page.url.searchParams.get('name') || '';
+		const phoneToFill = presetCustomerPhone || $page.url.searchParams.get('phone') || '';
+		if (nameToFill) customerName = nameToFill;
+		if (phoneToFill) customerContact = phoneToFill;
 		
 		loading = false;
 	});
