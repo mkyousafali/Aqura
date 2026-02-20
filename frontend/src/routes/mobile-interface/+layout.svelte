@@ -26,6 +26,7 @@
 	let hasReportsPermission = false;
 	let hasBranchPerformancePermission = false;
 	let hasIncidentManagerPermission = false;
+	let hasLiveChatPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -555,6 +556,7 @@
 		if (!currentUserData?.id) {
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
+			hasLiveChatPermission = false;
 			return;
 		}
 
@@ -570,6 +572,7 @@
 				console.error('Error loading button permissions:', error);
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
+				hasLiveChatPermission = false;
 				return;
 			}
 
@@ -587,6 +590,7 @@
 					console.error('Error fetching button codes:', btnError);
 					hasReportsPermission = false;
 					hasBranchPerformancePermission = false;
+					hasLiveChatPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
@@ -594,6 +598,7 @@
 					// Check for specific button permissions
 					hasReportsPermission = buttonCodes.has('SALES_REPORT');
 					hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
+					hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
 					
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
@@ -604,6 +609,7 @@
 			} else {
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
+				hasLiveChatPermission = false;
 			}
 			
 			// Check for incident manager permission from approval_permissions
@@ -612,6 +618,7 @@
 			console.error('Error loading button permissions:', err);
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
+			hasLiveChatPermission = false;
 		}
 	}
 	
@@ -674,6 +681,7 @@
 		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'فحص الأسعار' : 'Price Checker';
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
 		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
+		if (path === '/mobile-interface/live-chat' || path === '/mobile-interface/live-chat/') return locale === 'ar' ? 'الدردشة المباشرة' : 'Live Chat';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1058,7 +1066,7 @@
 
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/live-chat')}>
 					{#if incidentCount > 0}
 						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
 					{/if}
@@ -1103,6 +1111,15 @@
 							</svg>
 							<span>{$currentLocale === 'ar' ? 'اتصال ورسائل' : 'Call & Message'}</span>
 						</a>
+						{#if hasLiveChatPermission}
+							<!-- WhatsApp Live Chat -->
+							<a href="/mobile-interface/live-chat" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/live-chat')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'الدردشة المباشرة' : 'Live Chat'}</span>
+							</a>
+						{/if}
 					</div>
 				{/if}
 			</div>
