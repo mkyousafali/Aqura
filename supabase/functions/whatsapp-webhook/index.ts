@@ -101,7 +101,7 @@ async function handleStatusUpdate(supabase: any, status: any, phoneNumberId: str
         status: msgStatus,
         ...(msgStatus === "delivered" ? { delivered_at: new Date(parseInt(timestamp) * 1000).toISOString() } : {}),
         ...(msgStatus === "read" ? { read_at: new Date(parseInt(timestamp) * 1000).toISOString() } : {}),
-        ...(msgStatus === "failed" ? { error_message: errors?.[0]?.title || "Unknown error" } : {}),
+        ...(msgStatus === "failed" ? { error_details: errors?.[0]?.title || "Unknown error" } : {}),
       })
       .eq("whatsapp_message_id", id);
 
@@ -140,50 +140,37 @@ async function handleIncomingMessage(
 
     const { data: existingConv } = await supabase
       .from("wa_conversations")
-      .select("id, last_message_at, window_expires_at")
+      .select("id, last_message_at, window_expires_at, unread_count")
       .eq("customer_phone", senderPhone)
-      .eq("account_id", accountId)
-      .eq("status", "open")
+      .eq("wa_account_id", accountId)
+      .eq("status", "active")
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
     if (existingConv) {
       conversationId = existingConv.id;
-      // Update conversation
+      // Update conversation with incremented unread count
+      const currentUnread = (existingConv as any).unread_count || 0;
       await supabase
         .from("wa_conversations")
         .update({
           last_message_at: new Date(parseInt(timestamp) * 1000).toISOString(),
-          unread_count: supabase.rpc ? undefined : 0, // will increment below
+          unread_count: currentUnread + 1,
           window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           customer_name: senderName,
         })
         .eq("id", conversationId);
-
-      // Increment unread count
-      await supabase.rpc("increment_field", {
-        table_name: "wa_conversations",
-        field_name: "unread_count",
-        row_id: conversationId,
-        increment_by: 1,
-      }).catch(() => {
-        // Fallback: just update
-        supabase
-          .from("wa_conversations")
-          .update({ unread_count: (existingConv as any).unread_count + 1 })
-          .eq("id", conversationId);
-      });
     } else {
       // Create new conversation
       const { data: newConv, error: convError } = await supabase
         .from("wa_conversations")
         .insert({
-          account_id: accountId,
+          wa_account_id: accountId,
           branch_id: branchId,
           customer_phone: senderPhone,
           customer_name: senderName,
-          status: "open",
+          status: "active",
           handled_by: "bot",
           last_message_at: new Date(parseInt(timestamp) * 1000).toISOString(),
           window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -203,37 +190,53 @@ async function handleIncomingMessage(
     let content = "";
     let messageType = message.type || "text";
     let mediaUrl: string | null = null;
+    let mediaMimeType: string | null = null;
 
     switch (messageType) {
       case "text":
         content = message.text?.body || "";
         break;
-      case "image":
+      case "image": {
         content = message.image?.caption || "[Image]";
-        mediaUrl = await getMediaUrl(message.image?.id);
+        const imgResult = await getMediaUrl(message.image?.id);
+        mediaUrl = imgResult.url;
+        mediaMimeType = imgResult.mimeType;
         break;
-      case "video":
+      }
+      case "video": {
         content = message.video?.caption || "[Video]";
-        mediaUrl = await getMediaUrl(message.video?.id);
+        const vidResult = await getMediaUrl(message.video?.id);
+        mediaUrl = vidResult.url;
+        mediaMimeType = vidResult.mimeType;
         break;
-      case "audio":
+      }
+      case "audio": {
         content = "[Audio]";
-        mediaUrl = await getMediaUrl(message.audio?.id);
+        const audResult = await getMediaUrl(message.audio?.id);
+        mediaUrl = audResult.url;
+        mediaMimeType = audResult.mimeType;
         break;
-      case "document":
+      }
+      case "document": {
         content = message.document?.caption || message.document?.filename || "[Document]";
-        mediaUrl = await getMediaUrl(message.document?.id);
+        const docResult = await getMediaUrl(message.document?.id);
+        mediaUrl = docResult.url;
+        mediaMimeType = docResult.mimeType;
         break;
+      }
       case "location":
         content = `[Location: ${message.location?.latitude}, ${message.location?.longitude}]`;
         break;
       case "contacts":
         content = `[Contact: ${message.contacts?.[0]?.name?.formatted_name || "Unknown"}]`;
         break;
-      case "sticker":
+      case "sticker": {
         content = "[Sticker]";
-        mediaUrl = await getMediaUrl(message.sticker?.id);
+        const stkResult = await getMediaUrl(message.sticker?.id);
+        mediaUrl = stkResult.url;
+        mediaMimeType = stkResult.mimeType;
         break;
+      }
       case "interactive":
         // Button reply or list reply
         if (message.interactive?.type === "button_reply") {
@@ -258,6 +261,7 @@ async function handleIncomingMessage(
       message_type: messageType,
       content,
       media_url: mediaUrl,
+      media_mime_type: mediaMimeType,
       status: "received",
       sent_by: "customer",
       created_at: new Date(parseInt(timestamp) * 1000).toISOString(),
@@ -267,6 +271,12 @@ async function handleIncomingMessage(
       console.error("Failed to save message:", msgError);
       return;
     }
+
+    // ─── Update conversation preview ────────────────
+    await supabase
+      .from("wa_conversations")
+      .update({ last_message_preview: content.substring(0, 100) })
+      .eq("id", conversationId);
 
     // ─── Trigger Auto-Reply Bot ─────────────────────
     if (messageType === "text" && content) {
@@ -283,16 +293,69 @@ async function handleIncomingMessage(
 }
 
 // ─── Get Media URL from WhatsApp ───────────────────────────────────
-async function getMediaUrl(mediaId: string | undefined): Promise<string | null> {
-  if (!mediaId || !WHATSAPP_TOKEN) return null;
+async function getMediaUrl(mediaId: string | undefined): Promise<{ url: string | null; mimeType: string | null }> {
+  if (!mediaId || !WHATSAPP_TOKEN) return { url: null, mimeType: null };
   try {
+    // Step 1: Get the temporary download URL from Meta
     const res = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
       headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
     });
     const data = await res.json();
-    return data.url || null;
-  } catch {
-    return null;
+    const tempUrl = data.url;
+    if (!tempUrl) return { url: null, mimeType: null };
+
+    const mimeType = data.mime_type || "application/octet-stream";
+
+    // Step 2: Download the actual media binary
+    const mediaRes = await fetch(tempUrl, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+    });
+    if (!mediaRes.ok) {
+      console.error("Failed to download media:", mediaRes.status);
+      return { url: null, mimeType };
+    }
+
+    const blob = await mediaRes.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+
+    // Step 3: Determine file extension
+    const extMap: Record<string, string> = {
+      "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+      "video/mp4": "mp4", "video/3gpp": "3gp", "audio/ogg": "ogg", "audio/mpeg": "mp3",
+      "audio/aac": "aac", "audio/ogg; codecs=opus": "ogg", "application/pdf": "pdf",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx", "image/avif": "avif",
+    };
+    const ext = extMap[mimeType] || extMap[mimeType.split(";")[0].trim()] || "bin";
+    const fileName = `wa-media/${Date.now()}_${mediaId}.${ext}`;
+
+    // Step 4: Upload to Supabase Storage
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    const uploadRes = await fetch(`${supabaseUrl}/storage/v1/object/whatsapp-media/${fileName}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${supabaseServiceKey}`,
+        "Content-Type": mimeType.split(";")[0].trim(),
+        "x-upsert": "true",
+      },
+      body: uint8,
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      console.error("Failed to upload media to storage:", errText);
+      return { url: tempUrl, mimeType };
+    }
+
+    // Step 5: Return public URL (use external URL, not internal Kong URL)
+    const publicUrl = "https://supabase.urbanaqura.com";
+    return { url: `${publicUrl}/storage/v1/object/public/whatsapp-media/${fileName}`, mimeType };
+  } catch (err) {
+    console.error("getMediaUrl error:", err);
+    return { url: null, mimeType: null };
   }
 }
 
@@ -320,8 +383,8 @@ async function tryAutoReply(
       .from("wa_auto_reply_triggers")
       .select("*")
       .eq("is_active", true)
-      .or(accountId ? `account_id.eq.${accountId},account_id.is.null` : "account_id.is.null")
-      .order("priority", { ascending: true });
+      .or(accountId ? `wa_account_id.eq.${accountId},wa_account_id.is.null` : "wa_account_id.is.null")
+      .order("sort_order", { ascending: true });
 
     if (!triggers || triggers.length === 0) {
       // No auto-reply triggers — try AI bot
@@ -452,11 +515,7 @@ async function tryAIReply(
     const query = supabase
       .from("wa_ai_bot_config")
       .select("*")
-      .eq("is_active", true);
-
-    if (accountId) {
-      query.or(`account_id.eq.${accountId},account_id.is.null`);
-    }
+      .eq("is_enabled", true);
 
     const { data: configs } = await query.order("created_at", { ascending: false }).limit(1);
     const config = configs?.[0];
