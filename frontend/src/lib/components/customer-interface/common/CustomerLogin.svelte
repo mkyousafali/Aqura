@@ -102,7 +102,7 @@
 		
 		console.log('🔍 [Validation] Clean number with country code:', cleanNumber);
 		console.log('🔍 [Validation] Final number length:', cleanNumber.length);
-		whatsappValid = cleanNumber.length >= 10 && cleanNumber.length <= 15;
+		whatsappValid = cleanNumber.length === 12 && cleanNumber.startsWith('9665');
 		console.log('🔍 [Validation] WhatsApp valid:', whatsappValid);
 		return whatsappValid;
 	}
@@ -653,14 +653,16 @@
 			value = value.substring(1);
 		}
 		
-		// Format with spaces
-		if (value.length <= 9) {
-			if (value.length > 1) {
-				value = value.substring(0, 1) + ' ' + value.substring(1);
-			}
-			if (value.length > 5) {
-				value = value.substring(0, 5) + ' ' + value.substring(5);
-			}
+		// Limit to 9 digits (Saudi mobile: 5XXXXXXXX)
+		if (value.length > 9) {
+			value = value.substring(0, 9);
+		}
+		
+		// Format with spaces: 5XX XXX XXX
+		if (value.length > 6) {
+			value = value.substring(0, 3) + ' ' + value.substring(3, 6) + ' ' + value.substring(6);
+		} else if (value.length > 3) {
+			value = value.substring(0, 3) + ' ' + value.substring(3);
 		}
 		
 	whatsappNumber = value;

@@ -12,6 +12,7 @@
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
 
 	async function handleUpdateClick() {
 		const fn = $triggerUpdate;
@@ -155,6 +156,9 @@
 			
 			// Load button permissions
 			loadButtonPermissions();
+			
+			// Initialize WA unread count monitoring
+			initWAUnreadMonitoring();
 			
 			// Initialize notification sound system for mobile
 			// 🔴 DISABLED: Real-time notification listener disabled
@@ -681,7 +685,7 @@
 		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'فحص الأسعار' : 'Price Checker';
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
 		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
-		if (path === '/mobile-interface/live-chat' || path === '/mobile-interface/live-chat/') return locale === 'ar' ? 'الدردشة المباشرة' : 'Live Chat';
+		if (path === '/mobile-interface/live-chat' || path === '/mobile-interface/live-chat/') return locale === 'ar' ? 'دعم برنامج الولاء' : 'Loyalty Program Support';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1112,12 +1116,15 @@
 							<span>{$currentLocale === 'ar' ? 'اتصال ورسائل' : 'Call & Message'}</span>
 						</a>
 						{#if hasLiveChatPermission}
-							<!-- WhatsApp Live Chat -->
+							<!-- Loyalty Program Support -->
 							<a href="/mobile-interface/live-chat" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/live-chat')}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'الدردشة المباشرة' : 'Live Chat'}</span>
+								<span>{$currentLocale === 'ar' ? 'دعم برنامج الولاء' : 'Loyalty Program Support'}</span>
+								{#if $waUnreadCounts.total > 0}
+									<span class="wa-unread-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
+								{/if}
 							</a>
 						{/if}
 					</div>
@@ -2204,6 +2211,19 @@
 	.emergencies-submenu-item:hover {
 		background: rgba(220, 38, 38, 0.05);
 		color: #DC2626;
+	}
+
+	.wa-unread-badge {
+		background: #25D366;
+		color: white;
+		font-size: 11px;
+		font-weight: 700;
+		padding: 1px 6px;
+		border-radius: 10px;
+		margin-left: auto;
+		min-width: 18px;
+		text-align: center;
+		line-height: 16px;
 	}
 
 	.emergencies-submenu-item.active {

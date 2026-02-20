@@ -5,6 +5,7 @@ export interface WindowConfig {
   id: string;
   title: string;
   component: any; // Svelte component
+  componentName?: string; // Explicit component name for pop-out serialization
   props?: Record<string, any>;
   icon?: string;
   position: { x: number; y: number };
@@ -25,6 +26,7 @@ export interface WindowConfig {
   popOutEnabled?: boolean; // New property for pop-out functionality
   isPoppedOut?: boolean; // Track if window is currently popped out
   popOutWindow?: Window; // Reference to the popped out window
+  refreshKey?: number; // Increment to force component remount
 }
 
 export interface TaskbarItem {
@@ -100,6 +102,7 @@ class WindowManager {
       id: windowId,
       title: config.title,
       component: config.component,
+      componentName: config.componentName,
       props: config.props || {},
       icon: config.icon,
       position: config.position || defaultPosition,
@@ -119,7 +122,30 @@ class WindowManager {
       popOutEnabled: config.popOutEnabled !== false, // Enable pop-out by default
       isPoppedOut: false,
       popOutWindow: undefined,
+      refreshKey: 0,
     };
+
+    // Auto-detect componentName if not explicitly provided
+    if (!newWindow.componentName) {
+      try {
+        // Strategy 1: Svelte HMR proxy metadata (Vite dev mode)
+        const hmrId = config.component?.__hmr?.id || config.component?.__file;
+        if (hmrId) {
+          const match = hmrId.match(/([^/\\]+)\.svelte$/);
+          if (match) newWindow.componentName = match[1];
+        }
+      } catch {}
+      // Strategy 2: Function/class name (works in production builds)
+      if (!newWindow.componentName) {
+        const name = config.component?.name;
+        if (name && name !== 'wrapper' && name !== 'Proxy' && name !== 'Component' && name !== 'UnknownComponent' && name.length > 1) {
+          newWindow.componentName = name;
+        }
+      }
+      if (newWindow.componentName) {
+        console.log('🪟 Auto-detected componentName:', newWindow.componentName);
+      }
+    }
 
     this.windows.update((windows) => {
       // Deactivate all other windows
@@ -415,8 +441,8 @@ class WindowManager {
     const baseUrl = currentUrl.split("#")[0].split("?")[0]; // Remove any hash and query params
 
     // Serialize the window data to pass to iframe
-    // Try to get the real component name, not the wrapper
-    let componentName = windowConfig.component?.name;
+    // Use explicit componentName if set, otherwise try component.name
+    let componentName = windowConfig.componentName || windowConfig.component?.name;
 
     // If it's a wrapper, try to get the actual component name from the title or other means
     if (
@@ -466,12 +492,24 @@ class WindowManager {
         componentName = "UserManagement";
       } else if (windowConfig.title.includes("Communication Center")) {
         componentName = "CommunicationCenter";
+      } else if (windowConfig.title.includes("Delivery Settings")) {
+        componentName = "DeliverySettings";
       } else if (windowConfig.title.includes("Settings")) {
         componentName = "Settings";
       } else if (windowConfig.title.includes("Edit User")) {
         componentName = "EditUser";
       } else if (windowConfig.title.includes("Notification Center")) {
         componentName = "NotificationCenter";
+      } else if (windowConfig.title.includes("Chat —") || windowConfig.title.includes("Chat -") || windowConfig.title.includes("Live Chat")) {
+        componentName = "WALiveChat";
+      } else if (windowConfig.title.includes("Customer Account Recovery") || windowConfig.title.includes("Account Recovery")) {
+        componentName = "CustomerAccountRecoveryManager";
+      } else if (windowConfig.title.includes("Customer Master")) {
+        componentName = "CustomerMaster";
+      } else if (windowConfig.title.includes("Approval Center")) {
+        componentName = "ApprovalCenter";
+      } else if (windowConfig.title.includes("My Tasks")) {
+        componentName = "MyTasksView";
       } else {
         console.warn("🪟 Unknown window title pattern:", windowConfig.title);
         componentName = "UnknownComponent";
@@ -792,8 +830,8 @@ class WindowManager {
     this.windows.update((windows) => {
       const windowConfig = windows.get(windowId);
       if (windowConfig) {
-        // Force component re-render by creating new props object
-        windowConfig.props = { ...windowConfig.props };
+        // Increment refreshKey to force component remount via {#key}
+        windowConfig.refreshKey = (windowConfig.refreshKey || 0) + 1;
       }
       return windows;
     });

@@ -32,6 +32,10 @@
     let languageFilter = 'all';
     let accountId = '';
     let editingId: string | null = null;
+    let uploading = false;
+    let uploadProgress = '';
+    let fileInputEl: HTMLInputElement;
+    let refreshingStatusId: string | null = null;
 
     // Create/Edit form
     let form = {
@@ -140,7 +144,61 @@
             if (!form.name) throw new Error('Template name is required');
             if (!form.body_text) throw new Error('Body text is required');
 
-            const payload = {
+            // Auto-fix template name: lowercase, replace spaces with underscores, remove invalid chars
+            form.name = form.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            if (!form.name) throw new Error('Template name must contain letters, numbers, or underscores only');
+
+            // Build Meta API template components
+            const components: any[] = [];
+
+            // Header component
+            if (form.header_type !== 'none') {
+                if (form.header_type === 'text') {
+                    components.push({ type: 'HEADER', format: 'TEXT', text: form.header_content || 'Header' });
+                } else {
+                    // For IMAGE/VIDEO/DOCUMENT — pass media_url so edge function can upload to Meta and get handle
+                    const headerComp: any = { type: 'HEADER', format: form.header_type.toUpperCase() };
+                    if (form.header_content) {
+                        headerComp.media_url = form.header_content;
+                    }
+                    components.push(headerComp);
+                }
+            }
+
+            // Body component — detect variables like {{1}}, {{2}} and add examples
+            const bodyComponent: any = { type: 'BODY', text: form.body_text };
+            const varMatches = form.body_text.match(/\{\{\d+\}\}/g);
+            if (varMatches) {
+                const uniqueVars = [...new Set(varMatches)];
+                bodyComponent.example = {
+                    body_text: [uniqueVars.map((_, i) => `Sample ${i + 1}`)]
+                };
+            }
+            components.push(bodyComponent);
+
+            // Footer component
+            if (form.footer_text) {
+                components.push({ type: 'FOOTER', text: form.footer_text });
+            }
+
+            // Button components
+            if (form.buttons.length > 0) {
+                const btnComponents: any[] = form.buttons.map(btn => {
+                    if (btn.type === 'URL') return { type: 'URL', text: btn.text, url: btn.url };
+                    if (btn.type === 'PHONE_NUMBER') return { type: 'PHONE_NUMBER', text: btn.text, phone_number: btn.phone_number };
+                    return { type: 'QUICK_REPLY', text: btn.text };
+                });
+                components.push({ type: 'BUTTONS', buttons: btnComponents });
+            }
+
+            const metaTemplate = {
+                name: form.name,
+                category: form.category,
+                language: form.language,
+                components
+            };
+
+            const dbPayload = {
                 wa_account_id: accountId,
                 name: form.name,
                 category: form.category,
@@ -155,15 +213,39 @@
             };
 
             if (editingId) {
-                const { error: err } = await supabase.from('wa_templates').update(payload).eq('id', editingId);
+                // Edit: only update local DB
+                const { error: err } = await supabase.from('wa_templates').update(dbPayload).eq('id', editingId);
                 if (err) throw err;
+                successMsg = 'Template updated locally!';
             } else {
-                const { error: err } = await supabase.from('wa_templates').insert(payload);
+                // Create: submit to Meta first, then save to DB with meta_template_id
+                const { data: metaResult, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+                    body: { action: 'create_template', account_id: accountId, template: metaTemplate }
+                });
+                
+                // Handle errors - edge function may return error in data or as fnErr
+                if (fnErr) {
+                    // Try to parse the error body for details
+                    const errMsg = typeof fnErr === 'object' && fnErr.message ? fnErr.message : String(fnErr);
+                    throw new Error('Meta submission failed: ' + errMsg);
+                }
+                if (metaResult?.error) {
+                    throw new Error('Meta API: ' + (metaResult.details || metaResult.error));
+                }
+
+                const metaId = metaResult?.data?.id || '';
+                const metaStatus = metaResult?.data?.status || 'PENDING';
+
+                const { error: err } = await supabase.from('wa_templates').insert({
+                    ...dbPayload,
+                    meta_template_id: metaId,
+                    status: metaStatus
+                });
                 if (err) throw err;
+                successMsg = `Template submitted to Meta! Status: ${metaStatus}`;
             }
 
-            successMsg = editingId ? 'Template updated!' : 'Template created!';
-            setTimeout(() => successMsg = '', 3000);
+            setTimeout(() => successMsg = '', 4000);
             activeView = 'list';
             editingId = null;
             await loadTemplates();
@@ -221,6 +303,7 @@
         switch (status) {
             case 'APPROVED': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
             case 'PENDING': return 'bg-amber-100 text-amber-700 border-amber-200';
+            case 'REJECTED': return 'bg-red-100 text-red-700 border-red-200';
             default: return 'bg-slate-100 text-slate-600 border-slate-200';
         }
     }
@@ -229,7 +312,100 @@
         switch (status) {
             case 'APPROVED': return '✅';
             case 'PENDING': return '⏳';
+            case 'REJECTED': return '❌';
             default: return '❓';
+        }
+    }
+
+    async function refreshTemplateStatus(template: WATemplate) {
+        refreshingStatusId = template.id;
+        try {
+            // Call edge function to get templates from Meta
+            const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+                body: { action: 'get_templates', account_id: accountId }
+            });
+            if (fnErr) throw fnErr;
+
+            const metaTemplates = result?.data?.data || [];
+            // Find matching template by name and language
+            const metaMatch = metaTemplates.find((mt: any) => mt.name === template.name && mt.language === template.language);
+            if (metaMatch) {
+                const newStatus = metaMatch.status;
+                if (newStatus !== template.status) {
+                    // Update in DB
+                    await supabase.from('wa_templates').update({
+                        status: newStatus,
+                        meta_template_id: metaMatch.id || template.meta_template_id,
+                        updated_at: new Date().toISOString()
+                    }).eq('id', template.id);
+                    // Update locally
+                    template.status = newStatus;
+                    templates = [...templates];
+                    applyFilters();
+                    successMsg = `Status updated: ${template.name} → ${newStatus}`;
+                } else {
+                    successMsg = `Status unchanged: ${template.name} is still ${newStatus}`;
+                }
+            } else {
+                successMsg = `Template "${template.name}" not found on Meta. It may not have been submitted yet.`;
+            }
+            setTimeout(() => successMsg = '', 4000);
+        } catch (e: any) {
+            error = 'Failed to refresh status: ' + e.message;
+        } finally {
+            refreshingStatusId = null;
+        }
+    }
+
+    // Media upload for header
+    function getAcceptTypes(headerType: string): string {
+        switch (headerType) {
+            case 'image': return 'image/jpeg,image/png,image/webp';
+            case 'video': return 'video/mp4,video/3gpp';
+            case 'document': return '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt';
+            default: return '*/*';
+        }
+    }
+
+    function triggerFileUpload() {
+        if (fileInputEl) {
+            fileInputEl.accept = getAcceptTypes(form.header_type);
+            fileInputEl.click();
+        }
+    }
+
+    async function handleFileUpload(event: Event) {
+        const input = event.target as HTMLInputElement;
+        const file = input?.files?.[0];
+        if (!file) return;
+
+        uploading = true;
+        uploadProgress = 'Uploading...';
+        error = '';
+        try {
+            const ext = file.name.split('.').pop() || 'bin';
+            const fileName = `template_${form.header_type}_${Date.now()}.${ext}`;
+            const filePath = `${accountId}/templates/${fileName}`;
+
+            const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(filePath, file, {
+                contentType: file.type,
+                upsert: false
+            });
+            if (uploadErr) throw uploadErr;
+
+            const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
+            const publicUrl = urlData?.publicUrl;
+            if (!publicUrl) throw new Error('Failed to get public URL');
+
+            form.header_content = publicUrl;
+            uploadProgress = '✅ Uploaded!';
+            setTimeout(() => uploadProgress = '', 3000);
+        } catch (e: any) {
+            error = 'Upload failed: ' + e.message;
+            uploadProgress = '';
+        } finally {
+            uploading = false;
+            if (input) input.value = '';
         }
     }
 
@@ -313,58 +489,114 @@
                         on:click={startCreate}>+ Create Template</button>
                 </div>
             {:else}
-                <div class="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {#each filteredTemplates as template}
-                        <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-5 hover:shadow-[0_16px_48px_-12px_rgba(0,0,0,0.1)] transition-all duration-300">
-                            <div class="flex items-start justify-between mb-3">
-                                <div>
-                                    <h4 class="font-black text-slate-800 text-sm">{template.name}</h4>
-                                    <div class="flex items-center gap-2 mt-1">
-                                        <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border {getStatusBadge(template.status)}">
-                                            {getStatusIcon(template.status)} {template.status}
-                                        </span>
-                                        <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                                            {template.category}
-                                        </span>
-                                        <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-blue-50 text-blue-600 border border-blue-200">
-                                            {template.language === 'ar' ? '🇸🇦 AR' : '🇺🇸 EN'}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {#if template.header_type !== 'none' && template.header_content}
-                                <div class="text-xs text-slate-500 mb-1 font-bold uppercase">Header: {template.header_type}</div>
-                            {/if}
-
-                            <div class="bg-slate-50 rounded-xl p-3 text-sm text-slate-700 mb-3 max-h-24 overflow-hidden">
-                                {template.body_text || 'No body text'}
-                            </div>
-
-                            {#if template.footer_text}
-                                <p class="text-[10px] text-slate-400 mb-2">{template.footer_text}</p>
-                            {/if}
-
-                            {#if template.buttons && template.buttons.length > 0}
-                                <div class="flex gap-1 mb-3">
-                                    {#each template.buttons as btn}
-                                        <span class="px-2 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg border border-blue-200">
-                                            {btn.type === 'URL' ? '🔗' : btn.type === 'PHONE_NUMBER' ? '📞' : '💬'} {btn.text}
-                                        </span>
-                                    {/each}
-                                </div>
-                            {/if}
-
-                            <div class="flex gap-2 pt-3 border-t border-slate-100">
-                                <button class="px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-100 border border-slate-200"
-                                    on:click={() => startEdit(template)}>✏️ Edit</button>
-                                <button class="px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-100 border border-slate-200"
-                                    on:click={() => duplicateTemplate(template)}>📋 Duplicate</button>
-                                <button class="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 border border-red-200"
-                                    on:click={() => deleteTemplate(template.id)}>🗑️</button>
-                            </div>
-                        </div>
-                    {/each}
+                <!-- Template Table Container -->
+                <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+                    <div class="overflow-x-auto flex-1">
+                        <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+                            <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
+                                <tr>
+                                    <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Template Name</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Status</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Category</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Language</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Header</th>
+                                    <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Body</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Buttons</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200">
+                                {#each filteredTemplates as template, index}
+                                    <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                        <!-- Name -->
+                                        <td class="px-4 py-3 text-sm text-slate-700">
+                                            <div class="font-black text-slate-800">{template.name}</div>
+                                            {#if template.footer_text}
+                                                <div class="text-[10px] text-slate-400 mt-0.5">{template.footer_text}</div>
+                                            {/if}
+                                        </td>
+                                        <!-- Status -->
+                                        <td class="px-4 py-3 text-center">
+                                            <div class="flex items-center gap-1.5 justify-center">
+                                                <span class="inline-block px-2.5 py-1 text-[10px] font-bold uppercase rounded-full border {getStatusBadge(template.status)}">
+                                                    {getStatusIcon(template.status)} {template.status}
+                                                </span>
+                                                <button class="inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-slate-100 text-slate-400 hover:text-emerald-600 transition-all duration-200 {refreshingStatusId === template.id ? 'animate-spin' : ''}"
+                                                    on:click={() => refreshTemplateStatus(template)}
+                                                    disabled={refreshingStatusId === template.id}
+                                                    title="Refresh status from Meta">
+                                                    🔄
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <!-- Category -->
+                                        <td class="px-4 py-3 text-center">
+                                            <span class="inline-block px-2.5 py-1 text-[10px] font-bold uppercase rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                                {template.category === 'MARKETING' ? '📢' : template.category === 'UTILITY' ? '🔧' : '🔐'} {template.category}
+                                            </span>
+                                        </td>
+                                        <!-- Language -->
+                                        <td class="px-4 py-3 text-center">
+                                            <span class="inline-block px-2.5 py-1 text-[10px] font-bold uppercase rounded-full bg-blue-50 text-blue-600 border border-blue-200">
+                                                {template.language === 'ar' ? '🇸🇦 AR' : '🇺🇸 EN'}
+                                            </span>
+                                        </td>
+                                        <!-- Header -->
+                                        <td class="px-4 py-3 text-center text-sm">
+                                            {#if template.header_type !== 'none' && template.header_type}
+                                                <span class="inline-block px-2 py-1 text-[10px] font-bold uppercase rounded-full {template.header_type === 'text' ? 'bg-slate-100 text-slate-600' : template.header_type === 'image' ? 'bg-purple-50 text-purple-600' : template.header_type === 'video' ? 'bg-pink-50 text-pink-600' : 'bg-amber-50 text-amber-600'} border">
+                                                    {template.header_type === 'text' ? '📄' : template.header_type === 'image' ? '🖼️' : template.header_type === 'video' ? '🎥' : '📎'} {template.header_type}
+                                                </span>
+                                            {:else}
+                                                <span class="text-slate-300 text-xs">—</span>
+                                            {/if}
+                                        </td>
+                                        <!-- Body -->
+                                        <td class="px-4 py-3 text-sm text-slate-700 max-w-xs">
+                                            <div class="truncate" title={template.body_text}>
+                                                {template.body_text || 'No body text'}
+                                            </div>
+                                        </td>
+                                        <!-- Buttons -->
+                                        <td class="px-4 py-3 text-center">
+                                            {#if template.buttons && template.buttons.length > 0}
+                                                <div class="flex flex-wrap gap-1 justify-center">
+                                                    {#each template.buttons as btn}
+                                                        <span class="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded border border-blue-200">
+                                                            {btn.type === 'URL' ? '🔗' : btn.type === 'PHONE_NUMBER' ? '📞' : '💬'} {btn.text}
+                                                        </span>
+                                                    {/each}
+                                                </div>
+                                            {:else}
+                                                <span class="text-slate-300 text-xs">—</span>
+                                            {/if}
+                                        </td>
+                                        <!-- Actions -->
+                                        <td class="px-4 py-3 text-center">
+                                            <div class="flex gap-1.5 justify-center">
+                                                <button class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
+                                                    on:click={() => startEdit(template)} title="Edit">
+                                                    ✏️ Edit
+                                                </button>
+                                                <button class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 border border-slate-200 transition-all duration-200"
+                                                    on:click={() => duplicateTemplate(template)} title="Duplicate">
+                                                    📋
+                                                </button>
+                                                <button class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-bold hover:bg-red-100 border border-red-200 transition-all duration-200"
+                                                    on:click={() => deleteTemplate(template.id)} title="Delete">
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Table Footer -->
+                    <div class="px-6 py-3 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between">
+                        <span class="text-xs text-slate-500 font-semibold">{filteredTemplates.length} of {templates.length} templates</span>
+                    </div>
                 </div>
             {/if}
         {:else}
@@ -415,10 +647,52 @@
                                     </button>
                                 {/each}
                             </div>
-                            {#if form.header_type !== 'none'}
+                            {#if form.header_type === 'text'}
                                 <input type="text" bind:value={form.header_content}
-                                    placeholder={form.header_type === 'text' ? 'Header text...' : 'Media URL...'}
+                                    placeholder="Header text..."
                                     class="w-full mt-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                            {:else if form.header_type === 'image' || form.header_type === 'video' || form.header_type === 'document'}
+                                <!-- Hidden file input -->
+                                <input type="file" bind:this={fileInputEl} on:change={handleFileUpload} class="hidden" />
+                                <div class="mt-2 space-y-2">
+                                    <!-- Upload button -->
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" class="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-xs font-bold uppercase rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
+                                            on:click={triggerFileUpload} disabled={uploading}>
+                                            {#if uploading}
+                                                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                Uploading...
+                                            {:else}
+                                                {form.header_type === 'image' ? '🖼️' : form.header_type === 'video' ? '🎥' : '📎'}
+                                                Upload {form.header_type.charAt(0).toUpperCase() + form.header_type.slice(1)}
+                                            {/if}
+                                        </button>
+                                        {#if uploadProgress}
+                                            <span class="text-xs font-semibold text-emerald-600">{uploadProgress}</span>
+                                        {/if}
+                                    </div>
+                                    <!-- Show uploaded URL or allow manual entry -->
+                                    {#if form.header_content}
+                                        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                                            <div class="flex items-center justify-between">
+                                                <div class="flex items-center gap-2 min-w-0">
+                                                    <span class="text-emerald-600 text-lg">{form.header_type === 'image' ? '🖼️' : form.header_type === 'video' ? '🎥' : '📎'}</span>
+                                                    <span class="text-xs text-emerald-700 font-semibold truncate">{form.header_content.split('/').pop()}</span>
+                                                </div>
+                                                <button type="button" class="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded hover:bg-red-50"
+                                                    on:click={() => form.header_content = ''}>✕ Remove</button>
+                                            </div>
+                                            {#if form.header_type === 'image'}
+                                                <img src={form.header_content} alt="Header preview" class="mt-2 rounded-lg max-h-32 object-cover" />
+                                            {/if}
+                                        </div>
+                                    {:else}
+                                        <p class="text-[10px] text-slate-400">Or paste a URL manually:</p>
+                                        <input type="text" bind:value={form.header_content}
+                                            placeholder="https://example.com/media-file..."
+                                            class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-xs" />
+                                    {/if}
+                                </div>
                             {/if}
                         </div>
 
@@ -501,13 +775,21 @@
                                         {#if form.header_type === 'text' && form.header_content}
                                             <p class="font-bold text-sm text-slate-800 mb-1">{form.header_content}</p>
                                         {:else if form.header_type === 'image'}
-                                            <div class="bg-slate-200 rounded-lg h-32 flex items-center justify-center text-3xl mb-2">🖼️</div>
+                                            {#if form.header_content}
+                                                <img src={form.header_content} alt="Header" class="rounded-lg max-h-32 w-full object-cover mb-2" />
+                                            {:else}
+                                                <div class="bg-slate-200 rounded-lg h-32 flex items-center justify-center text-3xl mb-2">🖼️</div>
+                                            {/if}
                                         {:else if form.header_type === 'video'}
-                                            <div class="bg-slate-200 rounded-lg h-32 flex items-center justify-center text-3xl mb-2">🎥</div>
+                                            {#if form.header_content}
+                                                <video src={form.header_content} class="rounded-lg max-h-32 w-full object-cover mb-2" controls muted></video>
+                                            {:else}
+                                                <div class="bg-slate-200 rounded-lg h-32 flex items-center justify-center text-3xl mb-2">🎥</div>
+                                            {/if}
                                         {:else if form.header_type === 'document'}
                                             <div class="bg-slate-100 rounded-lg p-3 flex items-center gap-2 mb-2">
                                                 <span class="text-2xl">📎</span>
-                                                <span class="text-xs text-slate-600">Document</span>
+                                                <span class="text-xs text-slate-600">{form.header_content ? form.header_content.split('/').pop() : 'Document'}</span>
                                             </div>
                                         {/if}
 

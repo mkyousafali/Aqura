@@ -5,9 +5,17 @@
   import { supabase } from '$lib/utils/supabase';
   import FeaturedOffers from '$lib/components/customer-interface/shopping/FeaturedOffers.svelte';
   import OfferDetailModal from '$lib/components/customer-interface/shopping/OfferDetailModal.svelte';
+  import LocationPicker from '$lib/components/desktop-interface/admin-customer-app/LocationPicker.svelte';
 
   let currentLanguage = 'ar';
   let videoContainer;
+
+  // Location setup state
+  let showLocationSetupModal = false;
+  let pickedLocation = null;
+  let customLocationName = '';
+  let savingLocation = false;
+  let customerId = '';
   let currentVideoIndex = 0;
   let currentMediaIndex = 0;
   let isVideoHidden = false;
@@ -397,6 +405,77 @@
     selectedOffer = null;
   }
 
+  // Check if customer has at least one saved location
+  async function checkCustomerLocation() {
+    try {
+      const session = localStorage.getItem('customer_session');
+      if (!session) return;
+      const parsed = JSON.parse(session);
+      customerId = parsed?.customer_id;
+      if (!customerId) return;
+
+      const { data, error } = await supabase
+        .from('customers')
+        .select('location1_lat, location1_lng, location2_lat, location2_lng, location3_lat, location3_lng')
+        .eq('id', customerId)
+        .single();
+
+      if (error) {
+        console.error('❌ [Home] Error checking locations:', error);
+        return;
+      }
+
+      // Check if at least one location has lat/lng
+      const hasLocation = (data.location1_lat && data.location1_lng) ||
+                          (data.location2_lat && data.location2_lng) ||
+                          (data.location3_lat && data.location3_lng);
+
+      if (!hasLocation) {
+        console.log('📍 [Home] No saved locations, showing location setup modal');
+        showLocationSetupModal = true;
+      }
+    } catch (e) {
+      console.error('❌ [Home] Exception checking location:', e);
+    }
+  }
+
+  function handleLocationPicked(location) {
+    pickedLocation = location;
+  }
+
+  async function saveSetupLocation() {
+    if (!pickedLocation || !customerId) return;
+
+    const locationName = customLocationName.trim() || pickedLocation.name;
+
+    try {
+      savingLocation = true;
+      const { error } = await supabase
+        .from('customers')
+        .update({
+          location1_name: locationName,
+          location1_url: pickedLocation.url,
+          location1_lat: pickedLocation.lat,
+          location1_lng: pickedLocation.lng,
+        })
+        .eq('id', customerId);
+
+      if (error) {
+        console.error('❌ [Home] Failed to save location:', error);
+        alert(currentLanguage === 'ar' ? 'فشل حفظ الموقع' : 'Failed to save location');
+      } else {
+        showLocationSetupModal = false;
+        pickedLocation = null;
+        customLocationName = '';
+      }
+    } catch (e) {
+      console.error('❌ [Home] Exception saving location:', e);
+      alert(currentLanguage === 'ar' ? 'حدث خطأ غير متوقع' : 'Unexpected error');
+    } finally {
+      savingLocation = false;
+    }
+  }
+
   onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
@@ -409,6 +488,9 @@
       goto("/customer-interface/login");
       return;
     }
+
+    // Check if customer has at least one saved location
+    await checkCustomerLocation();
 
     // Load media from database
     await loadMediaItems();
@@ -1125,7 +1207,184 @@
   />
 {/if}
 
+<!-- Location Setup Modal (shown when customer has no saved locations) -->
+{#if showLocationSetupModal}
+  <div class="loc-setup-overlay">
+    <div class="loc-setup-modal">
+      <div class="loc-setup-header">
+        <h3>📍 {currentLanguage === 'ar' ? 'حدد موقعك' : 'Set Your Location'}</h3>
+      </div>
+      <div class="loc-setup-notice">
+        <span class="loc-setup-notice-icon">ℹ️</span>
+        <p>{currentLanguage === 'ar' ? 'يرجى تحديد موقع التوصيل الخاص بك للمتابعة' : 'Please set your delivery location to continue'}</p>
+      </div>
+      <div class="loc-setup-body">
+        <LocationPicker
+          initialLat={24.7136}
+          initialLng={46.6753}
+          onLocationSelect={handleLocationPicked}
+          language={currentLanguage}
+        />
+        {#if pickedLocation}
+          <div class="picked-location-info">
+            <label for="setup-location-name" class="location-name-label">
+              {currentLanguage === 'ar' ? 'اسم الموقع (اختياري)' : 'Location Name (optional)'}
+            </label>
+            <input
+              id="setup-location-name"
+              type="text"
+              bind:value={customLocationName}
+              placeholder={currentLanguage === 'ar' ? 'مثل: المنزل، المكتب' : 'e.g. Home, Office'}
+              class="location-name-input"
+            />
+            <p class="location-address-label"><strong>{currentLanguage === 'ar' ? 'العنوان:' : 'Address:'}</strong></p>
+            <p class="location-address">{pickedLocation.name}</p>
+            <p class="location-coords">{pickedLocation.lat.toFixed(6)}, {pickedLocation.lng.toFixed(6)}</p>
+          </div>
+        {/if}
+      </div>
+      <div class="loc-setup-footer">
+        <button class="loc-save-btn" disabled={!pickedLocation || savingLocation} on:click={saveSetupLocation}>
+          {savingLocation ? (currentLanguage === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (currentLanguage === 'ar' ? '✅ حفظ الموقع والمتابعة' : '✅ Save Location & Continue')}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
+  /* ===== Location Setup Modal ===== */
+  .loc-setup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    padding: 1rem;
+  }
+  .loc-setup-modal {
+    background: white;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+  }
+  .loc-setup-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  }
+  .loc-setup-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #16a34a;
+    font-weight: 700;
+  }
+  .loc-setup-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: #fffbeb;
+    border-bottom: 1px solid #fde68a;
+  }
+  .loc-setup-notice-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  .loc-setup-notice p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #92400e;
+    font-weight: 500;
+  }
+  .loc-setup-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+  }
+  .loc-setup-footer {
+    padding: 1rem 1.25rem;
+    border-top: 1px solid #e5e7eb;
+  }
+  .loc-save-btn {
+    width: 100%;
+    padding: 0.875rem;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .loc-save-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #15803d 0%, #16a34a 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+  }
+  .loc-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .picked-location-info {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #f0fdf4;
+    border-radius: 8px;
+    border: 1px solid #bbf7d0;
+  }
+  .location-name-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #16a34a;
+    margin-bottom: 0.5rem;
+  }
+  .location-name-input {
+    width: 100%;
+    padding: 0.625rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    margin-bottom: 0.75rem;
+    box-sizing: border-box;
+  }
+  .location-name-input:focus {
+    outline: none;
+    border-color: #16a34a;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+  }
+  .location-address-label {
+    font-size: 0.75rem;
+    margin: 0 0 0.25rem 0;
+    color: #16a34a;
+  }
+  .location-address {
+    font-size: 0.8rem;
+    color: #374151;
+    margin: 0 0 0.5rem 0;
+  }
+  .location-coords {
+    font-size: 0.7rem;
+    color: #6b7280;
+    margin: 0;
+    font-family: monospace;
+  }
+
   /* ===== Brand Palette ===== */
   :root {
     --green: #16a34a;

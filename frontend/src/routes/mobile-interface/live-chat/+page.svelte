@@ -549,14 +549,6 @@
 	{#if view === 'list'}
 		<!-- ===== CONVERSATION LIST VIEW (WhatsApp Home) ===== -->
 		<div class="wa-list-view">
-			<!-- Top Bar -->
-			<div class="wa-top-bar">
-				<span class="wa-top-title">WhatsApp</span>
-				<div class="wa-top-actions">
-					<!-- Search toggle could go here -->
-				</div>
-			</div>
-
 			<!-- Search Bar -->
 			<div class="wa-search-bar">
 				<div class="wa-search-input-wrap">
@@ -843,18 +835,24 @@
 </div>
 
 <style>
+	/* Override parent layout scroll — this page manages its own scrolling */
+	:global(.mobile-layout) {
+		overflow-y: hidden !important;
+	}
+	:global(.mobile-content) {
+		overflow-y: hidden !important;
+	}
+
 	/* ===== ROOT — WhatsApp Light Theme ===== */
 	.wa-mobile {
 		display: flex;
 		flex-direction: column;
-		min-height: 100vh;
-		min-height: 100dvh;
+		height: 100vh;
+		height: 100dvh;
 		width: 100%;
 		background: #FFFFFF;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-		overflow-x: hidden;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
+		overflow: hidden;
 		position: relative;
 		padding-bottom: 4rem;
 	}
@@ -866,8 +864,9 @@
 	.wa-list-view {
 		display: flex;
 		flex-direction: column;
-		min-height: 100vh;
-		min-height: 100dvh;
+		height: 100vh;
+		height: 100dvh;
+		overflow: hidden;
 	}
 
 	/* Top Bar — WhatsApp teal header */
@@ -889,6 +888,7 @@
 	.wa-search-bar {
 		padding: 8px 10px;
 		background: #FFFFFF;
+		flex-shrink: 0;
 	}
 	.wa-search-input-wrap {
 		display: flex;
@@ -921,6 +921,7 @@
 		padding: 4px 12px 10px;
 		background: #FFFFFF;
 		overflow-x: auto;
+		flex-shrink: 0;
 	}
 	.wa-filter-chip {
 		padding: 5px 14px;

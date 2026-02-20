@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
+    import WAFlowBuilder from './WAFlowBuilder.svelte';
 
     interface Trigger {
         id: string;
@@ -26,7 +27,7 @@
     let saving = false;
     let triggers: Trigger[] = [];
     let botEnabled = false;
-    let activeTab = 'list'; // list, create, test
+    let activeTab = 'list'; // list, create, test, flows
     let editingTrigger: Partial<Trigger> | null = null;
     let testInput = '';
     let testResult: string | null = null;
@@ -57,8 +58,8 @@
     }
 
     async function loadBotStatus() {
-        const { data } = await supabase.from('wa_settings').select('value').eq('wa_account_id', accountId).eq('key', 'auto_reply_enabled').single();
-        botEnabled = data?.value === 'true';
+        const { data } = await supabase.from('wa_settings').select('auto_reply_enabled').eq('wa_account_id', accountId).single();
+        botEnabled = data?.auto_reply_enabled === true;
     }
 
     async function loadTemplates() {
@@ -68,11 +69,9 @@
 
     async function toggleBotEnabled() {
         botEnabled = !botEnabled;
-        await supabase.from('wa_settings').upsert({
-            wa_account_id: accountId,
-            key: 'auto_reply_enabled',
-            value: botEnabled ? 'true' : 'false'
-        }, { onConflict: 'wa_account_id,key' });
+        await supabase.from('wa_settings').update({
+            auto_reply_enabled: botEnabled
+        }).eq('wa_account_id', accountId);
     }
 
     function startCreateTrigger() {
@@ -143,17 +142,23 @@
             const payload = {
                 wa_account_id: accountId,
                 name: editingTrigger.name,
-                trigger_words: editingTrigger.trigger_words,
-                trigger_words_ar: editingTrigger.trigger_words_ar,
+                trigger_words: editingTrigger.trigger_words || [],
+                trigger_words_en: editingTrigger.trigger_words || [],
+                trigger_words_ar: editingTrigger.trigger_words_ar || [],
                 match_type: editingTrigger.match_type,
                 response_type: editingTrigger.response_type,
                 response_content: editingTrigger.response_content,
                 response_media_url: editingTrigger.response_media_url,
                 response_template_name: editingTrigger.response_template_name,
                 response_buttons: editingTrigger.response_buttons,
+                reply_type: editingTrigger.response_type,
+                reply_text: editingTrigger.response_content,
+                reply_media_url: editingTrigger.response_media_url,
+                reply_buttons: editingTrigger.response_buttons,
                 follow_up_delay_seconds: editingTrigger.follow_up_delay_seconds || 0,
                 follow_up_content: editingTrigger.follow_up_content,
                 priority: editingTrigger.priority,
+                sort_order: editingTrigger.priority,
                 is_active: editingTrigger.is_active
             };
 
@@ -245,6 +250,7 @@
         <div class="flex gap-1 mt-3 bg-slate-100 p-1.5 rounded-2xl w-fit">
             {#each [
                 { id: 'list', label: '📋 Triggers', icon: '' },
+                { id: 'flows', label: '🔀 Flow Builder', icon: '' },
                 { id: 'test', label: '🧪 Test Area', icon: '' }
             ] as tab}
                 <button class="px-5 py-2 text-xs font-bold rounded-xl transition-all
@@ -521,6 +527,12 @@
                         </button>
                     </div>
                 </div>
+            </div>
+
+        {:else if activeTab === 'flows'}
+            <!-- Flow Builder -->
+            <div class="-m-6 h-[calc(100%+3rem)]">
+                <WAFlowBuilder />
             </div>
 
         {:else if activeTab === 'test'}

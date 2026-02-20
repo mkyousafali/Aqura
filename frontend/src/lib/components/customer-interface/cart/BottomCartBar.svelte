@@ -223,7 +223,7 @@
   $: texts = currentLanguage === 'ar' ? {
     items: 'منتج',
     total: 'المجموع',
-    checkout: 'الدفع',
+    checkout: 'تقديم الطلب',
     sar: 'ر.س',
     freeDelivery: 'توصيل مجاني!',
     freeDeliveryUnlocked: 'تم فتح التوصيل المجاني! 🎉',
@@ -232,7 +232,7 @@
   } : {
     items: 'items',
     total: 'Total',
-    checkout: 'Checkout',
+    checkout: 'Place Order',
     sar: 'SAR',
     freeDelivery: 'Free Delivery!',
     freeDeliveryUnlocked: 'Free Delivery Unlocked! 🎉',
@@ -273,9 +273,10 @@
   function goToCheckout() {
     goto('/customer-interface/checkout');
   }
+  $: isCheckoutPage = $page.url.pathname.includes('/checkout');
 </script>
 
-{#if itemCount > 0}
+{#if itemCount > 0 && !isCheckoutPage}
 <div class="bottom-cart-bar" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
   <!-- Fireworks Animation -->
   {#if showFireworks}

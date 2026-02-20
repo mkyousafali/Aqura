@@ -133,6 +133,18 @@
 		}
 	}
 	
+	// Build component loader map from all desktop-interface components (auto-discovery)
+	const _componentModules = import.meta.glob(
+		'../../lib/components/desktop-interface/**/*.svelte'
+	);
+	const componentLoaderMap: Record<string, () => Promise<any>> = {};
+	for (const [path, loader] of Object.entries(_componentModules)) {
+		const match = path.match(/([^/\\]+)\.svelte$/);
+		if (match) {
+			componentLoaderMap[match[1]] = loader as () => Promise<any>;
+		}
+	}
+
 	async function setupPopoutWindow() {
 		if (!popoutWindowData) {
 			console.log('🪟 setupPopoutWindow called but no window data available');
@@ -149,102 +161,17 @@
 		console.log('🪟 Loading component:', componentName);
 		
 		try {
-			// Map component names to imports
-			switch (componentName) {
-				case 'VendorMaster':
-					const { default: VendorMaster } = await import('$lib/components/desktop-interface/master/VendorMaster.svelte');
-					component = VendorMaster;
-					break;
-				case 'BranchMaster':
-					const { default: BranchMaster } = await import('$lib/components/desktop-interface/master/BranchMaster.svelte');
-					component = BranchMaster;
-					break;
-				case 'StartReceiving':
-					const { default: StartReceiving } = await import('$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte');
-					component = StartReceiving;
-					break;
-				case 'Receiving':
-					const { default: Receiving } = await import('$lib/components/desktop-interface/master/operations/Receiving.svelte');
-					component = Receiving;
-					break;
-				case 'ReceivingRecords':
-					const { default: ReceivingRecords } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte');
-					component = ReceivingRecords;
-					break;
-				case 'ReceivingTasksDashboard':
-					const { default: ReceivingTasksDashboard } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingTasksDashboard.svelte');
-					component = ReceivingTasksDashboard;
-					break;
-				case 'ReceivingDataWindow':
-					const { default: ReceivingDataWindow } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingDataWindow.svelte');
-					component = ReceivingDataWindow;
-					break;
-				case 'PaymentManager':
-					const { default: PaymentManager } = await import('$lib/components/desktop-interface/master/finance/PaymentManager.svelte');
-					component = PaymentManager;
-					break;
-				case 'MonthDetails':
-					console.log('🪟 Loading MonthDetails component...');
-					const { default: MonthDetails } = await import('$lib/components/desktop-interface/master/finance/MonthDetails.svelte');
-					component = MonthDetails;
-					console.log('🪟 MonthDetails component loaded:', component);
-					break;
-				case 'TaskMaster':
-					const { default: TaskMaster } = await import('$lib/components/desktop-interface/master/TaskMaster.svelte');
-					component = TaskMaster;
-					break;
-				case 'HRMaster':
-					const { default: HRMaster } = await import('$lib/components/desktop-interface/master/HRMaster.svelte');
-					component = HRMaster;
-					break;
-				case 'OperationsMaster':
-					const { default: OperationsMaster } = await import('$lib/components/desktop-interface/master/OperationsMaster.svelte');
-					component = OperationsMaster;
-					break;
-				case 'FinanceMaster':
-					const { default: FinanceMaster } = await import('$lib/components/desktop-interface/master/FinanceMaster.svelte');
-					component = FinanceMaster;
-					break;
-				case 'UserManagement':
-					const { default: UserManagement } = await import('$lib/components/desktop-interface/settings/UserManagement.svelte');
-					component = UserManagement;
-					break;
-				case 'CommunicationCenter':
-					const { default: CommunicationCenter } = await import('$lib/components/desktop-interface/master/CommunicationCenter.svelte');
-					component = CommunicationCenter;
-					break;
-				case 'Settings':
-					const { default: Settings } = await import('$lib/components/desktop-interface/settings/Settings.svelte');
-					component = Settings;
-					break;
-				case 'UploadVendor':
-					const { default: UploadVendor } = await import('$lib/components/desktop-interface/master/vendor/UploadVendor.svelte');
-					component = UploadVendor;
-					break;
-				case 'ManageVendor':
-					const { default: ManageVendor } = await import('$lib/components/desktop-interface/master/vendor/ManageVendor.svelte');
-					component = ManageVendor;
-					break;
-				case 'EditUser':
-					const { default: EditUser } = await import('$lib/components/desktop-interface/settings/user/EditUser.svelte');
-					component = EditUser;
-					break;
-				case 'NotificationCenter':
-					const { default: NotificationCenter } = await import('$lib/components/desktop-interface/master/communication/NotificationCenter.svelte');
-					component = NotificationCenter;
-					break;
-			case 'ProductSelectorWindow':
-				const { default: ProductSelectorWindow } = await import('$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte');
-				component = ProductSelectorWindow;
-				break;
-			case 'FlyerMasterDashboard':
-				const { default: FlyerMasterDashboard } = await import('$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte');
-				component = FlyerMasterDashboard;
-				break;
-			default:
+			// Universal dynamic loader - looks up component by name from auto-discovered glob
+			const loader = componentLoaderMap[componentName];
+			if (loader) {
+				const mod = await loader();
+				component = mod.default;
+			} else {
 				console.error('🪟 Unknown component name:', componentName);
+				console.error('🪟 Available components:', Object.keys(componentLoaderMap).sort());
 				return;
-		}			console.log('🪟 Component loaded successfully:', component);
+			}
+			console.log('🪟 Component loaded successfully:', component);
 			
 		} catch (error) {
 			console.error('🪟 Failed to load component:', componentName, error);
@@ -799,7 +726,7 @@
 				// Also exclude customer and cashier routes from employee authentication checks
 				const isCustomerRoute = $page.url.pathname.startsWith('/customer-interface');
 				const isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
-				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute) {
+				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isPopoutMode) {
 					console.log('🔐 Not authenticated, redirecting to login');
 					goto('/login', { replaceState: true });
 				}
@@ -850,7 +777,7 @@
 					// If still not authenticated after timeout, redirect to login (exclude mobile, customer, and cashier routes)
 					const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer-interface');
 					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout) {
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -877,7 +804,7 @@
 			
 			// Only redirect to login if we're not already there and not on customer routes
 			const isCustomerRouteError = $page.url.pathname.startsWith('/customer-interface');
-			if ($page.url.pathname !== '/login' && !isCustomerRouteError) {
+			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}

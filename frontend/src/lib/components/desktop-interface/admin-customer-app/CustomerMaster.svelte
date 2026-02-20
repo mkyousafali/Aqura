@@ -34,6 +34,7 @@
     location3_url?: string;
     location3_lat?: number;
     location3_lng?: number;
+    is_deleted?: boolean;
   }
 
   let customers: Customer[] = [];
@@ -49,6 +50,13 @@
   let showWhatsAppButton = false;
   let isGeneratingCode = false;
   let isSavingApproval = false;
+  // Import customers state
+  let showImportModal = false;
+  let importFile: File | null = null;
+  let importPhoneNumbers: string[] = [];
+  let importing = false;
+  let importResult: { success: boolean; total: number; inserted: number; skipped: number; message: string } | null = null;
+  let preRegisteredCount = 0;
   // Location management state
   let showLocationModal = false;
   let locationCustomer: Customer | null = null;
@@ -506,7 +514,67 @@ Welcome aboard! 🚀
       case "rejected": return "text-red-600 bg-red-100";
       case "pending": return "text-yellow-600 bg-yellow-100";
       case "suspended": return "text-orange-600 bg-orange-100";
+      case "pre_registered": return "text-indigo-600 bg-indigo-100";
       default: return "text-gray-600 bg-gray-100";
+    }
+  }
+
+  // --- Import Customers ---
+  function openImportModal() {
+    showImportModal = true;
+    importFile = null;
+    importPhoneNumbers = [];
+    importResult = null;
+  }
+
+  function closeImportModal() {
+    showImportModal = false;
+    importFile = null;
+    importPhoneNumbers = [];
+    importResult = null;
+  }
+
+  async function handleFileSelect(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (!input.files?.length) return;
+    importFile = input.files[0];
+    importResult = null;
+
+    // Read file as text (CSV / TXT / Excel-exported CSV)
+    const text = await importFile.text();
+    const lines = text.split(/[\r\n]+/).filter(l => l.trim());
+    const phones: string[] = [];
+    for (const line of lines) {
+      // Split by comma, tab, semicolon to handle CSV variants
+      const parts = line.split(/[,;\t]/);
+      for (const part of parts) {
+        const cleaned = part.replace(/[^0-9+]/g, '').trim();
+        if (cleaned.length >= 9) {
+          phones.push(cleaned);
+        }
+      }
+    }
+    // Deduplicate
+    importPhoneNumbers = [...new Set(phones)];
+  }
+
+  async function importCustomers() {
+    if (importPhoneNumbers.length === 0) return;
+    importing = true;
+    importResult = null;
+    try {
+      const { data, error } = await supabase.rpc('bulk_import_customers', {
+        p_phone_numbers: importPhoneNumbers
+      });
+      if (error) throw error;
+      importResult = data;
+      // Reload customers list
+      await loadCustomers();
+      await loadStatistics();
+    } catch (e: any) {
+      importResult = { success: false, total: importPhoneNumbers.length, inserted: 0, skipped: 0, message: 'Error: ' + e.message };
+    } finally {
+      importing = false;
     }
   }
 
@@ -518,6 +586,7 @@ Welcome aboard! 🚀
       id: windowId,
       title: `Customer Account Recovery Manager #${instanceNumber}`,
       component: CustomerAccountRecoveryManager,
+      componentName: 'CustomerAccountRecoveryManager',
       icon: '🔐',
       size: { width: 1400, height: 900 },
       position: { 
@@ -540,6 +609,14 @@ Welcome aboard! 🚀
         <p>{t('admin.customerManagementDesc') || 'Manage customer registrations and access approvals'}</p>
       </div>
       <div class="header-actions">
+        <button 
+          class="import-customers-btn"
+          on:click={openImportModal}
+          title="Import customers from Excel/CSV"
+        >
+          <span class="btn-icon">📥</span>
+          <span class="btn-text">Import Customers</span>
+        </button>
         <button 
           class="account-recovery-btn"
           on:click={openAccountRecoveryManager}
@@ -587,6 +664,7 @@ Welcome aboard! 🚀
       <option value="approved">{t('admin.approved') || 'Approved'}</option>
       <option value="rejected">{t('admin.rejected') || 'Rejected'}</option>
       <option value="suspended">{t('admin.suspended') || 'Suspended'}</option>
+      <option value="pre_registered">Pre-Registered (Imported)</option>
     </select>
   </div>
 
@@ -665,7 +743,7 @@ Welcome aboard! 🚀
             </tr>
           {:else}
             <tr>
-              <td colspan="6" class="no-data">
+              <td colspan="7" class="no-data">
                 {t('admin.noDataFound') || 'No data found'}
               </td>
             </tr>
@@ -880,6 +958,80 @@ Welcome aboard! 🚀
   </div>
 {/if}
 
+<!-- Import Customers Modal -->
+{#if showImportModal}
+  <div class="modal-overlay" on:click={closeImportModal}>
+    <div class="modal import-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h2>📥 Import Customers</h2>
+        <button class="close-btn" on:click={closeImportModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: #6b7280; margin-bottom: 1rem; font-size: 0.875rem;">
+          Upload a CSV or text file with phone numbers (one per line or comma-separated).<br/>
+          Customers will be saved as <strong>Pre-Registered</strong>. When they register from the app, they'll get their access code automatically.
+        </p>
+        
+        <div class="import-file-area">
+          <label class="file-upload-label">
+            <input type="file" accept=".csv,.txt,.xlsx" on:change={handleFileSelect} style="display:none" />
+            <span class="file-upload-icon">📁</span>
+            <span>{importFile ? importFile.name : 'Choose CSV / TXT file...'}</span>
+          </label>
+        </div>
+
+        {#if importPhoneNumbers.length > 0}
+          <div class="import-preview">
+            <div class="import-preview-header">
+              <strong>📋 {importPhoneNumbers.length} phone numbers found</strong>
+            </div>
+            <div class="import-preview-list">
+              {#each importPhoneNumbers.slice(0, 10) as phone}
+                <span class="phone-chip">{phone}</span>
+              {/each}
+              {#if importPhoneNumbers.length > 10}
+                <span class="phone-chip more">+{importPhoneNumbers.length - 10} more</span>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        {#if importResult}
+          <div class="import-result {importResult.success ? 'success' : 'error'}">
+            <span class="result-icon">{importResult.success ? '✅' : '❌'}</span>
+            <div>
+              <strong>{importResult.message}</strong>
+              {#if importResult.success}
+                <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #6b7280;">
+                  {importResult.inserted} imported • {importResult.skipped} skipped (duplicates)
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeImportModal}>
+          {importResult?.success ? 'Done' : 'Cancel'}
+        </button>
+        {#if !importResult?.success}
+          <button 
+            class="confirm-btn import-btn"
+            on:click={importCustomers}
+            disabled={importing || importPhoneNumbers.length === 0}
+          >
+            {#if importing}
+              ⏳ Importing...
+            {:else}
+              📥 Import {importPhoneNumbers.length} Customers
+            {/if}
+          </button>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .customer-management {
     padding: 2rem;
@@ -916,6 +1068,8 @@ Welcome aboard! 🚀
   }
 
   .header-actions {
+    display: flex;
+    gap: 0.75rem;
     flex-shrink: 0;
   }
 
@@ -1574,5 +1728,135 @@ Welcome aboard! 🚀
     .modal-content {
       width: 95vw;
     }
+  }
+
+  /* Import Customers Button */
+  .import-customers-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border: none;
+    border-radius: 0.5rem;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+  }
+
+  .import-customers-btn:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+  }
+
+  /* Import Modal */
+  .import-modal {
+    max-width: 560px;
+  }
+
+  .import-file-area {
+    margin-bottom: 1rem;
+  }
+
+  .file-upload-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.25rem;
+    border: 2px dashed #d1d5db;
+    border-radius: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #f9fafb;
+    font-size: 0.9rem;
+    color: #6b7280;
+  }
+
+  .file-upload-label:hover {
+    border-color: #10b981;
+    background: #ecfdf5;
+    color: #059669;
+  }
+
+  .file-upload-icon {
+    font-size: 1.5rem;
+  }
+
+  .import-preview {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .import-preview-header {
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    color: #166534;
+  }
+
+  .import-preview-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .phone-chip {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-family: monospace;
+    color: #374151;
+  }
+
+  .phone-chip.more {
+    background: #e0e7ff;
+    border-color: #a5b4fc;
+    color: #4338ca;
+    font-family: inherit;
+    font-weight: 600;
+  }
+
+  .import-result {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+  }
+
+  .import-result.success {
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    color: #065f46;
+  }
+
+  .import-result.error {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    color: #991b1b;
+  }
+
+  .result-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  .import-btn {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  }
+
+  .import-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
   }
 </style>

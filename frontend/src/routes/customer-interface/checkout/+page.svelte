@@ -14,7 +14,7 @@
   let cartItems = [];
   let displayItems = []; // Combined BOGO display items
   let total = 0;
-  let selectedPaymentMethod = '';
+  let selectedPaymentMethod = 'cash';
   let showOrderConfirmation = false;
   let showCancellationSuccess = false;
   let showOrderSuccess = false;
@@ -735,13 +735,6 @@
         isSubmittingOrder = false;
         return;
       }
-    }
-
-    // Validate payment method
-    if (!selectedPaymentMethod) {
-      alert(currentLanguage === 'ar' ? 'يرجى اختيار طريقة الدفع' : 'Please select payment method');
-      isSubmittingOrder = false;
-      return;
     }
 
     try {
@@ -1516,24 +1509,20 @@
       </div>
     {/if}
 
-    <!-- Payment Method Options - Show directly when location is selected OR for pickup -->
+    <!-- Confirm Order Button - Show when location is selected OR for pickup -->
     {#if canProceedToPayment}
-      <div class="payment-section">
-        <h2>{texts.paymentMethod}</h2>
-        <div class="payment-options">
-          <label class="payment-option" class:selected={selectedPaymentMethod === 'cash'} on:click={() => selectPaymentMethod('cash')}>
-            <input type="radio" bind:group={selectedPaymentMethod} value="cash" />
-            <div class="payment-icon">💵</div>
-            <span>{texts.cash}</span>
-          </label>
-          
-          <label class="payment-option" class:selected={selectedPaymentMethod === 'card'} on:click={() => selectPaymentMethod('card')}>
-            <input type="radio" bind:group={selectedPaymentMethod} value="card" />
-            <div class="payment-icon">💳</div>
-            <span>{texts.card}</span>
-          </label>
+      {#if fulfillmentMethod === 'pickup'}
+        <div class="pickup-warning">
+          <p>⚠️ {currentLanguage === 'ar' 
+            ? 'سيتم إلغاء الطلب تلقائيًا إذا لم يتم استلامه من المتجر خلال ساعة واحدة من تأكيد قبول الطلب.' 
+            : 'The order will be automatically cancelled if not picked up from the store within 1 hour of order acceptance confirmation.'}</p>
         </div>
-        
+      {/if}
+      <div class="confirm-order-section">
+        <button class="confirm-order-btn" on:click={showOrderConfirmationPopup} disabled={isSubmittingOrder}>
+          <span class="confirm-order-icon">✅</span>
+          <span>{currentLanguage === 'ar' ? 'تأكيد الطلب' : 'Confirm Order'}</span>
+        </button>
       </div>
     {/if}
   {/if}
@@ -3280,6 +3269,67 @@
 
   .cancel-order-btn:hover {
     background: #dc2626;
+  }
+
+  .confirm-order-section {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    margin-top: 0.5rem;
+  }
+
+  .pickup-warning {
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    border-radius: 6px;
+    padding: 0.53rem;
+    margin: 0.75rem 0 0 0;
+    text-align: center;
+    position: relative;
+    z-index: 10;
+  }
+  .pickup-warning-icon {
+    display: none;
+  }
+  .pickup-warning p {
+    margin: 0;
+    color: #856404;
+    font-size: 0.63rem;
+    font-weight: 500;
+  }
+
+  .confirm-order-section > .confirm-order-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 320px;
+    padding: 0.9rem 1.5rem;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
+  }
+
+  .confirm-order-section > .confirm-order-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(22, 163, 74, 0.35);
+  }
+
+  .confirm-order-section > .confirm-order-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .confirm-order-icon {
+    font-size: 1.1rem;
   }
 
   .confirm-order-btn {
