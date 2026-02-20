@@ -374,10 +374,10 @@
             .rpc('get_contact_broadcast_stats', { phone_number: contact.whatsapp_number });
         
         let sentCount = 0, deliveredCount = 0, readCount = 0;
-        if (broadcastStats && broadcastStats.length > 0) {
-            sentCount = broadcastStats[0]?.sent || 0;
-            deliveredCount = broadcastStats[0]?.delivered || 0;
-            readCount = broadcastStats[0]?.read || 0;
+        if (broadcastStats) {
+            sentCount = broadcastStats.sent || 0;
+            deliveredCount = broadcastStats.delivered || 0;
+            readCount = broadcastStats.read || 0;
         }
         console.log(`Broadcast stats for ${contact.name}: sent=${sentCount}, delivered=${deliveredCount}, read=${readCount}`);
         
