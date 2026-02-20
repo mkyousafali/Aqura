@@ -208,6 +208,10 @@
 	let showUserOperationsSubmenu = false;
 	let showUserReportsSubmenu = false;
 	let showWhatsAppSubmenu = false;
+	let showWhatsAppDashboardSubmenu = false;
+	let showWhatsAppManageSubmenu = false;
+	let showWhatsAppOperationsSubmenu = false;
+	let showWhatsAppReportsSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -1967,6 +1971,10 @@ function openApprovalCenter() {
 		showUserManageSubmenu = false;
 		showUserOperationsSubmenu = false;
 		showUserReportsSubmenu = false;
+		showWhatsAppDashboardSubmenu = false;
+		showWhatsAppManageSubmenu = false;
+		showWhatsAppOperationsSubmenu = false;
+		showWhatsAppReportsSubmenu = false;
 	}
 
 	function collapseAllMenus() {
@@ -5527,76 +5535,141 @@ function openApprovalCenter() {
 	</div>
 	{#if showWhatsAppSubmenu}
 		<div class="submenu-inline whatsapp-submenu">
-			{#if isButtonAllowed('WA_DASHBOARD')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWADashboard}>
-						<span class="menu-icon">📊</span>
-						<span class="menu-text">{t('nav.whatsappDashboard')}</span>
-					</button>
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showWhatsAppDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showWhatsAppDashboardSubmenu = true;
+						}
+					}}
+					title={t('nav.dashboard')}
+				>
+					<span class="menu-text">{t('nav.dashboard')}</span>
+				</button>
+			</div>
+			{#if showWhatsAppDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('WA_DASHBOARD')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWADashboard}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">{t('nav.whatsappDashboard')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
-			{#if isButtonAllowed('WA_LIVE_CHAT')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWALiveChat}>
-						<span class="menu-icon">💬</span>
-						<span class="menu-text">{t('nav.whatsappLiveChat')}</span>
-					</button>
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showWhatsAppManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showWhatsAppManageSubmenu = true;
+						}
+					}}
+					title={t('nav.manage')}
+				>
+					<span class="menu-text">{t('nav.manage')}</span>
+				</button>
+			</div>
+			{#if showWhatsAppManageSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('WA_ACCOUNTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWAAccounts}>
+								<span class="menu-icon">📱</span>
+								<span class="menu-text">{t('nav.whatsappAccounts')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_TEMPLATES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWATemplates}>
+								<span class="menu-icon">📝</span>
+								<span class="menu-text">{t('nav.whatsappTemplates')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_CONTACTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWAContacts}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">{t('nav.whatsappContacts')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWASettings}>
+								<span class="menu-icon">⚙️</span>
+								<span class="menu-text">{t('nav.whatsappSettings')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
-			{#if isButtonAllowed('WA_BROADCASTS')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWABroadcasts}>
-						<span class="menu-icon">📣</span>
-						<span class="menu-text">{t('nav.whatsappBroadcasts')}</span>
-					</button>
-				</div>
-			{/if}
-			{#if isButtonAllowed('WA_TEMPLATES')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWATemplates}>
-						<span class="menu-icon">📝</span>
-						<span class="menu-text">{t('nav.whatsappTemplates')}</span>
-					</button>
-				</div>
-			{/if}
-			{#if isButtonAllowed('WA_CONTACTS')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWAContacts}>
-						<span class="menu-icon">👥</span>
-						<span class="menu-text">{t('nav.whatsappContacts')}</span>
-					</button>
-				</div>
-			{/if}
-			{#if isButtonAllowed('WA_AUTO_REPLY')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWAAutoReplyBot}>
-						<span class="menu-icon">🔧</span>
-						<span class="menu-text">{t('nav.whatsappAutoReply')}</span>
-					</button>
-				</div>
-			{/if}
-			{#if isButtonAllowed('WA_AI_BOT')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWAAIBot}>
-						<span class="menu-icon">🤖</span>
-						<span class="menu-text">{t('nav.whatsappAIBot')}</span>
-					</button>
-				</div>
-			{/if}
-			{#if isButtonAllowed('WA_ACCOUNTS')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWAAccounts}>
-						<span class="menu-icon">📱</span>
-						<span class="menu-text">{t('nav.whatsappAccounts')}</span>
-					</button>
-				</div>
-			{/if}
-			{#if isButtonAllowed('WA_SETTINGS')}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openWASettings}>
-						<span class="menu-icon">⚙️</span>
-						<span class="menu-text">{t('nav.whatsappSettings')}</span>
-					</button>
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showWhatsAppOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showWhatsAppOperationsSubmenu = true;
+						}
+					}}
+					title={t('nav.operations')}
+				>
+					<span class="menu-text">{t('nav.operations')}</span>
+				</button>
+			</div>
+			{#if showWhatsAppOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('WA_LIVE_CHAT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWALiveChat}>
+								<span class="menu-icon">💬</span>
+								<span class="menu-text">{t('nav.whatsappLiveChat')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_BROADCASTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWABroadcasts}>
+								<span class="menu-icon">📣</span>
+								<span class="menu-text">{t('nav.whatsappBroadcasts')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_AUTO_REPLY')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWAAutoReplyBot}>
+								<span class="menu-icon">🔧</span>
+								<span class="menu-text">{t('nav.whatsappAutoReply')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_AI_BOT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWAAIBot}>
+								<span class="menu-icon">🤖</span>
+								<span class="menu-text">{t('nav.whatsappAIBot')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
