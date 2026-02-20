@@ -10,7 +10,26 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>🔒 Customer Login Mask Toggle, Auto-Login Fix & Offer Management Fix</h3>
+<h3>� WhatsApp Broadcast from Contacts, Batch Bill Counts & Auto-Refresh</h3>
+<p class="change-description">Send WhatsApp broadcasts directly from the Contacts page — select customers via checkboxes, pick a template, and send. Batch bill count API with per-branch ERP deduplication, smart caching, and auto-loading. Broadcasts window auto-opens after send with live status polling every 15 seconds.</p>
+<div class="change-details">
+<h4>February 20, 2026:</h4>
+<ul>
+<li>✅ <b>Batch Bill Counts API:</b> New <code>/api/batch-bill-counts</code> endpoint queries all 3 ERP branches in parallel with per-branch deduplication (<code>WHERE pc.BranchID = erpBranchId</code>). Returns bill count, total amount, and last bill date per contact.</li>
+<li>✅ <b>Bill Count Cache Store:</b> New <code>billCountCache</code> Svelte store persists bill data across window re-opens. Auto-loads on mount if cache is empty.</li>
+<li>✅ <b>Contact Bill Details:</b> New <code>/api/contact-bill-details</code> endpoint returns individual bills for a contact. Details modal with bill-by-bill breakdown including date, amount, and branch.</li>
+<li>✅ <b>Contacts Table Enhancements:</b> Added Bills, Last Bill, and Check Boss columns. Sort by bill count, Last N Days filter, status filter dropdown, and per-row checkbox selection.</li>
+<li>✅ <b>Generate Broadcast Popup:</b> Template selector with search, date range filter (by last bill date), max count limiter, and 3 filter checkboxes (Has Bills, Delivered Broadcast, Approved Customer) using OR logic when multiple selected.</li>
+<li>✅ <b>Quick Action Buttons:</b> "🎯 Generate List" applies all filters, "🔑 All Approved" selects only approved customers, "📋 Select All" selects all filtered contacts.</li>
+<li>✅ <b>Pre-Selected Contacts:</b> If customers are already checked in the table before opening the popup, the send section shows immediately — no need to re-generate.</li>
+<li>✅ <b>Auto-Close & Auto-Open:</b> After a successful broadcast send, the popup closes automatically and the WABroadcasts window opens to show the broadcast status.</li>
+<li>✅ <b>Broadcast Auto-Refresh:</b> WABroadcasts window auto-refreshes status for recent/active broadcasts on load, then polls every 15 seconds. Fixed status map to keep highest-priority status (read > delivered > sent).</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
+<h3>�🔒 Customer Login Mask Toggle, Auto-Login Fix & Offer Management Fix</h3>
 <p class="change-description">New admin toggle in Delivery Settings to activate/deactivate the "Currently Not Available" mask on customer login pages in real-time. Fixed auto-login redirect loop from WhatsApp button. Fixed OfferManagement crash when no offers exist.</p>
 <div class="change-details">
 <h4>February 20, 2026:</h4>
