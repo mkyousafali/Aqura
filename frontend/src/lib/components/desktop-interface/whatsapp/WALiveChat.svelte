@@ -86,6 +86,10 @@
     let showAttachMenu = false;
     let showIncidentPopup = false;
 
+    // WhatsApp account info
+    let waAccountName = '';
+    let waProfilePicUrl = '';
+
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
@@ -99,9 +103,26 @@
 
     async function loadAccount() {
         try {
-            const { data } = await supabase.from('wa_accounts').select('id').eq('is_default', true).single();
+            const { data } = await supabase.from('wa_accounts').select('id, display_name, phone_number_id, access_token').eq('is_default', true).single();
             if (data) {
                 accountId = data.id;
+                waAccountName = data.display_name || '';
+                // Load cached profile picture from settings
+                const { data: settings } = await supabase.from('wa_settings').select('profile_picture_url').eq('wa_account_id', data.id).maybeSingle();
+                waProfilePicUrl = settings?.profile_picture_url || '';
+                // Fetch fresh profile from Meta API (non-blocking)
+                if (data.phone_number_id && data.access_token) {
+                    fetch(`https://graph.facebook.com/v22.0/${data.phone_number_id}/whatsapp_business_profile?fields=profile_picture_url`, {
+                        headers: { 'Authorization': `Bearer ${data.access_token}` }
+                    }).then(r => r.json()).then(result => {
+                        const metaPic = result?.data?.[0]?.profile_picture_url;
+                        if (metaPic && metaPic !== waProfilePicUrl) {
+                            waProfilePicUrl = metaPic;
+                            // Cache in DB
+                            supabase.from('wa_settings').upsert({ wa_account_id: data.id, profile_picture_url: metaPic }, { onConflict: 'wa_account_id' });
+                        }
+                    }).catch(() => {});
+                }
                 await Promise.all([loadConversations(), loadTemplates()]);
             } else {
                 loading = false;
@@ -600,8 +621,17 @@
         <!-- Search & Filters -->
         <div class="p-4 border-b border-slate-200 bg-emerald-600">
             <div class="flex items-center gap-2 mb-3">
-                <span class="text-xl text-white">💬</span>
-                <h2 class="text-sm font-black text-white uppercase tracking-wide">{$t('nav.whatsappLiveChat')}</h2>
+                {#if waProfilePicUrl}
+                    <img src={waProfilePicUrl} alt="" class="w-8 h-8 rounded-full object-cover border-2 border-white/40" />
+                {:else}
+                    <span class="text-xl text-white">💬</span>
+                {/if}
+                <div class="flex flex-col">
+                    <h2 class="text-sm font-black text-white uppercase tracking-wide">{$t('nav.whatsappLiveChat')}</h2>
+                    {#if waAccountName}
+                        <span class="text-[10px] text-emerald-100 font-medium">{waAccountName}</span>
+                    {/if}
+                </div>
             </div>
             <input type="text" bind:value={searchQuery} placeholder="Search conversations..."
                 class="w-full px-3 py-2 bg-white/20 text-white placeholder-white/60 border border-white/20 rounded-xl text-xs focus:outline-none focus:bg-white/30" />
