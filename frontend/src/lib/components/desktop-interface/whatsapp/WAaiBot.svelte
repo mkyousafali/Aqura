@@ -2,178 +2,118 @@
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
 
-    interface AIBotConfig {
-        id: string;
-        is_enabled: boolean;
-        system_prompt: string;
-        tone: string;
-        max_tokens: number;
-        temperature: number;
-        handoff_keywords: string[];
-        handoff_message: string;
-        training_data: TrainingItem[];
-        response_language: string;
-        max_messages_before_handoff: number;
-    }
-
-    interface TrainingItem {
-        id: string;
-        question: string;
-        answer: string;
-        category: string;
-    }
-
-    interface ConversationLog {
-        id: string;
-        customer_phone: string;
-        customer_name: string;
-        message_count: number;
-        last_message_at: string;
-        was_handed_off: boolean;
-    }
-
     let supabase: any = null;
-    let accountId = '';
     let loading = true;
     let saving = false;
-    let config: AIBotConfig = {
-        id: '',
-        is_enabled: false,
-        system_prompt: 'You are a helpful customer service assistant for our business. Answer questions politely and professionally. If you cannot help, offer to connect them with a human agent.',
-        tone: 'professional',
-        max_tokens: 500,
-        temperature: 0.7,
-        handoff_keywords: ['agent', 'human', 'person', 'manager', 'support', 'وكيل', 'شخص', 'مدير'],
-        handoff_message: 'I\'ll connect you with a human agent right away. Please hold on.',
-        training_data: [],
-        response_language: 'auto',
-        max_messages_before_handoff: 10
-    };
+    let saveMessage = '';
 
-    let activeTab = 'settings'; // settings, training, logs
-    let apiKeyStatus = 'unknown'; // unknown, configured, missing
-    let conversationLogs: ConversationLog[] = [];
+    let configId = '';
+    let isEnabled = false;
+    let botRules = '';
+    let instructions = '';
 
-    // Training data editor
-    let newTraining: TrainingItem = { id: '', question: '', answer: '', category: 'general' };
-    let editingTrainingIdx = -1;
+    // Training Q&A pairs
+    let trainingQA: Array<{ prompt: string; response: string }> = [];
 
-    // Handoff keyword input
-    let handoffKeywordInput = '';
+    // Token stats
+    let refreshingStats = false;
+    let tokensUsed = 0;
+    let promptTokensUsed = 0;
+    let completionTokensUsed = 0;
+    let totalRequests = 0;
+
+    // Human support
+    let humanSupportEnabled = false;
+    let humanSupportStartTime = '12:00';
+    let humanSupportEndTime = '20:00';
+
+    function formatNumber(n: number): string {
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+        return n.toString();
+    }
 
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
-        await loadAccount();
+        await loadConfig();
     });
 
-    async function loadAccount() {
+    async function loadConfig() {
         try {
-            const { data } = await supabase.from('wa_accounts').select('id').eq('is_default', true).single();
+            const { data } = await supabase.from('wa_ai_bot_config').select('*').single();
             if (data) {
-                accountId = data.id;
-                await Promise.all([loadConfig(), checkApiKey(), loadLogs()]);
+                configId = data.id;
+                isEnabled = data.is_enabled ?? false;
+                botRules = data.bot_rules || '';
+                instructions = data.custom_instructions || '';
+                trainingQA = Array.isArray(data.training_qa) ? data.training_qa : [];
+                tokensUsed = data.tokens_used ?? 0;
+                promptTokensUsed = data.prompt_tokens_used ?? 0;
+                completionTokensUsed = data.completion_tokens_used ?? 0;
+                totalRequests = data.total_requests ?? 0;
+                humanSupportEnabled = data.human_support_enabled ?? false;
+                humanSupportStartTime = (data.human_support_start_time || '12:00:00').substring(0, 5);
+                humanSupportEndTime = (data.human_support_end_time || '20:00:00').substring(0, 5);
             }
         } catch {} finally { loading = false; }
     }
 
-    async function loadConfig() {
-        const { data } = await supabase.from('wa_ai_bot_config').select('*').single();
-        if (data) {
-            config = {
-                ...config,
-                ...data,
-                handoff_keywords: data.handoff_keywords || config.handoff_keywords,
-                training_data: data.training_data || []
-            };
-        }
-    }
-
-    async function checkApiKey() {
-        // Check if OPENAI_API_KEY is set by testing the edge function
-        try {
-            const { data: settings } = await supabase.from('wa_settings').select('value').eq('key', 'openai_api_configured').single();
-            apiKeyStatus = settings?.value === 'true' ? 'configured' : 'missing';
-        } catch {
-            apiKeyStatus = 'unknown';
-        }
-    }
-
-    async function loadLogs() {
-        try {
-            const { data } = await supabase
-                .from('wa_conversations')
-                .select('id, customer_phone, customer_name, unread_count, last_message_at, is_bot_handling, bot_type')
-                .eq('wa_account_id', accountId)
-                .eq('bot_type', 'ai')
-                .order('last_message_at', { ascending: false })
-                .limit(50);
-            conversationLogs = (data || []).map((c: any) => ({
-                id: c.id,
-                customer_phone: c.customer_phone,
-                customer_name: c.customer_name,
-                message_count: c.unread_count || 0,
-                last_message_at: c.last_message_at,
-                was_handed_off: !c.is_bot_handling
-            }));
-        } catch {}
-    }
-
     async function saveConfig() {
         saving = true;
+        saveMessage = '';
         try {
+            // Filter out empty Q&A pairs
+            const cleanQA = trainingQA.filter(qa => qa.prompt.trim() || qa.response.trim());
             const payload = {
-                is_enabled: config.is_enabled,
-                system_prompt: config.system_prompt,
-                tone: config.tone,
-                max_tokens: config.max_tokens,
-                temperature: config.temperature,
-                handoff_keywords: config.handoff_keywords,
-                handoff_message: config.handoff_message,
-                training_data: config.training_data,
-                response_language: config.response_language,
-                max_messages_before_handoff: config.max_messages_before_handoff
+                is_enabled: isEnabled,
+                bot_rules: botRules,
+                custom_instructions: instructions,
+                training_qa: cleanQA,
+                human_support_enabled: humanSupportEnabled,
+                human_support_start_time: humanSupportStartTime + ':00',
+                human_support_end_time: humanSupportEndTime + ':00'
             };
 
-            if (config.id) {
-                await supabase.from('wa_ai_bot_config').update(payload).eq('id', config.id);
+            if (configId) {
+                const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
+                if (error) throw error;
             } else {
-                const { data } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: accountId }).select().single();
-                if (data) config.id = data.id;
+                const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select().single();
+                if (error) throw error;
+                if (data) configId = data.id;
             }
+            saveMessage = '✅ Saved';
+            setTimeout(() => saveMessage = '', 3000);
         } catch (e: any) {
-            alert('Error: ' + e.message);
+            saveMessage = '❌ Error: ' + e.message;
         } finally { saving = false; }
     }
 
     async function toggleBot() {
-        config.is_enabled = !config.is_enabled;
+        isEnabled = !isEnabled;
         await saveConfig();
     }
 
-    function addTrainingItem() {
-        if (!newTraining.question.trim() || !newTraining.answer.trim()) return;
-        config.training_data = [...config.training_data, {
-            id: crypto.randomUUID(),
-            question: newTraining.question,
-            answer: newTraining.answer,
-            category: newTraining.category
-        }];
-        newTraining = { id: '', question: '', answer: '', category: 'general' };
+    function addQAPair() {
+        trainingQA = [...trainingQA, { prompt: '', response: '' }];
     }
 
-    function removeTrainingItem(idx: number) {
-        config.training_data = config.training_data.filter((_, i) => i !== idx);
+    function removeQAPair(index: number) {
+        trainingQA = trainingQA.filter((_, i) => i !== index);
     }
 
-    function addHandoffKeyword() {
-        if (!handoffKeywordInput.trim()) return;
-        config.handoff_keywords = [...config.handoff_keywords, handoffKeywordInput.trim()];
-        handoffKeywordInput = '';
-    }
-
-    function removeHandoffKeyword(idx: number) {
-        config.handoff_keywords = config.handoff_keywords.filter((_, i) => i !== idx);
+    async function refreshStats() {
+        refreshingStats = true;
+        try {
+            const { data } = await supabase.from('wa_ai_bot_config').select('tokens_used, prompt_tokens_used, completion_tokens_used, total_requests').single();
+            if (data) {
+                tokensUsed = data.tokens_used ?? 0;
+                promptTokensUsed = data.prompt_tokens_used ?? 0;
+                completionTokensUsed = data.completion_tokens_used ?? 0;
+                totalRequests = data.total_requests ?? 0;
+            }
+        } catch {} finally { refreshingStats = false; }
     }
 </script>
 
@@ -186,34 +126,13 @@
                 <h1 class="text-lg font-black text-slate-800 uppercase tracking-wide">{$t('nav.whatsappAIBot')}</h1>
             </div>
             <div class="flex items-center gap-3">
-                <!-- API Key Status -->
-                <span class="px-3 py-1.5 text-xs font-bold rounded-lg
-                    {apiKeyStatus === 'configured' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}">
-                    {apiKeyStatus === 'configured' ? '🔑 API Key Set' : '⚠️ API Key Not Set'}
-                </span>
-                <!-- Bot Toggle -->
                 <button class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all
-                    {config.is_enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}"
+                    {isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}"
                     on:click={toggleBot}>
-                    <span class="w-3 h-3 rounded-full {config.is_enabled ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
-                    {config.is_enabled ? 'AI Bot Active' : 'AI Bot Inactive'}
+                    <span class="w-3 h-3 rounded-full {isEnabled ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
+                    {isEnabled ? 'AI Bot Active' : 'AI Bot Inactive'}
                 </button>
             </div>
-        </div>
-
-        <!-- Tabs -->
-        <div class="flex gap-1 mt-3 bg-slate-100 p-1.5 rounded-2xl w-fit">
-            {#each [
-                { id: 'settings', label: '⚙️ Settings' },
-                { id: 'training', label: '📚 Training Data' },
-                { id: 'logs', label: '📊 Conversation Logs' }
-            ] as tab}
-                <button class="px-5 py-2 text-xs font-bold rounded-xl transition-all
-                    {activeTab === tab.id ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-800'}"
-                    on:click={() => activeTab = tab.id}>
-                    {tab.label}
-                </button>
-            {/each}
         </div>
     </div>
 
@@ -222,189 +141,150 @@
             <div class="flex justify-center items-center h-full">
                 <div class="animate-spin w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
             </div>
-
-        {:else if activeTab === 'settings'}
-            <div class="max-w-3xl space-y-5">
-                <!-- API Key Info -->
-                {#if apiKeyStatus !== 'configured'}
-                    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-                        <h3 class="text-sm font-bold text-amber-700 mb-2">⚠️ OpenAI API Key Required</h3>
-                        <p class="text-xs text-amber-600">The OpenAI API key must be set as an environment variable on the server. Add <code class="bg-amber-100 px-1 rounded">OPENAI_API_KEY</code> to:</p>
-                        <ul class="text-xs text-amber-600 mt-2 space-y-1 list-disc list-inside">
-                            <li>Vercel Environment Variables (for edge functions)</li>
-                            <li>Server .env file (for Supabase edge functions)</li>
-                        </ul>
-                    </div>
-                {/if}
-
-                <!-- System Prompt / Personality -->
-                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
-                    <label class="block text-xs font-bold text-slate-600 uppercase mb-3">System Prompt / Personality</label>
-                    <textarea bind:value={config.system_prompt} rows="6"
-                        placeholder="Define the bot's personality, role, and behavior..."
-                        class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"></textarea>
-                </div>
-
-                <!-- Tone & Language -->
-                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
-                    <div class="grid grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-2">Tone</label>
-                            <div class="flex flex-wrap gap-2">
-                                {#each [
-                                    { id: 'professional', label: '👔 Professional' },
-                                    { id: 'friendly', label: '😊 Friendly' },
-                                    { id: 'casual', label: '💬 Casual' },
-                                    { id: 'formal', label: '📜 Formal' }
-                                ] as tone}
-                                    <button class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all
-                                        {config.tone === tone.id ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}"
-                                        on:click={() => config.tone = tone.id}>
-                                        {tone.label}
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-2">Response Language</label>
-                            <div class="flex flex-wrap gap-2">
-                                {#each [
-                                    { id: 'auto', label: '🌐 Auto-detect' },
-                                    { id: 'en', label: '🇺🇸 English' },
-                                    { id: 'ar', label: '🇸🇦 Arabic' },
-                                    { id: 'both', label: '🔄 Bilingual' }
-                                ] as lang}
-                                    <button class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all
-                                        {config.response_language === lang.id ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}"
-                                        on:click={() => config.response_language = lang.id}>
-                                        {lang.label}
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Model Parameters -->
-                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
-                    <label class="block text-xs font-bold text-slate-600 uppercase mb-3">Model Parameters</label>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold">Max Tokens (response length)</label>
-                            <input type="number" bind:value={config.max_tokens} min="50" max="2000"
-                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm mt-1" />
-                            <input type="range" bind:value={config.max_tokens} min="50" max="2000" step="50" class="w-full mt-1" />
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold">Temperature (creativity: 0=precise, 1=creative)</label>
-                            <input type="number" bind:value={config.temperature} min="0" max="1" step="0.1"
-                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm mt-1" />
-                            <input type="range" bind:value={config.temperature} min="0" max="1" step="0.1" class="w-full mt-1" />
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Handoff Rules -->
-                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
-                    <label class="block text-xs font-bold text-slate-600 uppercase mb-3">Human Handoff Rules</label>
-                    
-                    <div class="mb-4">
-                        <label class="text-[10px] text-slate-400 font-bold">Max messages before auto-handoff</label>
-                        <input type="number" bind:value={config.max_messages_before_handoff} min="1" max="50"
-                            class="w-32 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm mt-1" />
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="text-[10px] text-slate-400 font-bold mb-1 block">Handoff Trigger Keywords</label>
-                        <div class="flex gap-2">
-                            <input type="text" bind:value={handoffKeywordInput} placeholder="Add keyword..."
-                                class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                                on:keydown={(e) => { if(e.key === 'Enter') { e.preventDefault(); addHandoffKeyword(); } }} />
-                            <button class="px-3 py-2 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-200"
-                                on:click={addHandoffKeyword}>Add</button>
-                        </div>
-                        <div class="flex flex-wrap gap-1 mt-2">
-                            {#each config.handoff_keywords as kw, idx}
-                                <span class="px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full font-bold flex items-center gap-1">
-                                    {kw}
-                                    <button class="text-amber-500 hover:text-red-500" on:click={() => removeHandoffKeyword(idx)}>✕</button>
-                                </span>
-                            {/each}
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="text-[10px] text-slate-400 font-bold">Handoff Message</label>
-                        <input type="text" bind:value={config.handoff_message} placeholder="Message sent when handing off..."
-                            class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mt-1" />
-                    </div>
-                </div>
-
-                <!-- Save -->
-                <button class="w-full py-3.5 bg-emerald-600 text-white font-black text-sm rounded-2xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all disabled:opacity-50"
-                    on:click={saveConfig} disabled={saving}>
-                    {saving ? '⏳ Saving...' : '💾 Save Configuration'}
-                </button>
-            </div>
-
-        {:else if activeTab === 'training'}
-            <div class="max-w-4xl space-y-5">
-                <!-- Add Training Data -->
-                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
-                    <h3 class="text-xs font-bold text-slate-600 uppercase mb-3">Add Training Data</h3>
-                    <p class="text-[10px] text-slate-400 mb-4">Add Q&A pairs to help the AI answer common questions accurately.</p>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold">Category</label>
-                            <select bind:value={newTraining.category}
-                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mt-1">
-                                <option value="general">General</option>
-                                <option value="products">Products & Services</option>
-                                <option value="pricing">Pricing</option>
-                                <option value="support">Support</option>
-                                <option value="policies">Policies</option>
-                                <option value="hours">Business Hours</option>
-                                <option value="location">Location & Contact</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold">Question / Customer might ask</label>
-                            <input type="text" bind:value={newTraining.question} placeholder="e.g., What are your working hours?"
-                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mt-1" />
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold">Answer / Bot should respond</label>
-                            <textarea bind:value={newTraining.answer} rows="3" placeholder="e.g., Our working hours are Sunday to Thursday, 9 AM to 6 PM."
-                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mt-1 resize-none"></textarea>
-                        </div>
-                        <button class="px-6 py-2.5 bg-emerald-600 text-white font-bold text-xs rounded-xl hover:bg-emerald-700 disabled:opacity-50"
-                            on:click={addTrainingItem} disabled={!newTraining.question.trim() || !newTraining.answer.trim()}>
-                            ➕ Add Training Item
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Training Data List -->
+        {:else}
+            <div class="max-w-3xl mx-auto space-y-4">
+                <!-- Human Support Schedule -->
                 <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-xs font-bold text-slate-600 uppercase">Training Data ({config.training_data.length} items)</h3>
+                        <div class="text-xs font-bold text-slate-600 uppercase">👤 Human Support</div>
+                        <button class="flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all
+                            {humanSupportEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-red-50 text-red-500'}"
+                            on:click={() => { humanSupportEnabled = !humanSupportEnabled; }}>
+                            <span class="w-2.5 h-2.5 rounded-full {humanSupportEnabled ? 'bg-emerald-500' : 'bg-red-400'}"></span>
+                            {humanSupportEnabled ? 'Available' : 'Unavailable'}
+                        </button>
                     </div>
-                    {#if config.training_data.length === 0}
-                        <div class="text-center py-8">
-                            <div class="text-3xl mb-2">📚</div>
-                            <p class="text-xs text-slate-400">No training data yet. Add Q&A pairs above.</p>
+                    <p class="text-[11px] text-slate-400 mb-3">
+                        {humanSupportEnabled
+                            ? 'Human agents are accepting chats during the scheduled hours below. Customers who type "خدمة" within these hours will be transferred.'
+                            : 'Human support is OFF. Customers who type "خدمة" will be told support is not available right now.'}
+                    </p>
+                    <div class="flex items-center gap-4">
+                        <div class="flex-1">
+                            <label class="text-[11px] font-bold text-slate-500 mb-1 block">Start Time</label>
+                            <input type="time" bind:value={humanSupportStartTime}
+                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                        </div>
+                        <div class="flex items-center pt-5 text-slate-400 font-bold text-sm">→</div>
+                        <div class="flex-1">
+                            <label class="text-[11px] font-bold text-slate-500 mb-1 block">End Time</label>
+                            <input type="time" bind:value={humanSupportEndTime}
+                                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                        </div>
+                    </div>
+                    <div class="mt-3 text-[10px] text-slate-400 text-center">
+                        Saudi Arabia Time (UTC+3) • Daily schedule
+                    </div>
+                </div>
+
+                <!-- Token Usage Stats -->
+                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-xs font-bold text-slate-600 uppercase">📊 Gemini 2.5 Flash — Usage</div>
+                        <div class="flex items-center gap-2">
+                            <button on:click={refreshStats} disabled={refreshingStats}
+                                class="text-[10px] text-slate-500 hover:text-emerald-600 font-bold bg-slate-50 hover:bg-emerald-50 px-2 py-1 rounded-full transition-all disabled:opacity-50"
+                                title="Refresh stats">
+                                <span class:animate-spin={refreshingStats}>🔄</span>
+                            </button>
+                            <div class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded-full">Pay-as-you-go</div>
+                        </div>
+                    </div>
+
+                    <!-- Stats grid -->
+                    <div class="grid grid-cols-4 gap-3">
+                        <div class="bg-blue-50 rounded-xl p-3 text-center">
+                            <div class="text-lg font-black text-blue-700">{formatNumber(tokensUsed)}</div>
+                            <div class="text-[10px] text-blue-500 font-bold">Total Tokens</div>
+                        </div>
+                        <div class="bg-purple-50 rounded-xl p-3 text-center">
+                            <div class="text-lg font-black text-purple-700">{formatNumber(promptTokensUsed)}</div>
+                            <div class="text-[10px] text-purple-500 font-bold">Prompt</div>
+                        </div>
+                        <div class="bg-amber-50 rounded-xl p-3 text-center">
+                            <div class="text-lg font-black text-amber-700">{formatNumber(completionTokensUsed)}</div>
+                            <div class="text-[10px] text-amber-500 font-bold">Completion</div>
+                        </div>
+                        <div class="bg-emerald-50 rounded-xl p-3 text-center">
+                            <div class="text-lg font-black text-emerald-700">{totalRequests}</div>
+                            <div class="text-[10px] text-emerald-500 font-bold">Replies</div>
+                        </div>
+                    </div>
+
+                    <!-- Cost estimate -->
+                    <div class="mt-3 flex items-center justify-center gap-2 text-[10px] text-slate-400">
+                        Est. cost: ~{(tokensUsed * 0.00000024 * 3.75).toFixed(4)} SAR
+                    </div>
+                </div>
+
+                <!-- Bot Rules (Internal behavior - never shown to customer) -->
+                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
+                    <div class="text-xs font-bold text-slate-600 uppercase mb-3">⚙️ Bot Rules <span class="text-[10px] font-normal normal-case text-slate-400">(internal — never sent to customer)</span></div>
+                    <p class="text-[11px] text-slate-400 mb-3">Internal behavior rules that control how the bot acts. These are NEVER included in customer replies.</p>
+                    <textarea bind:value={botRules} rows="12"
+                        placeholder="Example rules:
+- Always reply in the same language the customer uses
+- Keep responses under 3 sentences
+- Never mention internal policies or competitor names
+- If customer asks for human agent, tell them to type خدمة
+- Never improvise information not provided in the Information section"
+                        class="w-full px-4 py-3 bg-amber-50/50 border border-amber-200/60 rounded-xl text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-500 resize-y min-h-[200px]"></textarea>
+                    <div class="flex items-center justify-between mt-2">
+                        <span class="text-[10px] text-slate-400">{botRules.length} characters</span>
+                    </div>
+                </div>
+
+                <!-- Information (Response templates and content) -->
+                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
+                    <div class="text-xs font-bold text-slate-600 uppercase mb-3">📝 Information <span class="text-[10px] font-normal normal-case text-slate-400">(response content the bot can use)</span></div>
+                    <p class="text-[11px] text-slate-400 mb-3">Reference information, response templates, and content the bot uses when replying to customers.</p>
+                    <textarea bind:value={instructions} rows="20"
+                        placeholder="Example information:
+Urban Aqura is a grocery delivery service.
+Working hours: Sun–Thu 9AM to 6PM.
+We deliver fresh groceries, meat, and household items.
+Offer page: https://urbanaqura.com/offers
+Support number: +966..."
+                        class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-y min-h-[300px]"></textarea>
+                    <div class="flex items-center justify-between mt-2">
+                        <span class="text-[10px] text-slate-400">{instructions.length} characters</span>
+                    </div>
+                </div>
+
+                <!-- Training Q&A -->
+                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-xs font-bold text-slate-600 uppercase">🎓 Training Q&A</div>
+                        <button class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-200 transition-colors"
+                            on:click={addQAPair}>
+                            <span class="text-sm">+</span> Add Pair
+                        </button>
+                    </div>
+
+                    {#if trainingQA.length === 0}
+                        <div class="text-center py-8 text-slate-400">
+                            <div class="text-3xl mb-2">💬</div>
+                            <p class="text-xs">No training pairs yet. Click "Add Pair" to teach the bot specific responses.</p>
                         </div>
                     {:else}
                         <div class="space-y-3">
-                            {#each config.training_data as item, idx}
-                                <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                                    <div class="flex items-start justify-between">
-                                        <div class="flex-1">
-                                            <span class="px-2 py-0.5 text-[9px] font-bold bg-blue-100 text-blue-600 rounded-full">{item.category}</span>
-                                            <p class="text-xs font-bold text-slate-700 mt-1">Q: {item.question}</p>
-                                            <p class="text-xs text-slate-500 mt-1">A: {item.answer}</p>
-                                        </div>
-                                        <button class="text-red-400 hover:text-red-600 text-sm ml-3" on:click={() => removeTrainingItem(idx)}>🗑️</button>
+                            {#each trainingQA as qa, i}
+                                <div class="bg-slate-50 rounded-xl p-4 border border-slate-200 relative group">
+                                    <button class="absolute top-2 {$locale === 'ar' ? 'left-2' : 'right-2'} w-6 h-6 bg-red-100 text-red-500 rounded-full text-xs font-bold hover:bg-red-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                        on:click={() => removeQAPair(i)}>✕</button>
+                                    <div class="text-[10px] font-bold text-slate-400 mb-1">#{i + 1}</div>
+                                    <div class="mb-3">
+                                        <label class="text-[11px] font-bold text-indigo-600 mb-1 block">Prompt</label>
+                                        <input type="text" bind:value={qa.prompt}
+                                            placeholder="When customer asks..."
+                                            class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                                    </div>
+                                    <div>
+                                        <label class="text-[11px] font-bold text-emerald-600 mb-1 block">Response</label>
+                                        <textarea bind:value={qa.response}
+                                            placeholder="Bot should reply with..."
+                                            rows="3"
+                                            class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-y"></textarea>
                                     </div>
                                 </div>
                             {/each}
@@ -412,54 +292,14 @@
                     {/if}
                 </div>
 
-                <!-- Save Training Data -->
-                <button class="w-full py-3.5 bg-emerald-600 text-white font-black text-sm rounded-2xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 disabled:opacity-50"
+                <!-- Save -->
+                <button class="w-full py-3.5 bg-emerald-600 text-white font-black text-sm rounded-2xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all disabled:opacity-50"
                     on:click={saveConfig} disabled={saving}>
-                    {saving ? '⏳ Saving...' : '💾 Save Training Data'}
+                    {saving ? '⏳ Saving...' : '💾 Save All'}
                 </button>
-            </div>
-
-        {:else if activeTab === 'logs'}
-            <div class="max-w-4xl">
-                <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-5">
-                    <h3 class="text-xs font-bold text-slate-600 uppercase mb-4">AI Bot Conversation Log</h3>
-                    {#if conversationLogs.length === 0}
-                        <div class="text-center py-12">
-                            <div class="text-3xl mb-2">📊</div>
-                            <p class="text-xs text-slate-400">No AI bot conversations yet</p>
-                        </div>
-                    {:else}
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-sm">
-                                <thead>
-                                    <tr class="text-left text-xs text-slate-400 uppercase border-b border-slate-200">
-                                        <th class="py-2 px-3">Customer</th>
-                                        <th class="py-2 px-3">Phone</th>
-                                        <th class="py-2 px-3">Messages</th>
-                                        <th class="py-2 px-3">Status</th>
-                                        <th class="py-2 px-3">Last Activity</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {#each conversationLogs as log}
-                                        <tr class="border-b border-slate-100 hover:bg-slate-50">
-                                            <td class="py-2.5 px-3 text-xs font-bold text-slate-700">{log.customer_name || 'Unknown'}</td>
-                                            <td class="py-2.5 px-3 text-xs font-mono text-slate-500">{log.customer_phone}</td>
-                                            <td class="py-2.5 px-3 text-xs">{log.message_count}</td>
-                                            <td class="py-2.5 px-3">
-                                                <span class="px-2 py-0.5 text-[10px] font-bold rounded-full
-                                                    {log.was_handed_off ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}">
-                                                    {log.was_handed_off ? '👤 Handed Off' : '🤖 AI Handling'}
-                                                </span>
-                                            </td>
-                                            <td class="py-2.5 px-3 text-xs text-slate-400">{log.last_message_at ? new Date(log.last_message_at).toLocaleString() : '-'}</td>
-                                        </tr>
-                                    {/each}
-                                </tbody>
-                            </table>
-                        </div>
-                    {/if}
-                </div>
+                {#if saveMessage}
+                    <p class="text-center text-sm font-bold {saveMessage.startsWith('✅') ? 'text-emerald-600' : 'text-red-500'}">{saveMessage}</p>
+                {/if}
             </div>
         {/if}
     </div>

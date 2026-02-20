@@ -595,6 +595,7 @@
 			id: windowId,
 			title: `My Tasks #${instanceNumber}`,
 			component: MyTasksView,
+			componentName: 'MyTasksView',
 			icon: '📋',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1297,6 +1298,7 @@
 			id: windowId,
 			title: `Delivery Settings #${instanceNumber}`,
 			component: DeliverySettings,
+			componentName: 'DeliverySettings',
 			icon: '📦',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1405,6 +1407,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Approval Center #${instanceNumber}`,
 			component: ApprovalCenter,
+			componentName: 'ApprovalCenter',
 			icon: '✅',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -2002,7 +2005,7 @@ function openApprovalCenter() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-live-chat');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappLiveChat')} #${n}`, component: WALiveChat, icon: '💬', size: { width: 1400, height: 800 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappLiveChat')} #${n}`, component: WALiveChat, componentName: 'WALiveChat', icon: '💬', size: { width: 1400, height: 800 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true, popOutEnabled: true });
 	}
 	function openWABroadcasts() {
 		collapseAllMenus();

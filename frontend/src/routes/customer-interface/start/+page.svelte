@@ -335,6 +335,17 @@
       <p>{texts.loading}</p>
     </div>
   {:else}
+    {#if branches.length === 0}
+      <!-- No branches with any service available -->
+      <div class="no-service-container">
+        <div class="no-service-icon">🚫</div>
+        <h2 class="no-service-title">{currentLanguage === 'ar' ? 'الخدمة غير متاحة حالياً' : 'Service Not Available'}</h2>
+        <p class="no-service-desc">{currentLanguage === 'ar' ? 'لا توجد فروع متاحة للخدمة في الوقت الحالي. يرجى المحاولة لاحقاً.' : 'No branches are currently available for service. Please try again later.'}</p>
+        <button class="retry-btn" on:click={loadBranches}>
+          🔄 {currentLanguage === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+        </button>
+      </div>
+    {:else}
     <div class="sections-wrapper">
       <!-- Delivery Service Section -->
       {#if deliveryBranches.length > 0}
@@ -434,10 +445,63 @@
         </section>
       {/if}
     </div>
+    {/if}
   {/if}
 </div>
 
 <style>
+  /* ===== No Service Available ===== */
+  .no-service-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 3rem 2rem;
+    margin: 2rem auto;
+    max-width: 400px;
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    position: relative;
+    z-index: 1;
+  }
+  .no-service-icon {
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
+    filter: grayscale(0.2);
+  }
+  .no-service-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #dc2626;
+    margin: 0 0 0.75rem 0;
+  }
+  .no-service-desc {
+    font-size: 0.9rem;
+    color: #6b7280;
+    margin: 0 0 1.5rem 0;
+    line-height: 1.6;
+  }
+  .retry-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 2rem;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .retry-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+  }
+
   /* ===== Premium Start Page ===== */
   .start-container {
     --green: #16a34a;

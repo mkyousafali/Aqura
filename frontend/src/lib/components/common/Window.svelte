@@ -205,53 +205,20 @@
 	}
 
 	async function refresh() {
-		if (refreshing) return; // Prevent multiple simultaneous refreshes
+		if (refreshing) return;
 		
 		try {
 			refreshing = true;
-			console.log('🔄 [Window] Starting window refresh for:', window.title);
-			console.log('🔍 [Window] Window props:', window.props);
+			console.log('🔄 [Window] Refreshing window:', window.title);
 			
-			// Try multiple approaches to find and call refresh function
-			let refreshExecuted = false;
+			// Universal refresh: remount component by incrementing refreshKey
+			windowManager.refreshWindow(window.id);
 			
-			// Method 1: Call component's onRefresh if available
-			if (window.props?.onRefresh) {
-				console.log('✅ [Window] Found onRefresh prop, calling it...');
-				try {
-					await window.props.onRefresh();
-					refreshExecuted = true;
-				} catch (error) {
-					console.error('❌ [Window] onRefresh failed:', error);
-				}
-			}
-			
-			// Method 2: Try to find data-refresh-target element
-			if (!refreshExecuted) {
-				const componentElement = windowElement?.querySelector('[data-refresh-target]');
-				if (componentElement && componentElement.refreshData) {
-					console.log('✅ [Window] Found data-refresh-target element, calling refreshData...');
-					try {
-						await componentElement.refreshData();
-						refreshExecuted = true;
-					} catch (error) {
-						console.error('❌ [Window] refreshData failed:', error);
-					}
-				}
-			}
-			
-			// Method 3: Fallback to window manager refresh
-			if (!refreshExecuted) {
-				console.log('❌ [Window] No refresh methods found, using fallback remount');
-				windowManager.refreshWindow(window.id);
-				refreshExecuted = true;
-			}
-			
-			if (refreshExecuted) {
-				console.log('✅ [Window] Window refresh successful for:', window.title);
-			}
+			// Brief delay so user sees the spinner
+			await new Promise(r => setTimeout(r, 300));
+			console.log('✅ [Window] Window refreshed:', window.title);
 		} catch (error) {
-			console.error('❌ [Window] Error during window refresh:', error);
+			console.error('❌ [Window] Refresh error:', error);
 		} finally {
 			refreshing = false;
 		}
@@ -390,7 +357,9 @@
 
 	<!-- Window Content -->
 	<div class="window-content">
-		<svelte:component this={window.component} {...window.props} />
+		{#key window.refreshKey}
+			<svelte:component this={window.component} {...window.props} />
+		{/key}
 	</div>
 
 	<!-- Resize Handles -->

@@ -3,6 +3,8 @@
     import { _ as t, locale } from '$lib/i18n';
     import { getEdgeFunctionUrl } from '$lib/utils/supabase';
 
+    export let initialPhone: string = '';
+
     interface Conversation {
         id: string;
         customer_phone: string;
@@ -106,6 +108,15 @@
                 return { ...c, is_inside_24hr: hrs <= 24 };
             });
             applyFilters();
+
+            // Auto-select conversation by initialPhone
+            if (initialPhone && !selectedConv) {
+                const match = conversations.find(c => c.customer_phone === initialPhone);
+                if (match) {
+                    await selectConversation(match);
+                    initialPhone = ''; // only auto-select once
+                }
+            }
         } catch (e: any) {
             console.error(e);
         } finally {

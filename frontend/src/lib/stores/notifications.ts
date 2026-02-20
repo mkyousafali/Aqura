@@ -133,7 +133,9 @@ export async function fetchNotificationCounts(userId?: string) {
     }
 
     const totalCount = recipients?.length || 0;
-    const unreadCount = totalCount - readNotificationIds.size;
+    // Only count read states that match fetched recipients (avoid negative counts from old/deleted read states)
+    const readCount = recipients?.filter(r => readNotificationIds.has(r.notification_id)).length || 0;
+    const unreadCount = totalCount - readCount;
 
     // Update store
     notificationCounts.set({
