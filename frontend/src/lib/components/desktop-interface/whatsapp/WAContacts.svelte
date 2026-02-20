@@ -3,6 +3,10 @@
     import { _ as t, locale } from '$lib/i18n';
     import { openWindow } from '$lib/utils/windowManagerUtils';
     import WALiveChat from './WALiveChat.svelte';
+    import WABroadcasts from './WABroadcasts.svelte';
+    import { billCountCache, contactsCache, contactsTotalCount } from '$lib/stores/billCountCache';
+    import type { BillDetail } from '$lib/stores/billCountCache';
+    import { get } from 'svelte/store';
 
     interface Contact {
         id: string;
@@ -41,6 +45,7 @@
     let error = '';
     let searchQuery = '';
     let statusFilter = 'all'; // all, inside_24hr, outside_24hr, unread
+    let sortBy = 'default'; // default, bills_desc, bills_asc
     let selectedContact: Contact | null = null;
     let messageHistory: MessageHistory[] = [];
     let loadingHistory = false;
@@ -48,15 +53,68 @@
     let realtimeConvChannel: any = null;
     let realtimeCodeChannel: any = null;
     let realtimeMsgChannel: any = null;
-    let billCountMap: Map<string, { branchResults: Array<{ branchId: string; branchName: string; locationEn: string; locationAr: string; count: number; total: number }>; totalCount: number; totalAmount: number; broadcastStats?: { sent: number; delivered: number; read: number } }> = new Map(); // Temporary local storage - not persisted to cloud
+    // Bill count data is stored in a Svelte store so it persists across window open/close within the same session
 
-    // Pagination
-    const PAGE_SIZE = 100;
-    let currentOffset = 0;
+    // Total count for display
     let totalCount = 0;
-    let loadingMore = false;
-    let searchTimeout: any;
     let realtimeDebounce: any;
+
+    // Checkbox selection
+    let selectedIds: Set<string> = new Set();
+    $: allVisibleSelected = visibleContacts.length > 0 && visibleContacts.every(c => selectedIds.has(c.id));
+
+    function toggleSelectAll() {
+        if (allVisibleSelected) {
+            // Deselect all visible
+            for (const c of visibleContacts) selectedIds.delete(c.id);
+        } else {
+            // Select all visible
+            for (const c of visibleContacts) selectedIds.add(c.id);
+        }
+        selectedIds = new Set(selectedIds);
+    }
+
+    function toggleSelect(id: string) {
+        if (selectedIds.has(id)) {
+            selectedIds.delete(id);
+        } else {
+            selectedIds.add(id);
+        }
+        selectedIds = new Set(selectedIds);
+    }
+
+    // Virtual rendering - only render visible rows to prevent DOM freeze
+    const RENDER_BATCH = 100;
+    let visibleCount = RENDER_BATCH;
+    let scrollSentinel: HTMLDivElement;
+    let scrollObserver: IntersectionObserver;
+    $: visibleContacts = filteredContacts.slice(0, visibleCount);
+
+    function setupScrollObserver() {
+        if (scrollObserver) scrollObserver.disconnect();
+        scrollObserver = new IntersectionObserver((entries) => {
+            if (entries[0]?.isIntersecting && visibleCount < filteredContacts.length) {
+                visibleCount = Math.min(visibleCount + RENDER_BATCH, filteredContacts.length);
+            }
+        }, { rootMargin: '200px' });
+        if (scrollSentinel) scrollObserver.observe(scrollSentinel);
+    }
+
+    // Svelte action to auto-observe the sentinel element
+    function observeSentinel(node: HTMLElement) {
+        if (scrollObserver) scrollObserver.disconnect();
+        scrollObserver = new IntersectionObserver((entries) => {
+            if (entries[0]?.isIntersecting && visibleCount < filteredContacts.length) {
+                visibleCount = Math.min(visibleCount + RENDER_BATCH, filteredContacts.length);
+            }
+        }, { rootMargin: '200px' });
+        scrollObserver.observe(node);
+        return {
+            destroy() {
+                scrollObserver?.disconnect();
+            }
+        };
+    }
 
     // Import state
     let importing = false;
@@ -66,12 +124,39 @@
     // Bill loading state
     let loadingBills = false;
     let billLoadMessage = '';
-    let erpConfigs: any[] = []; // All active ERP connections
     let selectedBillContact: Contact | null = null; // For bill breakdown popup
-    
-    // Batch loading configuration for performance
-    const BATCH_SIZE = 5; // Load N contacts at a time
-    const BATCH_DELAY_MS = 500; // Delay between batches (ms)
+
+    // Bill details state (individual bills for a contact)
+    let detailsContact: Contact | null = null;
+    let detailsBills: BillDetail[] = [];
+    let loadingDetails = false;
+
+    // Last N days filter
+    let lastNDays: string = ''; // empty = no filter
+
+    // Broadcast generation
+    let showBroadcastPopup = false;
+    let bcTemplates: any[] = [];
+    let bcSelectedTemplate: any = null;
+    let bcTemplateSearch = '';
+    let bcDateFrom = '';
+    let bcDateTo = '';
+    let bcMaxCount: string = '';
+    let bcFilterHasBills = false;     // filter: has bill count > 0
+    let bcFilterDelivered = false;    // filter: has delivered broadcast
+    let bcFilterApproved = false;     // filter: approved customers (registration_status = 'approved')
+    let bcGenerating = false;
+    let bcGeneratedCount = 0;
+    let bcAccountId = '';
+    let bcSending = false;
+    let bcBroadcastName = '';
+    let bcSendResult = '';
+    let bcHasGenerated = false;
+    let bcFilterLog = '';  // shows filter step breakdown
+
+    $: bcFilteredTemplates = bcTemplates.filter(t => 
+        !bcTemplateSearch || t.name?.toLowerCase().includes(bcTemplateSearch.toLowerCase())
+    );
 
     /** Debounced refresh — coalesces rapid realtime events into a single reload */
     function scheduleRefresh() {
@@ -82,10 +167,22 @@
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
-        await loadContacts();
-        await loadErpConfig();
-        // NOTE: DO NOT load bill counts on mount - user must manually click the "Load Bill Counts" button
-        // This is because contact names are in Arabic but ERP party names are in English
+
+        // Load from cache first if available
+        const cached = get(contactsCache);
+        if (cached.length > 0) {
+            contacts = cached;
+            totalCount = get(contactsTotalCount);
+            loading = false;
+            applyFilters();
+        } else {
+            await loadContacts();
+        }
+        // Auto-load bill counts if not already cached
+        const cachedBills = get(billCountCache);
+        if (cachedBills.size === 0) {
+            loadBillCounts();
+        }
 
         // Realtime: customers table changes
         realtimeChannel = supabase
@@ -126,19 +223,17 @@
         if (realtimeCodeChannel) supabase?.removeChannel(realtimeCodeChannel);
         if (realtimeMsgChannel) supabase?.removeChannel(realtimeMsgChannel);
         if (realtimeDebounce) clearTimeout(realtimeDebounce);
+        if (scrollObserver) scrollObserver.disconnect();
     });
 
-    async function loadContacts(append = false) {
+    async function loadContacts() {
         try {
-            if (!append) {
-                currentOffset = 0;
-                contacts = [];
-            }
+            contacts = [];
 
             const { data, error: err } = await supabase.rpc('get_wa_contacts', {
-                p_limit: PAGE_SIZE,
-                p_offset: currentOffset,
-                p_search: searchQuery.trim() || null
+                p_limit: 100000,
+                p_offset: 0,
+                p_search: null
             });
 
             if (err) throw err;
@@ -161,16 +256,14 @@
 
             if (data?.length > 0) {
                 totalCount = Number(data[0].total_count) || 0;
-            } else if (!append) {
+            } else {
                 totalCount = 0;
             }
 
-            if (append) {
-                contacts = [...contacts, ...mapped];
-            } else {
-                contacts = mapped;
-            }
-
+            contacts = mapped;
+            // Save to cache
+            contactsCache.set(mapped);
+            contactsTotalCount.set(totalCount);
             applyFilters();
         } catch (e: any) {
             error = e.message;
@@ -182,7 +275,16 @@
     function applyFilters() {
         let result = [...contacts];
 
-        // Status filter (search is done server-side)
+        // Client-side search filter (all contacts are loaded)
+        const query = searchQuery.trim().toLowerCase();
+        if (query) {
+            result = result.filter(c =>
+                (c.name && c.name.toLowerCase().includes(query)) ||
+                (c.whatsapp_number && c.whatsapp_number.includes(query))
+            );
+        }
+
+        // Status filter
         if (statusFilter === 'inside_24hr') {
             result = result.filter(c => c.is_inside_24hr);
         } else if (statusFilter === 'outside_24hr') {
@@ -191,26 +293,49 @@
             result = result.filter(c => c.unread_count > 0);
         }
 
+        // Last N days filter — only show contacts with bills in the last N days
+        const days = parseInt(lastNDays);
+        if (days > 0) {
+            const cache = get(billCountCache);
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - days);
+            cutoff.setHours(0, 0, 0, 0);
+            result = result.filter(c => {
+                const billData = cache.get(c.id);
+                if (!billData?.lastBillDate) return false;
+                return new Date(billData.lastBillDate) >= cutoff;
+            });
+        }
+
+        // Sort by bill count if selected
+        if (sortBy === 'bills_desc') {
+            const cache = get(billCountCache);
+            result.sort((a, b) => {
+                const aBills = cache.get(a.id)?.totalCount || 0;
+                const bBills = cache.get(b.id)?.totalCount || 0;
+                return bBills - aBills;
+            });
+        } else if (sortBy === 'bills_asc') {
+            const cache = get(billCountCache);
+            result.sort((a, b) => {
+                const aBills = cache.get(a.id)?.totalCount || 0;
+                const bBills = cache.get(b.id)?.totalCount || 0;
+                return aBills - bBills;
+            });
+        }
+
         filteredContacts = result;
+        // Reset visible count when filters change
+        visibleCount = RENDER_BATCH;
     }
 
-    // Debounced server-side search
+    // Client-side search — just re-apply filters (no server call needed)
     function handleSearchInput() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            loading = true;
-            loadContacts();
-        }, 400);
+        applyFilters();
     }
 
-    async function loadMore() {
-        loadingMore = true;
-        currentOffset += PAGE_SIZE;
-        await loadContacts(true);
-        loadingMore = false;
-    }
-
-    $: statusFilter, applyFilters();
+    // Re-run filters whenever statusFilter changes
+    $: if (statusFilter) { applyFilters(); } else { applyFilters(); }
 
     function openLiveChat(contact: Contact) {
         const windowId = `wa-live-chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -301,58 +426,83 @@
         fileInput?.click();
     }
 
-    async function loadErpConfig() {
-        try {
-            const { data } = await supabase.from('erp_connections')
-                .select('tunnel_url, erp_branch_id, branch_id, branch_name, branches(id, location_en, location_ar)')
-                .eq('is_active', true)
-                .order('branch_id');
-            erpConfigs = data || [];
-            console.log(`Loaded ${erpConfigs.length} ERP connections:`, erpConfigs);
-        } catch (e) {
-            console.error('Failed to load ERP config:', e);
-        }
+    async function clearCacheAndReload() {
+        // Clear both caches
+        billCountCache.set(new Map());
+        contactsCache.set([]);
+        contactsTotalCount.set(0);
+        // Reset local state
+        contacts = [];
+        filteredContacts = [];
+        totalCount = 0;
+        visibleCount = RENDER_BATCH;
+        selectedBillContact = null;
+        selectedContact = null;
+        // Reload fresh
+        loading = true;
+        await loadContacts();
     }
 
     async function loadBillCounts() {
-        if (erpConfigs.length === 0) {
-            billLoadMessage = '❌ No ERP connections configured';
-            return;
-        }
-
         loadingBills = true;
-        billLoadMessage = '⏳ Loading bill counts...';
-        let loaded = 0;
+        billLoadMessage = '⏳ Loading bill counts for all contacts...';
 
         // Use contacts array (always has all data), fallback to filtered if needed
         const targetContacts = contacts.length > 0 ? contacts : filteredContacts;
         if (targetContacts.length === 0) {
             billLoadMessage = '⚠️ No contacts to load bills for';
+            loadingBills = false;
             return;
         }
 
         try {
-            // Process contacts in batches to avoid overwhelming the server
-            for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
-                const batch = targetContacts.slice(i, i + BATCH_SIZE);
-                console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1} (contacts ${i + 1}-${Math.min(i + BATCH_SIZE, targetContacts.length)})`);
-                
-                // Process all contacts in this batch in parallel
-                await Promise.all(batch.map(contact => loadBillCountForContact(contact, targetContacts.length)));
-                
-                loaded += batch.length;
-                billLoadMessage = `⏳ Loaded ${Math.min(loaded, targetContacts.length)}/${targetContacts.length} bill counts...`;
-                
-                // Delay between batches to avoid overwhelming the server
-                if (i + BATCH_SIZE < targetContacts.length) {
-                    await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-                }
+            // Collect all phone numbers
+            const phoneNumbers = targetContacts.map(c => c.whatsapp_number);
+            console.log(`📊 Sending batch request for ${phoneNumbers.length} contacts`);
+
+            // ONE single API call for ALL contacts × ALL branches
+            const response = await fetch('/api/batch-bill-counts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumbers })
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.error || 'Batch bill counts failed');
             }
+
+            // Map results back to contacts and update the store
+            billCountCache.update(map => {
+                for (const contact of targetContacts) {
+                    const result = data.results[contact.whatsapp_number];
+                    if (result) {
+                        map.set(contact.id, {
+                            branchResults: result.branchResults,
+                            totalCount: result.totalCount,
+                            totalAmount: result.totalAmount,
+                            lastBillDate: result.lastBillDate || null,
+                            broadcastStats: result.broadcastStats
+                        });
+                    } else {
+                        map.set(contact.id, {
+                            branchResults: [],
+                            totalCount: 0,
+                            totalAmount: 0,
+                            lastBillDate: null,
+                            broadcastStats: { sent: 0, delivered: 0, read: 0 }
+                        });
+                    }
+                }
+                return new Map(map);
+            });
             
             billLoadMessage = `✅ Loaded bill counts for ${targetContacts.length} contacts`;
-            // Trigger reactivity
-            billCountMap = billCountMap;
+            // Re-apply filters/sort so sorted view updates with new bill data
+            applyFilters();
         } catch (e: any) {
+            console.error('❌ Batch bill count error:', e);
             billLoadMessage = `❌ ${e.message}`;
         } finally {
             loadingBills = false;
@@ -360,91 +510,49 @@
         }
     }
 
-    async function loadBillCountForContact(contact: Contact, totalContacts: number) {
-        const mobileNumber = contact.whatsapp_number.trim();
-        
-        console.log(`Loading bills for contact: ${contact.name} (mobile: ${mobileNumber})`);
-        
-        let totalBills = 0;
-        let totalAmount = 0;
-        const branchResults: Array<{ branchId: string; branchName: string; locationEn: string; locationAr: string; count: number; total: number }> = [];
-        
-        // Query broadcast stats using RPC function (single query instead of counting statuses on client)
-        const { data: broadcastStats } = await supabase
-            .rpc('get_contact_broadcast_stats', { phone_number: contact.whatsapp_number });
-        
-        let sentCount = 0, deliveredCount = 0, readCount = 0;
-        if (broadcastStats) {
-            sentCount = broadcastStats.sent || 0;
-            deliveredCount = broadcastStats.delivered || 0;
-            readCount = broadcastStats.read || 0;
-        }
-        console.log(`Broadcast stats for ${contact.name}: sent=${sentCount}, delivered=${deliveredCount}, read=${readCount}`);
-        
-        // Query each ERP branch separately
-        for (const config of erpConfigs) {
-            if (!config?.tunnel_url) {
-                console.warn(`Branch ${config?.branch_id} has no tunnel URL, skipping`);
-                continue;
-            }
-            
-            // Query: Find privilege card by mobile → get party name → count bills for that party in that branch
-            const sql = `SELECT COUNT(*) as bill_cnt, SUM(GrandTotal) as bill_amt FROM InvTransactionMaster 
-            WHERE BranchID IN (
-              SELECT DISTINCT BranchID FROM PrivilegeCards 
-              WHERE REPLACE(Mobile, ' ', '') = '${mobileNumber.replace(/'/g, "''")}'  
-            )
-            AND LOWER(LTRIM(RTRIM(PartyName))) = (
-              SELECT TOP 1 LOWER(LTRIM(RTRIM(CardHolderName))) FROM PrivilegeCards 
-              WHERE REPLACE(Mobile, ' ', '') = '${mobileNumber.replace(/'/g, "''")}'  
-              AND CardHolderName != ''
-            )`;
+    async function loadBillDetails(contact: Contact) {
+        detailsContact = contact;
+        loadingDetails = true;
+        detailsBills = [];
 
-            try {
-                const response = await fetch('/api/erp-products', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'query', tunnelUrl: config.tunnel_url, sql })
-                });
-                const result = await response.json();
-                
-                if (result.success && result.recordset?.length > 0) {
-                    const billCnt = result.recordset[0]?.bill_cnt || 0;
-                    const billAmt = result.recordset[0]?.bill_amt || 0;
-                    totalBills += billCnt;
-                    totalAmount += (billAmt || 0);
-                    const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
-                    branchResults.push({
-                        branchId: config.branch_id,
-                        branchName: config.branch_name || `Branch ${config.branch_id}`,
-                        locationEn: branchData?.location_en || 'Location N/A',
-                        locationAr: branchData?.location_ar || 'الموقع غير متاح',
-                        count: billCnt,
-                        total: billAmt || 0
-                    });
-                } else {
-                    const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
-                    branchResults.push({
-                        branchId: config.branch_id,
-                        branchName: config.branch_name || `Branch ${config.branch_id}`,
-                        locationEn: branchData?.location_en || 'Location N/A',
-                        locationAr: branchData?.location_ar || 'الموقع غير متاح',
-                        count: 0,
-                        total: 0
-                    });
-                }
-            } catch (branchErr) {
-                console.error(`Error querying Branch ${config.branch_id}:`, branchErr);
-            }
+        // Check if we already have details cached
+        const cached = get(billCountCache).get(contact.id);
+        if (cached?.billDetails && cached.billDetails.length > 0) {
+            detailsBills = cached.billDetails;
+            loadingDetails = false;
+            return;
         }
-        
-        console.log(`✅ Total for ${contact.name}: ${totalBills} bills, ${totalAmount} SAR`);
-        billCountMap.set(contact.id, {
-            branchResults: branchResults,
-            totalCount: totalBills,
-            totalAmount: totalAmount,
-            broadcastStats: { sent: sentCount, delivered: deliveredCount, read: readCount }
-        });
+
+        try {
+            const response = await fetch('/api/contact-bill-details', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumber: contact.whatsapp_number })
+            });
+            const data = await response.json();
+            if (data.success) {
+                detailsBills = data.bills || [];
+                // Cache the details
+                billCountCache.update(map => {
+                    const existing = map.get(contact.id);
+                    if (existing) {
+                        existing.billDetails = detailsBills;
+                        map.set(contact.id, existing);
+                    }
+                    return new Map(map);
+                });
+            }
+        } catch (e: any) {
+            console.error('❌ Bill details error:', e);
+        } finally {
+            loadingDetails = false;
+        }
+    }
+
+    function formatBillDate(dateStr: string) {
+        if (!dateStr) return '—';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     }
 
     async function handleFileImport(event: Event) {
@@ -531,6 +639,317 @@
             setTimeout(() => importMessage = '', 8000);
         }
     }
+
+    async function openBroadcastPopup() {
+        showBroadcastPopup = true;
+        bcSelectedTemplate = null;
+        bcTemplateSearch = '';
+        bcDateFrom = '';
+        bcDateTo = '';
+        bcMaxCount = '';
+        bcFilterHasBills = false;
+        bcFilterDelivered = false;
+        bcFilterApproved = false;
+        bcBroadcastName = '';
+        bcSendResult = '';
+        bcSending = false;
+        bcFilterLog = '';
+
+        // If customers already selected from table, preserve them
+        if (selectedIds.size > 0) {
+            bcGeneratedCount = selectedIds.size;
+            bcHasGenerated = true;
+        } else {
+            bcGeneratedCount = 0;
+            bcHasGenerated = false;
+        }
+
+        // Load WA account and templates
+        if (!supabase) return;
+        try {
+            const { data: acc } = await supabase.from('wa_accounts').select('id').eq('is_default', true).single();
+            if (acc) {
+                bcAccountId = acc.id;
+                const { data: tmpl } = await supabase.from('wa_templates')
+                    .select('*')
+                    .eq('wa_account_id', acc.id)
+                    .eq('status', 'APPROVED')
+                    .order('created_at', { ascending: false });
+                bcTemplates = tmpl || [];
+            }
+        } catch (e) {
+            console.error('Failed to load broadcast data:', e);
+        }
+    }
+
+    function generateBroadcastList() {
+        bcGenerating = true;
+        bcSendResult = '';
+        bcFilterLog = '';
+        const cache = get(billCountCache);
+        let candidates = [...filteredContacts];
+        let log = `Starting: ${candidates.length} contacts`;
+
+        // Filter by date range (based on lastBillDate)
+        if (bcDateFrom) {
+            const from = new Date(bcDateFrom);
+            from.setHours(0, 0, 0, 0);
+            candidates = candidates.filter(c => {
+                const bd = cache.get(c.id);
+                if (!bd?.lastBillDate) return false;
+                return new Date(bd.lastBillDate) >= from;
+            });
+            log += ` → Date From: ${candidates.length}`;
+        }
+        if (bcDateTo) {
+            const to = new Date(bcDateTo);
+            to.setHours(23, 59, 59, 999);
+            candidates = candidates.filter(c => {
+                const bd = cache.get(c.id);
+                if (!bd?.lastBillDate) return false;
+                return new Date(bd.lastBillDate) <= to;
+            });
+            log += ` → Date To: ${candidates.length}`;
+        }
+
+        // Build active filters and apply OR logic when multiple selected
+        const activeFilters: ((c: Contact) => boolean)[] = [];
+        const filterNames: string[] = [];
+
+        if (bcFilterHasBills) {
+            activeFilters.push(c => {
+                const bd = cache.get(c.id);
+                return bd ? bd.totalCount > 0 : false;
+            });
+            filterNames.push('Has Bills');
+        }
+        if (bcFilterDelivered) {
+            activeFilters.push(c => {
+                const bd = cache.get(c.id);
+                return bd?.broadcastStats ? (bd.broadcastStats.delivered > 0 || bd.broadcastStats.read > 0) : false;
+            });
+            filterNames.push('Delivered');
+        }
+        if (bcFilterApproved) {
+            activeFilters.push(c => c.registration_status === 'approved');
+            filterNames.push('Approved');
+        }
+
+        if (activeFilters.length > 0) {
+            candidates = candidates.filter(c => activeFilters.some(fn => fn(c)));
+            log += ` → ${filterNames.join(' OR ')}: ${candidates.length}`;
+        }
+
+        // Limit by max count
+        const max = parseInt(bcMaxCount);
+        if (!isNaN(max) && max > 0 && candidates.length > max) {
+            candidates = candidates.slice(0, max);
+            log += ` → Max ${max}: ${candidates.length}`;
+        }
+
+        // Select all matching contacts (tick checkboxes)
+        selectedIds = new Set(candidates.map(c => c.id));
+        bcGeneratedCount = candidates.length;
+        bcGenerating = false;
+        bcHasGenerated = true;
+        bcFilterLog = log;
+        console.log('📡 Generate:', log);
+    }
+
+    function selectAllContacts() {
+        bcGenerating = true;
+        bcSendResult = '';
+        const cache = get(billCountCache);
+        let candidates = [...filteredContacts];
+        let log = `Starting: ${candidates.length}`;
+
+        // Apply date range if set
+        if (bcDateFrom) {
+            const from = new Date(bcDateFrom);
+            from.setHours(0, 0, 0, 0);
+            candidates = candidates.filter(c => {
+                const bd = cache.get(c.id);
+                if (!bd?.lastBillDate) return true;
+                return new Date(bd.lastBillDate) >= from;
+            });
+            log += ` \u2192 Date From: ${candidates.length}`;
+        }
+        if (bcDateTo) {
+            const to = new Date(bcDateTo);
+            to.setHours(23, 59, 59, 999);
+            candidates = candidates.filter(c => {
+                const bd = cache.get(c.id);
+                if (!bd?.lastBillDate) return true;
+                return new Date(bd.lastBillDate) <= to;
+            });
+            log += ` \u2192 Date To: ${candidates.length}`;
+        }
+
+        const max = parseInt(bcMaxCount);
+        if (!isNaN(max) && max > 0 && candidates.length > max) {
+            candidates = candidates.slice(0, max);
+            log += ` \u2192 Max ${max}: ${candidates.length}`;
+        }
+
+        selectedIds = new Set(candidates.map(c => c.id));
+        bcGeneratedCount = candidates.length;
+        bcGenerating = false;
+        bcHasGenerated = true;
+        bcFilterLog = log;
+        console.log('\ud83d\udce1 Select All:', log);
+    }
+
+    function selectAllApproved() {
+        bcGenerating = true;
+        bcSendResult = '';
+        const cache = get(billCountCache);
+        let candidates = filteredContacts.filter(c => c.registration_status === 'approved');
+        let log = `Starting: ${filteredContacts.length} → Approved: ${candidates.length}`;
+
+        // Apply date range if set
+        if (bcDateFrom) {
+            const from = new Date(bcDateFrom);
+            from.setHours(0, 0, 0, 0);
+            candidates = candidates.filter(c => {
+                const bd = cache.get(c.id);
+                if (!bd?.lastBillDate) return true; // keep approved even without bill date
+                return new Date(bd.lastBillDate) >= from;
+            });
+            log += ` → Date From: ${candidates.length}`;
+        }
+        if (bcDateTo) {
+            const to = new Date(bcDateTo);
+            to.setHours(23, 59, 59, 999);
+            candidates = candidates.filter(c => {
+                const bd = cache.get(c.id);
+                if (!bd?.lastBillDate) return true;
+                return new Date(bd.lastBillDate) <= to;
+            });
+            log += ` → Date To: ${candidates.length}`;
+        }
+
+        // Apply max count
+        const max = parseInt(bcMaxCount);
+        if (!isNaN(max) && max > 0 && candidates.length > max) {
+            candidates = candidates.slice(0, max);
+            log += ` → Max ${max}: ${candidates.length}`;
+        }
+
+        selectedIds = new Set(candidates.map(c => c.id));
+        bcGeneratedCount = candidates.length;
+        bcGenerating = false;
+        bcHasGenerated = true;
+        bcFilterLog = log;
+        console.log('📡 Select All Approved:', log);
+    }
+
+    async function sendBroadcastFromContacts() {
+        if (!bcSelectedTemplate || !bcBroadcastName.trim() || selectedIds.size === 0 || bcSending) return;
+        bcSending = true;
+        bcSendResult = '';
+
+        try {
+            // Build recipient list from selected contacts
+            const recipientList = contacts
+                .filter(c => selectedIds.has(c.id))
+                .map(c => ({ phone: c.whatsapp_number, name: c.name || '' }));
+
+            if (recipientList.length === 0) {
+                bcSendResult = '⚠️ No recipients selected';
+                bcSending = false;
+                return;
+            }
+
+            // Create broadcast record
+            const { data: bc, error: bcErr } = await supabase.from('wa_broadcasts').insert({
+                wa_account_id: bcAccountId,
+                name: bcBroadcastName,
+                template_id: bcSelectedTemplate.id,
+                total_recipients: recipientList.length,
+                status: 'sending'
+            }).select().single();
+            if (bcErr) throw bcErr;
+
+            // Create recipient records
+            const recipientInserts = recipientList.map(r => ({
+                broadcast_id: bc.id,
+                phone_number: r.phone,
+                customer_name: r.name,
+                status: 'pending'
+            }));
+            const { error: recipErr } = await supabase.from('wa_broadcast_recipients').insert(recipientInserts);
+            if (recipErr) throw recipErr;
+
+            // Fetch inserted recipients with their IDs
+            const { data: insertedRecipients } = await supabase.from('wa_broadcast_recipients')
+                .select('id, phone_number, customer_name')
+                .eq('broadcast_id', bc.id);
+
+            // Build template components (header media if needed)
+            let templateComponents: any[] | undefined = undefined;
+            if (bcSelectedTemplate.header_type && bcSelectedTemplate.header_type !== 'none' && bcSelectedTemplate.header_type !== 'text') {
+                const headerType = bcSelectedTemplate.header_type.toLowerCase();
+                const mediaUrl = bcSelectedTemplate.header_content;
+                if (mediaUrl) {
+                    const mediaParam: any = {};
+                    if (headerType === 'image') {
+                        mediaParam.type = 'image';
+                        mediaParam.image = { link: mediaUrl };
+                    } else if (headerType === 'video') {
+                        mediaParam.type = 'video';
+                        mediaParam.video = { link: mediaUrl };
+                    } else if (headerType === 'document') {
+                        mediaParam.type = 'document';
+                        mediaParam.document = { link: mediaUrl };
+                    }
+                    templateComponents = [{ type: 'header', parameters: [mediaParam] }];
+                }
+            }
+
+            // Send via edge function
+            const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+                body: {
+                    action: 'send_broadcast',
+                    account_id: bcAccountId,
+                    broadcast_id: bc.id,
+                    template_name: bcSelectedTemplate.name,
+                    language: bcSelectedTemplate.language,
+                    components: templateComponents,
+                    recipients: (insertedRecipients || []).map((r: any) => ({
+                        id: r.id,
+                        phone: r.phone_number
+                    }))
+                }
+            });
+
+            if (fnErr) {
+                bcSendResult = `❌ Sending failed: ${fnErr.message || JSON.stringify(fnErr)}`;
+            } else {
+                // Success — close popup and open Broadcasts window
+                showBroadcastPopup = false;
+                bcSending = false;
+                selectedIds = new Set();
+
+                const windowId = `wa-broadcasts-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                openWindow({
+                    id: windowId,
+                    title: `📣 ${$t('nav.whatsappBroadcasts')}`,
+                    component: WABroadcasts,
+                    componentName: 'WABroadcasts',
+                    icon: '📣',
+                    size: { width: 1300, height: 750 },
+                    position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) },
+                    resizable: true, minimizable: true, maximizable: true, closable: true
+                });
+                return;
+            }
+        } catch (e: any) {
+            console.error('Broadcast send error:', e);
+            bcSendResult = `❌ ${e.message}`;
+        } finally {
+            bcSending = false;
+        }
+    }
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -558,13 +977,19 @@
                     📤 Import CSV
                 {/if}
             </button>
-            <button class="px-3 py-2 bg-amber-100 text-amber-700 text-xs font-bold rounded-xl hover:bg-amber-200 transition-all border border-amber-200 flex items-center gap-1.5 disabled:opacity-50"
-                on:click={loadBillCounts} disabled={loadingBills || erpConfigs.length === 0}>
-                {#if loadingBills}
-                    <span class="animate-spin">⏳</span> Loading...
+            <button class="px-3 py-2 bg-red-100 text-red-700 text-xs font-bold rounded-xl hover:bg-red-200 transition-all border border-red-200 flex items-center gap-1.5 disabled:opacity-50"
+                on:click={clearCacheAndReload} disabled={loading}>
+                {#if loading}
+                    <span class="animate-spin">⏳</span> Refreshing...
                 {:else}
-                    📊 Load Bill Counts
+                    🔄 Clear Cache
                 {/if}
+            </button>
+
+            <!-- Generate Broadcast List -->
+            <button class="px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all border border-indigo-200 flex items-center gap-1.5"
+                on:click={openBroadcastPopup}>
+                📡 Generate Broadcast
             </button>
 
             <!-- Status Filter -->
@@ -583,6 +1008,47 @@
                         {f.icon} {f.label}
                     </button>
                 {/each}
+            </div>
+            <!-- Sort by Bills -->
+            <button
+                class="px-3 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border
+                {sortBy !== 'default' ? 'bg-purple-600 text-white border-purple-600' : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'}"
+                on:click={() => {
+                    if (sortBy === 'default') sortBy = 'bills_desc';
+                    else if (sortBy === 'bills_desc') sortBy = 'bills_asc';
+                    else sortBy = 'default';
+                    applyFilters();
+                }}
+                title={sortBy === 'default' ? 'Sort by bill count (high to low)' : sortBy === 'bills_desc' ? 'Sort by bill count (low to high)' : 'Reset sort order'}
+            >
+                {#if sortBy === 'bills_desc'}
+                    📊 Bills ↓
+                {:else if sortBy === 'bills_asc'}
+                    📊 Bills ↑
+                {:else}
+                    📊 Sort Bills
+                {/if}
+            </button>
+            <!-- Last N Days Filter -->
+            <div class="flex items-center gap-1.5">
+                <span class="text-xs text-slate-500 font-bold">Last</span>
+                <input 
+                    type="number" 
+                    bind:value={lastNDays} 
+                    on:input={() => applyFilters()}
+                    placeholder="∞" 
+                    min="1" 
+                    max="3650"
+                    class="w-14 px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-center font-bold focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
+                    title="Filter contacts with bills in the last N days"
+                />
+                <span class="text-xs text-slate-500 font-bold">days</span>
+                {#if lastNDays && parseInt(lastNDays) > 0}
+                    <button 
+                        class="px-1.5 py-1 text-[10px] text-red-500 hover:text-red-700 font-bold"
+                        on:click={() => { lastNDays = ''; applyFilters(); }}
+                        title="Clear days filter">✕</button>
+                {/if}
             </div>
             <!-- Search -->
             <input type="text" bind:value={searchQuery} on:input={handleSearchInput} placeholder="Search name or number..."
@@ -610,7 +1076,7 @@
         <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/10 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse pointer-events-none"></div>
 
         <!-- Contact List -->
-        <div class="flex-1 overflow-y-auto p-6 {selectedContact ? 'w-1/2' : 'w-full'} transition-all">
+        <div class="flex-1 flex flex-col p-6 overflow-hidden {selectedContact ? 'w-1/2' : 'w-full'} transition-all">
             {#if loading}
                 <div class="flex items-center justify-center h-64">
                     <div class="text-center">
@@ -630,10 +1096,14 @@
                     <p class="text-slate-600 font-semibold">{searchQuery ? 'No contacts match your search' : 'No contacts found'}</p>
                 </div>
             {:else}
-                <div class="bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.06)] overflow-hidden">
+                <div class="flex-1 bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.06)] overflow-y-auto">
                     <table class="w-full">
                         <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                             <tr>
+                                <th class="px-2 py-3 text-center">
+                                    <input type="checkbox" checked={allVisibleSelected} on:change={toggleSelectAll}
+                                        class="w-4 h-4 rounded border-white/50 text-emerald-300 focus:ring-emerald-300 cursor-pointer" />
+                                </th>
                                 <th class="px-3 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-[10px] font-black uppercase tracking-wider">24hr</th>
                                 <th class="px-3 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-[10px] font-black uppercase tracking-wider">Name</th>
                                 <th class="px-3 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-[10px] font-black uppercase tracking-wider">Number</th>
@@ -643,12 +1113,18 @@
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Last Activity</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Unread</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Bills</th>
+                                <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Last Bill</th>
+                                <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Check Boss</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            {#each filteredContacts as contact, index}
-                                <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {selectedContact?.id === contact.id ? 'bg-emerald-50/50' : ''}">
+                            {#each visibleContacts as contact, index}
+                                <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {selectedContact?.id === contact.id ? 'bg-emerald-50/50' : ''} {selectedIds.has(contact.id) ? 'bg-emerald-50/40' : ''}">
+                                    <td class="px-2 py-2.5 text-center">
+                                        <input type="checkbox" checked={selectedIds.has(contact.id)} on:change={() => toggleSelect(contact.id)}
+                                            class="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />
+                                    </td>
                                     <td class="px-3 py-2.5">
                                         <span class="text-base">{contact.is_inside_24hr ? '🟢' : '🔴'}</span>
                                     </td>
@@ -680,8 +1156,8 @@
                                         {/if}
                                     </td>
                                     <td class="px-4 py-3 text-center">
-                                        {#if billCountMap.has(contact.id)}
-                                            {@const bills = billCountMap.get(contact.id)}
+                                        {#if $billCountCache.has(contact.id)}
+                                            {@const bills = $billCountCache.get(contact.id)}
                                             <button 
                                                 class="flex flex-col items-center cursor-pointer hover:bg-emerald-50 p-1 rounded transition-colors"
                                                 on:click={() => selectedBillContact = contact}
@@ -695,6 +1171,26 @@
                                             <span class="text-slate-300 text-xs">—</span>
                                         {/if}
                                     </td>
+                                    <td class="px-3 py-2.5 text-center">
+                                        {#if $billCountCache.has(contact.id)}
+                                            {@const bills = $billCountCache.get(contact.id)}
+                                            {#if bills.lastBillDate}
+                                                <button 
+                                                    class="text-[10px] font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-1 rounded-lg transition-colors border border-orange-200 cursor-pointer"
+                                                    on:click={() => loadBillDetails(contact)}
+                                                    title="Click to view all bills">
+                                                    {formatBillDate(bills.lastBillDate)}
+                                                </button>
+                                            {:else}
+                                                <span class="text-slate-300 text-[10px]">—</span>
+                                            {/if}
+                                        {:else}
+                                            <span class="text-slate-300 text-[10px]">—</span>
+                                        {/if}
+                                    </td>
+                                    <td class="px-3 py-2.5 text-center">
+                                        <span class="text-slate-300 text-xs">—</span>
+                                    </td>
                                     <td class="px-4 py-3 text-center space-x-1">
                                         <button class="px-2.5 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 transition-all border border-blue-200"
                                             on:click={() => openLiveChat(contact)}>
@@ -704,24 +1200,25 @@
                                             on:click={() => viewHistory(contact)}>
                                             📋 History
                                         </button>
+                                        {#if $billCountCache.has(contact.id) && $billCountCache.get(contact.id).totalCount > 0}
+                                            <button class="px-2.5 py-1.5 bg-orange-50 text-orange-700 text-xs font-bold rounded-lg hover:bg-orange-100 transition-all border border-orange-200"
+                                                on:click={() => loadBillDetails(contact)}>
+                                                📄 Details
+                                            </button>
+                                        {/if}
                                     </td>
                                 </tr>
                             {/each}
                         </tbody>
                     </table>
+                    <!-- Scroll sentinel for loading more rows -->
+                    {#if visibleCount < filteredContacts.length}
+                        <div bind:this={scrollSentinel} use:observeSentinel class="flex items-center justify-center py-3 text-xs text-slate-400">
+                            Showing {visibleCount} of {filteredContacts.length} contacts...
+                        </div>
+                    {/if}
                 </div>
-                {#if contacts.length < totalCount}
-                    <div class="flex justify-center py-4">
-                        <button class="px-6 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50"
-                            on:click={loadMore} disabled={loadingMore}>
-                            {#if loadingMore}
-                                <span class="animate-spin inline-block mr-1">⏳</span> Loading...
-                            {:else}
-                                Load More ({contacts.length} / {totalCount})
-                            {/if}
-                        </button>
-                    </div>
-                {/if}
+
             {/if}
         </div>
 
@@ -796,8 +1293,8 @@
     </div>
 
     <!-- Bill Breakdown Modal -->
-    {#if selectedBillContact && billCountMap.has(selectedBillContact.id)}
-        {@const billData = billCountMap.get(selectedBillContact.id)}
+    {#if selectedBillContact && $billCountCache.has(selectedBillContact.id)}
+        {@const billData = $billCountCache.get(selectedBillContact.id)}
         <div 
             class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" 
             on:click={() => selectedBillContact = null}
@@ -912,6 +1409,265 @@
                         on:click={() => selectedBillContact = null}>
                         Close
                     </button>
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    <!-- Bill Details Modal -->
+    {#if detailsContact}
+        <div 
+            class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" 
+            on:click={() => { detailsContact = null; detailsBills = []; }}
+            on:keydown={(e) => e.key === 'Escape' && (detailsContact = null, detailsBills = [])}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="details-modal-title"
+            tabindex="-1">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden" on:click|stopPropagation on:keydown|stopPropagation role="document">
+                <!-- Modal Header -->
+                <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-5 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">📄</span>
+                        <div>
+                            <h3 class="font-bold text-sm" id="details-modal-title">{detailsContact.name}</h3>
+                            <p class="text-orange-100 text-xs font-mono">{detailsContact.whatsapp_number}</p>
+                        </div>
+                    </div>
+                    <button 
+                        class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors text-lg font-bold"
+                        on:click={() => { detailsContact = null; detailsBills = []; }}
+                        aria-label="Close bill details">×</button>
+                </div>
+
+                <!-- Modal Content -->
+                <div class="p-4 max-h-[60vh] overflow-y-auto">
+                    {#if loadingDetails}
+                        <div class="flex items-center justify-center py-12">
+                            <div class="text-center">
+                                <div class="animate-spin inline-block mb-2">
+                                    <div class="w-8 h-8 border-3 border-orange-200 border-t-orange-600 rounded-full"></div>
+                                </div>
+                                <p class="text-slate-500 text-sm">Loading bill details...</p>
+                            </div>
+                        </div>
+                    {:else if detailsBills.length === 0}
+                        <div class="text-center py-8">
+                            <p class="text-slate-500 text-sm">No individual bills found</p>
+                        </div>
+                    {:else}
+                        <!-- Summary -->
+                        <div class="mb-4 bg-orange-50 rounded-xl p-3 border border-orange-200">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-orange-800">Total Bills: {detailsBills.length}</span>
+                                <span class="text-xs font-bold text-orange-800">SAR {detailsBills.reduce((s, b) => s + b.amount, 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                        </div>
+
+                        <!-- Bills Table -->
+                        <table class="w-full text-xs">
+                            <thead class="sticky top-0 bg-slate-100">
+                                <tr>
+                                    <th class="px-3 py-2 text-left font-bold text-slate-600 text-[10px] uppercase">#</th>
+                                    <th class="px-3 py-2 text-left font-bold text-slate-600 text-[10px] uppercase">Date</th>
+                                    <th class="px-3 py-2 text-right font-bold text-slate-600 text-[10px] uppercase">Amount (SAR)</th>
+                                    <th class="px-3 py-2 text-left font-bold text-slate-600 text-[10px] uppercase">Branch</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {#each detailsBills as bill, i}
+                                    <tr class="hover:bg-orange-50/50 transition-colors {i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}">
+                                        <td class="px-3 py-2 text-slate-400 font-mono">{i + 1}</td>
+                                        <td class="px-3 py-2 text-slate-700 font-semibold">{formatBillDate(bill.date)}</td>
+                                        <td class="px-3 py-2 text-right font-bold text-slate-800">{bill.amount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td class="px-3 py-2 text-slate-500">{bill.branchName}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    {/if}
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end">
+                    <button class="px-4 py-2 bg-slate-200 text-slate-800 text-sm font-bold rounded-lg hover:bg-slate-300 transition-all"
+                        on:click={() => { detailsContact = null; detailsBills = []; }}>
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    <!-- Broadcast Popup Modal -->
+    {#if showBroadcastPopup}
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999]" on:click|self={() => showBroadcastPopup = false}>
+            <div class="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
+                <!-- Header -->
+                <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4 flex items-center justify-between">
+                    <h3 class="text-white font-bold text-base flex items-center gap-2">📡 Generate Broadcast List</h3>
+                    <button class="text-white/80 hover:text-white text-xl font-bold transition-colors" on:click={() => showBroadcastPopup = false}>×</button>
+                </div>
+
+                <div class="p-6 space-y-5 overflow-y-auto flex-1">
+                    <!-- Template Selection -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">Template</label>
+                        <input type="text" bind:value={bcTemplateSearch} placeholder="Search templates..."
+                            class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2" />
+                        <div class="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                            {#each bcFilteredTemplates as tmpl}
+                                <button
+                                    class="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 transition-colors flex items-center gap-2
+                                    {bcSelectedTemplate?.id === tmpl.id ? 'bg-indigo-100 text-indigo-800 font-bold' : 'text-slate-700'}"
+                                    on:click={() => bcSelectedTemplate = tmpl}
+                                >
+                                    <span class="text-xs">
+                                        {#if tmpl.header_type === 'image'}📷
+                                        {:else if tmpl.header_type === 'video'}🎬
+                                        {:else if tmpl.header_type === 'document'}📄
+                                        {:else}💬
+                                        {/if}
+                                    </span>
+                                    <span class="truncate">{tmpl.name}</span>
+                                    <span class="ml-auto text-[10px] text-slate-400 uppercase">{tmpl.language}</span>
+                                </button>
+                            {:else}
+                                <p class="px-3 py-4 text-sm text-slate-400 text-center">No templates found</p>
+                            {/each}
+                        </div>
+                        {#if bcSelectedTemplate}
+                            <div class="mt-2 px-3 py-2 bg-indigo-50 rounded-lg text-xs text-indigo-700 font-semibold">
+                                ✅ Selected: {bcSelectedTemplate.name}
+                            </div>
+                        {/if}
+                    </div>
+
+                    <!-- Date Range -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">Date Range (Last Bill Date)</label>
+                        <div class="flex gap-3">
+                            <div class="flex-1">
+                                <label class="text-[10px] text-slate-400 font-bold">From</label>
+                                <input type="date" bind:value={bcDateFrom}
+                                    class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[10px] text-slate-400 font-bold">To</label>
+                                <input type="date" bind:value={bcDateTo}
+                                    class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Max Customer Count -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">Maximum Customers</label>
+                        <input type="number" bind:value={bcMaxCount} placeholder="No limit" min="1"
+                            class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                    </div>
+
+                    <!-- Filters -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">Filters</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center gap-3 px-3 py-2.5 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors border border-slate-200">
+                                <input type="checkbox" bind:checked={bcFilterHasBills}
+                                    class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                                <div>
+                                    <span class="text-sm font-bold text-slate-700">📊 Has Bills</span>
+                                    <p class="text-[10px] text-slate-400">Only include contacts with bill count &gt; 0</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-3 px-3 py-2.5 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors border border-slate-200">
+                                <input type="checkbox" bind:checked={bcFilterDelivered}
+                                    class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                                <div>
+                                    <span class="text-sm font-bold text-slate-700">✅ Delivered Broadcast</span>
+                                    <p class="text-[10px] text-slate-400">Only include contacts with delivered/read broadcast status</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-3 px-3 py-2.5 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors border border-slate-200">
+                                <input type="checkbox" bind:checked={bcFilterApproved}
+                                    class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                                <div>
+                                    <span class="text-sm font-bold text-slate-700">🔑 Approved Customer</span>
+                                    <p class="text-[10px] text-slate-400">Only include contacts with approved registration</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex gap-2">
+                        <button
+                            class="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            on:click={generateBroadcastList}
+                            disabled={bcGenerating}
+                        >
+                            {#if bcGenerating}
+                                <span class="animate-spin">⏳</span> Generating...
+                            {:else}
+                                🎯 Generate List
+                            {/if}
+                        </button>
+                        <button
+                            class="flex-1 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-sm font-bold rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            on:click={selectAllApproved}
+                            disabled={bcGenerating}
+                        >
+                            🔑 All Approved
+                        </button>
+                        <button
+                            class="flex-1 py-3 bg-gradient-to-r from-slate-600 to-slate-700 text-white text-sm font-bold rounded-xl hover:from-slate-700 hover:to-slate-800 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            on:click={selectAllContacts}
+                            disabled={bcGenerating}
+                        >
+                            📋 Select All
+                        </button>
+                    </div>
+
+                    {#if bcHasGenerated && bcGeneratedCount === 0 && !bcGenerating && bcSendResult === ''}
+                        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
+                            <p class="text-sm font-bold text-amber-700">⚠️ No contacts matched your criteria.</p>
+                            {#if bcFilterLog}
+                                <p class="text-xs text-amber-600 font-mono">{bcFilterLog}</p>
+                            {/if}
+                            <p class="text-xs text-amber-500">Try adjusting filters or date range.</p>
+                        </div>
+                    {/if}
+
+                    {#if bcGeneratedCount > 0}
+                        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+                            <p class="text-sm font-bold text-emerald-700">✅ {bcGeneratedCount} contacts selected</p>
+                            
+                            <!-- Broadcast Name -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Broadcast Name</label>
+                                <input type="text" bind:value={bcBroadcastName} placeholder="e.g. January Promo Blast"
+                                    class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                            </div>
+
+                            <!-- Send Button -->
+                            <button
+                                class="w-full py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white text-sm font-bold rounded-xl hover:from-emerald-700 hover:to-green-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                on:click={sendBroadcastFromContacts}
+                                disabled={bcSending || !bcSelectedTemplate || !bcBroadcastName.trim()}
+                            >
+                                {#if bcSending}
+                                    <span class="animate-spin">⏳</span> Sending...
+                                {:else}
+                                    🚀 Send Broadcast
+                                {/if}
+                            </button>
+                        </div>
+                    {/if}
+
+                    {#if bcSendResult}
+                        <div class="px-4 py-3 rounded-xl text-sm font-bold {bcSendResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}">
+                            {bcSendResult}
+                        </div>
+                    {/if}
                 </div>
             </div>
         </div>

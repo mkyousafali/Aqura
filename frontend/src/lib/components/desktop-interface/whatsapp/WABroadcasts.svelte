@@ -68,6 +68,7 @@
 
     // Realtime channel
     let broadcastChannel: any = null;
+    let autoRefreshInterval: any = null;
 
     // Wizard steps
     let wizardStep = 1; // 1=Template, 2=Recipients, 3=Send
@@ -151,6 +152,7 @@
         if (broadcastChannel && supabase) {
             supabase.removeChannel(broadcastChannel);
         }
+        if (autoRefreshInterval) clearInterval(autoRefreshInterval);
         // Clear cooldown timers
         Object.values(retryCooldownTimers).forEach(t => clearTimeout(t));
     });
@@ -182,8 +184,25 @@
             if (data) {
                 accountId = data.id;
                 await Promise.all([loadBroadcasts(), loadTemplates()]);
+                // Auto-refresh recent broadcasts to get latest status from webhooks
+                autoRefreshRecentBroadcasts();
+                // Poll every 15 seconds for active broadcasts
+                autoRefreshInterval = setInterval(() => autoRefreshRecentBroadcasts(), 15000);
             }
         } catch {} finally { loading = false; }
+    }
+
+    async function autoRefreshRecentBroadcasts() {
+        if (!broadcasts.length || refreshingBroadcastId) return;
+        // Refresh any broadcast created in the last hour, or with status 'sending'
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        const recentActive = broadcasts.filter(bc =>
+            bc.status === 'sending' || 
+            (bc.status === 'completed' && new Date(bc.created_at).getTime() > oneHourAgo)
+        );
+        for (const bc of recentActive) {
+            await refreshBroadcastStatus(bc);
+        }
     }
 
     async function loadBroadcasts() {
@@ -554,14 +573,17 @@
                     .select('whatsapp_message_id, status')
                     .in('whatsapp_message_id', msgIds);
 
-                // Build a lookup map: whatsapp_message_id -> latest status from wa_messages
+                // Build a lookup map: whatsapp_message_id -> highest status from wa_messages
+                const statusOrder: Record<string, number> = { pending: 0, failed: 0, sent: 1, delivered: 2, read: 3 };
                 const msgStatusMap: Record<string, string> = {};
                 for (const msg of (messages || [])) {
-                    msgStatusMap[msg.whatsapp_message_id] = msg.status;
+                    const existing = msgStatusMap[msg.whatsapp_message_id];
+                    if (!existing || (statusOrder[msg.status] ?? 0) > (statusOrder[existing] ?? 0)) {
+                        msgStatusMap[msg.whatsapp_message_id] = msg.status;
+                    }
                 }
 
                 // Update broadcast recipients with the status from wa_messages if it's a progression
-                const statusOrder: Record<string, number> = { pending: 0, failed: 0, sent: 1, delivered: 2, read: 3 };
                 for (const r of recipientsWithMsgId) {
                     const msgStatus = msgStatusMap[r.whatsapp_message_id];
                     if (msgStatus && statusOrder[msgStatus] !== undefined) {
