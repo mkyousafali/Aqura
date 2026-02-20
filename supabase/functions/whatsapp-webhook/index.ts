@@ -468,6 +468,18 @@ async function tryAutoReply(
   messageText: string
 ) {
   try {
+    // Check if auto-reply bot is enabled in settings
+    const { data: settings } = await supabase
+      .from("wa_settings")
+      .select("auto_reply_enabled")
+      .eq("wa_account_id", accountId)
+      .maybeSingle();
+
+    if (!settings?.auto_reply_enabled) {
+      console.log("[AUTO_REPLY] Bot is disabled in settings, skipping");
+      return;
+    }
+
     // Check if conversation is handled by human — skip bot
     const { data: conv } = await supabase
       .from("wa_conversations")
@@ -658,6 +670,18 @@ async function tryFlowButtonReply(
   messageText: string
 ): Promise<boolean> {
   try {
+    // Check if auto-reply bot is enabled in settings
+    const { data: settings } = await supabase
+      .from("wa_settings")
+      .select("auto_reply_enabled")
+      .eq("wa_account_id", accountId)
+      .maybeSingle();
+
+    if (!settings?.auto_reply_enabled) {
+      console.log("[BOT_FLOW] Bot is disabled in settings, skipping button reply");
+      return false;
+    }
+
     // Extract the button ID from "flow_<id>"
     const btnId = buttonReplyId.replace(/^flow_/, "");
     if (!btnId) return false;
