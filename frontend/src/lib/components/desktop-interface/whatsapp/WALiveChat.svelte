@@ -54,6 +54,18 @@
     let refreshInterval: any;
     let messagesContainer: HTMLElement;
 
+    // Audio recording
+    let isRecording = false;
+    let mediaRecorder: MediaRecorder | null = null;
+    let audioChunks: Blob[] = [];
+    let recordingDuration = 0;
+    let recordingTimer: any = null;
+
+    // File inputs
+    let imageInput: HTMLInputElement;
+    let fileInput: HTMLInputElement;
+    let showAttachMenu = false;
+
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
@@ -314,6 +326,206 @@
         }
     }
 
+    async function handleImageSelect(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const file = input.files?.[0];
+        if (!file || !selectedConv) return;
+        await sendMediaMessage(file, 'image');
+        input.value = '';
+    }
+
+    async function handleFileSelect(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const file = input.files?.[0];
+        if (!file || !selectedConv) return;
+        const type = file.type.startsWith('video/') ? 'video' : 'document';
+        await sendMediaMessage(file, type);
+        input.value = '';
+    }
+
+    async function sendMediaMessage(file: File, type: 'image' | 'video' | 'document') {
+        if (!selectedConv || sending) return;
+        sending = true;
+        showAttachMenu = false;
+        try {
+            const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
+            if (!accData) throw new Error('No account data');
+
+            // 1. Upload to Supabase Storage
+            const ext = file.name.split('.').pop() || 'bin';
+            const fileName = `${type}_${Date.now()}.${ext}`;
+            const filePath = `${accountId}/${selectedConv.id}/${fileName}`;
+            const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(filePath, file, {
+                contentType: file.type,
+                upsert: false
+            });
+            if (uploadErr) throw uploadErr;
+
+            const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
+            const publicUrl = urlData?.publicUrl;
+
+            // 2. Send via WhatsApp API
+            const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+
+            const mediaPayload: any = { link: publicUrl };
+            if (type === 'document') mediaPayload.filename = file.name;
+
+            await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accData.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messaging_product: 'whatsapp',
+                    to: phone,
+                    type: type,
+                    [type]: mediaPayload
+                })
+            });
+
+            // 3. Save to DB
+            const previewMap: Record<string, string> = { image: '📷 Image', video: '🎥 Video', document: `📎 ${file.name}` };
+            await supabase.from('wa_messages').insert({
+                conversation_id: selectedConv.id,
+                wa_account_id: accountId,
+                direction: 'outbound',
+                message_type: type,
+                content: '',
+                media_url: publicUrl,
+                media_mime_type: file.type,
+                status: 'sent',
+                sent_by: 'user'
+            });
+
+            await supabase.from('wa_conversations').update({
+                last_message_at: new Date().toISOString(),
+                last_message_preview: previewMap[type] || '📎 File'
+            }).eq('id', selectedConv.id);
+
+            await loadMessages(selectedConv.id);
+            scrollToBottom();
+        } catch (e: any) {
+            console.error(`Send ${type} error:`, e);
+        } finally {
+            sending = false;
+        }
+    }
+
+    async function startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunks = [];
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunks.push(e.data);
+            };
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(t => t.stop());
+                if (audioChunks.length > 0) {
+                    const blob = new Blob(audioChunks, { type: 'audio/ogg; codecs=opus' });
+                    await sendAudioMessage(blob);
+                }
+                audioChunks = [];
+            };
+            mediaRecorder.start();
+            isRecording = true;
+            recordingDuration = 0;
+            recordingTimer = setInterval(() => { recordingDuration++; }, 1000);
+        } catch (e: any) {
+            console.error('Mic access denied:', e);
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+        isRecording = false;
+        if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
+    }
+
+    function cancelRecording() {
+        audioChunks = [];
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.onstop = () => { mediaRecorder?.stream?.getTracks().forEach(t => t.stop()); };
+            mediaRecorder.stop();
+        }
+        isRecording = false;
+        if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
+    }
+
+    function formatRecordTime(secs: number) {
+        const m = Math.floor(secs / 60).toString().padStart(2, '0');
+        const s = (secs % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    }
+
+    async function sendAudioMessage(blob: Blob) {
+        if (!selectedConv || sending) return;
+        sending = true;
+        try {
+            const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
+            if (!accData) throw new Error('No account data');
+
+            // 1. Upload audio to Supabase Storage
+            const fileName = `voice_${Date.now()}.ogg`;
+            const filePath = `${accountId}/${selectedConv.id}/${fileName}`;
+            const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(filePath, blob, {
+                contentType: 'audio/ogg; codecs=opus',
+                upsert: false
+            });
+            if (uploadErr) throw uploadErr;
+
+            const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
+            const publicUrl = urlData?.publicUrl;
+
+            // 2. Send audio via WhatsApp API
+            const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+
+            await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accData.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messaging_product: 'whatsapp',
+                    to: phone,
+                    type: 'audio',
+                    audio: { link: publicUrl }
+                })
+            });
+
+            // 3. Save message to DB
+            await supabase.from('wa_messages').insert({
+                conversation_id: selectedConv.id,
+                wa_account_id: accountId,
+                direction: 'outbound',
+                message_type: 'audio',
+                content: '',
+                media_url: publicUrl,
+                media_mime_type: 'audio/ogg; codecs=opus',
+                status: 'sent',
+                sent_by: 'user'
+            });
+
+            await supabase.from('wa_conversations').update({
+                last_message_at: new Date().toISOString(),
+                last_message_preview: '🎤 Voice message'
+            }).eq('id', selectedConv.id);
+
+            await loadMessages(selectedConv.id);
+            scrollToBottom();
+        } catch (e: any) {
+            console.error('Send audio error:', e);
+        } finally {
+            sending = false;
+        }
+    }
+
     function handleKeydown(e: KeyboardEvent) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -447,7 +659,22 @@
                                     ? 'bg-[#DCF8C6] text-slate-800 rounded-tr-none'
                                     : 'bg-white text-slate-800 rounded-tl-none'}">
                                 {#if msg.message_type === 'image' && msg.media_url}
-                                    <img src={msg.media_url} alt="media" class="rounded-lg max-w-full max-h-48 mb-1" />
+                                    <img src={msg.media_url} alt="media" class="rounded-lg max-w-[280px] w-auto h-auto mb-1 cursor-pointer" on:click={() => window.open(msg.media_url, '_blank')} />
+                                {/if}
+                                {#if (msg.message_type === 'audio' || msg.message_type === 'voice') && msg.media_url}
+                                    <audio controls preload="metadata" class="max-w-[250px] h-10 mb-1">
+                                        <source src={msg.media_url} type={msg.media_mime_type || 'audio/ogg'} />
+                                        Your browser does not support audio.
+                                    </audio>
+                                {/if}
+                                {#if msg.message_type === 'video' && msg.media_url}
+                                    <video controls preload="metadata" class="rounded-lg max-w-[280px] max-h-[200px] mb-1">
+                                        <source src={msg.media_url} type={msg.media_mime_type || 'video/mp4'} />
+                                        Your browser does not support video.
+                                    </video>
+                                {/if}
+                                {#if msg.message_type === 'sticker' && msg.media_url}
+                                    <img src={msg.media_url} alt="sticker" class="max-w-[120px] h-auto mb-1" />
                                 {/if}
                                 {#if msg.message_type === 'document' && msg.media_url}
                                     <div class="bg-slate-100 rounded-lg p-2 flex items-center gap-2 mb-1">
@@ -455,7 +682,7 @@
                                         <a href={msg.media_url} target="_blank" class="text-blue-600 text-xs underline">Document</a>
                                     </div>
                                 {/if}
-                                {#if msg.content}
+                                {#if msg.content && !(['image','audio','voice','video','sticker'].includes(msg.message_type) && msg.media_url && /^\[.+\]$/.test(msg.content.trim()))}
                                     <p class="whitespace-pre-wrap break-words">{msg.content}</p>
                                 {/if}
                                 {#if msg.template_name}
@@ -490,20 +717,70 @@
                         </button>
                     </div>
                 {:else}
-                    <div class="flex items-center gap-2">
-                        <button class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg hover:bg-slate-200 transition-colors"
-                            on:click={() => showTemplatePicker = !showTemplatePicker} title="Send Template">
-                            📝
-                        </button>
-                        <textarea bind:value={messageInput} rows="1"
-                            placeholder="Type a message..."
-                            class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none max-h-24"
-                            on:keydown={handleKeydown}></textarea>
-                        <button class="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors disabled:opacity-50"
-                            on:click={sendMessage} disabled={sending || !messageInput.trim()}>
-                            {sending ? '⏳' : '➤'}
-                        </button>
-                    </div>
+                    {#if isRecording}
+                        <!-- Recording UI -->
+                        <div class="flex items-center gap-3">
+                            <button class="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors"
+                                on:click={cancelRecording} title="Cancel">
+                                🗑️
+                            </button>
+                            <div class="flex-1 flex items-center gap-2 bg-red-50 border border-red-200 rounded-2xl px-4 py-2.5">
+                                <span class="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></span>
+                                <span class="text-sm text-red-600 font-mono">{formatRecordTime(recordingDuration)}</span>
+                                <span class="text-xs text-red-400">Recording...</span>
+                            </div>
+                            <button class="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors"
+                                on:click={stopRecording} title="Send voice message">
+                                ➤
+                            </button>
+                        </div>
+                    {:else}
+                        <div class="flex items-center gap-2">
+                            <!-- Hidden file inputs -->
+                            <input type="file" accept="image/*" capture="environment" class="hidden" bind:this={imageInput} on:change={handleImageSelect} />
+                            <input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar" class="hidden" bind:this={fileInput} on:change={handleFileSelect} />
+
+                            <!-- Attach menu -->
+                            <div class="relative">
+                                <button class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg hover:bg-slate-200 transition-colors"
+                                    on:click={() => showAttachMenu = !showAttachMenu} title="Attach">
+                                    📎
+                                </button>
+                                {#if showAttachMenu}
+                                    <div class="absolute bottom-12 left-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex flex-col gap-1 min-w-[140px] z-50">
+                                        <button class="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                                            on:click={() => { imageInput.click(); showAttachMenu = false; }}>
+                                            <span>📷</span> Photo
+                                        </button>
+                                        <button class="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                                            on:click={() => { fileInput.click(); showAttachMenu = false; }}>
+                                            <span>📄</span> Document / Video
+                                        </button>
+                                        <button class="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                                            on:click={() => { showTemplatePicker = !showTemplatePicker; showAttachMenu = false; }}>
+                                            <span>📝</span> Template
+                                        </button>
+                                    </div>
+                                {/if}
+                            </div>
+
+                            <textarea bind:value={messageInput} rows="1"
+                                placeholder="Type a message..."
+                                class="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none max-h-24"
+                                on:keydown={handleKeydown}></textarea>
+                            {#if messageInput.trim()}
+                                <button class="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                                    on:click={sendMessage} disabled={sending}>
+                                    {sending ? '⏳' : '➤'}
+                                </button>
+                            {:else}
+                                <button class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg hover:bg-slate-200 transition-colors"
+                                    on:click={startRecording} title="Record voice message">
+                                    🎤
+                                </button>
+                            {/if}
+                        </div>
+                    {/if}
                 {/if}
 
                 <!-- Template Picker Popup -->
