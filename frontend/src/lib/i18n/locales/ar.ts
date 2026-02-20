@@ -187,6 +187,16 @@ export const arabicLocale: LocaleData = {
       createUserRoles: "إنشاء أدوار المستخدمين",
       assignRoles: "تعيين الأدوار",
       cancel: "إلغاء",
+      whatsapp: "واتساب",
+      whatsappDashboard: "لوحة التحكم",
+      whatsappLiveChat: "المحادثات المباشرة",
+      whatsappBroadcasts: "البث الجماعي",
+      whatsappTemplates: "القوالب",
+      whatsappContacts: "جهات الاتصال",
+      whatsappAutoReply: "بوت الرد التلقائي",
+      whatsappAIBot: "بوت الذكاء الاصطناعي",
+      whatsappAccounts: "الحسابات",
+      whatsappSettings: "الإعدادات",
     },
 
     // Mobile page titles

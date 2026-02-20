@@ -103,6 +103,12 @@ export const GET: RequestHandler = async () => {
 				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE', 'ERP_PRODUCT_MANAGER', 'STORAGE_MANAGER'],
 				OPERATIONS: [],
 				REPORTS: []
+			},
+			WHATSAPP: {
+				DASHBOARD: ['WA_DASHBOARD'],
+				MANAGE: ['WA_ACCOUNTS', 'WA_TEMPLATES', 'WA_CONTACTS', 'WA_SETTINGS'],
+				OPERATIONS: ['WA_LIVE_CHAT', 'WA_BROADCASTS', 'WA_AUTO_REPLY', 'WA_AI_BOT'],
+				REPORTS: []
 			}
 		};
 
@@ -210,7 +216,16 @@ export const GET: RequestHandler = async () => {
 			STOCK_ERP_PRODUCTS: 'ERP Products',
 			STOCK_OFFER_COST_MANAGER: 'Offer Cost Manager',
 			STOCK_PRODUCT_CLAIM_MANAGER: 'Product Claim Manager',
-			STOCK_EXPIRY_CONTROL: 'Expiry Control'
+			STOCK_EXPIRY_CONTROL: 'Expiry Control',
+			WA_DASHBOARD: 'WhatsApp Dashboard',
+			WA_LIVE_CHAT: 'WhatsApp Live Chat',
+			WA_BROADCASTS: 'WhatsApp Broadcasts',
+			WA_TEMPLATES: 'WhatsApp Templates',
+			WA_CONTACTS: 'WhatsApp Contacts',
+			WA_AUTO_REPLY: 'WhatsApp Auto-Reply Bot',
+			WA_AI_BOT: 'WhatsApp AI Bot',
+			WA_ACCOUNTS: 'WhatsApp Accounts',
+			WA_SETTINGS: 'WhatsApp Settings'
 		};
 
 		// Actual button code mappings (for Controls section)

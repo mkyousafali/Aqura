@@ -180,6 +180,16 @@ export const englishLocale: LocaleData = {
       createUserRoles: "Create User Roles",
       assignRoles: "Assign Roles",
       cancel: "Cancel",
+      whatsapp: "WhatsApp",
+      whatsappDashboard: "Dashboard",
+      whatsappLiveChat: "Live Chat",
+      whatsappBroadcasts: "Broadcasts",
+      whatsappTemplates: "Templates",
+      whatsappContacts: "Contacts",
+      whatsappAutoReply: "Auto-Reply Bot",
+      whatsappAIBot: "AI Bot",
+      whatsappAccounts: "Accounts",
+      whatsappSettings: "Settings",
     },
 
     // Mobile page titles
