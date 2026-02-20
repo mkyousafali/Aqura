@@ -137,13 +137,7 @@
 
 				<div class="auth-section">
 					<div class="customer-login-wrapper">
-						{#if showMask}
-							<div class="login-mask" on:click={handleMaskClick}>
-								{#if maskClicks >= 10}
-									<span class="mask-click-counter">{maskClicks}/15</span>
-								{/if}
-							</div>
-						{/if}
+
 						<CustomerLogin showMask={showMask} autoLoginCode={autoLoginCode} on:success={handleCustomerSuccess} />
 					</div>
 				</div>
