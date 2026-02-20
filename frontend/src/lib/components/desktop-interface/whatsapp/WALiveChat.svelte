@@ -2,6 +2,7 @@
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import { getEdgeFunctionUrl } from '$lib/utils/supabase';
+    import { currentUser } from '$lib/utils/persistentAuth';
     import ReportIncident from '../../../../routes/mobile-interface/report-incident/+page.svelte';
 
     export let initialPhone: string = '';
@@ -29,8 +30,12 @@
         template_name: string | null;
         status: string;
         sent_by: string;
+        sent_by_user_id: string | null;
         created_at: string;
     }
+
+    // Cache for user display names
+    let userNameCache: Record<string, string> = {};
 
     interface WATemplate {
         id: string;
@@ -175,11 +180,23 @@
         try {
             const { data } = await supabase
                 .from('wa_messages')
-                .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, created_at')
+                .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, created_at')
                 .eq('conversation_id', convId)
                 .order('created_at', { ascending: true })
                 .limit(200);
             messages = data || [];
+            // Load employee names for messages sent by users
+            const userIds = [...new Set((data || []).filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
+            if (userIds.length > 0) {
+                const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
+                if (employees) {
+                    const isAr = $locale === 'ar';
+                    for (const emp of employees) {
+                        userNameCache[emp.user_id] = (isAr ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
+                    }
+                    userNameCache = { ...userNameCache };
+                }
+            }
             if (!silent) {
                 setTimeout(() => scrollToBottom(), 100);
             }
@@ -207,7 +224,8 @@
                 message_type: 'text',
                 content: messageInput.trim(),
                 status: 'sending',
-                sent_by: 'user'
+                sent_by: 'user',
+                sent_by_user_id: $currentUser?.id || null
             });
             if (err) throw err;
 
@@ -285,7 +303,8 @@
                 content: template.body_text,
                 template_name: template.name,
                 status: 'sent',
-                sent_by: 'user'
+                sent_by: 'user',
+                sent_by_user_id: $currentUser?.id || null
             });
 
             await supabase.from('wa_conversations').update({
@@ -409,7 +428,8 @@
                 media_url: publicUrl,
                 media_mime_type: file.type,
                 status: 'sent',
-                sent_by: 'user'
+                sent_by: 'user',
+                sent_by_user_id: $currentUser?.id || null
             });
 
             await supabase.from('wa_conversations').update({
@@ -522,7 +542,8 @@
                 media_url: publicUrl,
                 media_mime_type: 'audio/ogg; codecs=opus',
                 status: 'sent',
-                sent_by: 'user'
+                sent_by: 'user',
+                sent_by_user_id: $currentUser?.id || null
             });
 
             await supabase.from('wa_conversations').update({
@@ -672,6 +693,18 @@
                                 {msg.direction === 'outbound'
                                     ? 'bg-[#DCF8C6] text-slate-800 rounded-tr-none'
                                     : 'bg-white text-slate-800 rounded-tl-none'}">
+                                <!-- Sender label at top of bubble -->
+                                {#if msg.direction === 'outbound'}
+                                    {#if msg.sent_by === 'ai_bot'}
+                                        <div class="text-[10px] font-semibold text-purple-600 mb-1">🤖 {$locale === 'ar' ? 'بوت الذكاء الاصطناعي' : 'AI Bot'}</div>
+                                    {:else if msg.sent_by === 'auto_reply' || msg.sent_by === 'auto_reply_bot'}
+                                        <div class="text-[10px] font-semibold text-blue-600 mb-1">🔧 {$locale === 'ar' ? 'بوت الرد التلقائي' : 'Auto Reply Bot'}</div>
+                                    {:else if msg.sent_by === 'user' && msg.sent_by_user_id}
+                                        <div class="text-[10px] font-semibold text-green-700 mb-1">👤 {userNameCache[msg.sent_by_user_id] || ($locale === 'ar' ? 'مستخدم' : 'User')}</div>
+                                    {:else if msg.sent_by === 'user'}
+                                        <div class="text-[10px] font-semibold text-green-700 mb-1">👤 {$locale === 'ar' ? 'مستخدم' : 'User'}</div>
+                                    {/if}
+                                {/if}
                                 {#if msg.message_type === 'image' && msg.media_url}
                                     <img src={msg.media_url} alt="media" class="rounded-lg max-w-[280px] w-auto h-auto mb-1 cursor-pointer" on:click={() => window.open(msg.media_url, '_blank')} />
                                 {/if}
@@ -706,11 +739,6 @@
                                     <span class="text-[9px] text-slate-400">{formatMsgTime(msg.created_at)}</span>
                                     {#if msg.direction === 'outbound'}
                                         <span class="text-[10px] {msg.status === 'read' ? 'text-blue-500' : 'text-slate-400'}">{getStatusTick(msg.status)}</span>
-                                    {/if}
-                                    {#if msg.sent_by === 'ai_bot'}
-                                        <span class="text-[9px] bg-purple-100 text-purple-600 px-1 rounded ml-1">🤖</span>
-                                    {:else if msg.sent_by === 'auto_reply_bot'}
-                                        <span class="text-[9px] bg-blue-100 text-blue-600 px-1 rounded ml-1">🔧</span>
                                     {/if}
                                 </div>
                             </div>
