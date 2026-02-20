@@ -18,6 +18,8 @@
         is_inside_24hr: boolean;
         conversation_id: string | null;
         created_at: string;
+        bill_count?: number;
+        bill_total?: number;
     }
 
     interface MessageHistory {
@@ -46,6 +48,7 @@
     let realtimeConvChannel: any = null;
     let realtimeCodeChannel: any = null;
     let realtimeMsgChannel: any = null;
+    let billCountMap: Map<string, { branchResults: Array<{ branchId: string; branchName: string; locationEn: string; locationAr: string; count: number; total: number }>; totalCount: number; totalAmount: number; broadcastStats?: { sent: number; delivered: number; read: number } }> = new Map(); // Temporary local storage - not persisted to cloud
 
     // Pagination
     const PAGE_SIZE = 100;
@@ -60,6 +63,16 @@
     let importMessage = '';
     let fileInput: HTMLInputElement;
 
+    // Bill loading state
+    let loadingBills = false;
+    let billLoadMessage = '';
+    let erpConfigs: any[] = []; // All active ERP connections
+    let selectedBillContact: Contact | null = null; // For bill breakdown popup
+    
+    // Batch loading configuration for performance
+    const BATCH_SIZE = 5; // Load N contacts at a time
+    const BATCH_DELAY_MS = 500; // Delay between batches (ms)
+
     /** Debounced refresh — coalesces rapid realtime events into a single reload */
     function scheduleRefresh() {
         if (realtimeDebounce) clearTimeout(realtimeDebounce);
@@ -70,6 +83,9 @@
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
         await loadContacts();
+        await loadErpConfig();
+        // NOTE: DO NOT load bill counts on mount - user must manually click the "Load Bill Counts" button
+        // This is because contact names are in Arabic but ERP party names are in English
 
         // Realtime: customers table changes
         realtimeChannel = supabase
@@ -285,6 +301,152 @@
         fileInput?.click();
     }
 
+    async function loadErpConfig() {
+        try {
+            const { data } = await supabase.from('erp_connections')
+                .select('tunnel_url, erp_branch_id, branch_id, branch_name, branches(id, location_en, location_ar)')
+                .eq('is_active', true)
+                .order('branch_id');
+            erpConfigs = data || [];
+            console.log(`Loaded ${erpConfigs.length} ERP connections:`, erpConfigs);
+        } catch (e) {
+            console.error('Failed to load ERP config:', e);
+        }
+    }
+
+    async function loadBillCounts() {
+        if (erpConfigs.length === 0) {
+            billLoadMessage = '❌ No ERP connections configured';
+            return;
+        }
+
+        loadingBills = true;
+        billLoadMessage = '⏳ Loading bill counts...';
+        let loaded = 0;
+
+        // Use contacts array (always has all data), fallback to filtered if needed
+        const targetContacts = contacts.length > 0 ? contacts : filteredContacts;
+        if (targetContacts.length === 0) {
+            billLoadMessage = '⚠️ No contacts to load bills for';
+            return;
+        }
+
+        try {
+            // Process contacts in batches to avoid overwhelming the server
+            for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
+                const batch = targetContacts.slice(i, i + BATCH_SIZE);
+                console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1} (contacts ${i + 1}-${Math.min(i + BATCH_SIZE, targetContacts.length)})`);
+                
+                // Process all contacts in this batch in parallel
+                await Promise.all(batch.map(contact => loadBillCountForContact(contact, targetContacts.length)));
+                
+                loaded += batch.length;
+                billLoadMessage = `⏳ Loaded ${Math.min(loaded, targetContacts.length)}/${targetContacts.length} bill counts...`;
+                
+                // Delay between batches to avoid overwhelming the server
+                if (i + BATCH_SIZE < targetContacts.length) {
+                    await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+                }
+            }
+            
+            billLoadMessage = `✅ Loaded bill counts for ${targetContacts.length} contacts`;
+            // Trigger reactivity
+            billCountMap = billCountMap;
+        } catch (e: any) {
+            billLoadMessage = `❌ ${e.message}`;
+        } finally {
+            loadingBills = false;
+            setTimeout(() => billLoadMessage = '', 5000);
+        }
+    }
+
+    async function loadBillCountForContact(contact: Contact, totalContacts: number) {
+        const mobileNumber = contact.whatsapp_number.trim();
+        
+        console.log(`Loading bills for contact: ${contact.name} (mobile: ${mobileNumber})`);
+        
+        let totalBills = 0;
+        let totalAmount = 0;
+        const branchResults: Array<{ branchId: string; branchName: string; locationEn: string; locationAr: string; count: number; total: number }> = [];
+        
+        // Query broadcast stats using RPC function (single query instead of counting statuses on client)
+        const { data: broadcastStats } = await supabase
+            .rpc('get_contact_broadcast_stats', { phone_number: contact.whatsapp_number });
+        
+        let sentCount = 0, deliveredCount = 0, readCount = 0;
+        if (broadcastStats && broadcastStats.length > 0) {
+            sentCount = broadcastStats[0]?.sent || 0;
+            deliveredCount = broadcastStats[0]?.delivered || 0;
+            readCount = broadcastStats[0]?.read || 0;
+        }
+        console.log(`Broadcast stats for ${contact.name}: sent=${sentCount}, delivered=${deliveredCount}, read=${readCount}`);
+        
+        // Query each ERP branch separately
+        for (const config of erpConfigs) {
+            if (!config?.tunnel_url) {
+                console.warn(`Branch ${config?.branch_id} has no tunnel URL, skipping`);
+                continue;
+            }
+            
+            // Query: Find privilege card by mobile → get party name → count bills for that party in that branch
+            const sql = `SELECT COUNT(*) as bill_cnt, SUM(GrandTotal) as bill_amt FROM InvTransactionMaster 
+            WHERE BranchID IN (
+              SELECT DISTINCT BranchID FROM PrivilegeCards 
+              WHERE REPLACE(Mobile, ' ', '') = '${mobileNumber.replace(/'/g, "''")}'  
+            )
+            AND LOWER(LTRIM(RTRIM(PartyName))) = (
+              SELECT TOP 1 LOWER(LTRIM(RTRIM(CardHolderName))) FROM PrivilegeCards 
+              WHERE REPLACE(Mobile, ' ', '') = '${mobileNumber.replace(/'/g, "''")}'  
+              AND CardHolderName != ''
+            )`;
+
+            try {
+                const response = await fetch('/api/erp-products', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'query', tunnelUrl: config.tunnel_url, sql })
+                });
+                const result = await response.json();
+                
+                if (result.success && result.recordset?.length > 0) {
+                    const billCnt = result.recordset[0]?.bill_cnt || 0;
+                    const billAmt = result.recordset[0]?.bill_amt || 0;
+                    totalBills += billCnt;
+                    totalAmount += (billAmt || 0);
+                    const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
+                    branchResults.push({
+                        branchId: config.branch_id,
+                        branchName: config.branch_name || `Branch ${config.branch_id}`,
+                        locationEn: branchData?.location_en || 'Location N/A',
+                        locationAr: branchData?.location_ar || 'الموقع غير متاح',
+                        count: billCnt,
+                        total: billAmt || 0
+                    });
+                } else {
+                    const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
+                    branchResults.push({
+                        branchId: config.branch_id,
+                        branchName: config.branch_name || `Branch ${config.branch_id}`,
+                        locationEn: branchData?.location_en || 'Location N/A',
+                        locationAr: branchData?.location_ar || 'الموقع غير متاح',
+                        count: 0,
+                        total: 0
+                    });
+                }
+            } catch (branchErr) {
+                console.error(`Error querying Branch ${config.branch_id}:`, branchErr);
+            }
+        }
+        
+        console.log(`✅ Total for ${contact.name}: ${totalBills} bills, ${totalAmount} SAR`);
+        billCountMap.set(contact.id, {
+            branchResults: branchResults,
+            totalCount: totalBills,
+            totalAmount: totalAmount,
+            broadcastStats: { sent: sentCount, delivered: deliveredCount, read: readCount }
+        });
+    }
+
     async function handleFileImport(event: Event) {
         const input = event.target as HTMLInputElement;
         const file = input.files?.[0];
@@ -396,6 +558,14 @@
                     📤 Import CSV
                 {/if}
             </button>
+            <button class="px-3 py-2 bg-amber-100 text-amber-700 text-xs font-bold rounded-xl hover:bg-amber-200 transition-all border border-amber-200 flex items-center gap-1.5 disabled:opacity-50"
+                on:click={loadBillCounts} disabled={loadingBills || erpConfigs.length === 0}>
+                {#if loadingBills}
+                    <span class="animate-spin">⏳</span> Loading...
+                {:else}
+                    📊 Load Bill Counts
+                {/if}
+            </button>
 
             <!-- Status Filter -->
             <div class="flex gap-1 bg-slate-100 p-1 rounded-xl">
@@ -424,6 +594,13 @@
     {#if importMessage}
         <div class="px-6 py-2 text-sm font-bold text-center {importMessage.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">
             {importMessage}
+        </div>
+    {/if}
+
+    <!-- Bill Load Status -->
+    {#if billLoadMessage}
+        <div class="px-6 py-2 text-sm font-bold text-center {billLoadMessage.startsWith('✅') ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}">
+            {billLoadMessage}
         </div>
     {/if}
 
@@ -465,6 +642,7 @@
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Approved</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Last Activity</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Unread</th>
+                                <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Bills</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Action</th>
                             </tr>
                         </thead>
@@ -499,6 +677,22 @@
                                             </span>
                                         {:else}
                                             <span class="text-slate-300">—</span>
+                                        {/if}
+                                    </td>
+                                    <td class="px-4 py-3 text-center">
+                                        {#if billCountMap.has(contact.id)}
+                                            {@const bills = billCountMap.get(contact.id)}
+                                            <button 
+                                                class="flex flex-col items-center cursor-pointer hover:bg-emerald-50 p-1 rounded transition-colors"
+                                                on:click={() => selectedBillContact = contact}
+                                                title="Click to see branch breakdown">
+                                                <span class="text-xs font-bold text-slate-800">{bills.totalCount || 0}</span>
+                                                {#if bills.totalAmount}
+                                                    <span class="text-[9px] text-slate-500">{(bills.totalAmount / 1000).toFixed(1)}k</span>
+                                                {/if}
+                                            </button>
+                                        {:else}
+                                            <span class="text-slate-300 text-xs">—</span>
                                         {/if}
                                     </td>
                                     <td class="px-4 py-3 text-center space-x-1">
@@ -600,4 +794,126 @@
             </div>
         {/if}
     </div>
+
+    <!-- Bill Breakdown Modal -->
+    {#if selectedBillContact && billCountMap.has(selectedBillContact.id)}
+        {@const billData = billCountMap.get(selectedBillContact.id)}
+        <div 
+            class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" 
+            on:click={() => selectedBillContact = null}
+            on:keydown={(e) => e.key === 'Escape' && (selectedBillContact = null)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bill-modal-title"
+            tabindex="-1">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden" on:click|stopPropagation role="document">
+                <!-- Modal Header -->
+                <div class="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-6 py-5 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">📊</span>
+                        <div>
+                            <h3 class="font-bold text-sm" id="bill-modal-title">{selectedBillContact.name}</h3>
+                            <p class="text-emerald-100 text-xs font-mono">{selectedBillContact.whatsapp_number}</p>
+                        </div>
+                    </div>
+                    <button 
+                        class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors text-lg font-bold"
+                        on:click={() => selectedBillContact = null}
+                        aria-label="Close bill breakdown">×</button>
+                </div>
+
+                <!-- Modal Content -->
+                <div class="p-6 space-y-4 max-h-96 overflow-y-auto">
+                    {#if billData.branchResults.length === 0}
+                        <div class="text-center py-8">
+                            <p class="text-slate-500 text-sm">No branch data available</p>
+                        </div>
+                    {:else}
+                        <!-- Branch List -->
+                        <div class="space-y-3">
+                            {#each billData.branchResults as branch}
+                                <div class="border border-slate-200 rounded-lg p-4 hover:border-emerald-300 hover:bg-emerald-50/30 transition-all">
+                                    <div class="mb-3 pb-3 border-b border-slate-100">
+                                        <div class="flex items-start gap-2">
+                                            <span class="text-lg">📍</span>
+                                            <div class="flex-1">
+                                                <h4 class="font-bold text-base text-slate-900">{branch.branchName}</h4>
+                                                <p class="text-xs text-slate-600 mt-1 mb-2">{$locale === 'ar' ? branch.locationAr : branch.locationEn}</p>
+                                                <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded-full font-mono inline-block">Branch #{branch.branchId}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-baseline justify-between">
+                                        <span class="text-2xl font-black text-emerald-600">{branch.count}</span>
+                                        <span class="text-xs text-slate-500">
+                                            {#if branch.total > 0}
+                                                SAR {(branch.total / 1000).toFixed(1)}k
+                                            {:else}
+                                                No transactions
+                                            {/if}
+                                        </span>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+
+                        <!-- Divider -->
+                        <div class="border-t-2 border-slate-200 my-2"></div>
+
+                        <!-- Total Summary -->
+                        <div class="bg-gradient-to-r from-emerald-50 to-emerald-100/50 rounded-lg p-4 border border-emerald-200">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-slate-700">Total Across All Branches:</span>
+                                <div class="text-right">
+                                    <div class="text-3xl font-black text-emerald-600">{billData.totalCount}</div>
+                                    <div class="text-sm text-slate-600">SAR {(billData.totalAmount / 1000).toFixed(1)}k</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Broadcast Message Stats -->
+                        {#if billData.broadcastStats}
+                            <div class="bg-gradient-to-r from-blue-50 to-blue-100/50 rounded-lg p-4 border border-blue-200">
+                                <div class="space-y-2">
+                                    <!-- Top Row: Sent & Delivered -->
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-lg">📤</span>
+                                            <div>
+                                                <p class="text-xs text-slate-600">Sent</p>
+                                                <p class="text-xl font-black text-blue-600">{billData.broadcastStats.sent}</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-lg">✓✓</span>
+                                            <div>
+                                                <p class="text-xs text-slate-600">Delivered</p>
+                                                <p class="text-xl font-black text-blue-600">{billData.broadcastStats.delivered}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- Bottom Row: Read -->
+                                    <div class="flex items-center gap-3 pt-2 border-t border-blue-200">
+                                        <span class="text-lg">👁️</span>
+                                        <div>
+                                            <p class="text-xs text-slate-600">Read</p>
+                                            <p class="text-xl font-black text-blue-600">{billData.broadcastStats.read}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
+                    {/if}
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end">
+                    <button class="px-4 py-2 bg-slate-200 text-slate-800 text-sm font-bold rounded-lg hover:bg-slate-300 transition-all"
+                        on:click={() => selectedBillContact = null}>
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
