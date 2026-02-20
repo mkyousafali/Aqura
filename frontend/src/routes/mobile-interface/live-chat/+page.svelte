@@ -82,6 +82,10 @@
 	let fileInput: HTMLInputElement;
 	let showAttachMenu = false;
 
+	// WhatsApp account info
+	let waAccountName = '';
+	let waProfilePicUrl = '';
+
 	// View: 'list' or 'chat'
 	let view: 'list' | 'chat' = 'list';
 
@@ -99,9 +103,25 @@
 
 	async function loadAccount() {
 		try {
-			const { data } = await supabase.from('wa_accounts').select('id').eq('is_default', true).single();
+			const { data } = await supabase.from('wa_accounts').select('id, display_name, phone_number_id, access_token').eq('is_default', true).single();
 			if (data) {
 				accountId = data.id;
+				waAccountName = data.display_name || '';
+				const { data: settings } = await supabase.from('wa_settings').select('profile_picture_url').eq('wa_account_id', data.id).maybeSingle();
+				waProfilePicUrl = settings?.profile_picture_url || '';
+				// Fetch fresh profile from Meta API (non-blocking)
+				if (data.phone_number_id && data.access_token) {
+					fetch(`https://graph.facebook.com/v22.0/${data.phone_number_id}/whatsapp_business_profile?fields=profile_picture_url`, {
+						headers: { 'Authorization': `Bearer ${data.access_token}` }
+					}).then(r => r.json()).then(result => {
+						const metaPic = result?.data?.[0]?.profile_picture_url;
+						if (metaPic && metaPic !== waProfilePicUrl) {
+							waProfilePicUrl = metaPic;
+							// Cache in DB
+							supabase.from('wa_settings').upsert({ wa_account_id: data.id, profile_picture_url: metaPic }, { onConflict: 'wa_account_id' });
+						}
+					}).catch(() => {});
+				}
 				await Promise.all([loadConversations(), loadTemplates()]);
 			} else {
 				loading = false;
@@ -596,6 +616,19 @@
 	{#if view === 'list'}
 		<!-- ===== CONVERSATION LIST VIEW (WhatsApp Home) ===== -->
 		<div class="wa-list-view">
+			<!-- Account Header -->
+			{#if waAccountName || waProfilePicUrl}
+			<div class="wa-account-header">
+				{#if waProfilePicUrl}
+					<img src={waProfilePicUrl} alt="" class="wa-account-pic" />
+				{:else}
+					<div class="wa-account-icon">💬</div>
+				{/if}
+				{#if waAccountName}
+					<span class="wa-account-name">{waAccountName}</span>
+				{/if}
+			</div>
+			{/if}
 			<!-- Search Bar -->
 			<div class="wa-search-bar">
 				<div class="wa-search-input-wrap">
@@ -951,6 +984,31 @@
 		font-weight: 700;
 		color: #FFFFFF;
 		letter-spacing: -0.3px;
+	}
+
+	/* Account Header */
+	.wa-account-header {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 14px;
+		background: #008069;
+		flex-shrink: 0;
+	}
+	.wa-account-pic {
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		object-fit: cover;
+		border: 2px solid rgba(255,255,255,0.4);
+	}
+	.wa-account-icon {
+		font-size: 20px;
+	}
+	.wa-account-name {
+		font-size: 14px;
+		font-weight: 600;
+		color: #FFFFFF;
 	}
 
 	/* Search */
