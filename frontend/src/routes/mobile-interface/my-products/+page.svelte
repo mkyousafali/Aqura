@@ -28,6 +28,13 @@
 	let employeeName: string = '';
 	let branchId: number | null = null;
 
+	// Search & Scanner
+	let searchQuery = '';
+	let showScanner = false;
+	let scannerRef: HTMLVideoElement | null = null;
+	let scanningActive = false;
+	let codeReader: any = null;
+
 	// Sort
 	let sortBy: 'expiry' | 'name' = 'expiry';
 
@@ -37,6 +44,15 @@
 		const nameB = getProductName(b);
 		return nameA.localeCompare(nameB);
 	});
+
+	$: filteredProducts = searchQuery.trim() === '' 
+		? sortedProducts 
+		: sortedProducts.filter(p => {
+			const search = searchQuery.toLowerCase();
+			const name = getProductName(p).toLowerCase();
+			const barcode = p.barcode.toLowerCase();
+			return name.includes(search) || barcode.includes(search);
+		});
 
 	function getProductName(p: MyProduct): string {
 		if (isRtl) return p.product_name_ar || p.product_name_en || p.barcode;
@@ -171,56 +187,193 @@
 		}
 	}
 
-	let unclaimingBarcode: string | null = null;
-
 	async function refresh() {
 		if (employeeId) {
 			await loadMyProducts();
 		}
 	}
 
-	async function unclaimProduct(barcode: string) {
-		if (!employeeId || unclaimingBarcode) return;
-		unclaimingBarcode = barcode;
-		try {
-			// Get current managed_by
-			const { data, error: fetchErr } = await supabase
-				.from('erp_synced_products')
-				.select('managed_by')
-				.eq('barcode', barcode)
-				.maybeSingle();
+	async function initScanner() {
+		if (scanningActive) {
+			stopScanner();
+			return;
+		}
 
-			if (fetchErr || !data) {
-				console.error('Fetch error:', fetchErr);
-				unclaimingBarcode = null;
+		showScanner = true;
+		scanningActive = true;
+
+		// Request camera permission
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment' }
+			});
+			if (scannerRef) {
+				scannerRef.srcObject = stream;
+				scannerRef.setAttribute('playsinline', 'true');
+				scannerRef.play();
+				startBarcodeDetection();
+			}
+		} catch (err) {
+			console.error('Camera access denied:', err);
+			alert(t('Unable to access camera', 'لا يمكن الوصول إلى الكاميرا'));
+			showScanner = false;
+			scanningActive = false;
+		}
+	}
+
+	function stopScanner() {
+		if (scannerRef && scannerRef.srcObject) {
+			const stream = scannerRef.srcObject as MediaStream;
+			stream.getTracks().forEach(track => track.stop());
+		}
+		scanningActive = false;
+		showScanner = false;
+	}
+
+	function startBarcodeDetection() {
+		if (!scannerRef) return;
+
+		const canvas = document.createElement('canvas');
+		const ctx = canvas.getContext('2d');
+		let isProcessing = false;
+
+		const detectBarcode = () => {
+			if (!scanningActive || isProcessing) {
+				if (scanningActive) requestAnimationFrame(detectBarcode);
 				return;
 			}
 
-			const currentManagers: any[] = data.managed_by || [];
-			const updated = currentManagers.filter((m: any) => m.employee_id !== employeeId);
+			try {
+				canvas.width = scannerRef!.videoWidth;
+				canvas.height = scannerRef!.videoHeight;
+				ctx!.drawImage(scannerRef!, 0, 0, canvas.width, canvas.height);
 
-			const { error: updateErr } = await supabase
-				.from('erp_synced_products')
-				.update({ managed_by: updated })
-				.eq('barcode', barcode);
+				// Simple barcode detection using image processing
+				const imageData = ctx!.getImageData(0, 0, canvas.width, canvas.height);
+				const barcode = extractBarcodeFromImage(imageData);
 
-			if (updateErr) {
-				console.error('Update error:', updateErr);
-			} else {
-				// Remove from local list
-				products = products.filter(p => p.barcode !== barcode);
+				if (barcode) {
+					searchQuery = barcode;
+					stopScanner();
+					isProcessing = true;
+					setTimeout(() => { isProcessing = false; }, 500);
+				}
+			} catch (err) {
+				console.error('Barcode detection error:', err);
 			}
-		} catch (err) {
-			console.error('Unclaim error:', err);
-		} finally {
-			unclaimingBarcode = null;
+
+			if (scanningActive) requestAnimationFrame(detectBarcode);
+		};
+
+		detectBarcode();
+	}
+
+	function extractBarcodeFromImage(imageData: ImageData): string | null {
+		// This is a simplified barcode extraction
+		// For production, use a library like: jsQR, quagga2, or ZXing
+		// This basic implementation looks for high-contrast edges
+		const data = imageData.data;
+		const width = imageData.width;
+		const height = imageData.height;
+
+		let barcodeCandidate = '';
+		let lastValue = 0;
+
+		for (let i = 0; i < data.length; i += 4) {
+			const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+			const currentValue = gray > 128 ? 1 : 0;
+
+			if (currentValue !== lastValue) {
+				barcodeCandidate += currentValue;
+			}
+			lastValue = currentValue;
 		}
+
+		// Look for patterns in the barcode (very simplified)
+		if (barcodeCandidate.length > 10) {
+			return barcodeCandidate.substring(0, 20); // Return simplified pattern
+		}
+
+		return null;
+	}
+
+	function handleBarcodeInput(event: Event) {
+		const input = event.target as HTMLInputElement;
+		searchQuery = input.value;
+	}
+
+	function clearSearch() {
+		searchQuery = '';
 	}
 </script>
 
 <div class="page-container" dir={isRtl ? 'rtl' : 'ltr'}>
-	<!-- Sticky Header -->
-	<div class="sticky-header">
+	<!-- Search Bar with Scanner -->
+	{#if showScanner}
+		<div class="scanner-container">
+			<div class="scanner-header">
+				<h3>{t('Scan Barcode', 'مسح الرمز الشريطي')}</h3>
+				<button class="close-scanner" on:click={stopScanner} aria-label="Close scanner">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			</div>
+			<video bind:this={scannerRef} class="scanner-video"></video>
+			<div class="scanner-guide">
+				<svg width="120" height="120" viewBox="0 0 120 120" fill="none" stroke="#fff" stroke-width="2">
+					<line x1="20" y1="20" x2="40" y2="20"/>
+					<line x1="20" y1="20" x2="20" y2="40"/>
+					<line x1="100" y1="20" x2="80" y2="20"/>
+					<line x1="100" y1="20" x2="100" y2="40"/>
+					<line x1="20" y1="100" x2="40" y2="100"/>
+					<line x1="20" y1="100" x2="20" y2="80"/>
+					<line x1="100" y1="100" x2="80" y2="100"/>
+					<line x1="100" y1="100" x2="100" y2="80"/>
+				</svg>
+				<p>{t('Point camera at barcode', 'وجه الكاميرا نحو الرمز الشريطي')}</p>
+			</div>
+		</div>
+	{:else}
+		<!-- Search Bar -->
+		<div class="search-bar-container">
+			<div class="search-bar">
+				<svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="11" cy="11" r="8"/>
+					<path d="m21 21-4.35-4.35"/>
+				</svg>
+				<input
+					type="text"
+					class="search-input"
+					placeholder={t('Search by name or barcode...', 'ابحث بالاسم أو الرمز الشريطي...')}
+					value={searchQuery}
+					on:input={handleBarcodeInput}
+					dir={isRtl ? 'rtl' : 'ltr'}
+				/>
+				{#if searchQuery}
+					<button class="clear-btn" on:click={clearSearch} aria-label="Clear search">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<path d="m15 9-6 6m0-6 6 6"/>
+						</svg>
+					</button>
+				{/if}
+				<button class="scanner-btn" on:click={initScanner} aria-label="Open barcode scanner" title={t('Scan barcode', 'مسح الرمز الشريطي')}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="3" y1="6" x2="3" y2="18"/>
+						<line x1="7" y1="4" x2="7" y2="20"/>
+						<line x1="11" y1="6" x2="11" y2="18"/>
+						<line x1="15" y1="5" x2="15" y2="19"/>
+						<line x1="19" y1="6" x2="19" y2="18"/>
+						<line x1="21" y1="8" x2="21" y2="16"/>
+					</svg>
+				</button>
+			</div>
+		</div>
+
+		<!-- Sticky Header -->
+		<div class="sticky-header">
 		<div class="section-card summary-card">
 			<div class="summary-row">
 				<div class="summary-stats">
@@ -266,18 +419,19 @@
 			</svg>
 			<span>{t('No claimed products', 'لا توجد منتجات مسجلة')}</span>
 		</div>
+	{:else if filteredProducts.length === 0}
+		<div class="empty-state">
+			<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="1.5">
+				<circle cx="11" cy="11" r="8"/>
+				<path d="m21 21-4.35-4.35"/>
+			</svg>
+			<span>{t('No products match your search', 'لا توجد منتجات مطابقة')}</span>
+		</div>
 	{:else}
 		<!-- Product List -->
 		<div class="product-list">
-			{#each sortedProducts as item (item.barcode)}
+			{#each filteredProducts as item (item.barcode)}
 				<div class="product-row">
-					<button class="unclaim-btn" on:click={() => unclaimProduct(item.barcode)} disabled={unclaimingBarcode === item.barcode}>
-						{#if unclaimingBarcode === item.barcode}
-							<div class="mini-spinner"></div>
-						{:else}
-							{t('Unclaim', 'إلغاء')}
-						{/if}
-					</button>
 					<div class="product-info">
 						<div class="product-name">{getProductName(item)}</div>
 						<div class="product-barcode">{item.barcode}</div>
@@ -296,6 +450,7 @@
 			{/each}
 		</div>
 	{/if}
+	{/if}
 </div>
 
 <style>
@@ -305,6 +460,135 @@
 		background: #F8FAFC;
 		height: 100%;
 		overflow: hidden;
+	}
+
+	/* Search Bar */
+	.search-bar-container {
+		padding: 0.6rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+		flex-shrink: 0;
+	}
+
+	.search-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.5rem 0.6rem;
+		background: #F3F4F6;
+		border: 1px solid #D1D5DB;
+		border-radius: 6px;
+	}
+
+	.search-icon {
+		color: #9CA3AF;
+		flex-shrink: 0;
+	}
+
+	.search-input {
+		flex: 1;
+		border: none;
+		background: transparent;
+		font-size: 0.74rem;
+		color: #1F2937;
+		outline: none;
+		padding: 0;
+	}
+
+	.search-input::placeholder {
+		color: #9CA3AF;
+	}
+
+	.clear-btn,
+	.scanner-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border: 1px solid #D1D5DB;
+		background: white;
+		border-radius: 4px;
+		color: #6B7280;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: all 0.15s;
+	}
+
+	.clear-btn:active,
+	.scanner-btn:active {
+		background: #E5E7EB;
+	}
+
+	.scanner-btn {
+		color: #047857;
+	}
+
+	/* Scanner */
+	.scanner-container {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 1000;
+		background: black;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.scanner-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.8rem;
+		background: rgba(0, 0, 0, 0.8);
+		color: white;
+	}
+
+	.scanner-header h3 {
+		margin: 0;
+		font-size: 0.9rem;
+		font-weight: 600;
+	}
+
+	.close-scanner {
+		border: none;
+		background: transparent;
+		color: white;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		width: 32px;
+		height: 32px;
+	}
+
+	.scanner-video {
+		flex: 1;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.scanner-guide {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.8rem;
+		color: white;
+		pointer-events: none;
+	}
+
+	.scanner-guide p {
+		margin: 0;
+		font-size: 0.78rem;
+		text-align: center;
 	}
 
 	.sticky-header {
@@ -543,38 +827,5 @@
 	.expiry-date {
 		font-size: 0.62rem;
 		color: #9CA3AF;
-	}
-
-	.unclaim-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.2rem 0.4rem;
-		border: 1px solid #FECACA;
-		border-radius: 5px;
-		background: #FEF2F2;
-		color: #DC2626;
-		cursor: pointer;
-		flex-shrink: 0;
-		font-size: 0.64rem;
-		font-weight: 700;
-		white-space: nowrap;
-	}
-
-	.unclaim-btn:active {
-		background: #FEE2E2;
-	}
-
-	.unclaim-btn:disabled {
-		opacity: 0.5;
-	}
-
-	.mini-spinner {
-		width: 12px;
-		height: 12px;
-		border: 2px solid #FECACA;
-		border-top-color: #DC2626;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
 	}
 </style>
