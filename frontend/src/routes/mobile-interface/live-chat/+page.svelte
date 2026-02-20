@@ -29,6 +29,7 @@
 		status: string;
 		sent_by: string;
 		sent_by_user_id: string | null;
+		metadata: any;
 		created_at: string;
 	}
 
@@ -179,7 +180,7 @@
 		try {
 			const { data } = await supabase
 				.from('wa_messages')
-				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, created_at')
+				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
 				.eq('conversation_id', convId)
 				.order('created_at', { ascending: true })
 				.limit(200);
@@ -737,6 +738,20 @@
 								<!-- Text content (hide [image], [audio] etc labels) -->
 								{#if msg.content && !(['image','audio','voice','video','sticker'].includes(msg.message_type) && msg.media_url && /^\[.+\]$/.test(msg.content.trim()))}
 									<p class="wa-msg-text">{msg.content}</p>
+								{/if}
+								<!-- Interactive buttons -->
+								{#if msg.message_type === 'interactive' && msg.metadata}
+									{#if msg.metadata.interactive_type === 'button' && msg.metadata.buttons?.length}
+										<div class="wa-interactive-buttons">
+											{#each msg.metadata.buttons as btn}
+												<div class="wa-interactive-btn">{btn.title}</div>
+											{/each}
+										</div>
+									{:else if msg.metadata.interactive_type === 'cta_url' && msg.metadata.url}
+										<div class="wa-interactive-buttons">
+											<a href={msg.metadata.url} target="_blank" class="wa-interactive-btn wa-cta-link">🔗 {msg.metadata.display_text || 'Open Link'}</a>
+										</div>
+									{/if}
 								{/if}
 								{#if msg.template_name}
 									<span class="wa-msg-template-tag">📝 {msg.template_name}</span>
@@ -1316,6 +1331,31 @@
 		font-style: italic;
 		display: block;
 		margin-top: 2px;
+	}
+	.wa-interactive-buttons {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-top: 8px;
+		border-top: 1px solid rgba(0,0,0,0.08);
+		padding-top: 8px;
+	}
+	.wa-interactive-btn {
+		text-align: center;
+		font-size: 12px;
+		color: #0b84ed;
+		font-weight: 500;
+		padding: 6px 8px;
+		background: rgba(255,255,255,0.6);
+		border-radius: 8px;
+		border: 1px solid rgba(11,132,237,0.25);
+	}
+	.wa-cta-link {
+		text-decoration: none;
+		display: block;
+	}
+	.wa-cta-link:hover {
+		background: rgba(11,132,237,0.08);
 	}
 	.wa-sender-label {
 		font-size: 11px;

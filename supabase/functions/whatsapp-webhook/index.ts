@@ -1456,6 +1456,27 @@ async function sendWhatsAppMessage(
       mediaMimeType = "audio/ogg";
     }
 
+    // Extract interactive button metadata
+    let metadata: any = null;
+    if (msgType === "interactive" && messagePayload.interactive) {
+      const inter = messagePayload.interactive;
+      if (inter.type === "button" && inter.action?.buttons) {
+        metadata = {
+          interactive_type: "button",
+          buttons: inter.action.buttons.map((b: any) => ({
+            id: b.reply?.id || "",
+            title: b.reply?.title || "",
+          })),
+        };
+      } else if (inter.type === "cta_url" && inter.action?.parameters) {
+        metadata = {
+          interactive_type: "cta_url",
+          display_text: inter.action.parameters.display_text || "",
+          url: inter.action.parameters.url || "",
+        };
+      }
+    }
+
     await supabase.from("wa_messages").insert({
       conversation_id: conversationId,
       whatsapp_message_id: waMessageId,
@@ -1464,6 +1485,7 @@ async function sendWhatsAppMessage(
       content,
       media_url: mediaUrl,
       media_mime_type: mediaMimeType,
+      metadata: metadata,
       status: "sent",
       sent_by: sentBy,
     });
