@@ -133,21 +133,23 @@
 			for (const row of data) {
 				const expiryDates: any[] = row.expiry_dates || [];
 				
-				// Find the nearest (soonest) expiry date for this product
-				let nearestExpiry: string | null = null;
-				let nearestDays = Infinity;
+				// Find expiry date for THIS BRANCH ONLY
+				let branchExpiry: string | null = null;
+				let branchDays = 9999;
 
 				for (const entry of expiryDates) {
-					const expDate = entry.expiry_date;
-					if (!expDate) continue;
-					const days = getDaysLeft(expDate);
-					if (days < nearestDays) {
-						nearestDays = days;
-						nearestExpiry = expDate;
+					// Filter by user's branch ID
+					if (entry.branch_id === branchId) {
+						const expDate = entry.expiry_date;
+						if (expDate) {
+							branchDays = getDaysLeft(expDate);
+							branchExpiry = expDate;
+							break; // Found the branch expiry, stop looking
+						}
 					}
 				}
 
-				// If no expiry dates, still show the product with a placeholder
+				// If no expiry dates for this branch, still show the product
 				result.push({
 					barcode: row.barcode,
 					product_name_en: row.product_name_en || '',
@@ -155,8 +157,8 @@
 					parent_barcode: row.parent_barcode || null,
 					expiry_dates: expiryDates,
 					managed_by: row.managed_by || [],
-					nearestExpiry: nearestExpiry || '',
-					daysLeft: nearestExpiry ? nearestDays : 9999
+					nearestExpiry: branchExpiry || '',
+					daysLeft: branchExpiry ? branchDays : 9999
 				});
 			}
 
