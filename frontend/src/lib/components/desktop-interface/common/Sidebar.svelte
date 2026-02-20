@@ -137,6 +137,15 @@
 	import OfferCostManager from '$lib/components/desktop-interface/master/stock/OfferCostManager.svelte';
 	import ProductClaimManager from '$lib/components/desktop-interface/master/stock/ProductClaimManager.svelte';
 	import ExpiryControl from '$lib/components/desktop-interface/master/stock/ExpiryControl.svelte';
+	import WADashboard from '$lib/components/desktop-interface/whatsapp/WADashboard.svelte';
+	import WALiveChat from '$lib/components/desktop-interface/whatsapp/WALiveChat.svelte';
+	import WABroadcasts from '$lib/components/desktop-interface/whatsapp/WABroadcasts.svelte';
+	import WATemplates from '$lib/components/desktop-interface/whatsapp/WATemplates.svelte';
+	import WAContacts from '$lib/components/desktop-interface/whatsapp/WAContacts.svelte';
+	import WAAutoReplyBot from '$lib/components/desktop-interface/whatsapp/WAAutoReplyBot.svelte';
+	import WAaiBot from '$lib/components/desktop-interface/whatsapp/WAaiBot.svelte';
+	import WAAccounts from '$lib/components/desktop-interface/whatsapp/WAAccounts.svelte';
+	import WASettings from '$lib/components/desktop-interface/whatsapp/WASettings.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -198,6 +207,7 @@
 	let showUserManageSubmenu = false;
 	let showUserOperationsSubmenu = false;
 	let showUserReportsSubmenu = false;
+	let showWhatsAppSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -283,6 +293,15 @@
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
 		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl',
+		'WA_DASHBOARD': 'nav.whatsappDashboard',
+		'WA_LIVE_CHAT': 'nav.whatsappLiveChat',
+		'WA_BROADCASTS': 'nav.whatsappBroadcasts',
+		'WA_TEMPLATES': 'nav.whatsappTemplates',
+		'WA_CONTACTS': 'nav.whatsappContacts',
+		'WA_AUTO_REPLY': 'nav.whatsappAutoReply',
+		'WA_AI_BOT': 'nav.whatsappAIBot',
+		'WA_ACCOUNTS': 'nav.whatsappAccounts',
+		'WA_SETTINGS': 'nav.whatsappSettings',
 	};
 
 	/** Get translated button name from button_code */
@@ -1837,6 +1856,15 @@ function openApprovalCenter() {
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
 			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
 			'STOCK_EXPIRY_CONTROL': openExpiryControl,
+			'WA_DASHBOARD': openWADashboard,
+			'WA_LIVE_CHAT': openWALiveChat,
+			'WA_BROADCASTS': openWABroadcasts,
+			'WA_TEMPLATES': openWATemplates,
+			'WA_CONTACTS': openWAContacts,
+			'WA_AUTO_REPLY': openWAAutoReplyBot,
+			'WA_AI_BOT': openWAAIBot,
+			'WA_ACCOUNTS': openWAAccounts,
+			'WA_SETTINGS': openWASettings,
 		};
 
 		const action = actionMap[buttonCode];
@@ -1952,6 +1980,63 @@ function openApprovalCenter() {
 		showNotificationsSubmenu = false;
 		showUserSubmenu = false;
 		showStockSubmenu = false;
+		showWhatsAppSubmenu = false;
+	}
+
+	// ===== WhatsApp Manager Open Functions =====
+	function openWADashboard() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-dashboard');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappDashboard')} #${n}`, component: WADashboard, icon: '📊', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWALiveChat() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-live-chat');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappLiveChat')} #${n}`, component: WALiveChat, icon: '💬', size: { width: 1400, height: 800 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWABroadcasts() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-broadcasts');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappBroadcasts')} #${n}`, component: WABroadcasts, icon: '📣', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWATemplates() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-templates');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappTemplates')} #${n}`, component: WATemplates, icon: '📝', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWAContacts() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-contacts');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappContacts')} #${n}`, component: WAContacts, icon: '👥', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWAAutoReplyBot() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-auto-reply');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappAutoReply')} #${n}`, component: WAAutoReplyBot, icon: '🔧', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWAAIBot() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-ai-bot');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappAIBot')} #${n}`, component: WAaiBot, icon: '🤖', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWAAccounts() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-accounts');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappAccounts')} #${n}`, component: WAAccounts, icon: '📱', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWASettings() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-settings');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappSettings')} #${n}`, component: WASettings, icon: '⚙️', size: { width: 1100, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 
 	// Open ERP Products List window
@@ -5426,6 +5511,92 @@ function openApprovalCenter() {
 			{#if showControlsReportsSubmenu}
 				<div class="submenu-subitem-container">
 					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- ============ 📱 WHATSAPP SECTION ============ -->
+	<div class="menu-section">
+		<button class="section-button" on:click={() => showWhatsAppSubmenu = !showWhatsAppSubmenu}
+			title={t('nav.whatsapp')}>
+			<span class="section-icon">📱</span>
+			<span class="section-text">{t('nav.whatsapp') || 'WhatsApp'}</span>
+			<span class="arrow" class:expanded={showWhatsAppSubmenu}>▼</span>
+		</button>
+	</div>
+	{#if showWhatsAppSubmenu}
+		<div class="submenu-inline whatsapp-submenu">
+			{#if isButtonAllowed('WA_DASHBOARD')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWADashboard}>
+						<span class="menu-icon">📊</span>
+						<span class="menu-text">{t('nav.whatsappDashboard')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_LIVE_CHAT')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWALiveChat}>
+						<span class="menu-icon">💬</span>
+						<span class="menu-text">{t('nav.whatsappLiveChat')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_BROADCASTS')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWABroadcasts}>
+						<span class="menu-icon">📣</span>
+						<span class="menu-text">{t('nav.whatsappBroadcasts')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_TEMPLATES')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWATemplates}>
+						<span class="menu-icon">📝</span>
+						<span class="menu-text">{t('nav.whatsappTemplates')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_CONTACTS')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWAContacts}>
+						<span class="menu-icon">👥</span>
+						<span class="menu-text">{t('nav.whatsappContacts')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_AUTO_REPLY')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWAAutoReplyBot}>
+						<span class="menu-icon">🔧</span>
+						<span class="menu-text">{t('nav.whatsappAutoReply')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_AI_BOT')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWAAIBot}>
+						<span class="menu-icon">🤖</span>
+						<span class="menu-text">{t('nav.whatsappAIBot')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_ACCOUNTS')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWAAccounts}>
+						<span class="menu-icon">📱</span>
+						<span class="menu-text">{t('nav.whatsappAccounts')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if isButtonAllowed('WA_SETTINGS')}
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openWASettings}>
+						<span class="menu-icon">⚙️</span>
+						<span class="menu-text">{t('nav.whatsappSettings')}</span>
+					</button>
 				</div>
 			{/if}
 		</div>

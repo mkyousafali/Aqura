@@ -68,7 +68,16 @@
 		'STOCK_ERP_PRODUCTS': '🏭',
 		'STOCK_OFFER_COST_MANAGER': '',
 		'STOCK_PRODUCT_CLAIM_MANAGER': '👤',
-		'STOCK_EXPIRY_CONTROL': '📅'
+		'STOCK_EXPIRY_CONTROL': '📅',
+		'WA_DASHBOARD': '📊',
+		'WA_LIVE_CHAT': '💬',
+		'WA_BROADCASTS': '📣',
+		'WA_TEMPLATES': '📝',
+		'WA_CONTACTS': '👥',
+		'WA_AUTO_REPLY': '🔧',
+		'WA_AI_BOT': '🤖',
+		'WA_ACCOUNTS': '📱',
+		'WA_SETTINGS': '⚙️'
 	};
 
 	let mounted = false;
@@ -213,7 +222,16 @@
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
 		'STOCK_PRODUCT_CLAIM_MANAGER': 'nav.productClaimManager',
-		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl'
+		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl',
+		'WA_DASHBOARD': 'nav.whatsappDashboard',
+		'WA_LIVE_CHAT': 'nav.whatsappLiveChat',
+		'WA_BROADCASTS': 'nav.whatsappBroadcasts',
+		'WA_TEMPLATES': 'nav.whatsappTemplates',
+		'WA_CONTACTS': 'nav.whatsappContacts',
+		'WA_AUTO_REPLY': 'nav.whatsappAutoReply',
+		'WA_AI_BOT': 'nav.whatsappAIBot',
+		'WA_ACCOUNTS': 'nav.whatsappAccounts',
+		'WA_SETTINGS': 'nav.whatsappSettings'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {
