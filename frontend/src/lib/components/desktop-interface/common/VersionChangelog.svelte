@@ -10,7 +10,23 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>� WhatsApp Broadcast from Contacts, Batch Bill Counts & Auto-Refresh</h3>
+<h3>🚨 Report Incident from Live Chat & Chat Filter Cleanup</h3>
+<p class="change-description">Report incidents directly from WhatsApp Live Chat on both desktop and mobile. Incident type auto-selects IN1 (Customer) and customer name/phone auto-fill from the conversation. Removed unused AI/Bot/Human chat filters.</p>
+<div class="change-details">
+<h4>February 20, 2026:</h4>
+<ul>
+<li>✅ <b>Desktop Live Chat — Report Incident Button:</b> New "🚨 Report Incident" button in the chat header. Opens a popup modal with the full incident report form embedded inside.</li>
+<li>✅ <b>Desktop Popup — Contained Dropdowns:</b> Incident type and branch selection popups stay within the modal instead of spanning the full screen.</li>
+<li>✅ <b>Mobile Live Chat — Report Incident Button:</b> New 🚨 button in the chat header navigates to the report-incident page.</li>
+<li>✅ <b>Auto-Fill Customer Data:</b> Customer name (WhatsApp name) and contact number (WhatsApp phone) are auto-filled from the active conversation in both desktop and mobile.</li>
+<li>✅ <b>Auto-Select IN1:</b> Incident type automatically pre-selects IN1 (Customer Incident) when opened from live chat.</li>
+<li>✅ <b>Chat Filter Cleanup:</b> Removed unused AI, Bot, and Human filter chips from both desktop and mobile live chat. Only All and Unread filters remain.</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
+<h3>📡 WhatsApp Broadcast from Contacts, Batch Bill Counts & Auto-Refresh</h3>
 <p class="change-description">Send WhatsApp broadcasts directly from the Contacts page — select customers via checkboxes, pick a template, and send. Batch bill count API with per-branch ERP deduplication, smart caching, and auto-loading. Broadcasts window auto-opens after send with live status polling every 15 seconds.</p>
 <div class="change-details">
 <h4>February 20, 2026:</h4>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { currentLocale } from '$lib/i18n';
@@ -566,9 +567,7 @@
 			<div class="wa-filter-row">
 				{#each [
 					{ id: 'all', label: isRTL ? 'الكل' : 'All' },
-					{ id: 'unread', label: isRTL ? 'غير مقروء' : 'Unread' },
-					{ id: 'ai', label: '🤖 AI' },
-					{ id: 'human', label: isRTL ? '👤 بشري' : '👤 Human' }
+					{ id: 'unread', label: isRTL ? 'غير مقروء' : 'Unread' }
 				] as f}
 					<button class="wa-filter-chip" class:active={chatFilter === f.id}
 						on:click={() => chatFilter = f.id}>
@@ -642,6 +641,9 @@
 					<p class="wa-chat-header-phone">{selectedConv?.customer_phone || ''}</p>
 				</div>
 				<div class="wa-chat-header-actions">
+					<button class="wa-incident-btn" on:click={() => goto(`/mobile-interface/report-incident?type=IN1&name=${encodeURIComponent(selectedConv?.customer_name || '')}&phone=${encodeURIComponent(selectedConv?.customer_phone || '')}`)} title={isRTL ? 'الإبلاغ عن حادثة' : 'Report Incident'}>
+						🚨
+					</button>
 					{#if selectedConv?.is_bot_handling}
 						<button class="wa-takeover-btn" on:click={takeOverFromBot}>
 							👤
@@ -1164,6 +1166,21 @@
 		justify-content: center;
 		cursor: pointer;
 		font-size: 18px;
+	}
+	.wa-incident-btn {
+		background: rgba(239, 68, 68, 0.35);
+		border: none;
+		border-radius: 50%;
+		width: 36px;
+		height: 36px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		font-size: 16px;
+	}
+	.wa-incident-btn:active {
+		background: rgba(239, 68, 68, 0.55);
 	}
 
 	/* 24hr window banner */

@@ -2,6 +2,7 @@
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import { getEdgeFunctionUrl } from '$lib/utils/supabase';
+    import ReportIncident from '../../../../routes/mobile-interface/report-incident/+page.svelte';
 
     export let initialPhone: string = '';
 
@@ -67,6 +68,7 @@
     let imageInput: HTMLInputElement;
     let fileInput: HTMLInputElement;
     let showAttachMenu = false;
+    let showIncidentPopup = false;
 
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
@@ -559,10 +561,7 @@
             <div class="flex gap-1 mt-2">
                 {#each [
                     { id: 'all', label: 'All' },
-                    { id: 'unread', label: '🔵 Unread' },
-                    { id: 'ai', label: '🤖 AI' },
-                    { id: 'bot', label: '🔧 Bot' },
-                    { id: 'human', label: '👤 Human' }
+                    { id: 'unread', label: '🔵 Unread' }
                 ] as f}
                     <button class="px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all
                         {chatFilter === f.id ? 'bg-white text-emerald-700' : 'text-white/80 hover:bg-white/20'}"
@@ -642,6 +641,10 @@
                     <span class="px-2 py-1 text-[10px] font-bold rounded-full {selectedConv.is_inside_24hr ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}">
                         {selectedConv.is_inside_24hr ? '🟢 24hr Window' : '🔴 Templates Only'}
                     </span>
+                    <button class="px-3 py-1.5 bg-red-500/30 text-white text-xs font-bold rounded-lg hover:bg-red-500/50 transition-colors"
+                        on:click={() => showIncidentPopup = true}>
+                        🚨 Report Incident
+                    </button>
                     {#if selectedConv.is_bot_handling}
                         <button class="px-3 py-1.5 bg-white/20 text-white text-xs font-bold rounded-lg hover:bg-white/30"
                             on:click={takeOverFromBot}>
@@ -829,4 +832,62 @@
             </div>
         {/if}
     </div>
+
+    <!-- Report Incident Popup -->
+    {#if showIncidentPopup}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="fixed inset-0 bg-black/60 flex items-center justify-center p-6" style="z-index: 99999;" on:click={() => showIncidentPopup = false}>
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="bg-white rounded-2xl w-[520px] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative" on:click|stopPropagation>
+                <!-- Header -->
+                <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-red-600 to-red-500 flex-shrink-0">
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg">🚨</span>
+                        <h3 class="text-white font-bold text-sm">Report Incident</h3>
+                        {#if selectedConv}
+                            <span class="text-white/70 text-xs">— {selectedConv.customer_name || selectedConv.customer_phone}</span>
+                        {/if}
+                    </div>
+                    <button class="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/30 text-sm transition-colors"
+                        on:click={() => showIncidentPopup = false}>
+                        ✕
+                    </button>
+                </div>
+                <!-- Report Incident Form (reusing mobile component) -->
+                <div class="flex-1 overflow-y-auto incident-popup-body">
+                    <ReportIncident presetTypeId="IN1" presetCustomerName={selectedConv?.customer_name || ''} presetCustomerPhone={selectedConv?.customer_phone || ''} />
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
+
+<style>
+    .incident-popup-body :global(.mobile-page) {
+        min-height: auto;
+        background: white;
+    }
+    .incident-popup-body :global(.popup-overlay) {
+        z-index: 999999 !important;
+        bottom: 0 !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+    }
+    .incident-popup-body :global(.popup-panel) {
+        max-width: 100% !important;
+        border-radius: 8px !important;
+    }
+    .incident-popup-body :global(.modal-overlay) {
+        z-index: 999999 !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+    }
+    .incident-popup-body :global(.modal-content) {
+        max-width: 90% !important;
+    }
+</style>
