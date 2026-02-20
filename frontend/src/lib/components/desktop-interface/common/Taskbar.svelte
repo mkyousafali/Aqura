@@ -67,6 +67,31 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let activeOrderCount = 0;
 	let ordersChannel: any = null;
 
+	// Button permissions
+	let allowedButtonCodes: Set<string> = new Set();
+	let buttonPermissionsLoaded = false;
+
+	async function loadButtonPermissions() {
+		if (!$currentUser?.id) { allowedButtonCodes = new Set(); buttonPermissionsLoaded = false; return; }
+		try {
+			const { data: permissions } = await supabase.from('button_permissions').select('button_id').eq('user_id', $currentUser.id).eq('is_enabled', true);
+			if (permissions && permissions.length > 0) {
+				const buttonIds = permissions.map((p: any) => p.button_id);
+				const { data: buttons } = await supabase.from('sidebar_buttons').select('id, button_code').in('id', buttonIds);
+				if (buttons) allowedButtonCodes = new Set(buttons.map((b: any) => b.button_code));
+			} else {
+				allowedButtonCodes = new Set();
+			}
+			buttonPermissionsLoaded = true;
+		} catch { allowedButtonCodes = new Set(); buttonPermissionsLoaded = true; }
+	}
+
+	function isButtonAllowed(buttonCode: string): boolean {
+		if (!buttonPermissionsLoaded) return false;
+		if ($currentUser?.isMasterAdmin) return true;
+		return allowedButtonCodes.has(buttonCode);
+	}
+
 	// Call popup state
 	let showCallPopup = false;
 	let callEmployees: any[] = [];
@@ -117,6 +142,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 		// Initialize WA unread count monitoring
 		initWAUnreadMonitoring();
+
+		// Load button permissions
+		loadButtonPermissions();
 		
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
@@ -722,6 +750,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	<!-- Quick Access Buttons -->
 	<div class="quick-access">
 		<!-- My Tasks -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('VIEW_MY_TASKS')}
 		<button 
 			class="quick-btn tasks-btn"
 			on:click={openTasksWindow}
@@ -732,8 +761,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge {taskCountData.overdue > 0 ? 'overdue' : ''}">{taskCountData.total > 99 ? '99+' : taskCountData.total}</div>
 			{/if}
 		</button>
+		{/if}
 
 		<!-- Approval Center -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('APPROVAL_CENTER')}
 		<button 
 			class="quick-btn approvals-btn"
 			on:click={openApprovalCenterWindow}
@@ -744,8 +775,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge pending">{approvalCountData.pending > 99 ? '99+' : approvalCountData.pending}</div>
 			{/if}
 		</button>
+		{/if}
 		
 		<!-- Quick Notifications -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('COMMUNICATION_CENTER')}
 		<button 
 			class="quick-btn notifications-btn"
 			on:click={openQuickNotifications}
@@ -756,8 +789,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge">{counts.unread > 99 ? '99+' : counts.unread}</div>
 			{/if}
 		</button>
+		{/if}
 
 		<!-- My Daily Checklist -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('MY_DAILY_CHECKLIST')}
 		<button 
 			class="quick-btn checklist-btn"
 			on:click={openDailyChecklist}
@@ -768,8 +803,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge">{pendingChecklistCount > 99 ? '99+' : pendingChecklistCount}</div>
 			{/if}
 		</button>
+		{/if}
 
 		<!-- Incident Manager -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('INCIDENT_MANAGER')}
 		<button 
 			class="quick-btn incident-btn"
 			on:click={openIncidentManagerWindow}
@@ -780,8 +817,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge">{unresolvedIncidentCount > 99 ? '99+' : unresolvedIncidentCount}</div>
 			{/if}
 		</button>
+		{/if}
 
 		<!-- Active Orders -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('ORDERS_MANAGER')}
 		<button 
 			class="quick-btn orders-btn"
 			on:click={openOrdersWindow}
@@ -792,8 +831,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge">{activeOrderCount > 99 ? '99+' : activeOrderCount}</div>
 			{/if}
 		</button>
+		{/if}
 
 		<!-- WhatsApp Live Chat -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('WA_LIVE_CHAT')}
 		<button 
 			class="quick-btn whatsapp-btn"
 			on:click={openWhatsAppWindow}
@@ -808,6 +849,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<div class="quick-badge">{waUnreadData.total > 99 ? '99+' : waUnreadData.total}</div>
 			{/if}
 		</button>
+		{/if}
 
 		<!-- Call -->
 		<div class="call-popup-wrapper">

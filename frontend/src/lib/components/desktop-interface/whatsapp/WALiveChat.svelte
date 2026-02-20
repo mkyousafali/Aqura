@@ -228,7 +228,7 @@
         sending = true;
         try {
             // Save message to DB
-            const { error: err } = await supabase.from('wa_messages').insert({
+            const { data: insertedMsg, error: err } = await supabase.from('wa_messages').insert({
                 conversation_id: selectedConv.id,
                 wa_account_id: accountId,
                 direction: 'outbound',
@@ -237,7 +237,7 @@
                 status: 'sending',
                 sent_by: 'user',
                 sent_by_user_id: $currentUser?.id || null
-            });
+            }).select('id').single();
             if (err) throw err;
 
             // Call edge function to send via WhatsApp API
@@ -246,7 +246,7 @@
                 const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
                 const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
 
-                await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+                const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accData.access_token}`,
@@ -259,6 +259,11 @@
                         text: { body: messageInput.trim() }
                     })
                 });
+                const waResult = await waResp.json();
+                const wamid = waResult?.messages?.[0]?.id;
+                if (wamid && insertedMsg?.id) {
+                    await supabase.from('wa_messages').update({ whatsapp_message_id: wamid, status: 'sent' }).eq('id', insertedMsg.id);
+                }
             }
 
             // Update conversation
@@ -283,11 +288,12 @@
         showTemplatePicker = false;
         try {
             const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
+            let wamid: string | null = null;
             if (accData) {
                 const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
                 const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
 
-                await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+                const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accData.access_token}`,
@@ -303,6 +309,8 @@
                         }
                     })
                 });
+                const waResult = await waResp.json();
+                wamid = waResult?.messages?.[0]?.id || null;
             }
 
             // Save message record
@@ -313,6 +321,7 @@
                 message_type: 'template',
                 content: template.body_text,
                 template_name: template.name,
+                whatsapp_message_id: wamid,
                 status: 'sent',
                 sent_by: 'user',
                 sent_by_user_id: $currentUser?.id || null
@@ -414,7 +423,7 @@
             const mediaPayload: any = { link: publicUrl };
             if (type === 'document') mediaPayload.filename = file.name;
 
-            await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+            const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accData.access_token}`,
@@ -427,6 +436,8 @@
                     [type]: mediaPayload
                 })
             });
+            const waResult = await waResp.json();
+            const wamid = waResult?.messages?.[0]?.id || null;
 
             // 3. Save to DB
             const previewMap: Record<string, string> = { image: '📷 Image', video: '🎥 Video', document: `📎 ${file.name}` };
@@ -438,6 +449,7 @@
                 content: '',
                 media_url: publicUrl,
                 media_mime_type: file.type,
+                whatsapp_message_id: wamid,
                 status: 'sent',
                 sent_by: 'user',
                 sent_by_user_id: $currentUser?.id || null
@@ -529,7 +541,7 @@
             const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
             const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
 
-            await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+            const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accData.access_token}`,
@@ -542,6 +554,8 @@
                     audio: { link: publicUrl }
                 })
             });
+            const waResult = await waResp.json();
+            const wamid = waResult?.messages?.[0]?.id || null;
 
             // 3. Save message to DB
             await supabase.from('wa_messages').insert({
@@ -552,6 +566,7 @@
                 content: '',
                 media_url: publicUrl,
                 media_mime_type: 'audio/ogg; codecs=opus',
+                whatsapp_message_id: wamid,
                 status: 'sent',
                 sent_by: 'user',
                 sent_by_user_id: $currentUser?.id || null
