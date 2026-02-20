@@ -36,6 +36,16 @@
 	// Cache for user display names
 	let userNameCache: Record<string, string> = {};
 
+	// Generate a consistent HSL color from a string (name or phone)
+	function avatarColor(str: string): string {
+		let hash = 0;
+		for (let i = 0; i < str.length; i++) {
+			hash = str.charCodeAt(i) + ((hash << 5) - hash);
+		}
+		const hue = ((hash % 360) + 360) % 360;
+		return `hsl(${hue}, 55%, 45%)`;
+	}
+
 	interface WATemplate {
 		id: string;
 		name: string;
@@ -611,8 +621,8 @@
 					{#each filteredConversations as conv}
 						<button class="wa-conv-item" on:click={() => selectConversation(conv)}>
 							<!-- Avatar -->
-							<div class="wa-avatar">
-								<span class="wa-avatar-letter">{(conv.customer_name || '?')[0].toUpperCase()}</span>
+							<div class="wa-avatar" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
+								<span class="wa-avatar-letter" style="color:#fff">{(conv.customer_name || '?')[0].toUpperCase()}</span>
 								<span class="wa-avatar-status" class:online={conv.is_inside_24hr}></span>
 							</div>
 							<!-- Content -->
@@ -653,7 +663,7 @@
 						{/if}
 					</svg>
 				</button>
-				<div class="wa-chat-header-avatar">
+				<div class="wa-chat-header-avatar" style="background:{avatarColor(selectedConv?.customer_name || selectedConv?.customer_phone || '?')}">
 					<span>{(selectedConv?.customer_name || '?')[0].toUpperCase()}</span>
 				</div>
 				<div class="wa-chat-header-info">
