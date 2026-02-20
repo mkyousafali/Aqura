@@ -31,6 +31,7 @@
         status: string;
         sent_by: string;
         sent_by_user_id: string | null;
+        metadata: any;
         created_at: string;
     }
 
@@ -180,7 +181,7 @@
         try {
             const { data } = await supabase
                 .from('wa_messages')
-                .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, created_at')
+                .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
                 .eq('conversation_id', convId)
                 .order('created_at', { ascending: true })
                 .limit(200);
@@ -731,6 +732,24 @@
                                 {/if}
                                 {#if msg.content && !(['image','audio','voice','video','sticker'].includes(msg.message_type) && msg.media_url && /^\[.+\]$/.test(msg.content.trim()))}
                                     <p class="whitespace-pre-wrap break-words">{msg.content}</p>
+                                {/if}
+                                <!-- Interactive buttons -->
+                                {#if msg.message_type === 'interactive' && msg.metadata}
+                                    {#if msg.metadata.interactive_type === 'button' && msg.metadata.buttons?.length}
+                                        <div class="flex flex-col gap-1 mt-2 border-t border-slate-200 pt-2">
+                                            {#each msg.metadata.buttons as btn}
+                                                <div class="text-center text-xs text-blue-600 font-medium py-1.5 bg-white/60 rounded-lg border border-blue-200">
+                                                    {btn.title}
+                                                </div>
+                                            {/each}
+                                        </div>
+                                    {:else if msg.metadata.interactive_type === 'cta_url' && msg.metadata.url}
+                                        <div class="mt-2 border-t border-slate-200 pt-2">
+                                            <a href={msg.metadata.url} target="_blank" class="flex items-center justify-center gap-1 text-xs text-blue-600 font-medium py-1.5 bg-white/60 rounded-lg border border-blue-200 hover:bg-blue-50">
+                                                🔗 {msg.metadata.display_text || 'Open Link'}
+                                            </a>
+                                        </div>
+                                    {/if}
                                 {/if}
                                 {#if msg.template_name}
                                     <span class="text-[10px] text-slate-400 italic">📝 {msg.template_name}</span>
