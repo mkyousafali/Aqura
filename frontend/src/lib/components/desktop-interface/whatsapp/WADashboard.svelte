@@ -118,6 +118,8 @@
         } catch {}
     }
 
+
+
     async function loadRecentActivity() {
         try {
             const { data } = await supabase.from('wa_messages')
@@ -150,7 +152,7 @@
     async function loadTemplatePerformance() {
         try {
             const { data: broadcasts } = await supabase.from('wa_broadcasts')
-                .select('template_name, sent_count, delivered_count, read_count')
+                .select('name, sent_count, delivered_count, read_count')
                 .eq('wa_account_id', accountId)
                 .eq('status', 'completed')
                 .order('created_at', { ascending: false })
@@ -159,11 +161,11 @@
             // Aggregate by template
             const perfMap = new Map<string, TemplatePerf>();
             for (const bc of (broadcasts || [])) {
-                const existing = perfMap.get(bc.template_name) || { name: bc.template_name, sent: 0, delivered: 0, read: 0 };
+                const existing = perfMap.get(bc.name) || { name: bc.name, sent: 0, delivered: 0, read: 0 };
                 existing.sent += bc.sent_count || 0;
                 existing.delivered += bc.delivered_count || 0;
                 existing.read += bc.read_count || 0;
-                perfMap.set(bc.template_name, existing);
+                perfMap.set(bc.name, existing);
             }
             templatePerf = Array.from(perfMap.values());
         } catch {}
@@ -233,7 +235,8 @@
                 {/each}
             </div>
 
-            <!-- Bot Stats Bar -->
+
+
             <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-[2rem] p-5 mb-6">
                 <h3 class="text-xs font-bold text-slate-600 uppercase mb-4">🤖 Bot Handling Distribution</h3>
                 <div class="flex items-center gap-3 mb-3">
