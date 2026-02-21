@@ -50,3 +50,13 @@ export interface CachedContact {
 export const billCountCache = writable<Map<string, ContactBillData>>(new Map());
 export const contactsCache = writable<CachedContact[]>([]);
 export const contactsTotalCount = writable<number>(0);
+
+/**
+ * ERP existence cache — tracks whether a phone number exists in any branch's PrivilegeCards.
+ * Key: contact ID, Value: { exists: boolean, branches: string[] }
+ */
+export interface ErpExistence {
+	exists: boolean;
+	branches: string[];
+}
+export const erpExistenceCache = writable<Map<string, ErpExistence>>(new Map());
