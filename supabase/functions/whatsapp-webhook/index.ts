@@ -488,7 +488,8 @@ async function tryAutoReply(
       .single();
 
     console.log("[AUTO_REPLY] conv.handled_by =", conv?.handled_by);
-    if (conv?.handled_by === "human") return;
+    // NOTE: triggers + flows still run even in human-handled mode.
+    // Only the AI bot (tryAIReply) is gated by handled_by === 'human'.
 
     // Get active auto-reply triggers
     const { data: triggers } = await supabase
@@ -1059,11 +1060,38 @@ async function tryAIReply(
 ) {
   try {
     console.log("[AI_BOT] tryAIReply called for", senderPhone);
-    const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY");
-    if (!GOOGLE_API_KEY) {
-      console.error("GOOGLE_API_KEY not set — AI bot cannot reply");
+
+    // Skip AI bot if a human agent has taken over this conversation
+    const { data: convCheck } = await supabase
+      .from("wa_conversations")
+      .select("handled_by")
+      .eq("id", conversationId)
+      .single();
+    if (convCheck?.handled_by === "human") {
+      console.log("[AI_BOT] Conversation is human-handled, AI bot skipped");
       return;
     }
+
+    // Fetch Google API key: prefer DB (system_api_keys), fallback to env var
+    let GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") || "";
+    try {
+      const { data: keyRow } = await supabase
+        .from("system_api_keys")
+        .select("api_key")
+        .eq("service_name", "google")
+        .eq("is_active", true)
+        .limit(1)
+        .single();
+      if (keyRow?.api_key) GOOGLE_API_KEY = keyRow.api_key;
+    } catch (e) {
+      console.warn("[AI_BOT] Could not fetch Google key from DB, using env:", e);
+    }
+
+    if (!GOOGLE_API_KEY) {
+      console.error("[AI_BOT] GOOGLE_API_KEY not set in DB or env — AI bot cannot reply");
+      return;
+    }
+    console.log("[AI_BOT] Google API key resolved, length:", GOOGLE_API_KEY.length);
 
     // Get AI bot config
     const query = supabase
