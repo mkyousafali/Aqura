@@ -740,6 +740,7 @@
 										{/if}
 									</div>
 								</div>
+							</div>
 						</div>
 					{/each}
 				{/if}
