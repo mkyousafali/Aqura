@@ -366,10 +366,12 @@
         if (!selectedConv) return;
         await supabase.from('wa_conversations').update({
             is_bot_handling: false,
-            bot_type: null
+            bot_type: null,
+            handled_by: 'human'
         }).eq('id', selectedConv.id);
         selectedConv.is_bot_handling = false;
         selectedConv.bot_type = null;
+        (selectedConv as any).handled_by = 'human';
         conversations = [...conversations];
     }
 
@@ -722,6 +724,9 @@
                 <div class="flex items-center gap-2">
                     <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold {selectedConv.is_inside_24hr ? 'bg-green-50 text-green-600 border border-green-200' : 'bg-red-50 text-red-500 border border-red-200'}">
                         {selectedConv.is_inside_24hr ? '● 24hr Window' : '● Templates Only'}
+                    </span>
+                    <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold {selectedConv.is_bot_handling ? 'bg-violet-50 text-violet-600 border border-violet-200' : 'bg-slate-100 text-slate-400 border border-slate-200'}">
+                        {selectedConv.is_bot_handling ? '🤖 AI On' : '🤖 AI Off'}
                     </span>
                     <button class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
                         on:click={() => showIncidentPopup = true}

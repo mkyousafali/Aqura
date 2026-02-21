@@ -201,6 +201,20 @@ async function handleIncomingMessage(
     const messageId = message.id;
     const timestamp = message.timestamp;
 
+    // ─── Auto-Create Customer if Not Exists ─────────
+    // ignoreDuplicates=true means existing customers are never touched
+    try {
+      await supabase
+        .from("customers")
+        .upsert(
+          { whatsapp_number: senderPhone, registration_status: "pre_registered" },
+          { onConflict: "whatsapp_number", ignoreDuplicates: true }
+        );
+      console.log("[AUTO_CREATE] Customer ensured for:", senderPhone);
+    } catch (e) {
+      console.warn("[AUTO_CREATE] Customer upsert error:", e);
+    }
+
     // ─── Update Customer Record with WhatsApp Profile Name ──
     if (contact.profile?.name) {
       await supabase
@@ -264,6 +278,8 @@ async function handleIncomingMessage(
           customer_name: senderName,
           status: "active",
           handled_by: "bot",
+          is_bot_handling: true,
+          bot_type: "ai",
           last_message_at: new Date(parseInt(timestamp) * 1000).toISOString(),
           window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           unread_count: 1,
