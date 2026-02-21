@@ -197,6 +197,7 @@ export const arabicLocale: LocaleData = {
       whatsappAIBot: "بوت الذكاء الاصطناعي",
       whatsappAccounts: "الحسابات",
       whatsappSettings: "الإعدادات",
+      whatsappCatalog: "الكتالوج والمبيعات",
     },
 
     // Mobile page titles

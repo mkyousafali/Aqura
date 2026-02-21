@@ -70,14 +70,46 @@
     ];
 
     const defaultHours: any = {
-        sunday: { open: false, start: '09:00', end: '22:00' },
-        monday: { open: true, start: '09:00', end: '22:00' },
-        tuesday: { open: true, start: '09:00', end: '22:00' },
-        wednesday: { open: true, start: '09:00', end: '22:00' },
-        thursday: { open: true, start: '09:00', end: '22:00' },
-        friday: { open: false, start: '09:00', end: '22:00' },
-        saturday: { open: true, start: '09:00', end: '22:00' }
+        sunday: { open: false, start: '09:00', end: '22:00', allDay: false },
+        monday: { open: true, start: '09:00', end: '22:00', allDay: false },
+        tuesday: { open: true, start: '09:00', end: '22:00', allDay: false },
+        wednesday: { open: true, start: '09:00', end: '22:00', allDay: false },
+        thursday: { open: true, start: '09:00', end: '22:00', allDay: false },
+        friday: { open: false, start: '09:00', end: '22:00', allDay: false },
+        saturday: { open: true, start: '09:00', end: '22:00', allDay: false }
     };
+
+    function setAll24x7() {
+        if (!settings) return;
+        Object.keys(dayLabels).forEach(day => {
+            settings!.business_hours[day] = { open: true, start: '00:00', end: '23:59', allDay: true };
+        });
+        settings = settings;
+    }
+
+    function setAllClosed() {
+        if (!settings) return;
+        Object.keys(dayLabels).forEach(day => {
+            settings!.business_hours[day] = { open: false, start: '09:00', end: '22:00', allDay: false };
+        });
+        settings = settings;
+    }
+
+    function toggleAllDay(day: string) {
+        if (!settings) return;
+        const h = settings.business_hours[day];
+        if (h.allDay) {
+            h.allDay = false;
+            h.start = '09:00';
+            h.end = '22:00';
+        } else {
+            h.allDay = true;
+            h.open = true;
+            h.start = '00:00';
+            h.end = '23:59';
+        }
+        settings = settings;
+    }
 
     const dayLabels: Record<string, string> = {
         sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday',
@@ -98,6 +130,19 @@
     let successMsg = '';
     let errorMsg = '';
     let fileInput: HTMLInputElement;
+
+    // Photo preview modal state
+    let showPhotoModal = false;
+    let previewUrl = '';
+    let previewFile: File | null = null;
+    let photoZoom = 1;
+    let photoOffsetX = 0;
+    let photoOffsetY = 0;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let startOffsetX = 0;
+    let startOffsetY = 0;
 
     function getSelectedAccount(): WAAccount | undefined {
         return accounts.find(a => a.id === selectedAccountId);
@@ -143,6 +188,13 @@
                 settings = data;
                 if (!settings!.business_hours || Object.keys(settings!.business_hours).length === 0) {
                     settings!.business_hours = { ...defaultHours };
+                }
+                // Auto-populate webhook fields if empty
+                if (!settings!.webhook_url) {
+                    settings!.webhook_url = 'https://supabase.urbanaqura.com/functions/v1/whatsapp-webhook';
+                }
+                if (!settings!.webhook_verify_token) {
+                    settings!.webhook_verify_token = 'aqura_wa_verify_2024';
                 }
             } else {
                 const { data: newData, error: err } = await supabase
@@ -245,58 +297,144 @@
         }
     }
 
-    async function uploadProfilePhoto() {
-        const account = getSelectedAccount();
-        if (!account || !fileInput?.files?.length) return;
-        
+    async function saveAndPushToMeta() {
+        if (!settings) return;
+        await saveSettings(true);
+        await updateMetaProfile();
+    }
+
+    function onFileSelected() {
+        if (!fileInput?.files?.length) return;
         const file = fileInput.files[0];
         if (!file.type.startsWith('image/')) {
             errorMsg = 'Please select an image file (JPEG or PNG)';
+            if (fileInput) fileInput.value = '';
             return;
         }
         if (file.size > 5 * 1024 * 1024) {
             errorMsg = 'Image must be under 5MB';
+            if (fileInput) fileInput.value = '';
             return;
         }
+        previewFile = file;
+        previewUrl = URL.createObjectURL(file);
+        photoZoom = 1;
+        photoOffsetX = 0;
+        photoOffsetY = 0;
+        showPhotoModal = true;
+    }
+
+    function closePhotoModal() {
+        showPhotoModal = false;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = '';
+        previewFile = null;
+        photoZoom = 1;
+        photoOffsetX = 0;
+        photoOffsetY = 0;
+        if (fileInput) fileInput.value = '';
+    }
+
+    function onPreviewMouseDown(e: MouseEvent) {
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        startOffsetX = photoOffsetX;
+        startOffsetY = photoOffsetY;
+    }
+
+    function onPreviewMouseMove(e: MouseEvent) {
+        if (!isDragging) return;
+        photoOffsetX = startOffsetX + (e.clientX - dragStartX);
+        photoOffsetY = startOffsetY + (e.clientY - dragStartY);
+    }
+
+    function onPreviewMouseUp() {
+        isDragging = false;
+    }
+
+    function onPreviewWheel(e: WheelEvent) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        photoZoom = Math.max(0.5, Math.min(3, photoZoom + delta));
+    }
+
+    async function confirmUploadPhoto() {
+        const account = getSelectedAccount();
+        if (!account || !previewFile) return;
 
         uploadingPhoto = true;
         errorMsg = '';
         try {
+            // Render the zoomed/panned image to a 640x640 canvas (WhatsApp recommended size)
+            const outputSize = 640;
+            const previewSize = 360; // matches the preview container w-[360px] h-[360px]
+            const scale = outputSize / previewSize;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = outputSize;
+            canvas.height = outputSize;
+            const ctx = canvas.getContext('2d')!;
+
+            // White background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, outputSize, outputSize);
+
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error('Failed to load image'));
+                img.src = previewUrl;
+            });
+
+            // Calculate how the image fits in the preview (object-fit: contain with 16px padding)
+            const padding = 16 * scale;
+            const areaW = outputSize - padding * 2;
+            const areaH = outputSize - padding * 2;
+            const imgAspect = img.naturalWidth / img.naturalHeight;
+            let drawW: number, drawH: number;
+            if (imgAspect > 1) {
+                drawW = areaW;
+                drawH = areaW / imgAspect;
+            } else {
+                drawH = areaH;
+                drawW = areaH * imgAspect;
+            }
+
+            // Center position in the output
+            const baseX = (outputSize - drawW) / 2;
+            const baseY = (outputSize - drawH) / 2;
+
+            // Apply zoom and pan (convert preview px offsets to output px)
+            const offsetX = photoOffsetX * scale;
+            const offsetY = photoOffsetY * scale;
+
+            ctx.save();
+            ctx.translate(outputSize / 2 + offsetX, outputSize / 2 + offsetY);
+            ctx.scale(photoZoom, photoZoom);
+            ctx.translate(-outputSize / 2, -outputSize / 2);
+            ctx.drawImage(img, baseX, baseY, drawW, drawH);
+            ctx.restore();
+
+            // Convert canvas to blob
+            const blob: Blob = await new Promise((resolve, reject) => {
+                canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas to blob failed')), 'image/jpeg', 0.92);
+            });
+
             const formData = new FormData();
-            formData.append('messaging_product', 'whatsapp');
-            formData.append('file', file);
-            formData.append('type', file.type);
+            formData.append('file', blob, 'profile.jpg');
+            formData.append('phone_number_id', account.phone_number_id);
+            formData.append('access_token', account.access_token);
 
-            const uploadRes = await fetch(
-                `https://graph.facebook.com/v22.0/${account.phone_number_id}/media`,
-                {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${account.access_token}` },
-                    body: formData
-                }
-            );
-            const uploadJson = await uploadRes.json();
-            if (!uploadRes.ok) throw new Error(uploadJson.error?.message || 'Failed to upload image');
+            const res = await fetch('/api/wa-upload-profile-photo', {
+                method: 'POST',
+                body: formData
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'Failed to upload profile picture');
 
-            const mediaId = uploadJson.id;
-
-            const profileRes = await fetch(
-                `https://graph.facebook.com/v22.0/${account.phone_number_id}/whatsapp_business_profile`,
-                {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${account.access_token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        messaging_product: 'whatsapp',
-                        profile_picture_handle: mediaId
-                    })
-                }
-            );
-            const profileJson = await profileRes.json();
-            if (!profileRes.ok) throw new Error(profileJson.error?.message || 'Failed to set profile picture');
-
+            closePhotoModal();
             successMsg = '✅ Profile picture uploaded to WhatsApp!';
             setTimeout(() => successMsg = '', 3000);
             await fetchMetaProfile();
@@ -304,7 +442,6 @@
             errorMsg = 'Upload: ' + e.message;
         } finally {
             uploadingPhoto = false;
-            if (fileInput) fileInput.value = '';
         }
     }
 
@@ -368,23 +505,25 @@
     }
 </script>
 
-<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+<div class="h-full flex flex-col bg-[#f8fafc] font-sans" style="overflow: hidden;" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Header - ShiftAndDayOff style -->
-    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div class="flex items-center gap-3">
-            {#if accounts.length > 1}
+    <div class="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap items-center gap-3 shadow-sm" style="overflow: visible; z-index: 50;">
+        {#if accounts.length > 0}
+            <div class="flex items-center gap-2 shrink-0">
+                <span class="w-2.5 h-2.5 rounded-full {accounts.find(a => a.id === selectedAccountId)?.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-400'}"></span>
                 <select bind:value={selectedAccountId} on:change={onAccountChange}
-                    class="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500" style="min-width: 220px; position: relative; z-index: 60;">
                     {#each accounts as acc}
-                        <option value={acc.id}>{acc.display_name || acc.phone_number}</option>
+                        <option value={acc.id}>📱 {acc.display_name || acc.phone_number} — {acc.phone_number}</option>
                     {/each}
                 </select>
-            {/if}
-        </div>
-        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">{accounts.length} account{accounts.length !== 1 ? 's' : ''}</span>
+            </div>
+        {/if}
+        <div class="flex gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner ml-auto flex-wrap">
             {#each tabs as tab}
                 <button
-                    class="group relative flex items-center gap-2.5 px-5 py-2.5 text-[10px] font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+                    class="group relative flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-wide transition-all duration-500 rounded-xl
                     {activeTab === tab.id
                         ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]'
                         : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
@@ -393,7 +532,7 @@
                     <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">{tab.icon}</span>
                     <span class="relative z-10">{tab.label}</span>
                     {#if activeTab === tab.id}
-                        <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+                        <div class="absolute inset-0 bg-white/10 rounded-xl animate-pulse"></div>
                     {/if}
                 </button>
             {/each}
@@ -451,16 +590,20 @@
                                 {:else}
                                     <div class="w-24 h-24 rounded-2xl bg-white/20 border-4 border-white/30 flex items-center justify-center text-4xl shadow-xl">🏢</div>
                                 {/if}
-                                <input type="file" accept="image/jpeg,image/png" bind:this={fileInput} on:change={uploadProfilePhoto} class="hidden" />
+                                <input type="file" accept="image/jpeg,image/png" bind:this={fileInput} on:change={onFileSelected} class="hidden" />
                                 <button class="absolute -bottom-2 -right-2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-sm hover:scale-110 transition-transform disabled:opacity-50"
                                     on:click={() => fileInput?.click()} disabled={uploadingPhoto}>
                                     {uploadingPhoto ? '⏳' : '📷'}
                                 </button>
                             </div>
-                            <div class="flex-1">
-                                <h3 class="text-white font-black text-xl">{settings.business_name || getSelectedAccount()?.display_name || 'Business Name'}</h3>
+                            <div class="flex-1 min-w-0">
+                                <h3 class="text-white font-black text-xl truncate">{settings.business_name || getSelectedAccount()?.display_name || 'Business Name'}</h3>
                                 <p class="text-white/70 text-sm mt-1">{getSelectedAccount()?.phone_number || ''}</p>
                                 <p class="text-white/50 text-xs font-mono mt-1">ID: {getSelectedAccount()?.phone_number_id || ''}</p>
+                                <button class="mt-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-[10px] font-bold rounded-lg transition-all border border-white/20"
+                                    on:click={() => fileInput?.click()}>
+                                    📷 Change Profile Photo
+                                </button>
                             </div>
                             <div class="flex gap-2">
                                 <button class="group flex items-center gap-2 px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white text-[10px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 backdrop-blur-sm border border-white/20 disabled:opacity-50"
@@ -561,11 +704,16 @@
                                     </tr>
                                 </tbody>
                             </table>
-                            <div class="mt-6 flex justify-end">
-                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button class="group flex items-center gap-2 px-5 py-3 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-50"
                                     on:click={() => saveSettings()} disabled={saving}>
-                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{saving ? '⏳' : '💾'}</span>
-                                    {saving ? 'Saving...' : 'Save to Database'}
+                                    <span class="text-sm">{saving ? '⏳' : '💾'}</span>
+                                    {saving ? 'Saving...' : 'Save to DB Only'}
+                                </button>
+                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                                    on:click={saveAndPushToMeta} disabled={saving || updatingProfile}>
+                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{updatingProfile ? '⏳' : '🚀'}</span>
+                                    {updatingProfile ? 'Pushing...' : 'Save & Push to Meta'}
                                 </button>
                             </div>
                         </div>
@@ -575,41 +723,68 @@
                 {:else if activeTab === 'hours'}
                     <div class="bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
                         <div class="p-6">
-                            <h3 class="text-lg font-black text-slate-800 mb-6 flex items-center gap-2"><span>🕐</span> Business Hours</h3>
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-black text-slate-800 flex items-center gap-2"><span>🕐</span> Business Hours</h3>
+                                <div class="flex gap-2">
+                                    <button class="px-3 py-1.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-lg hover:bg-emerald-200 transition-all border border-emerald-200"
+                                        on:click={setAll24x7}>
+                                        🌍 Open 24/7
+                                    </button>
+                                    <button class="px-3 py-1.5 bg-red-100 text-red-600 text-[10px] font-bold rounded-lg hover:bg-red-200 transition-all border border-red-200"
+                                        on:click={setAllClosed}>
+                                        🚫 Close All
+                                    </button>
+                                </div>
+                            </div>
                             <table class="w-full">
                                 <thead>
                                     <tr class="border-b-2 border-slate-100">
-                                        <th class="px-4 py-3 text-left text-[10px] font-black uppercase tracking-wider text-slate-400 w-[80px]">Status</th>
-                                        <th class="px-4 py-3 text-left text-[10px] font-black uppercase tracking-wider text-slate-400 w-[150px]">Day</th>
-                                        <th class="px-4 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Open Time</th>
-                                        <th class="px-4 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Close Time</th>
-                                        <th class="px-4 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400 w-[100px]">Hours</th>
+                                        <th class="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider text-slate-400 w-[70px]">Open</th>
+                                        <th class="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider text-slate-400 w-[120px]">Day</th>
+                                        <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400 w-[70px]">24H</th>
+                                        <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Open Time</th>
+                                        <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400">Close Time</th>
+                                        <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-400 w-[80px]">Hours</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     {#each Object.entries(dayLabels) as [day, label], i}
                                         <tr class="hover:bg-emerald-50/30 transition-colors {i % 2 === 0 ? 'bg-slate-50/20' : ''}">
-                                            <td class="px-4 py-3">
+                                            <td class="px-3 py-3">
                                                 <button class="relative w-11 h-6 rounded-full transition-colors duration-300 {settings.business_hours[day]?.open ? 'bg-emerald-500' : 'bg-slate-300'}"
-                                                    on:click={() => { if (settings) { settings.business_hours[day].open = !settings.business_hours[day].open; settings = settings; } }}>
+                                                    on:click={() => { if (settings) { settings.business_hours[day].open = !settings.business_hours[day].open; if (!settings.business_hours[day].open) settings.business_hours[day].allDay = false; settings = settings; } }}>
                                                     <span class="absolute top-0.5 {settings.business_hours[day]?.open ? 'right-0.5' : 'left-0.5'} w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300"></span>
                                                 </button>
                                             </td>
-                                            <td class="px-4 py-3"><span class="text-sm font-bold text-slate-700">{label}</span></td>
-                                            <td class="px-4 py-3 text-center">
+                                            <td class="px-3 py-3"><span class="text-sm font-bold text-slate-700">{label}</span></td>
+                                            <td class="px-3 py-3 text-center">
                                                 {#if settings.business_hours[day]?.open}
+                                                    <button class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all {settings.business_hours[day]?.allDay ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-blue-100 hover:text-blue-500'}"
+                                                        on:click={() => toggleAllDay(day)}>
+                                                        24H
+                                                    </button>
+                                                {:else}<span class="text-slate-200 text-xs">—</span>{/if}
+                                            </td>
+                                            <td class="px-3 py-3 text-center">
+                                                {#if settings.business_hours[day]?.open && !settings.business_hours[day]?.allDay}
                                                     <input type="time" bind:value={settings.business_hours[day].start}
-                                                        class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 text-center" />
+                                                        class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 text-center" />
+                                                {:else if settings.business_hours[day]?.allDay}
+                                                    <span class="text-blue-500 text-xs font-bold">00:00</span>
                                                 {:else}<span class="text-slate-300 text-sm italic">—</span>{/if}
                                             </td>
-                                            <td class="px-4 py-3 text-center">
-                                                {#if settings.business_hours[day]?.open}
+                                            <td class="px-3 py-3 text-center">
+                                                {#if settings.business_hours[day]?.open && !settings.business_hours[day]?.allDay}
                                                     <input type="time" bind:value={settings.business_hours[day].end}
-                                                        class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 text-center" />
+                                                        class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 text-center" />
+                                                {:else if settings.business_hours[day]?.allDay}
+                                                    <span class="text-blue-500 text-xs font-bold">23:59</span>
                                                 {:else}<span class="text-slate-300 text-sm italic">—</span>{/if}
                                             </td>
-                                            <td class="px-4 py-3 text-center">
-                                                {#if settings.business_hours[day]?.open}
+                                            <td class="px-3 py-3 text-center">
+                                                {#if settings.business_hours[day]?.allDay}
+                                                    <span class="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">24h</span>
+                                                {:else if settings.business_hours[day]?.open}
                                                     {@const start = settings.business_hours[day].start?.split(':').map(Number) || [0,0]}
                                                     {@const end = settings.business_hours[day].end?.split(':').map(Number) || [0,0]}
                                                     {@const hrs = ((end[0]*60 + end[1]) - (start[0]*60 + start[1])) / 60}
@@ -628,11 +803,16 @@
                                     placeholder="Thank you for contacting us. We are currently closed..."
                                     class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"></textarea>
                             </div>
-                            <div class="mt-6 flex justify-end">
-                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button class="group flex items-center gap-2 px-5 py-3 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-50"
                                     on:click={() => saveSettings()} disabled={saving}>
-                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{saving ? '⏳' : '💾'}</span>
-                                    {saving ? 'Saving...' : 'Save Hours'}
+                                    <span class="text-sm">{saving ? '⏳' : '💾'}</span>
+                                    {saving ? 'Saving...' : 'Save to DB Only'}
+                                </button>
+                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                                    on:click={saveAndPushToMeta} disabled={saving || updatingProfile}>
+                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{updatingProfile ? '⏳' : '🚀'}</span>
+                                    {updatingProfile ? 'Pushing...' : 'Save & Push to Meta'}
                                 </button>
                             </div>
                         </div>
@@ -643,6 +823,36 @@
                     <div class="bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
                         <div class="p-6">
                             <h3 class="text-lg font-black text-slate-800 mb-6 flex items-center gap-2"><span>🔗</span> Webhook Configuration</h3>
+
+                            <!-- Current Active Webhook Info -->
+                            <div class="mb-6 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                                <h4 class="text-xs font-black text-emerald-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Current Active Webhook (from Edge Function)
+                                </h4>
+                                <table class="w-full">
+                                    <tbody class="divide-y divide-emerald-100">
+                                        <tr>
+                                            <td class="py-2 text-xs font-bold text-emerald-600 w-[140px]">🔗 URL</td>
+                                            <td class="py-2"><code class="text-[11px] text-emerald-800 font-mono bg-emerald-100 px-2 py-1 rounded break-all">https://supabase.urbanaqura.com/functions/v1/whatsapp-webhook</code></td>
+                                        </tr>
+                                        <tr>
+                                            <td class="py-2 text-xs font-bold text-emerald-600">🔑 Verify Token</td>
+                                            <td class="py-2"><code class="text-[11px] text-emerald-800 font-mono bg-emerald-100 px-2 py-1 rounded">aqura_wa_verify_2024</code></td>
+                                        </tr>
+                                        <tr>
+                                            <td class="py-2 text-xs font-bold text-emerald-600">📡 API Version</td>
+                                            <td class="py-2"><code class="text-[11px] text-emerald-800 font-mono bg-emerald-100 px-2 py-1 rounded">v22.0</code></td>
+                                        </tr>
+                                        <tr>
+                                            <td class="py-2 text-xs font-bold text-emerald-600">📱 Phone ID</td>
+                                            <td class="py-2"><code class="text-[11px] text-emerald-800 font-mono bg-emerald-100 px-2 py-1 rounded">{getSelectedAccount()?.phone_number_id || '—'}</code></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <h4 class="text-xs font-black text-slate-500 uppercase tracking-wide mb-3">⚙️ Local Settings (stored in database)</h4>
                             <table class="w-full">
                                 <thead>
                                     <tr class="border-b-2 border-slate-100">
@@ -690,10 +900,15 @@
                                     <span class="text-sm transition-transform duration-300 group-hover:rotate-12">🧪</span>
                                     Test Webhook
                                 </button>
-                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                                <button class="group flex items-center gap-2 px-5 py-2.5 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-50"
                                     on:click={() => saveSettings()} disabled={saving}>
-                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{saving ? '⏳' : '💾'}</span>
-                                    {saving ? 'Saving...' : 'Save Webhook'}
+                                    <span class="text-sm">{saving ? '⏳' : '💾'}</span>
+                                    {saving ? 'Saving...' : 'Save to DB Only'}
+                                </button>
+                                <button class="group flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                                    on:click={saveAndPushToMeta} disabled={saving || updatingProfile}>
+                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{updatingProfile ? '⏳' : '🚀'}</span>
+                                    {updatingProfile ? 'Pushing...' : 'Save & Push to Meta'}
                                 </button>
                             </div>
                         </div>
@@ -745,11 +960,16 @@
                                     </tr>
                                 </tbody>
                             </table>
-                            <div class="mt-6 flex justify-end">
-                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button class="group flex items-center gap-2 px-5 py-3 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-50"
                                     on:click={() => saveSettings()} disabled={saving}>
-                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{saving ? '⏳' : '💾'}</span>
-                                    {saving ? 'Saving...' : 'Save Notifications'}
+                                    <span class="text-sm">{saving ? '⏳' : '💾'}</span>
+                                    {saving ? 'Saving...' : 'Save to DB Only'}
+                                </button>
+                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                                    on:click={saveAndPushToMeta} disabled={saving || updatingProfile}>
+                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{updatingProfile ? '⏳' : '🚀'}</span>
+                                    {updatingProfile ? 'Pushing...' : 'Save & Push to Meta'}
                                 </button>
                             </div>
                         </div>
@@ -823,11 +1043,16 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <div class="mt-6 flex justify-end">
-                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button class="group flex items-center gap-2 px-5 py-3 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200 disabled:opacity-50"
                                     on:click={() => saveSettings()} disabled={saving}>
-                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{saving ? '⏳' : '💾'}</span>
-                                    {saving ? 'Saving...' : 'Save Defaults'}
+                                    <span class="text-sm">{saving ? '⏳' : '💾'}</span>
+                                    {saving ? 'Saving...' : 'Save to DB Only'}
+                                </button>
+                                <button class="group flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                                    on:click={saveAndPushToMeta} disabled={saving || updatingProfile}>
+                                    <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{updatingProfile ? '⏳' : '🚀'}</span>
+                                    {updatingProfile ? 'Pushing...' : 'Save & Push to Meta'}
                                 </button>
                             </div>
                         </div>
@@ -836,4 +1061,112 @@
             {/if}
         </div>
     </div>
+
+    <!-- Photo Preview & Upload Modal -->
+    {#if showPhotoModal}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[9999]"
+            on:click|self={closePhotoModal}
+            on:mousemove={onPreviewMouseMove}
+            on:mouseup={onPreviewMouseUp}>
+            <div class="bg-white rounded-3xl shadow-2xl w-[520px] max-h-[90vh] overflow-hidden animate-in">
+                <!-- Modal Header -->
+                <div class="bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-4 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">📷</span>
+                        <div>
+                            <h3 class="text-white font-black text-sm uppercase tracking-wide">Profile Photo Preview</h3>
+                            <p class="text-white/60 text-[10px] mt-0.5">Scroll to zoom · Drag to pan · Click Upload when ready</p>
+                        </div>
+                    </div>
+                    <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-lg transition-all"
+                        on:click={closePhotoModal}>✕</button>
+                </div>
+
+                <!-- Preview Area -->
+                <div class="p-6 flex flex-col items-center gap-4">
+                    <!-- Current vs New comparison -->
+                    <div class="flex items-center gap-4 w-full">
+                        <!-- Current -->
+                        <div class="flex-1 text-center">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Current</p>
+                            <div class="mx-auto w-20 h-20 rounded-2xl overflow-hidden border-2 border-slate-200 bg-slate-100">
+                                {#if metaProfile?.profile_picture_url}
+                                    <img src={metaProfile.profile_picture_url} alt="Current" class="w-full h-full object-contain p-1" />
+                                {:else}
+                                    <div class="w-full h-full flex items-center justify-center text-3xl text-slate-300">🏢</div>
+                                {/if}
+                            </div>
+                        </div>
+                        <!-- Arrow -->
+                        <div class="text-2xl text-emerald-400 mt-5">→</div>
+                        <!-- New preview -->
+                        <div class="flex-1 text-center">
+                            <p class="text-[10px] font-bold text-emerald-500 uppercase tracking-wide mb-2">New</p>
+                            <div class="mx-auto w-20 h-20 rounded-2xl overflow-hidden border-2 border-emerald-400 bg-white shadow-lg shadow-emerald-100">
+                                {#if previewUrl}
+                                    <img src={previewUrl} alt="New" class="w-full h-full object-contain p-1" />
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Large Preview with zoom/pan -->
+                    <!-- svelte-ignore a11y-no-static-element-interactions -->
+                    <div class="w-[360px] h-[360px] rounded-3xl overflow-hidden border-4 border-slate-200 bg-white cursor-grab relative shadow-inner"
+                        class:cursor-grabbing={isDragging}
+                        on:mousedown={onPreviewMouseDown}
+                        on:wheel={onPreviewWheel}>
+                        {#if previewUrl}
+                            <img src={previewUrl} alt="Preview"
+                                class="absolute select-none pointer-events-none"
+                                style="transform: translate({photoOffsetX}px, {photoOffsetY}px) scale({photoZoom}); transform-origin: center center; width: 100%; height: 100%; object-fit: contain; padding: 16px; transition: {isDragging ? 'none' : 'transform 0.1s ease'};" />
+                        {/if}
+                        <!-- Grid overlay -->
+                        <div class="absolute inset-0 pointer-events-none" style="background: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 33.33% 33.33%;"></div>
+                        <!-- Circle mask hint -->
+                        <div class="absolute inset-0 pointer-events-none border-[60px] border-black/10 rounded-full"></div>
+                    </div>
+
+                    <!-- Zoom Slider -->
+                    <div class="flex items-center gap-3 w-[360px]">
+                        <span class="text-xs text-slate-400">🔍</span>
+                        <input type="range" min="0.5" max="3" step="0.05" bind:value={photoZoom}
+                            class="flex-1 h-1.5 rounded-full appearance-none bg-slate-200 accent-emerald-500 cursor-pointer" />
+                        <span class="text-[10px] font-bold text-slate-500 w-10 text-right">{Math.round(photoZoom * 100)}%</span>
+                    </div>
+
+                    <!-- File Info -->
+                    {#if previewFile}
+                        <div class="flex items-center gap-3 px-4 py-2 bg-slate-50 rounded-xl border border-slate-200 w-[360px]">
+                            <span class="text-lg">📄</span>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-xs font-bold text-slate-700 truncate">{previewFile.name}</p>
+                                <p class="text-[10px] text-slate-400">{(previewFile.size / 1024).toFixed(1)} KB · {previewFile.type}</p>
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                    <button class="px-4 py-2.5 text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-xl transition-all"
+                        on:click={closePhotoModal} disabled={uploadingPhoto}>
+                        Cancel
+                    </button>
+                    <div class="flex gap-2">
+                        <button class="px-4 py-2.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-all"
+                            on:click={() => fileInput?.click()} disabled={uploadingPhoto}>
+                            📁 Choose Different
+                        </button>
+                        <button class="group flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white text-xs font-black uppercase tracking-wide rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:scale-[1.02] disabled:opacity-50"
+                            on:click={confirmUploadPhoto} disabled={uploadingPhoto}>
+                            <span class="text-sm transition-transform duration-300 group-hover:rotate-12">{uploadingPhoto ? '⏳' : '🚀'}</span>
+                            {uploadingPhoto ? 'Uploading...' : 'Upload to WhatsApp'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>

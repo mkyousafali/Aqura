@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { createClient } from '@supabase/supabase-js';
+import { env } from '$env/dynamic/private';
 
 /**
  * Batch Bill Counts API
@@ -42,8 +43,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// Create admin Supabase client
-		const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
-		const supabaseKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
+		const supabaseUrl = env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+		const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || '';
 		const supabase = createClient(supabaseUrl, supabaseKey);
 
 		// 1. Get all active ERP connections with branch locations (ONE query for all)

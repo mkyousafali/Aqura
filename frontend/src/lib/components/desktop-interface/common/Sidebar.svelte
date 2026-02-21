@@ -146,6 +146,7 @@
 	import WAaiBot from '$lib/components/desktop-interface/whatsapp/WAaiBot.svelte';
 	import WAAccounts from '$lib/components/desktop-interface/whatsapp/WAAccounts.svelte';
 	import WASettings from '$lib/components/desktop-interface/whatsapp/WASettings.svelte';
+	import WACatalog from '$lib/components/desktop-interface/whatsapp/WACatalog.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -306,6 +307,7 @@
 		'WA_AI_BOT': 'nav.whatsappAIBot',
 		'WA_ACCOUNTS': 'nav.whatsappAccounts',
 		'WA_SETTINGS': 'nav.whatsappSettings',
+		'WA_CATALOG': 'nav.whatsappCatalog',
 	};
 
 	/** Get translated button name from button_code */
@@ -1872,6 +1874,7 @@ function openApprovalCenter() {
 			'WA_AI_BOT': openWAAIBot,
 			'WA_ACCOUNTS': openWAAccounts,
 			'WA_SETTINGS': openWASettings,
+			'WA_CATALOG': openWACatalog,
 		};
 
 		const action = actionMap[buttonCode];
@@ -2048,6 +2051,12 @@ function openApprovalCenter() {
 		const windowId = generateWindowId('wa-settings');
 		const n = Math.floor(Math.random() * 1000) + 1;
 		openWindow({ id: windowId, title: `${t('nav.whatsappSettings')} #${n}`, component: WASettings, icon: '⚙️', size: { width: 1100, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openWACatalog() {
+		collapseAllMenus();
+		const windowId = generateWindowId('wa-catalog');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `${t('nav.whatsappCatalog')} #${n}`, component: WACatalog, icon: '🛍️', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 
 	// Open ERP Products List window
@@ -5608,6 +5617,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openWAContacts}>
 								<span class="menu-icon">👥</span>
 								<span class="menu-text">{t('nav.whatsappContacts')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WA_CATALOG')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWACatalog}>
+								<span class="menu-icon">🛍️</span>
+								<span class="menu-text">{t('nav.whatsappCatalog')}</span>
 							</button>
 						</div>
 					{/if}
