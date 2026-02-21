@@ -1121,94 +1121,36 @@ async function tryAIReply(
 
     if (!config) { console.log("[AI_BOT] No config found, aborting"); return; }
 
-    // Check if customer typed "خدمة" — handle human support availability
+    // Check if customer requested human help — multilingual keywords (any language)
     const lowerText = messageText.toLowerCase().trim();
-    const isServiceRequest = lowerText === "خدمة" || lowerText === "خدمه" || lowerText.includes("خدمة");
+    const helpKeywords = [
+      // Arabic
+      "خدمة", "خدمه", "مساعدة", "مساعده", "مشكلة", "مشكله", "موظف", "انسان", "إنسان", "بشري",
+      // English
+      "help", "support", "human", "agent", "staff", "representative",
+      // Universal
+      "sos"
+    ];
+    const isHelpRequest = helpKeywords.some(k => lowerText === k || lowerText.includes(k));
 
-    if (isServiceRequest) {
-      const humanEnabled = config.human_support_enabled ?? false;
-      const startTime = config.human_support_start_time || "12:00:00";
-      const endTime = config.human_support_end_time || "20:00:00";
+    if (isHelpRequest) {
+      console.log(`[AI_BOT] Help request detected: "${messageText}"`);
 
-      // Get current Saudi Arabia time (UTC+3)
-      const now = new Date();
-      const saudiTime = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-      const currentHHMM = saudiTime.getUTCHours().toString().padStart(2, "0") + ":" + saudiTime.getUTCMinutes().toString().padStart(2, "0") + ":00";
-
-      const withinHours = currentHHMM >= startTime && currentHHMM < endTime;
-      const isAvailable = humanEnabled && withinHours;
-
-      console.log(`[AI_BOT] خدمة requested. humanEnabled=${humanEnabled}, time=${currentHHMM}, start=${startTime}, end=${endTime}, within=${withinHours}, available=${isAvailable}`);
-
-      if (isAvailable) {
-        // Human support is available — hand off
-        await supabase
-          .from("wa_conversations")
-          .update({ handled_by: "human" })
-          .eq("id", conversationId);
-
-        // Detect language
-        const isArabic = /[\u0600-\u06FF]/.test(messageText);
-        const handoffMsg = isArabic
-          ? "تم تحويلك لفريق الدعم البشري، سيكون معك أحد ممثلينا قريبًا 🙏 🇸🇦💚"
-          : "You've been connected to our support team. A team member will be with you shortly 🙏 🇸🇦💚";
-
-        await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
-          type: "text",
-          text: { body: handoffMsg },
-        }, "ai_bot");
-        return;
-      } else {
-        // Human support NOT available — tell customer and continue with bot
-        const startFormatted = startTime.substring(0, 5);
-        const endFormatted = endTime.substring(0, 5);
-
-        const unavailableMsg = humanEnabled
-          ? `الدعم البشري متاح يوميًا من ${startFormatted} إلى ${endFormatted}. حاليًا خارج أوقات الدوام.\nبمجرد دخول وقت الدعم، اكتب "خدمة" وسيتولى فريقنا الرد عليك 🙏 🇸🇦💚`
-          : "الدعم البشري غير متاح حاليًا. اكتب \"خدمة\" لاحقًا وسيتواصل معك فريقنا في أقرب وقت 🙏 🇸🇦💚";
-
-        await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
-          type: "text",
-          text: { body: unavailableMsg },
-        }, "ai_bot");
-        return;
-      }
-    }
-
-    // Check handoff keywords (non-خدمة keywords)
-    const handoffKeywords: string[] = config.handoff_keywords || [];
-    for (const keyword of handoffKeywords) {
-      if (lowerText.includes(keyword.toLowerCase())) {
-        // Handoff to human
-        await supabase
-          .from("wa_conversations")
-          .update({ handled_by: "human" })
-          .eq("id", conversationId);
-
-        await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
-          type: "text",
-          text: { body: config.handoff_message || "You are being connected to a human agent. Please wait..." },
-        }, "ai_bot");
-        return;
-      }
-    }
-
-    // Check message count for auto-handoff
-    const { count: msgCount } = await supabase
-      .from("wa_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("conversation_id", conversationId)
-      .eq("direction", "inbound");
-
-    if (config.max_replies_per_conversation && msgCount && msgCount >= config.max_replies_per_conversation) {
+      // Stop bot and flag conversation as needing human attention
       await supabase
         .from("wa_conversations")
-        .update({ handled_by: "human" })
+        .update({ handled_by: "human", is_bot_handling: false, needs_human: true })
         .eq("id", conversationId);
+
+      // Detect language for personalised reply
+      const isArabic = /[\u0600-\u06FF]/.test(messageText);
+      const helpMsg = isArabic
+        ? "تم إبلاغ فريق الدعم، سيتواصل معك أحد ممثلينا قريبًا 🙏 🇸🇦💚"
+        : "Our support team has been notified. A team member will be with you shortly 🙏 🇸🇦💚";
 
       await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
         type: "text",
-        text: { body: config.handoff_message || "Connecting you to a team member..." },
+        text: { body: helpMsg },
       }, "ai_bot");
       return;
     }

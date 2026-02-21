@@ -14,6 +14,8 @@
 		unread_count: number;
 		is_bot_handling: boolean;
 		bot_type: string | null;
+		handled_by: string | null;
+		needs_human: boolean;
 		status: string;
 		is_inside_24hr: boolean;
 	}
@@ -363,11 +365,40 @@
 		if (!selectedConv) return;
 		await supabase.from('wa_conversations').update({
 			is_bot_handling: false,
-			bot_type: null
+			bot_type: null,
+			handled_by: 'human'
 		}).eq('id', selectedConv.id);
 		selectedConv.is_bot_handling = false;
 		selectedConv.bot_type = null;
+		(selectedConv as any).handled_by = 'human';
 		conversations = [...conversations];
+	}
+
+	async function toggleAI(conv: Conversation) {
+		const turnOn = !conv.is_bot_handling;
+		const update: any = turnOn
+			? { is_bot_handling: true, bot_type: 'ai', handled_by: 'bot', needs_human: false }
+			: { is_bot_handling: false };
+		await supabase.from('wa_conversations').update(update).eq('id', conv.id);
+		conv.is_bot_handling = turnOn;
+		if (turnOn) { conv.bot_type = 'ai'; (conv as any).handled_by = 'bot'; conv.needs_human = false; }
+		conversations = [...conversations];
+		if (selectedConv?.id === conv.id) selectedConv = { ...conv };
+	}
+
+	async function resolveHelp(conv: Conversation) {
+		await supabase.from('wa_conversations').update({
+			needs_human: false,
+			is_bot_handling: true,
+			bot_type: 'ai',
+			handled_by: 'bot'
+		}).eq('id', conv.id);
+		conv.needs_human = false;
+		conv.is_bot_handling = true;
+		conv.bot_type = 'ai';
+		(conv as any).handled_by = 'bot';
+		conversations = [...conversations];
+		if (selectedConv?.id === conv.id) selectedConv = { ...conv };
 	}
 
 	function formatTime(dateStr: string) {
@@ -671,7 +702,7 @@
 					</div>
 				{:else}
 					{#each filteredConversations as conv}
-						<button class="wa-conv-item" on:click={() => selectConversation(conv)}>
+						<div role="button" tabindex="0" class="wa-conv-item" on:click={() => selectConversation(conv)} on:keydown={(e) => e.key === 'Enter' && selectConversation(conv)}>
 							<!-- Avatar -->
 							<div class="wa-avatar" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
 								<span class="wa-avatar-letter" style="color:#fff">{(conv.customer_name || '?')[0].toUpperCase()}</span>
@@ -684,18 +715,32 @@
 									<span class="wa-conv-time">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
 								</div>
 								<div class="wa-conv-bottom">
-									<p class="wa-conv-preview">
-										{#if conv.is_bot_handling}
-											<span class="wa-bot-badge">{conv.bot_type === 'ai' ? '🤖' : '🔧'}</span>
+									<p class="wa-conv-preview">{conv.last_message_preview || (isRTL ? 'لا توجد رسائل' : 'No messages')}</p>
+									<div class="wa-conv-badges">
+										<!-- Badge 1: Last handler -->
+										{#if (conv as any).handled_by === 'human'}
+											<span class="wa-mbadge wa-mbadge-human">👤</span>
+										{:else if (conv as any).handled_by === 'auto_reply'}
+											<span class="wa-mbadge wa-mbadge-auto">🔧</span>
+										{:else if (conv as any).handled_by === 'bot' || (conv as any).handled_by === 'ai_bot'}
+											<span class="wa-mbadge wa-mbadge-ai">🤖</span>
 										{/if}
-										{conv.last_message_preview || (isRTL ? 'لا توجد رسائل' : 'No messages')}
-									</p>
-									{#if conv.unread_count > 0}
-										<span class="wa-unread-badge">{conv.unread_count > 99 ? '99+' : conv.unread_count}</span>
-									{/if}
+										<!-- Badge 2: AI on/off -->
+										{#if conv.is_bot_handling}
+											<span role="button" tabindex="0" class="wa-mbadge wa-mbadge-aion" on:click|stopPropagation={() => toggleAI(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleAI(conv)}>🟢</span>
+										{:else}
+											<span role="button" tabindex="0" class="wa-mbadge wa-mbadge-aioff" on:click|stopPropagation={() => toggleAI(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleAI(conv)}>🔴</span>
+										{/if}
+										<!-- Badge 3: Needs help -->
+										{#if conv.needs_human}
+											<span role="button" tabindex="0" class="wa-mbadge wa-mbadge-help" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)}>🆘</span>
+										{/if}
+										{#if conv.unread_count > 0}
+											<span class="wa-unread-badge">{conv.unread_count > 99 ? '99+' : conv.unread_count}</span>
+										{/if}
+									</div>
 								</div>
-							</div>
-						</button>
+						</div>
 					{/each}
 				{/if}
 			</div>
@@ -723,6 +768,14 @@
 					<p class="wa-chat-header-phone">{selectedConv?.customer_phone || ''}</p>
 				</div>
 				<div class="wa-chat-header-actions">
+					{#if selectedConv?.needs_human}
+						<button class="wa-header-badge wa-hbadge-help" on:click={() => resolveHelp(selectedConv)} title={isRTL ? 'حل وإعادة الذكاء' : 'Resolve & re-enable AI'}>🆘</button>
+					{/if}
+					{#if selectedConv?.is_bot_handling}
+						<button class="wa-header-badge wa-hbadge-aion" on:click={() => toggleAI(selectedConv)} title={isRTL ? 'إيقاف الذكاء' : 'Pause AI'}>🤖🟢</button>
+					{:else}
+						<button class="wa-header-badge wa-hbadge-aioff" on:click={() => toggleAI(selectedConv)} title={isRTL ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴</button>
+					{/if}
 					<button class="wa-incident-btn" on:click={() => goto(`/mobile-interface/report-incident?type=IN1&name=${encodeURIComponent(selectedConv?.customer_name || '')}&phone=${encodeURIComponent(selectedConv?.customer_phone || '')}`)} title={isRTL ? 'الإبلاغ عن حادثة' : 'Report Incident'}>
 						🚨
 					</button>
@@ -1198,6 +1251,44 @@
 		padding: 0 5px;
 		margin-inline-start: 8px;
 	}
+	.wa-conv-badges {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		flex-shrink: 0;
+		margin-inline-start: 4px;
+	}
+	.wa-mbadge {
+		font-size: 11px;
+		padding: 1px 4px;
+		border-radius: 9999px;
+		border: 1px solid transparent;
+		font-weight: 700;
+		cursor: default;
+		display: inline-flex;
+		align-items: center;
+	}
+	.wa-mbadge-human  { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+	.wa-mbadge-auto   { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+	.wa-mbadge-ai     { background: #f3e8ff; color: #7c3aed; border-color: #ddd6fe; }
+	.wa-mbadge-aion   { background: #ede9fe; color: #6d28d9; border-color: #c4b5fd; cursor: pointer; }
+	.wa-mbadge-aioff  { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; cursor: pointer; }
+	.wa-mbadge-help   { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; cursor: pointer; animation: pulse 2s infinite; }
+	/* Header action badges */
+	.wa-header-badge {
+		width: 34px;
+		height: 34px;
+		border-radius: 50%;
+		border: none;
+		font-size: 16px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+	}
+	.wa-hbadge-aion  { background: #ede9fe; }
+	.wa-hbadge-aioff { background: #f1f5f9; }
+	.wa-hbadge-help  { background: #fee2e2; animation: pulse 2s infinite; }
 
 	/* Loading / Empty */
 	.wa-loading {

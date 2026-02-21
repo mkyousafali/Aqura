@@ -16,6 +16,8 @@
         unread_count: number;
         is_bot_handling: boolean;
         bot_type: string | null;
+        handled_by: string | null;
+        needs_human: boolean;
         status: string;
         is_inside_24hr: boolean;
     }
@@ -375,6 +377,33 @@
         conversations = [...conversations];
     }
 
+    async function toggleAI(conv: Conversation) {
+        const turnOn = !conv.is_bot_handling;
+        const update: any = turnOn
+            ? { is_bot_handling: true, bot_type: 'ai', handled_by: 'bot', needs_human: false }
+            : { is_bot_handling: false };
+        await supabase.from('wa_conversations').update(update).eq('id', conv.id);
+        conv.is_bot_handling = turnOn;
+        if (turnOn) { conv.bot_type = 'ai'; (conv as any).handled_by = 'bot'; conv.needs_human = false; }
+        conversations = [...conversations];
+        if (selectedConv?.id === conv.id) selectedConv = { ...conv };
+    }
+
+    async function resolveHelp(conv: Conversation) {
+        await supabase.from('wa_conversations').update({
+            needs_human: false,
+            is_bot_handling: true,
+            bot_type: 'ai',
+            handled_by: 'bot'
+        }).eq('id', conv.id);
+        conv.needs_human = false;
+        conv.is_bot_handling = true;
+        conv.bot_type = 'ai';
+        (conv as any).handled_by = 'bot';
+        conversations = [...conversations];
+        if (selectedConv?.id === conv.id) selectedConv = { ...conv };
+    }
+
     function formatTime(dateStr: string) {
         const d = new Date(dateStr);
         const now = new Date();
@@ -669,9 +698,11 @@
                 </div>
             {:else}
                 {#each filteredConversations as conv}
-                    <button class="conv-card w-full px-3 py-2.5 flex items-center gap-2.5 transition-all text-left
+                    <div role="button" tabindex="0"
+                        class="conv-card w-full px-3 py-2.5 flex items-center gap-2.5 transition-all text-left
                         {selectedConv?.id === conv.id ? 'conv-card-active' : ''}"
-                        on:click={() => selectConversation(conv)}>
+                        on:click={() => selectConversation(conv)}
+                        on:keydown={(e) => e.key === 'Enter' && selectConversation(conv)}>
                         <!-- Avatar -->
                         <div class="relative flex-shrink-0">
                             <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
@@ -688,20 +719,33 @@
                             <div class="flex items-center justify-between mt-0.5">
                                 <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
                                 <div class="flex items-center gap-1 flex-shrink-0">
+                                    <!-- Badge 1: Last handler -->
+                                    {#if (conv as any).handled_by === 'human'}
+                                        <span class="conv-badge badge-human">👤 {$locale === 'ar' ? 'بشري' : 'Human'}</span>
+                                    {:else if (conv as any).handled_by === 'auto_reply'}
+                                        <span class="conv-badge badge-autoreply">🔧 {$locale === 'ar' ? 'تلقائي' : 'Auto'}</span>
+                                    {:else if (conv as any).handled_by === 'flow'}
+                                        <span class="conv-badge badge-flow">🌊 {$locale === 'ar' ? 'تدفق' : 'Flow'}</span>
+                                    {:else if (conv as any).handled_by === 'bot' || (conv as any).handled_by === 'ai_bot'}
+                                        <span class="conv-badge badge-ai">🤖 {$locale === 'ar' ? 'ذكاء' : 'AI'}</span>
+                                    {/if}
+                                    <!-- Badge 2: AI on/off (clickable) -->
                                     {#if conv.is_bot_handling}
-                                        <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 font-bold">
-                                            {conv.bot_type === 'ai' ? '🤖' : '🔧'}
-                                        </span>
+                                        <span role="button" tabindex="0" class="conv-badge badge-aion" on:click|stopPropagation={() => toggleAI(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleAI(conv)} title={$locale === 'ar' ? 'إيقاف الذكاء' : 'Pause AI'}>🤖🟢 {$locale === 'ar' ? 'مفعّل' : 'On'}</span>
+                                    {:else}
+                                        <span role="button" tabindex="0" class="conv-badge badge-aioff" on:click|stopPropagation={() => toggleAI(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleAI(conv)} title={$locale === 'ar' ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴 {$locale === 'ar' ? 'معطّل' : 'Off'}</span>
+                                    {/if}
+                                    <!-- Badge 3: Needs human (clickable = resolve) -->
+                                    {#if conv.needs_human}
+                                        <span role="button" tabindex="0" class="conv-badge badge-needshelp" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)} title={$locale === 'ar' ? 'اضغط لتأكيد الحل وإعادة الذكاء' : 'Click to resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'يحتاج مساعدة' : 'Needs Help'}</span>
                                     {/if}
                                     {#if conv.unread_count > 0}
-                                        <span class="unread-badge">
-                                            {conv.unread_count}
-                                        </span>
+                                        <span class="unread-badge">{conv.unread_count}</span>
                                     {/if}
                                 </div>
                             </div>
                         </div>
-                    </button>
+                    </div>
                 {/each}
             {/if}
         </div>
@@ -725,9 +769,26 @@
                     <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold {selectedConv.is_inside_24hr ? 'bg-green-50 text-green-600 border border-green-200' : 'bg-red-50 text-red-500 border border-red-200'}">
                         {selectedConv.is_inside_24hr ? '● 24hr Window' : '● Templates Only'}
                     </span>
-                    <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold {selectedConv.is_bot_handling ? 'bg-violet-50 text-violet-600 border border-violet-200' : 'bg-slate-100 text-slate-400 border border-slate-200'}">
-                        {selectedConv.is_bot_handling ? '🤖 AI On' : '🤖 AI Off'}
-                    </span>
+                    <!-- Badge 1: Last handler -->
+                    {#if (selectedConv as any).handled_by === 'human'}
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">👤 {$locale === 'ar' ? 'وكيل بشري' : 'Human'}</span>
+                    {:else if (selectedConv as any).handled_by === 'auto_reply'}
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">🔧 {$locale === 'ar' ? 'رد تلقائي' : 'Auto Reply'}</span>
+                    {:else if (selectedConv as any).handled_by === 'flow'}
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200">🌊 {$locale === 'ar' ? 'تدفق بوت' : 'Bot Flow'}</span>
+                    {:else if (selectedConv as any).handled_by === 'bot' || (selectedConv as any).handled_by === 'ai_bot'}
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-600 border border-violet-200">🤖 {$locale === 'ar' ? 'بوت ذكاء' : 'AI Bot'}</span>
+                    {/if}
+                    <!-- Badge 2: AI on/off (clickable) -->
+                    {#if selectedConv.is_bot_handling}
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-300 hover:bg-violet-200 transition-colors cursor-pointer" on:click={() => toggleAI(selectedConv)} title={$locale === 'ar' ? 'إيقاف الذكاء مؤقتاً' : 'Pause AI'}>🤖🟢 {$locale === 'ar' ? 'ذكاء مفعّل' : 'AI On'}</button>
+                    {:else}
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-400 border border-slate-200 hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200 transition-colors cursor-pointer" on:click={() => toggleAI(selectedConv)} title={$locale === 'ar' ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴 {$locale === 'ar' ? 'ذكاء معطّل' : 'AI Off'}</button>
+                    {/if}
+                    <!-- Badge 3: Needs human help (clickable = resolve) -->
+                    {#if selectedConv.needs_human}
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer animate-pulse" on:click={() => resolveHelp(selectedConv)} title={$locale === 'ar' ? 'اضغط للحل وإعادة الذكاء' : 'Click to resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'يحتاج مساعدة' : 'Needs Help'}</button>
+                    {/if}
                     <button class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
                         on:click={() => showIncidentPopup = true}
                         title="Report Incident">
@@ -1037,6 +1098,30 @@
         align-items: center;
         justify-content: center;
     }
+
+    /* --- Conversation List Badges --- */
+    .conv-badge {
+        font-size: 9px;
+        font-weight: 700;
+        padding: 2px 5px;
+        border-radius: 9999px;
+        white-space: nowrap;
+        border: 1px solid transparent;
+        cursor: default;
+        display: inline-flex;
+        align-items: center;
+        gap: 1px;
+    }
+    .badge-ai        { background: #f3e8ff; color: #7c3aed; border-color: #ddd6fe; }
+    .badge-autoreply { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+    .badge-flow      { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-human     { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+    .badge-aion      { background: #ede9fe; color: #6d28d9; border-color: #c4b5fd; cursor: pointer; }
+    .badge-aion:hover { background: #ddd6fe; }
+    .badge-aioff     { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; cursor: pointer; }
+    .badge-aioff:hover { background: #ede9fe; color: #6d28d9; border-color: #c4b5fd; }
+    .badge-needshelp { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; cursor: pointer; animation: pulse 2s infinite; }
+    .badge-needshelp:hover { background: #dcfce7; color: #15803d; border-color: #86efac; }
 
     /* --- Chat Messages Area (Glass BG) --- */
     .chat-messages-area {
