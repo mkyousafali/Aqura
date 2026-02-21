@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { PIXABAY_API_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const PIXABAY_API_KEY = env.PIXABAY_API_KEY || '';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY || '';
