@@ -466,6 +466,12 @@
                                                             on:click={() => deleteAccount(account.id)} title="Delete">
                                                             🗑️
                                                         </button>
+                                                        <a href="https://business.facebook.com/latest/whatsapp_manager/phone_numbers/?waba_id={account.waba_id}"
+                                                            target="_blank" rel="noopener noreferrer"
+                                                            class="inline-flex items-center px-3 py-1.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-lg hover:bg-blue-100 border border-blue-200 transition-all hover:scale-105 no-underline"
+                                                            title="Open Meta Business Settings">
+                                                            ⚙️ Meta
+                                                        </a>
                                                     {/if}
                                                 </div>
                                                 {#if editingId === account.id && testResult}

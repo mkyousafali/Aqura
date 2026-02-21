@@ -1,12 +1,14 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
+    import { currentUser } from '$lib/utils/persistentAuth';
     import { openWindow } from '$lib/utils/windowManagerUtils';
     import WALiveChat from './WALiveChat.svelte';
     import WABroadcasts from './WABroadcasts.svelte';
-    import { billCountCache, contactsCache, contactsTotalCount } from '$lib/stores/billCountCache';
+    import { billCountCache, contactsCache, contactsTotalCount, erpExistenceCache } from '$lib/stores/billCountCache';
     import type { BillDetail } from '$lib/stores/billCountCache';
     import { get } from 'svelte/store';
+    import XLSX from 'xlsx-js-style';
 
     interface Contact {
         id: string;
@@ -124,6 +126,11 @@
     // Bill loading state
     let loadingBills = false;
     let billLoadMessage = '';
+
+    // ERP existence check state
+    let loadingErp = false;
+    let exportingErp = false;
+    let exportingExisting = false;
     let selectedBillContact: Contact | null = null; // For bill breakdown popup
 
     // Bill details state (individual bills for a contact)
@@ -182,6 +189,11 @@
         const cachedBills = get(billCountCache);
         if (cachedBills.size === 0) {
             loadBillCounts();
+        }
+        // Auto-load ERP existence if not already cached
+        const cachedErp = get(erpExistenceCache);
+        if (cachedErp.size === 0) {
+            loadErpExistence();
         }
 
         // Realtime: customers table changes
@@ -422,13 +434,204 @@
         URL.revokeObjectURL(url);
     }
 
+    function exportNotInErp() {
+        exportingErp = true;
+        try {
+            const cache = get(erpExistenceCache);
+            if (cache.size === 0) {
+                alert('ERP data not loaded yet. Please wait for ERP check to complete.');
+                exportingErp = false;
+                return;
+            }
+
+            // Filter contacts NOT in ERP
+            const notInErp = contacts.filter(c => {
+                const erp = cache.get(c.id);
+                return !erp || !erp.exists;
+            });
+
+            if (notInErp.length === 0) {
+                alert('All contacts exist in ERP. Nothing to export.');
+                exportingErp = false;
+                return;
+            }
+
+            // Build rows with exact column names
+            const rows = notInErp.map(c => {
+                // Convert 966XXXXXXXXX → 0XXXXXXXXX for Card No
+                let cardNo = '';
+                if (c.whatsapp_number) {
+                    const num = c.whatsapp_number.replace(/\s/g, '');
+                    if (num.startsWith('966')) {
+                        cardNo = '0' + num.substring(3);
+                    } else {
+                        cardNo = num;
+                    }
+                }
+                return {
+                    'sl': '',
+                    'Card No': cardNo,
+                    'Customer Name': '',
+                    'Address': '',
+                    'Mobile Number': c.whatsapp_number || '',
+                    'Card Type': 'Privilege',
+                    'Opening Amount': ''
+                };
+            });
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+
+            // Set column widths
+            ws['!cols'] = [
+                { wch: 6 },   // sl
+                { wch: 15 },  // Card No
+                { wch: 25 },  // Customer Name
+                { wch: 25 },  // Address
+                { wch: 18 },  // Mobile Number
+                { wch: 14 },  // Card Type
+                { wch: 16 },  // Opening Amount
+            ];
+
+            // Force Card No and Mobile Number columns to text format
+            const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+            for (let r = range.s.r + 1; r <= range.e.r; r++) {
+                // Card No = column B (index 1)
+                const cardCell = XLSX.utils.encode_cell({ r, c: 1 });
+                if (ws[cardCell]) {
+                    ws[cardCell].t = 's';
+                    ws[cardCell].z = '@';
+                }
+                // Mobile Number = column E (index 4)
+                const mobileCell = XLSX.utils.encode_cell({ r, c: 4 });
+                if (ws[mobileCell]) {
+                    ws[mobileCell].t = 's';
+                    ws[mobileCell].z = '@';
+                }
+            }
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Not In ERP');
+            XLSX.writeFile(wb, `Not_In_ERP_${new Date().toISOString().slice(0,10)}.xlsx`);
+        } catch (e: any) {
+            console.error('Export error:', e);
+            alert('Export failed: ' + e.message);
+        } finally {
+            exportingErp = false;
+        }
+    }
+
+    function exportExistingInErp() {
+        exportingExisting = true;
+        try {
+            const cache = get(erpExistenceCache);
+            if (cache.size === 0) {
+                alert('ERP data not loaded yet. Please wait for ERP check to complete.');
+                exportingExisting = false;
+                return;
+            }
+
+            // Filter contacts that EXIST in ERP
+            const inErp = contacts.filter(c => {
+                const erp = cache.get(c.id);
+                return erp && erp.exists;
+            });
+
+            if (inErp.length === 0) {
+                alert('No contacts found in ERP.');
+                exportingExisting = false;
+                return;
+            }
+
+            // Build rows
+            const rows = inErp.map(c => {
+                let cardNo = '';
+                if (c.whatsapp_number) {
+                    const num = c.whatsapp_number.replace(/\s/g, '');
+                    if (num.startsWith('966')) {
+                        cardNo = '0' + num.substring(3);
+                    } else {
+                        cardNo = num;
+                    }
+                }
+
+                const erp = cache.get(c.id);
+                const branches = erp?.branches?.join(', ') || '';
+                const billData = get(billCountCache).get(c.id);
+
+                return {
+                    'Name': c.name || '',
+                    'Card No': cardNo,
+                    'Mobile Number': c.whatsapp_number || '',
+                    'ERP Branches': branches,
+                    'Bill Count': billData?.totalCount || 0,
+                    'Bill Total (SAR)': billData?.totalAmount || 0,
+                    'Last Bill': billData?.lastBillDate ? new Date(billData.lastBillDate).toLocaleDateString() : '',
+                    'Registration': c.registration_status || '',
+                };
+            });
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+
+            ws['!cols'] = [
+                { wch: 25 },  // Name
+                { wch: 15 },  // Card No
+                { wch: 18 },  // Mobile Number
+                { wch: 30 },  // ERP Branches
+                { wch: 12 },  // Bill Count
+                { wch: 16 },  // Bill Total
+                { wch: 14 },  // Last Bill
+                { wch: 14 },  // Registration
+            ];
+
+            // Force Card No and Mobile Number to text
+            const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+            for (let r = range.s.r + 1; r <= range.e.r; r++) {
+                const cardCell = XLSX.utils.encode_cell({ r, c: 1 });
+                if (ws[cardCell]) { ws[cardCell].t = 's'; ws[cardCell].z = '@'; }
+                const mobileCell = XLSX.utils.encode_cell({ r, c: 2 });
+                if (ws[mobileCell]) { ws[mobileCell].t = 's'; ws[mobileCell].z = '@'; }
+            }
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Existing In ERP');
+            XLSX.writeFile(wb, `Existing_In_ERP_${new Date().toISOString().slice(0,10)}.xlsx`);
+        } catch (e: any) {
+            console.error('Export error:', e);
+            alert('Export failed: ' + e.message);
+        } finally {
+            exportingExisting = false;
+        }
+    }
+
     function triggerFileInput() {
         fileInput?.click();
     }
 
+    async function deleteContact(contact: Contact) {
+        if (!confirm(`Are you sure you want to delete contact "${contact.name || contact.whatsapp_number}"? This cannot be undone.`)) return;
+        try {
+            // Delete from customers table
+            const { error: err } = await supabase
+                .from('customers')
+                .delete()
+                .eq('id', contact.id);
+            if (err) throw err;
+            // Remove from local arrays
+            contacts = contacts.filter(c => c.id !== contact.id);
+            // Clear from caches
+            billCountCache.update(map => { map.delete(contact.id); return new Map(map); });
+            erpExistenceCache.update(map => { map.delete(contact.id); return new Map(map); });
+            applyFilters();
+        } catch (e: any) {
+            console.error('Delete contact error:', e);
+            alert('Failed to delete contact: ' + e.message);
+        }
+    }
+
     async function clearCacheAndReload() {
-        // Clear both caches
+        // Clear all caches
         billCountCache.set(new Map());
+        erpExistenceCache.set(new Map());
         contactsCache.set([]);
         contactsTotalCount.set(0);
         // Reset local state
@@ -441,6 +644,47 @@
         // Reload fresh
         loading = true;
         await loadContacts();
+        // Re-load ERP and bill data
+        loadErpExistence();
+        loadBillCounts();
+    }
+
+    async function loadErpExistence() {
+        loadingErp = true;
+        const targetContacts = contacts.length > 0 ? contacts : filteredContacts;
+        if (targetContacts.length === 0) { loadingErp = false; return; }
+
+        try {
+            const phoneNumbers = targetContacts.map(c => c.whatsapp_number?.replace(/\.$/, '') || '');
+            const response = await fetch('/api/batch-erp-check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumbers })
+            });
+            const data = await response.json();
+            if (data.success) {
+                erpExistenceCache.update(map => {
+                    for (const contact of targetContacts) {
+                        // Skip dot-suffix contacts — already shown as existing
+                        if (contact.whatsapp_number?.endsWith('.')) {
+                            map.set(contact.id, { exists: true, branches: ['ERP'] });
+                            continue;
+                        }
+                        const result = data.results[contact.whatsapp_number];
+                        if (result) {
+                            map.set(contact.id, { exists: result.exists, branches: result.branches });
+                        } else {
+                            map.set(contact.id, { exists: false, branches: [] });
+                        }
+                    }
+                    return new Map(map);
+                });
+            }
+        } catch (e: any) {
+            console.error('❌ ERP existence check error:', e);
+        } finally {
+            loadingErp = false;
+        }
     }
 
     async function loadBillCounts() {
@@ -950,50 +1194,124 @@
             bcSending = false;
         }
     }
+
+    // KPI computations
+    function getKpiStats(contactsList: Contact[]) {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const threeDaysAgo = new Date(todayStart.getTime() - 3 * 24 * 60 * 60 * 1000);
+        const weekStart = new Date(todayStart);
+        weekStart.setDate(todayStart.getDate() - todayStart.getDay()); // Sunday
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        let today = 0, last3 = 0, thisWeek = 0, thisMonth = 0;
+        for (const c of contactsList) {
+            const d = c.created_at ? new Date(c.created_at) : null;
+            if (!d) continue;
+            if (d >= todayStart) today++;
+            if (d >= threeDaysAgo) last3++;
+            if (d >= weekStart) thisWeek++;
+            if (d >= monthStart) thisMonth++;
+        }
+        return { today, last3, thisWeek, thisMonth };
+    }
+
+    $: kpi = getKpiStats(contacts);
+    $: totalUnread = contacts.reduce((s, c) => s + (c.unread_count || 0), 0);
+    $: active24hr = contacts.filter(c => c.is_inside_24hr).length;
+
+    function compactNum(n: number): string {
+        if (n >= 10000) return (n / 1000).toFixed(1) + 'k';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+        return String(n);
+    }
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Header -->
-    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div class="flex items-center gap-3">
-            <span class="text-2xl">👥</span>
-            <div>
-                <h2 class="text-lg font-black text-slate-800 uppercase tracking-wide">{$t('nav.whatsappContacts')}</h2>
-                <p class="text-xs text-slate-500">{contacts.length} / {totalCount} contacts</p>
+    <div class="bg-white border-b border-slate-200 px-6 py-3 shadow-sm">
+        <!-- Row 1: KPIs + Action Buttons -->
+        <div class="flex items-center justify-between mb-3">
+            <!-- KPI Circles -->
+            <div class="flex items-center gap-2">
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-slate-500 to-slate-700 rounded-full shadow-md shadow-slate-200/60 border-[2.5px] border-white ring-1 ring-slate-200">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(totalCount)}</span>
+                    <span class="text-[6px] font-black text-slate-200 uppercase tracking-wider mt-0.5">All</span>
+                </div>
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-blue-400 to-blue-600 rounded-full shadow-md shadow-blue-200/60 border-[2.5px] border-white ring-1 ring-blue-200">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(kpi.today)}</span>
+                    <span class="text-[6px] font-black text-blue-100 uppercase tracking-wider mt-0.5">Today</span>
+                </div>
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-purple-400 to-purple-600 rounded-full shadow-md shadow-purple-200/60 border-[2.5px] border-white ring-1 ring-purple-200">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(kpi.last3)}</span>
+                    <span class="text-[6px] font-black text-purple-100 uppercase tracking-wider mt-0.5">3 Days</span>
+                </div>
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full shadow-md shadow-emerald-200/60 border-[2.5px] border-white ring-1 ring-emerald-200">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(kpi.thisWeek)}</span>
+                    <span class="text-[6px] font-black text-emerald-100 uppercase tracking-wider mt-0.5">Week</span>
+                </div>
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-orange-400 to-orange-600 rounded-full shadow-md shadow-orange-200/60 border-[2.5px] border-white ring-1 ring-orange-200">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(kpi.thisMonth)}</span>
+                    <span class="text-[6px] font-black text-orange-100 uppercase tracking-wider mt-0.5">Month</span>
+                </div>
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-red-400 to-red-600 rounded-full shadow-md shadow-red-200/60 border-[2.5px] border-white ring-1 ring-red-200 {totalUnread > 0 ? 'animate-pulse' : ''}">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(totalUnread)}</span>
+                    <span class="text-[6px] font-black text-red-100 uppercase tracking-wider mt-0.5">Unread</span>
+                </div>
+                <div class="flex flex-col items-center justify-center w-[52px] h-[52px] bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-full shadow-md shadow-cyan-200/60 border-[2.5px] border-white ring-1 ring-cyan-200">
+                    <span class="text-white font-black text-sm leading-none">{compactNum(active24hr)}</span>
+                    <span class="text-[6px] font-black text-cyan-100 uppercase tracking-wider mt-0.5">24hr</span>
+                </div>
+            </div>
+
+            <!-- Action Buttons Group -->
+            <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+                <input type="file" accept=".csv,.xlsx,.xls" bind:this={fileInput} on:change={handleFileImport} class="hidden" />
+                <button class="group flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+                    on:click={downloadTemplate}>
+                    <span class="text-sm filter drop-shadow-sm transition-transform duration-300 group-hover:rotate-12">📥</span>
+                    Template
+                </button>
+                <button class="group flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 disabled:opacity-50
+                    {importing ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                    on:click={triggerFileInput} disabled={importing}>
+                    <span class="text-sm filter drop-shadow-sm transition-transform duration-300 group-hover:rotate-12">{importing ? '⏳' : '📤'}</span>
+                    {importing ? 'Importing...' : 'Import CSV'}
+                </button>
+                <button class="group flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 disabled:opacity-50
+                    {loading ? 'bg-red-600 text-white shadow-lg shadow-red-200' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                    on:click={clearCacheAndReload} disabled={loading}>
+                    <span class="text-sm filter drop-shadow-sm transition-transform duration-300 group-hover:rotate-12">{loading ? '⏳' : '🔄'}</span>
+                    {loading ? 'Refreshing...' : 'Clear Cache'}
+                </button>
+                <button class="group flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 disabled:opacity-50
+                    {exportingErp ? 'bg-orange-600 text-white shadow-lg shadow-orange-200' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                    on:click={exportNotInErp} disabled={exportingErp || loadingErp}
+                    title="Export contacts NOT found in ERP as Excel">
+                    <span class="text-sm filter drop-shadow-sm transition-transform duration-300 group-hover:rotate-12">{exportingErp ? '⏳' : '📊'}</span>
+                    {exportingErp ? 'Exporting...' : 'Not In ERP'}
+                </button>
+                {#if $currentUser?.isMasterAdmin}
+                    <button class="group flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 disabled:opacity-50
+                        {exportingExisting ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                        on:click={exportExistingInErp} disabled={exportingExisting || loadingErp}
+                        title="Export contacts found in ERP as Excel">
+                        <span class="text-sm filter drop-shadow-sm transition-transform duration-300 group-hover:rotate-12">{exportingExisting ? '⏳' : '📃'}</span>
+                        {exportingExisting ? 'Exporting...' : 'In ERP'}
+                    </button>
+                {/if}
+                <button class="group flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300 text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+                    on:click={openBroadcastPopup}>
+                    <span class="text-sm filter drop-shadow-sm transition-transform duration-300 group-hover:rotate-12">📡</span>
+                    Broadcast
+                </button>
             </div>
         </div>
+
+        <!-- Row 2: Filters -->
         <div class="flex items-center gap-3">
-            <!-- Import/Download buttons -->
-            <input type="file" accept=".csv,.xlsx,.xls" bind:this={fileInput} on:change={handleFileImport} class="hidden" />
-            <button class="px-3 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200 flex items-center gap-1.5"
-                on:click={downloadTemplate}>
-                📥 Template
-            </button>
-            <button class="px-3 py-2 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-xl hover:bg-emerald-200 transition-all border border-emerald-200 flex items-center gap-1.5 disabled:opacity-50"
-                on:click={triggerFileInput} disabled={importing}>
-                {#if importing}
-                    <span class="animate-spin">⏳</span> Importing...
-                {:else}
-                    📤 Import CSV
-                {/if}
-            </button>
-            <button class="px-3 py-2 bg-red-100 text-red-700 text-xs font-bold rounded-xl hover:bg-red-200 transition-all border border-red-200 flex items-center gap-1.5 disabled:opacity-50"
-                on:click={clearCacheAndReload} disabled={loading}>
-                {#if loading}
-                    <span class="animate-spin">⏳</span> Refreshing...
-                {:else}
-                    🔄 Clear Cache
-                {/if}
-            </button>
-
-            <!-- Generate Broadcast List -->
-            <button class="px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all border border-indigo-200 flex items-center gap-1.5"
-                on:click={openBroadcastPopup}>
-                📡 Generate Broadcast
-            </button>
-
-            <!-- Status Filter -->
-            <div class="flex gap-1 bg-slate-100 p-1 rounded-xl">
+            <!-- Status Filter Pills -->
+            <div class="flex gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50 shadow-inner">
                 {#each [
                     { id: 'all', label: 'All', icon: '📋' },
                     { id: 'inside_24hr', label: '24hr', icon: '🟢' },
@@ -1001,37 +1319,42 @@
                     { id: 'unread', label: 'Unread', icon: '🔵' }
                 ] as f}
                     <button
-                        class="px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg transition-all
-                        {statusFilter === f.id ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}"
+                        class="flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300
+                        {statusFilter === f.id ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
                         on:click={() => statusFilter = f.id}
                     >
-                        {f.icon} {f.label}
+                        <span class="text-xs">{f.icon}</span> {f.label}
                     </button>
                 {/each}
             </div>
+
             <!-- Sort by Bills -->
-            <button
-                class="px-3 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border
-                {sortBy !== 'default' ? 'bg-purple-600 text-white border-purple-600' : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'}"
-                on:click={() => {
-                    if (sortBy === 'default') sortBy = 'bills_desc';
-                    else if (sortBy === 'bills_desc') sortBy = 'bills_asc';
-                    else sortBy = 'default';
-                    applyFilters();
-                }}
-                title={sortBy === 'default' ? 'Sort by bill count (high to low)' : sortBy === 'bills_desc' ? 'Sort by bill count (low to high)' : 'Reset sort order'}
-            >
-                {#if sortBy === 'bills_desc'}
-                    📊 Bills ↓
-                {:else if sortBy === 'bills_asc'}
-                    📊 Bills ↑
-                {:else}
-                    📊 Sort Bills
-                {/if}
-            </button>
+            <div class="flex gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50 shadow-inner">
+                <button
+                    class="flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-wide rounded-xl transition-all duration-300
+                    {sortBy !== 'default' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                    on:click={() => {
+                        if (sortBy === 'default') sortBy = 'bills_desc';
+                        else if (sortBy === 'bills_desc') sortBy = 'bills_asc';
+                        else sortBy = 'default';
+                        applyFilters();
+                    }}
+                    title={sortBy === 'default' ? 'Sort by bill count (high to low)' : sortBy === 'bills_desc' ? 'Sort by bill count (low to high)' : 'Reset sort order'}
+                >
+                    <span class="text-xs">📊</span>
+                    {#if sortBy === 'bills_desc'}
+                        Bills ↓
+                    {:else if sortBy === 'bills_asc'}
+                        Bills ↑
+                    {:else}
+                        Sort Bills
+                    {/if}
+                </button>
+            </div>
+
             <!-- Last N Days Filter -->
-            <div class="flex items-center gap-1.5">
-                <span class="text-xs text-slate-500 font-bold">Last</span>
+            <div class="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+                <span class="text-[11px] text-slate-500 font-black uppercase">Last</span>
                 <input 
                     type="number" 
                     bind:value={lastNDays} 
@@ -1039,20 +1362,23 @@
                     placeholder="∞" 
                     min="1" 
                     max="3650"
-                    class="w-14 px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-center font-bold focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
+                    class="w-12 px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-center font-bold focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400"
                     title="Filter contacts with bills in the last N days"
                 />
-                <span class="text-xs text-slate-500 font-bold">days</span>
+                <span class="text-[11px] text-slate-500 font-black uppercase">days</span>
                 {#if lastNDays && parseInt(lastNDays) > 0}
                     <button 
-                        class="px-1.5 py-1 text-[10px] text-red-500 hover:text-red-700 font-bold"
+                        class="px-1.5 py-1 text-[10px] text-red-500 hover:text-red-700 font-bold rounded-lg hover:bg-red-50 transition-all"
                         on:click={() => { lastNDays = ''; applyFilters(); }}
                         title="Clear days filter">✕</button>
                 {/if}
             </div>
+
             <!-- Search -->
-            <input type="text" bind:value={searchQuery} on:input={handleSearchInput} placeholder="Search name or number..."
-                class="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm w-64 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <div class="flex-1">
+                <input type="text" bind:value={searchQuery} on:input={handleSearchInput} placeholder="Search name or number..."
+                    class="w-full px-4 py-2 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-inner" />
+            </div>
         </div>
     </div>
 
@@ -1112,6 +1438,7 @@
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Approved</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Last Activity</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Unread</th>
+                                <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">ERP</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Bills</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Last Bill</th>
                                 <th class="px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider">Check Boss</th>
@@ -1131,7 +1458,7 @@
                                     <td class="px-3 py-2.5">
                                         <span class="font-bold text-xs text-slate-800">{contact.name || '—'}</span>
                                     </td>
-                                    <td class="px-3 py-2.5 text-xs text-slate-600 font-mono">{contact.whatsapp_number}</td>
+                                    <td class="px-3 py-2.5 text-xs text-slate-600 font-mono">{contact.whatsapp_number?.replace(/\.$/, '')}</td>
                                     <td class="px-3 py-2.5 text-center">
                                         {#if contact.registration_status === 'approved'}
                                             <span class="inline-flex items-center px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded-full">✓ Approved</span>
@@ -1153,6 +1480,22 @@
                                             </span>
                                         {:else}
                                             <span class="text-slate-300">—</span>
+                                        {/if}
+                                    </td>
+                                    <td class="px-3 py-2.5 text-center">
+                                        {#if contact.whatsapp_number?.endsWith('.')}
+                                            <span class="text-emerald-600 font-bold text-sm" title="Existing in ERP (dot suffix)">✅</span>
+                                        {:else if loadingErp}
+                                            <span class="inline-block w-4 h-4 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin"></span>
+                                        {:else if $erpExistenceCache.has(contact.id)}
+                                            {@const erp = $erpExistenceCache.get(contact.id)}
+                                            {#if erp.exists}
+                                                <span class="text-emerald-600 font-bold text-sm" title="Registered in ERP: {erp.branches.join(', ')}">✅</span>
+                                            {:else}
+                                                <span class="text-red-500 font-bold text-sm" title="Not found in ERP">❌</span>
+                                            {/if}
+                                        {:else}
+                                            <span class="text-slate-300 text-xs">—</span>
                                         {/if}
                                     </td>
                                     <td class="px-4 py-3 text-center">
@@ -1200,10 +1543,11 @@
                                             on:click={() => viewHistory(contact)}>
                                             📋 History
                                         </button>
-                                        {#if $billCountCache.has(contact.id) && $billCountCache.get(contact.id).totalCount > 0}
-                                            <button class="px-2.5 py-1.5 bg-orange-50 text-orange-700 text-xs font-bold rounded-lg hover:bg-orange-100 transition-all border border-orange-200"
-                                                on:click={() => loadBillDetails(contact)}>
-                                                📄 Details
+                                        {#if $currentUser?.isMasterAdmin}
+                                            <button class="px-2.5 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 transition-all border border-red-200"
+                                                on:click={() => deleteContact(contact)}
+                                                title="Delete contact (Master Admin only)">
+                                                🗑️
                                             </button>
                                         {/if}
                                     </td>
