@@ -142,6 +142,7 @@ export const arabicLocale: LocaleData = {
       themeManager: "مدير السمات",
       erpProductManager: "مدير منتجات ERP",
       storageManager: "مدير التخزين",
+      apiKeysManager: "مدير مفاتيح API",
       createDepartment: "إنشاء قسم",
       createLevel: "إنشاء مستوى",
       createPosition: "إنشاء منصب",

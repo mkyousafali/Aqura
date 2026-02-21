@@ -139,6 +139,7 @@ export const englishLocale: LocaleData = {
       themeManager: "Theme Manager",
       erpProductManager: "ERP Product Manager",
       storageManager: "Storage Manager",
+      apiKeysManager: "API Keys Manager",
       createDepartment: "Create Department",
       createLevel: "Create Level",
       createPosition: "Create Position",

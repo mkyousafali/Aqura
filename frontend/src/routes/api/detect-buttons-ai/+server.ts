@@ -4,6 +4,27 @@ import { env } from '$env/dynamic/private';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY || '';
+
+async function getAIKeysFromDB(): Promise<{ openaiKey: string | null; geminiKey: string | null }> {
+	try {
+		const res = await fetch(
+			`${SUPABASE_URL}/rest/v1/system_api_keys?service_name=in.(openai,google)&is_active=eq.true&select=service_name,api_key`,
+			{ headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } }
+		);
+		const rows: any[] = await res.json();
+		const openaiRow = rows.find((r) => r.service_name === 'openai');
+		const googleRow = rows.find((r) => r.service_name === 'google');
+		return {
+			openaiKey: openaiRow?.api_key || env.OPENAI_API_KEY || null,
+			geminiKey: googleRow?.api_key || null
+		};
+	} catch {
+		return { openaiKey: env.OPENAI_API_KEY || null, geminiKey: null };
+	}
+}
+
 interface ButtonDetectionRequest {
 	sidebarStructure: string;
 	task: string;
@@ -30,10 +51,10 @@ async function detectButtonsWithAI(
 	sidebarStructure: string,
 	task: string
 ): Promise<SectionData[]> {
-	const OPENAI_API_KEY = env.OPENAI_API_KEY;
+	const { openaiKey: OPENAI_API_KEY, geminiKey: GEMINI_API_KEY } = await getAIKeysFromDB();
 
-	if (!OPENAI_API_KEY || OPENAI_API_KEY.trim() === '') {
-		throw new Error('OpenAI API key is not configured. Set OPENAI_API_KEY in .env');
+	if (!OPENAI_API_KEY && !GEMINI_API_KEY) {
+		throw new Error('No AI API key configured. Add OpenAI or Google key in API Keys Manager.');
 	}
 
 	const systemPrompt = `You are an expert code analyzer. Your job is to analyze a sidebar/button structure and extract all buttons.
@@ -86,32 +107,43 @@ Return ONLY the JSON structure, nothing else.`;
 			max_tokens: 4000
 		});
 
-		const response = await fetch(OPENAI_API_URL, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${OPENAI_API_KEY}`
-			},
-			body: requestBody
-		});
+		let content: string = '';
 
-		console.log(`📡 OpenAI Response Status: ${response.status}`);
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('❌ OpenAI API Error Response:', errorText);
-			throw new Error(`OpenAI API returned ${response.status}: ${errorText}`);
+		// Try OpenAI first
+		if (OPENAI_API_KEY) {
+			try {
+				const response = await fetch(OPENAI_API_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+					body: requestBody
+				});
+				console.log(`📡 OpenAI Response Status: ${response.status}`);
+				if (response.ok) {
+					const d = await response.json();
+					if (d.choices?.[0]?.message?.content) content = d.choices[0].message.content;
+				}
+			} catch { /* fall through to Gemini */ }
 		}
 
-		const responseData = await response.json();
-		console.log('✅ OpenAI Response received');
-
-		if (!responseData.choices || !responseData.choices[0]?.message?.content) {
-			console.error('❌ Invalid response structure:', responseData);
-			throw new Error('Invalid response structure from OpenAI API');
+		// Gemini fallback
+		if (!content && GEMINI_API_KEY) {
+			console.log('🔄 Falling back to Gemini...');
+			const geminiBody = JSON.stringify({
+				systemInstruction: { parts: [{ text: systemPrompt }] },
+				contents: [{ role: 'user', parts: [{ text: userMessage }] }]
+			});
+			const gr = await fetch(
+				`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+				{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: geminiBody }
+			);
+			if (gr.ok) {
+				const gd = await gr.json();
+				content = gd.candidates?.[0]?.content?.parts?.[0]?.text || '';
+			}
 		}
 
-		const content = responseData.choices[0].message.content;
+		if (!content) throw new Error('No response from any AI provider');
+		console.log('✅ AI Response received');
 		console.log('📝 Response content preview:', content.substring(0, 100));
 
 		// Try to extract JSON from the response

@@ -56,6 +56,7 @@ function calculateWorkedMinutesRaw(checkInTime: string, checkOutTime: string): n
 }
 
 function calculateLateArrivalMinutes(punchTime: string, shift: any): number {
+  // Match EmployeeAnalysisWindow.svelte calculateEarlyLateForCheckIn logic
   if (!shift) return 0;
   const punchMinutes = timeToMinutes(punchTime);
   const shiftStartMinutes = timeToMinutes(shift.shift_start_time);
@@ -63,13 +64,16 @@ function calculateLateArrivalMinutes(punchTime: string, shift: any): number {
   const isOvernight = shiftEndMinutes < shiftStartMinutes;
 
   if (isOvernight) {
+    // For overnight shifts, check-in is only in the evening (>= shift_start)
     if (punchMinutes >= shiftStartMinutes) {
+      // Late = how many minutes after shift start
       return punchMinutes - shiftStartMinutes;
     }
-    if (punchMinutes < shiftEndMinutes) {
-      return (24 * 60 - shiftStartMinutes) + punchMinutes;
-    }
+    // If punch is in the early morning (before shift_end), this is NOT a late check-in
+    // (it's either a confused punch or early — treat as 0 late, matching EmployeeAnalysisWindow)
+    return 0;
   }
+  // Normal shift: late only if after shift start
   return punchMinutes > shiftStartMinutes ? punchMinutes - shiftStartMinutes : 0;
 }
 
