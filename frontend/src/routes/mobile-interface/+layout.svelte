@@ -1783,7 +1783,7 @@
 		overflow-y: auto;
 		overflow-x: hidden;
 		-webkit-overflow-scrolling: touch;
-		padding-bottom: 4rem; /* Space for bottom nav - reduced from 5rem */
+		padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px)); /* Space for bottom nav + safe area (PWA) */
 	}
 
 	/* Bottom Navigation */
