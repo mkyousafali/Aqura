@@ -27,9 +27,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: 'phoneNumber is required' }, { status: 400 });
 		}
 
-		// Create admin Supabase client
+		// Create Supabase client
 		const supabaseUrl = env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
-		const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || '';
+		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
 		const supabase = createClient(supabaseUrl, supabaseKey);
 
 		// Get all active ERP connections

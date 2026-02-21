@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const supabaseUrl = env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
-		const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || '';
+		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
 		const supabase = createClient(supabaseUrl, supabaseKey);
 
 		// Get all active ERP connections
