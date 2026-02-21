@@ -33,6 +33,7 @@
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
 	import ApprovalPermissionsManager from '$lib/components/desktop-interface/settings/ApprovalPermissionsManager.svelte';
 	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
+	import ApiKeysManager from '$lib/components/desktop-interface/settings/ApiKeysManager.svelte';
 	import CommunicationCenter from '$lib/components/desktop-interface/master/CommunicationCenter.svelte';
 	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
 	import MonthlyManager from '$lib/components/desktop-interface/master/finance/MonthlyManager.svelte';
@@ -1538,6 +1539,27 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 	}
 
+	function openApiKeysManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('api-keys-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.apiKeysManager')} #${instanceNumber}`,
+			component: ApiKeysManager,
+			icon: '🔑',
+			size: { width: 750, height: 650 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 
 
 	function openClearTables() {
@@ -1861,6 +1883,7 @@ function openApprovalCenter() {
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
 			'STORAGE_MANAGER': openStorageManager,
+			'API_KEYS_MANAGER': openApiKeysManager,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
 			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
@@ -5470,6 +5493,14 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openStorageManager}>
 							<span class="menu-icon">🗄️</span>
 							<span class="menu-text">{t('nav.storageManager') || 'Storage Manager'}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('API_KEYS_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openApiKeysManager}>
+							<span class="menu-icon">🔑</span>
+							<span class="menu-text">{t('nav.apiKeysManager') || 'API Keys Manager'}</span>
 						</button>
 					</div>
 				{/if}
