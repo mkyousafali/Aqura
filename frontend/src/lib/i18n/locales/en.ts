@@ -190,6 +190,7 @@ export const englishLocale: LocaleData = {
       whatsappAIBot: "AI Bot",
       whatsappAccounts: "Accounts",
       whatsappSettings: "Settings",
+      whatsappCatalog: "Catalog & Sales",
     },
 
     // Mobile page titles
