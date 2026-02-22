@@ -201,7 +201,7 @@ const { data, error } = await supabase.rpc('function_name', { p_param1: value })
 - **DB User:** `supabase_admin`
 - **DB Name:** `postgres`
 - **Supabase URL:** `https://supabase.urbanaqura.com`
-- **Service Role Key:** `REDACTED_SUPABASE_SERVICE_KEY`
+- **Service Role Key:** *(set in .env file, do not hardcode)*
 
 ---
 

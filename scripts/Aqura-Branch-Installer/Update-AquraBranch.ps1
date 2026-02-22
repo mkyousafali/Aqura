@@ -62,8 +62,8 @@ $ErrorActionPreference = "Stop"
 
 $CloudServerIP    = "8.213.42.21"
 $CloudSSHKey      = "$env:USERPROFILE\.ssh\id_ed25519_nopass"
-$CloudAnonKey     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY0ODc1NTI3LCJleHAiOjIwODA0NTE1Mjd9.IT_YSPU9oivuGveKfRarwccr59SNMzX_36cw04Lf448"
-$CloudServiceKey  = "REDACTED_SUPABASE_SERVICE_KEY"
+$CloudAnonKey     = $env:SUPABASE_ANON_KEY  # Set via environment variable
+$CloudServiceKey  = $env:SUPABASE_SERVICE_KEY  # Set via environment variable
 $DefaultBuildZip  = Join-Path $PSScriptRoot "template\aqura-frontend-build.zip"
 $SSHOpts          = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL")
 
