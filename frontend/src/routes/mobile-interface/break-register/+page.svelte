@@ -14,6 +14,16 @@
 	let elapsedSeconds = 0;
 	let timerInterval: ReturnType<typeof setInterval> | null = null;
 
+	// QR Scanner state
+	let showScanner = false;
+	let scanError = '';
+	let videoEl: HTMLVideoElement;
+	let scanCanvas: HTMLCanvasElement;
+	let scanCtx: CanvasRenderingContext2D | null = null;
+	let barcodeDetector: any = null;
+	let scanInterval: ReturnType<typeof setInterval> | null = null;
+	let mediaStream: MediaStream | null = null;
+
 	$: isRtl = $localeData.code === 'ar';
 
 	function t(en: string, ar: string): string {
@@ -63,6 +73,7 @@
 
 	onDestroy(() => {
 		if (timerInterval) clearInterval(timerInterval);
+		stopScanner();
 	});
 
 	async function startBreak() {
@@ -93,16 +104,96 @@
 		isSubmitting = false;
 	}
 
-	async function endBreak() {
+	function openScanner() {
+		scanError = '';
+		showScanner = true;
+		setTimeout(startScanner, 100);
+	}
+
+	async function startScanner() {
+		try {
+			// Initialize barcode detector
+			if (!barcodeDetector) {
+				if ('BarcodeDetector' in window) {
+					try {
+						barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+					} catch (e) {
+						console.warn('[scan] Native BarcodeDetector failed:', e);
+					}
+				}
+				if (!barcodeDetector) {
+					const { BarcodeDetector: Polyfill } = await import('barcode-detector');
+					barcodeDetector = new Polyfill({ formats: ['qr_code'] });
+				}
+			}
+
+			// Start camera - check secure context
+			if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+				scanError = isRtl 
+					? 'الكاميرا غير متاحة. يرجى استخدام HTTPS أو localhost' 
+					: 'Camera not available. Please use HTTPS or localhost';
+				return;
+			}
+
+			mediaStream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+			});
+			if (videoEl) {
+				videoEl.srcObject = mediaStream;
+				await videoEl.play();
+			}
+
+			// Start scanning loop
+			scanInterval = setInterval(scanFrame, 300);
+		} catch (e: any) {
+			scanError = e?.message || 'Camera access denied';
+			console.error('[scan] Error:', e);
+		}
+	}
+
+	async function scanFrame() {
+		if (!videoEl || videoEl.readyState < 2 || !barcodeDetector) return;
+		try {
+			if (!scanCanvas) return;
+			if (!scanCtx) scanCtx = scanCanvas.getContext('2d');
+			scanCanvas.width = videoEl.videoWidth;
+			scanCanvas.height = videoEl.videoHeight;
+			scanCtx?.drawImage(videoEl, 0, 0);
+
+			const barcodes = await barcodeDetector.detect(scanCanvas);
+			if (barcodes.length > 0) {
+				const code = barcodes[0].rawValue;
+				if (code) {
+					stopScanner();
+					await endBreakWithCode(code);
+				}
+			}
+		} catch (e) {
+			// Ignore scan frame errors, keep trying
+		}
+	}
+
+	function stopScanner() {
+		if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+		if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+		showScanner = false;
+	}
+
+	async function endBreakWithCode(code: string) {
 		if (isSubmitting) return;
 		isSubmitting = true;
+		scanError = '';
 
 		const { data, error } = await supabase.rpc('end_break', {
-			p_user_id: $currentUser.id
+			p_user_id: $currentUser.id,
+			p_security_code: code
 		});
 
 		if (error || !data?.success) {
-			alert(data?.error || error?.message || 'Failed to end break');
+			const msg = data?.error || error?.message || 'Failed to end break';
+			scanError = msg;
+			showScanner = true;
+			setTimeout(startScanner, 500);
 			isSubmitting = false;
 			return;
 		}
@@ -150,17 +241,56 @@
 				{/if}
 			</div>
 
-			<button class="end-break-btn" on:click={endBreak} disabled={isSubmitting}>
+			<button class="end-break-btn" on:click={openScanner} disabled={isSubmitting}>
 				{#if isSubmitting}
 					<div class="btn-spinner"></div>
 				{:else}
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-						<rect x="6" y="6" width="12" height="12" rx="2"/>
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+						<circle cx="12" cy="13" r="4"/>
 					</svg>
 				{/if}
-				{t('End Break', 'إنهاء الاستراحة')}
+				{t('Scan QR to End Break', 'امسح رمز QR لإنهاء الاستراحة')}
 			</button>
+
+			<p class="scan-hint">{t('Scan the QR code displayed on the office screen to end your break', 'امسح رمز QR المعروض على شاشة المكتب لإنهاء استراحتك')}</p>
 		</div>
+
+		<!-- QR Scanner Overlay -->
+		{#if showScanner}
+			<div class="scanner-overlay">
+				<div class="scanner-header">
+					<button class="scanner-close" on:click={stopScanner} aria-label="Close scanner">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+							<line x1="18" y1="6" x2="6" y2="18"/>
+							<line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
+					<span class="scanner-title">{t('Scan Break QR Code', 'امسح رمز QR الاستراحة')}</span>
+				</div>
+
+				<div class="scanner-viewport">
+					<!-- svelte-ignore a11y-media-has-caption -->
+					<video bind:this={videoEl} playsinline autoplay muted class="scanner-video"></video>
+					<canvas bind:this={scanCanvas} class="scanner-canvas-hidden"></canvas>
+					<div class="scanner-frame">
+						<div class="corner tl"></div>
+						<div class="corner tr"></div>
+						<div class="corner bl"></div>
+						<div class="corner br"></div>
+					</div>
+				</div>
+
+				{#if scanError}
+					<div class="scanner-error">
+						<span>⚠️</span>
+						<span>{scanError}</span>
+					</div>
+				{/if}
+
+				<p class="scanner-instructions">{t('Point your camera at the QR code on the office screen', 'وجّه الكاميرا نحو رمز QR على شاشة المكتب')}</p>
+			</div>
+		{/if}
 	{:else}
 		<!-- Reason Selection View -->
 		<div class="reason-selection">
@@ -469,5 +599,117 @@
 		border-top-color: white;
 		border-radius: 50%;
 		animation: spin 0.6s linear infinite;
+	}
+
+	.scan-hint {
+		text-align: center;
+		font-size: 0.8rem;
+		color: #9CA3AF;
+		margin-top: 0.75rem;
+		line-height: 1.4;
+		max-width: 280px;
+		margin-left: auto;
+		margin-right: auto;
+	}
+
+	/* Scanner Overlay */
+	.scanner-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: #000;
+		z-index: 9999;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.scanner-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: rgba(0, 0, 0, 0.8);
+	}
+
+	.scanner-close {
+		background: rgba(255, 255, 255, 0.15);
+		border: none;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.scanner-title {
+		color: white;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.scanner-viewport {
+		flex: 1;
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.scanner-video {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.scanner-canvas-hidden {
+		display: none;
+	}
+
+	.scanner-frame {
+		position: absolute;
+		width: 220px;
+		height: 220px;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	.corner {
+		position: absolute;
+		width: 30px;
+		height: 30px;
+		border-color: #22C55E;
+		border-style: solid;
+		border-width: 0;
+	}
+	.corner.tl { top: 0; left: 0; border-top-width: 4px; border-left-width: 4px; border-top-left-radius: 8px; }
+	.corner.tr { top: 0; right: 0; border-top-width: 4px; border-right-width: 4px; border-top-right-radius: 8px; }
+	.corner.bl { bottom: 0; left: 0; border-bottom-width: 4px; border-left-width: 4px; border-bottom-left-radius: 8px; }
+	.corner.br { bottom: 0; right: 0; border-bottom-width: 4px; border-right-width: 4px; border-bottom-right-radius: 8px; }
+
+	.scanner-error {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #FEE2E2;
+		color: #DC2626;
+		font-size: 0.85rem;
+		font-weight: 500;
+	}
+
+	.scanner-instructions {
+		text-align: center;
+		color: rgba(255, 255, 255, 0.7);
+		font-size: 0.85rem;
+		padding: 1rem;
+		background: rgba(0, 0, 0, 0.8);
 	}
 </style>

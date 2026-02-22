@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { localeData, t, currentLocale } from '$lib/i18n';
@@ -91,6 +91,12 @@
 	let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let logoClickCount = 0;
 	let logoClickTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Break Security QR Code
+	let breakQrDataUrl = '';
+	let breakQrTtl = 10;
+	let breakQrInterval: ReturnType<typeof setInterval> | null = null;
+	let QRCode: any = null;
 
 	// Map button_code → i18n translation key for showing translated button names
 	const buttonCodeTranslationMap: Record<string, string> = {
@@ -287,6 +293,22 @@
 		return sectionName;
 	}
 
+	async function fetchBreakQr() {
+		try {
+			const { data, error } = await supabase.rpc('get_break_security_code');
+			if (!error && data?.code && QRCode) {
+				breakQrTtl = data.ttl || 10;
+				breakQrDataUrl = await QRCode.toDataURL(data.code, {
+					width: 160,
+					margin: 1,
+					color: { dark: '#1e293b', light: '#ffffff' }
+				});
+			}
+		} catch (e) {
+			console.error('Break QR fetch error:', e);
+		}
+	}
+
 	onMount(async () => {
 		mounted = true;
 		
@@ -303,6 +325,20 @@
 				localStorage.setItem('aqura-visited', 'true');
 			}, 1000);
 		}
+
+		// Initialize Break Security QR Code
+		try {
+			const mod = await import('qrcode');
+			QRCode = mod.default || mod;
+			await fetchBreakQr();
+			breakQrInterval = setInterval(fetchBreakQr, 8000);
+		} catch (e) {
+			console.error('QRCode library load error:', e);
+		}
+	});
+
+	onDestroy(() => {
+		if (breakQrInterval) clearInterval(breakQrInterval);
 	});
 
 	// Reload favorites when user changes
@@ -513,6 +549,19 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- Break Security QR Code - Fixed Top Right -->
+		{#if breakQrDataUrl}
+			<div class="break-qr-fixed">
+				<div class="break-qr-container">
+					<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
+					<div class="break-qr-label">
+						<span>🔒</span>
+						<span>{$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
+					</div>
+				</div>
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -889,6 +938,48 @@
 			opacity: 1;
 			transform: translateY(0) scale(1);
 		}
+	}
+
+	/* Break QR Code - Fixed Top Right */
+	.break-qr-fixed {
+		position: fixed;
+		top: 12px;
+		right: 12px;
+		z-index: 100;
+	}
+
+	.break-qr-container {
+		background: white;
+		border-radius: 14px;
+		padding: 10px;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 5px;
+		animation: qrPulse 10s ease-in-out infinite;
+	}
+
+	.break-qr-img {
+		width: 140px;
+		height: 140px;
+		border-radius: 6px;
+		display: block;
+	}
+
+	.break-qr-label {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 0.6rem;
+		color: #64748b;
+		font-weight: 500;
+		letter-spacing: 0.3px;
+	}
+
+	@keyframes qrPulse {
+		0%, 100% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); }
+		50% { box-shadow: 0 4px 25px rgba(34, 197, 94, 0.35); }
 	}
 
 	/* Responsive design */
