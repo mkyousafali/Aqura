@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { _ as t } from '$lib/i18n';
 	import { compressImage } from '$lib/utils/imageCompression';
 	import XLSX from 'xlsx-js-style';
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
@@ -26,6 +27,7 @@
 	let selectedPrExcelFilter = ''; // Filter by PR Excel verification ('' = all, 'verified', 'unverified')
 	let vendorSearchTerm = ''; // Search by vendor name
 	let selectedErpRefFilter = ''; // Filter by ERP invoice reference ('' = all, 'entered', 'not_entered')
+	let selectedDueFilter = ''; // Filter by due date ('' = all, '7', '15', '30')
 
 	// Pagination state (disabled UI but optimized loading)
 	let currentPage = 1;
@@ -353,7 +355,7 @@
 
 			receivingRecords = recordsWithDetails;
 			allLoadedRecords = recordsWithDetails;
-			paginatedRecords = [...recordsWithDetails];
+			updatePaginatedRecords();
 			console.log(`✅ Page ${pageNum} loaded via RPC (${recordsWithDetails.length} records shown)`);
 		} catch (err) {
 			console.error(`Error loading page ${pageNum}:`, err);
@@ -430,9 +432,33 @@
 		return;
 	}
 
-	// Update paginated records - no client-side filtering needed, server handles it
+	// Update paginated records - handles client-side filtering for due dates
 	function updatePaginatedRecords() {
-		paginatedRecords = [...allLoadedRecords];
+		let filtered = [...allLoadedRecords];
+		
+		if (selectedDueFilter) {
+			const maxDays = parseInt(selectedDueFilter);
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			
+			filtered = filtered.filter(record => {
+				// Skip paid records for due-in filter
+				const isPaid = record.is_paid || record.schedule_status?.is_paid || record.payment_method?.toLowerCase()?.includes('on delivery');
+				if (isPaid) return false;
+				
+				if (!record.due_date) return false;
+				
+				const dueDate = new Date(record.due_date);
+				dueDate.setHours(0, 0, 0, 0);
+				const diffTime = dueDate.getTime() - today.getTime();
+				const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+				
+				// Show records due within the next X days (including today)
+				return diffDays >= 0 && diffDays <= maxDays;
+			});
+		}
+
+		paginatedRecords = filtered;
 		console.log(`📄 Showing ${paginatedRecords.length} records`);
 	}
 
@@ -1091,6 +1117,15 @@
 					<option value="">All Records</option>
 					<option value="entered">✓ Entered</option>
 					<option value="not_entered">✗ Not Entered</option>
+				</select>
+			</div>
+			<div class="flex-1 min-w-[140px]">
+				<label for="due-in-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('vendorPaymentFilters.dueIn')}</label>
+				<select id="due-in-filter" bind:value={selectedDueFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+					<option value="">{$t('vendorPaymentFilters.anyTime')}</option>
+					<option value="7">{$t('vendorPaymentFilters.days7')}</option>
+					<option value="15">{$t('vendorPaymentFilters.days15')}</option>
+					<option value="30">{$t('vendorPaymentFilters.days30')}</option>
 				</select>
 			</div>
 		</div>

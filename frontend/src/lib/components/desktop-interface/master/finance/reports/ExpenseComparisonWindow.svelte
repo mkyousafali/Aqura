@@ -571,172 +571,174 @@
 		</div>
 	</div>
 
-	{#if loading}
-		<div class="loading">
-			<div class="spinner">⏳</div>
-			<p>Loading expense data...</p>
-		</div>
-	{:else if error}
-		<div class="error-message">
-			<div class="error-icon">❌</div>
-			<p>{error}</p>
-			<button class="retry-btn" on:click={loadExpenses}>Retry</button>
-		</div>
-	{:else}
-		<div class="charts-container">
-			<!-- Total Expenses Chart -->
-			<div class="chart-section">
-				<h3>Total Expenses by Category</h3>
-				<div class="total-section">
-					<div class="total-label">Total Amount:</div>
-					<div class="total-amount">{formatAmount(totalExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
-				</div>
-				{#if totalExpensesByCategory.length > 0}
-					<div class="legend">
-						{#each totalExpensesByCategory as item}
-							<div 
-								class="legend-item" 
-								class:zero-amount={item.amount === 0}
-								class:clickable={item.amount > 0}
-								on:click={() => showCategoryDetails(item.category, item.amount, 'total')}
-							>
-								<span class="legend-color" style="background-color: {item.color}"></span>
-								<span class="legend-label">{item.category}</span>
-								<span class="legend-value">{formatAmount(item.amount)}</span>
-								<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="no-data">
-						<p>No expense data available</p>
-					</div>
-				{/if}
+	<div class="content-area">
+		{#if loading}
+			<div class="loading">
+				<div class="spinner">⏳</div>
+				<p>Loading expense data...</p>
 			</div>
+		{:else if error}
+			<div class="error-message">
+				<div class="error-icon">❌</div>
+				<p>{error}</p>
+				<button class="retry-btn" on:click={loadExpenses}>Retry</button>
+			</div>
+		{:else}
+			<div class="charts-container">
+				<!-- Total Expenses Chart -->
+				<div class="chart-section">
+					<h3>Total Expenses by Category</h3>
+					<div class="total-section">
+						<div class="total-label">Total Amount:</div>
+						<div class="total-amount">{formatAmount(totalExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+					</div>
+					{#if totalExpensesByCategory.length > 0}
+						<div class="legend">
+							{#each totalExpensesByCategory as item}
+								<div 
+									class="legend-item" 
+									class:zero-amount={item.amount === 0}
+									class:clickable={item.amount > 0}
+									on:click={() => showCategoryDetails(item.category, item.amount, 'total')}
+								>
+									<span class="legend-color" style="background-color: {item.color}"></span>
+									<span class="legend-label">{item.category}</span>
+									<span class="legend-value">{formatAmount(item.amount)}</span>
+									<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="no-data">
+							<p>No expense data available</p>
+						</div>
+					{/if}
+				</div>
 
-			<!-- Previous Month Chart -->
-			<div class="chart-section">
-				<h3>Previous Month ({getPreviousMonthName()})</h3>
-				<div class="total-section">
-					<div class="total-label">Total Amount:</div>
-					<div class="total-amount">{formatAmount(previousMonthExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+				<!-- Previous Month Chart -->
+				<div class="chart-section">
+					<h3>Previous Month ({getPreviousMonthName()})</h3>
+					<div class="total-section">
+						<div class="total-label">Total Amount:</div>
+						<div class="total-amount">{formatAmount(previousMonthExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+					</div>
+					{#if previousMonthExpensesByCategory.length > 0}
+						<div class="legend">
+							{#each previousMonthExpensesByCategory as item}
+								<div 
+									class="legend-item" 
+									class:zero-amount={item.amount === 0}
+									class:clickable={item.amount > 0}
+									on:click={() => showCategoryDetails(item.category, item.amount, 'previous')}
+								>
+									<span class="legend-color" style="background-color: {item.color}"></span>
+									<span class="legend-label">{item.category}</span>
+									<span class="legend-value">{formatAmount(item.amount)}</span>
+									<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="no-data">
+							<p>No expenses for this month</p>
+						</div>
+					{/if}
 				</div>
-				{#if previousMonthExpensesByCategory.length > 0}
-					<div class="legend">
-						{#each previousMonthExpensesByCategory as item}
-							<div 
-								class="legend-item" 
-								class:zero-amount={item.amount === 0}
-								class:clickable={item.amount > 0}
-								on:click={() => showCategoryDetails(item.category, item.amount, 'previous')}
-							>
-								<span class="legend-color" style="background-color: {item.color}"></span>
-								<span class="legend-label">{item.category}</span>
-								<span class="legend-value">{formatAmount(item.amount)}</span>
-								<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="no-data">
-						<p>No expenses for this month</p>
-					</div>
-				{/if}
-			</div>
 
-			<!-- Current Month Chart -->
-			<div class="chart-section">
-				<h3>Current Month ({getCurrentMonthName()})</h3>
-				<div class="total-section">
-					<div class="total-label">Total Amount:</div>
-					<div class="total-amount">{formatAmount(currentMonthExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+				<!-- Current Month Chart -->
+				<div class="chart-section">
+					<h3>Current Month ({getCurrentMonthName()})</h3>
+					<div class="total-section">
+						<div class="total-label">Total Amount:</div>
+						<div class="total-amount">{formatAmount(currentMonthExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+					</div>
+					{#if currentMonthExpensesByCategory.length > 0}
+						<div class="legend">
+							{#each currentMonthExpensesByCategory as item}
+								<div 
+									class="legend-item" 
+									class:zero-amount={item.amount === 0}
+									class:clickable={item.amount > 0}
+									on:click={() => showCategoryDetails(item.category, item.amount, 'current')}
+								>
+									<span class="legend-color" style="background-color: {item.color}"></span>
+									<span class="legend-label">{item.category}</span>
+									<span class="legend-value">{formatAmount(item.amount)}</span>
+									<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="no-data">
+							<p>No expenses for this month</p>
+						</div>
+					{/if}
 				</div>
-				{#if currentMonthExpensesByCategory.length > 0}
-					<div class="legend">
-						{#each currentMonthExpensesByCategory as item}
-							<div 
-								class="legend-item" 
-								class:zero-amount={item.amount === 0}
-								class:clickable={item.amount > 0}
-								on:click={() => showCategoryDetails(item.category, item.amount, 'current')}
-							>
-								<span class="legend-color" style="background-color: {item.color}"></span>
-								<span class="legend-label">{item.category}</span>
-								<span class="legend-value">{formatAmount(item.amount)}</span>
-								<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="no-data">
-						<p>No expenses for this month</p>
-					</div>
-				{/if}
-			</div>
 
-			<!-- Custom Period 1 -->
-			{#if showCustomPeriods}
-			<div class="chart-section">
-				<h3>Period 1: {formatPeriodLabel(period1StartDate, period1EndDate)}</h3>
-				<div class="total-section">
-					<div class="total-label">Total Amount:</div>
-					<div class="total-amount">{formatAmount(period1ExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+				<!-- Custom Period 1 -->
+				{#if showCustomPeriods}
+				<div class="chart-section">
+					<h3>Period 1: {formatPeriodLabel(period1StartDate, period1EndDate)}</h3>
+					<div class="total-section">
+						<div class="total-label">Total Amount:</div>
+						<div class="total-amount">{formatAmount(period1ExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+					</div>
+					{#if period1ExpensesByCategory.length > 0}
+						<div class="legend">
+							{#each period1ExpensesByCategory as item}
+								<div 
+									class="legend-item" 
+									class:zero-amount={item.amount === 0}
+									class:clickable={item.amount > 0}
+									on:click={() => showCategoryDetails(item.category, item.amount, 'period1')}
+								>
+									<span class="legend-color" style="background-color: {item.color}"></span>
+									<span class="legend-label">{item.category}</span>
+									<span class="legend-value">{formatAmount(item.amount)}</span>
+									<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="no-data">
+							<p>No expenses for this period</p>
+						</div>
+					{/if}
 				</div>
-				{#if period1ExpensesByCategory.length > 0}
-					<div class="legend">
-						{#each period1ExpensesByCategory as item}
-							<div 
-								class="legend-item" 
-								class:zero-amount={item.amount === 0}
-								class:clickable={item.amount > 0}
-								on:click={() => showCategoryDetails(item.category, item.amount, 'period1')}
-							>
-								<span class="legend-color" style="background-color: {item.color}"></span>
-								<span class="legend-label">{item.category}</span>
-								<span class="legend-value">{formatAmount(item.amount)}</span>
-								<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="no-data">
-						<p>No expenses for this period</p>
-					</div>
-				{/if}
-			</div>
 
-			<!-- Custom Period 2 -->
-			<div class="chart-section">
-				<h3>Period 2: {formatPeriodLabel(period2StartDate, period2EndDate)}</h3>
-				<div class="total-section">
-					<div class="total-label">Total Amount:</div>
-					<div class="total-amount">{formatAmount(period2ExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+				<!-- Custom Period 2 -->
+				<div class="chart-section">
+					<h3>Period 2: {formatPeriodLabel(period2StartDate, period2EndDate)}</h3>
+					<div class="total-section">
+						<div class="total-label">Total Amount:</div>
+						<div class="total-amount">{formatAmount(period2ExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
+					</div>
+					{#if period2ExpensesByCategory.length > 0}
+						<div class="legend">
+							{#each period2ExpensesByCategory as item}
+								<div 
+									class="legend-item" 
+									class:zero-amount={item.amount === 0}
+									class:clickable={item.amount > 0}
+									on:click={() => showCategoryDetails(item.category, item.amount, 'period2')}
+								>
+									<span class="legend-color" style="background-color: {item.color}"></span>
+									<span class="legend-label">{item.category}</span>
+									<span class="legend-value">{formatAmount(item.amount)}</span>
+									<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="no-data">
+							<p>No expenses for this period</p>
+						</div>
+					{/if}
 				</div>
-				{#if period2ExpensesByCategory.length > 0}
-					<div class="legend">
-						{#each period2ExpensesByCategory as item}
-							<div 
-								class="legend-item" 
-								class:zero-amount={item.amount === 0}
-								class:clickable={item.amount > 0}
-								on:click={() => showCategoryDetails(item.category, item.amount, 'period2')}
-							>
-								<span class="legend-color" style="background-color: {item.color}"></span>
-								<span class="legend-label">{item.category}</span>
-								<span class="legend-value">{formatAmount(item.amount)}</span>
-								<span class="legend-percentage">({item.percentage.toFixed(1)}%)</span>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="no-data">
-						<p>No expenses for this period</p>
-					</div>
 				{/if}
 			</div>
-			{/if}
-		</div>
-	{/if}
+		{/if}
+	</div>
 </div>
 
 <!-- Custom Period Modal -->
@@ -1004,10 +1006,11 @@
 		display: flex;
 		flex-direction: column;
 		background: #f8f9fa;
-		overflow: auto;
+		overflow: hidden;
 	}
 
 	.header {
+		flex-shrink: 0;
 		padding: 20px;
 		background: white;
 		border-bottom: 2px solid #e9ecef;
@@ -1015,6 +1018,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		z-index: 100;
 	}
 
 	.header h2 {
@@ -1073,6 +1077,12 @@
 		box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
 	}
 
+	.content-area {
+		flex: 1;
+		overflow-y: auto;
+		position: relative;
+	}
+
 	.charts-container {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
@@ -1088,7 +1098,12 @@
 	}
 
 	.chart-section h3 {
-		margin: 0 0 20px 0;
+		position: sticky;
+		top: 0;
+		z-index: 50;
+		background: white;
+		padding: 10px 0;
+		margin: 0 0 10px 0;
 		font-size: 18px;
 		font-weight: 600;
 		color: #333;
@@ -1096,6 +1111,9 @@
 	}
 
 	.total-section {
+		position: sticky;
+		top: 48px;
+		z-index: 45;
 		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 		padding: 16px 20px;
 		border-radius: 8px;
@@ -1273,6 +1291,10 @@
 	}
 
 	.modal-header {
+		position: sticky;
+		top: 0;
+		z-index: 100;
+		background: white;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -1410,6 +1432,9 @@
 	}
 
 	.modal-footer {
+		position: sticky;
+		bottom: 0;
+		z-index: 10;
 		padding: 20px 24px;
 		border-top: 2px solid #e9ecef;
 		background: #f8f9fa;

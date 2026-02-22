@@ -31,6 +31,19 @@ export const englishLocale: LocaleData = {
       updateLater: "Later",
     },
 
+    // Vendor Payment Filters
+    vendorPaymentFilters: {
+      dueIn: "Due In",
+      anyTime: "Any Time",
+      days7: "7 Days",
+      days15: "15 Days",
+      days30: "30 Days",
+      all: "All",
+      unpaid: "Unpaid",
+      paid: "Paid",
+      any: "Any",
+    },
+
     // Navigation & UI
     nav: {
       dashboard: "Dashboard",

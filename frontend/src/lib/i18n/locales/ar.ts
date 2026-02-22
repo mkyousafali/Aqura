@@ -33,6 +33,19 @@ export const arabicLocale: LocaleData = {
       updateLater: "لاحقاً",
     },
 
+    // Vendor Payment Filters
+    vendorPaymentFilters: {
+      dueIn: "يستحق خلال",
+      anyTime: "أي وقت",
+      days7: "7 أيام",
+      days15: "15 يوم",
+      days30: "30 يوم",
+      all: "الكل",
+      unpaid: "غير مدفوع",
+      paid: "مدفوع",
+      any: "أي",
+    },
+
     // Navigation & UI
     nav: {
       dashboard: "لوحة التحكم",
