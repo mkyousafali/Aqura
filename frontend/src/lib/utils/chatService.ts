@@ -1,4 +1,4 @@
-// AI Chat Service — OpenAI with Gemini fallback
+// AI Chat Service — Gemini only (keys from DB)
 import { supabase } from '$lib/utils/supabase';
 
 export interface ChatMessage {
@@ -6,30 +6,23 @@ export interface ChatMessage {
 	content: string;
 }
 
-/** Returns { openaiKey, geminiKey } from system_api_keys table */
-async function getAIKeys(): Promise<{ openaiKey: string | null; geminiKey: string | null }> {
+/** Returns Gemini API key from system_api_keys table */
+async function getGeminiKey(): Promise<string | null> {
 	try {
 		const { data } = await supabase
 			.from('system_api_keys')
-			.select('service_name, api_key, is_active')
-			.in('service_name', ['openai', 'google']);
+			.select('api_key')
+			.eq('service_name', 'google')
+			.eq('is_active', true)
+			.maybeSingle();
 
-		const rows: any[] = data || [];
-		const openaiRow = rows.find((r) => r.service_name === 'openai' && r.is_active && r.api_key);
-		const googleRow = rows.find((r) => r.service_name === 'google' && r.is_active && r.api_key);
-		return {
-			openaiKey: openaiRow?.api_key || import.meta.env.VITE_OPENAI_API_KEY || null,
-			geminiKey: googleRow?.api_key || import.meta.env.VITE_GOOGLE_API_KEY || null
-		};
+		return data?.api_key || null;
 	} catch {
-		return {
-			openaiKey: import.meta.env.VITE_OPENAI_API_KEY || null,
-			geminiKey: import.meta.env.VITE_GOOGLE_API_KEY || null
-		};
+		return null;
 	}
 }
 
-/** Call Gemini as fallback when OpenAI is unavailable */
+/** Call Gemini API */
 async function sendGeminiMessage(messages: ChatMessage[], geminiKey: string): Promise<string> {
 	const contents = messages
 		.filter((m) => m.role !== 'system')
@@ -68,8 +61,6 @@ export async function sendChatMessage(
 	messages: ChatMessage[],
 	locale: string = 'en'
 ): Promise<string> {
-	const { openaiKey, geminiKey } = await getAIKeys();
-
 	// Fetch the custom guide from database
 	const customGuide = await getAIChatGuide();
 
@@ -88,23 +79,10 @@ export async function sendChatMessage(
 
 	const allMessages = [systemMessage, ...messages];
 
-	// Try OpenAI first, fall back to Gemini
-	if (openaiKey) {
-		try {
-			const response = await fetch('https://api.openai.com/v1/chat/completions', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-				body: JSON.stringify({ model: 'gpt-4o-mini', messages: allMessages, max_tokens: 500, temperature: 0.7 })
-			});
-			if (response.ok) {
-				const data = await response.json();
-				return data.choices?.[0]?.message?.content?.trim() || 'No response';
-			}
-		} catch { /* fall through to Gemini */ }
+	// Use Gemini API
+	const geminiKey = await getGeminiKey();
+	if (!geminiKey) {
+		throw new Error('No AI provider configured. Add a Google API key in API Keys Manager.');
 	}
-
-	// Gemini fallback
-	if (geminiKey) return sendGeminiMessage(allMessages, geminiKey);
-
-	throw new Error('No AI provider configured. Add OpenAI or Google key in API Keys Manager.');
+	return sendGeminiMessage(allMessages, geminiKey);
 }
