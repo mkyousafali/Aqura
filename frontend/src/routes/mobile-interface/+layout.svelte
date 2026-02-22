@@ -684,6 +684,7 @@
 		if (path === '/mobile-interface/expiry-manager' || path === '/mobile-interface/expiry-manager/') return locale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager';
 		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'فحص الأسعار' : 'Price Checker';
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
+		if (path === '/mobile-interface/start-receiving' || path === '/mobile-interface/start-receiving/') return locale === 'ar' ? 'بدء الاستلام' : 'Start Receiving';
 		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
 		if (path === '/mobile-interface/live-chat' || path === '/mobile-interface/live-chat/') return locale === 'ar' ? 'دعم برنامج الولاء' : 'Loyalty Program Support';
 		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
@@ -1172,7 +1173,7 @@
 
 			<!-- Stock Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') }>
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') }>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -1224,6 +1225,14 @@
 								<circle cx="12" cy="7" r="4"/>
 							</svg>
 							<span>{$currentLocale === 'ar' ? 'منتجاتي' : 'My Products'}</span>
+						</a>
+						<a href="/mobile-interface/start-receiving" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/start-receiving')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+								<polyline points="14 2 14 8 20 8"/>
+								<path d="M12 18v-6M9 15l3-3 3 3"/>
+							</svg>
+							<span>{$currentLocale === 'ar' ? 'بدء الاستلام' : 'Start Receiving'}</span>
 						</a>
 	
 					</div>

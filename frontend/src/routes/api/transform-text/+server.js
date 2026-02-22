@@ -1,26 +1,17 @@
 import { json } from "@sveltejs/kit";
-import { env } from "$env/dynamic/private";
 
-// Function to create OpenAI client with error handling
-function createOpenAIClient() {
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
+
+async function getGeminiKey() {
   try {
-    const apiKey =
-      env.OPENAI_API_KEY ||
-      env.VITE_OPENAI_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.VITE_OPENAI_API_KEY;
-
-    if (!apiKey) {
-      console.warn("No OpenAI API key found in environment variables");
-      return null;
-    }
-
-    // Dynamic import to avoid initialization errors during build
-    return import("openai").then(({ default: OpenAI }) => {
-      return new OpenAI({ apiKey });
-    });
-  } catch (error) {
-    console.error("Failed to create OpenAI client:", error);
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/system_api_keys?service_name=eq.google&is_active=eq.true&select=api_key&limit=1`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    const rows = await res.json();
+    return rows?.[0]?.api_key || null;
+  } catch {
     return null;
   }
 }
@@ -40,27 +31,21 @@ export async function POST({ request }) {
   try {
     console.log("Transform Text API accessed...");
 
-    // Create OpenAI client
-    const openaiClientPromise = createOpenAIClient();
-    if (!openaiClientPromise) {
-      console.error("Failed to create OpenAI client");
+    const GEMINI_KEY = await getGeminiKey();
+    if (!GEMINI_KEY) {
       return json(
-        {
-          error: "OpenAI API key not configured. Please check server environment variables.",
-        },
+        { error: "Google AI API key not configured. Set it in API Keys Manager." },
         { status: 500 }
       );
     }
 
-    const openai = await openaiClientPromise;
     const body = await request.json();
-    
     console.log("Request body received:", JSON.stringify(body, null, 2));
 
     const {
       text = '',
       language = 'en',
-      type = 'general' // 'investigation', 'warning', 'general'
+      type = 'general'
     } = body;
 
     if (!text.trim()) {
@@ -69,7 +54,6 @@ export async function POST({ request }) {
 
     const languageName = languageNames[language]?.name || 'English';
     
-    // Build the prompt based on type
     let typeInstruction = '';
     if (type === 'investigation') {
       typeInstruction = 'This is an HR investigation report.';
@@ -78,6 +62,8 @@ export async function POST({ request }) {
     } else {
       typeInstruction = 'This is a professional document.';
     }
+
+    const systemPrompt = `You are a professional text editor who corrects spelling, grammar, and improves tone. You only respond with the corrected text, nothing else. You keep the text in ${languageName} and do not translate it.`;
 
     const prompt = `You are a professional editor. ${typeInstruction}
 
@@ -95,25 +81,28 @@ ${text}
 
 Corrected text:`;
 
-    console.log("Sending prompt to OpenAI...");
+    console.log("Sending prompt to Gemini...");
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are a professional text editor who corrects spelling, grammar, and improves tone. You only respond with the corrected text, nothing else. You keep the text in ${languageName} and do not translate it.`
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 2000
-    });
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2000 }
+        })
+      }
+    );
 
-    const transformedText = completion.choices[0]?.message?.content || text;
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
+    }
+
+    const geminiData = await geminiRes.json();
+    const transformedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || text;
     
     console.log("Transformed text length:", transformedText.length);
 

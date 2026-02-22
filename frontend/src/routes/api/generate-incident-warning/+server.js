@@ -1,28 +1,22 @@
 import { json } from "@sveltejs/kit";
-import { env } from "$env/dynamic/private";
 
-// Function to create OpenAI client with error handling
-function createOpenAIClient() {
+// Fetch Gemini API key from system_api_keys via Supabase REST
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
+
+let GEMINI_KEY = '';
+
+async function getGeminiKey() {
+  if (GEMINI_KEY) return GEMINI_KEY;
   try {
-    const apiKey =
-      env.OPENAI_API_KEY ||
-      env.VITE_OPENAI_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.VITE_OPENAI_API_KEY;
-
-    if (!apiKey) {
-      console.warn("No OpenAI API key found in environment variables");
-      return null;
-    }
-
-    // Dynamic import to avoid initialization errors during build
-    return import("openai").then(({ default: OpenAI }) => {
-      return new OpenAI({ apiKey });
-    });
-  } catch (error) {
-    console.error("Failed to create OpenAI client:", error);
-    return null;
-  }
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/system_api_keys?service_name=eq.google&is_active=eq.true&select=api_key`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    const rows = await res.json();
+    if (rows?.[0]?.api_key) { GEMINI_KEY = rows[0].api_key; return GEMINI_KEY; }
+  } catch (e) { console.error('Failed to fetch Gemini key:', e); }
+  return null;
 }
 
 // Language name mapping
@@ -84,19 +78,18 @@ export async function POST({ request }) {
   try {
     console.log("Generate Incident Warning API accessed...");
 
-    // Create OpenAI client
-    const openaiClientPromise = createOpenAIClient();
-    if (!openaiClientPromise) {
-      console.error("Failed to create OpenAI client");
+    // Get Gemini key from DB
+    const geminiKey = await getGeminiKey();
+    if (!geminiKey) {
+      console.error("Failed to get Gemini API key");
       return json(
         {
-          error: "OpenAI API key not configured. Please check server environment variables.",
+          error: "AI API key not configured. Please add a Google API key in API Keys Manager.",
         },
         { status: 500 }
       );
     }
 
-    const openai = await openaiClientPromise;
     const body = await request.json();
     
     console.log("Request body received:", JSON.stringify(body, null, 2));
@@ -255,37 +248,42 @@ The ONLY languages you are allowed to use are: ${languageList}
 
 Keep the content professional, formal, and concise. Generate now:`;
 
-    console.log("Sending prompt to OpenAI...");
+    console.log("Sending prompt to Gemini...");
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert HR professional specializing in employee relations and formal documentation. You write clear, professional, and legally appropriate warning letters. 
+    const systemContent = `You are an expert HR professional specializing in employee relations and formal documentation. You write clear, professional, and legally appropriate warning letters. 
 
 CRITICAL LANGUAGE RULES:
 1. You MUST ONLY use the languages specified by the user
 2. If Arabic is not in the list of required languages, DO NOT write anything in Arabic
 3. If English is not in the list, DO NOT write in English
 4. DO NOT mix scripts from different languages - for example:
-   - Malayalam uses only മലയാളം script (not Hindi देवनागरी)
+   - Malayalam uses only മലയാളം script (not Hindi देवनागरী)
    - Bengali uses only বাংলা script
    - Hindi uses only हिंदी देवनागरी script
    - Tamil uses only தமிழ் script
    - Urdu uses only اردو script
-5. Strictly follow the language requirements and use the correct script for each language`
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000
-    });
+5. Strictly follow the language requirements and use the correct script for each language`;
 
-    const generatedText = completion.choices[0]?.message?.content || '';
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemContent }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
+        })
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
+    }
+
+    const geminiData = await geminiRes.json();
+    const generatedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     
     console.log("Generated text length:", generatedText.length);
 

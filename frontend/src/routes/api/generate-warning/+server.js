@@ -1,26 +1,17 @@
 import { json } from "@sveltejs/kit";
-import { env } from "$env/dynamic/private";
 
-// Function to create OpenAI client with error handling
-function createOpenAIClient() {
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
+
+async function getGeminiKey() {
   try {
-    const apiKey =
-      env.OPENAI_API_KEY ||
-      env.VITE_OPENAI_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.VITE_OPENAI_API_KEY;
-
-    if (!apiKey) {
-      console.warn("No OpenAI API key found in environment variables");
-      return null;
-    }
-
-    // Dynamic import to avoid initialization errors during build
-    return import("openai").then(({ default: OpenAI }) => {
-      return new OpenAI({ apiKey });
-    });
-  } catch (error) {
-    console.error("Failed to create OpenAI client:", error);
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/system_api_keys?service_name=eq.google&is_active=eq.true&select=api_key&limit=1`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    const rows = await res.json();
+    return rows?.[0]?.api_key || null;
+  } catch {
     return null;
   }
 }
@@ -29,16 +20,11 @@ export async function POST({ request }) {
   try {
     console.log("API route accessed, checking environment...");
 
-    // Create OpenAI client
-    const openaiClientPromise = createOpenAIClient();
-    if (!openaiClientPromise) {
-      console.error("Failed to create OpenAI client");
+    const GEMINI_KEY = await getGeminiKey();
+    if (!GEMINI_KEY) {
       return json(
-        {
-          error:
-            "OpenAI API key not configured. Please check server environment variables.",
-        },
-        { status: 500 },
+        { error: "Google AI API key not configured. Set it in API Keys Manager." },
+        { status: 500 }
       );
     }
 
@@ -488,30 +474,29 @@ ${fineType !== "no_fine" ? "- জরিমানা পরিমাণ এবং
     console.log("Using prompt for language:", mappedLanguage);
     console.log("Prompt preview:", systemPrompt.substring(0, 200) + "...");
 
-    // Get OpenAI client
-    const openai = await openaiClientPromise;
-    if (!openai) {
-      throw new Error("Failed to initialize OpenAI client");
+    // Call Gemini API
+    const systemContent = `You are a professional HR assistant that generates SHORT and CONCISE formal warning letters (maximum 4-5 sentences). Always maintain a professional, firm but respectful tone. Respond ONLY in ${mappedLanguage}. Do not mix languages. CRITICAL: Never include placeholders like [Your Name], [HR Assistant], [Date], [Company Name] or any bracketed text. Never include signature lines or closing salutations. Generate only the warning content paragraph. KEEP IT SHORT - maximum 4-5 sentences.`;
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemContent }] },
+          contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
+        })
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
     }
 
-    // Call OpenAI API
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: `You are a professional HR assistant that generates SHORT and CONCISE formal warning letters (maximum 4-5 sentences). Always maintain a professional, firm but respectful tone. Respond ONLY in ${mappedLanguage}. Do not mix languages. CRITICAL: Never include placeholders like [Your Name], [HR Assistant], [Date], [Company Name] or any bracketed text. Never include signature lines or closing salutations. Generate only the warning content paragraph. KEEP IT SHORT - maximum 4-5 sentences.`,
-        },
-        {
-          role: "user",
-          content: systemPrompt,
-        },
-      ],
-      max_tokens: 300,
-      temperature: 0.7,
-    });
-
-    const warning = completion.choices[0]?.message?.content;
+    const geminiData = await geminiRes.json();
+    const warning = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!warning) {
       throw new Error("No warning content generated");
