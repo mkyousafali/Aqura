@@ -34,11 +34,11 @@
 		if (!err && data) {
 			products = data.map(p => ({
 				id: p.id,
-				name_ar: p.product_name_ar,
-				name_en: p.product_name_en,
+				name_ar: p.product_name_ar || p.name_ar,
+				name_en: p.product_name_en || p.name_en,
 				barcode: p.barcode,
 				unit_id: p.unit_id,
-				price: p.sale_price,
+				price: parseFloat(p.sale_price) || parseFloat(p.price) || 0,
 				image_url: p.image_url
 			}));
 		}
