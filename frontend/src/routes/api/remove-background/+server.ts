@@ -1,8 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { REMOVE_BG_API_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 export const POST: RequestHandler = async ({ request, fetch }) => {
+	const REMOVE_BG_API_KEY = env.REMOVE_BG_API_KEY || '';
 	try {
 		const { imageUrl } = await request.json();
 

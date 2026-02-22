@@ -269,7 +269,7 @@
 		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
 		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
 		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
-		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
+		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
 		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
 		'CREATE_TASK': 'nav.createTaskTemplate', 'VIEW_TASKS': 'nav.viewTaskTemplates',
 		'ASSIGN_TASKS': 'nav.assignTasks', 'VIEW_MY_TASKS': 'nav.viewMyTasks',
@@ -1102,7 +1102,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Break Register #${instanceNumber}`,
+			title: t('nav.breakRegister'),
 			component: BreakRegisterManager,
 			icon: '☕',
 			size: { width: 1100, height: 700 },
@@ -1881,6 +1881,7 @@ function openApprovalCenter() {
 			'INCIDENT_MANAGER': openIncidentManager,
 			'REPORT_INCIDENT': openReportIncident,
 			'DAILY_CHECKLIST_MANAGER': openDailyChecklistManager,
+			'BREAK_REGISTER': openBreakRegister,
 			'FINGERPRINT_TRANSACTIONS': openFingerprintTransactions,
 			'EXPORT_BIOMETRIC_DATA': openExportBiometricData,
 			'TASK_MASTER': openTaskMaster,
@@ -4277,12 +4278,14 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showFinanceManageSubmenu}
 				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('CATEGORY_MANAGER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCategoryManager}>
 							<span class="menu-icon">📁</span>
 							<span class="menu-text">{t('nav.categoryManager')}</span>
 						</button>
 					</div>
+					{/if}
 					{#if isButtonAllowed('PURCHASE_VOUCHER_MANAGER')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPurchaseVoucherManager}>
@@ -4678,12 +4681,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					{#if isButtonAllowed('BREAK_REGISTER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openBreakRegister}>
 							<span class="menu-icon">☕</span>
-							<span class="menu-text">{$currentLocale === 'ar' ? 'سجل الاستراحات' : 'Break Register'}</span>
+							<span class="menu-text">{t('nav.breakRegister')}</span>
 						</button>
 					</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -5541,13 +5546,15 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+				{#if isButtonAllowed('ERP_PRODUCT_MANAGER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openErpProductManager}>
 							<span class="menu-icon">🏭</span>
 							<span class="menu-text">{t('nav.erpProductManager')}</span>
 						</button>
 					</div>
-				{#if $currentUser?.isMasterAdmin}
+				{/if}
+				{#if isButtonAllowed('STORAGE_MANAGER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openStorageManager}>
 							<span class="menu-icon">🗄️</span>
