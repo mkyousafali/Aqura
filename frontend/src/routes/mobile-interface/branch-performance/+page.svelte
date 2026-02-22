@@ -11,13 +11,37 @@
 	let specificDate = '';
 	let showDatePicker = false;
 	let showFilterPopup = false;
-	let activeTab: 'overview' | 'branches' | 'employees' = 'branches';
+	let activeTab: 'overview' | 'branches' | 'employees' | 'assignedby' = 'branches';
 	let empBranchFilter = 'all';
 	let showBranchPopup = false;
+	let assignerBranchFilter = 'all';
+	let showAssignerBranchPopup = false;
 
 	function selectBranch(val: string) {
 		empBranchFilter = val;
 		showBranchPopup = false;
+	}
+
+	function selectAssignerBranch(val: string) {
+		assignerBranchFilter = val;
+		showAssignerBranchPopup = false;
+	}
+
+	function getAssignerBranchFilterLabel(): string {
+		if (assignerBranchFilter === 'all') return isRTL ? 'كل الفروع' : 'All Branches';
+		if (isRTL) {
+			const found = assignedByStats.find((a: any) => a.branch_name_en === assignerBranchFilter);
+			return found?.branch_name_ar || assignerBranchFilter;
+		}
+		return assignerBranchFilter;
+	}
+
+	function getAssignerName(a: any) {
+		return isRTL ? (a.name_ar || a.name_en) : (a.name_en || a.name_ar);
+	}
+
+	function getAssignerBranch(a: any) {
+		return isRTL ? (a.branch_name_ar || a.branch_name_en) : (a.branch_name_en || a.branch_name_ar);
 	}
 
 	function getBranchFilterLabel(): string {
@@ -142,14 +166,15 @@
 
 	function getPieSlices(typeStats: any) {
 		if (!typeStats) return [];
-		const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0);
+		const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0) + (typeStats.checklist || 0);
 		if (total === 0) return [];
 		const slices: any[] = [];
 		let currentAngle = 0;
 		const types = [
 			{ key: 'regular', color: '#3b82f6', label: isRTL ? 'عادية' : 'Regular', count: typeStats.regular || 0 },
 			{ key: 'quick', color: '#f59e0b', label: isRTL ? 'سريعة' : 'Quick', count: typeStats.quick || 0 },
-			{ key: 'receiving', color: '#8b5cf6', label: isRTL ? 'استلام' : 'Receiving', count: typeStats.receiving || 0 }
+			{ key: 'receiving', color: '#8b5cf6', label: isRTL ? 'استلام' : 'Receiving', count: typeStats.receiving || 0 },
+			{ key: 'checklist', color: '#10b981', label: isRTL ? 'قائمة فحص' : 'Checklist', count: typeStats.checklist || 0 }
 		];
 		for (const type of types) {
 			if (type.count === 0) continue;
@@ -176,6 +201,12 @@
 		? topEmployees
 		: topEmployees.filter((e: any) => e.branch_name_en === empBranchFilter);
 	$: availableBranches = [...new Set(topEmployees.map((e: any) => e.branch_name_en).filter(Boolean))] as string[];
+	$: assignedByStats = data?.assigned_by_stats || [];
+	$: filteredAssigners = assignerBranchFilter === 'all'
+		? assignedByStats
+		: assignedByStats.filter((a: any) => a.branch_name_en === assignerBranchFilter);
+	$: assignerBranches = [...new Set(assignedByStats.map((a: any) => a.branch_name_en).filter(Boolean))] as string[];
+	$: checklistStats = data?.checklist_stats || [];
 	$: totals = data?.totals || {};
 	$: completionRate = totals.total_tasks > 0 ? Math.round((totals.completed_tasks / totals.total_tasks) * 100) : 0;
 	$: visibleDaily = dailyStats.length > 7 ? dailyStats.slice(-7) : dailyStats;
@@ -248,6 +279,7 @@
 			<button class="tab-btn {activeTab === 'overview' ? 'tab-active' : ''}" on:click={() => activeTab = 'overview'}>{isRTL ? 'نظرة عامة' : 'Overview'}</button>
 			<button class="tab-btn {activeTab === 'branches' ? 'tab-active' : ''}" on:click={() => activeTab = 'branches'}>{isRTL ? 'الفروع' : 'Branches'}</button>
 			<button class="tab-btn {activeTab === 'employees' ? 'tab-active' : ''}" on:click={() => activeTab = 'employees'}>{isRTL ? 'الموظفين' : 'Employees'}</button>
+			<button class="tab-btn {activeTab === 'assignedby' ? 'tab-active' : ''}" on:click={() => activeTab = 'assignedby'}>{isRTL ? 'المُسنِد' : 'Assigned By'}</button>
 		</div>
 	</div>
 
@@ -284,6 +316,16 @@
 					<div class="kpi-card red">
 						<p class="kpi-label">{isRTL ? 'متأخر' : 'Overdue'}</p>
 						<p class="kpi-value">{totals.overdue_tasks?.toLocaleString() || 0}</p>
+					</div>
+					<div class="kpi-card teal">
+						<p class="kpi-label">{isRTL ? 'قوائم الفحص' : 'Checklists'}</p>
+						<p class="kpi-value">{totals.total_checklists?.toLocaleString() || 0}</p>
+						<p class="kpi-sub">{isRTL ? 'تقييم' : 'submissions'}</p>
+					</div>
+					<div class="kpi-card emerald">
+						<p class="kpi-label">{isRTL ? 'متوسط التقييم' : 'Avg Score'}</p>
+						<p class="kpi-value">{totals.avg_checklist_score || 0}%</p>
+						<p class="kpi-sub">{isRTL ? 'قائمة فحص' : 'checklist'}</p>
 					</div>
 				</div>
 
@@ -400,6 +442,12 @@
 							<span class="type-badge amber">{isRTL ? 'سريع' : 'Quick'} {branch.quick_count}</span>
 							<span class="type-badge violet">{isRTL ? 'استلام' : 'Recv'} {branch.receiving_count}</span>
 						</div>
+						{#if branch.checklist_count > 0}
+							<div class="branch-checklist-row">
+								<span class="checklist-badge">📋 {isRTL ? 'فحص' : 'Checklist'} {branch.checklist_count}</span>
+								<span class="checklist-score" style="color: {getCompletionColor(branch.avg_checklist_score)}">{branch.avg_checklist_score}%</span>
+							</div>
+						{/if}
 					</div>
 				{/each}
 				{#if branchStats.length === 0}
@@ -441,24 +489,104 @@
 
 				<!-- Top Employees -->
 				{#each filteredEmployees as emp, idx}
-					<div class="emp-row">
+					<div class="emp-row emp-row-2line">
 						<div class="emp-rank {idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}">
 							{idx + 1}
 						</div>
-						<div class="emp-info">
-							<p class="emp-name">{getEmpName(emp)}</p>
-							<p class="emp-branch">{getEmpBranch(emp)}</p>
-						</div>
-						<div class="emp-stats">
-							<p class="emp-completed">{emp.completed}<span class="emp-total">/{emp.total}</span></p>
-							<div class="emp-bar">
-								<div class="emp-bar-fill" style="width: {emp.rate}%; background: {getCompletionColor(emp.rate)}"></div>
+						<div class="emp-details">
+							<div class="emp-info">
+								<p class="emp-name">{getEmpName(emp)}</p>
+								<p class="emp-branch">{getEmpBranch(emp)}</p>
 							</div>
-							<p class="emp-rate" style="color: {getCompletionColor(emp.rate)}">{emp.rate}%</p>
+							<div class="emp-line task-line">
+								<span class="emp-line-icon">📝</span>
+								<span class="emp-line-label">{isRTL ? 'مهام' : 'Tasks'}</span>
+								<span class="emp-completed">{emp.completed}<span class="emp-total">/{emp.total}</span></span>
+								<div class="emp-bar">
+									<div class="emp-bar-fill" style="width: {emp.rate}%; background: {getCompletionColor(emp.rate)}"></div>
+								</div>
+								<span class="emp-rate" style="color: {getCompletionColor(emp.rate)}">{emp.rate}%</span>
+							</div>
+							{#if emp.checklist_count > 0}
+								<div class="emp-line checklist-line">
+									<span class="emp-line-icon">📋</span>
+									<span class="emp-line-label">{isRTL ? 'فحص' : 'Checklists'}</span>
+									<span class="emp-completed">{emp.checklist_count}</span>
+									<div class="emp-bar">
+										<div class="emp-bar-fill" style="width: {emp.avg_checklist_score || 0}%; background: {getCompletionColor(emp.avg_checklist_score || 0)}"></div>
+									</div>
+									<span class="emp-rate" style="color: {getCompletionColor(emp.avg_checklist_score || 0)}">{emp.avg_checklist_score || 0}%</span>
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/each}
 				{#if filteredEmployees.length === 0}
+					<div class="empty-state">{isRTL ? 'لا بيانات' : 'No data'}</div>
+				{/if}
+
+			{:else if activeTab === 'assignedby'}
+				<!-- Branch Filter for Assigners -->
+				<button class="branch-picker-btn" on:click={() => showAssignerBranchPopup = true}>
+					<span class="branch-picker-icon">🏢</span>
+					<span class="branch-picker-label">{getAssignerBranchFilterLabel()}</span>
+					<span class="branch-picker-count">{filteredAssigners.length} {isRTL ? 'مسنِد' : 'assigners'}</span>
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+				</button>
+
+				<!-- Assigner Branch Popup -->
+				{#if showAssignerBranchPopup}
+					<div class="popup-overlay" on:click|self={() => showAssignerBranchPopup = false} on:keydown={(e) => e.key === 'Escape' && (showAssignerBranchPopup = false)} role="dialog" aria-modal="true">
+						<div class="popup-sheet">
+							<div class="popup-handle"></div>
+							<h3 class="popup-title">{isRTL ? 'اختر الفرع' : 'Select Branch'}</h3>
+							<div class="popup-list">
+								<button class="popup-item {assignerBranchFilter === 'all' ? 'popup-item-active' : ''}" on:click={() => selectAssignerBranch('all')}>
+									<span class="popup-item-icon">🌐</span>
+									<span class="popup-item-label">{isRTL ? 'كل الفروع' : 'All Branches'}</span>
+									{#if assignerBranchFilter === 'all'}<span class="popup-check">✓</span>{/if}
+								</button>
+								{#each assignerBranches as br}
+									<button class="popup-item {assignerBranchFilter === br ? 'popup-item-active' : ''}" on:click={() => selectAssignerBranch(br)}>
+										<span class="popup-item-icon">🏢</span>
+										<span class="popup-item-label">{isRTL ? (assignedByStats.find((a: any) => a.branch_name_en === br)?.branch_name_ar || br) : br}</span>
+										{#if assignerBranchFilter === br}<span class="popup-check">✓</span>{/if}
+									</button>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Assigner Cards -->
+				{#each filteredAssigners as assigner, idx}
+					<div class="assigner-card">
+						<div class="assigner-header">
+							<div class="assigner-rank {idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}">
+								{idx + 1}
+							</div>
+							<div class="assigner-info">
+								<p class="assigner-name">{getAssignerName(assigner)}</p>
+								<p class="assigner-branch">{getAssignerBranch(assigner)}</p>
+							</div>
+							<div class="assigner-rate" style="color: {getCompletionColor(assigner.completion_rate)}">
+								{assigner.completion_rate}%
+							</div>
+						</div>
+						<div class="assigner-progress">
+							<div class="progress-bar">
+								<div class="progress-fill" style="width: {assigner.completion_rate}%; background: {getCompletionColor(assigner.completion_rate)}"></div>
+							</div>
+						</div>
+						<div class="assigner-metrics">
+							<div class="metric"><span class="metric-val">{assigner.total_assigned}</span><span class="metric-lbl">{isRTL ? 'أسنَد' : 'Assigned'}</span></div>
+							<div class="metric"><span class="metric-val green-text">{assigner.completed}</span><span class="metric-lbl">{isRTL ? 'مكتمل' : 'Done'}</span></div>
+							<div class="metric"><span class="metric-val amber-text">{assigner.pending}</span><span class="metric-lbl">{isRTL ? 'معلق' : 'Pend.'}</span></div>
+							<div class="metric"><span class="metric-val red-text">{assigner.overdue}</span><span class="metric-lbl">{isRTL ? 'متأخر' : 'Late'}</span></div>
+						</div>
+					</div>
+				{/each}
+				{#if filteredAssigners.length === 0}
 					<div class="empty-state">{isRTL ? 'لا بيانات' : 'No data'}</div>
 				{/if}
 			{/if}
@@ -884,16 +1012,70 @@
 	.type-badge.amber  { background: #fffbeb; color: #d97706; }
 	.type-badge.violet { background: #f5f3ff; color: #7c3aed; }
 
+	/* Branch checklist row */
+	.branch-checklist-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 0.3rem;
+		padding-top: 0.3rem;
+		border-top: 1px dashed #e2e8f0;
+	}
+	.checklist-badge {
+		font-size: 0.6rem;
+		font-weight: 700;
+		padding: 0.15rem 0.5rem;
+		border-radius: 4px;
+		background: #ecfdf5;
+		color: #059669;
+	}
+	.checklist-score {
+		font-size: 0.72rem;
+		font-weight: 900;
+	}
+
+	/* KPI teal & emerald */
+	.kpi-card.teal { border-color: #14b8a6; }
+	.kpi-card.teal .kpi-label { color: #0d9488; }
+	.kpi-card.teal .kpi-value { color: #0f766e; }
+	.kpi-card.emerald { border-color: #10b981; }
+	.kpi-card.emerald .kpi-label { color: #059669; }
+	.kpi-card.emerald .kpi-value { color: #047857; }
+
 	/* Employee rows */
 	.emp-row {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 0.5rem;
 		background: white;
 		border-radius: 10px;
 		padding: 0.55rem 0.65rem;
 		border: 1px solid #f1f5f9;
 		margin-bottom: 0.35rem;
+	}
+	.emp-row-2line { align-items: flex-start; }
+	.emp-details {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.emp-line {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.emp-line-icon { font-size: 0.65rem; flex-shrink: 0; }
+	.emp-line-label {
+		font-size: 0.58rem;
+		font-weight: 700;
+		color: #94a3b8;
+		min-width: 42px;
+	}
+	.checklist-line {
+		padding-top: 0.15rem;
+		border-top: 1px dashed #f1f5f9;
 	}
 	.emp-rank {
 		width: 26px; height: 26px;
@@ -927,13 +1109,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.emp-stats {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		flex-shrink: 0;
-		min-width: 60px;
 	}
 	.emp-completed {
 		font-size: 0.82rem;
@@ -1075,5 +1250,64 @@
 		padding: 2rem 1rem;
 		color: #94a3b8;
 		font-size: 0.78rem;
+	}
+
+	/* Assigner cards */
+	.assigner-card {
+		background: white;
+		border-radius: 12px;
+		padding: 0.65rem 0.75rem;
+		border: 1px solid #f1f5f9;
+		box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+		margin-bottom: 0.4rem;
+	}
+	.assigner-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.35rem;
+	}
+	.assigner-rank {
+		width: 26px; height: 26px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.68rem;
+		font-weight: 900;
+		background: #f1f5f9;
+		color: #64748b;
+		flex-shrink: 0;
+	}
+	.assigner-rank.gold   { background: #fef3c7; color: #b45309; }
+	.assigner-rank.silver { background: #e2e8f0; color: #475569; }
+	.assigner-rank.bronze { background: #ffedd5; color: #c2410c; }
+	.assigner-info { flex: 1; min-width: 0; }
+	.assigner-name {
+		font-size: 0.75rem;
+		font-weight: 800;
+		color: #1e293b;
+		margin: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.assigner-branch {
+		font-size: 0.6rem;
+		color: #94a3b8;
+		margin: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.assigner-rate {
+		font-size: 1.1rem;
+		font-weight: 900;
+		flex-shrink: 0;
+	}
+	.assigner-progress { margin-bottom: 0.4rem; }
+	.assigner-metrics {
+		display: flex;
+		gap: 0.6rem;
 	}
 </style>

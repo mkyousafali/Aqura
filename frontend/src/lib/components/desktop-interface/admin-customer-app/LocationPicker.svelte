@@ -124,8 +124,12 @@
         animation: google.maps.Animation.DROP,
       });
 
-      // Don't auto-select - let user click to select their exact location
-      // This ensures accuracy instead of relying on potentially inaccurate geolocation
+      // Auto-select current location if geolocation was successful (not denied)
+      if (!locationDenied) {
+        // @ts-ignore
+        const latLng = new google.maps.LatLng(initialLat, initialLng);
+        updateMarkerPosition(latLng);
+      }
 
       // Listen for map clicks
       map.addListener('click', (e: GoogleMapMouseEvent) => {

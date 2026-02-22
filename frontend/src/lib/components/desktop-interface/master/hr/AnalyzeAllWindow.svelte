@@ -208,7 +208,8 @@
 					workedMins: row.worked_minutes || 0,
 					status,
 					lateMins: row.late_minutes || 0,
-					underMins: row.under_minutes || 0
+					underMins: row.under_minutes || 0,
+					overtimeMins: row.overtime_minutes || 0
 				};
 			}
 
@@ -216,7 +217,7 @@
 			for (const [, empData] of empMap) {
 				for (const date of datesInRange) {
 					if (!empData.dayByDay[date]) {
-						empData.dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
+						empData.dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0, overtimeMins: 0 };
 					}
 				}
 			}
@@ -320,6 +321,7 @@
 		switch (status) {
 			case 'Worked': return $t('hr.processFingerprint.status_worked');
 			case 'Official Day Off': return $t('hr.processFingerprint.status_official_day_off');
+			case 'Official Holiday': return $t('hr.shiftAndDayOff.officialHolidays') || 'Official Holiday';
 			case 'Approved Leave (Deductible)': return $t('hr.processFingerprint.status_approved_leave_deductible') || 'Approved Leave (Deductible)';
 			case 'Approved Leave (No Deduction)': return $t('hr.processFingerprint.status_approved_leave_no_deduction') || 'Approved Leave (No Deduction)';
 			case 'Pending Approval': return $t('hr.processFingerprint.status_pending_approval') || 'Pending Approval';
@@ -358,6 +360,7 @@
 				'Worked': '\u0639\u0645\u0644',
 				'Absent': '\u063a\u0627\u0626\u0628',
 				'Official Day Off': '\u0625\u062c\u0627\u0632\u0629 \u0631\u0633\u0645\u064a\u0629',
+				'Official Holiday': '\u0639\u0637\u0644\u0629 \u0631\u0633\u0645\u064a\u0629',
 				'Approved Leave (Deductible)': '\u0625\u062c\u0627\u0632\u0629 \u0645\u0639\u062a\u0645\u062f\u0629 (\u062e\u0635\u0645)',
 				'Approved Leave (No Deduction)': '\u0625\u062c\u0627\u0632\u0629 \u0645\u0639\u062a\u0645\u062f\u0629 (\u0628\u062f\u0648\u0646 \u062e\u0635\u0645)',
 				'Pending Approval': '\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629',
@@ -411,6 +414,7 @@
 				if (s === 'Worked') return { ...base, font: { ...base.font, color: { rgb: '0D7A3E' }, bold: true } };
 				if (s === 'Absent') return { ...base, font: { ...base.font, color: { rgb: 'CC0000' }, bold: true } };
 				if (s === 'Official Day Off') return { ...base, font: { ...base.font, color: { rgb: '0066CC' }, bold: true } };
+				if (s === 'Official Holiday') return { ...base, font: { ...base.font, color: { rgb: '4338CA' }, bold: true } };
 				if (s.includes('Approved Leave')) return { ...base, font: { ...base.font, color: { rgb: '7B5EA7' }, bold: true } };
 				if (s === 'Pending Approval') return { ...base, font: { ...base.font, color: { rgb: 'B8860B' }, bold: true } };
 				if (s.includes('Rejected')) return { ...base, font: { ...base.font, color: { rgb: 'CC0000' }, bold: true } };
@@ -434,8 +438,8 @@
 				// Headers row 1: fixed cols + date labels (merged across 1 col each)
 				const fixedHeaders = isAr ? ['#', '\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0638\u0641', '\u0627\u0644\u0627\u0633\u0645'] : ['#', 'ID', 'Name'];
 				const summaryHeaders = isAr
-					? ['\u0623\u064a\u0627\u0645 \u0627\u0644\u0639\u0645\u0644', '\u063a\u064a\u0627\u0628', '\u0625\u062c\u0627\u0632\u0627\u062a', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u062a\u0623\u062e\u064a\u0631', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0646\u0642\u0635']
-					: ['Work Days', 'Absent', 'Leaves', 'Total Late', 'Total Underworked'];
+					? ['\u0623\u064a\u0627\u0645 \u0627\u0644\u0639\u0645\u0644', '\u063a\u064a\u0627\u0628', '\u0625\u062c\u0627\u0632\u0627\u062a', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u062a\u0623\u062e\u064a\u0631', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0646\u0642\u0635', '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0648\u0642\u062a \u0627\u0644\u0625\u0636\u0627\u0641\u064a']
+					: ['Work Days', 'Absent', 'Leaves', 'Total Late', 'Total Underworked', 'Total Overtime'];
 
 				const numCols = fixedHeaders.length + datesInRange.length + summaryHeaders.length;
 
@@ -468,7 +472,7 @@
 				// Data rows
 				for (let i = 0; i < filteredAnalysisData.length; i++) {
 					const row = filteredAnalysisData[i];
-					let workDays = 0, absentDays = 0, leaveDays = 0, totalLate = 0, totalUnder = 0;
+					let workDays = 0, absentDays = 0, leaveDays = 0, totalLate = 0, totalUnder = 0, totalOvertime = 0;
 
 					const dateCells: string[] = [];
 					for (const date of datesInRange) {
@@ -480,9 +484,11 @@
 							workDays++;
 							totalLate += day.lateMins || 0;
 							totalUnder += day.underMins || 0;
+							totalOvertime += day.overtimeMins || 0;
 							let cell = fmtMinsLang(day.workedMins, lang);
 							if (day.lateMins > 0) cell += `\n${isAr ? '\u062a\u0623\u062e\u064a\u0631' : 'Late'}: ${fmtMinsLang(day.lateMins, lang)}`;
 							if (day.underMins > 0) cell += `\n${isAr ? '\u0646\u0642\u0635' : 'Under'}: ${fmtMinsLang(day.underMins, lang)}`;
+							if (day.overtimeMins > 0) cell += `\n${isAr ? '\u0625\u0636\u0627\u0641\u064a' : 'OT'}: ${fmtMinsLang(day.overtimeMins, lang)}`;
 							dateCells.push(cell);
 						} else if (st === 'Absent') {
 							absentDays++;
@@ -490,7 +496,7 @@
 							let cell = getStatusLang(st, lang);
 							if (day.lateMins > 0) cell += `\n${isAr ? '\u062a\u0623\u062e\u064a\u0631' : 'Late'}: ${fmtMinsLang(day.lateMins, lang)}`;
 							dateCells.push(cell);
-						} else if (st.includes('Leave') || st.includes('Approved') || st === 'Official Day Off') {
+						} else if (st.includes('Leave') || st.includes('Approved') || st === 'Official Day Off' || st === 'Official Holiday') {
 							leaveDays++;
 							dateCells.push(getStatusLang(st, lang));
 						} else {
@@ -511,7 +517,8 @@
 						absentDays,
 						leaveDays,
 						fmtMinsLang(totalLate, lang),
-						fmtMinsLang(totalUnder, lang)
+						fmtMinsLang(totalUnder, lang),
+						fmtMinsLang(totalOvertime, lang)
 					];
 					aoa.push(dataRow);
 				}
@@ -527,7 +534,7 @@
 					{ wch: 12 }, // ID
 					{ wch: 22 }, // Name
 					...datesInRange.map(() => ({ wch: 16 })),
-					{ wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }
+					{ wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 16 }
 				];
 				ws['!cols'] = colWidths;
 
@@ -581,6 +588,10 @@
 								if (sumIdx === 3 || sumIdx === 4) {
 									// Total Late / Total Underworked
 									ws[ref].s = lateCellStyle(String(ws[ref].v || ''), base);
+								} else if (sumIdx === 5) {
+									// Total Overtime — amber if > 0
+									const v = String(ws[ref].v || '');
+									ws[ref].s = (v && v !== '-' && v !== '') ? { ...base, font: { ...base.font, color: { rgb: 'D97706' }, bold: true } } : base;
 								} else if (sumIdx === 1) {
 									// Absent count — red if > 0
 									const v = Number(ws[ref].v) || 0;
@@ -619,6 +630,7 @@
 			case 'Unapproved Day Off': return 'text-rose-700 font-bold';
 		case 'Absent': return 'text-gray-700 font-bold';
 			case 'Official Day Off': return 'text-blue-600';
+			case 'Official Holiday': return 'text-indigo-600 font-semibold';
 			case 'Approved Leave': return 'text-indigo-600';
 			case 'Approved Leave (Deductible)': return 'text-purple-600 font-semibold';
 			case 'Approved Leave (No Deduction)': return 'text-indigo-500';
@@ -768,6 +780,9 @@
 												</div>
 												{#if row.dayByDay[date].lateMins > 0}
 													<div class="text-[8px] text-amber-700 font-bold">{$t('hr.processFingerprint.late_abbr')}: {formatMinutes(row.dayByDay[date].lateMins)}</div>
+												{/if}
+												{#if row.dayByDay[date].overtimeMins > 0}
+													<div class="text-[8px] text-amber-600 font-bold">⏱️ {formatMinutes(row.dayByDay[date].overtimeMins)}</div>
 												{/if}
 											{:else}
 												<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">{getStatusLabel(row.dayByDay[date].status)}</span>

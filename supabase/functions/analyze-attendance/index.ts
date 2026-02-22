@@ -130,7 +130,9 @@ function analyzeEmployeeDays(
   employeeDayOffs: Map<string, any>,
   employeeSpecificDayOffs: Map<string, any[]>,
   employeeSpecialShiftsDateWise: Map<string, any[]>,
-  employeeSpecialShiftsWeekday: Map<string, any[]>
+  employeeSpecialShiftsWeekday: Map<string, any[]>,
+  employeeOfficialHolidays: Map<string, Set<string>>,
+  employeeOvertime: Map<string, Map<string, number>>
 ): any[] {
   const results: any[] = [];
   const consumedTransactions = new Set<string>();
@@ -165,6 +167,8 @@ function analyzeEmployeeDays(
         status = 'Pending Approval';
       } else if (isRejectedOff) {
         status = specOff.is_deductible_on_salary ? 'Rejected-Deducted' : 'Rejected-Not Deducted';
+      } else if (employeeOfficialHolidays.get(String(emp.id))?.has(date)) {
+        status = 'Official Holiday';
       } else {
         status = 'Absent';
       }
@@ -375,6 +379,7 @@ function analyzeEmployeeDays(
       worked_minutes: workedMins,
       late_minutes: lateMins,
       under_minutes: underMins,
+      overtime_minutes: employeeOvertime.get(String(emp.id))?.get(date) || 0,
       shift_start_time: shift?.shift_start_time || null,
       shift_end_time: shift?.shift_end_time || null,
       check_in_time: checkInTime,
@@ -478,6 +483,8 @@ Deno.serve(async (req) => {
       { data: specialShiftsDW },
       { data: specialShiftsWD },
       { data: specificDayOffs },
+      { data: officialHolidaysData },
+      { data: overtimeData },
     ] = await Promise.all([
       supabase.from('processed_fingerprint_transactions').select('*').in('center_id', empIds).gte('punch_date', extStart).lte('punch_date', extEnd),
       supabase.from('regular_shift').select('*').in('id', empIds),
@@ -485,6 +492,8 @@ Deno.serve(async (req) => {
       supabase.from('special_shift_date_wise').select('*').in('employee_id', empIds),
       supabase.from('special_shift_weekday').select('*').in('employee_id', empIds),
       supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds),
+      supabase.from('employee_official_holidays').select('employee_id, official_holidays(holiday_date)').in('employee_id', empIds),
+      supabase.from('overtime_registrations').select('*').in('employee_id', empIds),
     ]);
 
     console.log(`📊 [Analyze Attendance] Fetched: ${transactions?.length || 0} transactions, ${shifts?.length || 0} shifts`);
@@ -512,6 +521,29 @@ Deno.serve(async (req) => {
       const list = employeeSpecificDayOffs.get(String(d.employee_id)) || [];
       list.push(d);
       employeeSpecificDayOffs.set(String(d.employee_id), list);
+    });
+
+    // Build official holidays lookup: employee_id -> Set of holiday dates
+    const employeeOfficialHolidays = new Map<string, Set<string>>();
+    officialHolidaysData?.forEach((row: any) => {
+      const empId = String(row.employee_id);
+      const holidayDate = row.official_holidays?.holiday_date;
+      if (holidayDate) {
+        if (!employeeOfficialHolidays.has(empId)) {
+          employeeOfficialHolidays.set(empId, new Set());
+        }
+        employeeOfficialHolidays.get(empId)!.add(holidayDate);
+      }
+    });
+
+    // Build overtime lookup: employee_id -> Map<date, overtime_minutes>
+    const employeeOvertime = new Map<string, Map<string, number>>();
+    overtimeData?.forEach((o: any) => {
+      const empId = String(o.employee_id);
+      if (!employeeOvertime.has(empId)) {
+        employeeOvertime.set(empId, new Map());
+      }
+      employeeOvertime.get(empId)!.set(o.overtime_date, o.overtime_minutes || 0);
     });
 
     // Group transactions by employee
@@ -642,7 +674,9 @@ Deno.serve(async (req) => {
         employeeDayOffs,
         employeeSpecificDayOffs,
         employeeSpecialShiftsDateWise,
-        employeeSpecialShiftsWeekday
+        employeeSpecialShiftsWeekday,
+        employeeOfficialHolidays,
+        employeeOvertime
       );
       allResults.push(...empResults);
       totalAnalyzed += empResults.length;

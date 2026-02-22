@@ -745,7 +745,8 @@
 			const isCustomerRoute = $page.url.pathname.startsWith('/customer-interface');
 			const isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
 			const isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPopoutMode) {
+			const isPrivacyRoute = $page.url.pathname.startsWith('/privacy');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -781,7 +782,8 @@
 					const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer-interface');
 					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
 					const isCustomerLoginTimeout = $page.url.pathname.startsWith('/login/customer');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPopoutMode) {
+					const isPrivacyRouteTimeout = $page.url.pathname.startsWith('/privacy');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -809,7 +811,8 @@
 			// Only redirect to login if we're not already there and not on customer routes
 			const isCustomerRouteError = $page.url.pathname.startsWith('/customer-interface');
 			const isCustomerLoginError = $page.url.pathname.startsWith('/login/customer');
-			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPopoutMode) {
+			const isPrivacyRouteError = $page.url.pathname.startsWith('/privacy');
+			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -1022,6 +1025,7 @@
 	$: isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
 	$: isCustomerInterfaceRoute = $page.url.pathname.startsWith('/customer-interface');
 	$: isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
+	$: isPrivacyPage = $page.url.pathname.startsWith('/privacy');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
@@ -1046,7 +1050,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">
@@ -1054,7 +1058,7 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute}
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage}
 	<!-- Mobile, cashier, and customer routes get no desktop layout - completely independent -->
 	<slot />
 {:else}

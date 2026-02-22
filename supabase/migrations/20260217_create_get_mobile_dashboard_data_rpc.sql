@@ -22,6 +22,7 @@ DECLARE
     v_box_in_use INTEGER;
     v_checklist_assignments JSONB;
     v_checklist_submissions JSONB;
+    v_pending_tasks INTEGER;
     v_key TEXT;
     v_val TEXT;
 BEGIN
@@ -133,7 +134,14 @@ BEGIN
     FROM box_operations
     WHERE user_id = p_user_id AND status = 'in_use';
 
-    -- 6. Get checklist assignments (active, not deleted)
+    -- 6. Count pending tasks across all task types
+    SELECT
+        (SELECT COUNT(*) FROM task_assignments WHERE assigned_to_user_id = p_user_id AND status IN ('assigned', 'in_progress', 'pending')) +
+        (SELECT COUNT(*) FROM quick_task_assignments WHERE assigned_to_user_id = p_user_id AND status IN ('assigned', 'in_progress', 'pending')) +
+        (SELECT COUNT(*) FROM receiving_tasks WHERE assigned_user_id = p_user_id AND task_status IN ('pending', 'in_progress'))
+    INTO v_pending_tasks;
+
+    -- 7. Get checklist assignments (active, not deleted)
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
         'id', ca.id,
         'frequency_type', ca.frequency_type,
@@ -146,7 +154,7 @@ BEGIN
       AND ca.deleted_at IS NULL
       AND ca.is_active = true;
 
-    -- 7. Get today's checklist submissions
+    -- 8. Get today's checklist submissions
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
         'checklist_id', co.checklist_id
     )), '[]'::JSONB)
@@ -169,6 +177,7 @@ BEGIN
         ),
         'shift_info', v_shift_info,
         'punches', v_punches,
+        'pending_tasks', v_pending_tasks,
         'box_counts', jsonb_build_object(
             'pending_close', v_box_pending_close,
             'completed', v_box_completed,
