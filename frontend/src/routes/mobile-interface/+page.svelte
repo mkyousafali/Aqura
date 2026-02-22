@@ -19,6 +19,27 @@
 		pendingChecklists: 0
 	};
 	let hasAssignedChecklists = false;
+	let expiringProductsCount = 0;
+
+	// Break register
+	let activeBreak: any = null;
+	let breakElapsed = 0;
+	let breakTimerInterval: ReturnType<typeof setInterval> | null = null;
+
+	function formatBreakTimer(seconds: number): string {
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		const s = seconds % 60;
+		return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+	}
+
+	function startBreakTimer(startTime: string) {
+		if (breakTimerInterval) clearInterval(breakTimerInterval);
+		const start = new Date(startTime).getTime();
+		function tick() { breakElapsed = Math.floor((Date.now() - start) / 1000); }
+		tick();
+		breakTimerInterval = setInterval(tick, 1000);
+	}
 
 	let isLoading = true;
 	let currentTime = new Date();
@@ -160,6 +181,7 @@
 		// Cleanup on destroy
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
+			if (breakTimerInterval) clearInterval(breakTimerInterval);
 			if (unsubscribeFingerprint) {
 				console.log('🔌 Cleaning up fingerprint realtime subscription');
 				unsubscribeFingerprint();
@@ -386,7 +408,27 @@
 				);
 			}
 
-			stats.pendingTasks = 0;
+			// Step 11: Load expiring products count (fire-and-forget)
+			supabase.rpc('get_expiring_products_count', { p_employee_id: employeeId })
+				.then(({ data: expData, error: expError }) => {
+					if (!expError && expData) {
+						expiringProductsCount = expData.count || 0;
+						console.log('📅 Expiring products count:', expiringProductsCount);
+					}
+				});
+
+			// Step 12: Check active break (fire-and-forget)
+			supabase.rpc('get_active_break', { p_user_id: userUuid })
+				.then(({ data: breakData, error: breakErr }) => {
+					if (!breakErr && breakData?.active) {
+						activeBreak = breakData;
+						startBreakTimer(breakData.start_time);
+						console.log('☕ Active break:', breakData);
+					}
+				});
+
+			stats.pendingTasks = result.pending_tasks || 0;
+			console.log('📋 Pending tasks:', stats.pendingTasks);
 			const endTime = performance.now();
 			console.log(`✅ Dashboard loaded in ${(endTime - startTime).toFixed(2)}ms`);
 			
@@ -525,7 +567,7 @@
 					<p>{formattedDate}</p>
 				</div>
 			</div>
-			<div class="stat-card pending">
+			<div class="stat-card pending clickable" on:click={() => goto('/mobile-interface/tasks')}>
 				<div class="stat-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<circle cx="12" cy="12" r="10"/>
@@ -688,6 +730,23 @@
 				{/if}
 			</div>
 
+			<!-- Expiring Products Card -->
+			{#if expiringProductsCount > 0}
+			<div class="stat-card blank clickable expiry-card" on:click={() => goto('/mobile-interface/my-products')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<polyline points="12 6 12 12 16 14"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<h3>{expiringProductsCount}</h3>
+					<p>{$localeData.code === 'ar' ? 'منتجات توشك على الانتهاء' : 'Products Expiring Soon'}</p>
+					<p class="click-hint">{$localeData.code === 'ar' ? 'أقل من 15 يوم' : 'Less than 15 days'}</p>
+				</div>
+			</div>
+			{/if}
+
 			<!-- Customer Product Request Card -->
 			<div class="stat-card blank clickable customer-request-card" on:click={() => goto('/mobile-interface/customer-product-request')}>
 				<div class="stat-icon">
@@ -699,6 +758,34 @@
 				</div>
 				<div class="stat-info">
 					<p>{getTranslation('mobile.customerProductRequest')}</p>
+				</div>
+			</div>
+
+			<!-- Break Register Card -->
+			<div class="stat-card blank clickable break-register-card" class:break-active={activeBreak} on:click={() => goto('/mobile-interface/break-register')}>
+				<div class="stat-icon">
+					{#if activeBreak}
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<polyline points="12 6 12 12 16 14"/>
+						</svg>
+					{:else}
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
+							<path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+							<line x1="6" y1="1" x2="6" y2="4"/>
+							<line x1="10" y1="1" x2="10" y2="4"/>
+							<line x1="14" y1="1" x2="14" y2="4"/>
+						</svg>
+					{/if}
+				</div>
+				<div class="stat-info">
+					{#if activeBreak}
+						<h3 class="break-timer">{formatBreakTimer(breakElapsed)}</h3>
+						<p>{$localeData.code === 'ar' ? 'في استراحة' : 'On Break'}</p>
+					{:else}
+						<p>{$localeData.code === 'ar' ? 'سجل الاستراحة' : 'Break Register'}</p>
+					{/if}
 				</div>
 			</div>
 
@@ -1056,6 +1143,27 @@
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 
+	/* Expiring Products Card */
+	.expiry-card {
+		background: white !important;
+		border-left: 3px solid #EF4444;
+	}
+
+	.expiry-card .stat-icon {
+		background: rgba(239, 68, 68, 0.1) !important;
+		color: #EF4444 !important;
+	}
+
+	.expiry-card h3 {
+		color: #EF4444 !important;
+	}
+
+	.expiry-card .click-hint {
+		color: #EF4444 !important;
+		font-weight: 600;
+		font-size: 0.7rem;
+	}
+
 	.customer-request-card {
 		background: white !important;
 	}
@@ -1068,6 +1176,33 @@
 	.customer-request-card .click-hint {
 		color: #10B981 !important;
 		font-weight: 600;
+	}
+
+	/* Break Register Card */
+	.break-register-card {
+		background: white !important;
+	}
+	.break-register-card .stat-icon {
+		background: rgba(139, 92, 246, 0.1) !important;
+		color: #8B5CF6 !important;
+	}
+	.break-register-card.break-active {
+		background: linear-gradient(135deg, #FEF2F2, #FEE2E2) !important;
+		border: 2px solid #FCA5A5 !important;
+		animation: break-pulse 2s ease-in-out infinite;
+	}
+	.break-register-card.break-active .stat-icon {
+		background: rgba(239, 68, 68, 0.15) !important;
+		color: #EF4444 !important;
+	}
+	.break-timer {
+		font-family: 'Courier New', monospace !important;
+		color: #EF4444 !important;
+		font-variant-numeric: tabular-nums;
+	}
+	@keyframes break-pulse {
+		0%, 100% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15); }
+		50% { box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3); }
 	}
 
 	.quick-task-card {

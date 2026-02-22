@@ -51,6 +51,24 @@
 	let syncResultMessage = '';
 	let syncResultType: 'success' | 'error' | 'info' = 'info';
 
+	// Official holidays assigned to this employee
+	let officialHolidays: { holiday_date: string; name_en: string; name_ar: string }[] = [];
+
+	// Overtime registrations
+	let overtimeRegistrations: { id: string; employee_id: string; overtime_date: string; overtime_minutes: number; worked_minutes: number; notes: string }[] = [];
+	let showOvertimeModal = false;
+	let overtimeModalDate = '';
+	let overtimeModalMinutes = 0;
+	let overtimeModalHours = 0;
+	let overtimeModalWorkedMinutes = 0;
+	let savingOvertime = false;
+
+	// Alternative leave modal
+	let showAltLeaveModal = false;
+	let altLeaveWorkedDate = ''; // DD-MM-YYYY format (the day they worked on holiday)
+	let altLeaveDate = ''; // YYYY-MM-DD format (the date they want the leave)
+	let savingAltLeave = false;
+
 	// 12-hour format state for punch time
 	let punchHour12 = '12';
 	let punchMinute = '00';
@@ -132,6 +150,24 @@
 			if (specialWeekdayData?.some(s => s.is_shift_overlapping_next_day)) {
 				isShiftOverlappingNextDay = true;
 			}
+
+			// Load official holidays assigned to this employee
+			const { data: assignedHolidays } = await supabase
+				.from('employee_official_holidays')
+				.select('official_holiday_id, official_holidays (holiday_date, name_en, name_ar)')
+				.eq('employee_id', employee.id);
+			officialHolidays = (assignedHolidays || []).map((h: any) => ({
+				holiday_date: h.official_holidays?.holiday_date,
+				name_en: h.official_holidays?.name_en || '',
+				name_ar: h.official_holidays?.name_ar || ''
+			})).filter((h: any) => h.holiday_date);
+
+			// Load overtime registrations
+			const { data: otData } = await supabase
+				.from('overtime_registrations')
+				.select('*')
+				.eq('employee_id', employee.id);
+			overtimeRegistrations = otData || [];
 		} catch (error) {
 			console.error('Error loading employee data:', error);
 		}
@@ -713,6 +749,164 @@
 		return dateWeekday === dayOffWeekday.weekday;
 	}
 
+	function isOfficialHoliday(dateStr: string): boolean {
+		// Check if this date is an assigned official holiday for this employee
+		// dateStr is in format DD-MM-YYYY
+		if (officialHolidays.length === 0) return false;
+		const [day, month, year] = dateStr.split('-');
+		const dateFormatted = `${year}-${month}-${day}`; // Convert to YYYY-MM-DD
+		return officialHolidays.some(h => h.holiday_date === dateFormatted);
+	}
+
+	function getOfficialHoliday(dateStr: string): { holiday_date: string; name_en: string; name_ar: string } | null {
+		// dateStr is in format DD-MM-YYYY
+		const [day, month, year] = dateStr.split('-');
+		const dateFormatted = `${year}-${month}-${day}`;
+		return officialHolidays.find(h => h.holiday_date === dateFormatted) || null;
+	}
+
+	// Convert DD-MM-YYYY to YYYY-MM-DD
+	function toISODate(dateStr: string): string {
+		const [day, month, year] = dateStr.split('-');
+		return `${year}-${month}-${day}`;
+	}
+
+	// Get overtime registration for a date (dateStr = DD-MM-YYYY)
+	function getOvertimeForDate(dateStr: string): any {
+		const isoDate = toISODate(dateStr);
+		return overtimeRegistrations.find(o => o.overtime_date === isoDate) || null;
+	}
+
+	// Check if a worked day is eligible for overtime: holiday/day-off OR worked more than expected with max 5 min late
+	function isOvertimeEligible(pair: any): boolean {
+		if (!pair.checkInTxn || !pair.checkOutTxn || !pair.workedTime) return false;
+		const dateStr = pair.checkInDate;
+		// Case 1: Worked on a holiday or day off
+		if (isOfficialDayOff(dateStr) || isOfficialHoliday(dateStr)) return true;
+		// Case 2: Worked more than expected with max 5 min late
+		const shift = getApplicableShift(dateStr);
+		if (!shift || !shift.working_hours) return false;
+		const workedMinutes = parseInt(pair.workedTime.split(':')[0]) * 60 + parseInt(pair.workedTime.split(':')[1]);
+		const expectedMinutes = (shift.working_hours || 0) * 60;
+		const lateMinutes = pair.checkInEarlyLateTime?.late || 0;
+		return workedMinutes > expectedMinutes && lateMinutes <= 5;
+	}
+
+	function openOvertimeModal(dateStr: string, workedMins: number, expectedMins: number) {
+		overtimeModalDate = dateStr;
+		overtimeModalWorkedMinutes = workedMins;
+		const existing = getOvertimeForDate(dateStr);
+		if (existing) {
+			overtimeModalMinutes = existing.overtime_minutes;
+		} else {
+			// Holiday/day-off: overtime = basic working hours (expected)
+			// Normal day: overtime = worked - expected
+			if (isOfficialDayOff(dateStr) || isOfficialHoliday(dateStr)) {
+				overtimeModalMinutes = expectedMins > 0 ? expectedMins : workedMins;
+			} else {
+				overtimeModalMinutes = Math.max(0, workedMins - expectedMins);
+			}
+		}
+		overtimeModalHours = parseFloat((overtimeModalMinutes / 60).toFixed(2));
+		showOvertimeModal = true;
+	}
+
+	function onOvertimeMinutesChange() {
+		overtimeModalHours = parseFloat((overtimeModalMinutes / 60).toFixed(2));
+	}
+
+	function onOvertimeHoursChange() {
+		overtimeModalMinutes = Math.round(overtimeModalHours * 60);
+	}
+
+	async function saveOvertime() {
+		savingOvertime = true;
+		try {
+			const isoDate = toISODate(overtimeModalDate);
+			const id = `${employee.id}-${isoDate}`;
+			const { error } = await supabase
+				.from('overtime_registrations')
+				.upsert({
+					id,
+					employee_id: employee.id,
+					overtime_date: isoDate,
+					overtime_minutes: overtimeModalMinutes,
+					worked_minutes: overtimeModalWorkedMinutes,
+					created_by: $currentUser?.id || null,
+					updated_at: new Date().toISOString()
+				}, { onConflict: 'id' });
+			if (error) throw error;
+			// Update local data
+			const idx = overtimeRegistrations.findIndex(o => o.overtime_date === isoDate);
+			const newRec = { id, employee_id: employee.id, overtime_date: isoDate, overtime_minutes: overtimeModalMinutes, worked_minutes: overtimeModalWorkedMinutes, notes: '' };
+			if (idx >= 0) {
+				overtimeRegistrations[idx] = newRec;
+			} else {
+				overtimeRegistrations = [...overtimeRegistrations, newRec];
+			}
+			showOvertimeModal = false;
+			syncResultMessage = $t('hr.processFingerprint.overtime_saved');
+			syncResultType = 'success';
+			showSyncResultModal = true;
+		} catch (err) {
+			console.error('Error saving overtime:', err);
+			syncResultMessage = $t('hr.processFingerprint.overtime_save_error');
+			syncResultType = 'error';
+			showSyncResultModal = true;
+		} finally {
+			savingOvertime = false;
+		}
+	}
+
+	function openAltLeaveModal(workedDateStr: string) {
+		altLeaveWorkedDate = workedDateStr;
+		altLeaveDate = ''; // user must pick the date
+		showAltLeaveModal = true;
+	}
+
+	async function confirmAlternativeLeave() {
+		if (!altLeaveDate) return;
+		savingAltLeave = true;
+		try {
+			// Check if already exists
+			const existing = dayOffDates.find(d => d.day_off_date === altLeaveDate);
+			if (existing && existing.approval_status === 'approved') {
+				syncResultMessage = $t('hr.processFingerprint.alt_leave_exists');
+				syncResultType = 'info';
+				showSyncResultModal = true;
+				showAltLeaveModal = false;
+				savingAltLeave = false;
+				return;
+			}
+			const dayOffId = `${employee.id}-${altLeaveDate}`;
+			const workedIso = toISODate(altLeaveWorkedDate);
+			const { error } = await supabase
+				.from('day_off')
+				.upsert({
+					id: dayOffId,
+					employee_id: employee.id,
+					day_off_date: altLeaveDate,
+					approval_status: 'approved',
+					is_deductible_on_salary: false,
+					description: `${$t('hr.processFingerprint.alt_leave_reason')} (${workedIso})`,
+					updated_at: new Date().toISOString()
+				}, { onConflict: 'id' });
+			if (error) throw error;
+			await loadEmployeeData();
+			showAltLeaveModal = false;
+			syncResultMessage = $t('hr.processFingerprint.alt_leave_created');
+			syncResultType = 'success';
+			showSyncResultModal = true;
+		} catch (err) {
+			console.error('Error creating alternative leave:', err);
+			syncResultMessage = $t('hr.processFingerprint.alt_leave_error');
+			syncResultType = 'error';
+			showSyncResultModal = true;
+		} finally {
+			savingAltLeave = false;
+		}
+	}
+
 	function isSpecificDayOff(dateStr: string): boolean {
 		// Check if this specific date is marked as day off
 		// dateStr is in format DD-MM-YYYY
@@ -1019,11 +1213,17 @@
 
 					// Day off info
 					const isOfficial = isOfficialDayOff(rawDate);
+					const isHoliday = isOfficialHoliday(rawDate);
+					const holiday = isHoliday ? getOfficialHoliday(rawDate) : null;
 					const isSpecific = isSpecificDayOff(rawDate);
 					const dayOff = isSpecific ? getSpecificDayOff(rawDate) : null;
 					let dayStatus = '';
 					if (pair.isEmptyDate) {
-						if (isOfficial) dayStatus = isAr ? 'يوم إجازة رسمية' : 'Official Day Off';
+						if (isHoliday) {
+							const holidayName = isAr ? (holiday?.name_ar || holiday?.name_en) : (holiday?.name_en || holiday?.name_ar);
+							dayStatus = isAr ? `عطلة رسمية: ${holidayName}` : `Official Holiday: ${holidayName}`;
+						}
+						else if (isOfficial) dayStatus = isAr ? 'يوم إجازة رسمية' : 'Official Day Off';
 						else if (isSpecific && dayOff?.approval_status === 'approved') dayStatus = isAr ? 'إجازة معتمدة' : 'Approved Leave';
 						else if (isSpecific && dayOff?.approval_status === 'pending') dayStatus = isAr ? 'إجازة معلقة' : 'Pending Leave';
 						else if (isSpecific && dayOff?.approval_status === 'rejected') dayStatus = isAr ? 'إجازة مرفوضة' : 'Rejected Leave';
@@ -1069,6 +1269,12 @@
 						if (diff > 0) underworked = `${Math.floor(diff / 60)}${hSuffix} ${diff % 60}${mSuffix}`;
 					}
 
+					// Overtime
+					const overtimeReg = getOvertimeForDate(rawDate);
+					const overtime = overtimeReg
+						? `${Math.floor(overtimeReg.overtime_minutes / 60)}${hSuffix} ${overtimeReg.overtime_minutes % 60}${mSuffix}`
+						: '-';
+
 					if (isAr) {
 						return {
 							'التاريخ': date,
@@ -1083,7 +1289,8 @@
 							'تأخير الدخول': lateIn,
 							'دخول مبكر': earlyIn,
 							'خروج مبكر': earlyOut,
-							'نقص ساعات': underworked
+							'نقص ساعات': underworked,
+							'وقت إضافي': overtime
 						};
 					} else {
 						return {
@@ -1099,7 +1306,8 @@
 							'Late Check-in': lateIn,
 							'Early Check-in': earlyIn,
 							'Early Checkout': earlyOut,
-							'Underworked': underworked
+							'Underworked': underworked,
+							'Overtime': overtime
 						};
 					}
 				});
@@ -1172,6 +1380,7 @@
 				const s = status.toLowerCase();
 				if (s.includes('complete') || s.includes('مكتمل')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '0D7A3E' }, bold: true } };
 				if (s.includes('absent') || s.includes('غائب')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: 'CC0000' }, bold: true } };
+				if (s.includes('official holiday') || s.includes('عطلة رسمية')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '4338CA' }, bold: true } };
 				if (s.includes('day off') || s.includes('إجازة رسمية')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '0066CC' }, bold: true } };
 				if (s.includes('leave') || s.includes('إجازة')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: '7B5EA7' }, bold: true } };
 				if (s.includes('missing') || s.includes('مفقود')) return { ...baseStyle, font: { ...baseStyle.font, color: { rgb: 'E67E00' }, bold: true } };
@@ -1199,8 +1408,8 @@
 			// --- Build styled sheets ---
 			function buildStyledSheet(rows: any[], lang: 'en' | 'ar') {
 				const isAr = lang === 'ar';
-				const headersEn = ['Date', 'Day', 'Status', 'Shift Start', 'Shift End', 'Working Hours', 'Check In', 'Check Out', 'Worked', 'Late Check-in', 'Early Check-in', 'Early Checkout', 'Underworked'];
-				const headersAr = ['التاريخ', 'اليوم', 'الحالة', 'بداية الوردية', 'نهاية الوردية', 'ساعات العمل', 'وقت الدخول', 'وقت الخروج', 'ساعات العمل الفعلية', 'تأخير الدخول', 'دخول مبكر', 'خروج مبكر', 'نقص ساعات'];
+				const headersEn = ['Date', 'Day', 'Status', 'Shift Start', 'Shift End', 'Working Hours', 'Check In', 'Check Out', 'Worked', 'Late Check-in', 'Early Check-in', 'Early Checkout', 'Underworked', 'Overtime'];
+				const headersAr = ['التاريخ', 'اليوم', 'الحالة', 'بداية الوردية', 'نهاية الوردية', 'ساعات العمل', 'وقت الدخول', 'وقت الخروج', 'ساعات العمل الفعلية', 'تأخير الدخول', 'دخول مبكر', 'خروج مبكر', 'نقص ساعات', 'وقت إضافي'];
 				const headers = isAr ? headersAr : headersEn;
 				const keys = isAr ? headersAr : headersEn;
 				const numCols = headers.length;
@@ -2049,25 +2258,34 @@
 					{#if pair.isEmptyDate}
 						<!-- Empty Date Card (No Transactions) -->
 						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
+						{@const isHoliday = isOfficialHoliday(pair.checkInDate)}
+						{@const holiday = isHoliday ? getOfficialHoliday(pair.checkInDate) : null}
 						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
 						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
-						{@const isApproved = isOfficial || (isSpecific && dayOff?.approval_status === 'approved')}
+						{@const isApproved = isOfficial || isHoliday || (isSpecific && dayOff?.approval_status === 'approved')}
 						{@const isPending = isSpecific && (!dayOff?.approval_status || dayOff?.approval_status === 'pending')}
 						{@const isRejected = isSpecific && dayOff?.approval_status === 'rejected'}
 						{@const isUnapprovedLeave = !isApproved && !isPending && !isRejected}
 						<div class="border border-slate-300 rounded-lg overflow-hidden 
 							{(isUnapprovedLeave && !isSpecific) ? 'bg-red-50' : 
+							 isHoliday ? 'bg-indigo-50' :
 							 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-50' : 
 							 (isPending ? 'bg-amber-50' :
 							 (isRejected ? 'bg-rose-50' : 'bg-slate-50'))}}">
 							<div class="px-4 py-2 font-bold flex items-center justify-between 
-								{isOfficial ? 'bg-red-600' : 
+								{isHoliday ? 'bg-indigo-600' :
+								 isOfficial ? 'bg-red-600' : 
 								 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : 
 								 isPending ? 'bg-amber-500' :
 								 isRejected ? 'bg-rose-600' :
 								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
+									{#if isHoliday}
+										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
+											🏛️ {$locale === 'ar' ? (holiday?.name_ar || holiday?.name_en || $t('hr.shift.tabs.official_holidays')) : (holiday?.name_en || holiday?.name_ar || $t('hr.shift.tabs.official_holidays'))}
+										</span>
+									{/if}
 									{#if isOfficial}
 										<span class="px-3 py-1 bg-red-600 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
@@ -2098,7 +2316,7 @@
 											{/if}
 										</div>
 									{/if}
-									{#if !isOfficial && !isSpecific && isUnapprovedLeave}
+									{#if !isOfficial && !isHoliday && !isSpecific && isUnapprovedLeave}
 										<span class="px-3 py-1 bg-gray-700 rounded-full text-sm font-semibold">{$t('hr.processFingerprint.status_absent')}</span>
 									{/if}
 								</div>
@@ -2120,12 +2338,19 @@
 					{:else if pair.checkInTxn}
 						<!-- Paired Check-In/Check-Out (always show under check-in date) -->
 						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
+						{@const isHoliday = isOfficialHoliday(pair.checkInDate)}
+						{@const holiday = isHoliday ? getOfficialHoliday(pair.checkInDate) : null}
 						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
 						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
-							<div class="{isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
+							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
+									{#if isHoliday}
+										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
+											🏛️ {$locale === 'ar' ? (holiday?.name_ar || holiday?.name_en) : (holiday?.name_en || holiday?.name_ar)}
+										</span>
+									{/if}
 									{#if isOfficial}
 										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
@@ -2214,7 +2439,8 @@
 											{@const underworkedMinutes = assignedMinutes - workedMinutes}
 											{@const underworkedH = Math.floor(underworkedMinutes / 60)}
 											{@const underworkedM = underworkedMinutes % 60}
-											<div class="mt-3 flex items-center gap-3">
+											{@const overtimeReg = getOvertimeForDate(pair.checkInDate)}
+											<div class="mt-3 flex items-center gap-3 flex-wrap">
 												<span class={`px-4 py-2 rounded-full text-sm font-bold ${isWorkedEnough ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
 													{$t('hr.processFingerprint.worked')}: {pair.workedTime} {isWorkedEnough ? '✓' : '✗'}
 												</span>
@@ -2223,7 +2449,30 @@
 														{$t('hr.processFingerprint.underworked')}: {underworkedH}{$t('common.h')} {underworkedM}{$t('common.m')}
 													</span>
 												{/if}
+												{#if overtimeReg}
+													<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+														⏱️ {$t('hr.processFingerprint.overtime_registered')}: {Math.floor(overtimeReg.overtime_minutes / 60)}{$t('common.h')} {overtimeReg.overtime_minutes % 60}{$t('common.m')}
+													</span>
+												{/if}
 											</div>
+											{#if isOvertimeEligible(pair)}
+												<div class="mt-2 flex items-center gap-2">
+													<button
+														class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition shadow-sm"
+														on:click={() => openOvertimeModal(pair.checkInDate, workedMinutes, assignedMinutes)}
+													>
+														⏱️ {$t('hr.processFingerprint.register_overtime')}
+													</button>
+													{#if isOfficialDayOff(pair.checkInDate) || isOfficialHoliday(pair.checkInDate)}
+														<button
+															class="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-500 text-white hover:bg-teal-600 transition shadow-sm"
+															on:click={() => openAltLeaveModal(pair.checkInDate)}
+														>
+															🏖️ {$t('hr.processFingerprint.assign_alt_leave')}
+														</button>
+													{/if}
+												</div>
+											{/if}
 										{/if}
 									</div>
 								{:else if pair.checkInTxn}
@@ -2253,12 +2502,19 @@
 					{:else}
 						<!-- Standalone Check-Out (Carryover from previous day) -->
 						{@const isOfficial = isOfficialDayOff(pair.checkOutDate)}
+						{@const isHoliday = isOfficialHoliday(pair.checkOutDate)}
+						{@const holiday = isHoliday ? getOfficialHoliday(pair.checkOutDate) : null}
 						{@const isSpecific = isSpecificDayOff(pair.checkOutDate)}
 						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkOutDate) : null}
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
-							<div class="{isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
+							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
 								<span>{pair.checkOutDate}</span>
 								<div class="flex gap-2">
+									{#if isHoliday}
+										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
+											🏛️ {$locale === 'ar' ? (holiday?.name_ar || holiday?.name_en) : (holiday?.name_en || holiday?.name_ar)}
+										</span>
+									{/if}
 									{#if isOfficial}
 										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
@@ -2353,8 +2609,9 @@
 		{@const incompletePairs = punchPairs.filter(p => (p.checkInMissing || p.checkOutMissing) && !p.isEmptyDate)}
 		{@const emptyDates = punchPairs.filter(p => p.isEmptyDate)}
 		{@const officialDayOffs = emptyDates.filter(d => isOfficialDayOff(d.checkInDate))}
+		{@const officialHolidayDates = emptyDates.filter(d => isOfficialHoliday(d.checkInDate))}
 		{@const specificDayOffs = emptyDates.filter(d => isSpecificDayOff(d.checkInDate))}
-		{@const unapprovedLeaves = emptyDates.filter(d => !isOfficialDayOff(d.checkInDate) && !isSpecificDayOff(d.checkInDate))}
+		{@const unapprovedLeaves = emptyDates.filter(d => !isOfficialDayOff(d.checkInDate) && !isOfficialHoliday(d.checkInDate) && !isSpecificDayOff(d.checkInDate))}
 		{@const totalWorkedMinutes = completePairs.reduce((sum, p) => {
 			if (!p.workedTime) return sum;
 			const [hours, mins] = p.workedTime.split(':').map(Number);
@@ -2378,12 +2635,13 @@
 				</div>
 			</div>
 			
-			<div class="grid grid-cols-4 gap-2">
+			<div class="grid grid-cols-5 gap-2">
 				<!-- Mini Stats Row -->
 				{#each [
 					{ label: $t('hr.processFingerprint.complete_days'), val: completePairs.length, color: 'bg-green-500' },
 					{ label: $t('hr.processFingerprint.incomplete_days'), val: incompletePairs.length, color: 'bg-yellow-500' },
 					{ label: $t('hr.processFingerprint.days_off'), val: officialDayOffs.length + specificDayOffs.length, color: 'bg-blue-500' },
+					{ label: $t('hr.shift.tabs.official_holidays'), val: officialHolidayDates.length, color: 'bg-indigo-500' },
 					{ label: $t('hr.processFingerprint.unapproved_leaves'), val: unapprovedLeaves.length, color: 'bg-red-500' }
 				] as item}
 					<div class="bg-white border border-slate-200 rounded p-1.5 flex flex-col items-center">
@@ -2664,6 +2922,173 @@
 					on:click={() => showSyncResultModal = false}
 				>
 					OK
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Alternative Leave Modal -->
+{#if showAltLeaveModal}
+	<div style="position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+		<div style="background-color: white; border-radius: 0.5rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); max-width: 28rem; width: 100%; margin: 1rem;">
+			<!-- Modal Header -->
+			<div style="background: linear-gradient(to right, #14b8a6, #0d9488); color: white; padding: 1.5rem; border-radius: 0.5rem 0.5rem 0 0; display: flex; align-items: center; justify-content: space-between;">
+				<h2 style="font-size: 1.125rem; font-weight: bold;">
+					🏖️ {$t('hr.processFingerprint.assign_alt_leave')}
+				</h2>
+				<button 
+					on:click={() => showAltLeaveModal = false}
+					style="background: transparent; border: none; color: white; cursor: pointer; padding: 0.25rem; border-radius: 9999px; font-size: 1.25rem;"
+					disabled={savingAltLeave}
+				>
+					✕
+				</button>
+			</div>
+
+			<!-- Modal Body -->
+			<div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+				<!-- Worked on (holiday/day-off) date -->
+				<div>
+					<div style="font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('hr.processFingerprint.alt_leave_worked_on')}</div>
+					<div style="padding: 0.5rem 1rem; background-color: #f0fdfa; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #134e4a;">
+						{altLeaveWorkedDate}
+					</div>
+				</div>
+
+				<!-- Leave Date Picker -->
+				<div>
+					<label for="alt_leave_date_input" style="display: block; font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+						{$t('hr.processFingerprint.alt_leave_select_date')}
+					</label>
+					<input 
+						id="alt_leave_date_input"
+						type="date" 
+						bind:value={altLeaveDate}
+						disabled={savingAltLeave}
+						style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; box-sizing: border-box;"
+					/>
+				</div>
+
+				<!-- Info note -->
+				<div style="font-size: 0.75rem; color: #6b7280; font-style: italic;">
+					{$t('hr.processFingerprint.alt_leave_info')}
+				</div>
+			</div>
+
+			<!-- Modal Footer -->
+			<div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 0 0 0.5rem 0.5rem; display: flex; gap: 0.75rem; border-top: 1px solid #e5e7eb;">
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #d1d5db; color: #374151; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={() => showAltLeaveModal = false}
+					disabled={savingAltLeave}
+				>
+					{$t('common.cancel') || 'Cancel'}
+				</button>
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #14b8a6; color: white; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={confirmAlternativeLeave}
+					disabled={savingAltLeave || !altLeaveDate}
+				>
+					{savingAltLeave ? $t('common.saving') || 'Saving...' : $t('common.save') || 'Save'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Overtime Registration Modal -->
+{#if showOvertimeModal}
+	<div style="position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+		<div style="background-color: white; border-radius: 0.5rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); max-width: 28rem; width: 100%; margin: 1rem;">
+			<!-- Modal Header -->
+			<div style="background: linear-gradient(to right, #f59e0b, #d97706); color: white; padding: 1.5rem; border-radius: 0.5rem 0.5rem 0 0; display: flex; align-items: center; justify-content: space-between;">
+				<h2 style="font-size: 1.125rem; font-weight: bold;">
+					⏱️ {$t('hr.processFingerprint.register_overtime')}
+				</h2>
+				<button 
+					on:click={() => showOvertimeModal = false}
+					style="background: transparent; border: none; color: white; cursor: pointer; padding: 0.25rem; border-radius: 9999px; font-size: 1.25rem;"
+					disabled={savingOvertime}
+				>
+					✕
+				</button>
+			</div>
+
+			<!-- Modal Body -->
+			<div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+				<!-- Date Display -->
+				<div>
+					<div style="font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('common.date') || 'Date'}</div>
+					<div style="padding: 0.5rem 1rem; background-color: #f3f4f6; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #111827;">
+						{overtimeModalDate}
+					</div>
+				</div>
+
+				<!-- Worked Time Display -->
+				<div>
+					<div style="font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('hr.processFingerprint.worked')}</div>
+					<div style="padding: 0.5rem 1rem; background-color: #ecfdf5; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #065f46;">
+						{Math.floor(overtimeModalWorkedMinutes / 60)}{$t('common.h')} {overtimeModalWorkedMinutes % 60}{$t('common.m')}
+					</div>
+				</div>
+
+				<!-- Overtime Minutes -->
+				<div>
+					<label for="overtime_minutes_input" style="display: block; font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+						{$t('hr.processFingerprint.overtime_minutes')}
+					</label>
+					<input 
+						id="overtime_minutes_input"
+						type="number" 
+						min="0"
+						max="1440"
+						bind:value={overtimeModalMinutes}
+						on:input={onOvertimeMinutesChange}
+						disabled={savingOvertime}
+						style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; box-sizing: border-box;"
+					/>
+				</div>
+
+				<!-- Overtime Hours -->
+				<div>
+					<label for="overtime_hours_input" style="display: block; font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+						{$t('hr.processFingerprint.overtime_hours')}
+					</label>
+					<input 
+						id="overtime_hours_input"
+						type="number" 
+						min="0"
+						max="24"
+						step="0.01"
+						bind:value={overtimeModalHours}
+						on:input={onOvertimeHoursChange}
+						disabled={savingOvertime}
+						style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; box-sizing: border-box;"
+					/>
+				</div>
+
+				<!-- Auto-fill note -->
+				<div style="font-size: 0.75rem; color: #6b7280; font-style: italic;">
+					{$t('hr.processFingerprint.overtime_auto_filled')}
+				</div>
+			</div>
+
+			<!-- Modal Footer -->
+			<div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 0 0 0.5rem 0.5rem; display: flex; gap: 0.75rem; border-top: 1px solid #e5e7eb;">
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #d1d5db; color: #374151; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={() => showOvertimeModal = false}
+					disabled={savingOvertime}
+				>
+					{$t('common.cancel') || 'Cancel'}
+				</button>
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #f59e0b; color: white; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={saveOvertime}
+					disabled={savingOvertime || overtimeModalMinutes <= 0}
+				>
+					{savingOvertime ? $t('common.saving') || 'Saving...' : $t('common.save') || 'Save'}
 				</button>
 			</div>
 		</div>

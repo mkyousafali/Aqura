@@ -2,7 +2,8 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
 
-const PIXABAY_API_KEY = env.PIXABAY_API_KEY || '';
+const GOOGLE_API_KEY = env.GOOGLE_API_KEY || '';
+const GOOGLE_SEARCH_ENGINE_ID = env.GOOGLE_SEARCH_ENGINE_ID || '';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY || '';
@@ -25,31 +26,33 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await request.json();
 		const { barcode, productNameEn, productNameAr, query } = body;
 
-		// Resolve Pixabay key from DB, fallback to .env
-		const pixabayKey = await getApiKey('pixabay', PIXABAY_API_KEY);
+		// Resolve Google API key and Search Engine ID from DB, fallback to .env
+		const apiKey = await getApiKey('google', GOOGLE_API_KEY);
+		const searchEngineId = await getApiKey('google_search_engine_id', GOOGLE_SEARCH_ENGINE_ID);
 
-		if (!pixabayKey) {
-			return json({ error: 'Pixabay API not configured' }, { status: 500 });
+		if (!apiKey || !searchEngineId) {
+			return json({ error: 'Google Custom Search API not configured. Set google and google_search_engine_id in API Keys Manager.' }, { status: 500 });
 		}
 
-		// Helper function to fetch images from Pixabay
+		// Helper function to fetch images from Google Custom Search
 		async function fetchImages(searchQuery: string, limit: number) {
-			const url = `https://pixabay.com/api/?key=${pixabayKey}&q=${encodeURIComponent(searchQuery)}&image_type=photo&per_page=${limit}&safesearch=true`;
+			const num = Math.min(limit, 10); // Google CSE max is 10 per request
+			const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=${num}&safe=active`;
 
-			console.log(`Fetching Pixabay for: "${searchQuery}" (limit: ${limit})`);
+			console.log(`Fetching Google CSE for: "${searchQuery}" (limit: ${num})`);
 			const response = await fetch(url);
 			const data = await response.json();
 
 			if (!response.ok) {
-				console.error(`Pixabay API Error for "${searchQuery}":`, data);
-				throw new Error(data.message || 'Pixabay API request failed');
+				console.error(`Google CSE API Error for "${searchQuery}":`, data);
+				throw new Error(data.error?.message || 'Google Custom Search API request failed');
 			}
 
-			return (data.hits || []).map((item: any) => ({
-				url: item.largeImageURL || item.webformatURL,
-				thumbnail: item.previewURL || item.webformatURL,
-				title: item.tags || '',
-				source: 'pixabay.com'
+			return (data.items || []).map((item: any) => ({
+				url: item.link,
+				thumbnail: item.image?.thumbnailLink || item.link,
+				title: item.title || '',
+				source: item.displayLink || 'google.com'
 			}));
 		}
 

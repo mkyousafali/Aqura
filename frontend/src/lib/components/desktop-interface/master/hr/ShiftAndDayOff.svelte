@@ -128,6 +128,15 @@
         is_document_mandatory: boolean;
     }
 
+    interface OfficialHoliday {
+        id: string;
+        holiday_date: string;
+        name_en: string;
+        name_ar: string;
+        assigned_count?: number;
+        assigned_employees?: string[];
+    }
+
     let activeTab = 'Regular Shift';
     let employees: EmployeeShift[] = [];
     let employeesForDateWiseSelection: EmployeeForSelection[] = [];
@@ -136,6 +145,19 @@
     let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string, is_deductible_on_salary?: boolean, approval_requested_at?: string, day_off_reason_id?: string, _grouped?: boolean, _allIds?: string[], _allDates?: string[], _dateFrom?: string, _dateTo?: string, _dayCount?: number})[] = [];
     let dayOffsWeekday: (EmployeeShift & {day_off_weekday?: number})[] = [];
     let dayOffReasons: DayOffReason[] = [];
+    let officialHolidays: OfficialHoliday[] = [];
+    let showOfficialHolidayModal = false;
+    let editingOfficialHolidayId: string | null = null;
+    let officialHolidayFormData: OfficialHoliday = { id: '', holiday_date: new Date().toISOString().split('T')[0], name_en: '', name_ar: '' };
+    let officialHolidaySearchQuery = '';
+    let showAssignEmployeesModal = false;
+    let assigningHolidayId: string | null = null;
+    let assigningHolidayName = '';
+    let assignEmployeeSearchQuery = '';
+    let assignAllEmployees: EmployeeForSelection[] = [];
+    let assignFilteredEmployees: EmployeeForSelection[] = [];
+    let assignSelectedEmployeeIds: Set<string> = new Set();
+    let isAssignSaving = false;
     let loading = false;
     let error: string | null = null;
     let showModal = false;
@@ -461,7 +483,8 @@
         { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
         { id: 'Leave (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
         { id: 'Leave (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
-        { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' }
+        { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' },
+        { id: 'Official Holidays', label: $t('hr.shift.tabs.official_holidays'), icon: '🏛️', color: 'blue' }
     ];
 
     // Reactive statement to handle tab changes
@@ -483,6 +506,8 @@
             await loadDayOffWeekdayData();
         } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
+        } else if (activeTab === 'Official Holidays') {
+            await loadOfficialHolidays();
         }
     });
 
@@ -516,6 +541,8 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_reasons' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'nationalities' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'official_holidays' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_official_holidays' }, () => refreshCurrentTabData())
             .subscribe();
     }
 
@@ -538,6 +565,8 @@
             await loadDayOffWeekdayData();
         } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
+        } else if (activeTab === 'Official Holidays') {
+            await loadOfficialHolidays();
         }
     }
 
@@ -2395,6 +2424,272 @@
         }
     }
 
+    // ====== Official Holidays Functions ======
+
+    $: filteredOfficialHolidays = (() => {
+        if (!officialHolidaySearchQuery.trim()) return officialHolidays;
+        const query = officialHolidaySearchQuery.toLowerCase();
+        return officialHolidays.filter(h =>
+            h.name_en?.toLowerCase().includes(query) ||
+            h.name_ar?.toLowerCase().includes(query) ||
+            h.holiday_date?.includes(query) ||
+            dateMatchesSearch(h.holiday_date, officialHolidaySearchQuery)
+        );
+    })();
+
+    async function loadOfficialHolidays() {
+        loading = true;
+        error = null;
+        try {
+            await initSupabase();
+            const { data, error: err } = await supabase
+                .from('official_holidays')
+                .select('*')
+                .order('holiday_date', { ascending: true });
+
+            if (err && err.code !== 'PGRST116') throw err;
+
+            // Load assigned employee counts for each holiday
+            const holidays = (data as OfficialHoliday[]) || [];
+            if (holidays.length > 0) {
+                const holidayIds = holidays.map(h => h.id);
+                const { data: assignments, error: assignErr } = await supabase
+                    .from('employee_official_holidays')
+                    .select('official_holiday_id, employee_id')
+                    .in('official_holiday_id', holidayIds);
+
+                if (!assignErr && assignments) {
+                    const countMap = new Map<string, string[]>();
+                    for (const a of assignments) {
+                        if (!countMap.has(a.official_holiday_id)) countMap.set(a.official_holiday_id, []);
+                        countMap.get(a.official_holiday_id)!.push(a.employee_id);
+                    }
+                    for (const h of holidays) {
+                        const empIds = countMap.get(h.id) || [];
+                        h.assigned_count = empIds.length;
+                        h.assigned_employees = empIds;
+                    }
+                }
+            }
+
+            officialHolidays = holidays;
+        } catch (err) {
+            console.error('Error loading official holidays:', err);
+            error = err instanceof Error ? err.message : 'Failed to load official holidays';
+        } finally {
+            loading = false;
+        }
+    }
+
+    function openOfficialHolidayModal(holiday?: OfficialHoliday) {
+        if (holiday) {
+            editingOfficialHolidayId = holiday.id;
+            officialHolidayFormData = { ...holiday };
+        } else {
+            editingOfficialHolidayId = null;
+            officialHolidayFormData = { id: '', holiday_date: new Date().toISOString().split('T')[0], name_en: '', name_ar: '' };
+        }
+        showOfficialHolidayModal = true;
+    }
+
+    function closeOfficialHolidayModal() {
+        showOfficialHolidayModal = false;
+        editingOfficialHolidayId = null;
+    }
+
+    async function saveOfficialHoliday() {
+        if (!officialHolidayFormData.holiday_date || (!officialHolidayFormData.name_en.trim() && !officialHolidayFormData.name_ar.trim())) {
+            openAlertModal($t('hr.shift.error_fill_holiday_fields'), $t('common.requiredFields'));
+            return;
+        }
+
+        isSaving = true;
+        try {
+            await initSupabase();
+
+            if (editingOfficialHolidayId) {
+                // Update existing
+                const { error: err } = await supabase
+                    .from('official_holidays')
+                    .update({
+                        holiday_date: officialHolidayFormData.holiday_date,
+                        name_en: officialHolidayFormData.name_en.trim(),
+                        name_ar: officialHolidayFormData.name_ar.trim(),
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', editingOfficialHolidayId);
+                if (err) throw err;
+            } else {
+                // Insert new
+                const { error: err } = await supabase
+                    .from('official_holidays')
+                    .insert({
+                        holiday_date: officialHolidayFormData.holiday_date,
+                        name_en: officialHolidayFormData.name_en.trim(),
+                        name_ar: officialHolidayFormData.name_ar.trim()
+                    });
+                if (err) throw err;
+            }
+
+            showOfficialHolidayModal = false;
+            editingOfficialHolidayId = null;
+            await loadOfficialHolidays();
+            showSuccessNotification(editingOfficialHolidayId ? ($locale === 'ar' ? 'تم تحديث الإجازة الرسمية' : 'Official holiday updated') : ($locale === 'ar' ? 'تم إضافة الإجازة الرسمية' : 'Official holiday added'));
+        } catch (err) {
+            console.error('Error saving official holiday:', err);
+            showErrorNotification((err instanceof Error ? err.message : $t('common.unknown_error')));
+        } finally {
+            isSaving = false;
+        }
+    }
+
+    async function deleteOfficialHoliday(id: string) {
+        if (!confirm($t('hr.shift.confirm_delete_official_holiday'))) return;
+        try {
+            await initSupabase();
+            const { error: err } = await supabase
+                .from('official_holidays')
+                .delete()
+                .eq('id', id);
+            if (err) throw err;
+            await loadOfficialHolidays();
+            showSuccessNotification($locale === 'ar' ? 'تم حذف الإجازة الرسمية' : 'Official holiday deleted');
+        } catch (err) {
+            console.error('Error deleting official holiday:', err);
+            showErrorNotification((err instanceof Error ? err.message : $t('common.unknown_error')));
+        }
+    }
+
+    // ====== Employee Assignment for Official Holidays ======
+
+    async function openAssignEmployeesModal(holiday: OfficialHoliday) {
+        assigningHolidayId = holiday.id;
+        assigningHolidayName = $locale === 'ar' ? (holiday.name_ar || holiday.name_en) : holiday.name_en;
+        assignEmployeeSearchQuery = '';
+        isAssignSaving = false;
+
+        try {
+            await initSupabase();
+            // Load all employees
+            const { data: employeeData, error: empError } = await supabase
+                .from('hr_employee_master')
+                .select('id, name_en, name_ar, current_branch_id, employment_status');
+            if (empError) throw empError;
+
+            // Load branches for display
+            const branchIds = [...new Set((employeeData || []).map((e: any) => e.current_branch_id).filter(Boolean))];
+            const { data: branches } = await supabase
+                .from('branches')
+                .select('id, name_en, name_ar')
+                .in('id', branchIds);
+            const branchMap = new Map((branches || []).map((b: any) => [String(b.id), b]));
+
+            assignAllEmployees = (employeeData || []).map((emp: any) => {
+                const branch = branchMap.get(String(emp.current_branch_id)) as any;
+                return {
+                    id: emp.id,
+                    employee_name_en: emp.name_en,
+                    employee_name_ar: emp.name_ar,
+                    branch_name_en: branch?.name_en || 'N/A',
+                    branch_name_ar: branch?.name_ar || 'N/A'
+                };
+            }).sort((a: EmployeeForSelection, b: EmployeeForSelection) => a.employee_name_en.localeCompare(b.employee_name_en));
+            assignFilteredEmployees = [...assignAllEmployees];
+
+            // Load currently assigned employees
+            const { data: existing } = await supabase
+                .from('employee_official_holidays')
+                .select('employee_id')
+                .eq('official_holiday_id', holiday.id);
+            assignSelectedEmployeeIds = new Set((existing || []).map((e: any) => e.employee_id));
+
+            showAssignEmployeesModal = true;
+        } catch (err) {
+            console.error('Error loading employees for assignment:', err);
+            showErrorNotification(err instanceof Error ? err.message : $t('common.unknown_error'));
+        }
+    }
+
+    function closeAssignEmployeesModal() {
+        showAssignEmployeesModal = false;
+        assigningHolidayId = null;
+        assignEmployeeSearchQuery = '';
+    }
+
+    function filterAssignEmployees() {
+        if (!assignEmployeeSearchQuery.trim()) {
+            assignFilteredEmployees = [...assignAllEmployees];
+        } else {
+            const query = assignEmployeeSearchQuery.toLowerCase();
+            assignFilteredEmployees = assignAllEmployees.filter(emp =>
+                emp.employee_name_en.toLowerCase().includes(query) ||
+                emp.employee_name_ar?.toLowerCase().includes(query) ||
+                emp.id.toLowerCase().includes(query) ||
+                emp.branch_name_en.toLowerCase().includes(query)
+            );
+        }
+    }
+
+    function toggleEmployeeAssignment(employeeId: string) {
+        if (assignSelectedEmployeeIds.has(employeeId)) {
+            assignSelectedEmployeeIds.delete(employeeId);
+        } else {
+            assignSelectedEmployeeIds.add(employeeId);
+        }
+        assignSelectedEmployeeIds = new Set(assignSelectedEmployeeIds); // trigger reactivity
+    }
+
+    function selectAllAssignEmployees() {
+        for (const emp of assignFilteredEmployees) {
+            assignSelectedEmployeeIds.add(emp.id);
+        }
+        assignSelectedEmployeeIds = new Set(assignSelectedEmployeeIds);
+    }
+
+    function deselectAllAssignEmployees() {
+        for (const emp of assignFilteredEmployees) {
+            assignSelectedEmployeeIds.delete(emp.id);
+        }
+        assignSelectedEmployeeIds = new Set(assignSelectedEmployeeIds);
+    }
+
+    async function saveEmployeeAssignments() {
+        if (!assigningHolidayId) return;
+        isAssignSaving = true;
+        try {
+            await initSupabase();
+
+            // Delete all existing assignments for this holiday
+            const { error: delErr } = await supabase
+                .from('employee_official_holidays')
+                .delete()
+                .eq('official_holiday_id', assigningHolidayId);
+            if (delErr) throw delErr;
+
+            // Insert new assignments
+            if (assignSelectedEmployeeIds.size > 0) {
+                const rows = [...assignSelectedEmployeeIds].map(empId => ({
+                    employee_id: empId,
+                    official_holiday_id: assigningHolidayId
+                }));
+                const { error: insErr } = await supabase
+                    .from('employee_official_holidays')
+                    .insert(rows);
+                if (insErr) throw insErr;
+            }
+
+            showAssignEmployeesModal = false;
+            assigningHolidayId = null;
+            await loadOfficialHolidays();
+            showSuccessNotification($locale === 'ar' ? 'تم تحديث تعيين الموظفين' : 'Employee assignments updated');
+        } catch (err) {
+            console.error('Error saving employee assignments:', err);
+            showErrorNotification(err instanceof Error ? err.message : $t('common.unknown_error'));
+        } finally {
+            isAssignSaving = false;
+        }
+    }
+
     function openReasonSearchModal() {
         showReasonSearchModal = true;
         reasonSearchQuery = '';
@@ -3881,6 +4176,124 @@
                         </div>
                     </div>
                 {/if}
+            {:else if activeTab === 'Official Holidays'}
+                {#if loading}
+                    <div class="flex items-center justify-center h-full">
+                        <div class="text-center">
+                            <div class="animate-spin inline-block">
+                                <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+                            </div>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_official_holidays')}</p>
+                        </div>
+                    </div>
+                {:else if error}
+                    <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
+                        <button 
+                            class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                            on:click={loadOfficialHolidays}
+                        >
+                            {$t('common.retry')}
+                        </button>
+                    </div>
+                {:else}
+                    <!-- Search -->
+                    <div class="mb-4 flex gap-3">
+                        <div class="flex-1 max-w-md">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="oh-search">{$t('hr.shift.search_employee')}</label>
+                            <input 
+                                id="oh-search"
+                                type="text"
+                                bind:value={officialHolidaySearchQuery}
+                                placeholder={$t('hr.shift.official_holidays_search')}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Official Holidays Container -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+                        <!-- Action Button -->
+                        <div class="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
+                            <button 
+                                class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md"
+                                on:click={() => openOfficialHolidayModal()}
+                            >
+                                <span>🏛️</span>
+                                {$t('hr.shift.add_official_holiday')}
+                            </button>
+                        </div>
+
+                        <!-- Table Wrapper -->
+                        <div class="overflow-x-auto flex-1">
+                            {#if filteredOfficialHolidays.length === 0}
+                                <div class="flex items-center justify-center h-64">
+                                    <div class="text-center">
+                                        <div class="text-5xl mb-4">📭</div>
+                                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_official_holidays')}</p>
+                                        <p class="text-slate-400 text-sm mt-2">{officialHolidays.length === 0 ? $t('hr.shift.click_to_add_official_holiday') : $t('hr.shift.try_adjusting_filters')}</p>
+                                    </div>
+                                </div>
+                            {:else}
+                                <table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+                                    <thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+                                        <tr>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.holiday_date')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.official_holiday_name_en')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.official_holiday_name_ar')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.assigned_employees_col')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('common.action')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-200">
+                                        {#each filteredOfficialHolidays as holiday, index}
+                                            <tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{formatDateDisplay(holiday.holiday_date)}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">{holiday.name_en}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700" dir="rtl">{holiday.name_ar}</td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <button 
+                                                        class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition {holiday.assigned_count ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}"
+                                                        on:click={() => openAssignEmployeesModal(holiday)}
+                                                    >
+                                                        👥 {holiday.assigned_count || 0}
+                                                    </button>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <div class="flex gap-2 justify-center">
+                                                        <button 
+                                                            class="px-3 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-xs font-semibold"
+                                                            on:click={() => openAssignEmployeesModal(holiday)}
+                                                        >
+                                                            👥 {$t('hr.shift.assign_employees')}
+                                                        </button>
+                                                        <button 
+                                                            class="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
+                                                            on:click={() => openOfficialHolidayModal(holiday)}
+                                                        >
+                                                            ✏️ {$t('common.edit')}
+                                                        </button>
+                                                        <button 
+                                                            class="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
+                                                            on:click={() => deleteOfficialHoliday(holiday.id)}
+                                                        >
+                                                            🗑️ {$t('common.delete')}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            {/if}
+                        </div>
+
+                        <!-- Footer with row count -->
+                        <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                            {$t('hr.shift.showing_official_holidays', { current: filteredOfficialHolidays.length, total: officialHolidays.length })}
+                        </div>
+                    </div>
+                {/if}
             {:else}
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200 transition-all duration-700 hover:bg-white/60">
                     <div class="relative mb-10">
@@ -4671,6 +5084,168 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+{/if}
+
+<!-- Official Holiday Add/Edit Modal -->
+{#if showOfficialHolidayModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-900">
+                    {editingOfficialHolidayId ? $t('hr.shift.edit_official_holiday') : $t('hr.shift.add_official_holiday')}
+                </h2>
+                <button 
+                    class="text-slate-400 hover:text-slate-600 text-2xl"
+                    on:click={closeOfficialHolidayModal}
+                >
+                    ✕
+                </button>
+            </div>
+
+            <form on:submit|preventDefault={saveOfficialHoliday} class="space-y-4">
+                <!-- Holiday Date -->
+                <div>
+                    <label for="holiday-date" class="block text-sm font-bold text-slate-700 mb-2">📅 {$t('hr.shift.holiday_date')}</label>
+                    <input 
+                        id="holiday-date"
+                        type="date"
+                        bind:value={officialHolidayFormData.holiday_date}
+                        class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                </div>
+
+                <!-- English Name -->
+                <div>
+                    <label for="holiday-name-en" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.official_holiday_name_en')}</label>
+                    <input 
+                        id="holiday-name-en"
+                        type="text"
+                        bind:value={officialHolidayFormData.name_en}
+                        placeholder={$t('hr.shift.enter_holiday_name_en')}
+                        class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                </div>
+
+                <!-- Arabic Name -->
+                <div>
+                    <label for="holiday-name-ar" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.official_holiday_name_ar')}</label>
+                    <input 
+                        id="holiday-name-ar"
+                        type="text"
+                        bind:value={officialHolidayFormData.name_ar}
+                        placeholder={$t('hr.shift.enter_holiday_name_ar')}
+                        dir="rtl"
+                        class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-right"
+                    />
+                </div>
+
+                <!-- Buttons -->
+                <div class="flex gap-3 mt-6">
+                    <button 
+                        type="submit"
+                        disabled={isSaving}
+                        class="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 transition disabled:opacity-50"
+                    >
+                        {isSaving ? $t('common.saving') : $t('common.save')}
+                    </button>
+                    <button 
+                        type="button"
+                        on:click={closeOfficialHolidayModal}
+                        class="flex-1 px-4 py-2 rounded-lg font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    >
+                        {$t('common.cancel')}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{/if}
+
+<!-- Employee Assignment Modal for Official Holidays -->
+{#if showAssignEmployeesModal}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden max-h-[85vh] flex flex-col" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+            <!-- Modal Header -->
+            <div class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white flex-shrink-0">
+                <h3 class="text-lg font-bold">{$t('hr.shift.assign_employees')}</h3>
+                <p class="text-emerald-100 text-sm mt-1">🏛️ {assigningHolidayName}</p>
+            </div>
+
+            <!-- Search + Select All/None -->
+            <div class="px-6 py-4 border-b border-slate-200 flex-shrink-0 space-y-3">
+                <div>
+                    <input 
+                        type="text"
+                        bind:value={assignEmployeeSearchQuery}
+                        on:input={filterAssignEmployees}
+                        placeholder={$t('hr.shift.search_placeholder')}
+                        class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                    />
+                </div>
+                <div class="flex gap-2 items-center">
+                    <button 
+                        class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition text-xs font-bold"
+                        on:click={selectAllAssignEmployees}
+                    >
+                        ✓ {$t('hr.shift.select_all')}
+                    </button>
+                    <button 
+                        class="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition text-xs font-bold"
+                        on:click={deselectAllAssignEmployees}
+                    >
+                        ✗ {$t('hr.shift.deselect_all')}
+                    </button>
+                    <span class="text-xs text-slate-500 font-semibold {$locale === 'ar' ? 'mr-auto' : 'ml-auto'}">
+                        {$t('hr.shift.selected_count', { count: assignSelectedEmployeeIds.size, total: assignAllEmployees.length })}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Employee List -->
+            <div class="flex-1 overflow-y-auto px-2">
+                {#if assignFilteredEmployees.length === 0}
+                    <div class="px-4 py-8 text-center text-slate-500 text-sm">
+                        {$t('hr.shift.no_employees_found')}
+                    </div>
+                {:else}
+                    {#each assignFilteredEmployees as employee}
+                        <button 
+                            class="w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors duration-200 flex items-center gap-3 {assignSelectedEmployeeIds.has(employee.id) ? 'bg-emerald-50' : 'hover:bg-slate-50'}"
+                            on:click={() => toggleEmployeeAssignment(employee.id)}
+                        >
+                            <div class="w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all {assignSelectedEmployeeIds.has(employee.id) ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300'}">
+                                {#if assignSelectedEmployeeIds.has(employee.id)}
+                                    <span class="text-xs font-bold">✓</span>
+                                {/if}
+                            </div>
+                            <div class="flex-1 {$locale === 'ar' ? 'text-right' : 'text-left'}">
+                                <p class="font-semibold text-slate-900 text-sm">{$locale === 'ar' ? (employee.employee_name_ar || employee.employee_name_en) : employee.employee_name_en}</p>
+                                <p class="text-xs text-slate-500">{employee.id} • {$locale === 'ar' ? (employee.branch_name_ar || employee.branch_name_en) : employee.branch_name_en}</p>
+                            </div>
+                        </button>
+                    {/each}
+                {/if}
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3 justify-end flex-shrink-0">
+                <button 
+                    class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={closeAssignEmployeesModal}
+                    disabled={isAssignSaving}
+                >
+                    {$t('common.cancel')}
+                </button>
+                <button 
+                    class="px-6 py-2 rounded-lg font-black text-white bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                    on:click={saveEmployeeAssignments}
+                    disabled={isAssignSaving}
+                >
+                    {isAssignSaving ? $t('common.saving') : $t('common.save')} ({assignSelectedEmployeeIds.size})
+                </button>
+            </div>
         </div>
     </div>
 {/if}

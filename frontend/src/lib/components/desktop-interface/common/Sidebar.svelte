@@ -45,6 +45,7 @@
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
 	import BankReconciliation from '$lib/components/desktop-interface/master/finance/BankReconciliation.svelte';
+	import ManageReconciliations from '$lib/components/desktop-interface/master/finance/ManageReconciliations.svelte';
 	import AssetManager from '$lib/components/desktop-interface/master/finance/AssetManager.svelte';
 	import LeaseAndRent from '$lib/components/desktop-interface/master/finance/LeaseAndRent.svelte';
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
@@ -83,6 +84,7 @@
 	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
+	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
 	import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
@@ -254,7 +256,7 @@
 		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
 		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
 		'APPROVAL_CENTER': 'nav.approvalCenter', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
-		'BANK_RECONCILIATION': 'nav.bankReconciliation', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
+		'BANK_RECONCILIATION': 'nav.bankReconciliation', 'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
 		'DAY_BUDGET_PLANNER': 'nav.dayBudgetPlanner', 'MONTHLY_MANAGER': 'nav.monthlyManager',
 		'EXPENSE_MANAGER': 'nav.expenseManager', 'PAID_MANAGER': 'nav.paidManager',
 		'DENOMINATION': 'nav.denomination', 'PETTY_CASH': 'nav.pettyCash',
@@ -1093,6 +1095,29 @@
 		showHRSubmenu = false;
 	}
 
+	function openBreakRegister() {
+		collapseAllMenus();
+		const windowId = generateWindowId('break-register');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Break Register #${instanceNumber}`,
+			component: BreakRegisterManager,
+			icon: '☕',
+			size: { width: 1100, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
 	function openReportIncident() {
 		collapseAllMenus();
 		const windowId = generateWindowId('report-incident');
@@ -1828,6 +1853,7 @@ function openApprovalCenter() {
 			'APPROVAL_CENTER': openApprovalCenter,
 			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
 			'BANK_RECONCILIATION': openBankReconciliation,
+			'MANAGE_RECONCILIATIONS': openManageReconciliations,
 			'MANUAL_SCHEDULING': openManualScheduling,
 			'DAY_BUDGET_PLANNER': openDayBudgetPlanner,
 			'MONTHLY_MANAGER': openMonthlyManager,
@@ -2566,6 +2592,25 @@ function openApprovalCenter() {
 			position: { 
 				x: 170 + (Math.random() * 100),
 				y: 170 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
+	// Open Manage Reconciliations window
+	function openManageReconciliations() {
+		collapseAllMenus();
+		const windowId = 'manage-reconciliations-main';
+		openWindow({
+			id: windowId,
+			title: t('nav.manageReconciliations'),
+			component: ManageReconciliations,
+			icon: '📋',
+			size: { width: 1400, height: 750 },
+			position: {
+				x: 150 + (Math.random() * 100),
+				y: 150 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -4254,6 +4299,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					{#if isButtonAllowed('MANAGE_RECONCILIATIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManageReconciliations}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('nav.manageReconciliations')}</span>
+							</button>
+						</div>
+					{/if}
 					{#if isButtonAllowed('ASSET_MANAGER')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openAssetManager}>
@@ -4625,6 +4678,12 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openBreakRegister}>
+							<span class="menu-icon">☕</span>
+							<span class="menu-text">{$currentLocale === 'ar' ? 'سجل الاستراحات' : 'Break Register'}</span>
+						</button>
+					</div>
 				</div>
 			{/if}
 

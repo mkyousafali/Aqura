@@ -31,6 +31,7 @@
 	let whatsappNumber = '';
 	let nameValid = true;
 	let whatsappValid = true;
+	let privacyAccepted = false;
 
 	// Forgot access code form
 	let forgotWhatsappNumber = '';
@@ -845,10 +846,28 @@
 				</div>
 			</div>
 
+			<!-- Privacy Policy Checkbox -->
+			<div class="privacy-checkbox-group">
+				<label class="privacy-label">
+					<input 
+						type="checkbox" 
+						bind:checked={privacyAccepted}
+						disabled={isLoading}
+						class="privacy-checkbox"
+					/>
+					<span class="privacy-text">
+						{$_('customer.login.agreeToPrivacy')}
+						<a href="/privacy" target="_blank" class="privacy-link" on:click|stopPropagation>
+							{$_('customer.login.privacyPolicy')}
+						</a>
+					</span>
+				</label>
+			</div>
+
 			<button 
 				type="submit" 
 				class="customer-submit-btn register"
-				disabled={isLoading || !customerName.trim() || !whatsappNumber.trim()}
+				disabled={isLoading || !customerName.trim() || !whatsappNumber.trim() || !privacyAccepted}
 			>
 				{#if isLoading}
 					<span class="loading-spinner"></span>
@@ -1359,6 +1378,45 @@
 		margin-top: 1.5rem;
 		padding-top: 1.25rem;
 		border-top: 1px solid #E5E7EB;
+	}
+
+	.privacy-checkbox-group {
+		margin-top: 1rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.privacy-label {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.625rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+		color: #374151;
+		line-height: 1.4;
+	}
+
+	.privacy-checkbox {
+		width: 18px;
+		height: 18px;
+		min-width: 18px;
+		margin-top: 2px;
+		accent-color: #059669;
+		cursor: pointer;
+	}
+
+	.privacy-text {
+		flex: 1;
+	}
+
+	.privacy-link {
+		color: #059669;
+		font-weight: 600;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.privacy-link:hover {
+		color: #047857;
 	}
 
 	.form-footer p {

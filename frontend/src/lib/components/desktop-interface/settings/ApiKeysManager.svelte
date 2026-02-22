@@ -94,9 +94,8 @@
 
 	const serviceIcons: Record<string, string> = {
 		google: '🌐',
-		pixabay: '🖼️',
-		openai: '🤖',
 		google_search_engine_id: '🔍',
+		openai: '🤖',
 	};
 </script>
 

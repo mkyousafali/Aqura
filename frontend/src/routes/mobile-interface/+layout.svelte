@@ -686,6 +686,7 @@
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
 		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
 		if (path === '/mobile-interface/live-chat' || path === '/mobile-interface/live-chat/') return locale === 'ar' ? 'دعم برنامج الولاء' : 'Loyalty Program Support';
+		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');

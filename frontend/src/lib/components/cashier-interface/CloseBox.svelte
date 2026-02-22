@@ -114,12 +114,72 @@
 	// Calculate total cash sales (cash sales + vouchers - recharge sales)
 	$: totalCashSales = (cashSales + vouchersTotal) - (Number(sales) || 0);
 
-	// Bank reconciliation payment methods
+	// Bank reconciliation payment methods (kept for backward compat in save)
 	let madaAmount: number | '' = '';
 	let visaAmount: number | '' = '';
 	let masterCardAmount: number | '' = '';
 	let googlePayAmount: number | '' = '';
 	let otherAmount: number | '' = '';
+
+	// Multiple reconciliations list
+	let reconciliations: Array<{id?: number, reconciliation_number: string, mada: number, visa: number, mastercard: number, google_pay: number, other: number}> = [];
+	let showReconPopup = false;
+	let reconForm = { reconciliation_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
+	let editingReconIndex: number | null = null;
+
+	function openReconPopup(index?: number) {
+		if (index !== undefined && index !== null) {
+			editingReconIndex = index;
+			const r = reconciliations[index];
+			reconForm = { reconciliation_number: r.reconciliation_number, mada: r.mada, visa: r.visa, mastercard: r.mastercard, google_pay: r.google_pay, other: r.other };
+		} else {
+			editingReconIndex = null;
+			reconForm = { reconciliation_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
+		}
+		showReconPopup = true;
+	}
+
+	function closeReconPopup() {
+		showReconPopup = false;
+		editingReconIndex = null;
+	}
+
+	function saveRecon() {
+		const entry = {
+			reconciliation_number: reconForm.reconciliation_number,
+			mada: Number(reconForm.mada) || 0,
+			visa: Number(reconForm.visa) || 0,
+			mastercard: Number(reconForm.mastercard) || 0,
+			google_pay: Number(reconForm.google_pay) || 0,
+			other: Number(reconForm.other) || 0
+		};
+		if (editingReconIndex !== null) {
+			reconciliations[editingReconIndex] = entry;
+		} else {
+			reconciliations = [...reconciliations, entry];
+		}
+		reconciliations = reconciliations; // trigger reactivity
+		// Sync legacy amounts for backward compat (sum all)
+		syncLegacyAmounts();
+		closeReconPopup();
+	}
+
+	function removeRecon(index: number) {
+		reconciliations = reconciliations.filter((_, i) => i !== index);
+		syncLegacyAmounts();
+	}
+
+	function syncLegacyAmounts() {
+		madaAmount = reconciliations.reduce((s, r) => s + (r.mada || 0), 0);
+		visaAmount = reconciliations.reduce((s, r) => s + (r.visa || 0), 0);
+		masterCardAmount = reconciliations.reduce((s, r) => s + (r.mastercard || 0), 0);
+		googlePayAmount = reconciliations.reduce((s, r) => s + (r.google_pay || 0), 0);
+		otherAmount = reconciliations.reduce((s, r) => s + (r.other || 0), 0);
+	}
+
+	function getReconTotal(r: any): number {
+		return (r.mada || 0) + (r.visa || 0) + (r.mastercard || 0) + (r.google_pay || 0) + (r.other || 0);
+	}
 
 	// Calculate bank reconciliation total
 	$: bankTotal = (Number(madaAmount) || 0) + (Number(visaAmount) || 0) + (Number(masterCardAmount) || 0) + (Number(googlePayAmount) || 0) + (Number(otherAmount) || 0);
@@ -633,6 +693,30 @@
 				vouchers = [...savedData.vouchers];
 			}
 
+			// Restore reconciliations: first try closing_details (pre-close), then bank_reconciliations table (post-close)
+			if (savedData.reconciliations && Array.isArray(savedData.reconciliations) && savedData.reconciliations.length > 0) {
+				reconciliations = [...savedData.reconciliations];
+				syncLegacyAmounts();
+			} else {
+				const { data: reconData } = await supabase
+					.from('bank_reconciliations')
+					.select('*')
+					.eq('operation_id', operation.id)
+					.order('id');
+				if (reconData && reconData.length > 0) {
+					reconciliations = reconData.map((r: any) => ({
+						id: r.id,
+						reconciliation_number: r.reconciliation_number || '',
+						mada: r.mada_amount || 0,
+						visa: r.visa_amount || 0,
+						mastercard: r.mastercard_amount || 0,
+						google_pay: r.google_pay_amount || 0,
+						other: r.other_amount || 0
+					}));
+					syncLegacyAmounts();
+				}
+			}
+
 			console.log('✅ Closing details restored successfully');
 		} catch (error) {
 			console.error('❌ Error loading closing details:', error);
@@ -690,6 +774,9 @@
 				vouchers: vouchers,
 				vouchers_total: vouchersTotal,
 				
+				// Bank reconciliation rows (for restore before final close)
+				reconciliations: reconciliations,
+				
 				total_sales: totalSales,
 				total_system_sales: totalSystemSales
 			};
@@ -714,6 +801,7 @@
 	$: if (systemCashSales !== undefined || systemCardSales !== undefined || systemReturn !== undefined) autoSaveClosingDetails();
 	$: if (openingBalance !== undefined || closeBalance !== undefined) autoSaveClosingDetails();
 	$: if (vouchers) autoSaveClosingDetails();
+	$: if (reconciliations) autoSaveClosingDetails();
 	$: if (startDateInput !== undefined || startHour !== undefined || startMinute !== undefined || startAmPm !== undefined) autoSaveClosingDetails();
 	$: if (endDateInput !== undefined || endHour !== undefined || endMinute !== undefined || endAmPm !== undefined) autoSaveClosingDetails();
 
@@ -797,6 +885,49 @@
 			}
 
 			console.log('✅ Status updated to pending_close');
+
+			// Save individual reconciliations to bank_reconciliations table
+			if (reconciliations.length > 0) {
+				// First delete old reconciliations for this operation
+				await supabase.from('bank_reconciliations').delete().eq('operation_id', operation.id);
+				
+				// Get cashier user ID
+				let cashierUserId: string | null = null;
+				if (cashierConfirmCode) {
+					const { data: cashierData } = await supabase
+						.from('users')
+						.select('id')
+						.eq('quick_access_code', cashierConfirmCode)
+						.single();
+					cashierUserId = cashierData?.id || null;
+				}
+
+				const reconRows = reconciliations.map(r => ({
+					operation_id: operation.id,
+					branch_id: branch?.id || null,
+					pos_number: selectedPosNumber,
+					supervisor_id: supervisorUserId || null,
+					cashier_id: cashierUserId,
+					reconciliation_number: r.reconciliation_number || '',
+					mada_amount: r.mada || 0,
+					visa_amount: r.visa || 0,
+					mastercard_amount: r.mastercard || 0,
+					google_pay_amount: r.google_pay || 0,
+					other_amount: r.other || 0,
+					total_amount: (r.mada || 0) + (r.visa || 0) + (r.mastercard || 0) + (r.google_pay || 0) + (r.other || 0)
+				}));
+
+				const { error: reconError } = await supabase
+					.from('bank_reconciliations')
+					.insert(reconRows);
+				
+				if (reconError) {
+					console.error('❌ Error saving reconciliations:', reconError);
+				} else {
+					console.log('✅ Reconciliations saved:', reconRows.length);
+				}
+			}
+
 			closingSaved = true;
 
 			// Open print template
@@ -1085,76 +1216,94 @@
 			<div class="split-section">
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
+					<button class="add-voucher-btn" on:click={() => openReconPopup()} style="width: 22px; height: 22px; font-size: 14px; padding: 0; line-height: 1;">
+						<span>+</span>
+					</button>
 					<label class="checkbox-container">
 						<span class="checkbox-number">5</span>
 						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox5} />
 						<span class="checkmark"></span>
 					</label>
 				</div>
-				
-				<div class="bank-fields-row">
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
-						<input
-							type="number"
-							bind:value={madaAmount}
 
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
+				<!-- Reconciliations list -->
+				{#if reconciliations.length > 0}
+					<div class="recon-cards-list">
+						{#each reconciliations as recon, index (index)}
+							<div class="recon-card">
+								<div class="recon-card-header">
+									<button
+										style="background: none; border: none; color: #2563eb; cursor: pointer; text-decoration: underline; font-size: 13px; font-weight: 700; padding: 0;"
+										on:click={() => openReconPopup(index)}
+									>
+										{recon.reconciliation_number || `#${index + 1}`}
+									</button>
+									<button class="remove-btn" on:click={() => removeRecon(index)}>×</button>
+								</div>
+								<div class="recon-card-body">
+									<div class="bank-fields-row">
+										<div class="bank-input-group">
+											<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
+											<input type="number" value={recon.mada || 0} readonly class="bank-input" />
+										</div>
+										<div class="bank-input-group">
+											<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
+											<input type="number" value={recon.visa || 0} readonly class="bank-input" />
+										</div>
+										<div class="bank-input-group">
+											<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MC'}</label>
+											<input type="number" value={recon.mastercard || 0} readonly class="bank-input" />
+										</div>
+										<div class="bank-input-group">
+											<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'GPay'}</label>
+											<input type="number" value={recon.google_pay || 0} readonly class="bank-input" />
+										</div>
+										<div class="bank-input-group">
+											<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
+											<input type="number" value={recon.other || 0} readonly class="bank-input" />
+										</div>
+										<div class="bank-input-group">
+											<label style="color: #1e40af; font-weight: 800;">{$currentLocale === 'ar' ? 'المجموع' : 'Total'}</label>
+											<input type="number" value={getReconTotal(recon)} readonly class="bank-input" style="color: #1e40af; font-weight: 800; border-color: #93c5fd; background: #eff6ff;" />
+										</div>
+									</div>
+								</div>
+							</div>
+						{/each}
 					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
-						<input
-							type="number"
-							bind:value={visaAmount}
+				{/if}
 
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
+				<!-- Overall totals by payment type -->
+				<div class="recon-overall-totals">
+					<div class="recon-overall-header">{$currentLocale === 'ar' ? 'إجمالي جميع التسويات' : 'All Reconciliations Total'}</div>
+					<div class="bank-fields-row">
+						<div class="bank-input-group">
+							<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
+							<input type="number" value={Number(madaAmount) || 0} readonly class="bank-input" />
+						</div>
+						<div class="bank-input-group">
+							<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
+							<input type="number" value={Number(visaAmount) || 0} readonly class="bank-input" />
+						</div>
+						<div class="bank-input-group">
+							<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
+							<input type="number" value={Number(masterCardAmount) || 0} readonly class="bank-input" />
+						</div>
+						<div class="bank-input-group">
+							<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
+							<input type="number" value={Number(googlePayAmount) || 0} readonly class="bank-input" />
+						</div>
+						<div class="bank-input-group">
+							<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
+							<input type="number" value={Number(otherAmount) || 0} readonly class="bank-input" />
+						</div>
 					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
-						<input
-							type="number"
-							bind:value={masterCardAmount}
-
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
-						<input
-							type="number"
-							bind:value={googlePayAmount}
-
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
-						<input
-							type="number"
-							bind:value={otherAmount}
-
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
-					</div>
-				</div>
-
-				<div class="bank-total">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي البنك:' : 'Bank Total:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					<div class="bank-total" style="margin-top: 4px;">
+						<span class="label">{$currentLocale === 'ar' ? 'إجمالي البنك:' : 'Bank Total:'}</span>
+						<div class="amount">
+							<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+							<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -1887,6 +2036,61 @@
 	</div>
 {/if}
 
+{#if showReconPopup}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="erp-popup-overlay" on:click={closeReconPopup} on:keydown={(e) => { if (e.key === 'Escape') closeReconPopup(); }}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="erp-popup-modal" on:click|stopPropagation style="max-width: 420px;">
+			<div class="erp-popup-header">
+				<h3>{editingReconIndex !== null ? ($currentLocale === 'ar' ? 'تعديل التسوية' : 'Edit Reconciliation') : ($currentLocale === 'ar' ? 'إضافة تسوية' : 'Add Reconciliation')}</h3>
+			</div>
+			<div class="erp-popup-content" style="display: flex; flex-direction: column; gap: 10px;">
+				<div class="bank-input-group">
+					<label>{$currentLocale === 'ar' ? 'رقم التسوية' : 'Reconciliation #'}</label>
+					<input type="text" bind:value={reconForm.reconciliation_number} class="bank-input" placeholder={$currentLocale === 'ar' ? 'أدخل رقم التسوية' : 'Enter reconciliation number'} />
+				</div>
+				<div class="bank-fields-row" style="flex-wrap: wrap;">
+					<div class="bank-input-group">
+						<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
+						<input type="text" inputmode="decimal" bind:value={reconForm.mada} class="bank-input" placeholder="0.00" />
+					</div>
+					<div class="bank-input-group">
+						<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
+						<input type="text" inputmode="decimal" bind:value={reconForm.visa} class="bank-input" placeholder="0.00" />
+					</div>
+					<div class="bank-input-group">
+						<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
+						<input type="text" inputmode="decimal" bind:value={reconForm.mastercard} class="bank-input" placeholder="0.00" />
+					</div>
+					<div class="bank-input-group">
+						<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
+						<input type="text" inputmode="decimal" bind:value={reconForm.google_pay} class="bank-input" placeholder="0.00" />
+					</div>
+					<div class="bank-input-group">
+						<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
+						<input type="text" inputmode="decimal" bind:value={reconForm.other} class="bank-input" placeholder="0.00" />
+					</div>
+				</div>
+				<div class="bank-total" style="margin-top: 4px;">
+					<span class="label">{$currentLocale === 'ar' ? 'المجموع:' : 'Total:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{((Number(reconForm.mada) || 0) + (Number(reconForm.visa) || 0) + (Number(reconForm.mastercard) || 0) + (Number(reconForm.google_pay) || 0) + (Number(reconForm.other) || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+			</div>
+			<div class="erp-popup-actions" style="display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px;">
+				<button class="btn-close-erp" on:click={saveRecon} style="background: #2563eb; color: white;">
+					{$currentLocale === 'ar' ? 'حفظ' : 'Save'}
+				</button>
+				<button class="btn-close-erp" on:click={closeReconPopup}>
+					{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 
 <style>
 	.close-box-container {
@@ -1948,8 +2152,8 @@
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
 		gap: 0.5rem;
-		flex: 1;
-		min-height: 0;
+		grid-auto-rows: auto;
+		align-items: start;
 	}
 
 	.half-card {
@@ -1957,11 +2161,9 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 0.5rem;
 		padding: 0.5rem;
-		height: 100%;
 		position: relative;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
 	}
 
 	.split-card {
@@ -1969,11 +2171,10 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		padding: 0;
-		overflow-y: auto;
 	}
 
 	.split-section {
-		flex: 1;
+		flex: none;
 		min-height: 200px;
 		background: white;
 		border: 2px solid #f97316;
@@ -1985,33 +2186,33 @@
 	}
 
 	.split-section:nth-child(1) {
-		flex: 1;
+		flex: none;
 		min-height: 200px;
 	}
 
 	.split-section:nth-child(2) {
-		flex: 0.6;
+		flex: none;
 		min-height: 140px;
 	}
 
 	.split-section:nth-child(3) {
-		flex: 0.7;
+		flex: none;
 		min-height: 130px;
 	}
 
 	.split-section:nth-child(4) {
-		flex: 0.7;
+		flex: none;
 		min-height: 130px;
 	}
 
 	/* Left column specific sizes (Cards 7 & 8) */
 	.half-card:first-child .split-section:nth-child(1) {
-		flex: 1.8;
+		flex: none;
 		min-height: 500px;
 	}
 
 	.half-card:first-child .split-section:nth-child(2) {
-		flex: 1.2;
+		flex: none;
 		min-height: 350px;
 	}
 
@@ -3308,8 +3509,10 @@
 
 	/* Right column specific sizes */
 	.half-card:last-child .split-section:nth-child(1) {
-		flex: 0.8;
-		min-height: 150px;
+		flex: none;
+		min-height: auto;
+		max-height: 500px;
+		overflow-y: auto;
 	}
 
 	.half-card:last-child .split-section:nth-child(2) {
@@ -3874,6 +4077,126 @@
 		align-items: center;
 		gap: 0.375rem;
 		font-size: 0.8rem;
+	}
+
+	/* Reconciliation cards */
+	.recon-cards-list {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-bottom: 8px;
+		padding-right: 2px;
+	}
+
+	.recon-card {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.recon-card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 4px 8px;
+		background: #eef2ff;
+		border-bottom: 1px solid #e2e8f0;
+	}
+
+	.recon-card-body {
+		padding: 4px 8px;
+	}
+
+	.recon-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1px 0;
+		font-size: 0.68rem;
+	}
+
+	.recon-row-total {
+		border-top: 1px solid #cbd5e1;
+		margin-top: 2px;
+		padding-top: 3px;
+		font-weight: 700;
+		color: #1e40af;
+	}
+
+	.recon-label {
+		color: #64748b;
+		font-weight: 600;
+	}
+
+	.recon-value {
+		font-family: 'SF Mono', 'Consolas', monospace;
+		color: #334155;
+		font-weight: 600;
+	}
+
+	.recon-row-total .recon-value {
+		color: #1e40af;
+	}
+
+	.recon-overall-totals {
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 8px;
+		padding: 6px 8px;
+		margin-bottom: 6px;
+	}
+
+	.recon-overall-header {
+		font-size: 0.68rem;
+		font-weight: 800;
+		color: #0369a1;
+		margin-bottom: 4px;
+		text-align: center;
+	}
+
+	.recon-overall-totals .recon-row {
+		font-size: 0.7rem;
+	}
+
+	.recon-overall-totals .recon-label {
+		color: #0c4a6e;
+	}
+
+	.recon-overall-totals .recon-value {
+		color: #0c4a6e;
+		font-weight: 700;
+	}
+
+	.recon-overall-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-bottom: 4px;
+	}
+
+	.recon-grid-item {
+		flex: 1 1 calc(33.33% - 6px);
+		min-width: 80px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		background: #e0f2fe;
+		border-radius: 6px;
+		padding: 4px 6px;
+		gap: 1px;
+	}
+
+	.recon-grid-item .recon-label {
+		font-size: 0.6rem;
+		color: #0369a1;
+	}
+
+	.recon-grid-item .recon-value {
+		font-size: 0.72rem;
+		color: #0c4a6e;
+		font-weight: 800;
+		font-family: 'SF Mono', 'Consolas', monospace;
 	}
 
 	/* System Sales Styles */
