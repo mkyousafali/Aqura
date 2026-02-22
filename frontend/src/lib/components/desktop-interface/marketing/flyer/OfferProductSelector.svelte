@@ -181,10 +181,30 @@
 		
 		// Check if product is part of a variation group (must have both is_variation AND variation_group_name_en)
 		if (product.is_variation && product.variation_group_name_en) {
-			// Determine parent barcode
-			const parentBarcode = product.parent_product_barcode || product.barcode;
+			// Check if this product (or any variant in its group) is already selected
+			const template = templates.find(t => t.id === templateId);
+			const groupProducts = products.filter(p => p.variation_group_name_en === product.variation_group_name_en);
+			const anySelected = groupProducts.some(p => template?.selectedProducts.has(p.barcode));
 			
-			// Load all variations in the group
+			if (anySelected) {
+				// UNTICKING: Remove ALL variants in this group directly
+				templates = templates.map(t => {
+					if (t.id === templateId) {
+						const newMap = new Map(t.selectedProducts);
+						groupProducts.forEach(p => newMap.delete(p.barcode));
+						
+						// Reassign page/order numbers to fill gaps
+						reassignPageOrder(newMap);
+						
+						return { ...t, selectedProducts: newMap };
+					}
+					return t;
+				});
+				return;
+			}
+			
+			// TICKING: Open variation modal to let user choose which variants
+			const parentBarcode = product.parent_product_barcode || product.barcode;
 			await loadVariationGroup(templateId, parentBarcode);
 			return;
 		}
@@ -195,6 +215,8 @@
 				const newMap = new Map(t.selectedProducts);
 				if (newMap.has(barcode)) {
 					newMap.delete(barcode);
+					// Reassign page/order numbers to fill gaps
+					reassignPageOrder(newMap);
 				} else {
 					// Default page 1, order = next available (using max order, not count)
 					const nextOrder = getNextOrderForPage(t, 1, barcode);
@@ -204,6 +226,33 @@
 				return { ...t, selectedProducts: newMap };
 			}
 			return t;
+		});
+	}
+	
+	// Reassign page/order numbers to fill gaps after removing products
+	function reassignPageOrder(selectedProducts: Map<string, ProductSelection>) {
+		// Group products by page, then sort by existing order within each page
+		const byPage = new Map<number, { barcode: string, order: number }[]>();
+		selectedProducts.forEach((sel, barcode) => {
+			if (!byPage.has(sel.page)) byPage.set(sel.page, []);
+			byPage.get(sel.page)!.push({ barcode, order: sel.order });
+		});
+		
+		// For each page, sort by current order and reassign sequential orders
+		byPage.forEach((items, page) => {
+			// Sort by current order
+			items.sort((a, b) => a.order - b.order);
+			
+			// Assign sequential orders starting from 1, but keep variants sharing the same order
+			let currentOrder = 0;
+			let lastOriginalOrder = -1;
+			items.forEach(item => {
+				if (item.order !== lastOriginalOrder) {
+					currentOrder++;
+					lastOriginalOrder = item.order;
+				}
+				selectedProducts.set(item.barcode, { page, order: currentOrder });
+			});
 		});
 	}
 	
@@ -455,6 +504,9 @@
 						newMap.set(barcode, { page: 1, order: sharedOrder });
 					});
 				}
+				
+				// Reassign page/order to fill gaps
+				reassignPageOrder(newMap);
 				
 				return { ...t, selectedProducts: newMap };
 			}
