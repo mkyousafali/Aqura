@@ -247,7 +247,33 @@
 		
 		// Check if product is part of a variation group
 		if (product.is_variation && product.variation_group_name_en) {
-			// Load all variations in the group and show modal
+			// If already selected, REMOVE all variants in the group directly (no modal)
+			if (selectedProducts.has(barcode)) {
+				const groupBarcodes = [...allProducts]
+					.filter(p => p.variation_group_name_en === product.variation_group_name_en)
+					.map(p => p.barcode);
+				
+				let removedPage: number | null = null;
+				groupBarcodes.forEach(bc => {
+					if (removedPage === null) {
+						const po = productPageOrderMap.get(bc);
+						if (po) removedPage = po.page;
+					}
+					selectedProducts.delete(bc);
+					productPageOrderMap.delete(bc);
+				});
+				
+				if (removedPage !== null) {
+					reassignOrdersForPage(removedPage);
+				}
+				
+				selectedProducts = selectedProducts;
+				productPageOrderMap = productPageOrderMap;
+				filterProducts();
+				return;
+			}
+			
+			// Not selected yet - load all variations in the group and show modal
 			await loadVariationGroup(barcode);
 			return;
 		}
@@ -370,6 +396,10 @@
 				showPageSelectModal = true;
 			}
 		} else {
+			// All variants deselected - reassign orders on affected page
+			if (existingPageOrder) {
+				reassignOrdersForPage(existingPageOrder.page);
+			}
 			// Trigger reactivity after all deletions
 			selectedProducts = selectedProducts;
 			productPageOrderMap = productPageOrderMap;
