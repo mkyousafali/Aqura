@@ -123,4 +123,10 @@ Flyer Master/
 
 # Build artifacts / archives (may contain embedded keys)
 *.zip
-frontend/aqura-frontend-build.zip
+*.tar.gz
+*.rar
+frontend/aqura-frontend-build.*
+
+# One-off utility scripts with key references
+fix_key.py
+replacements.txt

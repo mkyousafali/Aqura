@@ -8,27 +8,28 @@ let cachedApiKey: string | null = null;
 async function getGoogleTTSApiKey(): Promise<string | null> {
 	if (cachedApiKey) return cachedApiKey;
 
-	// First try environment variable
+	// First try system_api_keys table (DB-first)
+	try {
+		const { data, error } = await supabase
+			.from('system_api_keys')
+			.select('api_key')
+			.eq('service_name', 'google')
+			.eq('is_active', true)
+			.single();
+
+		if (!error && data?.api_key) {
+			cachedApiKey = data.api_key;
+			return data.api_key;
+		}
+	} catch (err) {
+		console.error('[TTS] Error fetching API key from system_api_keys:', err);
+	}
+
+	// Fallback to environment variable
 	const envKey = import.meta.env.VITE_GOOGLE_TTS_API_KEY;
 	if (envKey) {
 		cachedApiKey = envKey;
 		return envKey;
-	}
-
-	// Try to get from Supabase settings table
-	try {
-		const { data, error } = await supabase
-			.from('settings')
-			.select('value')
-			.eq('key', 'google_tts_api_key')
-			.maybeSingle();
-
-		if (!error && data?.value) {
-			cachedApiKey = data.value;
-			return data.value;
-		}
-	} catch (err) {
-		console.error('[TTS] Error fetching Google TTS API key:', err);
 	}
 
 	return null;

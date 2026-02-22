@@ -88,7 +88,18 @@
 
   // Calculate driving distances using Google Routes API (new) with Haversine fallback
   async function calculateDrivingDistances() {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    // Load API key from DB first, fallback to env
+    let apiKey = '';
+    try {
+      const { data: keyRow } = await supabase
+        .from('system_api_keys')
+        .select('api_key')
+        .eq('service_name', 'google')
+        .eq('is_active', true)
+        .single();
+      if (keyRow?.api_key) apiKey = keyRow.api_key;
+    } catch (_) { /* fallback to env */ }
+    if (!apiKey) apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
     const branchesWithCoords = branches.filter(b => b.latitude && b.longitude);
     if (branchesWithCoords.length === 0) return;
 
