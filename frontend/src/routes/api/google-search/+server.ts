@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
 
+const PIXABAY_API_KEY = env.PIXABAY_API_KEY || '';
 const GOOGLE_API_KEY = env.GOOGLE_API_KEY || '';
 const GOOGLE_SEARCH_ENGINE_ID = env.GOOGLE_SEARCH_ENGINE_ID || '';
 
@@ -21,39 +22,96 @@ async function getApiKey(serviceName: string, fallback: string): Promise<string>
 	return fallback;
 }
 
+// ── Pixabay image search (free, 100 req/min) ──
+async function fetchPixabayImages(searchQuery: string, limit: number, pixabayKey: string) {
+	const perPage = Math.min(limit, 20);
+	const url = `https://pixabay.com/api/?key=${pixabayKey}&q=${encodeURIComponent(searchQuery)}&image_type=photo&per_page=${perPage}&safesearch=true`;
+
+	console.log(`[Pixabay] Searching: "${searchQuery}" (limit: ${perPage})`);
+	const response = await fetch(url);
+	const data = await response.json();
+
+	if (!response.ok || data.error) {
+		console.error(`[Pixabay] Error for "${searchQuery}":`, data);
+		return [];
+	}
+
+	return (data.hits || []).map((item: any) => ({
+		url: item.webformatURL || item.largeImageURL,
+		thumbnail: item.previewURL || item.webformatURL,
+		title: item.tags || '',
+		source: 'pixabay.com'
+	}));
+}
+
+// ── Google Custom Search (fallback, 100 req/day free) ──
+async function fetchGoogleImages(searchQuery: string, limit: number, apiKey: string, searchEngineId: string) {
+	const num = Math.min(limit, 10);
+	const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=${num}&safe=active`;
+
+	console.log(`[Google CSE] Searching: "${searchQuery}" (limit: ${num})`);
+	const response = await fetch(url);
+	const data = await response.json();
+
+	if (!response.ok) {
+		console.error(`[Google CSE] Error for "${searchQuery}":`, data);
+		throw new Error(data.error?.message || 'Google Custom Search API request failed');
+	}
+
+	return (data.items || []).map((item: any) => ({
+		url: item.link,
+		thumbnail: item.image?.thumbnailLink || item.link,
+		title: item.title || '',
+		source: item.displayLink || 'google.com'
+	}));
+}
+
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
 		const { barcode, productNameEn, productNameAr, query } = body;
 
-		// Resolve Google API key and Search Engine ID from DB, fallback to .env
-		const apiKey = await getApiKey('google', GOOGLE_API_KEY);
+		// Resolve keys from DB, fallback to .env
+		const pixabayKey = await getApiKey('pixabay', PIXABAY_API_KEY);
+		const googleKey = await getApiKey('google', GOOGLE_API_KEY);
 		const searchEngineId = await getApiKey('google_search_engine_id', GOOGLE_SEARCH_ENGINE_ID);
 
-		if (!apiKey || !searchEngineId) {
-			return json({ error: 'Google Custom Search API not configured. Set google and google_search_engine_id in API Keys Manager.' }, { status: 500 });
+		// Determine which search engine to use: Pixabay primary, Google CSE fallback
+		const usePixabay = !!pixabayKey;
+		const useGoogle = !!googleKey && !!searchEngineId;
+
+		if (!usePixabay && !useGoogle) {
+			return json({ error: 'No image search API configured. Set pixabay or google keys in API Keys Manager.' }, { status: 500 });
 		}
 
-		// Helper function to fetch images from Google Custom Search
-		async function fetchImages(searchQuery: string, limit: number) {
-			const num = Math.min(limit, 10); // Google CSE max is 10 per request
-			const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=${num}&safe=active`;
-
-			console.log(`Fetching Google CSE for: "${searchQuery}" (limit: ${num})`);
-			const response = await fetch(url);
-			const data = await response.json();
-
-			if (!response.ok) {
-				console.error(`Google CSE API Error for "${searchQuery}":`, data);
-				throw new Error(data.error?.message || 'Google Custom Search API request failed');
+		// Auto-translate Arabic text to English for Pixabay (which doesn't support Arabic well)
+		async function translateToEnglish(text: string): Promise<string> {
+			// Check if text contains Arabic characters
+			if (!/[\u0600-\u06FF]/.test(text)) return text;
+			try {
+				const res = await fetch(
+					`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=en&dt=t&q=${encodeURIComponent(text)}`
+				);
+				const data = await res.json();
+				const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || text;
+				console.log(`[Translate] "${text}" → "${translated}"`);
+				return translated;
+			} catch {
+				return text;
 			}
+		}
 
-			return (data.items || []).map((item: any) => ({
-				url: item.link,
-				thumbnail: item.image?.thumbnailLink || item.link,
-				title: item.title || '',
-				source: item.displayLink || 'google.com'
-			}));
+		// Unified fetch: try Pixabay first (translate Arabic→English), fall back to Google CSE
+		async function fetchImages(searchQuery: string, limit: number) {
+			if (usePixabay) {
+				const englishQuery = await translateToEnglish(searchQuery);
+				const results = await fetchPixabayImages(englishQuery, limit, pixabayKey);
+				if (results.length > 0) return results;
+			}
+			if (useGoogle) {
+				return await fetchGoogleImages(searchQuery, limit, googleKey, searchEngineId);
+			}
+			return [];
 		}
 
 		// Simple query mode (used by mobile customer product request)
@@ -119,7 +177,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		console.log(`Total unique images found: ${allImages.length}`);
 		return json({ images: allImages });
 	} catch (error) {
-		console.error('Error in Google search:', error);
+		console.error('Error in image search:', error);
 		return json({ error: 'Failed to search images' }, { status: 500 });
 	}
 };

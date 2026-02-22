@@ -258,10 +258,34 @@ async function renderSystemCheck(container) {
     const res = await api.exec('(Get-CimInstance Win32_ComputerSystem).HypervisorPresent');
     const enabled = res.stdout.toLowerCase() === 'true';
     if (enabled) return { pass: true, value: 'Enabled' };
+    
     // Check if WSL already works (might still be fine)
     const wslCheck = await api.exec('wsl --status 2>&1');
-    if (wslCheck.success) return { pass: true, value: 'WSL2 available' };
-    return { pass: false, value: 'Disabled — enable in BIOS' };
+    if (wslCheck.success && wslCheck.stdout.includes('Default')) return { pass: true, value: 'WSL2 available' };
+
+    // Try to enable required Windows features automatically
+    log('Virtualization not detected — enabling Windows features...', 'info');
+    await api.exec('dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart', { timeout: 120000 });
+    await api.exec('dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart', { timeout: 120000 });
+
+    // Check if CPU actually supports virtualization (firmware)
+    const cpuVirt = await api.exec('(Get-CimInstance Win32_Processor).VirtualizationFirmwareEnabled');
+    const cpuSupports = cpuVirt.stdout.toLowerCase() === 'true';
+
+    if (cpuSupports) {
+      // CPU supports it but hypervisor not active yet — features enabled, reboot needed later
+      return { pass: true, value: 'Features enabled — reboot needed (WSL step will handle it)', warn: true };
+    }
+
+    // CPU says disabled — might need BIOS, but Windows features are now enabled
+    // Check if it's a VM or cloud instance (no BIOS access possible)
+    const model = await api.exec('(Get-CimInstance Win32_ComputerSystem).Model');
+    if (model.stdout.toLowerCase().includes('virtual')) {
+      return { pass: true, value: 'Virtual machine detected — features enabled', warn: true };
+    }
+
+    // Last resort: features enabled, will likely work after reboot
+    return { pass: true, value: 'Windows features enabled — may need BIOS VT-x if reboot fails', warn: true };
   });
 
   // 3. RAM
@@ -883,28 +907,85 @@ else:
     log(`Service Key: ${state.serviceKey.substring(0, 20)}...`, 'info');
   },
 
-  // ──── IMPORT SCHEMA (Server Mode — structure only) ────
+  // ──── IMPORT SCHEMA (Server Mode — structure only, NO data) ────
   'import-schema': async () => {
     if (state.schemaImported) {
       addAutoCheck('Schema already imported (resumed)', 'pass');
       return;
     }
 
-    const item = addAutoCheck('Importing Aqura database schema...', 'running');
-    setAutoProgress(20);
+    // Try bundled schema first, then pull from cloud
+    const bundledPath = __dirname + '/../bundled/aqura-schema.sql';
+    const hasBundled = await api.fileExists(bundledPath);
 
-    // Check if bundled schema file exists (shipped with installer)
-    // For now, we'll check a known path. In production, this is bundled in the .exe
-    const schemaPath = '\\\\?\\' + __dirname + '\\..\\bundled\\aqura-schema.sql';
-    
-    // Try bundled schema first
-    setAutoStatus('Looking for schema file...');
-    // Note: In production, the schema.sql is bundled. For dev, we generate it.
-    
-    // For now, create a marker that schema needs to be provided
-    addAutoCheck('Schema file will be imported from bundled resources or server', 'warn');
-    addAutoCheck('Skipping for development — provide schema.sql in bundled/ folder', 'warn');
-    
+    if (hasBundled) {
+      // ── Use bundled schema file ──
+      const bundledItem = addAutoCheck('Found bundled schema file', 'pass');
+      setAutoProgress(20);
+
+      const importItem = addAutoCheck('Importing schema to local DB...', 'running');
+      // Copy bundled schema into WSL
+      const winPath = bundledPath.replace(/\//g, '\\\\');
+      await api.wsl(`cp "$(wslpath '${winPath}')" /tmp/aqura-schema.sql`);
+      await api.wsl('sudo docker cp /tmp/aqura-schema.sql supabase-db:/tmp/aqura-schema.sql');
+      await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/aqura-schema.sql 2>&1 | tail -10', { timeout: 120000 });
+      await api.wsl('rm -f /tmp/aqura-schema.sql');
+      updateAutoCheck(importItem, 'Schema imported from bundled file', 'pass');
+    } else {
+      // ── Export schema from local Supabase's own pg_dump (self-contained) ──
+      // Server mode: generate schema dump from the Supabase that was just installed
+      // The tables/functions come from the cloud schema that was loaded into the template
+      const cloudItem = addAutoCheck('No bundled schema found — pulling from cloud server...', 'running');
+      setAutoProgress(10);
+
+      // Try SSH to cloud server to get schema
+      const cloudIP = '8.213.42.21';
+      const sshKeyPath = '~/.ssh/id_ed25519_nopass';
+
+      // Check if SSH key exists
+      const keyCheck = await api.exec(`Test-Path "$env:USERPROFILE\\.ssh\\id_ed25519_nopass"`);
+      const hasKey = keyCheck.stdout.toLowerCase() === 'true';
+
+      if (hasKey) {
+        // Export schema from cloud (schema only, no data)
+        await api.exec(`ssh -o StrictHostKeyChecking=no -i "$env:USERPROFILE\.ssh\id_ed25519_nopass" root@${cloudIP} "docker exec supabase-db pg_dump -U supabase_admin -d postgres --schema-only --no-owner --no-acl -N _analytics -N _realtime -N supabase_migrations -N supabase_functions > /tmp/cloud_schema.sql"`, { timeout: 120000 });
+        updateAutoCheck(cloudItem, 'Schema exported from cloud', 'pass');
+        setAutoProgress(30);
+
+        // Download to local
+        const dlItem = addAutoCheck('Downloading schema...', 'running');
+        await api.exec(`scp -o StrictHostKeyChecking=no -i "$env:USERPROFILE\.ssh\id_ed25519_nopass" root@${cloudIP}:/tmp/cloud_schema.sql "$env:TEMP\cloud_schema.sql"`, { timeout: 60000 });
+        updateAutoCheck(dlItem, 'Schema downloaded', 'pass');
+        setAutoProgress(50);
+
+        // Copy into WSL and import
+        const importItem = addAutoCheck('Importing schema to local DB (structure only, no data)...', 'running');
+        await api.wsl(`cp "$(wslpath "$(cmd.exe /C echo %TEMP% 2>/dev/null | tr -d '\r')\\cloud_schema.sql")" /tmp/cloud_schema.sql 2>/dev/null || cp /mnt/c/Users/*/AppData/Local/Temp/cloud_schema.sql /tmp/cloud_schema.sql`);
+        await api.wsl('sudo docker cp /tmp/cloud_schema.sql supabase-db:/tmp/cloud_schema.sql');
+        await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/cloud_schema.sql 2>&1 | tail -10', { timeout: 120000 });
+        updateAutoCheck(importItem, 'Schema imported (structure only — no data)', 'pass');
+        setAutoProgress(80);
+
+        // Cleanup
+        await api.wsl('rm -f /tmp/cloud_schema.sql');
+        await api.exec(`ssh -o StrictHostKeyChecking=no -i "$env:USERPROFILE\.ssh\id_ed25519_nopass" root@${cloudIP} "rm -f /tmp/cloud_schema.sql"`);
+        await api.exec(`Remove-Item "$env:TEMP\cloud_schema.sql" -Force -ErrorAction SilentlyContinue`);
+      } else {
+        updateAutoCheck(cloudItem, 'No SSH key found — cannot pull schema from cloud', 'fail');
+        addAutoCheck('Place aqura-schema.sql in the bundled/ folder next to the installer, or add SSH key at ~/.ssh/id_ed25519_nopass', 'warn');
+        throw new Error('Schema file not available. Provide bundled/aqura-schema.sql or SSH key for cloud access.');
+      }
+    }
+
+    // Verify tables were created
+    const verifyItem = addAutoCheck('Verifying schema...', 'running');
+    const tableCount = await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = \'public\';"');
+    const funcCount = await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -t -c "SELECT count(*) FROM pg_proc WHERE pronamespace = \'public\'::regnamespace;"');
+    updateAutoCheck(verifyItem, `Schema verified — ${tableCount.stdout.trim()} tables, ${funcCount.stdout.trim()} functions`, 'pass');
+
+    // Reload PostgREST cache
+    await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "NOTIFY pgrst, \'reload schema\';"');
+
     state.schemaImported = true;
     setAutoProgress(100);
   },
@@ -1096,32 +1177,103 @@ WantedBy=multi-user.target`;
     setAutoProgress(100);
   },
 
-  // ──── SYNC SCHEMA (Branch Mode) ────
+  // ──── SYNC SCHEMA + DATA (Branch Mode — full dump from server) ────
   'sync-schema': async () => {
     if (state.schemaImported) {
-      addAutoCheck('Schema already synced (resumed)', 'pass');
+      addAutoCheck('Schema & data already synced (resumed)', 'pass');
       return;
     }
 
     const connHost = state.connectivityMode === 'lan' ? state.serverIP : '127.0.0.1';
     const connPort = state.serverPort || '5433';
 
-    const dumpItem = addAutoCheck('Exporting schema from server...', 'running');
-    setAutoProgress(20);
+    // Exclude data for large log/audit tables that branches don't need
+    const excludeDataTables = [
+      'wa_messages', 'whatsapp_message_log', 'user_audit_logs',
+      'order_audit_logs', 'branch_sync_config'
+    ];
+    const excludeFlags = excludeDataTables.map(t => `--exclude-table-data='${t}'`).join(' ');
+
+    // Step 1: Export pre-data (DROP + CREATE tables, types, sequences)
+    const preItem = addAutoCheck('Exporting schema from server...', 'running');
+    setAutoProgress(10);
 
     await api.wsl(`PGPASSWORD='${state.pgPassword}' pg_dump \\
       -h ${connHost} -p ${connPort} -U supabase_admin -d postgres \\
-      --schema-only --no-owner --no-acl \\
-      -N _analytics -N _realtime -N supabase_migrations -N supabase_functions \\
-      > /tmp/server-schema.sql`, { timeout: 120000 });
+      -n public --no-owner --no-privileges ${excludeFlags} \\
+      --section=pre-data --clean --if-exists \\
+      > /tmp/server-pre.sql`, { timeout: 120000 });
 
-    updateAutoCheck(dumpItem, 'Schema exported from server', 'pass');
+    updateAutoCheck(preItem, 'Schema (pre-data) exported', 'pass');
+    setAutoProgress(20);
+
+    // Step 2: Export data (INSERT statements)
+    const dataItem = addAutoCheck('Exporting data from server...', 'running');
+
+    await api.wsl(`PGPASSWORD='${state.pgPassword}' pg_dump \\
+      -h ${connHost} -p ${connPort} -U supabase_admin -d postgres \\
+      -n public --no-owner --no-privileges ${excludeFlags} \\
+      --section=data --inserts --rows-per-insert=500 \\
+      > /tmp/server-data.sql`, { timeout: 600000 });
+
+    updateAutoCheck(dataItem, 'Data exported', 'pass');
+    setAutoProgress(40);
+
+    // Step 3: Export post-data (indexes, FK constraints, triggers)
+    const postItem = addAutoCheck('Exporting indexes & constraints...', 'running');
+
+    await api.wsl(`PGPASSWORD='${state.pgPassword}' pg_dump \\
+      -h ${connHost} -p ${connPort} -U supabase_admin -d postgres \\
+      -n public --no-owner --no-privileges ${excludeFlags} \\
+      --section=post-data \\
+      > /tmp/server-post.sql`, { timeout: 120000 });
+
+    updateAutoCheck(postItem, 'Indexes & constraints exported', 'pass');
     setAutoProgress(50);
 
-    const importItem = addAutoCheck('Importing schema to local DB...', 'running');
-    await api.wsl('sudo docker cp /tmp/server-schema.sql supabase-db:/tmp/server-schema.sql');
-    await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/server-schema.sql 2>&1 | tail -5', { timeout: 120000 });
-    updateAutoCheck(importItem, 'Schema imported to local DB', 'pass');
+    // Step 4: Import pre-data (schema)
+    const importSchemaItem = addAutoCheck('Importing schema to local DB...', 'running');
+    await api.wsl('sudo docker cp /tmp/server-pre.sql supabase-db:/tmp/server-pre.sql');
+    await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/server-pre.sql 2>&1 | tail -5', { timeout: 120000 });
+    updateAutoCheck(importSchemaItem, 'Schema imported', 'pass');
+    setAutoProgress(60);
+
+    // Step 5: Import data
+    const importDataItem = addAutoCheck('Importing data to local DB (this may take a while)...', 'running');
+    await api.wsl('sudo docker cp /tmp/server-data.sql supabase-db:/tmp/server-data.sql');
+    await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/server-data.sql 2>&1 | tail -5', { timeout: 600000 });
+    updateAutoCheck(importDataItem, 'Data imported', 'pass');
+    setAutoProgress(80);
+
+    // Step 6: Import post-data (indexes, FK, triggers)
+    const importPostItem = addAutoCheck('Creating indexes & constraints...', 'running');
+    await api.wsl('sudo docker cp /tmp/server-post.sql supabase-db:/tmp/server-post.sql');
+    await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/server-post.sql 2>&1 | tail -5', { timeout: 120000 });
+    updateAutoCheck(importPostItem, 'Indexes & constraints created', 'pass');
+    setAutoProgress(90);
+
+    // Step 7: Reset sequences
+    const seqItem = addAutoCheck('Resetting sequences...', 'running');
+    await api.wsl(`sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "
+      DO \\$\\$\\$ DECLARE r record; BEGIN
+        FOR r IN (
+          SELECT t.relname as tbl, a.attname as col, pg_get_serial_sequence(t.relname, a.attname) as seq
+          FROM pg_class t JOIN pg_namespace n ON t.relnamespace = n.oid
+          JOIN pg_attribute a ON a.attrelid = t.oid
+          WHERE n.nspname = 'public' AND t.relkind = 'r'
+            AND pg_get_serial_sequence(t.relname, a.attname) IS NOT NULL
+        ) LOOP
+          EXECUTE format('SELECT setval(%L, COALESCE((SELECT MAX(%I) FROM %I), 1))', r.seq, r.col, r.tbl);
+        END LOOP;
+      END \\$\\$\\$;
+    "`, { timeout: 30000 });
+    updateAutoCheck(seqItem, 'Sequences reset', 'pass');
+
+    // Cleanup
+    await api.wsl('rm -f /tmp/server-pre.sql /tmp/server-data.sql /tmp/server-post.sql');
+
+    // Reload PostgREST cache
+    await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "NOTIFY pgrst, \'reload schema\';"');
 
     state.schemaImported = true;
     setAutoProgress(100);

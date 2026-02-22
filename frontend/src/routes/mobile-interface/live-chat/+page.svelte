@@ -79,6 +79,52 @@
 	let recordingDuration = 0;
 	let recordingTimer: any = null;
 
+	// Translation
+	let translatedMessages: Record<string, string> = {};
+	let translatingMsgId: string | null = null;
+	let showTranslateLangPicker = false;
+	let translateTargetMsgId: string | null = null;
+	let translateLangSearch = '';
+
+	const translateLanguages = [
+		{ code: 'en', name: 'English', flag: '🇺🇸' },
+		{ code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+		{ code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+		{ code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+		{ code: 'bn', name: 'Bengali', flag: '🇧🇩' },
+		{ code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+		{ code: 'ne', name: 'Nepali', flag: '🇳🇵' },
+		{ code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+		{ code: 'te', name: 'Telugu', flag: '🇮🇳' },
+		{ code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+		{ code: 'si', name: 'Sinhala', flag: '🇱🇰' },
+		{ code: 'fr', name: 'French', flag: '🇫🇷' },
+		{ code: 'es', name: 'Spanish', flag: '🇪🇸' },
+		{ code: 'de', name: 'German', flag: '🇩🇪' },
+		{ code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+		{ code: 'ru', name: 'Russian', flag: '🇷🇺' },
+		{ code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+		{ code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+		{ code: 'ko', name: 'Korean', flag: '🇰🇷' },
+		{ code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+		{ code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+		{ code: 'ms', name: 'Malay', flag: '🇲🇾' },
+		{ code: 'th', name: 'Thai', flag: '🇹🇭' },
+		{ code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
+		{ code: 'sw', name: 'Swahili', flag: '🇰🇪' },
+		{ code: 'am', name: 'Amharic', flag: '🇪🇹' },
+		{ code: 'it', name: 'Italian', flag: '🇮🇹' },
+		{ code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+		{ code: 'pl', name: 'Polish', flag: '🇵🇱' },
+		{ code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
+		{ code: 'fa', name: 'Persian', flag: '🇮🇷' },
+		{ code: 'he', name: 'Hebrew', flag: '🇮🇱' },
+	];
+
+	$: filteredTranslateLangs = translateLanguages.filter(l =>
+		!translateLangSearch || l.name.toLowerCase().includes(translateLangSearch.toLowerCase()) || l.code.includes(translateLangSearch.toLowerCase())
+	);
+
 	// File inputs
 	let imageInput: HTMLInputElement;
 	let fileInput: HTMLInputElement;
@@ -644,6 +690,40 @@
 	function getUnreadTotal() {
 		return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 	}
+
+	// Translation functions
+	function openTranslatePicker(msgId: string) {
+		translateTargetMsgId = msgId;
+		translateLangSearch = '';
+		showTranslateLangPicker = true;
+	}
+
+	async function translateMessage(msgId: string, targetLang: string) {
+		const msg = messages.find(m => m.id === msgId);
+		if (!msg || !msg.content?.trim()) return;
+		showTranslateLangPicker = false;
+		translateTargetMsgId = null;
+		translatingMsgId = msgId;
+		try {
+			const resp = await fetch(
+				`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(msg.content)}`
+			);
+			const data = await resp.json();
+			const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+			if (translated) {
+				translatedMessages = { ...translatedMessages, [msgId]: translated };
+			}
+		} catch (e) {
+			console.error('Translation error:', e);
+		} finally {
+			translatingMsgId = null;
+		}
+	}
+
+	function clearTranslation(msgId: string) {
+		const { [msgId]: _, ...rest } = translatedMessages;
+		translatedMessages = rest;
+	}
 </script>
 
 <div class="wa-mobile" class:rtl={isRTL}>
@@ -872,8 +952,27 @@
 								{#if msg.template_name}
 									<span class="wa-msg-template-tag">📝 {msg.template_name}</span>
 								{/if}
+								<!-- Translation -->
+								{#if translatedMessages[msg.id]}
+									<div class="wa-translate-result">
+										<div class="wa-translate-result-header">
+											<span class="wa-translate-label">🌐 {isRTL ? 'ترجمة' : 'Translation'}</span>
+											<button class="wa-translate-clear" on:click={() => clearTranslation(msg.id)}>✕</button>
+										</div>
+										<p class="wa-translate-text">{translatedMessages[msg.id]}</p>
+									</div>
+								{/if}
+								{#if translatingMsgId === msg.id}
+									<div class="wa-translating">
+										<span class="wa-translating-spinner"></span>
+										{isRTL ? 'جاري الترجمة...' : 'Translating...'}
+									</div>
+								{/if}
 								<!-- Meta -->
 								<div class="wa-msg-meta">
+									{#if msg.content?.trim() && !translatedMessages[msg.id]}
+										<button class="wa-translate-btn" on:click={() => openTranslatePicker(msg.id)} title={isRTL ? 'ترجمة' : 'Translate'}>🌐</button>
+									{/if}
 									<span class="wa-msg-time">{formatMsgTime(msg.created_at)}</span>
 									{#if msg.direction === 'outbound'}
 										<span class="wa-msg-tick" class:read={msg.status === 'read'}>{getStatusTick(msg.status)}</span>
@@ -988,6 +1087,33 @@
 						{/if}
 					</div>
 				{/if}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Translation Language Picker Popup -->
+	{#if showTranslateLangPicker}
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="wa-translate-overlay" on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>
+			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+			<div class="wa-translate-popup" on:click|stopPropagation>
+				<div class="wa-translate-popup-header">
+					<h4>🌐 {isRTL ? 'ترجم إلى' : 'Translate to'}</h4>
+					<button on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>✕</button>
+				</div>
+				<input type="text" bind:value={translateLangSearch} placeholder={isRTL ? 'بحث عن لغة...' : 'Search language...'}
+					class="wa-translate-search" />
+				<div class="wa-translate-lang-grid">
+					{#each filteredTranslateLangs as lang}
+						<button class="wa-translate-lang-item" on:click={() => translateTargetMsgId && translateMessage(translateTargetMsgId, lang.code)}>
+							<span class="wa-translate-lang-flag">{lang.flag}</span>
+							<span class="wa-translate-lang-name">{lang.name}</span>
+						</button>
+					{/each}
+					{#if filteredTranslateLangs.length === 0}
+						<p class="wa-translate-no-results">{isRTL ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
+					{/if}
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -1892,5 +2018,178 @@
 	.wa-template-lang {
 		font-size: 11px;
 		color: #027EB5;
+	}
+
+	/* ===== Translation ===== */
+	.wa-translate-btn {
+		font-size: 11px;
+		padding: 1px 4px;
+		border-radius: 5px;
+		background: rgba(59, 130, 246, 0.08);
+		border: 1px solid rgba(59, 130, 246, 0.15);
+		cursor: pointer;
+		line-height: 1;
+		transition: all 0.2s ease;
+	}
+	.wa-translate-btn:active {
+		background: rgba(59, 130, 246, 0.2);
+	}
+	.wa-translate-result {
+		margin-top: 4px;
+		padding: 5px 7px;
+		background: rgba(59, 130, 246, 0.06);
+		border: 1px solid rgba(59, 130, 246, 0.15);
+		border-radius: 6px;
+	}
+	.wa-translate-result-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 2px;
+	}
+	.wa-translate-label {
+		font-size: 9px;
+		font-weight: 600;
+		color: #2563EB;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+	.wa-translate-clear {
+		background: none;
+		border: none;
+		color: #94A3B8;
+		font-size: 10px;
+		cursor: pointer;
+		padding: 0 2px;
+	}
+	.wa-translate-text {
+		white-space: pre-wrap;
+		word-break: break-word;
+		font-size: 12.5px;
+		color: #334155;
+		margin: 0;
+	}
+	.wa-translating {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		margin-top: 4px;
+		font-size: 10px;
+		color: #3B82F6;
+	}
+	.wa-translating-spinner {
+		display: inline-block;
+		width: 12px;
+		height: 12px;
+		border: 1.5px solid #93C5FD;
+		border-top-color: #2563EB;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	/* Translation Language Picker */
+	.wa-translate-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0,0,0,0.45);
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		z-index: 9999;
+	}
+	.wa-translate-popup {
+		background: #FFFFFF;
+		border-radius: 16px 16px 0 0;
+		box-shadow: 0 -4px 30px rgba(0,0,0,0.15);
+		padding: 16px;
+		width: 100%;
+		max-width: 420px;
+		max-height: 70vh;
+		display: flex;
+		flex-direction: column;
+		animation: slideUp 0.25s ease-out;
+	}
+	@keyframes slideUp {
+		from { transform: translateY(100%); }
+		to { transform: translateY(0); }
+	}
+	.wa-translate-popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 10px;
+	}
+	.wa-translate-popup-header h4 {
+		margin: 0;
+		font-size: 15px;
+		font-weight: 700;
+		color: #111B21;
+	}
+	.wa-translate-popup-header button {
+		background: #F0F2F5;
+		border: none;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		font-size: 14px;
+		color: #667781;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.wa-translate-search {
+		width: 100%;
+		padding: 8px 12px;
+		margin-bottom: 8px;
+		background: #F0F2F5;
+		border: 1px solid #E9EDEF;
+		border-radius: 8px;
+		font-size: 13px;
+		outline: none;
+	}
+	.wa-translate-search:focus {
+		border-color: #027EB5;
+	}
+	.wa-translate-lang-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 6px;
+		overflow-y: auto;
+		max-height: 50vh;
+		-webkit-overflow-scrolling: touch;
+	}
+	.wa-translate-lang-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 10px;
+		border-radius: 8px;
+		border: 1px solid #E9EDEF;
+		background: #FAFBFC;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.wa-translate-lang-item:active {
+		background: #E3F2FD;
+		border-color: #90CAF9;
+	}
+	.wa-translate-lang-flag {
+		font-size: 18px;
+	}
+	.wa-translate-lang-name {
+		font-size: 13px;
+		color: #111B21;
+		font-weight: 500;
+	}
+	.wa-translate-no-results {
+		grid-column: span 2;
+		text-align: center;
+		color: #667781;
+		font-size: 13px;
+		padding: 20px 0;
 	}
 </style>
