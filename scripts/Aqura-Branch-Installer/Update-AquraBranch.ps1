@@ -253,14 +253,35 @@ CREATE OR REPLACE FUNCTION public.clear_sync_tables(p_tables text[])
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS \$\$
 DECLARE v_table text;
     v_allowed text[] := ARRAY[
+        'desktop_themes','settings','ai_chat_guide','social_links',
         'branches','users','user_sessions','user_device_sessions',
-        'button_permissions','sidebar_buttons','button_main_sections','button_sub_sections',
-        'interface_permissions','user_favorite_buttons',
-        'erp_synced_products','product_categories','products','product_units',
+        'user_favorite_buttons','user_theme_assignments','user_voice_preferences',
+        'button_main_sections','button_sub_sections','sidebar_buttons',
+        'button_permissions','interface_permissions','approval_permissions',
+        'nationalities','hr_departments','hr_levels','hr_positions',
+        'hr_employee_master','hr_employees','hr_position_assignments',
+        'hr_position_reporting_template','hr_employee_contacts','hr_employee_documents',
+        'hr_basic_salary','hr_insurance_companies',
+        'branch_default_positions','receiving_user_defaults',
+        'regular_shift','special_shift_weekday','special_shift_date_wise',
+        'day_off','day_off_weekday','day_off_reasons',
+        'official_holidays','employee_official_holidays','overtime_registrations',
+        'hr_checklists','hr_checklist_questions','hr_checklist_operations',
+        'employee_checklist_assignments',
+        'incident_types','default_incident_users',
+        'warning_main_category','warning_sub_category','warning_violation',
+        'product_categories','product_units','products','product_details',
+        'erp_connections','erp_synced_products','erp_sync_logs',
         'offers','offer_products','offer_names','offer_bundles','offer_cart_tiers',
         'bogo_offer_rules','flyer_offers','flyer_offer_products',
+        'flyer_templates','shelf_paper_templates','shelf_paper_fonts',
         'customers','privilege_cards_master','privilege_cards_branch',
-        'desktop_themes','user_theme_assignments','erp_connections','erp_sync_logs'];
+        'coupon_campaigns','coupon_products','coupon_eligible_customers',
+        'delivery_service_settings','delivery_fee_tiers','branch_default_delivery_receivers',
+        'vendors','requesters','denomination_types','tax_categories',
+        'expense_sub_categories','pos_deduction_transfers',
+        'asset_main_categories','asset_sub_categories',
+        'system_api_keys'];
 BEGIN
     PERFORM set_config('session_replication_role','replica',true);
     FOREACH v_table IN ARRAY p_tables LOOP
@@ -277,14 +298,35 @@ CREATE OR REPLACE FUNCTION public.import_sync_batch(p_table_name text, p_data js
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS \$\$
 DECLARE v_count integer := 0;
     v_allowed text[] := ARRAY[
+        'desktop_themes','settings','ai_chat_guide','social_links',
         'branches','users','user_sessions','user_device_sessions',
-        'button_permissions','sidebar_buttons','button_main_sections','button_sub_sections',
-        'interface_permissions','user_favorite_buttons',
-        'erp_synced_products','product_categories','products','product_units',
+        'user_favorite_buttons','user_theme_assignments','user_voice_preferences',
+        'button_main_sections','button_sub_sections','sidebar_buttons',
+        'button_permissions','interface_permissions','approval_permissions',
+        'nationalities','hr_departments','hr_levels','hr_positions',
+        'hr_employee_master','hr_employees','hr_position_assignments',
+        'hr_position_reporting_template','hr_employee_contacts','hr_employee_documents',
+        'hr_basic_salary','hr_insurance_companies',
+        'branch_default_positions','receiving_user_defaults',
+        'regular_shift','special_shift_weekday','special_shift_date_wise',
+        'day_off','day_off_weekday','day_off_reasons',
+        'official_holidays','employee_official_holidays','overtime_registrations',
+        'hr_checklists','hr_checklist_questions','hr_checklist_operations',
+        'employee_checklist_assignments',
+        'incident_types','default_incident_users',
+        'warning_main_category','warning_sub_category','warning_violation',
+        'product_categories','product_units','products','product_details',
+        'erp_connections','erp_synced_products','erp_sync_logs',
         'offers','offer_products','offer_names','offer_bundles','offer_cart_tiers',
         'bogo_offer_rules','flyer_offers','flyer_offer_products',
+        'flyer_templates','shelf_paper_templates','shelf_paper_fonts',
         'customers','privilege_cards_master','privilege_cards_branch',
-        'desktop_themes','user_theme_assignments','erp_connections','erp_sync_logs'];
+        'coupon_campaigns','coupon_products','coupon_eligible_customers',
+        'delivery_service_settings','delivery_fee_tiers','branch_default_delivery_receivers',
+        'vendors','requesters','denomination_types','tax_categories',
+        'expense_sub_categories','pos_deduction_transfers',
+        'asset_main_categories','asset_sub_categories',
+        'system_api_keys'];
 BEGIN
     IF NOT (p_table_name = ANY(v_allowed)) THEN RAISE EXCEPTION 'Table % not allowed',p_table_name; END IF;
     IF p_data IS NULL OR jsonb_array_length(p_data) = 0 THEN RETURN 0; END IF;

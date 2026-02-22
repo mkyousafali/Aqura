@@ -182,7 +182,7 @@ Sync system built into **StorageManager.svelte** → Branch Sync tab:
 4. ✅ **Full table sync:** Exports all rows from cloud → pushes to local via REST API (XHR for LAN, server proxy for tunnel)
 5. ✅ **Tunnel fallback:** Tries local URL first (5s timeout), falls back to tunnel URL via `/api/branch-proxy` server endpoint (avoids CORS)
 6. ✅ **Server proxy endpoint:** `frontend/src/routes/api/branch-proxy/+server.ts` — proxies requests server-side to avoid browser CORS
-7. ✅ **29 tables synced** in FK-safe order with phase 1 (clear) + phase 2 (import)
+7. ✅ **72 tables synced** in FK-safe order with phase 1 (clear) + phase 2 (import)
 8. ✅ **Last successful sync:** 160,426 rows across 29 tables
 
 **Architecture:**
