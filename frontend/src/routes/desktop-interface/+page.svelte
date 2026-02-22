@@ -77,7 +77,11 @@
 		'WA_AUTO_REPLY': '🔧',
 		'WA_AI_BOT': '🤖',
 		'WA_ACCOUNTS': '📱',
-		'WA_SETTINGS': '⚙️'
+		'WA_SETTINGS': '⚙️',
+		'WA_CATALOG': '📦',
+		'BREAK_REGISTER': '☕',
+		'STORAGE_MANAGER': '🗄️',
+		'API_KEYS_MANAGER': '🔑'
 	};
 
 	let mounted = false;
@@ -232,7 +236,11 @@
 		'WA_AUTO_REPLY': 'nav.whatsappAutoReply',
 		'WA_AI_BOT': 'nav.whatsappAIBot',
 		'WA_ACCOUNTS': 'nav.whatsappAccounts',
-		'WA_SETTINGS': 'nav.whatsappSettings'
+		'WA_SETTINGS': 'nav.whatsappSettings',
+		'WA_CATALOG': 'nav.whatsappCatalog',
+		'BREAK_REGISTER': 'nav.breakRegister',
+		'STORAGE_MANAGER': 'nav.storageManager',
+		'API_KEYS_MANAGER': 'nav.apiKeysManager'
 	};
 
 	function getButtonLabel(buttonCode: string, fallback: string): string {
@@ -496,7 +504,7 @@
 								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
 							</span>
 						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ61.26.16.18</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ62.27.17.19</button>
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>

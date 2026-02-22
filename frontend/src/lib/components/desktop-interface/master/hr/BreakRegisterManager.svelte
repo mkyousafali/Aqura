@@ -111,7 +111,7 @@
 	}
 
 	async function loadBranches() {
-		const { data } = await supabase.from('branches').select('id, name_en, name_ar').order('id');
+		const { data } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').order('id');
 		if (data) branches = data;
 	}
 
@@ -310,9 +310,15 @@
 	}
 
 	function getBranchName(branchId: number): string {
-		const b = branches.find(br => br.id === branchId);
+		const b = branches.find(br => Number(br.id) === Number(branchId));
 		if (!b) return String(branchId);
 		return isRtl ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+	}
+
+	function getBranchLocation(branchId: number): string {
+		const b = branches.find(br => Number(br.id) === Number(branchId));
+		if (!b) return '';
+		return isRtl ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
 	}
 
 </script>
@@ -346,7 +352,7 @@
 	</div>
 
 	<!-- Main Content Area -->
-	<div class="flex-1 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+	<div class="flex-1 min-h-0 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
 		<!-- Decorative background -->
 		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
 		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
@@ -382,7 +388,7 @@
 						>
 							<option value="" style="color: #000000 !important;">{isRtl ? 'الكل' : 'All'}</option>
 							{#each branches as branch}
-								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}</option>
+								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}{branch.location_en || branch.location_ar ? ` - ${isRtl ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)}` : ''}</option>
 							{/each}
 						</select>
 					</div>
@@ -459,7 +465,10 @@
 												<tr class="bg-emerald-50/50 hover:bg-emerald-100/50 transition-colors duration-200">
 													<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</td>
 													<td class="px-4 py-3 text-sm text-slate-400 font-mono">{b.employee_id}</td>
-													<td class="px-4 py-3 text-sm text-slate-700">{b.branch_name_en ? (isRtl ? (b.branch_name_ar || b.branch_name_en) : b.branch_name_en) : getBranchName(b.branch_id)}</td>
+											<td class="px-4 py-3 text-sm text-slate-700">
+												<div class="font-semibold">{b.branch_name_en ? (isRtl ? (b.branch_name_ar || b.branch_name_en) : b.branch_name_en) : getBranchName(b.branch_id)}</div>
+												{#if getBranchLocation(b.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(b.branch_id)}</div>{/if}
+											</td>
 													<td class="px-4 py-3 text-sm text-slate-700">{isRtl ? b.reason_ar : b.reason_en}</td>
 													<td class="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate">{b.reason_note || '—'}</td>
 													<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatDateTime(b.start_time)}</td>
@@ -484,7 +493,7 @@
 							<span>📋</span> {isRtl ? 'جميع الاستراحات' : 'All Breaks'}
 						</h3>
 						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
-							<div class="overflow-x-auto">
+							<div class="max-h-[calc(100vh-380px)] overflow-auto">
 								<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
 									<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
 										<tr>
@@ -504,7 +513,10 @@
 											<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {b.status === 'open' ? '!bg-emerald-50/50' : ''}">
 												<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</td>
 												<td class="px-4 py-3 text-sm text-slate-400 font-mono">{b.employee_id}</td>
-												<td class="px-4 py-3 text-sm text-slate-700">{b.branch_name_en ? (isRtl ? (b.branch_name_ar || b.branch_name_en) : b.branch_name_en) : getBranchName(b.branch_id)}</td>
+										<td class="px-4 py-3 text-sm text-slate-700">
+											<div class="font-semibold">{b.branch_name_en ? (isRtl ? (b.branch_name_ar || b.branch_name_en) : b.branch_name_en) : getBranchName(b.branch_id)}</div>
+											{#if getBranchLocation(b.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(b.branch_id)}</div>{/if}
+										</td>
 												<td class="px-4 py-3 text-sm text-slate-700">{isRtl ? b.reason_ar : b.reason_en}</td>
 												<td class="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate">{b.reason_note || '—'}</td>
 												<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatDateTime(b.start_time)}</td>
@@ -626,7 +638,7 @@
 						>
 							<option value="" style="color: #000000 !important;">{isRtl ? 'الكل' : 'All'}</option>
 							{#each branches as branch}
-								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}</option>
+								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}{branch.location_en || branch.location_ar ? ` - ${isRtl ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)}` : ''}</option>
 							{/each}
 						</select>
 					</div>
@@ -658,7 +670,7 @@
 					</div>
 				{:else}
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
-						<div class="overflow-x-auto flex-1">
+						<div class="max-h-[calc(100vh-380px)] overflow-auto flex-1">
 							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-orange-500/30 [&_td]:border-x [&_td]:border-slate-200">
 								<thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
 									<tr>
@@ -679,7 +691,10 @@
 											<td class="px-4 py-3 text-sm text-slate-800 font-semibold">{formatSummaryDate(emp.date)}</td>
 											<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (emp.employee_name_ar || emp.employee_name_en) : (emp.employee_name_en || emp.employee_name_ar)}</td>
 											<td class="px-4 py-3 text-sm text-slate-400 font-mono">{emp.employee_id}</td>
-											<td class="px-4 py-3 text-sm text-slate-700">{isRtl ? (emp.branch_name_ar || emp.branch_name_en) : (emp.branch_name_en || emp.branch_name_ar)}</td>
+											<td class="px-4 py-3 text-sm text-slate-700">
+										<div class="font-semibold">{isRtl ? (emp.branch_name_ar || emp.branch_name_en) : (emp.branch_name_en || emp.branch_name_ar)}</div>
+										{#if getBranchLocation(emp.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(emp.branch_id)}</div>{/if}
+									</td>
 											<td class="px-4 py-3 text-sm text-slate-700">{emp.reason}</td>
 											<td class="px-4 py-3 text-sm text-center font-bold text-slate-800">{emp.total_breaks}</td>
 											<td class="px-4 py-3 text-sm text-center">

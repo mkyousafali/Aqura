@@ -29,6 +29,8 @@
 		updated_at: string;
 		branch_name_en?: string;
 		branch_name_ar?: string;
+		branch_location_en?: string;
+		branch_location_ar?: string;
 		supervisor_name?: string;
 		cashier_name?: string;
 		box_number?: number;
@@ -69,7 +71,8 @@
 	}, { mada: 0, visa: 0, mastercard: 0, google_pay: 0, other: 0, total: 0 });
 
 	onMount(async () => {
-		await Promise.all([loadBranches(), loadReconciliations()]);
+		await loadBranches();
+		await loadReconciliations();
 		setupRealtime();
 		isLoading = false;
 	});
@@ -84,8 +87,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
-				.eq('is_active', true);
+				.select('id, name_en, name_ar, location_en, location_ar');
 			if (error) throw error;
 			branches = data || [];
 		} catch (err) {
@@ -124,10 +126,12 @@
 				if (branch) {
 					r.branch_name_en = branch.name_en;
 					r.branch_name_ar = branch.name_ar;
+					r.branch_location_en = branch.location_en;
+					r.branch_location_ar = branch.location_ar;
 				}
 			}
 
-			// Load user names for supervisors and cashiers
+			// Load user names for supervisors and cashiers via hr_employee_master
 			const userIds = new Set<string>();
 			reconciliations.forEach(r => {
 				if (r.supervisor_id) userIds.add(r.supervisor_id);
@@ -135,16 +139,17 @@
 			});
 
 			if (userIds.size > 0) {
-				const { data: users } = await supabase
-					.from('users')
-					.select('id, full_name')
-					.in('id', Array.from(userIds));
+				const { data: employees } = await supabase
+					.from('hr_employee_master')
+					.select('user_id, name_en, name_ar')
+					.in('user_id', Array.from(userIds));
 
-				if (users) {
-					const userMap = new Map(users.map(u => [u.id, u.full_name]));
+				if (employees) {
+					const isAr = $currentLocale === 'ar';
+					const empMap = new Map(employees.map(e => [e.user_id, isAr ? (e.name_ar || e.name_en) : (e.name_en || e.name_ar)]));
 					for (const r of reconciliations) {
-						r.supervisor_name = userMap.get(r.supervisor_id) || '-';
-						r.cashier_name = userMap.get(r.cashier_id) || '-';
+						r.supervisor_name = empMap.get(r.supervisor_id) || '-';
+						r.cashier_name = empMap.get(r.cashier_id) || '-';
 					}
 				}
 			}
@@ -168,6 +173,8 @@
 			}
 
 			currentPage = 1;
+			// Trigger Svelte reactivity after enrichment
+			reconciliations = reconciliations;
 		} catch (err) {
 			console.error('Error loading reconciliations:', err);
 		} finally {
@@ -215,8 +222,12 @@
 	function formatDate(dateStr: string): string {
 		if (!dateStr) return '-';
 		const d = new Date(dateStr);
-		return d.toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' +
-			d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+		const dd = String(d.getDate()).padStart(2, '0');
+		const mm = String(d.getMonth() + 1).padStart(2, '0');
+		const yyyy = d.getFullYear();
+		const hh = String(d.getHours()).padStart(2, '0');
+		const min = String(d.getMinutes()).padStart(2, '0');
+		return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
 	}
 
 	function formatAmount(amount: number): string {
@@ -272,7 +283,7 @@
 					>
 						<option value="all">{$currentLocale === 'ar' ? 'جميع الفروع' : 'All Branches'}</option>
 						{#each branches as branch}
-							<option value={branch.id}>{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
+							<option value={branch.id}>{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}{branch.location_en || branch.location_ar ? ` - ${$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)}` : ''}</option>
 						{/each}
 					</select>
 				</div>
@@ -377,7 +388,12 @@
 							{#each paginatedReconciliations as recon, index}
 								<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 									<td class="px-3 py-2 text-xs text-slate-700 whitespace-nowrap">{formatDate(recon.created_at)}</td>
-									<td class="px-3 py-2 text-xs text-slate-700">{getBranchName(recon)}</td>
+									<td class="px-3 py-2 text-xs text-slate-700">
+										<div class="font-semibold">{getBranchName(recon)}</div>
+										{#if recon.branch_location_en || recon.branch_location_ar}
+											<div class="text-[10px] text-slate-400">{$currentLocale === 'ar' ? (recon.branch_location_ar || recon.branch_location_en) : (recon.branch_location_en || recon.branch_location_ar)}</div>
+										{/if}
+									</td>
 									<td class="px-3 py-2 text-xs text-slate-700 text-center font-mono">{recon.pos_number || '-'}</td>
 									<td class="px-3 py-2 text-xs text-slate-700 font-semibold">{recon.reconciliation_number || '-'}</td>
 									<td class="px-3 py-2 text-xs text-slate-700 text-center font-mono">{formatAmount(recon.mada_amount)}</td>
