@@ -5,8 +5,8 @@ export let onClose: () => void;
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ63.28.18.20</p>
-<p class="version-details">Desktop: 63 | Mobile: 28 | Cashier: 18 | Customer: 20</p>
+<p class="version-title">Version AQ64.29.19.21</p>
+<p class="version-details">Desktop: 64 | Mobile: 29 | Cashier: 19 | Customer: 21</p>
 </div>
 
 <div class="latest-change">

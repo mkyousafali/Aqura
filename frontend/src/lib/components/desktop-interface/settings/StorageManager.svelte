@@ -209,6 +209,7 @@
 		local_supabase_url: string;
 		local_supabase_key: string;
 		tunnel_url: string | null;
+		ssh_user: string;
 		is_active: boolean;
 		last_sync_at: string | null;
 		last_sync_status: string | null;
@@ -238,6 +239,7 @@
 	let formLocalUrl = '';
 	let formLocalKey = '';
 	let formTunnelUrl = '';
+	let formSSHUser = 'u';
 	let formSaving = false;
 
 	// Available branches for dropdown
@@ -735,102 +737,6 @@
 		}, 8000);
 	}
 
-	// Correct sync order: parents first for INSERT, children first for DELETE
-	// This is only used for ORDERING — actual tables are discovered dynamically from cloud & branch
-	const SYNC_TABLE_ORDER = [
-		// ─── Core Config & Themes ───
-		'desktop_themes', 'settings', 'ai_chat_guide', 'social_links',
-		// ─── Branches & Users ───
-		'branches', 'users', 'user_sessions', 'user_device_sessions',
-		'user_favorite_buttons', 'user_theme_assignments', 'user_voice_preferences',
-		// ─── Permissions & Buttons ───
-		'button_main_sections', 'button_sub_sections', 'sidebar_buttons',
-		'button_permissions', 'interface_permissions', 'approval_permissions',
-		// ─── HR Master Data ───
-		'nationalities', 'hr_departments', 'hr_levels', 'hr_positions',
-		'hr_employee_master', 'hr_employees', 'hr_position_assignments',
-		'hr_position_reporting_template', 'hr_employee_contacts', 'hr_employee_documents',
-		'hr_basic_salary', 'hr_insurance_companies',
-		'branch_default_positions', 'receiving_user_defaults',
-		// ─── HR Shifts & Leave ───
-		'regular_shift', 'special_shift_weekday', 'special_shift_date_wise',
-		'day_off', 'day_off_weekday', 'day_off_reasons',
-		'official_holidays', 'employee_official_holidays', 'overtime_registrations',
-		// ─── HR Checklists ───
-		'hr_checklists', 'hr_checklist_questions', 'hr_checklist_operations',
-		'employee_checklist_assignments',
-		// ─── HR Incidents & Warnings ───
-		'incident_types', 'default_incident_users', 'incidents', 'incident_actions',
-		'warning_main_category', 'warning_sub_category', 'warning_violation',
-		// ─── Products & Categories ───
-		'product_categories', 'product_units', 'products', 'product_details',
-		'erp_connections', 'erp_synced_products', 'erp_sync_logs',
-		// ─── Offers & Flyers ───
-		'offers', 'offer_products', 'offer_names', 'offer_bundles', 'offer_cart_tiers',
-		'bogo_offer_rules', 'flyer_offers', 'flyer_offer_products',
-		'flyer_templates', 'shelf_paper_templates', 'shelf_paper_fonts',
-		// ─── Customers & Coupons ───
-		'customers', 'privilege_cards_master', 'privilege_cards_branch',
-		'coupon_campaigns', 'coupon_products', 'coupon_eligible_customers', 'coupon_claims',
-		// ─── Delivery ───
-		'delivery_service_settings', 'delivery_fee_tiers', 'branch_default_delivery_receivers',
-		// ─── Finance Master Data ───
-		'vendors', 'requesters', 'denomination_types', 'tax_categories',
-		'expense_sub_categories', 'expense_parent_categories', 'expense_requisitions',
-		'pos_deduction_transfers', 'purchase_vouchers', 'purchase_voucher_items',
-		// ─── Assets ───
-		'asset_main_categories', 'asset_sub_categories', 'assets',
-		// ─── Tasks ───
-		'tasks', 'task_assignments', 'task_completions', 'task_attachments', 'task_images',
-		'quick_tasks', 'quick_task_assignments', 'quick_task_completions',
-		// ─── Orders & Receiving ───
-		'orders', 'order_items', 'receiving_tasks', 'receiving_task_templates', 'receiving_records',
-		// ─── Denominations ───
-		'denomination_records', 'denomination_transactions', 'denomination_audit_log',
-		// ─── WhatsApp ───
-		'wa_accounts', 'wa_settings', 'wa_ai_bot_config', 'wa_auto_reply_triggers',
-		'wa_bot_flows', 'wa_catalogs', 'wa_catalog_products', 'wa_catalog_orders',
-		'wa_contact_groups', 'wa_contact_group_members',
-		'wa_conversations', 'wa_messages', 'wa_templates',
-		'wa_broadcasts', 'wa_broadcast_recipients',
-		// ─── Notifications ───
-		'notifications', 'notification_recipients', 'notification_attachments', 'notification_read_states',
-		// ─── Misc ───
-		'break_reasons', 'break_register', 'box_operations',
-		'biometric_connections', 'hr_fingerprint_transactions', 'processed_fingerprint_transactions',
-		'hr_analysed_attendance_data', 'near_expiry_reports',
-		'bank_reconciliations', 'push_subscriptions',
-		'user_audit_logs', 'order_audit_logs', 'variation_audit_log',
-		'lease_rent_properties', 'lease_rent_property_spaces',
-		'lease_rent_lease_parties', 'lease_rent_rent_parties',
-		'lease_rent_payments', 'lease_rent_payment_entries', 'lease_rent_special_changes',
-		'system_api_keys', 'edge_functions_cache', 'frontend_builds',
-		'customer_app_media', 'customer_product_requests', 'customer_recovery_requests',
-		'customer_access_code_history',
-		'vendor_payment_schedule', 'non_approved_payment_scheduler',
-		'expense_scheduler', 'erp_daily_sales',
-		'recurring_assignment_schedules', 'recurring_schedule_check_log',
-		'product_request_bt', 'product_request_po', 'product_request_st',
-		'purchase_voucher_issue_types', 'employee_fine_payments',
-		'offer_usage_logs', 'deleted_bundle_offers',
-		'whatsapp_message_log', 'task_reminder_logs', 'task_completion_summary',
-		'user_password_history', 'denomination_user_preferences'
-	];
-
-	// Tables/views to EXCLUDE from sync (internal Supabase views, not real tables)
-	const SYNC_EXCLUDE = new Set([
-		'', // empty path from OpenAPI spec
-		'branch_sync_config', // meta — don't sync the sync config itself
-		'user_management_view', 'user_permissions_view', // views, not tables
-		'quick_task_files_with_details', 'quick_tasks_with_details', 'view_offer', // views
-		'quick_task_files', 'quick_task_comments', 'quick_task_user_preferences', // handled by quick_tasks
-		'mv_expiry_products', // materialized view
-		'receiving_records_pr_excel_status', // view
-		'wa_messages', // too large for sync — messages stay on cloud
-		'whatsapp_message_log', // too large
-		'user_audit_logs', 'order_audit_logs', // audit logs — too large, stay on cloud
-	]);
-
 	async function loadBranchSyncConfigs() {
 		syncConfigsLoading = true;
 		syncConfigsError = '';
@@ -856,6 +762,7 @@
 		formLocalUrl = '';
 		formLocalKey = '';
 		formTunnelUrl = '';
+		formSSHUser = 'u';
 		showAddBranchForm = true;
 	}
 
@@ -865,6 +772,7 @@
 		formLocalUrl = cfg.local_supabase_url;
 		formLocalKey = cfg.local_supabase_key;
 		formTunnelUrl = cfg.tunnel_url || '';
+		formSSHUser = cfg.ssh_user || 'u';
 		showAddBranchForm = true;
 	}
 
@@ -876,7 +784,8 @@
 				p_branch_id: formBranchId,
 				p_local_supabase_url: formLocalUrl.replace(/\/$/, ''),
 				p_local_supabase_key: formLocalKey,
-				p_tunnel_url: formTunnelUrl ? formTunnelUrl.replace(/\/$/, '') : null
+				p_tunnel_url: formTunnelUrl ? formTunnelUrl.replace(/\/$/, '') : null,
+				p_ssh_user: formSSHUser || 'u'
 			});
 			if (rpcErr) throw new Error(rpcErr.message);
 			showAddBranchForm = false;
@@ -898,427 +807,115 @@
 		}
 	}
 
+	// Cloud Sync API (fallback for deployed/Vercel — not yet reliable for large DBs)
+	// const CLOUD_SYNC_API = 'https://supabase.urbanaqura.com/sync-api';
+	// const CLOUD_SYNC_KEY = 'aqura-sync-2025-key';
+
+	function extractIPFromUrl(url: string): string {
+		try {
+			return new URL(url).hostname;
+		} catch {
+			return url.replace(/https?:\/\//, '').split(':')[0].split('/')[0];
+		}
+	}
+
 	async function syncBranch(cfg: BranchSyncConfig) {
 		if (syncing) return;
-		if (!confirm(`Sync ALL data to "${cfg.branch_name_en}" at ${cfg.local_supabase_url}?\n\nThis will REPLACE all data on the local branch.`)) return;
+
+		if (!confirm(`Sync ALL data to "${cfg.branch_name_en}" at ${cfg.local_supabase_url}?\n\nThis will REPLACE all data on the local branch using pg_dump.\nSchema + data will be fully cloned from cloud.`)) return;
 
 		syncing = true;
 		currentSyncBranch = cfg.branch_id;
-		syncOverallStatus = 'Connecting to local branch...';
+		syncProgress = [];
+		syncOverallStatus = 'Starting database sync...';
 
-		// XHR-based helpers for local Supabase (bypasses SvelteKit/Vite fetch interceptor)
-		let activeBaseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
-		const localKey = cfg.local_supabase_key;
-		let usingTunnel = false;
-		// If HTTPS page tries to reach HTTP local URL, skip directly to tunnel
-		const isMixedContentData = typeof window !== 'undefined' && window.location.protocol === 'https:' && activeBaseUrl.startsWith('http:');
-		if (isMixedContentData && cfg.tunnel_url) {
-			activeBaseUrl = cfg.tunnel_url.replace(/\/+$/, '');
-			usingTunnel = true;
-		}
+		try {
+			const branchIP = extractIPFromUrl(cfg.local_supabase_url);
 
-		function xhrRequest(method: string, path: string, body?: any, timeoutMs = 30000): Promise<any> {
-			return new Promise((resolve, reject) => {
-				const xhr = new XMLHttpRequest();
-				xhr.open(method, `${activeBaseUrl}${path}`, true);
-				xhr.setRequestHeader('Content-Type', 'application/json');
-				xhr.setRequestHeader('apikey', localKey);
-				xhr.setRequestHeader('Authorization', `Bearer ${localKey}`);
-				if (method === 'POST') xhr.setRequestHeader('Prefer', 'return=minimal');
-				xhr.onload = () => {
-					if (xhr.status >= 200 && xhr.status < 300) {
-						try { resolve(xhr.responseText ? JSON.parse(xhr.responseText) : null); }
-						catch { resolve(null); }
-					} else {
-						reject(new Error(`Local ${method} ${path}: ${xhr.status} ${xhr.responseText}`));
-					}
-				};
-				xhr.onerror = () => reject(new Error(`Network error: ${method} ${path}`));
-				xhr.ontimeout = () => reject(new Error(`Timeout: ${method} ${path}`));
-				xhr.timeout = timeoutMs;
-				xhr.send(body ? JSON.stringify(body) : null);
+			// Update status on cloud
+			await supabase.rpc('update_branch_sync_status', {
+				p_branch_id: cfg.branch_id,
+				p_status: 'in_progress',
+				p_details: { started_at: new Date().toISOString(), method: 'pg_dump' }
 			});
-		}
 
-		// Server-side proxy for tunnel requests (avoids CORS)
-		async function proxyRequest(method: string, path: string, body?: any): Promise<any> {
-			const res = await fetch('/api/branch-proxy', {
+			// Call local SSH-based pg_dump sync API (SSE stream for real-time progress)
+			const response = await fetch('/api/branch-pg-sync', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					method,
-					baseUrl: activeBaseUrl,
-					path,
-					apiKey: localKey,
-					payload: body
-				})
+				body: JSON.stringify({ branchIP, branchSSHUser: cfg.ssh_user || 'u' })
 			});
-			const result = await res.json();
-			if (!result.success) throw new Error(result.error);
-			return result.data;
-		}
 
-		// Smart request: XHR for local, proxy for tunnel
-		async function branchRequest(method: string, path: string, body?: any): Promise<any> {
-			if (usingTunnel) return proxyRequest(method, path, body);
-			return xhrRequest(method, path, body);
-		}
-
-		async function localGet(path: string): Promise<any> {
-			return branchRequest('GET', path);
-		}
-
-		async function localPost(path: string, body: any): Promise<any> {
-			return branchRequest('POST', path, body);
-		}
-
-		async function localDelete(path: string): Promise<void> {
-			await branchRequest('DELETE', path);
-		}
-
-		// Test connection: try local URL first (5s timeout), fall back to tunnel URL via proxy
-		const isMixedContentMain = typeof window !== 'undefined' && window.location.protocol === 'https:' && activeBaseUrl.startsWith('http:');
-		try {
-			if (isMixedContentMain) throw new Error('Mixed content — HTTPS page cannot reach HTTP local');
-			await xhrRequest('GET', '/rest/v1/branches?select=id&limit=1', undefined, 5000);
-			syncOverallStatus = '✅ Connected via local network';
-		} catch (localErr: any) {
-			// Local failed — try tunnel if configured (via server proxy to avoid CORS)
-			if (cfg.tunnel_url) {
-				syncOverallStatus = '🔄 Local network unreachable, trying tunnel...';
-				activeBaseUrl = cfg.tunnel_url.replace(/\/+$/, '');
-				try {
-					await proxyRequest('GET', '/rest/v1/branches?select=id&limit=1');
-					usingTunnel = true;
-					syncOverallStatus = '✅ Connected via tunnel';
-				} catch (tunnelErr: any) {
-					syncOverallStatus = `❌ Cannot connect via local (${localErr.message}) or tunnel (${tunnelErr.message})`;
-					syncing = false;
-					currentSyncBranch = null;
-					return;
-				}
-			} else {
-				syncOverallStatus = `❌ Cannot connect to local Supabase: ${localErr.message}\n💡 Add a Tunnel URL in branch config to sync outside local network`;
-				syncing = false;
-				currentSyncBranch = null;
-				return;
-			}
-		}
-
-		// ═══ Phase 0: Schema sync — deploy ALL cloud tables, functions, triggers & policies to branch ═══
-		// This MUST run before table discovery so newly created tables are included
-		syncOverallStatus = 'Phase 0: Syncing schema (tables, functions, triggers, policies)...';
-		try {
-			const { data: schemaDDL, error: schemaErr } = await supabase.rpc('export_schema_ddl');
-			if (schemaErr) throw schemaErr;
-
-			const parts = [
-				{ name: 'sequences', sql: schemaDDL.sequences, count: schemaDDL.sequence_count },
-				{ name: 'types', sql: schemaDDL.types, count: schemaDDL.type_count },
-				{ name: 'tables', sql: schemaDDL.tables, count: schemaDDL.table_count },
-				{ name: 'columns', sql: schemaDDL.columns, count: 0 },
-				{ name: 'indexes', sql: schemaDDL.indexes, count: 0 },
-				{ name: 'functions', sql: schemaDDL.functions, count: schemaDDL.function_count },
-				{ name: 'grants', sql: schemaDDL.grants, count: 0 },
-				{ name: 'triggers', sql: schemaDDL.triggers, count: schemaDDL.trigger_count },
-				{ name: 'policies', sql: schemaDDL.policies, count: schemaDDL.policy_count }
-			];
-
-			// ═══ Multi-pass deployment: deploy ALL parts together, retry failures until no progress ═══
-			// This handles all dependency ordering (tables→sequences, functions→tables, indexes→columns, etc.)
-			let allStmts: { name: string; sql: string }[] = [];
-			for (const part of parts) {
-				if (!part.sql || part.sql.trim().length === 0) continue;
-				// Split into individual deployable statements
-				let stmts: string[];
-				if (['functions', 'triggers', 'policies', 'tables'].includes(part.name)) {
-					stmts = part.sql.split(/\n\n+/).filter((s: string) => s.trim());
-				} else {
-					stmts = part.sql.split(/;\s*\n/).map((s: string) => s.trim()).filter((s: string) => s);
-				}
-				for (const stmt of stmts) {
-					if (!stmt.trim()) continue;
-					const q = stmt.trim().endsWith(';') ? stmt.trim() : stmt.trim() + ';';
-					allStmts.push({ name: part.name, sql: q });
-				}
+			if (!response.ok) {
+				const errBody = await response.json();
+				throw new Error(errBody.error || 'Sync API request failed');
 			}
 
-			let pending = allStmts;
-			let totalOk = 0;
-			let pass = 0;
-			const maxPasses = 4;
-			while (pending.length > 0 && pass < maxPasses) {
-				pass++;
-				syncOverallStatus = `Phase 0: Deploying schema pass ${pass}/${maxPasses} (${pending.length} statements remaining)...`;
-				const failed: typeof pending = [];
-				for (const stmt of pending) {
-					try {
-						await branchRequest('POST', '/pg/query', { query: stmt.sql });
-						totalOk++;
-					} catch {
-						failed.push(stmt);
-					}
-				}
-				const resolved = pending.length - failed.length;
-				console.log(`Schema pass ${pass}: ${resolved} ok, ${failed.length} failed`);
-				if (resolved === 0) break; // No progress — remaining are genuine errors
-				pending = failed;
-			}
+			// Read SSE progress stream
+			const reader = response.body?.getReader();
+			const decoder = new TextDecoder();
+			let success = false;
+			let buffer = '';
 
-			// Log remaining failures by category
-			if (pending.length > 0) {
-				const byCat: Record<string, number> = {};
-				for (const s of pending) byCat[s.name] = (byCat[s.name] || 0) + 1;
-				console.warn(`Schema sync: ${pending.length} statements still failing after ${pass} passes:`, byCat);
-			}
-
-			syncOverallStatus = `✅ Schema synced: ${totalOk}/${allStmts.length} statements deployed (${pending.length} skipped, ${schemaDDL.table_count} tables, ${schemaDDL.function_count} funcs)`;
-
-			// Reload PostgREST schema cache on branch so new tables are visible
-			try {
-				await branchRequest('GET', '/rest/v1/?reload=true');
-				// Also send NOTIFY to PostgREST to reload
-				await branchRequest('POST', '/pg/query', { query: "NOTIFY pgrst, 'reload schema';" });
-			} catch { /* best effort */ }
-		} catch (e: any) {
-			console.warn('Schema sync failed (branch may need manual update):', e.message);
-			syncOverallStatus = '⚠️ Schema sync skipped — missing tables may not be synced';
-		}
-
-		// Brief pause to let PostgREST pick up schema changes
-		await new Promise(r => setTimeout(r, 2000));
-
-		// ═══ Dynamic table discovery: get ALL tables from cloud & branch, sync intersection ═══
-		syncOverallStatus = 'Discovering tables on cloud and branch...';
-
-		// Helper: extract table names from PostgREST OpenAPI spec
-		function extractTablesFromSpec(spec: any): Set<string> {
-			if (!spec?.paths) return new Set();
-			return new Set(
-				Object.keys(spec.paths)
-					.map(p => p.replace(/^\//, ''))
-					.filter(p => p && !p.startsWith('rpc/'))
-			);
-		}
-
-		// Get cloud tables via OpenAPI spec (uses service-level access)
-		let cloudTables = new Set<string>();
-		try {
-			const cloudUrl = import.meta.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
-			const cloudKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-			const cloudRes = await fetch(`${cloudUrl}/rest/v1/`, {
-				headers: { 'apikey': cloudKey, 'Authorization': `Bearer ${cloudKey}` }
-			});
-			const cloudSpec = await cloudRes.json();
-			cloudTables = extractTablesFromSpec(cloudSpec);
-		} catch (e: any) {
-			console.warn('Could not discover cloud tables:', e.message);
-			// Fallback: use cfg.sync_tables
-			cloudTables = new Set(cfg.sync_tables);
-		}
-
-		// Get branch tables via OpenAPI spec
-		let branchTables = new Set<string>();
-		try {
-			const branchSpec: any = await branchRequest('GET', '/rest/v1/');
-			branchTables = extractTablesFromSpec(branchSpec);
-		} catch (e: any) {
-			console.warn('Could not discover branch tables:', e.message);
-			branchTables = cloudTables; // assume branch has same schema
-		}
-
-		// Intersection: tables that exist on BOTH cloud and branch, minus excluded
-		const syncableTables = [...cloudTables].filter(t => branchTables.has(t) && !SYNC_EXCLUDE.has(t));
-
-		// Order: tables in SYNC_TABLE_ORDER first (preserves FK order), then remaining alphabetically
-		const orderIndex = new Map(SYNC_TABLE_ORDER.map((t, i) => [t, i]));
-		let orderedTables = syncableTables.sort((a, b) => {
-			const ai = orderIndex.get(a) ?? 9999;
-			const bi = orderIndex.get(b) ?? 9999;
-			if (ai !== bi) return ai - bi;
-			return a.localeCompare(b);
-		});
-
-		console.log(`Sync discovery: cloud=${cloudTables.size}, branch=${branchTables.size}, syncable=${orderedTables.length}, excluded=${SYNC_EXCLUDE.size}`);
-		syncOverallStatus = `Found ${orderedTables.length} tables to sync (cloud: ${cloudTables.size}, branch: ${branchTables.size})`;
-
-		syncProgress = orderedTables.map(t => ({ table: t, status: 'pending', rows: 0, error: '' }));
-
-		// Update status on cloud
-		await supabase.rpc('update_branch_sync_status', {
-			p_branch_id: cfg.branch_id,
-			p_status: 'in_progress',
-			p_details: { started_at: new Date().toISOString(), tables: orderedTables }
-		});
-
-		let totalSuccess = 0;
-		let totalFailed = 0;
-		let totalRows = 0;
-
-		// Phase 0: Deploy updated sync RPC functions to branch via pg-meta SQL endpoint
-		syncOverallStatus = 'Phase 0: Updating sync functions on branch...';
-		try {
-			const allowedList = orderedTables.map(t => `'${t}'`).join(',');
-			const deploySQL = `
-CREATE OR REPLACE FUNCTION public.clear_sync_tables(p_tables text[])
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn$
-DECLARE v_table text;
-    v_allowed text[] := ARRAY[${allowedList}];
-BEGIN
-    PERFORM set_config('session_replication_role','replica',true);
-    FOREACH v_table IN ARRAY p_tables LOOP
-        IF v_table = ANY(v_allowed) THEN EXECUTE format('DELETE FROM %I WHERE true',v_table); END IF;
-    END LOOP;
-    PERFORM set_config('session_replication_role','origin',true);
-EXCEPTION WHEN OTHERS THEN
-    PERFORM set_config('session_replication_role','origin',true); RAISE;
-END;$fn$;
-GRANT EXECUTE ON FUNCTION public.clear_sync_tables(text[]) TO authenticated, anon, service_role;
-
-CREATE OR REPLACE FUNCTION public.import_sync_batch(p_table_name text, p_data jsonb)
-RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn$
-DECLARE v_count integer := 0;
-    v_allowed text[] := ARRAY[${allowedList}];
-BEGIN
-    IF NOT (p_table_name = ANY(v_allowed)) THEN RAISE EXCEPTION 'Table % not allowed',p_table_name; END IF;
-    IF p_data IS NULL OR jsonb_array_length(p_data) = 0 THEN RETURN 0; END IF;
-    PERFORM set_config('session_replication_role','replica',true);
-    EXECUTE format('INSERT INTO %I OVERRIDING SYSTEM VALUE SELECT * FROM jsonb_populate_recordset(null::%I,$1)',p_table_name,p_table_name) USING p_data;
-    GET DIAGNOSTICS v_count = ROW_COUNT;
-    PERFORM set_config('session_replication_role','origin',true);
-    RETURN v_count;
-EXCEPTION WHEN OTHERS THEN
-    PERFORM set_config('session_replication_role','origin',true); RAISE;
-END;$fn$;
-GRANT EXECUTE ON FUNCTION public.import_sync_batch(text,jsonb) TO authenticated, anon, service_role;
-`;
-			// Try pg-meta endpoint (Supabase self-hosted exposes /pg/ via Kong)
-			await branchRequest('POST', '/pg/query', { query: deploySQL });
-			syncOverallStatus = '✅ Sync functions updated on branch';
-		} catch (e: any) {
-			console.warn('Could not auto-deploy sync functions via pg-meta:', e.message);
-			syncOverallStatus = '⚠️ Sync functions auto-update skipped — will use REST fallback if needed';
-		}
-
-		// Phase 1: Clear all tables on local (reverse FK order, uses RPC that disables FK checks)
-		syncOverallStatus = 'Phase 1/2: Clearing local tables...';
-		try {
-			const reverseOrder = [...orderedTables].reverse();
-			try {
-				await localPost('/rest/v1/rpc/clear_sync_tables', { p_tables: reverseOrder });
-			} catch (clearErr: any) {
-				console.warn('Bulk clear failed, trying individual deletes:', clearErr.message);
-				for (const table of reverseOrder) {
-					try {
-						// Use a universal filter that always matches all rows
-						await localDelete(`/rest/v1/${table}?or=(id.not.is.null,id.is.null)`);
-					} catch (e) { /* best effort */ }
-				}
-			}
-		} catch (e: any) {
-			console.warn('Clear phase error:', e.message);
-		}
-
-		// Phase 2: Export from cloud + Import to local (forward order)
-		syncOverallStatus = 'Phase 2/2: Syncing data...';
-		for (let i = 0; i < orderedTables.length; i++) {
-			const table = orderedTables[i];
-			syncProgress[i].status = 'exporting';
-			syncProgress = [...syncProgress];
-			syncOverallStatus = `Phase 2/2: ${table} (${i + 1}/${orderedTables.length})`;
-
-			try {
-				// Export from cloud with pagination
-				let allRows: any[] = [];
-				let page = 0;
-				const pageSize = 1000;
-				let skipped = false;
-
+			if (reader) {
 				while (true) {
-					const { data, error: fetchErr } = await supabase
-						.from(table)
-						.select('*')
-						.range(page * pageSize, (page + 1) * pageSize - 1);
+					const { done, value } = await reader.read();
+					if (done) break;
 
-					if (fetchErr) {
-						// Skip tables not accessible via PostgREST (no RLS policy, not in schema cache)
-						if (fetchErr.code === 'PGRST205' || fetchErr.code === '42P01') {
-							console.warn(`Skipping ${table}: not accessible on cloud (${fetchErr.code})`);
-							syncProgress[i].status = 'done';
-							syncProgress[i].rows = 0;
-							syncProgress[i].error = 'skipped (not on cloud API)';
-							totalSuccess++;
-							skipped = true;
-							break;
-						}
-						throw fetchErr;
-					}
-					if (!data || data.length === 0) break;
+					buffer += decoder.decode(value, { stream: true });
+					const sseLines = buffer.split('\n');
+					buffer = sseLines.pop() || '';
 
-					allRows = [...allRows, ...data];
-					if (data.length < pageSize) break;
-					page++;
-				}
-
-				if (skipped) {
-					syncProgress = [...syncProgress];
-					continue;
-				}
-
-				// Import to local in batches via raw fetch RPC
-				syncProgress[i].status = 'importing';
-				syncProgress = [...syncProgress];
-
-				if (allRows.length > 0) {
-					const batchSize = 500;
-					for (let j = 0; j < allRows.length; j += batchSize) {
-						const batch = allRows.slice(j, j + batchSize);
-						try {
-							await localPost('/rest/v1/rpc/import_sync_batch', {
-								p_table_name: table,
-								p_data: batch
-							});
-						} catch (rpcErr: any) {
-							// If RPC fails (e.g. table not in allowlist), fall back to direct REST INSERT
-							console.warn(`import_sync_batch failed for ${table}, falling back to REST:`, rpcErr.message);
-							await localPost(`/rest/v1/${table}`, batch);
+					for (const sseLine of sseLines) {
+						if (sseLine.startsWith('data: ')) {
+							try {
+								const data = JSON.parse(sseLine.slice(6));
+								if (data.error) {
+									syncOverallStatus = data.message;
+								} else {
+									syncOverallStatus = `[${data.step}/${data.total}] ${data.message}`;
+									if (data.done && data.success) success = true;
+								}
+							} catch { /* ignore parse errors */ }
 						}
 					}
 				}
-
-				syncProgress[i].status = 'done';
-				syncProgress[i].rows = allRows.length;
-				totalSuccess++;
-				totalRows += allRows.length;
-			} catch (e: any) {
-				syncProgress[i].status = 'error';
-				syncProgress[i].error = e.message;
-				totalFailed++;
 			}
-			syncProgress = [...syncProgress];
+
+			// Update final status on cloud
+			await supabase.rpc('update_branch_sync_status', {
+				p_branch_id: cfg.branch_id,
+				p_status: success ? 'success' : 'failed',
+				p_details: {
+					completed_at: new Date().toISOString(),
+					method: 'pg_dump',
+					success
+				}
+			});
+
+			if (success) {
+				syncOverallStatus = '\u2705 Sync complete! Database fully synced via pg_dump.';
+			} else if (!syncOverallStatus.includes('\u274C')) {
+				syncOverallStatus = '\u274C Sync did not complete successfully';
+			}
+
+		} catch (err: any) {
+			console.error('Sync fatal error:', err);
+			syncOverallStatus = `\u274C Sync failed: ${err.message}`;
+			try {
+				await supabase.rpc('update_branch_sync_status', {
+					p_branch_id: cfg.branch_id,
+					p_status: 'failed',
+					p_details: { error: err.message }
+				});
+			} catch { /* ignore */ }
+		} finally {
+			syncing = false;
+			currentSyncBranch = null;
+			try { await loadBranchSyncConfigs(); } catch { /* ignore */ }
 		}
-
-		// Update final status on cloud
-		const finalStatus = totalFailed === 0 ? 'success' : 'failed';
-		await supabase.rpc('update_branch_sync_status', {
-			p_branch_id: cfg.branch_id,
-			p_status: finalStatus,
-			p_details: {
-				completed_at: new Date().toISOString(),
-				tables_synced: totalSuccess,
-				tables_failed: totalFailed,
-				total_rows: totalRows
-			}
-		});
-
-		syncOverallStatus = totalFailed === 0
-			? `\u2705 Sync complete! ${totalSuccess} tables, ${totalRows.toLocaleString()} rows synced${usingTunnel ? ' (via tunnel)' : ''}.`
-			: `\u26A0\uFE0F Sync finished with ${totalFailed} error(s). ${totalSuccess} tables OK, ${totalRows.toLocaleString()} rows${usingTunnel ? ' (via tunnel)' : ''}.`;
-
-		syncing = false;
-		currentSyncBranch = null;
-		await loadBranchSyncConfigs();
 	}
+
 
 	function formatSyncDate(dateStr: string | null): string {
 		if (!dateStr) return 'Never';
@@ -2607,7 +2204,20 @@ GRANT EXECUTE ON FUNCTION public.import_sync_batch(text,jsonb) TO authenticated,
 										</div>
 									</div>
 
-									<!-- Sync Progress (shown during sync) -->
+									<!-- pg_dump Sync Status (step-based progress) -->
+									{#if syncing && currentSyncBranch === cfg.branch_id && syncProgress.length === 0}
+										<div class="border-t border-blue-100 bg-blue-50/50 p-4">
+											<div class="flex items-center gap-3">
+												<span class="animate-spin text-blue-500 text-lg">⏳</span>
+												<span class="text-sm font-bold text-blue-700">{syncOverallStatus}</span>
+											</div>
+											<div class="w-full bg-blue-100 rounded-full h-1.5 mt-3">
+												<div class="bg-blue-600 h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Table-by-Table Sync Progress (legacy) -->
 									{#if syncing && currentSyncBranch === cfg.branch_id && syncProgress.length > 0}
 										<div class="border-t border-blue-100 bg-blue-50/50 p-4">
 											<div class="flex items-center justify-between mb-3">
@@ -2733,6 +2343,18 @@ GRANT EXECUTE ON FUNCTION public.import_sync_batch(text,jsonb) TO authenticated,
 							class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-mono text-slate-700 focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 outline-none"
 						/>
 						<p class="text-xs text-slate-400 mt-1">Cloudflare Tunnel URL — used as fallback when local network is unreachable (for syncing outside the branch)</p>
+					</div>
+
+					<!-- SSH User -->
+					<div>
+						<label class="block text-sm font-bold text-slate-700 mb-1.5">🔑 SSH User</label>
+						<input
+							type="text"
+							bind:value={formSSHUser}
+							placeholder="u"
+							class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-mono text-slate-700 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+						/>
+						<p class="text-xs text-slate-400 mt-1">SSH user on the branch server (the cloud server must have SSH key access to this user)</p>
 					</div>
 
 					<!-- Actions -->
