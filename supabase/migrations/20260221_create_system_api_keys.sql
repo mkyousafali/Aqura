@@ -28,10 +28,10 @@ BEFORE UPDATE ON system_api_keys
 FOR EACH ROW
 EXECUTE FUNCTION update_system_api_keys_timestamp();
 
--- Insert default services with current keys
+-- Insert default services (keys must be set via Supabase Studio or admin UI after migration)
 INSERT INTO system_api_keys (service_name, api_key, description) VALUES
-  ('google', 'REDACTED_GOOGLE_API_KEY', 'Google APIs (Maps, Vision, TTS, Gemini)'),
-  ('pixabay', 'REDACTED_PIXABAY_KEY', 'Pixabay Image Search API'),
-  ('google_search_engine_id', 'a4b279612d92f4367', 'Google Programmable Search Engine ID (legacy - replaced by Pixabay)'),
-  ('openai', '', 'OpenAI API Key (ChatGPT, Whisper)')
+  ('google', '', 'Google APIs (Maps, Vision, TTS, Gemini) - set key via admin UI'),
+  ('pixabay', '', 'Pixabay Image Search API - set key via admin UI'),
+  ('google_search_engine_id', '', 'Google Programmable Search Engine ID - set key via admin UI'),
+  ('openai', '', 'OpenAI API Key (ChatGPT, Whisper) - set key via admin UI')
 ON CONFLICT (service_name) DO NOTHING;
