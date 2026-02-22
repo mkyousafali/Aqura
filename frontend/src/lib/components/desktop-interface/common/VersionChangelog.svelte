@@ -10,23 +10,22 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>� Button Access Control, Reconciliation & Break Register Improvements</h3>
-<p class="change-description">Added proper button access control (isButtonAllowed) for Break Register, Category Manager, ERP Product Manager, and Storage Manager. Reconciliation and Break Register now show branch location details. Break Register fully i18n-ized with scroll fixes. Sidebar parse API updated with missing button mappings.</p>
+<h3>🔄 Universal Schema Sync — Multi-Pass Deploy & Dynamic Discovery</h3>
+<p class="change-description">Complete overhaul of branch sync system. Schema deployment now uses multi-pass retry to handle all dependency chains automatically. Dynamic table discovery replaces hardcoded table lists. New export_schema_ddl() RPC exports full schema (~1.2MB) including sequences, tables, columns, indexes, functions, triggers, and policies.</p>
 <div class="change-details">
 <h4>February 22, 2026:</h4>
 <ul>
-<li>✅ <b>Sidebar — Button Access Control:</b> Category Manager, ERP Product Manager, Storage Manager, and Break Register menu items now wrapped in <code>isButtonAllowed()</code> checks. Storage Manager previously only checked <code>isMasterAdmin</code> — now uses the unified button access system.</li>
-<li>✅ <b>Sidebar — Break Register i18n:</b> Break Register window title and menu text now use <code>t('nav.breakRegister')</code> instead of hardcoded English/Arabic strings. Added <code>breakRegister</code> key to both English and Arabic locale files.</li>
-<li>✅ <b>Sidebar — Button Code Map:</b> Added <code>BREAK_REGISTER</code> to the sidebar button-to-handler map so it can be opened via button access control.</li>
-<li>✅ <b>Reconciliations — Branch Location:</b> Branch dropdown and table rows now display branch location (e.g., "Main Branch - Riyadh") in both filter selects and table data. Fetches <code>location_en</code>/<code>location_ar</code> from branches table.</li>
-<li>✅ <b>Reconciliations — Employee Names from HR:</b> Supervisor and cashier names now loaded from <code>hr_employee_master</code> instead of the <code>users</code> table, with proper locale-aware name display (Arabic name in AR mode).</li>
-<li>✅ <b>Reconciliations — Date Format Fix:</b> Date display changed from locale-dependent <code>toLocaleDateString('ar-EG')</code> to consistent <code>DD-MM-YYYY HH:MM</code> format.</li>
-<li>✅ <b>Break Register — Branch Location:</b> Branch filter dropdowns and all three table views (active breaks, all breaks, summary) now show branch location as a subtitle beneath the branch name.</li>
-<li>✅ <b>Break Register — Scroll Fix:</b> Main content area and table containers now use <code>min-h-0</code> and <code>max-h-[calc(100vh-380px)]</code> to prevent overflow and enable proper scrolling within the window.</li>
-<li>✅ <b>Break Register — Branch Matching Fix:</b> Branch lookup now uses <code>Number()</code> coercion to handle string/number type mismatches in branch IDs.</li>
-<li>✅ <b>Parse Sidebar API — New Buttons:</b> Added <code>BREAK_REGISTER</code> to HR Operations, <code>CREATE_NOTIFICATION</code> to Notifications Manage, <code>API_KEYS_MANAGER</code> to Controls Manage, and <code>WA_CATALOG</code> to WhatsApp Manage sections with proper display labels.</li>
-<li>✅ <b>Button Access Page — Icons & Labels:</b> Added icons and i18n label mappings for <code>BREAK_REGISTER</code> (☕), <code>STORAGE_MANAGER</code> (🗄️), <code>API_KEYS_MANAGER</code> (🔑), and <code>WA_CATALOG</code> (📦).</li>
-<li>✅ <b>Build Fix — REMOVE_BG_API_KEY:</b> Changed <code>remove-background</code> API route from <code>$env/static/private</code> to <code>$env/dynamic/private</code> to avoid build-time errors when the env var is not set.</li>
+<li>✅ <b>Multi-Pass Schema Deploy:</b> All schema statements (sequences, types, tables, columns, indexes, functions, triggers, policies) are deployed in up to 4 passes — failed statements retry automatically as dependencies resolve.</li>
+<li>✅ <b>Sequence Export:</b> All 42 sequences exported with <code>CREATE SEQUENCE IF NOT EXISTS</code> — fixes "relation bank_reconciliations_id_seq does not exist" errors.</li>
+<li>✅ <b>Column Sync:</b> New <code>ALTER TABLE ADD COLUMN IF NOT EXISTS</code> phase adds missing columns to existing branch tables before index creation.</li>
+<li>✅ <b>Function Drop+Create:</b> Functions use <code>DROP FUNCTION IF EXISTS</code> before <code>CREATE</code> to handle return type changes — fixes "cannot change return type of existing function" errors.</li>
+<li>✅ <b>Index IF NOT EXISTS:</b> Both <code>CREATE INDEX IF NOT EXISTS</code> and <code>CREATE UNIQUE INDEX IF NOT EXISTS</code> prevent "already exists" errors.</li>
+<li>✅ <b>Dynamic Table Discovery:</b> PostgREST OpenAPI spec queried on both cloud and branch to auto-discover all tables. Syncs the intersection — no hardcoded table lists. Finds ~163 of 179 cloud tables (16 excluded views/large tables).</li>
+<li>✅ <b>Schema First:</b> Schema sync (Phase 0) runs before table discovery, so newly created tables are included in sync.</li>
+<li>✅ <b>export_schema_ddl() RPC:</b> Deployed to cloud — exports 170 tables, 42 sequences, 410 functions, 104 triggers, 887 policies (~1.2MB SQL).</li>
+<li>✅ <b>Branch Proxy Fix:</b> <code>/api/branch-proxy</code> now always returns HTTP 200 with errors in JSON body — eliminates red console errors for expected 404s.</li>
+<li>✅ <b>Mixed Content Fix:</b> StorageManager detects HTTPS→HTTP mixed content and automatically uses tunnel proxy instead of direct XHR.</li>
+<li>✅ <b>Deploy Script Fix:</b> <code>simple-push.js</code> now sets <code>NODE_OPTIONS=--max-old-space-size=8192</code> to prevent heap OOM during builds.</li>
 </ul>
 </div>
 </div>

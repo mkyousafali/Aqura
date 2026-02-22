@@ -249,7 +249,7 @@ try {
     try {
       // Step 2: Build frontend
       console.log('🔨 Step 2/5: Building frontend (this may take a minute)...');
-      execSync('npm run build', { cwd: frontendDir, stdio: 'inherit', env: { ...process.env, BUILD_ADAPTER: 'node' } });
+      execSync('npm run build', { cwd: frontendDir, stdio: 'inherit', env: { ...process.env, BUILD_ADAPTER: 'node', NODE_OPTIONS: '--max-old-space-size=8192' } });
       console.log('   ✅ Frontend built successfully');
       
       // Step 3: Create ZIP of build output
