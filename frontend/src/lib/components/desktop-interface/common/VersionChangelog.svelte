@@ -10,6 +10,23 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
+<h3>🔄 Branch Sync API, Pixabay Search & Chat Translation</h3>
+<p class="change-description">Enhanced branch synchronization with new Gzip-based DB transfer API. Added Pixabay as primary high-limit image search engine with auto-translation. Multi-language translation support for WhatsApp messages in Mobile Live Chat.</p>
+<div class="change-details">
+<h4>February 23, 2026:</h4>
+<ul>
+<li>✅ <b>Pixabay Image Search:</b> Added Pixabay as the primary image search engine (100 req/min free). Includes automatic Arabic→English translation for search queries to maximize result accuracy. Fallback to Google CSE remains active.</li>
+<li>✅ <b>WhatsApp Message Translation:</b> Added built-in translation support for 30+ languages in the Mobile Live Chat interface. Translate inbound/outbound messages instantly with one tap.</li>
+<li>✅ <b>Branch Sync API:</b> New <code>/api/branch-pg-sync</code> endpoint for ultra-fast database synchronization. Uses compressed Gzip dumps, automated SSH-less transfers where possible, and intelligent sequence resetting on the branch side.</li>
+<li>✅ <b>Cloud Sync Service:</b> New standalone Node.js service for the cloud server (port 3100) to facilitate cross-network database migrations entirely over HTTPS/CORS, bypassing SSH constraints.</li>
+<li>✅ <b>Installer Virtualization Auto-Setup:</b> Aqura Branch Setup now automatically detects and enables missing Windows features (Hyper-V, WSL2, VirtualMachinePlatform) using DISM, providing clear reboot/BIOS instructions.</li>
+<li>✅ <b>Sync Table parity:</b> Expanded <code>clear_sync_tables</code> and <code>import_sync_batch</code> to support 15+ new tables including WhatsApp messages, lease/rent management, incident actions, and asset tracking.</li>
+<li>✅ <b>Schema Reset Logic:</b> Unified the sequence reset logic across Installer, Updater, and Sync API to prevent primary key collision errors on branch nodes.</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
 <h3>🔄 Universal Schema Sync — Multi-Pass Deploy & Dynamic Discovery</h3>
 <p class="change-description">Complete overhaul of branch sync system. Schema deployment now uses multi-pass retry to handle all dependency chains automatically. Dynamic table discovery replaces hardcoded table lists. New export_schema_ddl() RPC exports full schema (~1.2MB) including sequences, tables, columns, indexes, functions, triggers, and policies.</p>
 <div class="change-details">
