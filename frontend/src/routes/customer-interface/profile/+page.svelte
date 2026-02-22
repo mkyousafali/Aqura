@@ -1855,6 +1855,12 @@
 
   .modal-body {
     padding: 1.5rem;
+    overflow: visible;
+  }
+
+  /* Ensure Google Places autocomplete appears above modal */
+  :global(.pac-container) {
+    z-index: 1000000 !important;
   }
 
   .picked-location-info {

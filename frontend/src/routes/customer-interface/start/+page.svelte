@@ -174,7 +174,7 @@
     
     orderFlowActions.setSelection(branch.branch_id, service);
     setTimeout(() => {
-      goto('/customer-interface/categories');
+      goto('/customer-interface/products');
     }, 100);
   }
 
