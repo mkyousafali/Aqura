@@ -10,23 +10,29 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>🚨 Report Incident from Live Chat & Chat Filter Cleanup</h3>
-<p class="change-description">Report incidents directly from WhatsApp Live Chat on both desktop and mobile. Incident type auto-selects IN1 (Customer) and customer name/phone auto-fill from the conversation. Removed unused AI/Bot/Human chat filters.</p>
+<h3>� Button Access Control, Reconciliation & Break Register Improvements</h3>
+<p class="change-description">Added proper button access control (isButtonAllowed) for Break Register, Category Manager, ERP Product Manager, and Storage Manager. Reconciliation and Break Register now show branch location details. Break Register fully i18n-ized with scroll fixes. Sidebar parse API updated with missing button mappings.</p>
 <div class="change-details">
-<h4>February 20, 2026:</h4>
+<h4>February 22, 2026:</h4>
 <ul>
-<li>✅ <b>Desktop Live Chat — Report Incident Button:</b> New "🚨 Report Incident" button in the chat header. Opens a popup modal with the full incident report form embedded inside.</li>
-<li>✅ <b>Desktop Popup — Contained Dropdowns:</b> Incident type and branch selection popups stay within the modal instead of spanning the full screen.</li>
-<li>✅ <b>Mobile Live Chat — Report Incident Button:</b> New 🚨 button in the chat header navigates to the report-incident page.</li>
-<li>✅ <b>Auto-Fill Customer Data:</b> Customer name (WhatsApp name) and contact number (WhatsApp phone) are auto-filled from the active conversation in both desktop and mobile.</li>
-<li>✅ <b>Auto-Select IN1:</b> Incident type automatically pre-selects IN1 (Customer Incident) when opened from live chat.</li>
-<li>✅ <b>Chat Filter Cleanup:</b> Removed unused AI, Bot, and Human filter chips from both desktop and mobile live chat. Only All and Unread filters remain.</li>
+<li>✅ <b>Sidebar — Button Access Control:</b> Category Manager, ERP Product Manager, Storage Manager, and Break Register menu items now wrapped in <code>isButtonAllowed()</code> checks. Storage Manager previously only checked <code>isMasterAdmin</code> — now uses the unified button access system.</li>
+<li>✅ <b>Sidebar — Break Register i18n:</b> Break Register window title and menu text now use <code>t('nav.breakRegister')</code> instead of hardcoded English/Arabic strings. Added <code>breakRegister</code> key to both English and Arabic locale files.</li>
+<li>✅ <b>Sidebar — Button Code Map:</b> Added <code>BREAK_REGISTER</code> to the sidebar button-to-handler map so it can be opened via button access control.</li>
+<li>✅ <b>Reconciliations — Branch Location:</b> Branch dropdown and table rows now display branch location (e.g., "Main Branch - Riyadh") in both filter selects and table data. Fetches <code>location_en</code>/<code>location_ar</code> from branches table.</li>
+<li>✅ <b>Reconciliations — Employee Names from HR:</b> Supervisor and cashier names now loaded from <code>hr_employee_master</code> instead of the <code>users</code> table, with proper locale-aware name display (Arabic name in AR mode).</li>
+<li>✅ <b>Reconciliations — Date Format Fix:</b> Date display changed from locale-dependent <code>toLocaleDateString('ar-EG')</code> to consistent <code>DD-MM-YYYY HH:MM</code> format.</li>
+<li>✅ <b>Break Register — Branch Location:</b> Branch filter dropdowns and all three table views (active breaks, all breaks, summary) now show branch location as a subtitle beneath the branch name.</li>
+<li>✅ <b>Break Register — Scroll Fix:</b> Main content area and table containers now use <code>min-h-0</code> and <code>max-h-[calc(100vh-380px)]</code> to prevent overflow and enable proper scrolling within the window.</li>
+<li>✅ <b>Break Register — Branch Matching Fix:</b> Branch lookup now uses <code>Number()</code> coercion to handle string/number type mismatches in branch IDs.</li>
+<li>✅ <b>Parse Sidebar API — New Buttons:</b> Added <code>BREAK_REGISTER</code> to HR Operations, <code>CREATE_NOTIFICATION</code> to Notifications Manage, <code>API_KEYS_MANAGER</code> to Controls Manage, and <code>WA_CATALOG</code> to WhatsApp Manage sections with proper display labels.</li>
+<li>✅ <b>Button Access Page — Icons & Labels:</b> Added icons and i18n label mappings for <code>BREAK_REGISTER</code> (☕), <code>STORAGE_MANAGER</code> (🗄️), <code>API_KEYS_MANAGER</code> (🔑), and <code>WA_CATALOG</code> (📦).</li>
+<li>✅ <b>Build Fix — REMOVE_BG_API_KEY:</b> Changed <code>remove-background</code> API route from <code>$env/static/private</code> to <code>$env/dynamic/private</code> to avoid build-time errors when the env var is not set.</li>
 </ul>
 </div>
 </div>
 
 <div class="previous-change">
-<h3>📡 WhatsApp Broadcast from Contacts, Batch Bill Counts & Auto-Refresh</h3>
+<h3>🚨 Report Incident from Live Chat & Chat Filter Cleanup</h3>
 <p class="change-description">Send WhatsApp broadcasts directly from the Contacts page — select customers via checkboxes, pick a template, and send. Batch bill count API with per-branch ERP deduplication, smart caching, and auto-loading. Broadcasts window auto-opens after send with live status polling every 15 seconds.</p>
 <div class="change-details">
 <h4>February 20, 2026:</h4>
