@@ -46,10 +46,14 @@ export const POST: RequestHandler = async ({ request }) => {
 		const responseText = await response.text();
 
 		if (!response.ok) {
+			// Always return 200 from proxy — errors are in the JSON body
+			// This prevents browser console from showing red 404/400 errors
+			// for expected failures (e.g., deleting tables that don't exist on branch)
 			return json({
 				success: false,
+				statusCode: response.status,
 				error: `${method} ${path}: ${response.status} ${responseText}`
-			}, { status: response.status });
+			});
 		}
 
 		// Try to parse JSON, or return null for empty responses
