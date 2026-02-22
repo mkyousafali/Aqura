@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { supabase } from '$lib/utils/supabase';
 
   // Type declarations for Google Maps (loaded dynamically)
   type GoogleMap = any;
@@ -23,18 +24,34 @@
   let error = '';
   let locationDenied = false;
 
-  const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  
-  // Debug: Log the API key availability immediately
-  console.log('🔑 [LocationPicker] VITE_GOOGLE_MAPS_API_KEY:', GOOGLE_MAPS_API_KEY ? 'Present (length: ' + GOOGLE_MAPS_API_KEY.length + ')' : 'MISSING!');
-  console.log('🔑 [LocationPicker] All env vars:', import.meta.env);
+  // Will be populated from DB or env fallback
+  let GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+
+  /** Fetch the Google API key from system_api_keys table, fallback to .env */
+  async function fetchApiKey(): Promise<string> {
+    try {
+      const { data, error: dbErr } = await supabase
+        .from('system_api_keys')
+        .select('api_key')
+        .eq('service_name', 'google')
+        .eq('is_active', true)
+        .single();
+      if (!dbErr && data?.api_key) {
+        console.log('🔑 [LocationPicker] Got Google API key from database');
+        return data.api_key;
+      }
+    } catch (e) {
+      console.warn('⚠️ [LocationPicker] Could not fetch key from DB, using env fallback');
+    }
+    return import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+  }
 
   const texts = language === 'ar' ? {
     searchPlaceholder: 'ابحث عن موقع...',
     loading: 'جاري تحميل الخريطة...',
     clickToSelect: 'انقر على الخريطة لتحديد الموقع',
     dragInstruction: '📍 اسحب الدبوس إلى موقعك الدقيق، أو انقر على الخريطة، ثم احفظ الموقع',
-    locationDenied: '⚠️ تعذر الوصول إلى موقعك. يرجى البحث عن موقعك أو النقر على الخريطة.',
+    locationDenied: '⚠️ تعذر الوصول إلى موقعك. يمكنك البحث عن موقعك، النقر على الخريطة، أو سحب الدبوس إلى موقعك.',
     error: 'فشل تحميل الخريطة',
     noApiKey: 'لم يتم العثور على مفتاح API للخرائط'
   } : {
@@ -42,7 +59,7 @@
     loading: 'Loading map...',
     clickToSelect: 'Click on the map to select location',
     dragInstruction: '📍 Drag the pin to your exact location, or click on the map, then save the location',
-    locationDenied: '⚠️ Could not access your location. Please search for your location or click on the map.',
+    locationDenied: '⚠️ Could not access your location. You can search, tap on the map, or drag the pin to set your location manually.',
     error: 'Failed to load map',
     noApiKey: 'Google Maps API key not found'
   };
@@ -63,6 +80,12 @@
         console.error('❌ [LocationPicker] No API key found');
         reject(new Error(texts.noApiKey));
         return;
+      }
+
+      // Remove any previously loaded Google Maps script with old/expired key
+      const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+      if (existingScript) {
+        existingScript.remove();
       }
 
       console.log('📥 [LocationPicker] Loading Google Maps script...');
@@ -124,12 +147,10 @@
         animation: google.maps.Animation.DROP,
       });
 
-      // Auto-select current location if geolocation was successful (not denied)
-      if (!locationDenied) {
-        // @ts-ignore
-        const latLng = new google.maps.LatLng(initialLat, initialLng);
-        updateMarkerPosition(latLng);
-      }
+      // Auto-select initial position (GPS location or default) so user always has a pin to work with
+      // @ts-ignore
+      const latLng = new google.maps.LatLng(initialLat, initialLng);
+      updateMarkerPosition(latLng);
 
       // Listen for map clicks
       map.addListener('click', (e: GoogleMapMouseEvent) => {
@@ -204,6 +225,10 @@
     console.log('🚀 [LocationPicker] Component mounted, starting initialization...');
 
     try {
+      // Fetch API key from database first, fallback to .env
+      GOOGLE_MAPS_API_KEY = await fetchApiKey();
+      console.log('🔑 [LocationPicker] API Key:', GOOGLE_MAPS_API_KEY ? 'Present (length: ' + GOOGLE_MAPS_API_KEY.length + ')' : 'MISSING!');
+
       // Get user's current location first
       if (navigator.geolocation) {
         console.log('📍 [LocationPicker] Requesting user location...');

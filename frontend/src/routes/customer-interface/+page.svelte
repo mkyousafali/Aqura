@@ -1247,6 +1247,9 @@
         <button class="loc-save-btn" disabled={!pickedLocation || savingLocation} on:click={saveSetupLocation}>
           {savingLocation ? (currentLanguage === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (currentLanguage === 'ar' ? '✅ حفظ الموقع والمتابعة' : '✅ Save Location & Continue')}
         </button>
+        <button class="loc-skip-btn" on:click={() => showLocationSetupModal = false}>
+          {currentLanguage === 'ar' ? 'تخطي الآن' : 'Skip for now'}
+        </button>
       </div>
     </div>
   </div>
@@ -1339,6 +1342,24 @@
   .loc-save-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .loc-skip-btn {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    background: transparent;
+    color: #6b7280;
+    border: 1px solid #d1d5db;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 0.5rem;
+  }
+  .loc-skip-btn:hover {
+    background: #f3f4f6;
+    color: #374151;
+    border-color: #9ca3af;
   }
   .picked-location-info {
     margin-top: 1rem;
