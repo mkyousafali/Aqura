@@ -23,6 +23,12 @@
   let isLoading = true;
   let error = '';
   let locationDenied = false;
+  let locatingMe = false;
+  let geoWatchId: number | null = null;
+  let bestAccuracy = Infinity;
+  let accuracyCircle: any = null;
+  let currentAccuracy: number | null = null;
+  let locationInaccurate = false;
 
   // Will be populated from DB or env fallback
   let GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
@@ -47,21 +53,25 @@
   }
 
   const texts = language === 'ar' ? {
-    searchPlaceholder: 'ابحث عن موقع...',
+    searchPlaceholder: 'ابحث عن مدينتك أو حيك (مثل: جيزان، أبها)...',
     loading: 'جاري تحميل الخريطة...',
     clickToSelect: 'انقر على الخريطة لتحديد الموقع',
     dragInstruction: '📍 اسحب الدبوس إلى موقعك الدقيق، أو انقر على الخريطة، ثم احفظ الموقع',
     locationDenied: '⚠️ تعذر الوصول إلى موقعك. يمكنك البحث عن موقعك، النقر على الخريطة، أو سحب الدبوس إلى موقعك.',
+    locationInaccurate: '⚠️ الموقع المكتشف غير دقيق. ابحث عن مدينتك أو حيك في مربع البحث أعلاه، أو انقر على الخريطة لتحديد موقعك يدوياً.',
     error: 'فشل تحميل الخريطة',
-    noApiKey: 'لم يتم العثور على مفتاح API للخرائط'
+    noApiKey: 'لم يتم العثور على مفتاح API للخرائط',
+    accuracy: 'الدقة',
   } : {
-    searchPlaceholder: 'Search for a location...',
+    searchPlaceholder: 'Search your city or area (e.g. Jizan, Abha)...',
     loading: 'Loading map...',
     clickToSelect: 'Click on the map to select location',
     dragInstruction: '📍 Drag the pin to your exact location, or click on the map, then save the location',
     locationDenied: '⚠️ Could not access your location. You can search, tap on the map, or drag the pin to set your location manually.',
+    locationInaccurate: '⚠️ Detected location is inaccurate (IP-based). Please search for your city/area in the search box above, or tap on the map to set your location manually.',
     error: 'Failed to load map',
-    noApiKey: 'Google Maps API key not found'
+    noApiKey: 'Google Maps API key not found',
+    accuracy: 'Accuracy',
   };
 
   function loadGoogleMapsScript(): Promise<void> {
@@ -126,7 +136,7 @@
       // @ts-ignore - Google Maps API loaded dynamically
       const mapOptions: any = {
         center: { lat: initialLat, lng: initialLng },
-        zoom: 15,
+        zoom: locationInaccurate ? 6 : 15,
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: true,
@@ -137,24 +147,31 @@
       map = new google.maps.Map(mapContainer, mapOptions);
       console.log('✅ [LocationPicker] Map created successfully');
 
-      // Add marker at initial position
+      // Add marker at initial position (hidden if location is inaccurate)
       // @ts-ignore
       marker = new google.maps.Marker({
         position: { lat: initialLat, lng: initialLng },
         map: map,
         draggable: true,
+        visible: !locationInaccurate,
         // @ts-ignore
         animation: google.maps.Animation.DROP,
       });
 
-      // Auto-select initial position (GPS location or default) so user always has a pin to work with
-      // @ts-ignore
-      const latLng = new google.maps.LatLng(initialLat, initialLng);
-      updateMarkerPosition(latLng);
+      // Only auto-select initial position if we have good GPS
+      if (!locationInaccurate) {
+        // @ts-ignore
+        const latLng = new google.maps.LatLng(initialLat, initialLng);
+        updateMarkerPosition(latLng);
+      }
 
       // Listen for map clicks
       map.addListener('click', (e: GoogleMapMouseEvent) => {
         if (e.latLng) {
+          if (accuracyCircle) { accuracyCircle.setMap(null); accuracyCircle = null; }
+          locationInaccurate = false;
+          // Show marker if it was hidden
+          if (marker) marker.setVisible(true);
           updateMarkerPosition(e.latLng);
         }
       });
@@ -162,6 +179,8 @@
       // Listen for marker drag
       marker.addListener('dragend', (e: GoogleMapMouseEvent) => {
         if (e.latLng) {
+          if (accuracyCircle) { accuracyCircle.setMap(null); accuracyCircle = null; }
+          locationInaccurate = false;
           updateMarkerPosition(e.latLng);
         }
       });
@@ -171,12 +190,14 @@
         // @ts-ignore
         autocomplete = new google.maps.places.Autocomplete(searchInput, {
           fields: ['formatted_address', 'geometry', 'name'],
-          componentRestrictions: { country: 'sa' }, // Restrict to Saudi Arabia
         });
 
         autocomplete.addListener('place_changed', () => {
           const place = autocomplete?.getPlace();
           if (place?.geometry?.location) {
+            if (accuracyCircle) { accuracyCircle.setMap(null); accuracyCircle = null; }
+            locationInaccurate = false;
+            if (marker) marker.setVisible(true);
             updateMarkerPosition(place.geometry.location);
             map?.setCenter(place.geometry.location);
             map?.setZoom(16);
@@ -188,6 +209,98 @@
       error = 'Failed to initialize map';
       isLoading = false;
     }
+  }
+
+  /** Locate me - request fresh GPS with high accuracy and watch for better fix */
+  async function locateMe() {
+    if (!navigator.geolocation || !map || !marker) return;
+    locatingMe = true;
+    bestAccuracy = Infinity;
+
+    // Clear any previous watch
+    if (geoWatchId !== null) {
+      navigator.geolocation.clearWatch(geoWatchId);
+      geoWatchId = null;
+    }
+
+    // Use watchPosition to get progressively more accurate fixes
+    geoWatchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        console.log(`📍 [LocationPicker] GPS fix: ${latitude}, ${longitude} (accuracy: ${accuracy}m)`);
+
+        // Track accuracy for display
+        currentAccuracy = accuracy;
+
+        // If accuracy is >1km, it's IP/WiFi-based — show warning, don't move pin
+        if (accuracy >= 1000) {
+          locationInaccurate = true;
+          console.warn('⚠️ [LocationPicker] GPS accuracy too poor (' + accuracy + 'm) - IP/WiFi-based. Not centering.');
+          return;
+        }
+
+        // Good fix — update marker if better than previous
+        if (accuracy < bestAccuracy) {
+          bestAccuracy = accuracy;
+          locationInaccurate = false;
+          // @ts-ignore
+          const latLng = new google.maps.LatLng(latitude, longitude);
+          if (marker) marker.setVisible(true);
+          updateMarkerPosition(latLng);
+          map.setCenter(latLng);
+
+          // Show accuracy circle
+          if (accuracyCircle) accuracyCircle.setMap(null);
+          // @ts-ignore
+          accuracyCircle = new google.maps.Circle({
+            map: map,
+            center: { lat: latitude, lng: longitude },
+            radius: accuracy,
+            fillColor: accuracy < 100 ? '#4285F4' : '#FF6B35',
+            fillOpacity: 0.12,
+            strokeColor: accuracy < 100 ? '#4285F4' : '#FF6B35',
+            strokeWeight: 1.5,
+            strokeOpacity: 0.4,
+            clickable: false
+          });
+
+          // Zoom based on accuracy
+          if (accuracy < 20) map.setZoom(19);
+          else if (accuracy < 50) map.setZoom(18);
+          else if (accuracy < 100) map.setZoom(17);
+          else if (accuracy < 500) map.setZoom(16);
+          else map.setZoom(14);
+        }
+
+        // If accuracy is good enough (<20m), stop watching
+        if (accuracy < 20) {
+          if (geoWatchId !== null) {
+            navigator.geolocation.clearWatch(geoWatchId);
+            geoWatchId = null;
+          }
+          locatingMe = false;
+        }
+      },
+      (err) => {
+        console.error('❌ [LocationPicker] locateMe error:', err);
+        locatingMe = false;
+        locationDenied = true;
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 0
+      }
+    );
+
+    // Safety timeout - stop watching after 15 seconds regardless
+    setTimeout(() => {
+      if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
+      }
+      locatingMe = false;
+    }, 15000);
   }
 
   function updateMarkerPosition(latLng: GoogleLatLng) {
@@ -229,10 +342,10 @@
       GOOGLE_MAPS_API_KEY = await fetchApiKey();
       console.log('🔑 [LocationPicker] API Key:', GOOGLE_MAPS_API_KEY ? 'Present (length: ' + GOOGLE_MAPS_API_KEY.length + ')' : 'MISSING!');
 
-      // Get user's current location first
+      // Get user's current location first - try high accuracy, fallback to low  
+      let gotGoodLocation = false;
       if (navigator.geolocation) {
         console.log('📍 [LocationPicker] Requesting user location...');
-        console.log('📍 [LocationPicker] Current initialLat/Lng:', initialLat, initialLng);
         try {
           const position = await new Promise<GeolocationPosition>((resolve, reject) => {
             navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -241,22 +354,28 @@
               maximumAge: 0
             });
           });
-          console.log('✅ [LocationPicker] Got user location:', position.coords);
-          console.log('✅ [LocationPicker] Latitude:', position.coords.latitude);
-          console.log('✅ [LocationPicker] Longitude:', position.coords.longitude);
-          initialLat = position.coords.latitude;
-          initialLng = position.coords.longitude;
-          console.log('✅ [LocationPicker] Updated initialLat/Lng:', initialLat, initialLng);
+          const acc = position.coords.accuracy;
+          console.log('✅ [LocationPicker] Got GPS location:', position.coords.latitude, position.coords.longitude, 'accuracy:', acc, 'm');
+          // Only use if accuracy is under 1km (real GPS/WiFi triangulation, not IP)
+          if (acc < 1000) {
+            initialLat = position.coords.latitude;
+            initialLng = position.coords.longitude;
+            gotGoodLocation = true;
+          } else {
+            console.warn('⚠️ [LocationPicker] GPS accuracy too poor (' + acc + 'm) - likely IP/WiFi-based, ignoring');
+            locationInaccurate = true;
+            currentAccuracy = acc;
+          }
         } catch (err: any) {
-          console.error('❌ [LocationPicker] Geolocation error:', err);
-          console.warn('⚠️ [LocationPicker] Error code:', err.code);
-          console.warn('⚠️ [LocationPicker] Error message:', err.message);
-          console.warn('⚠️ [LocationPicker] Using default Riyadh location');
-          locationDenied = true;
-          // Continue with default Riyadh location
+          console.warn('⚠️ [LocationPicker] Geolocation failed:', err.message);
+          locationInaccurate = true;
         }
-      } else {
-        console.warn('⚠️ [LocationPicker] Geolocation not available in this browser');
+      }
+
+      // If no good location, zoom out to show Saudi Arabia so user can navigate
+      if (!gotGoodLocation) {
+        initialLat = 23.8859; // Center of Saudi Arabia
+        initialLng = 45.0792;
       }
 
       await loadGoogleMapsScript();
@@ -287,6 +406,11 @@
 
       console.log('🗺️ [LocationPicker] Initializing map now...');
       initMap();
+
+      // Automatically refine location with watchPosition after map is ready
+      if (navigator.geolocation && !locationDenied) {
+        locateMe();
+      }
     } catch (err) {
       console.error('❌ [LocationPicker] Failed to load Google Maps:', err);
       error = err instanceof Error ? err.message : texts.error;
@@ -295,7 +419,13 @@
   });
 
   onDestroy(() => {
+    // Clean up watch
+    if (geoWatchId !== null) {
+      navigator.geolocation.clearWatch(geoWatchId);
+      geoWatchId = null;
+    }
     // Clean up map instance
+    if (accuracyCircle) accuracyCircle.setMap(null);
     if (marker) marker.setMap(null);
     if (map) map = null;
   });
@@ -329,10 +459,33 @@
         <p class="warning">{texts.locationDenied}</p>
       </div>
     {/if}
+    {#if locationInaccurate && !locationDenied}
+      <div class="warning-box warning-box-inaccurate">
+        <p class="warning">{texts.locationInaccurate}</p>
+        {#if currentAccuracy}
+          <p class="accuracy-info">{texts.accuracy}: ~{currentAccuracy > 1000 ? Math.round(currentAccuracy / 1000) + 'km' : Math.round(currentAccuracy) + 'm'}</p>
+        {/if}
+      </div>
+    {/if}
     <div class="instruction-box">
       <p class="instruction">{texts.dragInstruction}</p>
     </div>
-    <div class="map-container" bind:this={mapContainer}></div>
+    <div class="map-wrapper">
+      <div class="map-container" bind:this={mapContainer}></div>
+      <!-- My Location Button -->
+      <button class="locate-me-btn" on:click={locateMe} disabled={locatingMe}
+        title={language === 'ar' ? 'موقعي الحالي' : 'My Location'}>
+        {#if locatingMe}
+          <span class="locate-spinner"></span>
+        {:else}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>
+            <circle cx="12" cy="12" r="8"/>
+          </svg>
+        {/if}
+      </button>
+    </div>
     <p class="hint">{texts.clickToSelect}</p>
   {/if}
 </div>
@@ -419,6 +572,23 @@
     line-height: 1.4;
   }
 
+  .warning-box-inaccurate {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    animation: pulse-warning 2s ease-in-out infinite;
+  }
+
+  .accuracy-info {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.8rem;
+    margin: 0.25rem 0 0;
+    text-align: center;
+  }
+
+  @keyframes pulse-warning {
+    0%, 100% { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15); }
+    50% { box-shadow: 0 2px 16px rgba(239, 68, 68, 0.35); }
+  }
+
   .search-input {
     width: 100%;
     padding: 0.75rem 2.5rem 0.75rem 1rem;
@@ -444,12 +614,54 @@
     pointer-events: none;
   }
 
+  .map-wrapper {
+    position: relative;
+    width: 100%;
+  }
+
   .map-container {
     width: 100%;
     height: 400px;
     border-radius: 12px;
     overflow: hidden;
     border: 2px solid rgba(22, 163, 74, 0.2);
+  }
+
+  .locate-me-btn {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: white;
+    border: 2px solid rgba(22, 163, 74, 0.3);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #16a34a;
+    transition: all 0.2s ease;
+    z-index: 10;
+  }
+  .locate-me-btn:hover {
+    background: #f0fdf4;
+    border-color: #16a34a;
+    transform: scale(1.05);
+  }
+  .locate-me-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  .locate-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2.5px solid rgba(22, 163, 74, 0.2);
+    border-top-color: #16a34a;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
   }
 
   .hint {
@@ -464,5 +676,10 @@
     .map-container {
       height: 300px;
     }
+  }
+
+  /* Ensure Google Places autocomplete dropdown appears above modals */
+  :global(.pac-container) {
+    z-index: 1000000 !important;
   }
 </style>

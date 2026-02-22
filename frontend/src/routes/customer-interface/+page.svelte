@@ -1316,7 +1316,13 @@
   .loc-setup-body {
     flex: 1;
     overflow-y: auto;
+    overflow-x: visible;
     padding: 1.25rem;
+  }
+
+  /* Ensure Google Places autocomplete appears above modal */
+  :global(.pac-container) {
+    z-index: 1000000 !important;
   }
   .loc-setup-footer {
     padding: 1rem 1.25rem;

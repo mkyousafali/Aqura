@@ -336,19 +336,18 @@
 				throw new Error('Not logged in');
 			}
 			
-			// Get the next incident ID (same pattern as desktop)
-			const { data: lastIncident, error: lastError } = await supabase
+			// Get the next incident ID (fetch all to compute max numerically, avoiding lexicographic sort issues)
+			const { data: allIncidents } = await supabase
 				.from('incidents')
-				.select('id')
-				.order('id', { ascending: false })
-				.limit(1)
-				.single();
+				.select('id');
 			
 			let nextIncidentNum = 1;
-			if (lastIncident && lastIncident.id) {
-				const lastNum = parseInt(lastIncident.id.replace('INS', ''));
-				if (!isNaN(lastNum)) {
-					nextIncidentNum = lastNum + 1;
+			if (allIncidents && allIncidents.length > 0) {
+				const nums = allIncidents
+					.map((i: any) => parseInt(i.id.replace('INS', '')))
+					.filter((n: number) => !isNaN(n));
+				if (nums.length > 0) {
+					nextIncidentNum = Math.max(...nums) + 1;
 				}
 			}
 			const incidentId = `INS${nextIncidentNum}`;

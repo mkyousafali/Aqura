@@ -88,6 +88,52 @@
     let showAttachMenu = false;
     let showIncidentPopup = false;
 
+    // Translation
+    let translatedMessages: Record<string, string> = {};
+    let translatingMsgId: string | null = null;
+    let showTranslateLangPicker = false;
+    let translateTargetMsgId: string | null = null;
+    let translateLangSearch = '';
+
+    const translateLanguages = [
+        { code: 'en', name: 'English', flag: '🇺🇸' },
+        { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+        { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+        { code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+        { code: 'bn', name: 'Bengali', flag: '🇧🇩' },
+        { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+        { code: 'ne', name: 'Nepali', flag: '🇳🇵' },
+        { code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+        { code: 'te', name: 'Telugu', flag: '🇮🇳' },
+        { code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+        { code: 'si', name: 'Sinhala', flag: '🇱🇰' },
+        { code: 'fr', name: 'French', flag: '🇫🇷' },
+        { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+        { code: 'de', name: 'German', flag: '🇩🇪' },
+        { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+        { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+        { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+        { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+        { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+        { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+        { code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+        { code: 'ms', name: 'Malay', flag: '🇲🇾' },
+        { code: 'th', name: 'Thai', flag: '🇹🇭' },
+        { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
+        { code: 'sw', name: 'Swahili', flag: '🇰🇪' },
+        { code: 'am', name: 'Amharic', flag: '🇪🇹' },
+        { code: 'it', name: 'Italian', flag: '🇮🇹' },
+        { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+        { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+        { code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
+        { code: 'fa', name: 'Persian', flag: '🇮🇷' },
+        { code: 'he', name: 'Hebrew', flag: '🇮🇱' },
+    ];
+
+    $: filteredTranslateLangs = translateLanguages.filter(l =>
+        !translateLangSearch || l.name.toLowerCase().includes(translateLangSearch.toLowerCase()) || l.code.includes(translateLangSearch.toLowerCase())
+    );
+
     // WhatsApp account info
     let waAccountName = '';
     let waProfilePicUrl = '';
@@ -644,6 +690,39 @@
             sendMessage();
         }
     }
+
+    function openTranslatePicker(msgId: string) {
+        translateTargetMsgId = msgId;
+        translateLangSearch = '';
+        showTranslateLangPicker = true;
+    }
+
+    async function translateMessage(msgId: string, targetLang: string) {
+        const msg = messages.find(m => m.id === msgId);
+        if (!msg || !msg.content?.trim()) return;
+        showTranslateLangPicker = false;
+        translateTargetMsgId = null;
+        translatingMsgId = msgId;
+        try {
+            const resp = await fetch(
+                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(msg.content)}`
+            );
+            const data = await resp.json();
+            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            if (translated) {
+                translatedMessages = { ...translatedMessages, [msgId]: translated };
+            }
+        } catch (e) {
+            console.error('Translation error:', e);
+        } finally {
+            translatingMsgId = null;
+        }
+    }
+
+    function clearTranslation(msgId: string) {
+        const { [msgId]: _, ...rest } = translatedMessages;
+        translatedMessages = rest;
+    }
 </script>
 
 <div class="wa-live-chat h-full flex overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -881,7 +960,26 @@
                                 {#if msg.template_name}
                                     <span class="text-[10px] text-slate-400/80 italic">📝 {msg.template_name}</span>
                                 {/if}
+                                <!-- Translation -->
+                                {#if translatedMessages[msg.id]}
+                                    <div class="translate-result">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <span class="text-[9px] font-semibold text-blue-600 uppercase tracking-wider">🌐 {$locale === 'ar' ? 'ترجمة' : 'Translation'}</span>
+                                            <button class="text-[9px] text-slate-400 hover:text-red-500 transition-colors" on:click={() => clearTranslation(msg.id)}>✕</button>
+                                        </div>
+                                        <p class="whitespace-pre-wrap break-words text-[12.5px]">{translatedMessages[msg.id]}</p>
+                                    </div>
+                                {/if}
+                                {#if translatingMsgId === msg.id}
+                                    <div class="flex items-center gap-1.5 mt-1.5 text-[10px] text-blue-500">
+                                        <span class="animate-spin inline-block w-3 h-3 border border-blue-300 border-t-blue-600 rounded-full"></span>
+                                        {$locale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}
+                                    </div>
+                                {/if}
                                 <div class="flex items-center justify-end gap-1.5 mt-1.5">
+                                    {#if msg.content?.trim() && !translatedMessages[msg.id]}
+                                        <button class="translate-btn" on:click={() => openTranslatePicker(msg.id)} title={$locale === 'ar' ? 'ترجمة' : 'Translate'}>🌐</button>
+                                    {/if}
                                     <span class="text-[9px] text-slate-400/70">{formatMsgTime(msg.created_at)}</span>
                                     {#if msg.direction === 'outbound'}
                                         <span class="text-[10px] {msg.status === 'read' ? 'text-blue-500' : 'text-slate-400/60'}">{getStatusTick(msg.status)}</span>
@@ -1008,6 +1106,33 @@
             </div>
         {/if}
     </div>
+
+    <!-- Translation Language Picker Popup -->
+    {#if showTranslateLangPicker}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 99998;" on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="translate-lang-popup" on:click|stopPropagation>
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">🌐 {$locale === 'ar' ? 'ترجم إلى' : 'Translate to'}</h4>
+                    <button class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 text-xs transition-colors" on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>✕</button>
+                </div>
+                <input type="text" bind:value={translateLangSearch} placeholder={$locale === 'ar' ? 'بحث عن لغة...' : 'Search language...'}
+                    class="w-full px-3 py-2 mb-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400" />
+                <div class="grid grid-cols-2 gap-1 max-h-[300px] overflow-y-auto">
+                    {#each filteredTranslateLangs as lang}
+                        <button class="translate-lang-item" on:click={() => translateTargetMsgId && translateMessage(translateTargetMsgId, lang.code)}>
+                            <span class="text-base">{lang.flag}</span>
+                            <span class="text-xs text-slate-700 font-medium">{lang.name}</span>
+                        </button>
+                    {/each}
+                    {#if filteredTranslateLangs.length === 0}
+                        <p class="col-span-2 text-xs text-slate-400 text-center py-4">{$locale === 'ar' ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
+                    {/if}
+                </div>
+            </div>
+        </div>
+    {/if}
 
     <!-- Report Incident Popup -->
     {#if showIncidentPopup}
@@ -1250,5 +1375,61 @@
     }
     .incident-popup-body :global(.modal-content) {
         max-width: 90% !important;
+    }
+
+    /* --- Translate Button --- */
+    .translate-btn {
+        font-size: 11px;
+        padding: 2px 5px;
+        border-radius: 6px;
+        background: rgba(59, 130, 246, 0.08);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        cursor: pointer;
+        opacity: 1;
+        transition: all 0.2s ease;
+        line-height: 1;
+    }
+    .translate-btn:hover {
+        background: rgba(59, 130, 246, 0.18);
+        border-color: rgba(59, 130, 246, 0.3);
+        transform: scale(1.15);
+    }
+
+    /* --- Translation Result --- */
+    .translate-result {
+        margin-top: 6px;
+        padding: 6px 8px;
+        background: rgba(59, 130, 246, 0.06);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        border-radius: 8px;
+        color: #334155;
+    }
+
+    /* --- Translation Language Picker --- */
+    .translate-lang-popup {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+        padding: 16px;
+        width: 340px;
+        max-height: 440px;
+        display: flex;
+        flex-direction: column;
+    }
+    .translate-lang-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #f1f5f9;
+        background: #fafbfc;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .translate-lang-item:hover {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        transform: scale(1.02);
     }
 </style>
