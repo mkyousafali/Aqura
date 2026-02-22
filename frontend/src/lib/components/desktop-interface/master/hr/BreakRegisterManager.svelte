@@ -9,6 +9,9 @@
 	let now = Date.now();
 	let tickInterval: ReturnType<typeof setInterval> | null = null;
 	let realtimeChannel: any = null;
+	let pollInterval: ReturnType<typeof setInterval> | null = null;
+	let cleanupVisibility: (() => void) | null = null;
+	let cleanupOnline: (() => void) | null = null;
 
 	// Tabs
 	let activeTab = 'Break Log';
@@ -76,8 +79,48 @@
 		summaryDateFrom = thirtyDaysAgo.toISOString().split('T')[0];
 
 		// Subscribe to realtime changes
+		setupRealtimeChannel();
+
+		// Polling fallback for PWA — every 15s silently refresh data
+		pollInterval = setInterval(() => {
+			loadBreaks(true);
+		}, 15000);
+
+		// Handle PWA visibility changes — reconnect realtime + refresh data when app comes back
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				console.log('👁️ Break register: App became visible, refreshing data & reconnecting realtime');
+				loadBreaks(true);
+				loadBreakReasons();
+				// Re-establish realtime channel in case WebSocket dropped
+				if (realtimeChannel) {
+					supabase.removeChannel(realtimeChannel);
+					realtimeChannel = null;
+				}
+				setupRealtimeChannel();
+			}
+		};
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		cleanupVisibility = () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+		// Also handle online event for network reconnection
+		const handleOnline = () => {
+			console.log('🌐 Break register: Network reconnected, refreshing data & reconnecting realtime');
+			loadBreaks(true);
+			loadBreakReasons();
+			if (realtimeChannel) {
+				supabase.removeChannel(realtimeChannel);
+				realtimeChannel = null;
+			}
+			setupRealtimeChannel();
+		};
+		window.addEventListener('online', handleOnline);
+		cleanupOnline = () => window.removeEventListener('online', handleOnline);
+	});
+
+	function setupRealtimeChannel() {
 		realtimeChannel = supabase
-			.channel('break-register-changes')
+			.channel('break-register-changes-' + Date.now())
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'break_register' }, (payload: any) => {
 				console.log('🔄 Break register realtime event:', payload);
 				loadBreaks(true);
@@ -88,11 +131,14 @@
 			.subscribe((status: string) => {
 				console.log('📡 Break register realtime status:', status);
 			});
-	});
+	}
 
 	onDestroy(() => {
 		if (tickInterval) clearInterval(tickInterval);
+		if (pollInterval) clearInterval(pollInterval);
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+		if (cleanupVisibility) cleanupVisibility();
+		if (cleanupOnline) cleanupOnline();
 	});
 
 	function handleTabChange() {
