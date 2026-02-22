@@ -87,7 +87,7 @@ export const englishLocale: LocaleData = {
       productClaimManager: "Product Claim Manager",
       expiryControl: "Expiry Control",
       tasks: "Tasks",
-      notification: "Notification",
+      notification: "Outreach",
       media: "Media",
       promo: "Promo",
       manage: "Manage",

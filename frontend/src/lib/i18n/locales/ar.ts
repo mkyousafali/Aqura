@@ -89,7 +89,7 @@ export const arabicLocale: LocaleData = {
       productClaimManager: "مدير مطالبات المنتجات",
       expiryControl: "التحكم بالصلاحية",
       tasks: "المهام",
-      notification: "الإشعارات",
+      notification: "التواصل الخارجي",
       media: "الوسائط",
       promo: "الترويج",
       manage: "إدارة",

@@ -1,55 +1,79 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	// Button Access Control Component
+	// ── State ──
 	let selectedBranch = '';
 	let selectedPosition = '';
 	let searchUsername = '';
 	let branches: any[] = [];
 	let positions: any[] = [];
 	let users: any[] = [];
-	let loading = false;
 	let usersLoading = false;
 	let currentPage = 0;
-	let pageSize = 17;
+	let pageSize = 50;
 	let totalUsers = 0;
 	let filterTimeout: any = null;
 	let searchTimeout: any = null;
-	let selectedUserIds: Set<string> = new Set();
-	let currentStep = 1;
+
+	// Selected user (single)
+	let selectedUserId: string | null = null;
+	let selectedUserName: string = '';
+
+	// Permissions panel
 	let allButtons: any[] = [];
-	let permittedButtons: any[] = [];
-	let nonPermittedButtons: any[] = [];
+	let permissionMap: Map<string, boolean> = new Map(); // code → enabled
 	let buttonsLoading = false;
-	let selectedNonPermitted: Set<string> = new Set();
-	let selectedToDisable: Set<string> = new Set();
 	let buttonCodeToIdMap: Map<string, number> = new Map();
+	let buttonSearchQuery = '';
+	let buttonSectionFilter = '';
+	let availableSections: string[] = [];
+	let saving = false;
+	let saveSuccess = false;
+	let pendingChanges: Map<string, boolean> = new Map(); // code → new state
+	let showOnlyEnabled = false;
+	let showOnlyDisabled = false;
+
+	// Filtered buttons (reactive)
+	$: filteredButtons = allButtons.filter(btn => {
+		if (buttonSearchQuery) {
+			const q = buttonSearchQuery.toLowerCase();
+			if (!btn.name.toLowerCase().includes(q) && !btn.code.toLowerCase().includes(q) && !btn.section.toLowerCase().includes(q) && !btn.subsection.toLowerCase().includes(q)) return false;
+		}
+		if (buttonSectionFilter && btn.section !== buttonSectionFilter) return false;
+		if (showOnlyEnabled) {
+			const state = pendingChanges.has(btn.code) ? pendingChanges.get(btn.code) : permissionMap.get(btn.code);
+			if (!state) return false;
+		}
+		if (showOnlyDisabled) {
+			const state = pendingChanges.has(btn.code) ? pendingChanges.get(btn.code) : permissionMap.get(btn.code);
+			if (state) return false;
+		}
+		return true;
+	});
+
+	$: enabledCount = allButtons.filter(btn => {
+		const state = pendingChanges.has(btn.code) ? pendingChanges.get(btn.code) : permissionMap.get(btn.code);
+		return state === true;
+	}).length;
+
+	$: disabledCount = allButtons.length - enabledCount;
+	$: changesCount = pendingChanges.size;
 
 	onMount(async () => {
-		// Parallel loading of all filter data
-		await Promise.all([
-			fetchBranches(),
-			fetchPositions()
-		]);
-		
-		// Load first page of users
+		await Promise.all([fetchBranches(), fetchPositions()]);
 		await loadUsers();
 	});
-	
+
 	$: if (selectedBranch !== undefined && selectedPosition !== undefined) {
-		currentPage = 0; // Reset to first page on filter change
+		currentPage = 0;
 		clearTimeout(filterTimeout);
-		filterTimeout = setTimeout(() => {
-			loadUsers();
-		}, 300); // Debounce filter changes by 300ms
+		filterTimeout = setTimeout(() => loadUsers(), 300);
 	}
 
 	$: if (searchUsername !== undefined) {
-		currentPage = 0; // Reset to first page on search
+		currentPage = 0;
 		clearTimeout(searchTimeout);
-		searchTimeout = setTimeout(() => {
-			loadUsers();
-		}, 300); // Debounce search by 300ms
+		searchTimeout = setTimeout(() => loadUsers(), 300);
 	}
 
 	async function fetchPositions() {
@@ -60,7 +84,6 @@
 				.select('id, position_title_en')
 				.eq('is_active', true)
 				.order('position_title_en', { ascending: true });
-
 			if (!error && data) {
 				positions = data.map(p => ({ id: p.id, position_name: p.position_title_en }));
 			}
@@ -72,12 +95,7 @@
 	async function fetchBranches() {
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase
-				.from('branches')
-				.select('id, name_en, name_ar')
-				.eq('is_active', true)
-				.order('name_en', { ascending: true });
-
+			const { data, error } = await supabase.from('branches').select('id, name_en, name_ar').eq('is_active', true).order('name_en', { ascending: true });
 			if (!error && data) {
 				branches = data;
 				selectedBranch = '';
@@ -91,24 +109,18 @@
 		usersLoading = true;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			
-			// Build query with optimized columns
 			let countQuery = supabase.from('users').select('id', { count: 'exact' });
 			let dataQuery = supabase
 				.from('users')
-				.select(`id, username, is_master_admin, is_admin, branch_id, position_id, employee_id, branches (name_en)`, 
-					{ count: 'exact' })
+				.select('id, username, is_master_admin, is_admin, branch_id, position_id, employee_id, branches (name_en)', { count: 'exact' })
 				.order('username', { ascending: true })
 				.range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
 
-			// Apply filters
 			if (selectedBranch && selectedBranch !== '') {
-				const branchIdInt = parseInt(selectedBranch);
-				countQuery = countQuery.eq('branch_id', branchIdInt);
-				dataQuery = dataQuery.eq('branch_id', branchIdInt);
+				const bId = parseInt(selectedBranch);
+				countQuery = countQuery.eq('branch_id', bId);
+				dataQuery = dataQuery.eq('branch_id', bId);
 			}
-			// Role filtering removed - roles no longer exist
-			// Users now have is_master_admin and is_admin boolean flags
 			if (selectedPosition && selectedPosition !== '') {
 				countQuery = countQuery.eq('position_id', selectedPosition);
 				dataQuery = dataQuery.eq('position_id', selectedPosition);
@@ -118,65 +130,29 @@
 				dataQuery = dataQuery.ilike('username', `%${searchUsername}%`);
 			}
 
-			// Execute both queries in parallel
-			const [countResult, dataResult] = await Promise.all([
-				countQuery,
-				dataQuery
-			]);
-
-			if (countResult.error) {
-				console.error('Count error:', countResult.error);
-				return;
-			}
-
-			if (dataResult.error) {
-				console.error('Data error:', dataResult.error);
-				return;
-			}
+			const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+			if (countResult.error || dataResult.error) return;
 
 			const data = dataResult.data || [];
 			totalUsers = countResult.count || 0;
+			if (data.length === 0) { users = []; return; }
 
-			if (data.length === 0) {
-				users = [];
-				return;
-			}
-
-			// Extract IDs for parallel lookups
 			const employeeIds = [...new Set(data.filter(u => u.employee_id).map(u => u.employee_id))];
 			const positionIds = [...new Set(data.filter(u => u.position_id).map(u => u.position_id))];
-
-			// Parallel fetch of related data
-			const [employeesResult, positionsResult] = await Promise.all([
-				employeeIds.length > 0 
-					? supabase.from('hr_employees').select('id, name').in('id', employeeIds)
-					: Promise.resolve({ data: [] }),
-				positionIds.length > 0 
-					? supabase.from('hr_positions').select('id, position_title_en').in('id', positionIds)
-					: Promise.resolve({ data: [] })
+			const [empRes, posRes] = await Promise.all([
+				employeeIds.length > 0 ? supabase.from('hr_employees').select('id, name').in('id', employeeIds) : Promise.resolve({ data: [] }),
+				positionIds.length > 0 ? supabase.from('hr_positions').select('id, position_title_en').in('id', positionIds) : Promise.resolve({ data: [] })
 			]);
 
-			// Build lookup maps
-			const employeeMap = {};
-			const positionMap = {};
+			const empMap: Record<string, string> = {};
+			const posMap: Record<string, string> = {};
+			empRes.data?.forEach((e: any) => { empMap[e.id] = e.name; });
+			posRes.data?.forEach((p: any) => { posMap[p.id] = p.position_title_en; });
 
-			if (employeesResult.data) {
-				employeesResult.data.forEach(e => {
-					employeeMap[e.id] = e.name;
-				});
-			}
-
-			if (positionsResult.data) {
-				positionsResult.data.forEach(p => {
-					positionMap[p.id] = p.position_title_en;
-				});
-			}
-
-			// Merge all data
 			users = data.map(user => ({
 				...user,
-				employee_name: employeeMap[user.employee_id] || user.username,
-				position_title: positionMap[user.position_id] || null
+				employee_name: empMap[user.employee_id] || user.username,
+				position_title: posMap[user.position_id] || null
 			}));
 		} catch (err) {
 			console.error('Error fetching users:', err);
@@ -186,1170 +162,420 @@
 	}
 
 	function nextPage() {
-		if ((currentPage + 1) * pageSize < totalUsers) {
-			currentPage++;
-			loadUsers();
-		}
+		if ((currentPage + 1) * pageSize < totalUsers) { currentPage++; loadUsers(); }
 	}
-
 	function prevPage() {
-		if (currentPage > 0) {
-			currentPage--;
-			loadUsers();
-		}
+		if (currentPage > 0) { currentPage--; loadUsers(); }
 	}
 
-	function selectUser(userId: string) {
-		if (selectedUserIds.has(userId)) {
-			selectedUserIds.delete(userId);
-		} else {
-			selectedUserIds.add(userId);
-		}
-		selectedUserIds = selectedUserIds; // Trigger reactivity
-	}
-
-	function goToStep2() {
-		if (selectedUserIds.size > 0) {
-			currentStep = 2;
-			loadButtonPermissions();
-		}
+	function selectUser(user: any) {
+		selectedUserId = user.id;
+		selectedUserName = user.employee_name || user.username;
+		pendingChanges = new Map();
+		saveSuccess = false;
+		loadButtonPermissions();
 	}
 
 	async function loadButtonPermissions() {
+		if (!selectedUserId) return;
 		buttonsLoading = true;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			
-		// Fetch ALL buttons directly from database with section/subsection info
-		const { data: dbButtons, error: btnError } = await supabase
-			.from('sidebar_buttons')
-			.select(`
-				id,
-				button_code,
-				button_name_en,
-				main_section_id,
-				subsection_id
-			`)
-			.order('button_code');
-		
-		// Fetch sections and subsections separately
-		const { data: mainSections } = await supabase.from('button_main_sections').select('id, section_name_en');
-		const { data: subSections } = await supabase.from('button_sub_sections').select('id, subsection_name_en');
-		
-		const mainSectionsMap = new Map(mainSections?.map(s => [s.id, s.section_name_en]) || []);
-		const subSectionsMap = new Map(subSections?.map(s => [s.id, s.subsection_name_en]) || []);
-		
-		if (btnError) {
-			console.error('Error fetching buttons:', btnError);
-			return;
-		}
 
-		if (!dbButtons || dbButtons.length === 0) {
-			console.error('No buttons found in database');
-			return;
-		}
+			const [btnRes, secRes, subRes] = await Promise.all([
+				supabase.from('sidebar_buttons').select('id, button_code, button_name_en, main_section_id, subsection_id').order('button_code'),
+				supabase.from('button_main_sections').select('id, section_name_en'),
+				supabase.from('button_sub_sections').select('id, subsection_name_en')
+			]);
 
-		console.log('✅ Loaded', dbButtons.length, 'buttons from database');
+			const mainMap = new Map(secRes.data?.map((s: any) => [s.id, s.section_name_en]) || []);
+			const subMap = new Map(subRes.data?.map((s: any) => [s.id, s.subsection_name_en]) || []);
 
-		// Create button list and map
-		allButtons = dbButtons.map(btn => ({
-			code: btn.button_code,
-			name: btn.button_name_en,
-			section: mainSectionsMap.get(btn.main_section_id) || 'Unknown',
-			subsection: subSectionsMap.get(btn.subsection_id) || 'Unknown'
-		}));			// Create a map of button codes to IDs
-			buttonCodeToIdMap.clear();
-			dbButtons.forEach((btn: any) => {
-				buttonCodeToIdMap.set(btn.button_code, btn.id);
+			if (btnRes.error || !btnRes.data?.length) return;
+
+			allButtons = btnRes.data.map((btn: any) => ({
+				code: btn.button_code,
+				name: btn.button_name_en,
+				section: mainMap.get(btn.main_section_id) || 'Unknown',
+				subsection: subMap.get(btn.subsection_id) || 'Unknown'
+			})).sort((a: any, b: any) => {
+				const sc = a.section.localeCompare(b.section);
+				return sc !== 0 ? sc : a.name.localeCompare(b.name);
 			});
 
-			console.log('Button code to ID map size:', buttonCodeToIdMap.size);
+			availableSections = [...new Set(allButtons.map((b: any) => b.section))].sort();
 
-			// Fetch permissions for all selected users
-			const { data: permissions, error } = await supabase
+			buttonCodeToIdMap.clear();
+			btnRes.data.forEach((btn: any) => { buttonCodeToIdMap.set(btn.button_code, btn.id); });
+
+			const { data: perms } = await supabase
 				.from('button_permissions')
 				.select('button_id, is_enabled')
-				.in('user_id', Array.from(selectedUserIds));
+				.eq('user_id', selectedUserId);
 
-			if (error) {
-				console.error('Error fetching permissions:', error);
-				return;
-			}
+			const enabledIds = new Set<number>();
+			perms?.forEach((p: any) => { if (p.is_enabled) enabledIds.add(p.button_id); });
 
-			console.log('Permissions count for selected users:', permissions?.length);
-
-			// Create a set of enabled and disabled button IDs
-			const enabledButtonIds = new Set();
-			const disabledButtonIds = new Set();
-			
-			if (permissions && permissions.length > 0) {
-				permissions.forEach((p: any) => {
-					if (p.is_enabled) {
-						enabledButtonIds.add(p.button_id);
-					} else {
-						disabledButtonIds.add(p.button_id);
-					}
-				});
-			}
-
-			// Separate buttons into permitted and non-permitted
-			permittedButtons = allButtons.filter(btn => {
+			permissionMap = new Map();
+			allButtons.forEach((btn: any) => {
 				const id = buttonCodeToIdMap.get(btn.code);
-				return id && enabledButtonIds.has(id);
-			}).sort((a, b) => {
-				// Sort by section first, then by name
-				const sectionCompare = a.section.localeCompare(b.section);
-				return sectionCompare !== 0 ? sectionCompare : a.name.localeCompare(b.name);
+				permissionMap.set(btn.code, id ? enabledIds.has(id) : false);
 			});
-			
-			// Non-permitted = either explicitly disabled OR missing (no record yet)
-			nonPermittedButtons = allButtons.filter(btn => {
-				const id = buttonCodeToIdMap.get(btn.code);
-				return id && !enabledButtonIds.has(id);
-			}).sort((a, b) => {
-				// Sort by section first, then by name
-				const sectionCompare = a.section.localeCompare(b.section);
-				return sectionCompare !== 0 ? sectionCompare : a.name.localeCompare(b.name);
-			});
-
-			console.log('✅ Permitted:', permittedButtons.length, '❌ Non-permitted:', nonPermittedButtons.length);
+			permissionMap = permissionMap; // trigger reactivity
 		} catch (err) {
-			console.error('Error loading button permissions:', err);
+			console.error('Error loading permissions:', err);
 		} finally {
 			buttonsLoading = false;
 		}
 	}
 
-	function goBackToStep1() {
-		currentStep = 1;
+	function toggleButton(code: string) {
+		const currentState = pendingChanges.has(code) ? pendingChanges.get(code) : permissionMap.get(code);
+		const originalState = permissionMap.get(code);
+		const newState = !currentState;
+
+		if (newState === originalState) {
+			pendingChanges.delete(code);
+		} else {
+			pendingChanges.set(code, newState);
+		}
+		pendingChanges = pendingChanges; // reactivity
 	}
 
-	async function savePermissionChanges() {
-		if (selectedNonPermitted.size === 0 && selectedToDisable.size === 0) {
-			console.log('No changes to save');
-			return;
+	function enableAll() {
+		for (const btn of filteredButtons) {
+			const orig = permissionMap.get(btn.code);
+			if (orig) { pendingChanges.delete(btn.code); }
+			else { pendingChanges.set(btn.code, true); }
 		}
+		pendingChanges = pendingChanges;
+	}
 
+	function disableAll() {
+		for (const btn of filteredButtons) {
+			const orig = permissionMap.get(btn.code);
+			if (!orig) { pendingChanges.delete(btn.code); }
+			else { pendingChanges.set(btn.code, false); }
+		}
+		pendingChanges = pendingChanges;
+	}
+
+	async function savePermissions() {
+		if (!selectedUserId || pendingChanges.size === 0) return;
+		saving = true;
+		saveSuccess = false;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-
-			// Get button codes selected (to enable)
-			const buttonCodesToEnable = Array.from(selectedNonPermitted);
-			
-			console.log('Enabling button codes:', buttonCodesToEnable);
-
-			// Upsert permissions to true for selected buttons for ALL selected users
-			for (const buttonCode of buttonCodesToEnable) {
-				const buttonId = buttonCodeToIdMap.get(buttonCode);
-				
-				if (!buttonId) {
-					console.warn(`Button ID not found for code: ${buttonCode}`);
-					continue;
-				}
-
-				console.log(`Upserting button ${buttonCode} (ID: ${buttonId}) to enabled for ${selectedUserIds.size} users`);
-
-				// Upsert for all selected users (insert if not exists, update if exists)
-				for (const userId of selectedUserIds) {
-					const { error } = await supabase
-						.from('button_permissions')
-						.upsert({ user_id: userId, button_id: buttonId, is_enabled: true }, { onConflict: 'user_id,button_id' });
-
-					if (error) {
-						console.error(`Error upserting button ${buttonId} for user ${userId}:`, error);
-					}
-				}
-			}
-
-			// Also disable buttons in selectedToDisable
-			for (const buttonCode of selectedToDisable) {
-				const buttonId = buttonCodeToIdMap.get(buttonCode);
+			const upserts: any[] = [];
+			for (const [code, enabled] of pendingChanges) {
+				const buttonId = buttonCodeToIdMap.get(code);
 				if (!buttonId) continue;
-
-				for (const userId of selectedUserIds) {
-					const { error } = await supabase
-						.from('button_permissions')
-						.upsert({ user_id: userId, button_id: buttonId, is_enabled: false }, { onConflict: 'user_id,button_id' });
-
-					if (error) {
-						console.error(`Error upserting button ${buttonId} for user ${userId}:`, error);
-					}
-				}
+				upserts.push({ user_id: selectedUserId, button_id: buttonId, is_enabled: enabled });
 			}
 
-			// Reload the permissions
-			selectedNonPermitted.clear();
-			selectedToDisable.clear();
-			await loadButtonPermissions();
-			console.log('Permissions saved successfully');
+			if (upserts.length > 0) {
+				const { error } = await supabase
+					.from('button_permissions')
+					.upsert(upserts, { onConflict: 'user_id,button_id' });
+				if (error) throw error;
+			}
+
+			// Apply pending changes to permission map
+			for (const [code, enabled] of pendingChanges) {
+				permissionMap.set(code, enabled);
+			}
+			permissionMap = permissionMap;
+			pendingChanges = new Map();
+			saveSuccess = true;
+			setTimeout(() => { saveSuccess = false; }, 3000);
 		} catch (err) {
 			console.error('Error saving permissions:', err);
+		} finally {
+			saving = false;
 		}
 	}
 
+	function getButtonState(code: string): boolean {
+		return pendingChanges.has(code) ? pendingChanges.get(code)! : (permissionMap.get(code) || false);
+	}
 
+	function isChanged(code: string): boolean {
+		return pendingChanges.has(code);
+	}
 </script>
 
-{#if currentStep === 1}
-<!-- Search Bar -->
-<div class="search-bar-container">
-	<div class="search-input-wrapper">
-		<svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-			<circle cx="11" cy="11" r="8"></circle>
-			<path d="m21 21-4.35-4.35"></path>
-		</svg>
-		<input 
-			type="text" 
-			bind:value={searchUsername}
-			placeholder="Search by username or employee name..."
-			class="search-input"
-		/>
-		{#if searchUsername}
-			<button 
-				class="clear-btn"
-				on:click={() => searchUsername = ''}
-				title="Clear search"
-			>
-				✕
-			</button>
-		{/if}
-	</div>
-</div>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Two-Panel Layout -->
+	<div class="flex-1 flex overflow-hidden">
 
-<!-- Filter Cards -->
-<div class="cards-container">
-	<div class="card">
-		<select bind:value={selectedBranch} class="branch-select">
-			<option value="">All Branches</option>
-			{#each branches as branch (branch.id)}
-				<option value={branch.id}>{branch.name_en}</option>
-			{/each}
-		</select>
-	</div>
-
-	<div class="card">
-		<select bind:value={selectedPosition} class="branch-select">
-			<option value="">All Positions</option>
-			{#each positions as position (position.id)}
-				<option value={position.id}>{position.position_name}</option>
-			{/each}
-		</select>
-	</div>
-</div>
-
-<!-- Loading Progress Bar -->
-{#if usersLoading}
-	<div class="progress-container">
-		<div class="progress-bar"></div>
-	</div>
-{/if}
-
-<!-- Users Table -->
-<div class="table-container">
-	<div class="table-header">
-		<h3>Users ({users.length})</h3>
-		{#if usersLoading}
-			<span class="loading-badge">Loading...</span>
-		{/if}
-	</div>
-	
-		{#if usersLoading && users.length === 0}
-			<!-- Skeleton Loader -->
-			<div class="skeleton-container">
-				{#each Array(5) as _}
-					<div class="skeleton-row">
-						<div class="skeleton-cell" style="width: 40px;"></div>
-						<div class="skeleton-cell large"></div>
-						<div class="skeleton-cell medium"></div>
-						<div class="skeleton-cell medium"></div>
-						<div class="skeleton-cell small"></div>
-						<div class="skeleton-cell medium"></div>
-					</div>
-				{/each}
+		<!-- ═══════════ LEFT PANEL: EMPLOYEES ═══════════ -->
+		<div class="flex flex-col border-r border-slate-200 bg-white" style="width: 420px; min-width: 320px;">
+			<!-- Panel Header -->
+			<div class="px-4 py-3 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white flex items-center gap-2 shadow-md">
+				<span class="text-lg">👥</span>
+				<span class="text-sm font-black uppercase tracking-wider">Employees</span>
+				<span class="ml-auto text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">{totalUsers}</span>
 			</div>
-	{:else}
-		<table class="users-table">
-			<thead>
-				<tr>
-					<th style="width: 40px; text-align: center;">
-						<input 
-							type="checkbox" 
-							checked={users.length > 0 && selectedUserIds.size === users.length}
-							indeterminate={selectedUserIds.size > 0 && selectedUserIds.size < users.length}
-							on:change={() => {
-								if (selectedUserIds.size === users.length) {
-									selectedUserIds.clear();
-								} else {
-									users.forEach(u => selectedUserIds.add(u.id));
-								}
-								selectedUserIds = selectedUserIds;
-							}}
-							title="Select all users" 
-						/>
-					</th>
-					<th>Employee Name</th>
-					<th>Username</th>
-					<th>Branch</th>
-					<th>Role</th>
-				<th>Position</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#if users.length === 0}
-				<tr class="empty-row">
-					<td colspan="6" style="text-align: center; padding: 20px;">
-						{usersLoading ? 'Loading users...' : 'No users found'}
-					</td>
-				</tr>
-			{:else}
-				{#each users as user (user.id)}
-					<tr class={selectedUserIds.has(user.id) ? 'selected-row' : ''}>
-						<td style="text-align: center;">
-							<input 
-								type="checkbox" 
-								checked={selectedUserIds.has(user.id)}
-								on:change={() => selectUser(user.id)}
-								title="Select this user"
-							/>
-						</td>
-						<td class="name-cell">
-							{user.employee_name}
-						</td>
-						<td>{user.username}</td>
-						<td>{user.branches?.name_en || '-'}</td>
-						<td>
-							<span class="badge" style="background: #dbeafe; color: #1e40af;">
-								{user.is_master_admin ? 'Master Admin' : user.is_admin ? 'Admin' : 'User'}
-							</span>
-						</td>
-						<td>{user.position_title || '-'}</td>
-					</tr>
-				{/each}
+
+			<!-- Filters -->
+			<div class="p-3 border-b border-slate-100 space-y-2 bg-slate-50/50">
+				<!-- Search -->
+				<div class="relative">
+					<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+					<input type="text" bind:value={searchUsername} placeholder="Search employee..." class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+					{#if searchUsername}
+						<button class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm" on:click={() => searchUsername = ''}>✕</button>
+					{/if}
+				</div>
+
+				<!-- Dropdowns row -->
+				<div class="flex gap-2">
+					<select bind:value={selectedBranch} class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent" style="color: #000;">
+						<option value="">All Branches</option>
+						{#each branches as br (br.id)}
+							<option value={br.id}>{br.name_en}</option>
+						{/each}
+					</select>
+					<select bind:value={selectedPosition} class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent" style="color: #000;">
+						<option value="">All Positions</option>
+						{#each positions as pos (pos.id)}
+							<option value={pos.id}>{pos.position_name}</option>
+						{/each}
+					</select>
+				</div>
+			</div>
+
+			<!-- Loading bar -->
+			{#if usersLoading}
+				<div class="h-0.5 w-full bg-slate-100 overflow-hidden">
+					<div class="h-full bg-emerald-500 animate-loading-bar"></div>
+				</div>
 			{/if}
-		</tbody>
-		</table>
-	{/if}
 
-	<!-- Pagination Controls -->
-	<div class="pagination-controls">
-		<button 
-			class="pagination-btn"
-			disabled={currentPage === 0 || usersLoading}
-			on:click={prevPage}
-		>
-			← Previous
-		</button>
-		
-		<span class="pagination-info">
-			Page {currentPage + 1} of {Math.ceil(totalUsers / pageSize)} 
-			({users.length} shown, {totalUsers} total)
-		</span>
-		
-		<button 
-			class="pagination-btn"
-			disabled={(currentPage + 1) * pageSize >= totalUsers || usersLoading}
-			on:click={nextPage}
-		>
-			Next →
-		</button>
-
-		<button 
-			class="pagination-btn step-btn"
-			disabled={selectedUserIds.size === 0}
-			on:click={goToStep2}
-		>
-			Proceed to Step 2 ✓
-		</button>
-	</div>
-</div>
-
-	{:else if currentStep === 2}
-<!-- Step 2: Button Control Configuration -->
-<div class="step-2-container">
-	<div class="step-header">
-		<h2>Step 2: Configure Button Access</h2>
-		<p>Selected Users: <strong>{selectedUserIds.size} user{selectedUserIds.size !== 1 ? 's' : ''}</strong></p>
-	</div>
-
-	<div class="step-content">
-		{#if buttonsLoading}
-			<div class="loading-spinner">
-				<div class="spinner"></div>
-				<p>Loading button permissions...</p>
-			</div>
-		{:else}
-			<div class="cards-grid">
-				<!-- Card 1: Permitted Buttons -->
-				<div class="config-card permitted-card">
-					<div class="card-number">1</div>
-					<div class="card-content">
-						<h3>Permitted Buttons ({permittedButtons.length})</h3>
-						<div class="buttons-wrapper">
-							{#if permittedButtons.length === 0}
-								<div class="empty-message">No permitted buttons</div>
-							{:else}
-								<div class="table-wrapper">
-									<table class="button-table">
-										<thead>
-											<tr>
-												<th style="width: 60px;">#</th>
-												<th>Button Name</th>
-												<th>Section • Subsection</th>
-												<th style="width: 90px;">Status</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each permittedButtons as button, idx (button.code)}
-												<tr>
-													<td>{idx + 1}</td>
-													<td>{button.name}</td>
-													<td>{button.section} • {button.subsection}</td>
-													<td>
-														<input 
-															type="checkbox"
-															checked={!selectedToDisable.has(button.code)}
-															on:change={(e) => {
-																if (!e.currentTarget.checked) {
-																	selectedToDisable.add(button.code);
-																} else {
-																	selectedToDisable.delete(button.code);
-																}
-																selectedToDisable = selectedToDisable;
-															}}
-														/>
-													</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								</div>
-							{/if}
+			<!-- Employee List (scrollable) -->
+			<div class="flex-1 overflow-y-auto">
+				{#if usersLoading && users.length === 0}
+					<div class="flex items-center justify-center h-full">
+						<div class="animate-spin w-8 h-8 border-3 border-slate-200 border-t-emerald-600 rounded-full"></div>
+					</div>
+				{:else if users.length === 0}
+					<div class="flex items-center justify-center h-full text-slate-400 text-sm">
+						<div class="text-center">
+							<div class="text-3xl mb-2">📭</div>
+							No employees found
 						</div>
+					</div>
+				{:else}
+					{#each users as user (user.id)}
+						<button
+							class="w-full text-left px-4 py-3 border-b border-slate-100 transition-all duration-150 hover:bg-emerald-50/60 flex items-center gap-3 group
+								{selectedUserId === user.id ? 'bg-emerald-50 border-l-[3px] border-l-emerald-600' : ''}"
+							on:click={() => selectUser(user)}
+						>
+							<!-- Avatar -->
+							<div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0
+								{selectedUserId === user.id ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-emerald-100 group-hover:text-emerald-700'}">
+								{(user.employee_name || user.username || '?').charAt(0).toUpperCase()}
+							</div>
+							<div class="min-w-0 flex-1">
+								<div class="text-sm font-semibold text-slate-800 truncate">{user.employee_name}</div>
+								<div class="flex items-center gap-1.5 mt-0.5">
+									<span class="text-[11px] text-slate-400 truncate">{user.branches?.name_en || '-'}</span>
+									<span class="text-[10px] px-1.5 py-0 rounded-full font-bold
+										{user.is_master_admin ? 'bg-purple-100 text-purple-700' : user.is_admin ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}">
+										{user.is_master_admin ? 'Master' : user.is_admin ? 'Admin' : 'User'}
+									</span>
+								</div>
+							</div>
+							{#if selectedUserId === user.id}
+								<div class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
+							{/if}
+						</button>
+					{/each}
+				{/if}
+			</div>
+
+			<!-- Pagination Footer -->
+			<div class="px-3 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+				<button class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-emerald-50 hover:border-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-semibold" disabled={currentPage === 0 || usersLoading} on:click={prevPage}>← Prev</button>
+				<span>Page {currentPage + 1}/{Math.max(1, Math.ceil(totalUsers / pageSize))}</span>
+				<button class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-emerald-50 hover:border-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-semibold" disabled={(currentPage + 1) * pageSize >= totalUsers || usersLoading} on:click={nextPage}>Next →</button>
+			</div>
+		</div>
+
+		<!-- ═══════════ RIGHT PANEL: PERMISSIONS ═══════════ -->
+		<div class="flex-1 flex flex-col bg-[#f8fafc] min-w-0">
+			{#if !selectedUserId}
+				<!-- Empty state -->
+				<div class="flex-1 flex items-center justify-center">
+					<div class="text-center">
+						<div class="w-24 h-24 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+							<span class="text-4xl">🔐</span>
+						</div>
+						<h3 class="text-lg font-bold text-slate-700 mb-1">Select an Employee</h3>
+						<p class="text-sm text-slate-400">Choose an employee from the left panel to manage their button permissions</p>
+					</div>
+				</div>
+			{:else}
+				<!-- Permission Panel Header -->
+				<div class="px-5 py-3 bg-gradient-to-r from-sky-600 to-sky-700 text-white flex items-center gap-3 shadow-md">
+					<span class="text-lg">🔐</span>
+					<div class="flex-1 min-w-0">
+						<div class="text-sm font-black uppercase tracking-wider">Permissions</div>
+						<div class="text-xs opacity-80 truncate">{selectedUserName}</div>
+					</div>
+					<div class="flex items-center gap-2">
+						<span class="text-xs font-bold bg-emerald-500/30 px-2 py-0.5 rounded-full">✓ {enabledCount}</span>
+						<span class="text-xs font-bold bg-red-500/30 px-2 py-0.5 rounded-full">✕ {disabledCount}</span>
 					</div>
 				</div>
 
-				<!-- Card 2: Non-Permitted Buttons -->
-				<div class="config-card non-permitted-card">
-					<div class="card-number">2</div>
-					<div class="card-content">
-						<h3>Non-Permitted Buttons ({nonPermittedButtons.length})</h3>
-						<div class="buttons-wrapper">
-							{#if nonPermittedButtons.length === 0}
-								<div class="empty-message">No non-permitted buttons</div>
-							{:else}
-								<div class="table-wrapper">
-									<table class="button-table">
-										<thead>
-											<tr>
-												<th style="width: 60px;">#</th>
-												<th>Button Name</th>
-												<th>Section • Subsection</th>
-												<th style="width: 90px;">Status</th>
-											</tr>
-										</thead>
-										<tbody>
-											{#each nonPermittedButtons as button, idx (button.code)}
-												<tr>
-													<td>{idx + 1}</td>
-													<td>{button.name}</td>
-													<td>{button.section} • {button.subsection}</td>
-													<td>
-														<input 
-															type="checkbox"
-															checked={selectedNonPermitted.has(button.code)}
-															on:change={(e) => {
-																if (e.currentTarget.checked) {
-																	selectedNonPermitted.add(button.code);
-																} else {
-																	selectedNonPermitted.delete(button.code);
-																}
-																selectedNonPermitted = selectedNonPermitted;
-															}}
-														/>
-													</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								</div>
-							{/if}
+				<!-- Filters & Actions Bar -->
+				<div class="p-3 border-b border-slate-200 bg-white space-y-2">
+					<div class="flex gap-2">
+						<!-- Search buttons -->
+						<div class="relative flex-1">
+							<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+							<input type="text" bind:value={buttonSearchQuery} placeholder="Search buttons..." class="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all" />
 						</div>
+						<!-- Section filter -->
+						<select bind:value={buttonSectionFilter} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent" style="color: #000; min-width: 140px;">
+							<option value="">All Sections</option>
+							{#each availableSections as sec}
+								<option value={sec}>{sec}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex items-center gap-2">
+						<!-- Quick filter toggles -->
+						<button class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all border {showOnlyEnabled ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-emerald-50'}" on:click={() => { showOnlyEnabled = !showOnlyEnabled; showOnlyDisabled = false; }}>
+							✓ Enabled
+						</button>
+						<button class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all border {showOnlyDisabled ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-red-50'}" on:click={() => { showOnlyDisabled = !showOnlyDisabled; showOnlyEnabled = false; }}>
+							✕ Disabled
+						</button>
+
+						<div class="flex-1"></div>
+
+						<!-- Bulk actions -->
+						<button class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm" on:click={enableAll} title="Enable all visible buttons">
+							Enable All ({filteredButtons.length})
+						</button>
+						<button class="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-500 text-white hover:bg-red-600 transition-all shadow-sm" on:click={disableAll} title="Disable all visible buttons">
+							Disable All
+						</button>
 					</div>
 				</div>
-			</div>
-		{/if}
-	</div>
 
-	<div class="step-actions">
-		<button class="back-btn" on:click={goBackToStep1}>
-			← Back to Step 1
-		</button>
-		<button 
-			class="save-btn" 
-			disabled={selectedNonPermitted.size === 0 && selectedToDisable.size === 0}
-			on:click={savePermissionChanges}
-		>
-			💾 Save Changes ({selectedNonPermitted.size + selectedToDisable.size})
-		</button>
+				<!-- Buttons Table -->
+				<div class="flex-1 overflow-y-auto">
+					{#if buttonsLoading}
+						<div class="flex items-center justify-center h-full">
+							<div class="text-center">
+								<div class="animate-spin inline-block">
+									<div class="w-10 h-10 border-4 border-sky-200 border-t-sky-600 rounded-full"></div>
+								</div>
+								<p class="mt-3 text-slate-500 text-sm font-semibold">Loading permissions...</p>
+							</div>
+						</div>
+					{:else if filteredButtons.length === 0}
+						<div class="flex items-center justify-center h-full text-slate-400 text-sm">
+							<div class="text-center">
+								<div class="text-3xl mb-2">🔍</div>
+								No buttons match your filter
+							</div>
+						</div>
+					{:else}
+						<table class="w-full border-collapse">
+							<thead class="sticky top-0 bg-sky-600 text-white shadow-lg z-10">
+								<tr>
+									<th class="px-4 py-2.5 text-left text-[11px] font-black uppercase tracking-wider" style="width: 40px;">#</th>
+									<th class="px-4 py-2.5 text-left text-[11px] font-black uppercase tracking-wider">Button Name</th>
+									<th class="px-4 py-2.5 text-left text-[11px] font-black uppercase tracking-wider">Section</th>
+									<th class="px-4 py-2.5 text-left text-[11px] font-black uppercase tracking-wider">Subsection</th>
+									<th class="px-4 py-2.5 text-center text-[11px] font-black uppercase tracking-wider" style="width: 90px;">Access</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-slate-100">
+								{#each filteredButtons as button, idx (button.code)}
+									{@const enabled = getButtonState(button.code)}
+									{@const changed = isChanged(button.code)}
+									<tr class="transition-colors duration-150 {changed ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-sky-50/40">
+										<td class="px-4 py-2.5 text-xs text-slate-400 font-semibold">{idx + 1}</td>
+										<td class="px-4 py-2.5 text-sm text-slate-800 font-medium">
+											{button.name}
+											{#if changed}
+												<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 ml-1 align-middle" title="Unsaved change"></span>
+											{/if}
+										</td>
+										<td class="px-4 py-2.5 text-xs text-slate-500">{button.section}</td>
+										<td class="px-4 py-2.5 text-xs text-slate-500">{button.subsection}</td>
+										<td class="px-4 py-2.5 text-center">
+											<button
+												class="relative w-11 h-6 rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 {enabled ? 'bg-emerald-500 focus:ring-emerald-400' : 'bg-slate-300 focus:ring-slate-400'}"
+												on:click={() => toggleButton(button.code)}
+												title={enabled ? 'Click to disable' : 'Click to enable'}
+											>
+												<span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 {enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+											</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				</div>
+
+				<!-- Save Bar -->
+				<div class="px-5 py-3 bg-white border-t border-slate-200 flex items-center gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+					{#if saveSuccess}
+						<div class="flex items-center gap-2 text-emerald-600 font-bold text-sm animate-fade-in">
+							<span class="text-lg">✅</span> Changes saved successfully!
+						</div>
+					{/if}
+
+					<div class="flex-1"></div>
+
+					{#if changesCount > 0}
+						<span class="text-xs text-amber-600 font-bold bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+							{changesCount} unsaved change{changesCount !== 1 ? 's' : ''}
+						</span>
+					{/if}
+
+					<button
+						class="px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200
+							{changesCount > 0
+								? 'bg-sky-600 text-white hover:bg-sky-700 shadow-lg shadow-sky-200 hover:shadow-xl'
+								: 'bg-slate-100 text-slate-400 cursor-not-allowed'}"
+						disabled={changesCount === 0 || saving}
+						on:click={savePermissions}
+					>
+						{#if saving}
+							<span class="inline-block animate-spin mr-1">⏳</span> Saving...
+						{:else}
+							💾 Save Changes
+						{/if}
+					</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
-{/if}<style>
-	.search-bar-container {
-		padding: 16px;
-		background: white;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.search-input-wrapper {
-		position: relative;
-		display: flex;
-		align-items: center;
-		width: 100%;
-	}
-
-	.search-icon {
-		position: absolute;
-		left: 12px;
-		width: 18px;
-		height: 18px;
-		color: #9ca3af;
-		pointer-events: none;
-	}
-
-	.search-input {
-		width: 100%;
-		padding: 10px 16px 10px 40px;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		font-size: 14px;
-		color: #1f2937;
-		background: white;
-		transition: all 0.2s ease;
-	}
-
-	.search-input::placeholder {
-		color: #9ca3af;
-	}
-
-	.search-input:focus {
-		outline: none;
-		border-color: #10b981;
-		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
-	}
-
-	.clear-btn {
-		position: absolute;
-		right: 12px;
-		background: none;
-		border: none;
-		color: #9ca3af;
-		font-size: 18px;
-		cursor: pointer;
-		padding: 4px 8px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		transition: all 0.2s ease;
-	}
-
-	.clear-btn:hover {
-		color: #374151;
-		background: #f3f4f6;
-	}
-
-	.progress-container {
-		width: 100%;
-		height: 3px;
-		background: #e5e7eb;
-		position: relative;
-		overflow: hidden;
-	}
-
-	.progress-bar {
-		height: 100%;
-		background: linear-gradient(90deg, #10b981, #059669);
-		width: 100%;
-		animation: progress 2s ease-in-out infinite;
-		border-radius: 2px;
-	}
-
-	@keyframes progress {
-		0% {
-			width: 0%;
-			box-shadow: none;
-		}
-		50% {
-			width: 100%;
-			box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
-		}
-		100% {
-			width: 100%;
-			box-shadow: none;
-		}
-	}
-
-	.skeleton-container {
-		padding: 16px;
-	}
-
-	.skeleton-row {
-		display: grid;
-		grid-template-columns: 1.5fr 1fr 1.2fr 1fr 1.2fr;
-		gap: 16px;
-		margin-bottom: 16px;
-		padding: 12px 16px;
-		background: white;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.skeleton-cell {
-		background: linear-gradient(90deg, #e5e7eb, #f3f4f6, #e5e7eb);
-		background-size: 200% 100%;
-		border-radius: 4px;
-		animation: shimmer 1.5s infinite;
-		height: 12px;
-	}
-
-	.skeleton-cell.large {
-		height: 16px;
-	}
-
-	.skeleton-cell.medium {
-		height: 12px;
-	}
-
-	.skeleton-cell.small {
-		height: 20px;
-		width: 60%;
-	}
-
-	@keyframes shimmer {
-		0% {
-			background-position: 200% 0;
-		}
-		100% {
-			background-position: -200% 0;
-		}
-	}
-
-	.cards-container {
-		display: flex;
-		gap: 16px;
-		padding: 16px;
-	}
-
-	.card {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 40px;
-		background: #f9fafb;
-		border: 2px solid #10b981;
-		border-radius: 8px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-		min-height: 150px;
-	}
-
-	.branch-select {
-		width: 100%;
-		padding: 12px 16px;
-		font-size: 14px;
-		font-weight: 600;
-		border: 2px solid #10b981;
-		border-radius: 6px;
-		background: white;
-		color: #1f2937;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.branch-select:hover {
-		border-color: #059669;
-		box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
-	}
-
-	.branch-select:focus {
-		outline: none;
-		border-color: #059669;
-		box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
-	}
-
-	.card-value {
-		font-size: 32px;
-		font-weight: 700;
-		color: #10b981;
-		min-height: 40px;
-	}
-
-	.table-container {
-		padding: 16px;
-	}
-
-	.table-header {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		margin-bottom: 16px;
-		border-bottom: 2px solid #e5e7eb;
-		padding-bottom: 12px;
-	}
-
-	.table-header h3 {
-		margin: 0;
-		font-size: 16px;
-		font-weight: 600;
-		color: #1f2937;
-	}
-
-	.loading-badge {
-		padding: 4px 8px;
-		background: #fef3c7;
-		color: #92400e;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 600;
-	}
-
-	.users-table {
-		width: 100%;
-		border-collapse: collapse;
-		background: white;
-	}
-
-	.users-table thead {
-		background: #f3f4f6;
-		border-bottom: 2px solid #10b981;
-	}
-
-	.users-table th {
-		padding: 12px 16px;
-		text-align: left;
-		font-weight: 600;
-		font-size: 13px;
-		color: #374151;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.users-table td {
-		padding: 12px 16px;
-		border-bottom: 1px solid #e5e7eb;
-		font-size: 14px;
-		color: #4b5563;
-	}
-
-	.users-table tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.users-table tbody tr.empty-row:hover {
-		background: white;
-	}
-
-	.name-cell {
-		font-weight: 500;
-		color: #1f2937;
-	}
-
-	.badge {
-		display: inline-block;
-		padding: 4px 8px;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 600;
-	}
-
-	.pagination-controls {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 16px;
-		padding: 16px;
-		background: #f3f4f6;
-		border-top: 1px solid #e5e7eb;
-		margin-top: 0;
-	}
-
-	.pagination-btn {
-		padding: 8px 16px;
-		background: #10b981;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-weight: 600;
-		font-size: 13px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.pagination-btn:hover:not(:disabled) {
-		background: #059669;
-		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-	}
-
-	.pagination-btn:disabled {
-		background: #d1d5db;
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	.pagination-info {
-		font-size: 13px;
-		color: #4b5563;
-		font-weight: 500;
-		min-width: 200px;
-		text-align: center;
-	}
-
-	.step-btn {
-		background: #0ea5e9;
-		margin-left: auto;
-	}
-
-	.step-btn:hover:not(:disabled) {
-		background: #0284c7;
-	}
 
-	.users-table tbody tr {
-		cursor: pointer;
-		transition: all 0.2s ease;
+<style>
+	@keyframes loading-bar {
+		0% { transform: translateX(-100%); }
+		100% { transform: translateX(200%); }
 	}
-
-	.users-table tbody tr:hover {
-		background: #f0fdf4;
-	}
-
-	.users-table tbody tr.selected-row {
-		background: #dcfce7;
-		border-left: 4px solid #10b981;
-	}
-
-	.users-table input[type="checkbox"] {
-		width: 18px;
-		height: 18px;
-		cursor: pointer;
-		accent-color: #10b981;
-	}
-
-	.step-2-container {
-		padding: 32px 16px;
-		animation: slideIn 0.3s ease;
-	}
-
-	.step-header {
-		background: white;
-		padding: 24px;
-		border-radius: 8px;
-		border-left: 4px solid #10b981;
-		margin-bottom: 24px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-	}
-
-	.step-header h2 {
-		margin: 0 0 12px 0;
-		font-size: 24px;
-		color: #1f2937;
-	}
-
-	.step-header p {
-		margin: 0;
-		font-size: 14px;
-		color: #4b5563;
-	}
-
-	.step-content {
-		background: white;
-		padding: 32px;
-		border-radius: 8px;
-		margin-bottom: 24px;
-		min-height: 300px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-	}
-
-	.cards-grid {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 24px;
-	}
-
-	.config-card {
-		position: relative;
-		background: #f9fafb;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		padding: 24px;
-		transition: all 0.3s ease;
-		cursor: pointer;
-		min-height: 900px;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.config-card:hover {
-		border-color: #10b981;
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);
-	}
-
-	.card-number {
-		position: absolute;
-		top: 12px;
-		right: 12px;
-		width: 32px;
-		height: 32px;
-		background: #10b981;
-		color: white;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: 700;
-		font-size: 16px;
-	}
-
-	.card-content {
-		padding-right: 40px;
-	}
-
-	.card-content h3 {
-		margin: 0 0 12px 0;
-		font-size: 18px;
-		font-weight: 600;
-		color: #1f2937;
-	}
-
-	.card-content p {
-		margin: 0;
-		font-size: 14px;
-		color: #4b5563;
-	}
-
-	.buttons-wrapper {
-		margin-top: 16px;
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.table-wrapper {
-		flex: 1;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-		border: 1px solid #e5e7eb;
-		border-radius: 6px;
-	}
-
-	.button-table {
-		width: 100%;
-		border-collapse: collapse;
-		background: white;
-		font-size: 13px;
-		table-layout: fixed;
-	}
-
-	.button-table thead {
-		background: #f3f4f6;
-		border-bottom: 2px solid #10b981;
-	}
-
-	.button-table th {
-		padding: 12px 12px;
-		text-align: left;
-		font-weight: 600;
-		font-size: 11px;
-		color: #374151;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		border-right: 1px solid #e5e7eb;
-		white-space: nowrap;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
-	.button-table th:first-child {
-		width: 40px;
-		text-align: center;
-	}
-
-	.button-table th:last-child {
-		border-right: none;
-	}
-
-	.button-table tbody {
-		display: block;
-		overflow-y: scroll;
-		max-height: 630px;
-		width: 100%;
-	}
-
-	.button-table thead tr {
-		display: table;
-		width: calc(100% - 17px);
-		table-layout: fixed;
-	}
-
-	.button-table tbody tr {
-		display: table;
-		width: 100%;
-		table-layout: fixed;
-		border-bottom: 1px solid #e5e7eb;
-		transition: background 0.2s ease;
-	}
-
-	.button-table tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.button-table td {
-		padding: 10px 12px;
-		font-size: 13px;
-		color: #4b5563;
-		border-right: 1px solid #e5e7eb;
-		vertical-align: middle;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
-	.button-table td:first-child {
-		width: 60px;
-		text-align: center;
-		font-weight: 600;
-		color: #10b981;
-	}
-
-	.button-table td:last-child {
-		border-right: none;
-		text-align: center !important;
-		padding: 8px !important;
-	}
-
-	.button-table td:last-child input[type="checkbox"] {
-		width: 18px;
-		height: 18px;
-		cursor: pointer;
-		accent-color: #10b981;
-		margin: 0;
-		display: inline-block;
-	}
-
-	.button-table td:last-child input[type="checkbox"]:disabled {
-		cursor: default;
-		opacity: 1;
-	}
-
-	.badge-enabled {
-		display: inline-block;
-		padding: 4px 8px;
-		background: #dcfce7;
-		color: #15803d;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 600;
-		white-space: nowrap;
-		flex-shrink: 0;
+	.animate-loading-bar {
+		animation: loading-bar 1.2s ease-in-out infinite;
+		width: 40%;
 	}
-
-	.badge-disabled {
-		display: inline-block;
-		padding: 4px 8px;
-		background: #fee2e2;
-		color: #b91c1c;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 600;
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.empty-message {
-		padding: 24px;
-		text-align: center;
-		color: #9ca3af;
-		font-size: 14px;
-	}
-
-	.loading-spinner {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		min-height: 300px;
-		gap: 16px;
-	}
-
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #e5e7eb;
-		border-top: 4px solid #10b981;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		0% {
-			transform: rotate(0deg);
-		}
-		100% {
-			transform: rotate(360deg);
-		}
-	}
-
-	.step-actions {
-		display: flex;
-		gap: 12px;
-		justify-content: flex-start;
+	@keyframes fade-in {
+		from { opacity: 0; transform: translateY(4px); }
+		to { opacity: 1; transform: translateY(0); }
 	}
-
-	.back-btn {
-		padding: 10px 16px;
-		background: #6b7280;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-weight: 600;
-		font-size: 13px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.back-btn:hover {
-		background: #4b5563;
-	}
-
-	.save-btn {
-		padding: 10px 16px;
-		background: #0ea5e9;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-weight: 600;
-		font-size: 13px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.save-btn:hover:not(:disabled) {
-		background: #0284c7;
-		box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3);
-	}
-
-	.save-btn:disabled {
-		background: #d1d5db;
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	@keyframes slideIn {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+	.animate-fade-in {
+		animation: fade-in 0.3s ease;
 	}
 </style>

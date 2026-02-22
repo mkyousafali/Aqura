@@ -280,9 +280,9 @@
 		
 		// Normal product toggle
 		if (selectedProducts.has(barcode)) {
-			// Removing product - delete and reassign orders
-			selectedProducts.delete(barcode);
+			// Removing product - get page info BEFORE deleting
 			const removedPageOrder = productPageOrderMap.get(barcode);
+			selectedProducts.delete(barcode);
 			productPageOrderMap.delete(barcode);
 			
 			// Reassign orders for remaining products on the same page
