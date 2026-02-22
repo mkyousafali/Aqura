@@ -513,7 +513,18 @@
 			ctx.drawImage(textVideoEl, 0, 0);
 			const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
 
-			const apiKey = import.meta.env.VITE_GOOGLE_VISION_API_KEY || import.meta.env.VITE_GOOGLE_TTS_API_KEY;
+			// Load API key from DB first, fallback to env
+			let apiKey = '';
+			try {
+				const { data: keyRow } = await supabase
+					.from('system_api_keys')
+					.select('api_key')
+					.eq('service_name', 'google')
+					.eq('is_active', true)
+					.single();
+				if (keyRow?.api_key) apiKey = keyRow.api_key;
+			} catch (_) { /* fallback to env */ }
+			if (!apiKey) apiKey = import.meta.env.VITE_GOOGLE_VISION_API_KEY || import.meta.env.VITE_GOOGLE_TTS_API_KEY || '';
 			if (!apiKey) {
 				console.error('No Google API key configured for Vision');
 				textDetecting = false;
