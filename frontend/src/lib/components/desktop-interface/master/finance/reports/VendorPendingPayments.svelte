@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { _ as t } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 
 	let loading = true;
@@ -16,6 +17,7 @@
 	let selectedPaymentMethod = '';
 	let paymentMethods: string[] = [];
 	let paidFilter: 'all' | 'paid' | 'unpaid' = 'unpaid';
+	let dueInFilter: 'all' | '7' | '15' | '30' = 'all';
 	let highlightedIndex = -1;
 	let searchInputEl: HTMLInputElement;
 	let totalVendorCount = 0;
@@ -53,7 +55,18 @@
 		const branchMatch = !selectedBranchId || payment.branch_id?.toString() === selectedBranchId;
 		const methodMatch = !selectedPaymentMethod || payment.payment_method === selectedPaymentMethod;
 		const paidMatch = paidFilter === 'all' || (paidFilter === 'paid' ? payment.is_paid : !payment.is_paid);
-		return branchMatch && methodMatch && paidMatch;
+		
+		let dueMatch = true;
+		if (dueInFilter !== 'all' && payment.due_date && !payment.is_paid) {
+			const dueDate = new Date(payment.due_date);
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			const diffTime = dueDate.getTime() - today.getTime();
+			const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+			dueMatch = diffDays <= parseInt(dueInFilter) && diffDays >= 0;
+		}
+
+		return branchMatch && methodMatch && paidMatch && dueMatch;
 	});
 
 	// Pagination calculations (derived from filteredPayments)
@@ -83,7 +96,18 @@
 		const branchMatch = !selectedBranchId || exp.branch_id?.toString() === selectedBranchId;
 		const methodMatch = !selectedPaymentMethod || exp.payment_method === selectedPaymentMethod;
 		const paidMatch = paidFilter === 'all' || (paidFilter === 'paid' ? exp.is_paid : !exp.is_paid);
-		return branchMatch && methodMatch && paidMatch;
+		
+		let dueMatch = true;
+		if (dueInFilter !== 'all' && exp.due_date && !exp.is_paid) {
+			const dueDate = new Date(exp.due_date);
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			const diffTime = dueDate.getTime() - today.getTime();
+			const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+			dueMatch = diffDays <= parseInt(dueInFilter) && diffDays >= 0;
+		}
+
+		return branchMatch && methodMatch && paidMatch && dueMatch;
 	});
 
 	// Calculate total expense amount for selected vendor
@@ -605,7 +629,7 @@
 			<button
 				class="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-all"
 				on:click={clearSelection}
-			>← Back</button>
+			>← {$t('nav.goBack')}</button>
 			<div class="flex items-center gap-2">
 				<span class="font-bold text-sm text-slate-800">{selectedVendorName}</span>
 				<span class="text-xs text-slate-400">({selectedVendorId})</span>
@@ -616,18 +640,39 @@
 					<button
 						class="px-3 py-1 text-[11px] font-bold uppercase rounded-lg transition-all {paidFilter === 'all' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
 						on:click={() => paidFilter = 'all'}
-					>All</button>
+					>{$t('vendorPaymentFilters.all')}</button>
 					<button
 						class="px-3 py-1 text-[11px] font-bold uppercase rounded-lg transition-all {paidFilter === 'unpaid' ? 'bg-red-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
 						on:click={() => paidFilter = 'unpaid'}
-					>Unpaid</button>
+					>{$t('vendorPaymentFilters.unpaid')}</button>
 					<button
 						class="px-3 py-1 text-[11px] font-bold uppercase rounded-lg transition-all {paidFilter === 'paid' ? 'bg-emerald-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
 						on:click={() => paidFilter = 'paid'}
-					>Paid</button>
+					>{$t('vendorPaymentFilters.paid')}</button>
 				</div>
+
+				<!-- Due in Filters -->
+				<div class="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/50">
+					<button
+						class="px-2 py-1 text-[10px] font-bold uppercase rounded-lg transition-all {dueInFilter === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
+						on:click={() => { dueInFilter = 'all'; paidFilter = 'all'; }}
+					>{$t('vendorPaymentFilters.any')}</button>
+					<button
+						class="px-2 py-1 text-[10px] font-bold uppercase rounded-lg transition-all {dueInFilter === '7' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
+						on:click={() => { dueInFilter = '7'; paidFilter = 'unpaid'; }}
+					>{$t('vendorPaymentFilters.days7')}</button>
+					<button
+						class="px-2 py-1 text-[10px] font-bold uppercase rounded-lg transition-all {dueInFilter === '15' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
+						on:click={() => { dueInFilter = '15'; paidFilter = 'unpaid'; }}
+					>{$t('vendorPaymentFilters.days15')}</button>
+					<button
+						class="px-2 py-1 text-[10px] font-bold uppercase rounded-lg transition-all {dueInFilter === '30' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-white'}"
+						on:click={() => { dueInFilter = '30'; paidFilter = 'unpaid'; }}
+					>{$t('vendorPaymentFilters.days30')}</button>
+				</div>
+
 				<select bind:value={selectedBranchId} class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
-					<option value="">All Branches</option>
+					<option value="">{$t('nav.selectBranch') || 'All Branches'}</option>
 					{#each branches as branch}
 						<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 					{/each}
