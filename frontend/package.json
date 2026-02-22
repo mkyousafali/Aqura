@@ -32,7 +32,6 @@
     "@types/xlsx": "^0.0.36",
     "@typescript-eslint/eslint-plugin": "^8.46.3",
     "@typescript-eslint/parser": "^8.46.3",
-    "@vitejs/plugin-basic-ssl": "^2.1.4",
     "autoprefixer": "^10.4.20",
     "electron": "^32.2.0",
     "electron-builder": "^25.1.8",
