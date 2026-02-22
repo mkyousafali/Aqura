@@ -273,12 +273,14 @@
 				totalSize: Number(b.total_size) || 0
 			}));
 
-			// Get branch bucket stats via XHR
+			// Get branch bucket stats via XHR (skip direct local if page is HTTPS and URL is HTTP — mixed content)
 			let branchBuckets: any[] = [];
 			const baseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
 			const localKey = cfg.local_supabase_key;
+			const isMixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && baseUrl.startsWith('http:');
 
 			try {
+				if (isMixedContent) throw new Error('Mixed content — skip to tunnel');
 				const xhr = new XMLHttpRequest();
 				xhr.open('POST', `${baseUrl}/rest/v1/rpc/get_storage_stats`, true);
 				xhr.setRequestHeader('Content-Type', 'application/json');
@@ -371,8 +373,10 @@
 			});
 		}
 
-		// Test branch connectivity
+		// Test branch connectivity (skip direct local if mixed content)
+		const isMixedContentSync = typeof window !== 'undefined' && window.location.protocol === 'https:' && branchUrl.startsWith('http:');
 		try {
+			if (isMixedContentSync) throw new Error('Mixed content — skip to tunnel');
 			await branchStorageXhr('GET', '/storage/v1/bucket');
 		} catch {
 			if (cfg.tunnel_url) {
@@ -643,8 +647,10 @@
 				branchFrontendStatus = { ...branchFrontendStatus, [cfg.branch_id]: result.data };
 				branchUpdateStatus = { ...branchUpdateStatus, [cfg.branch_id]: '' };
 			} else {
-				// Try direct XHR for local network
+				// Try direct XHR for local network (skip if mixed content)
+				const updateIsMixed = typeof window !== 'undefined' && window.location.protocol === 'https:' && updateUrl.startsWith('http:');
 				try {
+					if (updateIsMixed) throw new Error('Mixed content — cannot reach HTTP from HTTPS');
 					const xhr = new XMLHttpRequest();
 					xhr.open('GET', `${updateUrl}/status`, true);
 					xhr.timeout = 5000;
@@ -823,6 +829,12 @@
 		let activeBaseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
 		const localKey = cfg.local_supabase_key;
 		let usingTunnel = false;
+		// If HTTPS page tries to reach HTTP local URL, skip directly to tunnel
+		const isMixedContentData = typeof window !== 'undefined' && window.location.protocol === 'https:' && activeBaseUrl.startsWith('http:');
+		if (isMixedContentData && cfg.tunnel_url) {
+			activeBaseUrl = cfg.tunnel_url.replace(/\/+$/, '');
+			usingTunnel = true;
+		}
 
 		function xhrRequest(method: string, path: string, body?: any, timeoutMs = 30000): Promise<any> {
 			return new Promise((resolve, reject) => {
@@ -884,7 +896,9 @@
 		}
 
 		// Test connection: try local URL first (5s timeout), fall back to tunnel URL via proxy
+		const isMixedContentMain = typeof window !== 'undefined' && window.location.protocol === 'https:' && activeBaseUrl.startsWith('http:');
 		try {
+			if (isMixedContentMain) throw new Error('Mixed content — HTTPS page cannot reach HTTP local');
 			await xhrRequest('GET', '/rest/v1/branches?select=id&limit=1', undefined, 5000);
 			syncOverallStatus = '✅ Connected via local network';
 		} catch (localErr: any) {
