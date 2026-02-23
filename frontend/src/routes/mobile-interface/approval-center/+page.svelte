@@ -1899,6 +1899,9 @@ async function rejectRequisition(reason) {
 		display: flex;
 		flex-direction: column;
 		gap: 0.4rem;
+		max-height: calc(100vh - 200px);
+		overflow-y: auto;
+		padding-bottom: 1rem;
 	}
 
 	.req-card {
