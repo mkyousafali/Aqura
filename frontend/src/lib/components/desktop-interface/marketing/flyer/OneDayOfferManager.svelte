@@ -951,7 +951,19 @@
 											</button>
 										</td>
 										<td class="px-4 py-3 text-sm font-bold text-slate-800 whitespace-nowrap text-center">{index + 1}</td>
-										<td class="px-4 py-3 text-sm font-mono text-slate-800 whitespace-nowrap">{row.barcode}</td>
+										<td class="px-4 py-3 text-sm font-mono text-slate-800 whitespace-nowrap cursor-pointer select-all" 
+											title="Double-click to copy barcode"
+											on:dblclick={() => {
+												if (row.barcode) {
+													navigator.clipboard.writeText(row.barcode).then(() => {
+														const el = document.createElement('div');
+														el.textContent = '✓ Copied!';
+														el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+														document.body.appendChild(el);
+														setTimeout(() => el.remove(), 1500);
+													});
+												}
+											}}>{row.barcode}</td>
 										<td class="px-4 py-3 text-sm text-slate-700 cursor-pointer" on:dblclick={(e) => {
 											const td = e.currentTarget;
 											if (td.querySelector('input')) return;
