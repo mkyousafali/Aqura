@@ -241,7 +241,7 @@
 		loading = true;
 		try {
 			// Load branches with location
-			const { data: branchData } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').order('name_en');
+			const { data: branchData } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true).order('name_en');
 			branches = branchData || [];
 
 			// Load employees with nationality

@@ -129,6 +129,7 @@
 			const { data, error: branchError } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar')
+				.eq('is_active', true)
 				.order('name_en');
 
 			if (branchError) throw branchError;
@@ -315,8 +316,8 @@
 				countQuery,
 				dataQuery,
 				supabase.from('hr_employee_master').select('id, name_en, name_ar, employee_id_mapping'),
-				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
-				supabase.from('hr_employees').select('employee_id, branch_id, name')
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true),
+				supabase.from('hr_employees').select('employee_id, branch_id, name'),
 			]);
 
 			if (transError) throw transError;

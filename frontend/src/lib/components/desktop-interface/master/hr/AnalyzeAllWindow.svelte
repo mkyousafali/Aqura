@@ -35,6 +35,37 @@
 	let refreshing = false;
 	let lastUpdated: string = '';
 
+	// Multi-shift data for all employees
+	let multiShiftRegularAll: any[] = [];
+	let multiShiftDateWiseAll: any[] = [];
+	let multiShiftWeekdayAll: any[] = [];
+
+	/** Get total multi-shift working minutes for a given employee on a given date */
+	function getMultiShiftMinsForEmpDate(empId: string, dateStr: string): number {
+		const dayNum = new Date(dateStr + 'T12:00:00').getDay();
+		let totalHours = 0;
+		const eid = String(empId);
+		// Date-wise multi-shifts
+		for (const ms of multiShiftDateWiseAll) {
+			if (String(ms.employee_id) === eid && dateStr >= ms.date_from && dateStr <= ms.date_to) {
+				totalHours += ms.working_hours || 0;
+			}
+		}
+		// Weekday multi-shifts
+		for (const ms of multiShiftWeekdayAll) {
+			if (String(ms.employee_id) === eid && ms.weekday === dayNum) {
+				totalHours += ms.working_hours || 0;
+			}
+		}
+		// Regular multi-shifts
+		for (const ms of multiShiftRegularAll) {
+			if (String(ms.employee_id) === eid) {
+				totalHours += ms.working_hours || 0;
+			}
+		}
+		return totalHours * 60;
+	}
+
 	// Reactive filtering and sorting for the view
 	$: filteredAnalysisData = analysisData
 		.filter(row => {
@@ -89,7 +120,7 @@
 		loading = true;
 		try {
 			// Load branches with location
-			const { data: branchData } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').order('name_en');
+			const { data: branchData } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true).order('name_en');
 			branches = branchData || [];
 
 			// Load employees with nationality
@@ -218,6 +249,26 @@
 				for (const date of datesInRange) {
 					if (!empData.dayByDay[date]) {
 						empData.dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0, overtimeMins: 0 };
+					}
+				}
+			}
+
+			// Load multi-shift data and adjust underworked for multi-shift employees
+			const [msRegRes, msDateRes, msWeekRes] = await Promise.all([
+				supabase.from('multi_shift_regular').select('employee_id, working_hours'),
+				supabase.from('multi_shift_date_wise').select('employee_id, date_from, date_to, working_hours'),
+				supabase.from('multi_shift_weekday').select('employee_id, weekday, working_hours')
+			]);
+			multiShiftRegularAll = msRegRes.data || [];
+			multiShiftDateWiseAll = msDateRes.data || [];
+			multiShiftWeekdayAll = msWeekRes.data || [];
+
+			// Adjust underworked minutes for employees with multi-shifts
+			for (const [empId, empData] of empMap) {
+				for (const date of datesInRange) {
+					const multiMins = getMultiShiftMinsForEmpDate(empId, date);
+					if (multiMins > 0 && empData.dayByDay[date]) {
+						empData.dayByDay[date].underMins = Math.max(0, (empData.dayByDay[date].underMins || 0) + multiMins);
 					}
 				}
 			}

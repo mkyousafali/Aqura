@@ -529,6 +529,19 @@
 		<!-- Welcome Screen -->
 		<div class="welcome-screen">
 			<div class="welcome-container">
+				<!-- Break Security QR Code - Completely outside the card -->
+				{#if breakQrDataUrl}
+					<div class="break-qr-fixed">
+						<div class="break-qr-container">
+							<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
+							<div class="break-qr-label">
+								<span>🔒</span>
+								<span>{$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
+							</div>
+						</div>
+					</div>
+				{/if}
+
 				<div class="welcome-card">
 					<div class="logo-section">
 						{#if $updateAvailable}
@@ -540,7 +553,8 @@
 								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
 							</span>
 						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ64.29.19.21</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ2.2.2.2</button>
+
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
 						</div>
@@ -550,18 +564,6 @@
 			</div>
 		</div>
 
-		<!-- Break Security QR Code - Fixed Top Right -->
-		{#if breakQrDataUrl}
-			<div class="break-qr-fixed">
-				<div class="break-qr-container">
-					<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
-					<div class="break-qr-label">
-						<span>🔒</span>
-						<span>{$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
-					</div>
-				</div>
-			</div>
-		{/if}
 	{/if}
 </div>
 
@@ -777,8 +779,8 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 16px;
-		max-height: 95%;
-		overflow-y: auto;
+		max-height: 95vh;
+		padding: 60px 20px 20px;
 	}
 
 	.welcome-card {
@@ -792,6 +794,7 @@
 		border-radius: 24px;
 		box-shadow: 0 25px 50px rgba(11, 18, 32, 0.1);
 		overflow: hidden;
+		position: relative;
 	}
 
 	.logo-section {
@@ -940,12 +943,11 @@
 		}
 	}
 
-	/* Break QR Code - Fixed Top Right */
+	/* Break QR Code - Centered above the welcome card */
 	.break-qr-fixed {
-		position: fixed;
-		top: 12px;
-		right: 12px;
-		z-index: 100;
+		position: relative;
+		margin-bottom: 5px;
+		z-index: 10;
 	}
 
 	.break-qr-container {
@@ -961,8 +963,8 @@
 	}
 
 	.break-qr-img {
-		width: 140px;
-		height: 140px;
+		width: 160px;
+		height: 160px;
 		border-radius: 6px;
 		display: block;
 	}
@@ -971,9 +973,9 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		font-size: 0.6rem;
-		color: #64748b;
-		font-weight: 500;
+		font-size: 0.75rem;
+		color: #475569;
+		font-weight: 600;
 		letter-spacing: 0.3px;
 	}
 

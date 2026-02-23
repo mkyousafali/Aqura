@@ -422,7 +422,8 @@
 			if (apBranchList.length === 0) {
 				const { data: branches } = await supabase
 					.from('branches')
-					.select('id, name_en, name_ar, location_en, location_ar');
+					.select('id, name_en, name_ar, location_en, location_ar')
+					.eq('is_active', true);
 				if (branches) {
 					apBranchList = branches.map(b => {
 						const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);

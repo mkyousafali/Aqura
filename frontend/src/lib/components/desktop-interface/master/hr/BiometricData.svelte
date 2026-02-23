@@ -72,7 +72,7 @@
 			// Execute all queries in parallel directly to Supabase (no dataService overhead)
 			const [employeesRes, branchesRes, positionsRes, fingerprintRes] = await Promise.all([
 				supabase.from('hr_employees').select('id, employee_id, branch_id, name').order('employee_id'),
-				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true),
 				supabase.from('hr_position_assignments').select('employee_id, position:position_id(position_title_en, position_title_ar)').eq('is_current', true),
 				fingerprintPromise
 			]);
@@ -408,7 +408,7 @@
 			const [fingerprintRes, employeesRes, branchesRes, positionsRes] = await Promise.all([
 				query,
 				supabase.from('hr_employees').select('id, employee_id, branch_id, name').order('employee_id'),
-				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true),
 				supabase.from('hr_position_assignments').select('employee_id, position:position_id(position_title_en, position_title_ar)').eq('is_current', true)
 			]);
 

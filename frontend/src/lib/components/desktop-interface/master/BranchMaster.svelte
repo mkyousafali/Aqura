@@ -161,6 +161,31 @@
 		}
 	}
 
+	async function toggleBranchActive(branch: Branch) {
+		isLoading = true;
+		errorMessage = '';
+		
+		try {
+			const { error } = await supabase
+				.from('branches')
+				.update({ is_active: !branch.is_active })
+				.eq('id', branch.id);
+			
+			if (error) {
+				errorMessage = error.message || `Failed to ${branch.is_active ? 'deactivate' : 'activate'} branch`;
+				alert('Error: ' + errorMessage);
+			} else {
+				await loadBranches();
+			}
+		} catch (error) {
+			errorMessage = `Failed to ${branch.is_active ? 'deactivate' : 'activate'} branch`;
+			alert('Error: ' + errorMessage);
+			console.error('Error toggling branch status:', error);
+		} finally {
+			isLoading = false;
+		}
+	}
+
 	async function deleteBranch(id: string) {
 		if (confirm('Are you sure you want to delete this branch?')) {
 			isLoading = true;
@@ -272,8 +297,14 @@
 						</td>
 						<td>{branch.created_at ? formatDate(branch.created_at) : '-'}</td>
 						<td>
-							<div class="actions">
-								<button class="edit-btn" on:click={() => openEditPopup(branch)} disabled={isLoading}>
+							<div class="actions">							<button 
+								class="toggle-btn {branch.is_active ? 'active' : 'inactive'}" 
+								on:click={() => toggleBranchActive(branch)} 
+								disabled={isLoading}
+								title={branch.is_active ? 'Deactivate Branch' : 'Activate Branch'}
+							>
+								{branch.is_active ? 'Deactivate' : 'Activate'}
+							</button>								<button class="edit-btn" on:click={() => openEditPopup(branch)} disabled={isLoading}>
 									Edit
 								</button>
 								<button class="delete-btn" on:click={() => deleteBranch(branch.id)} disabled={isLoading}>
@@ -653,6 +684,36 @@
 
 	.delete-btn:hover {
 		background: #fee2e2;
+	}
+
+	.toggle-btn {
+		padding: 6px 12px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 500;
+		cursor: pointer;
+		border: 1px solid;
+		transition: all 0.2s;
+	}
+
+	.toggle-btn.active {
+		background: #fef3c7;
+		color: #92400e;
+		border-color: #fcd34d;
+	}
+
+	.toggle-btn.active:hover {
+		background: #fde68a;
+	}
+
+	.toggle-btn.inactive {
+		background: #d1fae5;
+		color: #065f46;
+		border-color: #6ee7b7;
+	}
+
+	.toggle-btn.inactive:hover {
+		background: #a7f3d0;
 	}
 
 	.empty-state {

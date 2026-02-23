@@ -87,7 +87,8 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar, location_en, location_ar');
+				.select('id, name_en, name_ar, location_en, location_ar')
+				.eq('is_active', true);
 			if (error) throw error;
 			branches = data || [];
 		} catch (err) {

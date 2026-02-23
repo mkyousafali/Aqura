@@ -48,7 +48,7 @@
     try {
       const { data, error } = await supabase.rpc('get_all_branches_delivery_settings');
       if (error) throw error;
-      branches = (data || []).filter(b => b.delivery_service_enabled || b.pickup_service_enabled);
+      branches = (data || []).filter(b => b.is_active !== false && (b.delivery_service_enabled || b.pickup_service_enabled));
       console.log('Loaded branches:', branches.length);
     } catch (e) {
       console.error('Branch load error', e);

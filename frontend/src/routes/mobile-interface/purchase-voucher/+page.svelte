@@ -123,6 +123,7 @@
 			const { data, error } = await supabase
 				.from('branches')
 				.select('id, name_en, location_en')
+				.eq('is_active', true)
 				.limit(100);
 			if (!error) {
 				branches = data || [];

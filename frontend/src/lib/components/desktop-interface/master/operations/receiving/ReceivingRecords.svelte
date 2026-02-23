@@ -233,6 +233,7 @@
 			const { data, error } = await supabase
 				.from('branches')
 				.select('id, name_en, location_en')
+				.eq('is_active', true)
 				.order('name_en');
 			if (!error && data) {
 				branches = data;

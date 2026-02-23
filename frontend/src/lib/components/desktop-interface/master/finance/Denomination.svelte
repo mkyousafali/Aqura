@@ -601,6 +601,7 @@
 			const { data, error } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar, location_en, location_ar')
+				.eq('is_active', true)
 				.order('name_en');
 
 			if (error) {

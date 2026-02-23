@@ -157,7 +157,7 @@
 	}
 
 	async function loadBranches() {
-		const { data } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').order('id');
+		const { data } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true).order('id');
 		if (data) branches = data;
 	}
 
