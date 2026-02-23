@@ -221,6 +221,19 @@
 				"panel": "shared",
 				"showReuseMessage": false
 			}
+		},
+		{
+			"label": "🎨 Dev Frontend SSL",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--filter",
+				"aqura-frontend",
+				"dev",
+				"--https"
+			],
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }

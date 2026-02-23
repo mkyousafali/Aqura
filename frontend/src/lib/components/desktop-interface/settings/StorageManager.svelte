@@ -748,7 +748,7 @@
 				branchSyncConfigs = data || [];
 			}
 			// Also load available branches
-			const { data: brData } = await supabase.from('branches').select('id, name_en, name_ar').order('name_en');
+			const { data: brData } = await supabase.from('branches').select('id, name_en, name_ar').eq('is_active', true).order('name_en');
 			availableBranches = (brData || []).map((b: any) => ({ id: Number(b.id), name_en: b.name_en, name_ar: b.name_ar }));
 		} catch (e: any) {
 			syncConfigsError = e.message;

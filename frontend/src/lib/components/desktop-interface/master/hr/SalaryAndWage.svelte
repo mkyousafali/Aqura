@@ -90,7 +90,7 @@
 	async function loadFilterData() {
 		try {
 			const [branchesRes, nationalitiesRes] = await Promise.all([
-				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').order('name_en'),
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true).order('name_en'),
 				supabase.from('nationalities').select('id, name_en, name_ar').order('name_en')
 			]);
 

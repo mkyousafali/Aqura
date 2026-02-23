@@ -122,6 +122,35 @@ function getSpecificDayOff(empId: string, dateStr: string, employeeSpecificDayOf
   return employeeSpecificDayOffs.get(String(empId))?.find(d => d.day_off_date === dateStr);
 }
 
+function getMultiShiftWorkingMins(
+  empId: string,
+  dateStr: string,
+  multiShiftRegular: Map<string, any[]>,
+  multiShiftDateWise: Map<string, any[]>,
+  multiShiftWeekday: Map<string, any[]>
+): number {
+  const eid = String(empId);
+  const dayNum = getWeekdayInSaudi(dateStr);
+  let totalHours = 0;
+  // Date-wise multi-shifts
+  for (const ms of multiShiftDateWise.get(eid) || []) {
+    if (dateStr >= ms.date_from && dateStr <= ms.date_to) {
+      totalHours += ms.working_hours || 0;
+    }
+  }
+  // Weekday multi-shifts
+  for (const ms of multiShiftWeekday.get(eid) || []) {
+    if (ms.weekday === dayNum) {
+      totalHours += ms.working_hours || 0;
+    }
+  }
+  // Regular multi-shifts
+  for (const ms of multiShiftRegular.get(eid) || []) {
+    totalHours += ms.working_hours || 0;
+  }
+  return totalHours * 60;
+}
+
 function analyzeEmployeeDays(
   emp: Employee,
   datesInRange: string[],
@@ -132,7 +161,10 @@ function analyzeEmployeeDays(
   employeeSpecialShiftsDateWise: Map<string, any[]>,
   employeeSpecialShiftsWeekday: Map<string, any[]>,
   employeeOfficialHolidays: Map<string, Set<string>>,
-  employeeOvertime: Map<string, Map<string, number>>
+  employeeOvertime: Map<string, Map<string, number>>,
+  multiShiftRegular: Map<string, any[]>,
+  multiShiftDateWise: Map<string, any[]>,
+  multiShiftWeekday: Map<string, any[]>
 ): any[] {
   const results: any[] = [];
   const consumedTransactions = new Set<string>();
@@ -363,11 +395,11 @@ function analyzeEmployeeDays(
       if (hasIncompletePair) {
         status = missingType;
       } else {
-        if (shift) {
-          // Use working_hours field (matches EmployeeAnalysisWindow.svelte)
-          const expected = (shift.working_hours || 0) * 60;
-          if (expected > 0 && workedMins < expected) underMins = expected - workedMins;
-        }
+        // Use working_hours field (matches EmployeeAnalysisWindow.svelte)
+        const shiftExpected = shift ? (shift.working_hours || 0) * 60 : 0;
+        const msExpected = getMultiShiftWorkingMins(emp.id, date, multiShiftRegular, multiShiftDateWise, multiShiftWeekday);
+        const expected = shiftExpected + msExpected;
+        if (expected > 0 && workedMins < expected) underMins = expected - workedMins;
         status = 'Worked';
       }
     }
@@ -496,6 +528,17 @@ Deno.serve(async (req) => {
       supabase.from('overtime_registrations').select('*').in('employee_id', empIds),
     ]);
 
+    // ---- Fetch multi-shift data ----
+    const [
+      { data: msRegularData },
+      { data: msDateWiseData },
+      { data: msWeekdayData },
+    ] = await Promise.all([
+      supabase.from('multi_shift_regular').select('employee_id, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_date_wise').select('employee_id, date_from, date_to, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_weekday').select('employee_id, weekday, working_hours').in('employee_id', empIds),
+    ]);
+
     console.log(`📊 [Analyze Attendance] Fetched: ${transactions?.length || 0} transactions, ${shifts?.length || 0} shifts`);
 
     // ---- Build lookup maps ----
@@ -534,6 +577,28 @@ Deno.serve(async (req) => {
         }
         employeeOfficialHolidays.get(empId)!.add(holidayDate);
       }
+    });
+
+    // Build multi-shift lookup maps
+    const multiShiftRegular = new Map<string, any[]>();
+    msRegularData?.forEach((ms: any) => {
+      const list = multiShiftRegular.get(String(ms.employee_id)) || [];
+      list.push(ms);
+      multiShiftRegular.set(String(ms.employee_id), list);
+    });
+
+    const multiShiftDateWise = new Map<string, any[]>();
+    msDateWiseData?.forEach((ms: any) => {
+      const list = multiShiftDateWise.get(String(ms.employee_id)) || [];
+      list.push(ms);
+      multiShiftDateWise.set(String(ms.employee_id), list);
+    });
+
+    const multiShiftWeekday = new Map<string, any[]>();
+    msWeekdayData?.forEach((ms: any) => {
+      const list = multiShiftWeekday.get(String(ms.employee_id)) || [];
+      list.push(ms);
+      multiShiftWeekday.set(String(ms.employee_id), list);
     });
 
     // Build overtime lookup: employee_id -> Map<date, overtime_minutes>
@@ -676,7 +741,10 @@ Deno.serve(async (req) => {
         employeeSpecialShiftsDateWise,
         employeeSpecialShiftsWeekday,
         employeeOfficialHolidays,
-        employeeOvertime
+        employeeOvertime,
+        multiShiftRegular,
+        multiShiftDateWise,
+        multiShiftWeekday
       );
       allResults.push(...empResults);
       totalAnalyzed += empResults.length;

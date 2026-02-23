@@ -63,6 +63,7 @@
 			const { data: branchesData, error: branchesError } = await supabase
 				.from('branches')
 				.select('id, name_en')
+				.eq('is_active', true)
 				.order('name_en')
 				.limit(100000);
 

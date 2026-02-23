@@ -104,6 +104,7 @@
 				supabase
 					.from('branches')
 					.select('id, name_en, name_ar')
+					.eq('is_active', true)
 					.order('name_en')
 					.limit(500)
 			]);

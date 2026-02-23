@@ -109,6 +109,7 @@
 			const { data, error } = await supabase
 				.from('branches')
 				.select('*')
+				.eq('is_active', true)
 				.order('name_en');
 
 			if (error) throw error;

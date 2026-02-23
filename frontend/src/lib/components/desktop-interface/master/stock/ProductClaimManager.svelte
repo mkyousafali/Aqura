@@ -532,6 +532,7 @@
 			const { data, error: err } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar, location_en, location_ar')
+				.eq('is_active', true)
 				.order('id');
 			if (err) throw err;
 			manageBranchAllBranches = (data || []).map(b => ({

@@ -364,7 +364,7 @@ export const deliveryActions = {
       
       if (error) throw error;
       
-      return data || [];
+      return (data || []).filter(b => b.is_active !== false);
     } catch (error) {
       console.error('Error getting all branches settings:', error);
       return [];

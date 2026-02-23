@@ -60,7 +60,8 @@
 					.limit(1000),
 				supabase
 					.from('branches')
-					.select('id, name_en, location_en'),
+					.select('id, name_en, location_en')
+					.eq('is_active', true),
 				supabase
 					.from('hr_position_assignments')
 					.select('employee_id, position_id, hr_positions(position_title_en)')

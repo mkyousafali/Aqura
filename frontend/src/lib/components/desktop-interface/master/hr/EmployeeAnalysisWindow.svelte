@@ -31,6 +31,11 @@
 	let specialShiftDateWise: any[] = [];
 	let specialShiftWeekday: any[] = [];
 	let isShiftOverlappingNextDay = false;
+
+	// Multi-Shift data
+	let multiShiftRegular: any[] = [];
+	let multiShiftDateWise: any[] = [];
+	let multiShiftWeekday: any[] = [];
 	let loading = true;
 	let startDate = initialStartDate || new Date().toISOString().split('T')[0];
 	let endDate = initialEndDate || new Date().toISOString().split('T')[0];
@@ -168,6 +173,25 @@
 				.select('*')
 				.eq('employee_id', employee.id);
 			overtimeRegistrations = otData || [];
+
+			// Load multi-shift data (all three categories)
+			const { data: msRegularData } = await supabase
+				.from('multi_shift_regular')
+				.select('*')
+				.eq('employee_id', employee.id);
+			multiShiftRegular = msRegularData || [];
+
+			const { data: msDateData } = await supabase
+				.from('multi_shift_date_wise')
+				.select('*')
+				.eq('employee_id', employee.id);
+			multiShiftDateWise = msDateData || [];
+
+			const { data: msDayData } = await supabase
+				.from('multi_shift_weekday')
+				.select('*')
+				.eq('employee_id', employee.id);
+			multiShiftWeekday = msDayData || [];
 		} catch (error) {
 			console.error('Error loading employee data:', error);
 		}
@@ -955,6 +979,51 @@
 		return regularShift;
 	}
 
+	/**
+	 * Get all multi-shift records applicable for a given date.
+	 * Returns an array of multi-shift objects with working_hours.
+	 * Priority: date-wise (if date falls in range) → weekday-wise → regular (always applies).
+	 * All matching are returned (they stack).
+	 */
+	function getMultiShiftsForDate(dateStr: string): any[] {
+		if (!dateStr) return [];
+		const results: any[] = [];
+
+		// Convert DD-MM-YYYY to YYYY-MM-DD
+		const [day, month, year] = dateStr.split('-');
+		const formattedDate = `${year}-${month}-${day}`;
+		const dayNum = getDayNameFromDate(dateStr);
+
+		// 1) Date-wise multi-shifts (date falls within range)
+		for (const ms of multiShiftDateWise) {
+			if (formattedDate >= ms.date_from && formattedDate <= ms.date_to) {
+				results.push(ms);
+			}
+		}
+
+		// 2) Weekday-wise multi-shifts
+		for (const ms of multiShiftWeekday) {
+			if (ms.weekday === dayNum) {
+				results.push(ms);
+			}
+		}
+
+		// 3) Regular multi-shifts (always apply)
+		for (const ms of multiShiftRegular) {
+			results.push(ms);
+		}
+
+		return results;
+	}
+
+	/**
+	 * Get total multi-shift working hours for a given date.
+	 */
+	function getMultiShiftWorkingHoursForDate(dateStr: string): number {
+		const shifts = getMultiShiftsForDate(dateStr);
+		return shifts.reduce((sum, s) => sum + (Number(s.working_hours) || 0), 0);
+	}
+
 	function timeToMinutes(timeStr: string): number {
 		// Convert HH:MM:SS or HH:MM to minutes since midnight
 		const parts = timeStr.split(':');
@@ -1261,11 +1330,17 @@
 
 					// Underworked
 					let underworked = '-';
+					const msHoursExcel = getMultiShiftWorkingHoursForDate(rawDate) * 60;
 					if (pair.workedTime && shift?.working_hours) {
 						const [wH, wM] = pair.workedTime.split(':').map(Number);
 						const workedMins = wH * 60 + wM;
-						const assignedMins = shift.working_hours * 60;
+						const assignedMins = shift.working_hours * 60 + msHoursExcel;
 						const diff = assignedMins - workedMins;
+						if (diff > 0) underworked = `${Math.floor(diff / 60)}${hSuffix} ${diff % 60}${mSuffix}`;
+					} else if (pair.workedTime && msHoursExcel > 0) {
+						const [wH, wM] = pair.workedTime.split(':').map(Number);
+						const workedMins = wH * 60 + wM;
+						const diff = msHoursExcel - workedMins;
 						if (diff > 0) underworked = `${Math.floor(diff / 60)}${hSuffix} ${diff % 60}${mSuffix}`;
 					}
 
@@ -1326,11 +1401,12 @@
 				if (pair.checkInEarlyLateTime?.late > 0) totalLateMins += pair.checkInEarlyLateTime.late;
 				if (pair.workedTime) {
 					const shift = getApplicableShift(pair.checkInDate || pair.checkOutDate || '');
-					if (shift?.working_hours) {
+					const msMins = getMultiShiftWorkingHoursForDate(pair.checkInDate || pair.checkOutDate || '') * 60;
+					const totalAssigned = (shift?.working_hours ? shift.working_hours * 60 : 0) + msMins;
+					if (totalAssigned > 0) {
 						const [wH, wM] = pair.workedTime.split(':').map(Number);
 						const workedMins = wH * 60 + wM;
-						const assignedMins = shift.working_hours * 60;
-						const diff = assignedMins - workedMins;
+						const diff = totalAssigned - workedMins;
 						if (diff > 0) totalUnderworkedMins += diff;
 					}
 				}
@@ -2434,7 +2510,8 @@
 										{#if pair.workedTime}
 											{@const workedMinutes = parseInt(pair.workedTime.split(':')[0]) * 60 + parseInt(pair.workedTime.split(':')[1])}
 											{@const assignedShift = getApplicableShift(pair.checkInDate)}
-											{@const assignedMinutes = assignedShift ? (assignedShift.working_hours || 0) * 60 : 0}
+											{@const msMinutes = getMultiShiftWorkingHoursForDate(pair.checkInDate) * 60}
+											{@const assignedMinutes = (assignedShift ? (assignedShift.working_hours || 0) * 60 : 0) + msMinutes}
 											{@const isWorkedEnough = workedMinutes >= assignedMinutes}
 											{@const underworkedMinutes = assignedMinutes - workedMinutes}
 											{@const underworkedH = Math.floor(underworkedMinutes / 60)}

@@ -519,6 +519,7 @@ export const db = {
       const { data, error } = await supabase
         .from("branches")
         .select("*")
+        .eq("is_active", true)
         .order("name_en");
       return { data, error };
     },

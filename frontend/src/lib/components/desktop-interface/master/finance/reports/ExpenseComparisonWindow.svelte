@@ -171,6 +171,7 @@
 			const { data, error: fetchError } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar, location_en')
+				.eq('is_active', true)
 				.order('name_en');
 
 			if (fetchError) throw fetchError;

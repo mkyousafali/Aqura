@@ -481,6 +481,7 @@
         { id: 'Regular Shift', label: $t('hr.shift.tabs.regular'), icon: '🕒', color: 'green' },
         { id: 'Special Shift (weekday-wise)', label: $t('hr.shift.tabs.special_weekday'), icon: '📅', color: 'orange' },
         { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
+        { id: 'Multi-Shift Setup', label: $t('hr.shift.multiShift.setup_title'), icon: '🔀', color: 'purple' },
         { id: 'Leave (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
         { id: 'Leave (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
         { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' },
@@ -543,6 +544,9 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'nationalities' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'official_holidays' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_official_holidays' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'multi_shift_regular' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'multi_shift_date_wise' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'multi_shift_weekday' }, () => refreshCurrentTabData())
             .subscribe();
     }
 
@@ -567,6 +571,8 @@
             await loadDayOffReasons();
         } else if (activeTab === 'Official Holidays') {
             await loadOfficialHolidays();
+        } else if (activeTab === 'Multi-Shift Setup') {
+            await loadMultiShiftData();
         }
     }
 
@@ -978,7 +984,7 @@
             // Load employees, branches, and day offs ALL in parallel
             const [empResult, branchResult, rpcResult] = await Promise.all([
                 supabase.from('hr_employee_master').select('id, name_en, name_ar, current_branch_id').order('name_en'),
-                supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+                supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true),
                 supabase.rpc('get_day_offs_with_details', {
                     p_date_from: dayOffFilterStart,
                     p_date_to: dayOffFilterEnd
@@ -2906,6 +2912,297 @@
             isSaving = false;
         }
     }
+
+    // ========================================================================
+    // MULTI-SHIFT SECTION
+    // ========================================================================
+
+    interface MultiShiftRecord {
+        id?: number;
+        employee_id: string;
+        employee_name_en?: string;
+        employee_name_ar?: string;
+        branch_name_en?: string;
+        branch_name_ar?: string;
+        shift_start_time: string;
+        shift_start_buffer: number;
+        shift_end_time: string;
+        shift_end_buffer: number;
+        is_shift_overlapping_next_day: boolean;
+        working_hours: number;
+        // For date-wise
+        date_from?: string;
+        date_to?: string;
+        // For weekday
+        weekday?: number;
+    }
+
+    let multiShiftRegularData: MultiShiftRecord[] = [];
+    let multiShiftDateData: MultiShiftRecord[] = [];
+    let multiShiftWeekdayData: MultiShiftRecord[] = [];
+    let multiShiftActiveSubTab: 'regular' | 'date' | 'day' = 'regular';
+    let showMultiShiftModal = false;
+    let multiShiftModalType: 'regular' | 'date' | 'day' = 'regular';
+    let showMultiShiftEmployeeSelectModal = false;
+    let multiShiftEmployeeSearchQuery = '';
+    let multiShiftSelectedEmployeeId: string | null = null;
+    let multiShiftSelectedEmployeeName = '';
+    let isMultiShiftSaving = false;
+    let multiShiftFormData: MultiShiftRecord = {
+        employee_id: '',
+        shift_start_time: '09:00',
+        shift_start_buffer: 0,
+        shift_end_time: '17:00',
+        shift_end_buffer: 0,
+        is_shift_overlapping_next_day: false,
+        working_hours: 8,
+        date_from: new Date().toISOString().split('T')[0],
+        date_to: new Date().toISOString().split('T')[0],
+        weekday: 0
+    };
+    let editingMultiShiftId: number | null = null;
+
+    // 12-hour format for multi-shift modal
+    let msStartHour12 = '09';
+    let msStartMinute12 = '00';
+    let msStartPeriod12 = 'AM';
+    let msEndHour12 = '05';
+    let msEndMinute12 = '00';
+    let msEndPeriod12 = 'PM';
+
+    function updateMsStartTime24h() {
+        let h = parseInt(msStartHour12);
+        if (msStartPeriod12 === 'PM' && h < 12) h += 12;
+        if (msStartPeriod12 === 'AM' && h === 12) h = 0;
+        multiShiftFormData.shift_start_time = `${String(h).padStart(2, '0')}:${msStartMinute12}`;
+    }
+
+    function updateMsEndTime24h() {
+        let h = parseInt(msEndHour12);
+        if (msEndPeriod12 === 'PM' && h < 12) h += 12;
+        if (msEndPeriod12 === 'AM' && h === 12) h = 0;
+        multiShiftFormData.shift_end_time = `${String(h).padStart(2, '0')}:${msEndMinute12}`;
+    }
+
+    function syncMsTimeTo12h() {
+        if (multiShiftFormData.shift_start_time) {
+            const [h, m] = multiShiftFormData.shift_start_time.split(':').map(Number);
+            msStartPeriod12 = h >= 12 ? 'PM' : 'AM';
+            msStartHour12 = String(h % 12 || 12).padStart(2, '0');
+            msStartMinute12 = String(m || 0).padStart(2, '0');
+        }
+        if (multiShiftFormData.shift_end_time) {
+            const [h, m] = multiShiftFormData.shift_end_time.split(':').map(Number);
+            msEndPeriod12 = h >= 12 ? 'PM' : 'AM';
+            msEndHour12 = String(h % 12 || 12).padStart(2, '0');
+            msEndMinute12 = String(m || 0).padStart(2, '0');
+        }
+    }
+
+    function openMultiShiftEmployeeSelect(type: 'regular' | 'date' | 'day') {
+        multiShiftModalType = type;
+        multiShiftEmployeeSearchQuery = '';
+        multiShiftSelectedEmployeeId = null;
+        multiShiftSelectedEmployeeName = '';
+        showMultiShiftEmployeeSelectModal = true;
+    }
+
+    function selectMultiShiftEmployee(emp: EmployeeForSelection) {
+        multiShiftSelectedEmployeeId = emp.id;
+        multiShiftSelectedEmployeeName = $locale === 'ar' ? emp.employee_name_ar : emp.employee_name_en;
+        showMultiShiftEmployeeSelectModal = false;
+        editingMultiShiftId = null;
+        multiShiftFormData = {
+            employee_id: emp.id,
+            shift_start_time: '09:00',
+            shift_start_buffer: 0,
+            shift_end_time: '17:00',
+            shift_end_buffer: 0,
+            is_shift_overlapping_next_day: false,
+            working_hours: 8,
+            date_from: new Date().toISOString().split('T')[0],
+            date_to: new Date().toISOString().split('T')[0],
+            weekday: 0
+        };
+        syncMsTimeTo12h();
+        showMultiShiftModal = true;
+    }
+
+    function openEditMultiShift(record: MultiShiftRecord, type: 'regular' | 'date' | 'day') {
+        multiShiftModalType = type;
+        editingMultiShiftId = record.id || null;
+        multiShiftSelectedEmployeeId = record.employee_id;
+        multiShiftSelectedEmployeeName = $locale === 'ar' ? (record.employee_name_ar || '') : (record.employee_name_en || '');
+        multiShiftFormData = { ...record };
+        syncMsTimeTo12h();
+        showMultiShiftModal = true;
+    }
+
+    function closeMultiShiftModal() {
+        showMultiShiftModal = false;
+        editingMultiShiftId = null;
+    }
+
+    $: multiShiftFilteredEmployees = (() => {
+        if (!allEmployeesForDateWise || allEmployeesForDateWise.length === 0) return [];
+        const q = multiShiftEmployeeSearchQuery.toLowerCase().trim();
+        if (!q) return allEmployeesForDateWise;
+        return allEmployeesForDateWise.filter(e =>
+            e.id.toLowerCase().includes(q) ||
+            e.employee_name_en.toLowerCase().includes(q) ||
+            e.employee_name_ar.toLowerCase().includes(q)
+        );
+    })();
+
+    async function loadMultiShiftData() {
+        loading = true;
+        error = null;
+        try {
+            await initSupabase();
+
+            // Load all employees for selection (reuse existing)
+            if (allEmployeesForDateWise.length === 0) {
+                const { data: empData } = await supabase
+                    .from('hr_employee_master')
+                    .select('id, name_en, name_ar, current_branch_id');
+                const { data: branchData } = await supabase
+                    .from('branches')
+                    .select('id, name_en, name_ar');
+                const branchMap = new Map((branchData || []).map((b: any) => [String(b.id), b]));
+
+                allEmployeesForDateWise = (empData || []).map((e: any) => {
+                    const branch = branchMap.get(String(e.current_branch_id)) as any;
+                    return {
+                        id: e.id,
+                        employee_name_en: e.name_en,
+                        employee_name_ar: e.name_ar,
+                        branch_name_en: branch?.name_en || 'N/A',
+                        branch_name_ar: branch?.name_ar || 'N/A'
+                    };
+                });
+            }
+
+            // Load all three categories
+            const [regRes, dateRes, dayRes] = await Promise.all([
+                supabase.from('multi_shift_regular').select('*').order('employee_id'),
+                supabase.from('multi_shift_date_wise').select('*').order('employee_id'),
+                supabase.from('multi_shift_weekday').select('*').order('employee_id')
+            ]);
+
+            // Enrich with employee names
+            const enrichRecords = (records: any[]): MultiShiftRecord[] => {
+                return (records || []).map((r: any) => {
+                    const emp = allEmployeesForDateWise.find(e => e.id === r.employee_id);
+                    return {
+                        ...r,
+                        employee_name_en: emp?.employee_name_en || r.employee_id,
+                        employee_name_ar: emp?.employee_name_ar || r.employee_id,
+                        branch_name_en: emp?.branch_name_en || '',
+                        branch_name_ar: emp?.branch_name_ar || ''
+                    };
+                });
+            };
+
+            multiShiftRegularData = enrichRecords(regRes.data || []);
+            multiShiftDateData = enrichRecords(dateRes.data || []);
+            multiShiftWeekdayData = enrichRecords(dayRes.data || []);
+        } catch (err) {
+            console.error('Error loading multi-shift data:', err);
+            error = err instanceof Error ? err.message : 'Failed to load multi-shift data';
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function saveMultiShift() {
+        if (!multiShiftFormData.employee_id) {
+            showErrorNotification($t('hr.shift.multiShift.error_select_employee'));
+            return;
+        }
+        if (!multiShiftFormData.working_hours || multiShiftFormData.working_hours <= 0) {
+            showErrorNotification($t('hr.shift.multiShift.error_working_hours'));
+            return;
+        }
+        if (multiShiftModalType === 'date' && multiShiftFormData.date_from && multiShiftFormData.date_to) {
+            if (multiShiftFormData.date_from > multiShiftFormData.date_to) {
+                showErrorNotification($t('hr.shift.multiShift.error_date_range'));
+                return;
+            }
+        }
+
+        isMultiShiftSaving = true;
+        try {
+            await initSupabase();
+
+            const tableName = multiShiftModalType === 'regular' ? 'multi_shift_regular'
+                : multiShiftModalType === 'date' ? 'multi_shift_date_wise'
+                : 'multi_shift_weekday';
+
+            const payload: any = {
+                employee_id: multiShiftFormData.employee_id,
+                shift_start_time: multiShiftFormData.shift_start_time,
+                shift_start_buffer: multiShiftFormData.shift_start_buffer,
+                shift_end_time: multiShiftFormData.shift_end_time,
+                shift_end_buffer: multiShiftFormData.shift_end_buffer,
+                is_shift_overlapping_next_day: multiShiftFormData.is_shift_overlapping_next_day,
+                working_hours: multiShiftFormData.working_hours
+            };
+
+            if (multiShiftModalType === 'date') {
+                payload.date_from = multiShiftFormData.date_from;
+                payload.date_to = multiShiftFormData.date_to;
+            }
+            if (multiShiftModalType === 'day') {
+                payload.weekday = multiShiftFormData.weekday;
+            }
+
+            if (editingMultiShiftId) {
+                const { error: err } = await supabase
+                    .from(tableName)
+                    .update(payload)
+                    .eq('id', editingMultiShiftId);
+                if (err) throw err;
+            } else {
+                const { error: err } = await supabase
+                    .from(tableName)
+                    .insert(payload);
+                if (err) throw err;
+            }
+
+            showMultiShiftModal = false;
+            editingMultiShiftId = null;
+            showSuccessNotification($t('hr.shift.multiShift.success_saved'));
+            await loadMultiShiftData();
+        } catch (err) {
+            console.error('Error saving multi-shift:', err);
+            showErrorNotification($t('hr.shift.multiShift.error_save') + ': ' + (err instanceof Error ? err.message : 'Unknown'));
+        } finally {
+            isMultiShiftSaving = false;
+        }
+    }
+
+    async function deleteMultiShift(id: number, type: 'regular' | 'date' | 'day') {
+        if (!confirm($t('hr.shift.multiShift.delete_confirm'))) return;
+
+        try {
+            await initSupabase();
+            const tableName = type === 'regular' ? 'multi_shift_regular'
+                : type === 'date' ? 'multi_shift_date_wise'
+                : 'multi_shift_weekday';
+
+            const { error: err } = await supabase
+                .from(tableName)
+                .delete()
+                .eq('id', id);
+
+            if (err) throw err;
+            showSuccessNotification($t('hr.shift.multiShift.success_deleted'));
+            await loadMultiShiftData();
+        } catch (err) {
+            console.error('Error deleting multi-shift:', err);
+            showErrorNotification($t('hr.shift.multiShift.error_delete'));
+        }
+    }
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -4294,6 +4591,147 @@
                         </div>
                     </div>
                 {/if}
+            {:else if activeTab === 'Multi-Shift Setup'}
+                <!-- Multi-Shift Setup Tab -->
+                {#if loading}
+                    <div class="flex items-center justify-center h-full">
+                        <div class="text-center">
+                            <div class="animate-spin inline-block">
+                                <div class="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full"></div>
+                            </div>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_employees')}</p>
+                        </div>
+                    </div>
+                {:else}
+                    <!-- Action Buttons -->
+                    <div class="mb-4 flex flex-wrap gap-3">
+                        <button
+                            class="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm text-white bg-purple-600 hover:bg-purple-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md"
+                            on:click={() => openMultiShiftEmployeeSelect('regular')}
+                        >
+                            <span>🔁</span>
+                            {$t('hr.shift.multiShift.add_regular')}
+                        </button>
+                        <button
+                            class="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md"
+                            on:click={() => openMultiShiftEmployeeSelect('date')}
+                        >
+                            <span>📆</span>
+                            {$t('hr.shift.multiShift.add_special_date')}
+                        </button>
+                        <button
+                            class="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm text-white bg-violet-600 hover:bg-violet-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md"
+                            on:click={() => openMultiShiftEmployeeSelect('day')}
+                        >
+                            <span>📅</span>
+                            {$t('hr.shift.multiShift.add_special_day')}
+                        </button>
+                    </div>
+
+                    <!-- Sub-tabs for Regular / Date-wise / Day-wise -->
+                    <div class="mb-4 flex gap-2">
+                        <button
+                            class="px-4 py-2 rounded-lg font-bold text-sm transition-all {multiShiftActiveSubTab === 'regular' ? 'bg-purple-600 text-white shadow-lg' : 'bg-white text-slate-600 border border-slate-200 hover:bg-purple-50'}"
+                            on:click={() => multiShiftActiveSubTab = 'regular'}
+                        >
+                            🔁 {$t('hr.shift.multiShift.regular_tab')} ({multiShiftRegularData.length})
+                        </button>
+                        <button
+                            class="px-4 py-2 rounded-lg font-bold text-sm transition-all {multiShiftActiveSubTab === 'date' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 border border-slate-200 hover:bg-indigo-50'}"
+                            on:click={() => multiShiftActiveSubTab = 'date'}
+                        >
+                            📆 {$t('hr.shift.multiShift.date_tab')} ({multiShiftDateData.length})
+                        </button>
+                        <button
+                            class="px-4 py-2 rounded-lg font-bold text-sm transition-all {multiShiftActiveSubTab === 'day' ? 'bg-violet-600 text-white shadow-lg' : 'bg-white text-slate-600 border border-slate-200 hover:bg-violet-50'}"
+                            on:click={() => multiShiftActiveSubTab = 'day'}
+                        >
+                            📅 {$t('hr.shift.multiShift.day_tab')} ({multiShiftWeekdayData.length})
+                        </button>
+                    </div>
+
+                    <!-- Multi-Shift Table -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+                        {#if (multiShiftActiveSubTab === 'regular' ? multiShiftRegularData : multiShiftActiveSubTab === 'date' ? multiShiftDateData : multiShiftWeekdayData).length === 0}
+                            <div class="flex items-center justify-center h-64">
+                                <div class="text-center">
+                                    <div class="text-5xl mb-4">📭</div>
+                                    <p class="text-slate-600 font-semibold">{$t('hr.shift.multiShift.no_multi_shifts')}</p>
+                                    <p class="text-slate-400 text-sm mt-2">{$t('hr.shift.multiShift.click_to_add')}</p>
+                                </div>
+                            </div>
+                        {:else}
+                            <div class="overflow-x-auto flex-1">
+                                <table class="w-full border-collapse [&_th]:border-x [&_th]:border-purple-500/30 [&_td]:border-x [&_td]:border-slate-200">
+                                    <thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
+                                        <tr>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.employee')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.start')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.end')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.hours')}</th>
+                                            {#if multiShiftActiveSubTab === 'date'}
+                                                <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.date_from')}</th>
+                                                <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.date_to')}</th>
+                                            {/if}
+                                            {#if multiShiftActiveSubTab === 'day'}
+                                                <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.select_day')}</th>
+                                            {/if}
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.overlap')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.shift.multiShift.actions')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-200">
+                                        {#each (multiShiftActiveSubTab === 'regular' ? multiShiftRegularData : multiShiftActiveSubTab === 'date' ? multiShiftDateData : multiShiftWeekdayData) as record, index}
+                                            <tr class="hover:bg-purple-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    <div>{$locale === 'ar' ? (record.employee_name_ar || record.employee_name_en) : (record.employee_name_en || record.employee_id)}</div>
+                                                    <div class="text-xs text-slate-400">{record.employee_id}</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center font-mono">
+                                                    <div class="text-slate-800">{formatTimeTo12Hour(record.shift_start_time)}</div>
+                                                    <div class="text-xs text-slate-400">{$t('hr.shift.multiShift.buffer')}: {record.shift_start_buffer}h</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center font-mono">
+                                                    <div class="text-slate-800">{formatTimeTo12Hour(record.shift_end_time)}</div>
+                                                    <div class="text-xs text-slate-400">{$t('hr.shift.multiShift.buffer')}: {record.shift_end_buffer}h</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="font-bold text-purple-700">{record.working_hours}h</span>
+                                                </td>
+                                                {#if multiShiftActiveSubTab === 'date'}
+                                                    <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{record.date_from}</td>
+                                                    <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{record.date_to}</td>
+                                                {/if}
+                                                {#if multiShiftActiveSubTab === 'day'}
+                                                    <td class="px-4 py-3 text-sm text-center font-semibold text-slate-700">{weekdayNames[record.weekday || 0]}</td>
+                                                {/if}
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black {record.is_shift_overlapping_next_day ? 'bg-purple-200 text-purple-800' : 'bg-slate-200 text-slate-800'}">
+                                                        {record.is_shift_overlapping_next_day ? '✓ Yes' : '✗ No'}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <div class="flex items-center justify-center gap-2">
+                                                        <button
+                                                            class="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-all"
+                                                            on:click={() => openEditMultiShift(record, multiShiftActiveSubTab)}
+                                                            title={$t('hr.shift.edit_tooltip')}
+                                                        >✏️</button>
+                                                        <button
+                                                            class="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-all"
+                                                            on:click={() => deleteMultiShift(record.id || 0, multiShiftActiveSubTab)}
+                                                            title={$t('hr.shift.delete_tooltip')}
+                                                        >🗑️</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
             {:else}
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200 transition-all duration-700 hover:bg-white/60">
                     <div class="relative mb-10">
@@ -5638,6 +6076,268 @@
                     on:click={() => showNotification = false}
                 >
                     {$t('common.ok') || 'OK'}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- ======================================================================== -->
+<!-- MULTI-SHIFT EMPLOYEE SELECT MODAL -->
+<!-- ======================================================================== -->
+{#if showMultiShiftEmployeeSelectModal}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 bg-gradient-to-r from-purple-600 to-purple-500 text-white">
+                <h3 class="text-lg font-bold">{$t('hr.shift.multiShift.select_employee')}</h3>
+                <p class="text-purple-100 text-sm mt-1">{$t('hr.shift.multiShift.choose_employee')}</p>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="px-6 py-4 space-y-4">
+                <!-- Search Input -->
+                <div>
+                    <label for="ms-employee-search" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.search_employee')}</label>
+                    <input
+                        id="ms-employee-search"
+                        type="text"
+                        placeholder={$t('hr.shift.multiShift.search_employee')}
+                        bind:value={multiShiftEmployeeSearchQuery}
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                </div>
+
+                <!-- Employee List -->
+                <div class="max-h-80 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                    {#each multiShiftFilteredEmployees as emp}
+                        <button
+                            class="w-full px-4 py-3 text-left hover:bg-purple-50 transition-colors flex items-center justify-between"
+                            on:click={() => selectMultiShiftEmployee(emp)}
+                        >
+                            <div>
+                                <div class="font-semibold text-slate-800">{$locale === 'ar' ? emp.employee_name_ar : emp.employee_name_en}</div>
+                                <div class="text-xs text-slate-500">{emp.id} • {$locale === 'ar' ? emp.branch_name_ar : emp.branch_name_en}</div>
+                            </div>
+                            <span class="text-purple-500 text-lg">→</span>
+                        </button>
+                    {:else}
+                        <div class="p-4 text-center text-slate-400">{$t('hr.shift.multiShift.no_employees_found')}</div>
+                    {/each}
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                    class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={() => showMultiShiftEmployeeSelectModal = false}
+                >
+                    {$t('common.cancel')}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- ======================================================================== -->
+<!-- MULTI-SHIFT CONFIGURATION MODAL -->
+<!-- ======================================================================== -->
+{#if showMultiShiftModal}
+    <div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in scale-in duration-300 origin-center">
+            <!-- Modal Header -->
+            <div class="bg-gradient-to-r {multiShiftModalType === 'regular' ? 'from-purple-600 to-purple-500' : multiShiftModalType === 'date' ? 'from-indigo-600 to-indigo-500' : 'from-violet-600 to-violet-500'} px-6 py-4">
+                <h3 class="text-xl font-black text-white">
+                    {multiShiftModalType === 'regular' ? $t('hr.shift.multiShift.configure_regular') : multiShiftModalType === 'date' ? $t('hr.shift.multiShift.configure_special_date') : $t('hr.shift.multiShift.configure_special_day')}
+                </h3>
+                <p class="text-purple-100 text-sm mt-1">{$t('hr.employeeId')}: {multiShiftSelectedEmployeeId} — {multiShiftSelectedEmployeeName}</p>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <!-- Date From / Date To (for date type) -->
+                {#if multiShiftModalType === 'date'}
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="ms-date-from" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.date_from')}</label>
+                            <input
+                                id="ms-date-from"
+                                type="date"
+                                bind:value={multiShiftFormData.date_from}
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                        <div>
+                            <label for="ms-date-to" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.date_to')}</label>
+                            <input
+                                id="ms-date-to"
+                                type="date"
+                                bind:value={multiShiftFormData.date_to}
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                    </div>
+                {/if}
+
+                <!-- Select Day (for day type) -->
+                {#if multiShiftModalType === 'day'}
+                    <div>
+                        <label for="ms-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.select_day')}</label>
+                        <select
+                            id="ms-weekday-select"
+                            bind:value={multiShiftFormData.weekday}
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                            style="color: #000000 !important; background-color: #ffffff !important;"
+                        >
+                            {#each weekdayNames as day, index}
+                                <option value={index} style="color: #000000 !important; background-color: #ffffff !important;">{day}</option>
+                            {/each}
+                        </select>
+                    </div>
+                {/if}
+
+                <!-- Start Time -->
+                <div>
+                    <label for="ms-start-time" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.shift_start_time')}</label>
+                    <div class="flex gap-2">
+                        <select
+                            bind:value={msStartHour12}
+                            on:change={updateMsStartTime24h}
+                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}
+                                <option value={h}>{h}</option>
+                            {/each}
+                        </select>
+                        <select
+                            bind:value={msStartMinute12}
+                            on:change={updateMsStartTime24h}
+                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}
+                                <option value={m}>{m}</option>
+                            {/each}
+                        </select>
+                        <select
+                            bind:value={msStartPeriod12}
+                            on:change={updateMsStartTime24h}
+                            class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            <option value="AM">{$t('common.am')}</option>
+                            <option value="PM">{$t('common.pm')}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Start Buffer Hours -->
+                <div>
+                    <label for="ms-start-buffer" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.start_buffer_hours')}</label>
+                    <input
+                        id="ms-start-buffer"
+                        type="number"
+                        bind:value={multiShiftFormData.shift_start_buffer}
+                        step="0.5"
+                        min="0"
+                        max="24"
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                </div>
+
+                <!-- Last Punch Time (End Time) -->
+                <div>
+                    <label for="ms-end-time" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.last_punch_time')}</label>
+                    <div class="flex gap-2">
+                        <select
+                            bind:value={msEndHour12}
+                            on:change={updateMsEndTime24h}
+                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}
+                                <option value={h}>{h}</option>
+                            {/each}
+                        </select>
+                        <select
+                            bind:value={msEndMinute12}
+                            on:change={updateMsEndTime24h}
+                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}
+                                <option value={m}>{m}</option>
+                            {/each}
+                        </select>
+                        <select
+                            bind:value={msEndPeriod12}
+                            on:change={updateMsEndTime24h}
+                            class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                            <option value="AM">{$t('common.am')}</option>
+                            <option value="PM">{$t('common.pm')}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- End Buffer Hours -->
+                <div>
+                    <label for="ms-end-buffer" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.end_buffer_hours')}</label>
+                    <input
+                        id="ms-end-buffer"
+                        type="number"
+                        bind:value={multiShiftFormData.shift_end_buffer}
+                        step="0.5"
+                        min="0"
+                        max="24"
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                </div>
+
+                <!-- Overlapping Next Day -->
+                <div class="flex items-center gap-3 py-2">
+                    <input
+                        type="checkbox"
+                        bind:checked={multiShiftFormData.is_shift_overlapping_next_day}
+                        id="ms-overlapping"
+                        class="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                    />
+                    <label for="ms-overlapping" class="text-sm font-bold text-slate-700 cursor-pointer">
+                        {$t('hr.shift.multiShift.overlapping_next_day')}
+                    </label>
+                </div>
+
+                <!-- Working Hours (Required) -->
+                <div>
+                    <label for="ms-working-hours" class="block text-sm font-bold text-slate-700 mb-2">
+                        {$t('hr.shift.multiShift.working_hours')} <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                        id="ms-working-hours"
+                        type="number"
+                        bind:value={multiShiftFormData.working_hours}
+                        step="0.5"
+                        min="0.5"
+                        max="24"
+                        placeholder={$t('hr.shift.multiShift.working_hours_placeholder')}
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        required
+                    />
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3 justify-end">
+                <button
+                    class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    on:click={closeMultiShiftModal}
+                    disabled={isMultiShiftSaving}
+                >
+                    {$t('common.cancel')}
+                </button>
+                <button
+                    class="px-6 py-2 rounded-lg font-black text-white {multiShiftModalType === 'regular' ? 'bg-purple-600 hover:bg-purple-700' : multiShiftModalType === 'date' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-violet-600 hover:bg-violet-700'} hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                    on:click={saveMultiShift}
+                    disabled={isMultiShiftSaving}
+                >
+                    {isMultiShiftSaving ? $t('hr.shift.multiShift.saving') : $t('hr.shift.multiShift.save')}
                 </button>
             </div>
         </div>

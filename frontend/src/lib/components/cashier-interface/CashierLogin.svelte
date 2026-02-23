@@ -32,6 +32,7 @@
 			const { data, error: branchError } = await supabase
 				.from('branches')
 				.select('id, name_ar, name_en, location_ar, location_en')
+				.eq('is_active', true)
 				.order('name_en');
 			
 			if (branchError) throw branchError;
