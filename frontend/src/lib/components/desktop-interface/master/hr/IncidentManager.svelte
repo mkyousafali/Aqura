@@ -232,8 +232,8 @@
                 : incident.user_statuses;
             
             const currentUserStatus = userStatuses[currentUserID];
-            // Only return true if THIS user has claimed the incident
-            if (currentUserStatus?.status?.toLowerCase() === 'claimed') {
+            // Only return true if THIS user has claimed the incident (check claimed_at as fallback)
+            if (currentUserStatus?.status?.toLowerCase() === 'claimed' || currentUserStatus?.claimed_at) {
                 return true;
             }
         }
@@ -250,7 +250,7 @@
             const userStatuses = typeof incident.user_statuses === 'string'
                 ? JSON.parse(incident.user_statuses)
                 : incident.user_statuses;
-            return Object.values(userStatuses).some((s: any) => s.status?.toLowerCase() === 'claimed');
+            return Object.values(userStatuses).some((s: any) => s.status?.toLowerCase() === 'claimed' || s.claimed_at);
         }
         return false;
     }

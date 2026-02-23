@@ -5,6 +5,7 @@
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db, getStoragePublicUrl } from '$lib/utils/supabase';
 	import { notifications } from '$lib/stores/notifications';
+	import { locale } from '$lib/i18n';
 
 	// Get task ID from URL params
 	let taskId = '';
@@ -19,6 +20,24 @@
 	let taskFiles: any[] = [];
 	let assignedByUserName = '';
 	let assignedToUserName = '';
+
+	// Shelf tag change task state
+	let isPriceChangeTask = false;
+	let showShelfTagModal = false;
+	let shelfTagBranchUsers: any[] = [];
+	let shelfTagSelectedUsers: string[] = [];
+	let shelfTagLoading = false;
+	let shelfTagTaskCreated = false;
+	let shelfTagTaskCompleted = false;
+	let shelfTagTaskId: string | null = null;
+	let loadingBranchUsers = false;
+	let shelfTagSearchQuery = '';
+
+	$: filteredShelfTagUsers = shelfTagBranchUsers.filter((u: any) => {
+		if (!shelfTagSearchQuery.trim()) return true;
+		const q = shelfTagSearchQuery.toLowerCase();
+		return (u.name_en || '').toLowerCase().includes(q) || (u.name_ar || '').includes(q);
+	});
 
 	// Live countdown state
 	let liveCountdown = '';
@@ -127,6 +146,9 @@
 			taskDetails = taskData;
 			
 			console.log('📋 [Mobile Complete] Task Details:', taskDetails);
+
+			// Detect price change tasks
+			isPriceChangeTask = taskDetails.issue_type === 'price_change';
 			
 			// Load quick task files
 			const { data: filesData, error: filesError } = await supabase
@@ -189,6 +211,11 @@
 				// Set assigned to user name
 				assignedToUserName = currentUserData.username || 'Unknown User';
 				
+				// Check for existing shelf tag task if this is a price change task
+				if (isPriceChangeTask) {
+					await checkShelfTagTask();
+				}
+
 				// Start the live countdown timer
 				startCountdownTimer();
 			}
@@ -432,9 +459,214 @@
 		}
 		return paths;
 	}
-	
+
+	// === Shelf Tag Change Task Functions ===
+	async function checkShelfTagTask() {
+		if (!taskId) return;
+		try {
+			const { data, error } = await supabase
+				.from('quick_tasks')
+				.select('id, status')
+				.eq('issue_type', 'shelf_tag_change')
+				.ilike('description', `%linked_parent_task:${taskId}%`)
+				.limit(1);
+			
+			if (!error && data && data.length > 0) {
+				shelfTagTaskCreated = true;
+				shelfTagTaskId = data[0].id;
+				shelfTagTaskCompleted = data[0].status === 'completed';
+			}
+		} catch (err) {
+			console.error('Error checking shelf tag task:', err);
+		}
+	}
+
+	async function openShelfTagModal() {
+		showShelfTagModal = true;
+		if (shelfTagBranchUsers.length === 0) {
+			loadingBranchUsers = true;
+			try {
+				// Try task's branch first, then fall back to current user's branch
+				let branchId = taskDetails?.assigned_to_branch_id;
+				if (!branchId && currentUserData?.id) {
+					const { data: empData } = await supabase
+						.from('hr_employee_master')
+						.select('current_branch_id')
+						.eq('user_id', currentUserData.id)
+						.single();
+					if (empData?.current_branch_id) {
+						branchId = empData.current_branch_id;
+					}
+				}
+				if (!branchId) {
+					console.error('No branch ID found');
+					loadingBranchUsers = false;
+					return;
+				}
+				const { data, error } = await supabase
+					.from('hr_employee_master')
+					.select('user_id, name_en, name_ar, hr_positions(position_title_en, position_title_ar)')
+					.eq('current_branch_id', branchId)
+					.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+					.not('user_id', 'is', null)
+					.order('name_en');
+				
+				if (!error && data) {
+					shelfTagBranchUsers = data.filter((u: any) => u.user_id);
+				}
+			} catch (err) {
+				console.error('Error loading branch users:', err);
+			} finally {
+				loadingBranchUsers = false;
+			}
+		}
+	}
+
+	function toggleShelfTagUser(userId: string) {
+		if (shelfTagSelectedUsers.includes(userId)) {
+			shelfTagSelectedUsers = shelfTagSelectedUsers.filter(id => id !== userId);
+		} else {
+			shelfTagSelectedUsers = [...shelfTagSelectedUsers, userId];
+		}
+	}
+
+	function selectAllShelfTagUsers() {
+		if (shelfTagSelectedUsers.length === shelfTagBranchUsers.length) {
+			shelfTagSelectedUsers = [];
+		} else {
+			shelfTagSelectedUsers = shelfTagBranchUsers.map((u: any) => u.user_id);
+		}
+	}
+
+	async function createShelfTagTask() {
+		if (shelfTagSelectedUsers.length === 0 || !currentUserData) return;
+		shelfTagLoading = true;
+		try {
+			const parentTitle = taskDetails?.title || 'Price Change';
+			const newTask = {
+				title: `🏷️ Change Shelf Tags - ${parentTitle}`,
+				description: `Change the shelf price tags for the price change task.\nlinked_parent_task:${taskId}`,
+				issue_type: 'shelf_tag_change',
+				priority: taskDetails?.priority || 'medium',
+				assigned_by: currentUserData.id,
+				assigned_to_branch_id: taskDetails?.assigned_to_branch_id,
+				status: 'pending',
+				require_task_finished: true,
+				require_photo_upload: true,
+				require_erp_reference: false,
+				deadline_datetime: taskDetails?.deadline_datetime || null
+			};
+
+			const { data: createdTask, error: taskError } = await supabase
+				.from('quick_tasks')
+				.insert(newTask)
+				.select('id')
+				.single();
+
+			if (taskError) throw taskError;
+
+			const assignments = shelfTagSelectedUsers.map(userId => ({
+				quick_task_id: createdTask.id,
+				assigned_to_user_id: userId,
+				status: 'pending',
+				require_task_finished: true,
+				require_photo_upload: true,
+				require_erp_reference: false
+			}));
+
+			const { error: assignError } = await supabase
+				.from('quick_task_assignments')
+				.insert(assignments);
+
+			if (assignError) throw assignError;
+
+			shelfTagTaskCreated = true;
+			shelfTagTaskId = createdTask.id;
+			shelfTagTaskCompleted = false;
+			showShelfTagModal = false;
+
+			notifications.add({
+				type: 'success',
+				message: $locale === 'ar'
+					? `تم إنشاء مهمة تغيير بطاقة الرف وتعيينها لـ ${shelfTagSelectedUsers.length} موظف`
+					: `Shelf tag change task created and assigned to ${shelfTagSelectedUsers.length} user(s)`,
+				duration: 4000
+			});
+		} catch (err) {
+			console.error('Error creating shelf tag task:', err);
+			notifications.add({
+				type: 'error',
+				message: $locale === 'ar'
+					? 'فشل إنشاء مهمة تغيير بطاقة الرف'
+					: 'Failed to create shelf tag change task',
+				duration: 4000
+			});
+		} finally {
+			shelfTagLoading = false;
+		}
+	}
+
+	async function refreshShelfTagStatus() {
+		if (!shelfTagTaskId) return;
+		try {
+			const { data, error } = await supabase
+				.from('quick_tasks')
+				.select('status')
+				.eq('id', shelfTagTaskId)
+				.single();
+			
+			if (!error && data) {
+				shelfTagTaskCompleted = data.status === 'completed';
+				if (shelfTagTaskCompleted) {
+					notifications.add({
+						type: 'success',
+						message: $locale === 'ar'
+							? 'تم إكمال مهمة تغيير بطاقة الرف! يمكنك الآن إكمال مهمة تغيير السعر.'
+							: 'Shelf tag change task completed! You can now complete the price change task.',
+						duration: 4000
+					});
+				}
+			}
+		} catch (err) {
+			console.error('Error refreshing shelf tag status:', err);
+		}
+	}
+
 	async function submitCompletion() {
 		if (!currentUserData || !canSubmit) return;
+
+		// Block completion if shelf tag task is not assigned or not completed
+		if (isPriceChangeTask) {
+			if (!shelfTagTaskCreated) {
+				errorMessage = $locale === 'ar'
+					? 'يجب تعيين مهمة تغيير بطاقة الرف أولاً قبل إكمال مهمة تغيير السعر.'
+					: 'You must assign a shelf tag change task before completing the price change task.';
+				notifications.add({
+					type: 'error',
+					message: $locale === 'ar'
+						? 'يجب تعيين مهمة تغيير بطاقة الرف أولاً.'
+						: 'You must assign a shelf tag change task first.',
+					duration: 4000
+				});
+				return;
+			}
+			if (shelfTagTaskId) {
+				await refreshShelfTagStatus();
+			}
+			if (!shelfTagTaskCompleted) {
+				errorMessage = $locale === 'ar'
+					? 'لا يمكن إكمال مهمة تغيير السعر حتى يتم إكمال مهمة تغيير بطاقة الرف.'
+					: 'Cannot complete price change task until the shelf tag change task is completed.';
+				notifications.add({
+					type: 'error',
+					message: $locale === 'ar'
+						? 'يجب إكمال مهمة تغيير بطاقة الرف أولاً.'
+						: 'Shelf tag change task must be completed first.',
+					duration: 4000
+				});
+				return;
+			}
+		}
 		
 		// Check if this is an incident follow-up task that requires incident resolution first
 		if (taskDetails?.issue_type === 'incident_followup' && taskDetails?.incident_id) {
@@ -559,9 +791,12 @@
 								? JSON.parse(incident.user_statuses)
 								: (incident.user_statuses || {});
 							
+							// Don't overwrite 'claimed' status with 'acknowledged'
+							const existingStatus = userStatuses[currentUserData.id];
+							const wasClaimed = existingStatus?.status?.toLowerCase() === 'claimed' || existingStatus?.claimed_at;
 							userStatuses[currentUserData.id] = {
-								...userStatuses[currentUserData.id],
-								status: 'acknowledged',
+								...existingStatus,
+								status: wasClaimed ? 'claimed' : 'acknowledged',
 								acknowledged_at: new Date().toISOString()
 							};
 							
@@ -694,6 +929,35 @@
 			<div class="message success">
 				<span class="icon">✅</span>
 				{successMessage}
+			</div>
+		{/if}
+
+		<!-- Shelf Tag Change Task Section (for price_change tasks) -->
+		{#if isPriceChangeTask}
+			<div class="shelf-tag-section-mobile">
+				<h4>🏷️ {$locale === 'ar' ? 'مهمة تغيير بطاقة الرف' : 'Shelf Tag Change Task'}</h4>
+				<p class="shelf-tag-desc-mobile">
+					{$locale === 'ar'
+						? 'يجب تعيين وإكمال مهمة تغيير بطاقة الرف قبل إكمال مهمة تغيير السعر.'
+						: 'A shelf tag change task must be assigned and completed before completing this price change task.'}
+				</p>
+
+				{#if shelfTagTaskCreated}
+					<div class="shelf-tag-status-mobile">
+						{#if shelfTagTaskCompleted}
+							<span class="shelf-badge completed">✅ {$locale === 'ar' ? 'مكتملة' : 'Completed'}</span>
+						{:else}
+							<span class="shelf-badge pending">⏳ {$locale === 'ar' ? 'قيد الانتظار' : 'Pending'}</span>
+							<button type="button" class="btn-refresh-mobile" on:click={refreshShelfTagStatus}>
+								🔄 {$locale === 'ar' ? 'تحديث' : 'Refresh'}
+							</button>
+						{/if}
+					</div>
+				{:else}
+					<button type="button" class="btn-shelf-tag-mobile" on:click={openShelfTagModal}>
+						🏷️ {$locale === 'ar' ? 'تعيين مهمة تغيير بطاقة الرف' : 'Assign Shelf Tag Change Task'}
+					</button>
+				{/if}
 			</div>
 		{/if}
 
@@ -835,6 +1099,99 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Shelf Tag User Selection Modal (Mobile) -->
+{#if showShelfTagModal}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="shelf-modal-overlay-mobile" on:click={() => showShelfTagModal = false}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="shelf-modal-mobile" on:click|stopPropagation>
+			<div class="shelf-modal-header-mobile">
+				<h3>🏷️ {$locale === 'ar' ? 'تعيين مهمة تغيير بطاقة الرف' : 'Assign Shelf Tag Change'}</h3>
+				<button class="shelf-modal-close-mobile" on:click={() => showShelfTagModal = false}>✕</button>
+			</div>
+			<div class="shelf-modal-body-mobile">
+				<p class="shelf-modal-desc-mobile">
+					{$locale === 'ar'
+						? 'اختر الموظفين لتعيين مهمة تغيير بطاقة الرف.'
+						: 'Select employees to assign the shelf tag change task.'}
+				</p>
+
+				{#if loadingBranchUsers}
+					<div class="shelf-loading-mobile">
+						<div class="loading-spinner"></div>
+						<p>{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
+					</div>
+				{:else if shelfTagBranchUsers.length === 0}
+					<p class="no-users-msg-mobile">{$locale === 'ar' ? 'لا يوجد موظفين' : 'No employees found'}</p>
+				{:else}
+					<div class="shelf-search-box-mobile">
+						<input
+							type="text"
+							placeholder={$locale === 'ar' ? '🔍 بحث...' : '🔍 Search...'}
+							bind:value={shelfTagSearchQuery}
+							class="shelf-search-input-mobile"
+						/>
+					</div>
+					<div class="shelf-user-controls-mobile">
+						<button type="button" class="btn-select-all-mobile" on:click={selectAllShelfTagUsers}>
+							{shelfTagSelectedUsers.length === shelfTagBranchUsers.length
+								? ($locale === 'ar' ? 'إلغاء الكل' : 'Deselect All')
+								: ($locale === 'ar' ? 'تحديد الكل' : 'Select All')}
+						</button>
+						<span class="selected-count-mobile">
+							{shelfTagSelectedUsers.length}/{shelfTagBranchUsers.length}
+						</span>
+					</div>
+					<div class="shelf-user-list-mobile">
+						{#each filteredShelfTagUsers as user}
+							<button
+								type="button"
+								class="shelf-user-item-mobile"
+								class:selected={shelfTagSelectedUsers.includes(user.user_id)}
+								on:click={() => toggleShelfTagUser(user.user_id)}
+							>
+								<div class="user-checkbox-mobile">
+									{#if shelfTagSelectedUsers.includes(user.user_id)}
+										<span class="check-mobile">✓</span>
+									{/if}
+								</div>
+								<div class="user-info-mobile">
+									<span class="user-name-mobile">{$locale === 'ar' ? (user.name_ar || user.name_en) : user.name_en}</span>
+									{#if user.hr_positions}
+										<span class="user-position-mobile">
+											{$locale === 'ar' ? (user.hr_positions.position_title_ar || user.hr_positions.position_title_en || '') : (user.hr_positions.position_title_en || '')}
+										</span>
+									{/if}
+								</div>
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+			<div class="shelf-modal-footer-mobile">
+				<button type="button" class="btn-cancel-modal-mobile" on:click={() => showShelfTagModal = false}>
+					{$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+				</button>
+				<button
+					type="button"
+					class="btn-submit-modal-mobile"
+					on:click={createShelfTagTask}
+					disabled={shelfTagLoading || shelfTagSelectedUsers.length === 0}
+				>
+					{#if shelfTagLoading}
+						<div class="btn-spinner"></div>
+						{$locale === 'ar' ? 'جاري الإنشاء...' : 'Creating...'}
+					{:else}
+						🏷️ {$locale === 'ar' ? `تعيين (${shelfTagSelectedUsers.length})` : `Assign (${shelfTagSelectedUsers.length})`}
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.mobile-task-completion {
@@ -1282,5 +1639,321 @@
 		.actions {
 			padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 		}
+	}
+
+	/* Shelf Tag Section (Mobile) */
+	.shelf-tag-section-mobile {
+		margin: 0 0.75rem 0.75rem;
+		background: #eff6ff;
+		border: 2px solid #60a5fa;
+		border-radius: 12px;
+		padding: 14px;
+	}
+
+	.shelf-tag-section-mobile h4 {
+		margin: 0 0 6px 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #1e40af;
+	}
+
+	.shelf-tag-desc-mobile {
+		font-size: 12px;
+		color: #3b82f6;
+		margin: 0 0 12px 0;
+		line-height: 1.4;
+	}
+
+	.shelf-tag-status-mobile {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+
+	.shelf-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 5px 12px;
+		border-radius: 16px;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.shelf-badge.completed {
+		background: #d1fae5;
+		color: #065f46;
+		border: 1px solid #6ee7b7;
+	}
+
+	.shelf-badge.pending {
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #fbbf24;
+	}
+
+	.btn-refresh-mobile {
+		padding: 5px 10px;
+		background: white;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+
+	.btn-shelf-tag-mobile {
+		width: 100%;
+		padding: 12px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+	}
+
+	.btn-shelf-tag-mobile:active {
+		background: #2563eb;
+	}
+
+	/* Shelf Tag Modal (Mobile) */
+	.shelf-modal-overlay-mobile {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		z-index: 10000;
+	}
+
+	.shelf-modal-mobile {
+		background: white;
+		border-radius: 16px 16px 0 0;
+		width: 100%;
+		max-height: 85vh;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+	}
+
+	.shelf-modal-header-mobile {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 14px 16px;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.shelf-modal-header-mobile h3 {
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.shelf-modal-close-mobile {
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: none;
+		font-size: 18px;
+		color: #6b7280;
+		cursor: pointer;
+		border-radius: 50%;
+	}
+
+	.shelf-modal-close-mobile:active {
+		background: #f3f4f6;
+	}
+
+	.shelf-modal-body-mobile {
+		flex: 1;
+		padding: 14px 16px;
+		overflow-y: auto;
+	}
+
+	.shelf-modal-desc-mobile {
+		font-size: 12px;
+		color: #6b7280;
+		margin: 0 0 12px 0;
+		line-height: 1.4;
+	}
+
+	.shelf-loading-mobile {
+		text-align: center;
+		padding: 16px;
+		color: #6b7280;
+	}
+
+	.no-users-msg-mobile {
+		text-align: center;
+		color: #9ca3af;
+		font-size: 13px;
+		padding: 16px;
+	}
+
+	.shelf-search-box-mobile {
+		margin-bottom: 10px;
+	}
+
+	.shelf-search-input-mobile {
+		width: 100%;
+		padding: 9px 12px;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		font-size: 14px;
+		outline: none;
+		transition: border-color 0.2s;
+		box-sizing: border-box;
+	}
+
+	.shelf-search-input-mobile:focus {
+		border-color: #3b82f6;
+	}
+
+	.shelf-user-controls-mobile {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 10px;
+	}
+
+	.btn-select-all-mobile {
+		padding: 6px 12px;
+		background: #f3f4f6;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+
+	.selected-count-mobile {
+		font-size: 12px;
+		color: #6b7280;
+		font-weight: 500;
+	}
+
+	.shelf-user-list-mobile {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		max-height: 40vh;
+		overflow-y: auto;
+	}
+
+	.shelf-user-item-mobile {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 12px;
+		background: #f9fafb;
+		border: 2px solid #e5e7eb;
+		border-radius: 10px;
+		cursor: pointer;
+		text-align: left;
+		width: 100%;
+	}
+
+	.shelf-user-item-mobile:active {
+		background: #eff6ff;
+	}
+
+	.shelf-user-item-mobile.selected {
+		border-color: #3b82f6;
+		background: #eff6ff;
+	}
+
+	.user-checkbox-mobile {
+		width: 22px;
+		height: 22px;
+		border: 2px solid #d1d5db;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.shelf-user-item-mobile.selected .user-checkbox-mobile {
+		background: #3b82f6;
+		border-color: #3b82f6;
+	}
+
+	.check-mobile {
+		color: white;
+		font-size: 13px;
+		font-weight: 700;
+	}
+
+	.user-info-mobile {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.user-name-mobile {
+		font-size: 13px;
+		font-weight: 500;
+		color: #111827;
+	}
+
+	.user-position-mobile {
+		font-size: 11px;
+		color: #6b7280;
+	}
+
+	.shelf-modal-footer-mobile {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+		padding: 12px 16px;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.btn-cancel-modal-mobile {
+		padding: 10px 16px;
+		background: white;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 13px;
+		cursor: pointer;
+	}
+
+	.btn-submit-modal-mobile {
+		padding: 10px 16px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.btn-submit-modal-mobile:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-submit-modal-mobile:active:not(:disabled) {
+		background: #2563eb;
 	}
 </style>
