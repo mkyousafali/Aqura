@@ -686,7 +686,7 @@
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
 		if (path === '/mobile-interface/start-receiving' || path === '/mobile-interface/start-receiving/') return locale === 'ar' ? 'بدء الاستلام' : 'Start Receiving';
 		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
-		if (path === '/mobile-interface/live-chat' || path === '/mobile-interface/live-chat/') return locale === 'ar' ? 'دعم برنامج الولاء' : 'Loyalty Program Support';
+		if (path === '/mobile-interface/support' || path === '/mobile-interface/support/') return locale === 'ar' ? 'الدعم' : 'Support';
 		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
 		
 		// Sub-pages
@@ -1072,7 +1072,7 @@
 
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/live-chat')}>
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/support')}>
 					{#if incidentCount > 0}
 						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
 					{/if}
@@ -1119,11 +1119,11 @@
 						</a>
 						{#if hasLiveChatPermission}
 							<!-- Loyalty Program Support -->
-							<a href="/mobile-interface/live-chat" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/live-chat')}>
+							<a href="/mobile-interface/support" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/support')}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'دعم برنامج الولاء' : 'Loyalty Program Support'}</span>
+								<span>{$currentLocale === 'ar' ? 'الدعم' : 'Support'}</span>
 								{#if $waUnreadCounts.total > 0}
 									<span class="wa-unread-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
 								{/if}
