@@ -90,9 +90,12 @@
                 ? JSON.parse(incident.user_statuses) 
                 : (incident.user_statuses || {});
             
-            // Update current user's status to acknowledged
+            // Update current user's status to acknowledged (but don't overwrite 'claimed' status)
+            const currentStatus = userStatusesObj[$currentUser.id];
+            const isClaimed = currentStatus?.status?.toLowerCase() === 'claimed' || currentStatus?.claimed_at;
             userStatusesObj[$currentUser.id] = {
-                status: 'acknowledged',
+                ...currentStatus,
+                status: isClaimed ? 'claimed' : 'acknowledged',
                 acknowledged_at: new Date().toISOString(),
                 acknowledgment_notes: acknowledgmentNotes,
                 acknowledgment_image_url: uploadedImageUrl

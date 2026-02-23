@@ -122,7 +122,7 @@
 				? JSON.parse(data.user_statuses)
 				: (data.user_statuses || {});
 			const claimedUserId = Object.keys(userStatuses).find(
-				uid => userStatuses[uid]?.status?.toLowerCase() === 'claimed'
+				uid => userStatuses[uid]?.claimed_at
 			);
 			if (claimedUserId) {
 				const { data: claimedData } = await supabase
@@ -186,7 +186,8 @@
 		const userStatuses = typeof incident.user_statuses === 'string'
 			? JSON.parse(incident.user_statuses)
 			: incident.user_statuses;
-		return userStatuses[currentUserID]?.status?.toLowerCase() === 'claimed';
+		const userEntry = userStatuses[currentUserID];
+		return userEntry?.status?.toLowerCase() === 'claimed' || !!userEntry?.claimed_at;
 	}
 
 	function canClaim(): boolean {

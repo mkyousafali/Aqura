@@ -185,6 +185,7 @@
 					issue_type: 'price_change',
 					priority: 'high',
 					assigned_by: userId,
+					assigned_to_branch_id: branchIds.length > 0 ? branchIds[0] : null,
 					status: 'pending',
 					deadline_datetime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 				})
@@ -302,6 +303,7 @@
 					issue_type: 'price_change',
 					priority: 'high',
 					assigned_by: userId,
+					assigned_to_branch_id: targetBranchIds.length > 0 ? targetBranchIds[0] : null,
 					status: 'pending',
 					deadline_datetime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 				})
