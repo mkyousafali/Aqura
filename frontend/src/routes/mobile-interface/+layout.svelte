@@ -72,7 +72,7 @@
 	let newOrdersCount = 0;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ2';
+	let mobileVersion = 'AQ1';
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
