@@ -558,7 +558,7 @@
 
 	.window-content {
 		flex: 1;
-		overflow: hidden;
+		overflow: auto;
 		background: white;
 		display: none;
 		position: relative;
