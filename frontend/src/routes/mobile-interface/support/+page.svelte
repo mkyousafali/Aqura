@@ -130,6 +130,16 @@
 	let fileInput: HTMLInputElement;
 	let showAttachMenu = false;
 
+	// Input text transform & translate
+	let isInputTransforming = false;
+	let showInputTranslatePicker = false;
+	let inputTranslateLangSearch = '';
+	let isInputTranslating = false;
+
+	$: filteredInputTranslateLangs = translateLanguages.filter(l =>
+		!inputTranslateLangSearch || l.name.toLowerCase().includes(inputTranslateLangSearch.toLowerCase()) || l.code.includes(inputTranslateLangSearch.toLowerCase())
+	);
+
 	// WhatsApp account info
 	let waAccountName = '';
 	let waProfilePicUrl = '';
@@ -724,6 +734,50 @@
 		const { [msgId]: _, ...rest } = translatedMessages;
 		translatedMessages = rest;
 	}
+
+	async function transformInputText() {
+		if (!messageInput.trim() || isInputTransforming) return;
+		isInputTransforming = true;
+		try {
+			const response = await fetch('/api/transform-text', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					text: messageInput,
+					language: 'en',
+					type: 'chat'
+				})
+			});
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.error || 'Failed to transform text');
+			}
+			const data = await response.json();
+			if (data.transformedText) messageInput = data.transformedText;
+		} catch (err) {
+			console.error('Error transforming input text:', err);
+		} finally {
+			isInputTransforming = false;
+		}
+	}
+
+	async function translateInputText(targetLang: string) {
+		if (!messageInput.trim() || isInputTranslating) return;
+		showInputTranslatePicker = false;
+		isInputTranslating = true;
+		try {
+			const resp = await fetch(
+				`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(messageInput)}`
+			);
+			const data = await resp.json();
+			const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+			if (translated) messageInput = translated;
+		} catch (e) {
+			console.error('Input translation error:', e);
+		} finally {
+			isInputTranslating = false;
+		}
+	}
 </script>
 
 <div class="wa-mobile" class:rtl={isRTL}>
@@ -1049,6 +1103,16 @@
 
 						<!-- Send or Mic -->
 						{#if messageInput.trim()}
+							<!-- Transform button -->
+							<button class="wa-transform-btn" on:click={transformInputText} disabled={isInputTransforming}
+								title={isRTL ? 'إصلاح القواعد والإملاء' : 'Fix grammar & spelling'}>
+								{isInputTransforming ? '⏳' : '✨'}
+							</button>
+							<!-- Translate button -->
+							<button class="wa-translate-input-btn" on:click={() => { inputTranslateLangSearch = ''; showInputTranslatePicker = true; }} disabled={isInputTranslating}
+								title={isRTL ? 'ترجمة النص' : 'Translate text'}>
+								{isInputTranslating ? '⏳' : '🌐'}
+							</button>
 							<button class="wa-send-btn" on:click={sendMessage} disabled={sending}>
 								<svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
 							</button>
@@ -1111,6 +1175,32 @@
 						</button>
 					{/each}
 					{#if filteredTranslateLangs.length === 0}
+						<p class="wa-translate-no-results">{isRTL ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if showInputTranslatePicker}
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="wa-translate-overlay" on:click={() => { showInputTranslatePicker = false; }}>
+			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+			<div class="wa-translate-popup" on:click|stopPropagation>
+				<div class="wa-translate-popup-header">
+					<h4>🌐 {isRTL ? 'ترجم النص إلى' : 'Translate text to'}</h4>
+					<button on:click={() => { showInputTranslatePicker = false; }}>✕</button>
+				</div>
+				<input type="text" bind:value={inputTranslateLangSearch} placeholder={isRTL ? 'بحث عن لغة...' : 'Search language...'}
+					class="wa-translate-search" />
+				<div class="wa-translate-lang-grid">
+					{#each filteredInputTranslateLangs as lang}
+						<button class="wa-translate-lang-item" on:click={() => translateInputText(lang.code)}>
+							<span class="wa-translate-lang-flag">{lang.flag}</span>
+							<span class="wa-translate-lang-name">{lang.name}</span>
+						</button>
+					{/each}
+					{#if filteredInputTranslateLangs.length === 0}
 						<p class="wa-translate-no-results">{isRTL ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
 					{/if}
 				</div>
@@ -1795,6 +1885,42 @@
 	.wa-text-input::placeholder {
 		color: #667781;
 	}
+
+	.wa-transform-btn {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #a855f7, #7c3aed);
+		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		flex-shrink: 0;
+		font-size: 16px;
+		transition: background 0.15s;
+		box-shadow: 0 2px 6px rgba(168, 85, 247, 0.3);
+	}
+	.wa-transform-btn:active { background: #6d28d9; }
+	.wa-transform-btn:disabled { opacity: 0.5; }
+
+	.wa-translate-input-btn {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
+		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		flex-shrink: 0;
+		font-size: 16px;
+		transition: background 0.15s;
+		box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+	}
+	.wa-translate-input-btn:active { background: #1d4ed8; }
+	.wa-translate-input-btn:disabled { opacity: 0.5; }
 
 	.wa-send-btn {
 		width: 42px;

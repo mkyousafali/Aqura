@@ -64,13 +64,35 @@ export async function POST({ request }) {
       typeInstruction = 'This is an HR investigation report.';
     } else if (type === 'warning') {
       typeInstruction = 'This is a formal warning letter.';
+    } else if (type === 'chat') {
+      typeInstruction = 'This is a customer-facing WhatsApp chat message. The tone must be warm, polite, respectful, and customer-friendly. Use courteous language like "Dear customer", "Thank you", "We appreciate", "Please", etc.';
     } else {
       typeInstruction = 'This is a professional document.';
     }
 
-    const systemPrompt = `You are a professional text editor who corrects spelling, grammar, and improves tone. You only respond with the corrected text, nothing else. You keep the text in ${languageName} and do not translate it.`;
+    const systemPrompt = type === 'chat'
+      ? `You are a professional customer service text editor. You correct spelling, grammar, and transform the tone to be warm, polite, respectful, and customer-friendly. You only respond with the corrected text, nothing else. Detect the language of the input text automatically and keep the text in that same language — do NOT translate it.`
+      : `You are a professional text editor who corrects spelling, grammar, and improves tone. You only respond with the corrected text, nothing else. You keep the text in ${languageName} and do not translate it.`;
 
-    const prompt = `You are a professional editor. ${typeInstruction}
+    const prompt = type === 'chat'
+      ? `You are a polite customer service editor. ${typeInstruction}
+
+Please correct the following message:
+1. Fix all spelling mistakes
+2. Fix all grammar errors
+3. Make the tone warm, polite, respectful and customer-friendly
+4. Use courteous phrases appropriate for customer service
+5. Keep the same meaning and content
+6. Detect the language automatically and keep it in that SAME language
+7. Do NOT translate to any other language
+8. Do NOT add any extra content or explanations
+9. Do NOT add greetings or sign-offs unless they exist in the original
+
+Original message:
+${text}
+
+Polished message:`
+      : `You are a professional editor. ${typeInstruction}
 
 Please correct the following text:
 1. Fix all spelling mistakes
