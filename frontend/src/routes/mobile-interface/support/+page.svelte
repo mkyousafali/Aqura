@@ -270,9 +270,9 @@
 				.from('wa_messages')
 				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
 				.eq('conversation_id', convId)
-				.order('created_at', { ascending: true })
+				.order('created_at', { ascending: false })
 				.limit(200);
-			messages = data || [];
+			messages = (data || []).reverse();
 			// Load employee names for messages sent by users
 			const userIds = [...new Set((data || []).filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
 			if (userIds.length > 0) {
@@ -697,6 +697,12 @@
 		}
 	}
 
+	function autoResize(e: Event) {
+		const el = e.target as HTMLTextAreaElement;
+		el.style.height = 'auto';
+		el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+	}
+
 	function getUnreadTotal() {
 		return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 	}
@@ -1098,7 +1104,8 @@
 							<textarea bind:value={messageInput} rows="1"
 								placeholder={isRTL ? 'اكتب رسالة' : 'Type a message'}
 								class="wa-text-input"
-								on:keydown={handleKeydown}></textarea>
+								on:keydown={handleKeydown}
+								on:input={autoResize}></textarea>
 						</div>
 
 						<!-- Send or Mic -->
@@ -1156,32 +1163,6 @@
 	{/if}
 
 	<!-- Translation Language Picker Popup -->
-	{#if showTranslateLangPicker}
-		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-		<div class="wa-translate-overlay" on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>
-			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-			<div class="wa-translate-popup" on:click|stopPropagation>
-				<div class="wa-translate-popup-header">
-					<h4>🌐 {isRTL ? 'ترجم إلى' : 'Translate to'}</h4>
-					<button on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>✕</button>
-				</div>
-				<input type="text" bind:value={translateLangSearch} placeholder={isRTL ? 'بحث عن لغة...' : 'Search language...'}
-					class="wa-translate-search" />
-				<div class="wa-translate-lang-grid">
-					{#each filteredTranslateLangs as lang}
-						<button class="wa-translate-lang-item" on:click={() => translateTargetMsgId && translateMessage(translateTargetMsgId, lang.code)}>
-							<span class="wa-translate-lang-flag">{lang.flag}</span>
-							<span class="wa-translate-lang-name">{lang.name}</span>
-						</button>
-					{/each}
-					{#if filteredTranslateLangs.length === 0}
-						<p class="wa-translate-no-results">{isRTL ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
-
 	{#if showInputTranslatePicker}
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 		<div class="wa-translate-overlay" on:click={() => { showInputTranslatePicker = false; }}>
@@ -1201,6 +1182,32 @@
 						</button>
 					{/each}
 					{#if filteredInputTranslateLangs.length === 0}
+						<p class="wa-translate-no-results">{isRTL ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if showTranslateLangPicker}
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="wa-translate-overlay" on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>
+			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+			<div class="wa-translate-popup" on:click|stopPropagation>
+				<div class="wa-translate-popup-header">
+					<h4>🌐 {isRTL ? 'ترجم إلى' : 'Translate to'}</h4>
+					<button on:click={() => { showTranslateLangPicker = false; translateTargetMsgId = null; }}>✕</button>
+				</div>
+				<input type="text" bind:value={translateLangSearch} placeholder={isRTL ? 'بحث عن لغة...' : 'Search language...'}
+					class="wa-translate-search" />
+				<div class="wa-translate-lang-grid">
+					{#each filteredTranslateLangs as lang}
+						<button class="wa-translate-lang-item" on:click={() => translateTargetMsgId && translateMessage(translateTargetMsgId, lang.code)}>
+							<span class="wa-translate-lang-flag">{lang.flag}</span>
+							<span class="wa-translate-lang-name">{lang.name}</span>
+						</button>
+					{/each}
+					{#if filteredTranslateLangs.length === 0}
 						<p class="wa-translate-no-results">{isRTL ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
 					{/if}
 				</div>

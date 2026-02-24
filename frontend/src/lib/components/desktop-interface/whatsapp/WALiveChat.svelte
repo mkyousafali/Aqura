@@ -161,7 +161,10 @@
 
     async function loadAccount() {
         try {
-            const { data } = await supabase.from('wa_accounts').select('id, display_name, phone_number_id, access_token').eq('is_default', true).single();
+            console.log('📱 WALiveChat: Loading account...');
+            const { data, error: accErr } = await supabase.from('wa_accounts').select('id, display_name, phone_number_id, access_token').eq('is_default', true).single();
+            console.log('📱 WALiveChat: Account result:', { data: data ? { id: data.id, display_name: data.display_name } : null, error: accErr });
+            if (accErr) console.error('📱 WALiveChat: Account error:', accErr);
             if (data) {
                 accountId = data.id;
                 waAccountName = data.display_name || '';
@@ -190,12 +193,14 @@
 
     async function loadConversations() {
         try {
+            console.log('💬 WALiveChat: Loading conversations for accountId:', accountId);
             const { data, error: err } = await supabase
                 .from('wa_conversations')
                 .select('*')
                 .eq('wa_account_id', accountId)
                 .eq('status', 'active')
                 .order('last_message_at', { ascending: false });
+            console.log('💬 WALiveChat: Conversations result:', { count: data?.length, error: err });
             if (err) throw err;
 
             const now = new Date();
@@ -268,13 +273,16 @@
     async function loadMessages(convId: string, silent = false) {
         if (!silent) loadingMessages = true;
         try {
-            const { data } = await supabase
+            console.log('📨 WALiveChat: Loading messages for convId:', convId);
+            const { data, error: msgErr } = await supabase
                 .from('wa_messages')
                 .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
                 .eq('conversation_id', convId)
-                .order('created_at', { ascending: true })
+                .order('created_at', { ascending: false })
                 .limit(200);
-            messages = data || [];
+            console.log('📨 WALiveChat: Messages result:', { count: data?.length, error: msgErr });
+            if (msgErr) console.error('📨 WALiveChat: Messages error:', msgErr);
+            messages = (data || []).reverse();
             // Load employee names for messages sent by users
             const userIds = [...new Set((data || []).filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
             if (userIds.length > 0) {
@@ -290,7 +298,9 @@
             if (!silent) {
                 setTimeout(() => scrollToBottom(), 100);
             }
-        } catch {}
+        } catch (e) {
+            console.error('📨 WALiveChat: loadMessages CATCH error:', e);
+        }
         if (!silent) loadingMessages = false;
     }
 
@@ -701,6 +711,12 @@
         }
     }
 
+    function autoResize(e: Event) {
+        const el = e.target as HTMLTextAreaElement;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+
     function openTranslatePicker(msgId: string) {
         translateTargetMsgId = msgId;
         translateLangSearch = '';
@@ -779,7 +795,7 @@
     }
 </script>
 
-<div class="wa-live-chat h-full flex overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+<div class="wa-live-chat absolute inset-0 flex overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Left Panel: Conversation List -->
     <div class="w-[300px] flex flex-col border-r border-slate-200/80 bg-gradient-to-b from-orange-50/40 via-white to-orange-50/20">
         <!-- Brand Header -->
@@ -885,7 +901,7 @@
     </div>
 
     <!-- Right Panel: Chat Area -->
-    <div class="flex-1 flex flex-col bg-slate-50">
+    <div class="flex-1 flex flex-col bg-slate-50 min-h-0 overflow-hidden">
         {#if selectedConv}
             <!-- Chat Header -->
             <div class="chat-header">
@@ -937,7 +953,7 @@
             </div>
 
             <!-- Messages Area -->
-            <div class="flex-1 overflow-y-auto p-5 space-y-2 chat-messages-area" bind:this={messagesContainer}>
+            <div class="flex-1 overflow-y-auto p-5 space-y-2 chat-messages-area min-h-0" bind:this={messagesContainer}>
                 {#if loadingMessages}
                     <div class="flex justify-center py-12">
                         <div class="animate-spin w-8 h-8 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
@@ -1107,7 +1123,8 @@
                             <textarea bind:value={messageInput} rows="1"
                                 placeholder="Type a message..."
                                 class="flex-1 px-4 py-2.5 bg-white/80 border border-orange-300 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 resize-none max-h-24 backdrop-blur-sm transition-all"
-                                on:keydown={handleKeydown}></textarea>
+                                on:keydown={handleKeydown}
+                                on:input={autoResize}></textarea>
                             {#if messageInput.trim()}
                                 <!-- Transform button (fix grammar/spelling) -->
                                 <button
