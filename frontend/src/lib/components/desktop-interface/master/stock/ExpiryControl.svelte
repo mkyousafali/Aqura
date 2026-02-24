@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import XLSX from 'xlsx-js-style';
 
 	let activeTab = 'Quick Report';
 	let loading = false;
@@ -66,6 +67,105 @@
 			return { id, name };
 		}).sort((a, b) => a.name.localeCompare(b.name));
 	})();
+
+	// Quick Report selection for export
+	let qrSelectedItems: Set<string> = new Set();
+	$: qrAllSelected = filteredQuickReport.length > 0 && filteredQuickReport.every(i => qrSelectedItems.has(i.barcode + '|' + i.branch_id));
+
+	function qrToggleAll() {
+		if (qrAllSelected) {
+			qrSelectedItems = new Set();
+		} else {
+			qrSelectedItems = new Set(filteredQuickReport.map(i => i.barcode + '|' + i.branch_id));
+		}
+	}
+
+	function qrToggleItem(item: QuickReportItem) {
+		const key = item.barcode + '|' + item.branch_id;
+		const next = new Set(qrSelectedItems);
+		if (next.has(key)) next.delete(key); else next.add(key);
+		qrSelectedItems = next;
+	}
+
+	// Near Expiry selection for export
+	let neSelectedItems: Set<string> = new Set();
+	$: neAllSelected = filteredNearExpiry.length > 0 && filteredNearExpiry.every(i => neSelectedItems.has(i.barcode + '|' + i.branch_id));
+
+	function neToggleAll() {
+		if (neAllSelected) {
+			neSelectedItems = new Set();
+		} else {
+			neSelectedItems = new Set(filteredNearExpiry.map(i => i.barcode + '|' + i.branch_id));
+		}
+	}
+
+	function neToggleItem(item: QuickReportItem) {
+		const key = item.barcode + '|' + item.branch_id;
+		const next = new Set(neSelectedItems);
+		if (next.has(key)) next.delete(key); else next.add(key);
+		neSelectedItems = next;
+	}
+
+	function exportToExcel(tab: 'quick' | 'near') {
+		const selectedSet = tab === 'quick' ? qrSelectedItems : neSelectedItems;
+		const allItems = tab === 'quick' ? filteredQuickReport : filteredNearExpiry;
+		const items = allItems.filter(i => selectedSet.has(i.barcode + '|' + i.branch_id));
+		if (items.length === 0) return;
+
+		const isAr = $locale === 'ar';
+		const headers = [
+			isAr ? '#' : '#',
+			isAr ? 'الباركود' : 'Barcode',
+			isAr ? 'اسم المنتج' : 'Product Name',
+			isAr ? 'الفرع' : 'Branch',
+			isAr ? 'تاريخ الانتهاء' : 'Expiry Date',
+			isAr ? 'الأيام المتبقية' : 'Days Left',
+			isAr ? 'الحالة' : 'Status',
+			isAr ? 'الموظف' : 'Employee'
+		];
+
+		const rows = items.map((item, idx) => ([
+			idx + 1,
+			item.barcode,
+			item.product_name,
+			item.branch_name,
+			formatDate(item.expiry_date),
+			item.days_left <= 0 ? (isAr ? 'منتهي' : 'EXPIRED') : `${item.days_left} ${isAr ? 'يوم' : 'days'}`,
+			item.status || '—',
+			item.employee_name || '—'
+		]));
+
+		const data = [headers, ...rows];
+		const ws = XLSX.utils.aoa_to_sheet(data);
+
+		// Style header row
+		for (let c = 0; c < headers.length; c++) {
+			const cell = XLSX.utils.encode_cell({ r: 0, c });
+			if (ws[cell]) {
+				ws[cell].s = {
+					font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+					fill: { fgColor: { rgb: tab === 'quick' ? '059669' : 'EA580C' } },
+					alignment: { horizontal: 'center' },
+					border: {
+						bottom: { style: 'thin', color: { rgb: '000000' } }
+					}
+				};
+			}
+		}
+
+		// Auto column widths
+		ws['!cols'] = headers.map((h, i) => ({
+			wch: Math.max(h.length, ...rows.map(r => String(r[i]).length)) + 2
+		}));
+
+		const wb = XLSX.utils.book_new();
+		const sheetName = tab === 'quick' ? 'Quick Report' : 'Near Expiry';
+		XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+		const now = new Date();
+		const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+		XLSX.writeFile(wb, `${sheetName.replace(/ /g, '_')}_${dateStr}.xlsx`);
+	}
 
 	// Near Expiry data (reuses same interface)
 	let allNearExpiryItems: QuickReportItem[] = [];
@@ -702,55 +802,6 @@
 		}
 	}
 
-	// ========== MULTI-SELECT STATE ==========
-	let selectedItems: Set<string> = new Set();
-	let taskItems: QuickReportItem[] = [];
-
-	function getItemKey(item: QuickReportItem): string {
-		return item.barcode + '|' + item.branch_id + '|' + item.expiry_date;
-	}
-
-	function toggleSelectItem(item: QuickReportItem) {
-		const key = getItemKey(item);
-		if (selectedItems.has(key)) {
-			selectedItems.delete(key);
-		} else {
-			selectedItems.add(key);
-		}
-		selectedItems = new Set(selectedItems);
-	}
-
-	function isItemSelected(item: QuickReportItem): boolean {
-		return selectedItems.has(getItemKey(item));
-	}
-
-	function toggleSelectAll(items: QuickReportItem[]) {
-		const allSelected = items.every(i => selectedItems.has(getItemKey(i)));
-		if (allSelected) {
-			items.forEach(i => selectedItems.delete(getItemKey(i)));
-		} else {
-			items.forEach(i => selectedItems.add(getItemKey(i)));
-		}
-		selectedItems = new Set(selectedItems);
-	}
-
-	function isAllSelected(items: QuickReportItem[]): boolean {
-		return items.length > 0 && items.every(i => selectedItems.has(getItemKey(i)));
-	}
-
-	function openBulkTaskPopup() {
-		const currentItems = activeTab === 'Quick Report' ? filteredQuickReport : filteredNearExpiry;
-		taskItems = currentItems.filter(i => selectedItems.has(getItemKey(i)));
-		if (taskItems.length === 0) return;
-		taskItem = taskItems[0];
-		taskType = '';
-		taskSelectedUsers = [];
-		taskEmployeeSearch = '';
-		taskStep = 'type';
-		taskSending = false;
-		showTaskPopup = true;
-	}
-
 	// ========== TASK POPUP STATE ==========
 	let showTaskPopup = false;
 	let taskItem: QuickReportItem | null = null;
@@ -853,56 +904,52 @@
 	}
 
 	async function sendQuickTask() {
-		const items = taskItems.length > 0 ? taskItems : (taskItem ? [taskItem] : []);
-		if (items.length === 0 || !taskType || taskSelectedUsers.length === 0) return;
+		const item = taskItem;
+		if (!item || !taskType || taskSelectedUsers.length === 0) return;
 		taskSending = true;
 
 		try {
 			const typeInfo = taskTypes.find(t => t.id === taskType);
 
-			for (const item of items) {
-				const title = $locale === 'ar'
-					? `${typeInfo?.ar}: ${item.product_name_ar || item.product_name_en}`
-					: `${typeInfo?.en}: ${item.product_name_en || item.product_name_ar}`;
+			const title = $locale === 'ar'
+				? `${typeInfo?.ar}: ${item.product_name_ar || item.product_name_en}`
+				: `${typeInfo?.en}: ${item.product_name_en || item.product_name_ar}`;
 
-				const description = $locale === 'ar'
-					? `المنتج: ${item.product_name_ar || item.product_name_en}\nالباركود: ${item.barcode}\nالفرع: ${item.branch_name}\nتاريخ الانتهاء: ${item.expiry_date}\nالأيام المتبقية: ${item.days_left}`
-					: `Product: ${item.product_name_en || item.product_name_ar}\nBarcode: ${item.barcode}\nBranch: ${item.branch_name}\nExpiry Date: ${item.expiry_date}\nDays Left: ${item.days_left}`;
+			const description = $locale === 'ar'
+				? `المنتج: ${item.product_name_ar || item.product_name_en}\nالباركود: ${item.barcode}\nالفرع: ${item.branch_name}\nتاريخ الانتهاء: ${item.expiry_date}\nالأيام المتبقية: ${item.days_left}`
+				: `Product: ${item.product_name_en || item.product_name_ar}\nBarcode: ${item.barcode}\nBranch: ${item.branch_name}\nExpiry Date: ${item.expiry_date}\nDays Left: ${item.days_left}`;
 
-				const { data: taskData, error: taskError } = await supabase
-					.from('quick_tasks')
-					.insert({
-						title,
-						description,
-						price_tag: item.days_left <= 0 ? 'critical' : item.days_left <= 7 ? 'high' : 'medium',
-						issue_type: taskType === 'remove_product' ? 'display' : taskType === 'check_availability' ? 'filling' : 'other',
-						priority: item.days_left <= 0 ? 'urgent' : item.days_left <= 7 ? 'high' : 'medium',
-						assigned_by: $currentUser?.id,
-						require_task_finished: true,
-						require_photo_upload: false,
-						require_erp_reference: false
-					})
-					.select()
-					.single();
-
-				if (taskError) {
-					console.error('Error creating quick task:', taskError);
-					continue;
-				}
-
-				const assignments = taskSelectedUsers.map(u => ({
-					quick_task_id: taskData.id,
-					assigned_to_user_id: u.user_id,
-					status: 'assigned',
+			const { data: taskData, error: taskError } = await supabase
+				.from('quick_tasks')
+				.insert({
+					title,
+					description,
+					price_tag: item.days_left <= 0 ? 'critical' : item.days_left <= 7 ? 'high' : 'medium',
+					issue_type: taskType === 'remove_product' ? 'display' : taskType === 'check_availability' ? 'filling' : 'other',
+					priority: item.days_left <= 0 ? 'urgent' : item.days_left <= 7 ? 'high' : 'medium',
+					assigned_by: $currentUser?.id,
 					require_task_finished: true,
 					require_photo_upload: false,
 					require_erp_reference: false
-				}));
+				})
+				.select()
+				.single();
 
-				await supabase.from('quick_task_assignments').insert(assignments);
+			if (taskError) {
+				console.error('Error creating quick task:', taskError);
+				throw taskError;
 			}
 
-			selectedItems = new Set();
+			const assignments = taskSelectedUsers.map(u => ({
+				quick_task_id: taskData.id,
+				assigned_to_user_id: u.user_id,
+				status: 'assigned',
+				require_task_finished: true,
+				require_photo_upload: false,
+				require_erp_reference: false
+			}));
+
+			await supabase.from('quick_task_assignments').insert(assignments);
 			taskStep = 'done';
 		} catch (err) {
 			console.error('Error sending quick task:', err);
@@ -1044,20 +1091,25 @@
 						{/if}
 					</div>
 
-					<!-- Results count -->
-					<div class="mb-3 text-xs font-semibold text-slate-500">
-						{$locale === 'ar'
-							? `عرض ${filteredQuickReport.length} من ${allQuickReportItems.length} منتج`
-							: `Showing ${filteredQuickReport.length} of ${allQuickReportItems.length} products`}
-					</div>
-
-						<!-- Info: How to send tasks -->
-						<div class="mb-3 flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl">
-							<span class="text-indigo-500 text-sm">ℹ️</span>
-							<span class="text-xs text-indigo-600 font-medium">
-								{$locale === 'ar' ? 'حدد المنتجات باستخدام مربعات الاختيار ثم اضغط إرسال لإرسال المهام' : 'Select products using checkboxes, then press Send to send tasks'}
-							</span>
+					<!-- Results count + Export button -->
+					<div class="mb-3 flex items-center justify-between">
+						<div class="text-xs font-semibold text-slate-500">
+							{$locale === 'ar'
+								? `عرض ${filteredQuickReport.length} من ${allQuickReportItems.length} منتج`
+								: `Showing ${filteredQuickReport.length} of ${allQuickReportItems.length} products`}
+							{#if qrSelectedItems.size > 0}
+								<span class="ml-2 text-emerald-600">({qrSelectedItems.size} {$locale === 'ar' ? 'محدد' : 'selected'})</span>
+							{/if}
 						</div>
+						{#if qrSelectedItems.size > 0}
+							<button
+								class="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-all border border-emerald-200 hover:shadow-md flex items-center gap-1.5"
+								on:click={() => exportToExcel('quick')}
+							>
+								📥 {$locale === 'ar' ? 'تصدير إلى Excel' : 'Export to Excel'}
+							</button>
+						{/if}
+					</div>
 
 					<!-- Single Table with Branch Column -->
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
@@ -1065,6 +1117,10 @@
 							<table class="w-full border-collapse">
 								<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
 									<tr>
+										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400 w-10">
+											<input type="checkbox" checked={qrAllSelected} on:change={qrToggleAll}
+												class="w-4 h-4 rounded border-2 border-white bg-transparent accent-white cursor-pointer" style="filter: brightness(1.3);" />
+										</th>
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">#</th>
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
 											{$locale === 'ar' ? 'الباركود' : 'Barcode'}
@@ -1090,15 +1146,15 @@
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
 											{$locale === 'ar' ? 'الموظف' : 'Employee'}
 										</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400 w-10">
-											<input type="checkbox" class="w-4 h-4 rounded accent-emerald-600 cursor-pointer" checked={isAllSelected(filteredQuickReport)} on:change={() => toggleSelectAll(filteredQuickReport)} />
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+											{$locale === 'ar' ? 'إرسال المهمة' : 'Send Task'}
 										</th>
 									</tr>
 								</thead>
 							<tbody class="divide-y divide-slate-200">
 								{#if filteredQuickReport.length === 0}
 									<tr>
-										<td colspan="10" class="px-4 py-12 text-center text-slate-400 text-sm">
+										<td colspan="11" class="px-4 py-12 text-center text-slate-400 text-sm">
 												<div class="text-4xl mb-3">🔍</div>
 												{$locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching results'}
 											</td>
@@ -1106,6 +1162,10 @@
 									{:else}
 										{#each filteredQuickReport as item, index}
 											<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+												<td class="px-3 py-3 text-center w-10">
+													<input type="checkbox" checked={qrSelectedItems.has(item.barcode + '|' + item.branch_id)} on:change={() => qrToggleItem(item)}
+														class="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />
+												</td>
 												<td class="px-4 py-3 text-sm font-semibold text-slate-800">{index + 1}</td>
 												<td class="px-4 py-3 text-sm text-slate-700 font-mono">{item.barcode}</td>
 												<td class="px-4 py-3 text-sm text-slate-700 cursor-pointer hover:bg-emerald-50 select-none transition-colors"
@@ -1153,7 +1213,12 @@
 												</td>
 												<td class="px-4 py-3 text-sm text-slate-700">{item.employee_name || '—'}</td>
 												<td class="px-4 py-3 text-sm text-center">
-													<input type="checkbox" class="w-4 h-4 rounded accent-indigo-600 cursor-pointer" checked={isItemSelected(item)} on:change={() => toggleSelectItem(item)} />
+													<button
+														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border border-indigo-200 hover:shadow-md"
+														on:click={() => openTaskPopup(item)}
+													>
+														📤 {$locale === 'ar' ? 'إرسال' : 'Send'}
+													</button>
 												</td>
 											</tr>
 										{/each}
@@ -1161,24 +1226,6 @@
 								</tbody>
 							</table>
 						</div>
-					</div>
-				{/if}
-
-				<!-- Floating Selection Bar -->
-				{#if selectedItems.size > 0 && activeTab === 'Quick Report'}
-					<div class="sticky bottom-0 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between mt-3 z-20">
-						<div class="flex items-center gap-3">
-							<span class="text-sm font-bold">{selectedItems.size} {$locale === 'ar' ? 'محدد' : 'selected'}</span>
-							<button class="text-xs text-white/70 hover:text-white underline" on:click={() => { selectedItems = new Set(); }}>
-								{$locale === 'ar' ? 'إلغاء' : 'Clear'}
-							</button>
-						</div>
-						<button
-							class="px-5 py-2 bg-white text-indigo-700 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-all shadow-md"
-							on:click={openBulkTaskPopup}
-						>
-							📤 {$locale === 'ar' ? 'إرسال' : 'Send'}
-						</button>
 					</div>
 				{/if}
 
@@ -1256,19 +1303,24 @@
 						{/if}
 					</div>
 
-					<div class="mb-3 text-xs font-semibold text-slate-500">
-						{$locale === 'ar'
-							? `عرض ${filteredNearExpiry.length} من ${allNearExpiryItems.length} منتج`
-							: `Showing ${filteredNearExpiry.length} of ${allNearExpiryItems.length} products`}
-					</div>
-
-						<!-- Info: How to send tasks -->
-						<div class="mb-3 flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl">
-							<span class="text-indigo-500 text-sm">ℹ️</span>
-							<span class="text-xs text-indigo-600 font-medium">
-								{$locale === 'ar' ? 'حدد المنتجات باستخدام مربعات الاختيار ثم اضغط إرسال لإرسال المهام' : 'Select products using checkboxes, then press Send to send tasks'}
-							</span>
+					<div class="mb-3 flex items-center justify-between">
+						<div class="text-xs font-semibold text-slate-500">
+							{$locale === 'ar'
+								? `عرض ${filteredNearExpiry.length} من ${allNearExpiryItems.length} منتج`
+								: `Showing ${filteredNearExpiry.length} of ${allNearExpiryItems.length} products`}
+							{#if neSelectedItems.size > 0}
+								<span class="ml-2 text-orange-600">({neSelectedItems.size} {$locale === 'ar' ? 'محدد' : 'selected'})</span>
+							{/if}
 						</div>
+						{#if neSelectedItems.size > 0}
+							<button
+								class="px-4 py-2 text-xs font-bold rounded-xl bg-orange-50 text-orange-700 hover:bg-orange-100 transition-all border border-orange-200 hover:shadow-md flex items-center gap-1.5"
+								on:click={() => exportToExcel('near')}
+							>
+								📥 {$locale === 'ar' ? 'تصدير إلى Excel' : 'Export to Excel'}
+							</button>
+						{/if}
+					</div>
 
 					<!-- Near Expiry Table -->
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
@@ -1276,6 +1328,10 @@
 							<table class="w-full border-collapse">
 								<thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
 									<tr>
+										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-10">
+											<input type="checkbox" checked={neAllSelected} on:change={neToggleAll}
+												class="w-4 h-4 rounded border-2 border-white bg-transparent accent-white cursor-pointer" style="filter: brightness(1.3);" />
+										</th>
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">#</th>
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">
 											{$locale === 'ar' ? 'الباركود' : 'Barcode'}
@@ -1301,15 +1357,15 @@
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">
 											{$locale === 'ar' ? 'الموظف' : 'Employee'}
 										</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-10">
-											<input type="checkbox" class="w-4 h-4 rounded accent-orange-600 cursor-pointer" checked={isAllSelected(filteredNearExpiry)} on:change={() => toggleSelectAll(filteredNearExpiry)} />
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">
+											{$locale === 'ar' ? 'إرسال المهمة' : 'Send Task'}
 										</th>
 									</tr>
 								</thead>
 							<tbody class="divide-y divide-slate-200">
 								{#if filteredNearExpiry.length === 0}
 									<tr>
-										<td colspan="10" class="px-4 py-12 text-center text-slate-400 text-sm">
+										<td colspan="11" class="px-4 py-12 text-center text-slate-400 text-sm">
 												<div class="text-4xl mb-3">🔍</div>
 												{$locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching results'}
 											</td>
@@ -1317,6 +1373,10 @@
 									{:else}
 										{#each filteredNearExpiry as item, index}
 											<tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+												<td class="px-3 py-3 text-center w-10">
+													<input type="checkbox" checked={neSelectedItems.has(item.barcode + '|' + item.branch_id)} on:change={() => neToggleItem(item)}
+														class="w-4 h-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer" />
+												</td>
 												<td class="px-4 py-3 text-sm font-semibold text-slate-800">{index + 1}</td>
 												<td class="px-4 py-3 text-sm text-slate-700 font-mono">{item.barcode}</td>
 												<td class="px-4 py-3 text-sm text-slate-700 cursor-pointer hover:bg-orange-50 select-none transition-colors"
@@ -1364,7 +1424,12 @@
 												</td>
 												<td class="px-4 py-3 text-sm text-slate-700">{item.employee_name || '—'}</td>
 												<td class="px-4 py-3 text-sm text-center">
-													<input type="checkbox" class="w-4 h-4 rounded accent-indigo-600 cursor-pointer" checked={isItemSelected(item)} on:change={() => toggleSelectItem(item)} />
+													<button
+														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border border-indigo-200 hover:shadow-md"
+														on:click={() => openTaskPopup(item)}
+													>
+														📤 {$locale === 'ar' ? 'إرسال' : 'Send'}
+													</button>
 												</td>
 											</tr>
 										{/each}
@@ -1372,24 +1437,6 @@
 								</tbody>
 							</table>
 						</div>
-					</div>
-				{/if}
-
-				<!-- Floating Selection Bar -->
-				{#if selectedItems.size > 0 && activeTab === 'Near Expiry'}
-					<div class="sticky bottom-0 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between mt-3 z-20">
-						<div class="flex items-center gap-3">
-							<span class="text-sm font-bold">{selectedItems.size} {$locale === 'ar' ? 'محدد' : 'selected'}</span>
-							<button class="text-xs text-white/70 hover:text-white underline" on:click={() => { selectedItems = new Set(); }}>
-								{$locale === 'ar' ? 'إلغاء' : 'Clear'}
-							</button>
-						</div>
-						<button
-							class="px-5 py-2 bg-white text-indigo-700 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-all shadow-md"
-							on:click={openBulkTaskPopup}
-						>
-							📤 {$locale === 'ar' ? 'إرسال' : 'Send'}
-						</button>
 					</div>
 				{/if}
 
@@ -1539,12 +1586,15 @@
 										<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">
 											{$locale === 'ar' ? 'الموظف' : 'Employee'}
 										</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">
+											{$locale === 'ar' ? 'إرسال المهمة' : 'Send Task'}
+										</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
 									{#if allProductsItems.length === 0}
 										<tr>
-											<td colspan="9" class="px-4 py-12 text-center text-slate-400 text-sm">
+											<td colspan="10" class="px-4 py-12 text-center text-slate-400 text-sm">
 												<div class="text-4xl mb-3">🔍</div>
 												{$locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching results'}
 											</td>
@@ -1598,6 +1648,14 @@
 													{/if}
 												</td>
 												<td class="px-4 py-3 text-sm text-slate-700">{item.employee_name || '—'}</td>
+												<td class="px-4 py-3 text-sm text-center">
+													<button
+														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border border-indigo-200 hover:shadow-md"
+														on:click={() => openTaskPopup(item)}
+													>
+														📤 {$locale === 'ar' ? 'إرسال' : 'Send'}
+													</button>
+												</td>
 											</tr>
 										{/each}
 									{/if}
@@ -1716,7 +1774,7 @@
 								<tbody class="divide-y divide-slate-200">
 									{#if filteredDeleted.length === 0}
 										<tr>
-											<td colspan="5" class="px-4 py-12 text-center text-slate-400 text-sm">
+											<td colspan="6" class="px-4 py-12 text-center text-slate-400 text-sm">
 												<div class="text-4xl mb-3">🔍</div>
 												{$locale === 'ar' ? 'لا توجد نتائج مطابقة' : 'No matching results'}
 											</td>

@@ -6,15 +6,15 @@ const PIXABAY_API_KEY = env.PIXABAY_API_KEY || '';
 const GOOGLE_API_KEY = env.GOOGLE_API_KEY || '';
 const GOOGLE_SEARCH_ENGINE_ID = env.GOOGLE_SEARCH_ENGINE_ID || '';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
-
 // Fetch API key from DB (system_api_keys table), fallback to .env value
 async function getApiKey(serviceName: string, fallback: string): Promise<string> {
 	try {
+		const supabaseUrl = env.VITE_SUPABASE_URL || '';
+		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
+		if (!supabaseUrl || !supabaseKey) return fallback;
 		const res = await fetch(
-			`${SUPABASE_URL}/rest/v1/system_api_keys?service_name=eq.${serviceName}&is_active=eq.true&select=api_key&limit=1`,
-			{ headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` } }
+			`${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.${serviceName}&is_active=eq.true&select=api_key&limit=1`,
+			{ headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` } }
 		);
 		const rows = await res.json();
 		if (rows?.[0]?.api_key) return rows[0].api_key;

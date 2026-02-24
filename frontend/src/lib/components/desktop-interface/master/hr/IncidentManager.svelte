@@ -32,6 +32,69 @@
     let showWhatHappenedModal = false;
     let whatHappenedText = '';
     let whatHappenedIncidentId = '';
+
+    // Translation
+    let whatHappenedTranslated = '';
+    let whatHappenedTranslating = false;
+    let showWHTranslateLangPicker = false;
+    let whTranslateLangSearch = '';
+
+    const translateLanguages = [
+        { code: 'en', name: 'English', flag: '🇺🇸' },
+        { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+        { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+        { code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+        { code: 'bn', name: 'Bengali', flag: '🇧🇩' },
+        { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+        { code: 'ne', name: 'Nepali', flag: '🇳🇵' },
+        { code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+        { code: 'te', name: 'Telugu', flag: '🇮🇳' },
+        { code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+        { code: 'si', name: 'Sinhala', flag: '🇱🇰' },
+        { code: 'fr', name: 'French', flag: '🇫🇷' },
+        { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+        { code: 'de', name: 'German', flag: '🇩🇪' },
+        { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+        { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+        { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+        { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+        { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+        { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+        { code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+        { code: 'ms', name: 'Malay', flag: '🇲🇾' },
+        { code: 'th', name: 'Thai', flag: '🇹🇭' },
+        { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
+        { code: 'sw', name: 'Swahili', flag: '🇰🇪' },
+        { code: 'am', name: 'Amharic', flag: '🇪🇹' },
+        { code: 'it', name: 'Italian', flag: '🇮🇹' },
+        { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+        { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+        { code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
+        { code: 'fa', name: 'Persian', flag: '🇮🇷' },
+        { code: 'he', name: 'Hebrew', flag: '🇮🇱' },
+    ];
+
+    $: filteredWHTranslateLangs = translateLanguages.filter(l =>
+        !whTranslateLangSearch || l.name.toLowerCase().includes(whTranslateLangSearch.toLowerCase()) || l.code.includes(whTranslateLangSearch.toLowerCase())
+    );
+
+    async function translateWhatHappened(targetLang: string) {
+        if (!whatHappenedText?.trim()) return;
+        showWHTranslateLangPicker = false;
+        whatHappenedTranslating = true;
+        try {
+            const resp = await fetch(
+                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(whatHappenedText)}`
+            );
+            const data = await resp.json();
+            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            if (translated) whatHappenedTranslated = translated;
+        } catch (e) {
+            console.error('Translation error:', e);
+        } finally {
+            whatHappenedTranslating = false;
+        }
+    }
     
     // Filter state
     let filterIncidentType = '';
@@ -1319,6 +1382,33 @@
         padding-left: 2rem;
         padding-right: 0.75rem;
     }
+
+    .wh-translate-lang-popup {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+        padding: 16px;
+        width: 340px;
+        max-height: 440px;
+        display: flex;
+        flex-direction: column;
+    }
+    .wh-translate-lang-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #f1f5f9;
+        background: #fafbfc;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .wh-translate-lang-item:hover {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        transform: scale(1.02);
+    }
 </style>
 
 {#if showAssignModal}
@@ -1544,7 +1634,7 @@
 
 <!-- What Happened Popup Modal -->
 {#if showWhatHappenedModal}
-    <div class="modal-overlay" on:click={() => showWhatHappenedModal = false}>
+    <div class="modal-overlay" on:click={() => { showWhatHappenedModal = false; whatHappenedTranslated = ''; }}>
         <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4" on:click|stopPropagation>
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -1552,22 +1642,78 @@
                     {$locale === 'ar' ? 'ماذا حدث' : 'What Happened'}
                     <span class="text-sm font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">#{whatHappenedIncidentId}</span>
                 </h3>
-                <button
-                    on:click={() => showWhatHappenedModal = false}
-                    class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
-                >
-                    ✕
-                </button>
+                <div class="flex items-center gap-2">
+                    <button
+                        on:click={() => { whTranslateLangSearch = ''; showWHTranslateLangPicker = true; }}
+                        class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 hover:bg-blue-100 transition text-blue-500 hover:text-blue-600"
+                        title={$locale === 'ar' ? 'ترجمة' : 'Translate'}
+                    >
+                        🌐
+                    </button>
+                    <button
+                        on:click={() => { showWhatHappenedModal = false; whatHappenedTranslated = ''; }}
+                        class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
+                    >
+                        ✕
+                    </button>
+                </div>
             </div>
-            <div class="bg-slate-50 rounded-xl p-4 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap max-h-[60vh] overflow-y-auto border border-slate-200/50">
+            <div class="bg-slate-50 rounded-xl p-4 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap max-h-[40vh] overflow-y-auto border border-slate-200/50">
                 {whatHappenedText}
             </div>
+            {#if whatHappenedTranslating}
+                <div class="mt-3 bg-blue-50 rounded-xl p-4 border border-blue-200/50 flex items-center gap-2">
+                    <div class="animate-spin w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full"></div>
+                    <span class="text-xs text-blue-600 font-medium">{$locale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}</span>
+                </div>
+            {/if}
+            {#if whatHappenedTranslated}
+                <div class="mt-3 bg-blue-50 rounded-xl p-4 border border-blue-200/50">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-blue-600 flex items-center gap-1">🌐 {$locale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+                        <button
+                            on:click={() => { whatHappenedTranslated = ''; }}
+                            class="text-xs text-blue-400 hover:text-blue-600 transition"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{whatHappenedTranslated}</div>
+                </div>
+            {/if}
             <button
-                on:click={() => showWhatHappenedModal = false}
+                on:click={() => { showWhatHappenedModal = false; whatHappenedTranslated = ''; }}
                 class="w-full mt-4 px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-semibold"
             >
                 {$locale === 'ar' ? 'إغلاق' : 'Close'}
             </button>
+        </div>
+    </div>
+{/if}
+
+<!-- Translation Language Picker Popup -->
+{#if showWHTranslateLangPicker}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="modal-overlay" style="z-index: 60;" on:click={() => { showWHTranslateLangPicker = false; }}>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="wh-translate-lang-popup" on:click|stopPropagation>
+            <div class="flex items-center justify-between mb-3">
+                <h4 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">🌐 {$locale === 'ar' ? 'ترجم إلى' : 'Translate to'}</h4>
+                <button class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 text-xs transition-colors" on:click={() => { showWHTranslateLangPicker = false; }}>✕</button>
+            </div>
+            <input type="text" bind:value={whTranslateLangSearch} placeholder={$locale === 'ar' ? 'بحث عن لغة...' : 'Search language...'}
+                class="w-full px-3 py-2 mb-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400" />
+            <div class="grid grid-cols-2 gap-1 max-h-[300px] overflow-y-auto">
+                {#each filteredWHTranslateLangs as lang}
+                    <button class="wh-translate-lang-item" on:click={() => translateWhatHappened(lang.code)}>
+                        <span class="text-base">{lang.flag}</span>
+                        <span class="text-xs text-slate-700 font-medium">{lang.name}</span>
+                    </button>
+                {/each}
+                {#if filteredWHTranslateLangs.length === 0}
+                    <p class="col-span-2 text-xs text-slate-400 text-center py-4">{$locale === 'ar' ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
+                {/if}
+            </div>
         </div>
     </div>
 {/if}

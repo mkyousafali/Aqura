@@ -57,6 +57,13 @@
 	// Detail view
 	let selectedEmployee: EmployeeClaim | null = null;
 
+	// Bulk selection
+	let selectedClaimIds = new Set<string>();
+	let selectedInProcessIds = new Set<string>();
+	let selectedDetailProductBarcodes = new Set<string>(); // For detail view products
+	let selectedInProcessDetailProductBarcodes = new Set<string>(); // For in-process detail view
+	let bulkProcessing = false;
+
 	// Branch cache
 	let branchCache: Record<number, { name: string; location: string }> = {};
 
@@ -383,6 +390,199 @@
 	let detailSearch = '';
 
 	let processingTransfer = false;
+
+	// Bulk selection functions
+	function toggleClaimSelection(employeeId: string) {
+		if (selectedClaimIds.has(employeeId)) {
+			selectedClaimIds.delete(employeeId);
+		} else {
+			selectedClaimIds.add(employeeId);
+		}
+		selectedClaimIds = selectedClaimIds; // trigger reactivity
+	}
+
+	function toggleInProcessSelection(employeeId: string) {
+		if (selectedInProcessIds.has(employeeId)) {
+			selectedInProcessIds.delete(employeeId);
+		} else {
+			selectedInProcessIds.add(employeeId);
+		}
+		selectedInProcessIds = selectedInProcessIds; // trigger reactivity
+	}
+
+	function toggleAllClaims() {
+		if (selectedClaimIds.size === filteredClaims.length) {
+			selectedClaimIds.clear();
+		} else {
+			selectedClaimIds.clear();
+			for (const claim of filteredClaims) {
+				selectedClaimIds.add(claim.employee_id);
+			}
+		}
+		selectedClaimIds = selectedClaimIds;
+	}
+
+	function toggleAllInProcess() {
+		if (selectedInProcessIds.size === filteredInProcessClaims.length) {
+			selectedInProcessIds.clear();
+		} else {
+			selectedInProcessIds.clear();
+			for (const claim of filteredInProcessClaims) {
+				selectedInProcessIds.add(claim.employee_id);
+			}
+		}
+		selectedInProcessIds = selectedInProcessIds;
+	}
+
+	// Detail view product selection functions
+	function toggleDetailProductSelection(barcode: string) {
+		if (selectedDetailProductBarcodes.has(barcode)) {
+			selectedDetailProductBarcodes.delete(barcode);
+		} else {
+			selectedDetailProductBarcodes.add(barcode);
+		}
+		selectedDetailProductBarcodes = selectedDetailProductBarcodes;
+	}
+
+	function toggleAllDetailProducts() {
+		if (selectedDetailProductBarcodes.size === detailProducts.length) {
+			selectedDetailProductBarcodes.clear();
+		} else {
+			selectedDetailProductBarcodes.clear();
+			for (const prod of detailProducts) {
+				selectedDetailProductBarcodes.add(prod.barcode);
+			}
+		}
+		selectedDetailProductBarcodes = selectedDetailProductBarcodes;
+	}
+
+	function toggleInProcessDetailProductSelection(barcode: string) {
+		if (selectedInProcessDetailProductBarcodes.has(barcode)) {
+			selectedInProcessDetailProductBarcodes.delete(barcode);
+		} else {
+			selectedInProcessDetailProductBarcodes.add(barcode);
+		}
+		selectedInProcessDetailProductBarcodes = selectedInProcessDetailProductBarcodes;
+	}
+
+	function toggleAllInProcessDetailProducts() {
+		if (selectedInProcessDetailProductBarcodes.size === inProcessDetailProducts.length) {
+			selectedInProcessDetailProductBarcodes.clear();
+		} else {
+			selectedInProcessDetailProductBarcodes.clear();
+			for (const prod of inProcessDetailProducts) {
+				selectedInProcessDetailProductBarcodes.add(prod.barcode);
+			}
+		}
+		selectedInProcessDetailProductBarcodes = selectedInProcessDetailProductBarcodes;
+	}
+
+	async function bulkTransferDetailProducts() {
+		if (!selectedEmployee || selectedDetailProductBarcodes.size === 0) return;
+
+		const toTransfer = detailProducts.filter(p => selectedDetailProductBarcodes.has(p.barcode));
+		if (toTransfer.length === 0) return;
+
+		const confirmMsg = $locale === 'ar'
+			? `هل تريد نقل ${toTransfer.length} منتج من المطالبات إلى قيد المعالجة؟`
+			: `Move ${toTransfer.length} product(s) from managed to in-process?`;
+		if (!confirm(confirmMsg)) return;
+
+		bulkProcessing = true;
+		try {
+			const barcodes = toTransfer.map(p => p.barcode);
+			const { data: products, error: fetchErr } = await supabase
+				.from('erp_synced_products')
+				.select('barcode, managed_by, in_process')
+				.in('barcode', barcodes);
+			if (fetchErr) throw fetchErr;
+
+			for (const prod of products || []) {
+				let managedBy: any[] = [];
+				let inProcess: any[] = [];
+				try { managedBy = typeof prod.managed_by === 'string' ? JSON.parse(prod.managed_by) : (prod.managed_by || []); } catch { managedBy = []; }
+				try { inProcess = typeof prod.in_process === 'string' ? JSON.parse(prod.in_process) : (prod.in_process || []); } catch { inProcess = []; }
+
+				// Find and move the employee's entries
+				const entriesToMove = managedBy.filter((e: any) => e.employee_id === selectedEmployee?.employee_id);
+				for (const entry of entriesToMove) {
+					inProcess.push({ ...entry, moved_at: new Date().toISOString() });
+				}
+				managedBy = managedBy.filter((e: any) => e.employee_id !== selectedEmployee?.employee_id);
+
+				const { error: updateErr } = await supabase
+					.from('erp_synced_products')
+					.update({ managed_by: managedBy, in_process: inProcess })
+					.eq('barcode', prod.barcode);
+				if (updateErr) throw updateErr;
+			}
+
+			selectedDetailProductBarcodes.clear();
+			selectedDetailProductBarcodes = selectedDetailProductBarcodes;
+			await loadClaims();
+			await loadInProcess();
+			if (selectedEmployee) {
+				const updated = claims.find(c => c.employee_id === selectedEmployee!.employee_id);
+				selectedEmployee = updated || null;
+			}
+		} catch (err: any) {
+			console.error('Bulk transfer error:', err);
+			alert(($locale === 'ar' ? 'فشل النقل: ' : 'Transfer failed: ') + (err?.message || ''));
+		} finally {
+			bulkProcessing = false;
+		}
+	}
+
+	async function bulkProcessManages() {
+		const toProcess = activeTab === 'claimed' 
+			? filteredClaims.filter(c => selectedClaimIds.has(c.employee_id))
+			: filteredInProcessClaims.filter(c => selectedInProcessIds.has(c.employee_id));
+		
+		if (toProcess.length === 0) return;
+		
+		const confirmMsg = $locale === 'ar'
+			? `هل تريد معالجة ${toProcess.length} موظف(ين)?`
+			: `Process ${toProcess.length} employee(s)?`;
+		if (!confirm(confirmMsg)) return;
+
+		bulkProcessing = true;
+		try {
+			for (const item of toProcess) {
+				processManages(item);
+			}
+		} catch (err: any) {
+			console.error('Bulk process error:', err);
+		} finally {
+			bulkProcessing = false;
+		}
+	}
+
+	async function bulkProcessTransfer() {
+		const toTransfer = filteredClaims.filter(c => selectedClaimIds.has(c.employee_id));
+		
+		if (toTransfer.length === 0) return;
+		
+		const confirmMsg = $locale === 'ar'
+			? `هل تريد نقل ${toTransfer.length} موظف(ين) من المطالبات إلى قيد المعالجة؟`
+			: `Move ${toTransfer.length} employee(s) from managed to in-process?`;
+		if (!confirm(confirmMsg)) return;
+
+		bulkProcessing = true;
+		try {
+			for (const claim of toTransfer) {
+				await processTransfer(claim);
+			}
+			selectedClaimIds.clear();
+			selectedClaimIds = selectedClaimIds;
+			await loadClaims();
+			await loadInProcess();
+		} catch (err: any) {
+			console.error('Bulk transfer error:', err);
+			alert(($locale === 'ar' ? 'فشل النقل الجماعي: ' : 'Bulk transfer failed: ') + (err?.message || ''));
+		} finally {
+			bulkProcessing = false;
+		}
+	}
 
 	// Assign modal state
 	let showAssignModal = false;
@@ -892,12 +1092,36 @@
 					<div class="flex items-center gap-3">
 						<button
 							class="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600"
-							on:click={() => { selectedEmployee = null; detailFilterBranch = ''; detailSearch = ''; }}
+							on:click={() => { selectedEmployee = null; detailFilterBranch = ''; detailSearch = ''; selectedDetailProductBarcodes.clear(); selectedDetailProductBarcodes = selectedDetailProductBarcodes; }}
 						>←</button>
-						<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+						<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2 cursor-pointer select-all" 
+							title="Double-click to copy"
+							on:dblclick={() => {
+								if (selectedEmployee?.name) {
+									navigator.clipboard.writeText(selectedEmployee.name).then(() => {
+										const el = document.createElement('div');
+										el.textContent = '✓ Copied!';
+										el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+										document.body.appendChild(el);
+										setTimeout(() => el.remove(), 1500);
+									});
+								}
+							}}>
 							<span>👤</span> {selectedEmployee.name}
 						</h3>
-						<span class="text-xs px-3 py-1 rounded-full border font-bold bg-violet-100 text-violet-700 border-violet-200">{selectedEmployee.employee_id}</span>
+						<span class="text-xs px-3 py-1 rounded-full border font-bold bg-violet-100 text-violet-700 border-violet-200 cursor-pointer select-all" 
+							title="Double-click to copy"
+							on:dblclick={() => {
+								if (selectedEmployee?.employee_id) {
+									navigator.clipboard.writeText(selectedEmployee.employee_id).then(() => {
+										const el = document.createElement('div');
+										el.textContent = '✓ Copied!';
+										el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+										document.body.appendChild(el);
+										setTimeout(() => el.remove(), 1500);
+									});
+								}
+							}}>{selectedEmployee.employee_id}</span>
 						<span class="text-xs px-3 py-1 rounded-full border font-bold bg-emerald-100 text-emerald-700 border-emerald-200">{selectedEmployee.product_count} {$locale === 'ar' ? 'منتج' : 'products'}</span>
 					</div>
 					<div class="flex items-center gap-2">
@@ -930,11 +1154,44 @@
 					{/each}
 				</div>
 
+				<!-- Bulk action toolbar for detail products -->
+				{#if selectedDetailProductBarcodes.size > 0}
+					<div class="mb-4 p-4 bg-violet-50 border border-violet-200 rounded-xl flex items-center justify-between">
+						<div class="text-sm font-bold text-violet-700">
+							{$locale === 'ar' ? `تم تحديد ${selectedDetailProductBarcodes.size} منتج` : `Selected ${selectedDetailProductBarcodes.size} product(s)`}
+						</div>
+						<div class="flex items-center gap-2">
+							<button
+								class="px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+								on:click={bulkTransferDetailProducts}
+								disabled={bulkProcessing}
+							>
+								{bulkProcessing ? '...' : ($locale === 'ar' ? 'نقل مجموعة' : 'Bulk Transfer')}
+							</button>
+							<button
+								class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-xs font-bold transition-all"
+								on:click={() => { selectedDetailProductBarcodes.clear(); selectedDetailProductBarcodes = selectedDetailProductBarcodes; }}
+							>
+								{$locale === 'ar' ? 'إلغاء التحديد' : 'Deselect'}
+							</button>
+						</div>
+					</div>
+				{/if}
+
 				<!-- Products Table -->
 				<div class="flex-1 overflow-auto">
 					<table class="w-full text-xs border-collapse border border-slate-300">
 						<thead class="sticky top-0 z-10">
 							<tr class="bg-violet-600 text-white">
+								<th class="border-r border-violet-500 py-2.5 px-3 text-center font-bold w-10">
+									<input
+										type="checkbox"
+										checked={selectedDetailProductBarcodes.size === detailProducts.length && detailProducts.length > 0}
+										on:change={toggleAllDetailProducts}
+										class="w-4 h-4 rounded border-white accent-white cursor-pointer"
+										title={$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+									/>
+								</th>
 								<th class="border-r border-violet-500 py-2.5 px-3 text-left font-bold">#</th>
 								<th class="border-r border-violet-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.barcode') || 'Barcode'}</th>
 								<th class="border-r border-violet-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.productName') || 'Product Name'}</th>
@@ -947,6 +1204,15 @@
 						<tbody>
 							{#each detailProducts as prod, i}
 								<tr class="border-b border-slate-300 hover:bg-slate-50/50 {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}">
+									<td class="border-r border-slate-300 py-2 px-3 text-center">
+										<input
+											type="checkbox"
+											checked={selectedDetailProductBarcodes.has(prod.barcode)}
+											on:change={() => toggleDetailProductSelection(prod.barcode)}
+											on:click|stopPropagation
+											class="w-4 h-4 rounded border-slate-300 accent-violet-600 cursor-pointer"
+										/>
+									</td>
 									<td class="border-r border-slate-300 py-2 px-3 text-slate-400 font-mono">{i + 1}</td>
 									<td class="border-r border-slate-300 py-2 px-3 font-bold text-emerald-700 font-mono">{prod.barcode}</td>
 									<td class="border-r border-slate-300 py-2 px-3 font-semibold text-slate-800">{prod.product_name || '—'}</td>
@@ -1012,10 +1278,50 @@
 						</div>
 					</div>
 
+					<!-- Bulk action toolbar -->
+					{#if selectedClaimIds.size > 0}
+						<div class="mb-4 p-4 bg-violet-50 border border-violet-200 rounded-xl flex items-center justify-between">
+							<div class="text-sm font-bold text-violet-700">
+								{$locale === 'ar' ? `تم تحديد ${selectedClaimIds.size} موظف` : `Selected ${selectedClaimIds.size} employee(s)`}
+							</div>
+							<div class="flex items-center gap-2">
+								<button
+									class="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+									on:click={bulkProcessManages}
+									disabled={bulkProcessing}
+								>
+									{bulkProcessing ? '...' : ($locale === 'ar' ? 'معالجة مجموعة' : 'Bulk Manage')}
+								</button>
+								<button
+									class="px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+									on:click={bulkProcessTransfer}
+									disabled={bulkProcessing}
+								>
+									{bulkProcessing ? '...' : ($locale === 'ar' ? 'نقل مجموعة' : 'Bulk Transfer')}
+								</button>
+								<button
+									class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-xs font-bold transition-all"
+									on:click={() => { selectedClaimIds.clear(); selectedClaimIds = selectedClaimIds; }}
+								>
+									{$locale === 'ar' ? 'إلغاء التحديد' : 'Deselect'}
+								</button>
+							</div>
+						</div>
+					{/if}
+
 					<div class="flex-1 overflow-auto">
 						<table class="w-full text-xs border-collapse border border-slate-300">
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-violet-600 text-white">
+									<th class="border-r border-violet-500 py-2.5 px-3 text-center font-bold w-10">
+										<input
+											type="checkbox"
+											checked={selectedClaimIds.size === filteredClaims.length && filteredClaims.length > 0}
+											on:change={toggleAllClaims}
+											class="w-4 h-4 rounded border-white accent-white cursor-pointer"
+											title={$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+										/>
+									</th>
 									<th class="border-r border-violet-500 py-2.5 px-3 text-left font-bold">#</th>
 									<th class="border-r border-violet-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'رقم الموظف' : 'Employee ID'}</th>
 									<th class="border-r border-violet-500 py-2.5 px-3 text-left font-bold cursor-pointer select-none hover:bg-violet-700 transition-colors" on:click={() => toggleSort('name')}>
@@ -1034,10 +1340,43 @@
 							</thead>
 							<tbody>
 								{#each filteredClaims as claim, i}
-									<tr class="border-b border-slate-300 hover:bg-violet-50/50 cursor-pointer {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => selectedEmployee = claim}>
-										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
-										<td class="border-r border-slate-300 py-2.5 px-3 font-mono text-violet-700 font-bold">{claim.employee_id}</td>
-										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{claim.name}</td>
+									<tr class="border-b border-slate-300 hover:bg-violet-50/50 {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}">
+										<td class="border-r border-slate-300 py-2.5 px-3 text-center">
+											<input
+												type="checkbox"
+												checked={selectedClaimIds.has(claim.employee_id)}
+												on:change={() => toggleClaimSelection(claim.employee_id)}
+												on:click|stopPropagation
+												class="w-4 h-4 rounded border-slate-300 accent-violet-600 cursor-pointer"
+											/>
+										</td>
+										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono cursor-pointer" on:click={() => selectedEmployee = claim}>{i + 1}</td>
+										<td class="border-r border-slate-300 py-2.5 px-3 font-mono text-violet-700 font-bold cursor-pointer select-all" 
+											title="Double-click to copy"
+											on:dblclick={() => {
+												if (claim.employee_id) {
+													navigator.clipboard.writeText(claim.employee_id).then(() => {
+														const el = document.createElement('div');
+														el.textContent = '✓ Copied!';
+														el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+														document.body.appendChild(el);
+														setTimeout(() => el.remove(), 1500);
+													});
+												}
+											}}>{claim.employee_id}</td>
+										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800 cursor-pointer select-all" 
+											title="Double-click to copy"
+											on:dblclick={() => {
+												if (claim.name) {
+													navigator.clipboard.writeText(claim.name).then(() => {
+														const el = document.createElement('div');
+														el.textContent = '✓ Copied!';
+														el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+														document.body.appendChild(el);
+														setTimeout(() => el.remove(), 1500);
+													});
+												}
+											}}>{claim.name}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3">
 											<span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg font-bold text-[11px] border border-emerald-200">
 												📦 {claim.product_count}
@@ -1092,12 +1431,36 @@
 						<div class="flex items-center gap-3">
 							<button
 								class="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600"
-								on:click={() => { selectedInProcessEmployee = null; inProcessDetailFilterBranch = ''; inProcessDetailSearch = ''; }}
+								on:click={() => { selectedInProcessEmployee = null; inProcessDetailFilterBranch = ''; inProcessDetailSearch = ''; selectedInProcessDetailProductBarcodes.clear(); selectedInProcessDetailProductBarcodes = selectedInProcessDetailProductBarcodes; }}
 							>←</button>
-							<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+							<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2 cursor-pointer select-all" 
+								title="Double-click to copy"
+								on:dblclick={() => {
+									if (selectedInProcessEmployee?.name) {
+										navigator.clipboard.writeText(selectedInProcessEmployee.name).then(() => {
+											const el = document.createElement('div');
+											el.textContent = '✓ Copied!';
+											el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+											document.body.appendChild(el);
+											setTimeout(() => el.remove(), 1500);
+										});
+									}
+								}}>
 								<span>⏳</span> {selectedInProcessEmployee.name}
 							</h3>
-							<span class="text-xs px-3 py-1 rounded-full border font-bold bg-amber-100 text-amber-700 border-amber-200">{selectedInProcessEmployee.employee_id}</span>
+							<span class="text-xs px-3 py-1 rounded-full border font-bold bg-amber-100 text-amber-700 border-amber-200 cursor-pointer select-all" 
+								title="Double-click to copy"
+								on:dblclick={() => {
+									if (selectedInProcessEmployee?.employee_id) {
+										navigator.clipboard.writeText(selectedInProcessEmployee.employee_id).then(() => {
+											const el = document.createElement('div');
+											el.textContent = '✓ Copied!';
+											el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+											document.body.appendChild(el);
+											setTimeout(() => el.remove(), 1500);
+										});
+									}
+								}}>{selectedInProcessEmployee.employee_id}</span>
 							<span class="text-xs px-3 py-1 rounded-full border font-bold bg-emerald-100 text-emerald-700 border-emerald-200">{selectedInProcessEmployee.product_count} {$locale === 'ar' ? 'منتج' : 'products'}</span>
 						</div>
 						<div class="flex items-center gap-2">
@@ -1128,11 +1491,37 @@
 						{/each}
 					</div>
 
+					<!-- Bulk action toolbar for in-process detail products -->
+					{#if selectedInProcessDetailProductBarcodes.size > 0}
+						<div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+							<div class="text-sm font-bold text-amber-700">
+								{$locale === 'ar' ? `تم تحديد ${selectedInProcessDetailProductBarcodes.size} منتج` : `Selected ${selectedInProcessDetailProductBarcodes.size} product(s)`}
+							</div>
+							<div class="flex items-center gap-2">
+								<button
+									class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-xs font-bold transition-all"
+									on:click={() => { selectedInProcessDetailProductBarcodes.clear(); selectedInProcessDetailProductBarcodes = selectedInProcessDetailProductBarcodes; }}
+								>
+									{$locale === 'ar' ? 'إلغاء التحديد' : 'Deselect'}
+								</button>
+							</div>
+						</div>
+					{/if}
+
 					<!-- In Process Products Table -->
 					<div class="flex-1 overflow-auto">
 						<table class="w-full text-xs border-collapse border border-slate-300">
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-amber-600 text-white">
+									<th class="border-r border-amber-500 py-2.5 px-3 text-center font-bold w-10">
+										<input
+											type="checkbox"
+											checked={selectedInProcessDetailProductBarcodes.size === inProcessDetailProducts.length && inProcessDetailProducts.length > 0}
+											on:change={toggleAllInProcessDetailProducts}
+											class="w-4 h-4 rounded border-white accent-white cursor-pointer"
+											title={$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+										/>
+									</th>
 									<th class="border-r border-amber-500 py-2.5 px-3 text-left font-bold">#</th>
 									<th class="border-r border-amber-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.barcode') || 'Barcode'}</th>
 									<th class="border-r border-amber-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.productName') || 'Product Name'}</th>
@@ -1145,6 +1534,15 @@
 							<tbody>
 								{#each inProcessDetailProducts as prod, i}
 									<tr class="border-b border-slate-300 hover:bg-amber-50/50 {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}">
+										<td class="border-r border-slate-300 py-2 px-3 text-center">
+											<input
+												type="checkbox"
+												checked={selectedInProcessDetailProductBarcodes.has(prod.barcode)}
+												on:change={() => toggleInProcessDetailProductSelection(prod.barcode)}
+												on:click|stopPropagation
+												class="w-4 h-4 rounded border-slate-300 accent-amber-600 cursor-pointer"
+											/>
+										</td>
 										<td class="border-r border-slate-300 py-2 px-3 text-slate-400 font-mono">{i + 1}</td>
 										<td class="border-r border-slate-300 py-2 px-3 font-bold text-emerald-700 font-mono">{prod.barcode}</td>
 										<td class="border-r border-slate-300 py-2 px-3 font-semibold text-slate-800">{prod.product_name || '—'}</td>
@@ -1197,10 +1595,36 @@
 							</div>
 						</div>
 
+						<!-- Bulk action toolbar for in-process -->
+						{#if selectedInProcessIds.size > 0}
+							<div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+								<div class="text-sm font-bold text-amber-700">
+									{$locale === 'ar' ? `تم تحديد ${selectedInProcessIds.size} موظف` : `Selected ${selectedInProcessIds.size} employee(s)`}
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-xs font-bold transition-all"
+										on:click={() => { selectedInProcessIds.clear(); selectedInProcessIds = selectedInProcessIds; }}
+									>
+										{$locale === 'ar' ? 'إلغاء التحديد' : 'Deselect'}
+									</button>
+								</div>
+							</div>
+						{/if}
+
 						<div class="flex-1 overflow-auto">
 							<table class="w-full text-xs border-collapse border border-slate-300">
 								<thead class="sticky top-0 z-10">
 									<tr class="bg-amber-600 text-white">
+										<th class="border-r border-amber-500 py-2.5 px-3 text-center font-bold w-10">
+											<input
+												type="checkbox"
+												checked={selectedInProcessIds.size === filteredInProcessClaims.length && filteredInProcessClaims.length > 0}
+												on:change={toggleAllInProcess}
+												class="w-4 h-4 rounded border-white accent-white cursor-pointer"
+												title={$locale === 'ar' ? 'تحديد الكل' : 'Select All'}
+											/>
+										</th>
 										<th class="border-r border-amber-500 py-2.5 px-3 text-left font-bold">#</th>
 										<th class="border-r border-amber-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'رقم الموظف' : 'Employee ID'}</th>
 										<th class="border-r border-amber-500 py-2.5 px-3 text-left font-bold cursor-pointer select-none hover:bg-amber-700 transition-colors" on:click={() => toggleInProcessSort('name')}>
@@ -1216,10 +1640,43 @@
 								</thead>
 								<tbody>
 									{#each filteredInProcessClaims as claim, i}
-										<tr class="border-b border-slate-300 hover:bg-amber-50/50 cursor-pointer {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => selectedInProcessEmployee = claim}>
-											<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
-											<td class="border-r border-slate-300 py-2.5 px-3 font-mono text-amber-700 font-bold">{claim.employee_id}</td>
-											<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{claim.name}</td>
+										<tr class="border-b border-slate-300 hover:bg-amber-50/50 {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}">
+											<td class="border-r border-slate-300 py-2.5 px-3 text-center">
+												<input
+													type="checkbox"
+													checked={selectedInProcessIds.has(claim.employee_id)}
+													on:change={() => toggleInProcessSelection(claim.employee_id)}
+													on:click|stopPropagation
+													class="w-4 h-4 rounded border-slate-300 accent-amber-600 cursor-pointer"
+												/>
+											</td>
+											<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono cursor-pointer" on:click={() => selectedInProcessEmployee = claim}>{i + 1}</td>
+											<td class="border-r border-slate-300 py-2.5 px-3 font-mono text-amber-700 font-bold cursor-pointer select-all" 
+												title="Double-click to copy"
+												on:dblclick={() => {
+													if (claim.employee_id) {
+														navigator.clipboard.writeText(claim.employee_id).then(() => {
+															const el = document.createElement('div');
+															el.textContent = '✓ Copied!';
+															el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+															document.body.appendChild(el);
+															setTimeout(() => el.remove(), 1500);
+														});
+													}
+												}}>{claim.employee_id}</td>
+											<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800 cursor-pointer select-all" 
+												title="Double-click to copy"
+												on:dblclick={() => {
+													if (claim.name) {
+														navigator.clipboard.writeText(claim.name).then(() => {
+															const el = document.createElement('div');
+															el.textContent = '✓ Copied!';
+															el.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[99999] text-sm font-bold';
+															document.body.appendChild(el);
+															setTimeout(() => el.remove(), 1500);
+														});
+													}
+												}}>{claim.name}</td>
 											<td class="border-r border-slate-300 py-2.5 px-3">
 												<span class="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg font-bold text-[11px] border border-amber-200">
 													📦 {claim.product_count}
