@@ -558,9 +558,10 @@
 
 	.window-content {
 		flex: 1;
-		overflow: auto;
+		overflow: hidden;
 		background: white;
 		display: none;
+		position: relative;
 	}
 
 	.window:not(.minimized) .window-content {
