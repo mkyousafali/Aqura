@@ -88,6 +88,16 @@
     let showAttachMenu = false;
     let showIncidentPopup = false;
 
+    // Input text transform & translate
+    let isInputTransforming = false;
+    let showInputTranslatePicker = false;
+    let inputTranslateLangSearch = '';
+    let isInputTranslating = false;
+
+    $: filteredInputTranslateLangs = translateLanguages.filter(l =>
+        !inputTranslateLangSearch || l.name.toLowerCase().includes(inputTranslateLangSearch.toLowerCase()) || l.code.includes(inputTranslateLangSearch.toLowerCase())
+    );
+
     // Translation
     let translatedMessages: Record<string, string> = {};
     let translatingMsgId: string | null = null;
@@ -723,6 +733,50 @@
         const { [msgId]: _, ...rest } = translatedMessages;
         translatedMessages = rest;
     }
+
+    async function transformInputText() {
+        if (!messageInput.trim() || isInputTransforming) return;
+        isInputTransforming = true;
+        try {
+            const response = await fetch('/api/transform-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: messageInput,
+                    language: 'en',
+                    type: 'chat'
+                })
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to transform text');
+            }
+            const data = await response.json();
+            if (data.transformedText) messageInput = data.transformedText;
+        } catch (err) {
+            console.error('Error transforming input text:', err);
+        } finally {
+            isInputTransforming = false;
+        }
+    }
+
+    async function translateInputText(targetLang: string) {
+        if (!messageInput.trim() || isInputTranslating) return;
+        showInputTranslatePicker = false;
+        isInputTranslating = true;
+        try {
+            const resp = await fetch(
+                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(messageInput)}`
+            );
+            const data = await resp.json();
+            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            if (translated) messageInput = translated;
+        } catch (e) {
+            console.error('Input translation error:', e);
+        } finally {
+            isInputTranslating = false;
+        }
+    }
 </script>
 
 <div class="wa-live-chat h-full flex overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -1055,6 +1109,24 @@
                                 class="flex-1 px-4 py-2.5 bg-white/80 border border-orange-300 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 resize-none max-h-24 backdrop-blur-sm transition-all"
                                 on:keydown={handleKeydown}></textarea>
                             {#if messageInput.trim()}
+                                <!-- Transform button (fix grammar/spelling) -->
+                                <button
+                                    class="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all {isInputTransforming ? 'bg-purple-100 border border-purple-300 animate-pulse' : 'bg-purple-50 border border-purple-200/60 hover:bg-purple-100'}"
+                                    on:click={transformInputText}
+                                    disabled={isInputTransforming}
+                                    title={$locale === 'ar' ? 'إصلاح القواعد والإملاء' : 'Fix grammar & spelling'}
+                                >
+                                    {isInputTransforming ? '⏳' : '✨'}
+                                </button>
+                                <!-- Translate button -->
+                                <button
+                                    class="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all {isInputTranslating ? 'bg-blue-100 border border-blue-300 animate-pulse' : 'bg-blue-50 border border-blue-200/60 hover:bg-blue-100'}"
+                                    on:click={() => { inputTranslateLangSearch = ''; showInputTranslatePicker = true; }}
+                                    disabled={isInputTranslating}
+                                    title={$locale === 'ar' ? 'ترجمة النص' : 'Translate text'}
+                                >
+                                    {isInputTranslating ? '⏳' : '🌐'}
+                                </button>
                                 <button class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full flex items-center justify-center hover:from-green-600 hover:to-green-700 shadow-md transition-all disabled:opacity-50"
                                     on:click={sendMessage} disabled={sending}>
                                     {sending ? '⏳' : '➤'}
@@ -1127,6 +1199,33 @@
                         </button>
                     {/each}
                     {#if filteredTranslateLangs.length === 0}
+                        <p class="col-span-2 text-xs text-slate-400 text-center py-4">{$locale === 'ar' ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
+                    {/if}
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    <!-- Input Translate Language Picker Popup -->
+    {#if showInputTranslatePicker}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="fixed inset-0 bg-black/40 flex items-center justify-center" style="z-index: 99998;" on:click={() => showInputTranslatePicker = false}>
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="translate-lang-popup" on:click|stopPropagation>
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">🌐 {$locale === 'ar' ? 'ترجم النص إلى' : 'Translate text to'}</h4>
+                    <button class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 text-xs transition-colors" on:click={() => showInputTranslatePicker = false}>✕</button>
+                </div>
+                <input type="text" bind:value={inputTranslateLangSearch} placeholder={$locale === 'ar' ? 'بحث عن لغة...' : 'Search language...'}
+                    class="w-full px-3 py-2 mb-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400" />
+                <div class="grid grid-cols-2 gap-1 max-h-[300px] overflow-y-auto">
+                    {#each filteredInputTranslateLangs as lang}
+                        <button class="translate-lang-item" on:click={() => translateInputText(lang.code)}>
+                            <span class="text-base">{lang.flag}</span>
+                            <span class="text-xs text-slate-700 font-medium">{lang.name}</span>
+                        </button>
+                    {/each}
+                    {#if filteredInputTranslateLangs.length === 0}
                         <p class="col-span-2 text-xs text-slate-400 text-center py-4">{$locale === 'ar' ? 'لم يتم العثور على لغات' : 'No languages found'}</p>
                     {/if}
                 </div>

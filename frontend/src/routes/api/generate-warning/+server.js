@@ -1,17 +1,19 @@
 import { json } from "@sveltejs/kit";
-
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
+import { env } from '$env/dynamic/private';
 
 async function getGeminiKey() {
   try {
+    const supabaseUrl = env.VITE_SUPABASE_URL || '';
+    const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
+    if (!supabaseUrl || !supabaseKey) return null;
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/system_api_keys?service_name=eq.google&is_active=eq.true&select=api_key&limit=1`,
-      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google&is_active=eq.true&select=api_key&limit=1`,
+      { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
     );
     const rows = await res.json();
     return rows?.[0]?.api_key || null;
-  } catch {
+  } catch (e) {
+    console.error('Failed to fetch Gemini key:', e);
     return null;
   }
 }
