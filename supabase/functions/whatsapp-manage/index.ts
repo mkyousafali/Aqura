@@ -135,10 +135,19 @@ serve(async (req: Request) => {
         result = await testConnection(accessToken, phoneNumberId);
         break;
 
-      // ─── Send Broadcast ───────────────────────────────
-      case "send_broadcast":
-        result = await sendBroadcast(supabase, accessToken, phoneNumberId, params);
-        break;
+      // ─── Send Broadcast (fire-and-forget) ──────────────
+      // Returns immediately, processes in background to avoid Kong 504 timeout
+      case "send_broadcast": {
+        // Start broadcast in background — do NOT await
+        sendBroadcast(supabase, accessToken, phoneNumberId, params).catch((err) => {
+          console.error("[Broadcast] Background processing error:", err);
+        });
+        // Return immediately so the frontend doesn't timeout
+        return new Response(
+          JSON.stringify({ success: true, data: { status: "processing", message: "Broadcast started, processing in background" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       default:
         return new Response(
@@ -473,6 +482,33 @@ async function testConnection(accessToken: string, phoneNumberId: string): Promi
   return { connected: true, ...data };
 }
 
+// ─── Send Single Message with Retry (handles rate limits) ────────
+async function sendWithRetry(
+  accessToken: string,
+  phoneNumberId: string,
+  payload: any,
+  maxRetries = 3
+): Promise<any> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await metaApi(accessToken, `${phoneNumberId}/messages`, "POST", payload);
+    } catch (err: any) {
+      const msg = err.message || "";
+      const isRateLimit = msg.includes("code: 130429") || msg.includes("rate") || msg.includes("throttl") || msg.includes("Too many");
+      const isTransient = msg.includes("code: 131026") || msg.includes("code: 131000") || msg.includes("temporarily") || msg.includes("timeout") || msg.includes("ETIMEDOUT") || msg.includes("Media upload") || msg.includes("Something went wrong");
+
+      if ((isRateLimit || isTransient) && attempt < maxRetries) {
+        // Exponential backoff: 2s, 4s, 8s
+        const delay = Math.pow(2, attempt + 1) * 1000;
+        console.log(`[Broadcast] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err; // Not retryable or max retries reached
+    }
+  }
+}
+
 // ─── Send Broadcast ──────────────────────────────────────────────
 async function sendBroadcast(
   supabase: any,
@@ -480,40 +516,60 @@ async function sendBroadcast(
   phoneNumberId: string,
   params: any
 ): Promise<any> {
-  const { broadcast_id, template_name, language, components, recipients } = params;
+  const { broadcast_id, template_name, language, components } = params;
+  let { recipients } = params;
+
+  if (!broadcast_id || !template_name) {
+    throw new Error("Missing broadcast_id or template_name");
+  }
+
+  // If recipients not passed (large broadcast), read them from DB directly
+  // This avoids sending a huge request body for 20k+ recipients
+  if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+    console.log(`[Broadcast] No recipients in request body, reading from DB...`);
+    const { data: dbRecipients, error: dbErr } = await supabase
+      .from("wa_broadcast_recipients")
+      .select("id, phone_number")
+      .eq("broadcast_id", broadcast_id)
+      .eq("status", "pending");
+    
+    if (dbErr) throw new Error("Failed to load recipients: " + dbErr.message);
+    recipients = (dbRecipients || []).map((r: any) => ({ id: r.id, phone: r.phone_number }));
+    console.log(`[Broadcast] Loaded ${recipients.length} pending recipients from DB`);
+  }
 
   console.log(`[Broadcast] Starting: template=${template_name}, lang=${language}, recipients=${recipients?.length}, hasComponents=${!!components}`);
   if (components) console.log(`[Broadcast] Components:`, JSON.stringify(components));
 
-  if (!broadcast_id || !template_name || !recipients || !Array.isArray(recipients)) {
-    throw new Error("Missing broadcast_id, template_name, or recipients array");
-  }
-
   // ─── Filter out unsubscribed customers (is_deleted = true) ───
-  // Collect all phone numbers from recipients
   const allPhones = recipients.map((r: any) => (r.phone || "").replace(/^\+/, "").replace(/\D/g, "")).filter(Boolean);
   const allPhonesWithPlus = allPhones.map((p: string) => `+${p}`);
   const phoneLookup = [...allPhones, ...allPhonesWithPlus];
 
-  // Query customers table for unsubscribed numbers
   let unsubscribedPhones = new Set<string>();
   if (phoneLookup.length > 0) {
-    const { data: unsubs } = await supabase
-      .from("customers")
-      .select("whatsapp_number")
-      .eq("is_deleted", true)
-      .in("whatsapp_number", phoneLookup);
-    
-    if (unsubs && unsubs.length > 0) {
-      for (const u of unsubs) {
-        const clean = (u.whatsapp_number || "").replace(/^\+/, "").replace(/\D/g, "");
-        if (clean) unsubscribedPhones.add(clean);
+    // Batch the unsubscribe lookup in chunks to avoid URL length issues
+    const LOOKUP_CHUNK = 500;
+    for (let c = 0; c < phoneLookup.length; c += LOOKUP_CHUNK) {
+      const chunk = phoneLookup.slice(c, c + LOOKUP_CHUNK);
+      const { data: unsubs } = await supabase
+        .from("customers")
+        .select("whatsapp_number")
+        .eq("is_deleted", true)
+        .in("whatsapp_number", chunk);
+      
+      if (unsubs && unsubs.length > 0) {
+        for (const u of unsubs) {
+          const clean = (u.whatsapp_number || "").replace(/^\+/, "").replace(/\D/g, "");
+          if (clean) unsubscribedPhones.add(clean);
+        }
       }
+    }
+    if (unsubscribedPhones.size > 0) {
       console.log(`[Broadcast] Filtering out ${unsubscribedPhones.size} unsubscribed numbers`);
     }
   }
 
-  // Filter recipients — exclude unsubscribed
   const filteredRecipients = recipients.filter((r: any) => {
     const clean = (r.phone || "").replace(/^\+/, "").replace(/\D/g, "");
     return !unsubscribedPhones.has(clean);
@@ -532,62 +588,155 @@ async function sendBroadcast(
 
   let sentCount = 0;
   let failedCount = 0;
+  let rateLimitHits = 0;
 
-  for (const recipient of filteredRecipients) {
-    const phone = recipient.phone?.replace(/^\+/, "") || "";
-    if (!phone) {
-      failedCount++;
-      continue;
+  // ─── Adaptive high-performance parallel sending ───
+  // Meta allows ~80 messages/second for business accounts.
+  // Start with 40 concurrent (safe), auto-reduce if rate limited.
+  let concurrency = 40;
+  const DB_BATCH_SIZE = 200;
+  const startTime = Date.now();
+
+  // Accumulate DB updates and flush in batches
+  const sentUpdates: { id: string; whatsapp_message_id: string; sent_at: string }[] = [];
+  const failedUpdates: { id: string; error_details: string }[] = [];
+
+  async function flushSentUpdates() {
+    if (sentUpdates.length === 0) return;
+    const batch = sentUpdates.splice(0, sentUpdates.length);
+    const chunks = [];
+    for (let i = 0; i < batch.length; i += 50) {
+      chunks.push(batch.slice(i, i + 50));
     }
-
-    try {
-      const payload = {
-        messaging_product: "whatsapp",
-        to: phone,
-        type: "template",
-        template: {
-          name: template_name,
-          language: { code: language || "en" },
-          ...(components ? { components } : {}),
-        },
-      };
-
-      const result = await metaApi(accessToken, `${phoneNumberId}/messages`, "POST", payload);
-      const waMessageId = result.messages?.[0]?.id;
-
-      // Update recipient status
-      if (recipient.id) {
+    await Promise.all(chunks.map(async (chunk) => {
+      for (const item of chunk) {
         await supabase
           .from("wa_broadcast_recipients")
           .update({
             status: "sent",
-            whatsapp_message_id: waMessageId,
-            sent_at: new Date().toISOString(),
+            whatsapp_message_id: item.whatsapp_message_id,
+            sent_at: item.sent_at,
           })
-          .eq("id", recipient.id);
+          .eq("id", item.id);
       }
-      sentCount++;
+    }));
+  }
 
-      // Rate limiting: Meta allows ~80 messages/second for business accounts
-      // Add small delay to be safe
-      await new Promise((r) => setTimeout(r, 50));
-    } catch (err) {
-      console.error(`Broadcast send failed for ${phone}:`, err);
-      failedCount++;
-
-      if (recipient.id) {
-        // Store the full error details from Meta API for troubleshooting
-        const errorMsg = err.message || "Send failed";
+  async function flushFailedUpdates() {
+    if (failedUpdates.length === 0) return;
+    const batch = failedUpdates.splice(0, failedUpdates.length);
+    const chunks = [];
+    for (let i = 0; i < batch.length; i += 50) {
+      chunks.push(batch.slice(i, i + 50));
+    }
+    await Promise.all(chunks.map(async (chunk) => {
+      for (const item of chunk) {
         await supabase
           .from("wa_broadcast_recipients")
           .update({
             status: "failed",
-            error_details: errorMsg.substring(0, 1000), // Trim to avoid very long errors
+            error_details: item.error_details,
           })
-          .eq("id", recipient.id);
+          .eq("id", item.id);
+      }
+    }));
+  }
+
+  // Process recipients in concurrent batches with adaptive speed
+  for (let i = 0; i < filteredRecipients.length; i += concurrency) {
+    const batch = filteredRecipients.slice(i, i + concurrency);
+    let batchRateLimited = 0;
+
+    const results = await Promise.allSettled(
+      batch.map(async (recipient: any) => {
+        const phone = recipient.phone?.replace(/^\+/, "") || "";
+        if (!phone) throw new Error("No phone number");
+
+        const payload = {
+          messaging_product: "whatsapp",
+          to: phone,
+          type: "template",
+          template: {
+            name: template_name,
+            language: { code: language || "en" },
+            ...(components ? { components } : {}),
+          },
+        };
+
+        // Use retry wrapper — auto-retries on rate limit with backoff
+        const result = await sendWithRetry(accessToken, phoneNumberId, payload);
+        return { recipient, waMessageId: result.messages?.[0]?.id };
+      })
+    );
+
+    // Collect results
+    const now = new Date().toISOString();
+    for (let j = 0; j < results.length; j++) {
+      const res = results[j];
+      if (res.status === "fulfilled") {
+        sentCount++;
+        if (res.value.recipient.id) {
+          sentUpdates.push({
+            id: res.value.recipient.id,
+            whatsapp_message_id: res.value.waMessageId || "",
+            sent_at: now,
+          });
+        }
+      } else {
+        const errMsg = res.reason?.message || "Send failed";
+        const isRateLimit = errMsg.includes("130429") || errMsg.includes("rate") || errMsg.includes("throttl");
+        if (isRateLimit) {
+          batchRateLimited++;
+          rateLimitHits++;
+        }
+        failedCount++;
+        const recipient = batch[j];
+        console.error(`Broadcast send failed for ${recipient?.phone}:`, errMsg.substring(0, 200));
+        if (recipient?.id) {
+          failedUpdates.push({
+            id: recipient.id,
+            error_details: errMsg.substring(0, 1000),
+          });
+        }
       }
     }
+
+    // ─── Adaptive concurrency ───
+    // If we got rate limited in this batch, reduce concurrency and add longer delay
+    if (batchRateLimited > 0) {
+      const oldConcurrency = concurrency;
+      concurrency = Math.max(10, Math.floor(concurrency * 0.6)); // Reduce by 40%
+      console.log(`[Broadcast] Rate limited ${batchRateLimited}x in batch, reducing concurrency ${oldConcurrency} → ${concurrency}`);
+      await new Promise((r) => setTimeout(r, 5000)); // 5s cooldown
+    } else if (rateLimitHits === 0 && concurrency < 40) {
+      // Gradually recover concurrency if no rate limits
+      concurrency = Math.min(40, concurrency + 5);
+    }
+
+    // Flush DB updates periodically
+    if (sentUpdates.length >= DB_BATCH_SIZE) await flushSentUpdates();
+    if (failedUpdates.length >= DB_BATCH_SIZE) await flushFailedUpdates();
+
+    // Log progress every 500 messages
+    const processed = Math.min(i + batch.length, filteredRecipients.length);
+    if (processed % 500 < concurrency || processed === filteredRecipients.length) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      const rate = (sentCount / (Date.now() - startTime) * 1000).toFixed(1);
+      const eta = sentCount > 0 ? (((filteredRecipients.length - processed) / (sentCount / ((Date.now() - startTime) / 1000))) ).toFixed(0) : '?';
+      console.log(`[Broadcast] ${processed}/${filteredRecipients.length} | sent:${sentCount} failed:${failedCount} | ${elapsed}s elapsed | ${rate} msg/s | ETA: ${eta}s | concurrency:${concurrency}`);
+    }
+
+    // Delay between batches — 200ms keeps us safely under 80 msg/s
+    if (i + concurrency < filteredRecipients.length) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
   }
+
+  // Flush remaining DB updates
+  await Promise.all([flushSentUpdates(), flushFailedUpdates()]);
+
+  const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[Broadcast] COMPLETE in ${totalTime}s | sent:${sentCount} failed:${failedCount} skipped:${skippedCount} rateLimitHits:${rateLimitHits}`);
 
   // Update broadcast final status
   const finalStatus = failedCount === filteredRecipients.length ? "failed" : "completed";
@@ -601,5 +750,5 @@ async function sendBroadcast(
     })
     .eq("id", broadcast_id);
 
-  return { sent: sentCount, failed: failedCount, skipped: skippedCount, total: recipients.length };
+  return { sent: sentCount, failed: failedCount, skipped: skippedCount, rateLimitHits, total: recipients.length, duration: `${totalTime}s` };
 }
