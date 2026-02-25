@@ -57,6 +57,12 @@
     let activeTab = 'list'; // list, create, details
     let selectedBroadcast: Broadcast | null = null;
     let detailRecipients: Recipient[] = [];
+    let detailSummary = { total_count: 0, pending_count: 0, sent_count: 0, delivered_count: 0, read_count: 0, failed_count: 0 };
+    let detailPage = 0;
+    let detailPageSize = 100;
+    let detailStatusFilter: string | null = null;
+    let detailLoading = false;
+    let detailTotalFiltered = 0;
 
     // Refresh state
     let refreshingBroadcastId: string | null = null;
@@ -69,6 +75,9 @@
     // Realtime channel
     let broadcastChannel: any = null;
     let autoRefreshInterval: any = null;
+    let realtimeDebounceTimer: any = null;
+    let realtimeDetailDebounceTimer: any = null;
+    let loadBroadcastsInFlight = false;
 
     // Wizard steps
     let wizardStep = 1; // 1=Template, 2=Recipients, 3=Send
@@ -153,22 +162,37 @@
             supabase.removeChannel(broadcastChannel);
         }
         if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+        if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+        if (realtimeDetailDebounceTimer) clearTimeout(realtimeDetailDebounceTimer);
         // Clear cooldown timers
         Object.values(retryCooldownTimers).forEach(t => clearTimeout(t));
     });
+
+    function debouncedLoadBroadcasts() {
+        if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+        realtimeDebounceTimer = setTimeout(() => {
+            if (!loadBroadcastsInFlight) loadBroadcasts();
+        }, 3000);
+    }
+
+    function debouncedRefreshDetails() {
+        if (realtimeDetailDebounceTimer) clearTimeout(realtimeDetailDebounceTimer);
+        realtimeDetailDebounceTimer = setTimeout(() => {
+            if (activeTab === 'details' && selectedBroadcast) {
+                loadDetailPage();
+            }
+        }, 5000);
+    }
 
     function setupRealtimeSubscription() {
         if (!supabase) return;
         broadcastChannel = supabase.channel('wa-broadcasts-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'wa_broadcasts' }, () => {
-                loadBroadcasts();
+                debouncedLoadBroadcasts();
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'wa_broadcast_recipients' }, () => {
-                loadBroadcasts();
-                // Also refresh details if viewing one
-                if (activeTab === 'details' && selectedBroadcast) {
-                    viewBroadcastDetails(selectedBroadcast);
-                }
+                debouncedLoadBroadcasts();
+                debouncedRefreshDetails();
             })
             .subscribe();
     }
@@ -206,11 +230,19 @@
     }
 
     async function loadBroadcasts() {
-        const { data } = await supabase.from('wa_broadcasts')
-            .select('*, wa_templates(name, language)')
-            .eq('wa_account_id', accountId)
-            .order('created_at', { ascending: false });
-        broadcasts = data || [];
+        if (loadBroadcastsInFlight) return;
+        loadBroadcastsInFlight = true;
+        try {
+            const { data, error } = await supabase.from('wa_broadcasts')
+                .select('*, wa_templates(name, language)')
+                .eq('wa_account_id', accountId)
+                .order('created_at', { ascending: false });
+            if (!error) broadcasts = data || [];
+        } catch (e) {
+            console.error('loadBroadcasts failed:', e);
+        } finally {
+            loadBroadcastsInFlight = false;
+        }
     }
 
     async function loadTemplates() {
@@ -268,8 +300,60 @@
     async function viewBroadcastDetails(bc: Broadcast) {
         selectedBroadcast = bc;
         activeTab = 'details';
-        const { data } = await supabase.from('wa_broadcast_recipients').select('*').eq('broadcast_id', bc.id).order('sent_at', { ascending: false });
-        detailRecipients = data || [];
+        detailPage = 0;
+        detailStatusFilter = null;
+        await loadDetailPage();
+    }
+
+    async function loadDetailPage() {
+        if (!selectedBroadcast || detailLoading) return;
+        detailLoading = true;
+        try {
+            // Load summary counts + page of recipients in parallel
+            const [summaryRes, recipientsRes] = await Promise.all([
+                supabase.rpc('get_broadcast_summary', { p_broadcast_id: selectedBroadcast.id }),
+                supabase.rpc('get_broadcast_recipients', {
+                    p_broadcast_id: selectedBroadcast.id,
+                    p_limit: detailPageSize,
+                    p_offset: detailPage * detailPageSize,
+                    p_status_filter: detailStatusFilter
+                })
+            ]);
+            if (summaryRes.data && summaryRes.data.length > 0) {
+                detailSummary = summaryRes.data[0];
+            }
+            detailRecipients = recipientsRes.data || [];
+            // Calculate total for current filter
+            if (!detailStatusFilter) {
+                detailTotalFiltered = detailSummary.total_count;
+            } else {
+                detailTotalFiltered = (detailSummary as any)[detailStatusFilter + '_count'] || 0;
+            }
+        } catch (e) {
+            console.error('Failed to load broadcast details:', e);
+        } finally {
+            detailLoading = false;
+        }
+    }
+
+    function detailNextPage() {
+        if ((detailPage + 1) * detailPageSize < detailTotalFiltered) {
+            detailPage++;
+            loadDetailPage();
+        }
+    }
+
+    function detailPrevPage() {
+        if (detailPage > 0) {
+            detailPage--;
+            loadDetailPage();
+        }
+    }
+
+    function setDetailStatusFilter(status: string | null) {
+        detailStatusFilter = status;
+        detailPage = 0;
+        loadDetailPage();
     }
 
     function toggleSelectAll() {
@@ -375,12 +459,10 @@
             if (recipErr) throw recipErr;
 
             if (scheduleType === 'now') {
-                // Fetch inserted recipients with their IDs
-                const { data: insertedRecipients } = await supabase.from('wa_broadcast_recipients')
-                    .select('id, phone_number, customer_name')
-                    .eq('broadcast_id', bc.id);
-
                 // Send via edge function (server-side, keeps access_token secure)
+                // The edge function reads recipients directly from DB — no need to pass them
+                // This avoids huge request bodies for 20k+ broadcasts
+                
                 // Build template components (header media if needed)
                 let templateComponents: any[] | undefined = undefined;
                 if (selectedTemplate!.header_type && selectedTemplate!.header_type !== 'none' && selectedTemplate!.header_type !== 'text') {
@@ -396,7 +478,9 @@
                             mediaParam.video = { link: mediaUrl };
                         } else if (headerType === 'document') {
                             mediaParam.type = 'document';
-                            mediaParam.document = { link: mediaUrl };
+                            // Extract filename from URL so customers see the real name instead of 'untitled'
+                            const docFilename = mediaUrl.split('/').pop()?.split('?')[0] || 'document.pdf';
+                            mediaParam.document = { link: mediaUrl, filename: decodeURIComponent(docFilename) };
                         }
                         templateComponents = [{
                             type: 'header',
@@ -412,18 +496,15 @@
                         broadcast_id: bc.id,
                         template_name: selectedTemplate!.name,
                         language: selectedTemplate!.language,
-                        components: templateComponents,
-                        recipients: (insertedRecipients || []).map((r: any) => ({
-                            id: r.id,
-                            phone: r.phone_number
-                        }))
+                        components: templateComponents
+                        // recipients omitted — edge function reads from DB directly
                     }
                 });
                 if (fnErr) {
                     console.error('Edge function error:', fnErr);
                     alert('Broadcast created but sending failed: ' + (fnErr.message || JSON.stringify(fnErr)));
                 } else {
-                    alert('Broadcast sent successfully! Sent: ' + (result?.data?.sent || 0) + ', Failed: ' + (result?.data?.failed || 0));
+                    alert('Broadcast started! It is processing in the background. Use the Refresh Status button to track progress.');
                 }
             } else {
                 alert('Broadcast scheduled successfully!');
@@ -501,7 +582,9 @@
                         mediaParam.video = { link: mediaUrl };
                     } else if (headerType === 'document') {
                         mediaParam.type = 'document';
-                        mediaParam.document = { link: mediaUrl };
+                        // Extract filename from URL so customers see the real name instead of 'untitled'
+                        const docFilename = mediaUrl.split('/').pop()?.split('?')[0] || 'document.pdf';
+                        mediaParam.document = { link: mediaUrl, filename: decodeURIComponent(docFilename) };
                     }
                     templateComponents = [{
                         type: 'header',
@@ -510,7 +593,7 @@
                 }
             }
 
-            // Call edge function to resend
+            // Call edge function to resend (reads pending recipients from DB)
             const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
                 body: {
                     action: 'send_broadcast',
@@ -518,11 +601,8 @@
                     broadcast_id: bc.id,
                     template_name: tmpl.name,
                     language: tmpl.language,
-                    components: templateComponents,
-                    recipients: failedRecipients.map((r: any) => ({
-                        id: r.id,
-                        phone: r.phone_number
-                    }))
+                    components: templateComponents
+                    // recipients omitted — edge function reads pending from DB
                 }
             });
 
@@ -530,9 +610,7 @@
                 console.error('Retry edge function error:', fnErr);
                 alert('Retry failed: ' + (fnErr.message || JSON.stringify(fnErr)));
             } else {
-                const sent = result?.data?.sent || 0;
-                const failed = result?.data?.failed || 0;
-                alert(`Retry complete! Sent: ${sent}, Failed: ${failed}`);
+                alert('Retry started! It is processing in the background. Use the Refresh Status button to track progress.');
             }
 
             // Set 10-minute cooldown
@@ -557,80 +635,12 @@
         if (refreshingBroadcastId) return;
         refreshingBroadcastId = bc.id;
         try {
-            // Step 1: Get all broadcast recipients with their whatsapp_message_id
-            const { data: recipients, error: err } = await supabase
-                .from('wa_broadcast_recipients')
-                .select('id, status, whatsapp_message_id')
-                .eq('broadcast_id', bc.id);
-            if (err) throw err;
+            // Use server-side RPC to refresh statuses in bulk (avoids URL length limits)
+            const { data, error: rpcError } = await supabase
+                .rpc('refresh_broadcast_status', { p_broadcast_id: bc.id });
+            if (rpcError) throw rpcError;
 
-            // Step 2: For recipients that have a whatsapp_message_id, check wa_messages for updated status
-            const recipientsWithMsgId = (recipients || []).filter((r: any) => r.whatsapp_message_id);
-            if (recipientsWithMsgId.length > 0) {
-                const msgIds = recipientsWithMsgId.map((r: any) => r.whatsapp_message_id);
-                const { data: messages } = await supabase
-                    .from('wa_messages')
-                    .select('whatsapp_message_id, status')
-                    .in('whatsapp_message_id', msgIds);
-
-                // Build a lookup map: whatsapp_message_id -> highest status from wa_messages
-                const statusOrder: Record<string, number> = { pending: 0, failed: 0, sent: 1, delivered: 2, read: 3 };
-                const msgStatusMap: Record<string, string> = {};
-                for (const msg of (messages || [])) {
-                    const existing = msgStatusMap[msg.whatsapp_message_id];
-                    if (!existing || (statusOrder[msg.status] ?? 0) > (statusOrder[existing] ?? 0)) {
-                        msgStatusMap[msg.whatsapp_message_id] = msg.status;
-                    }
-                }
-
-                // Update broadcast recipients with the status from wa_messages if it's a progression
-                for (const r of recipientsWithMsgId) {
-                    const msgStatus = msgStatusMap[r.whatsapp_message_id];
-                    if (msgStatus && statusOrder[msgStatus] !== undefined) {
-                        const currentOrder = statusOrder[r.status] ?? 0;
-                        const newOrder = statusOrder[msgStatus] ?? 0;
-                        if (newOrder > currentOrder) {
-                            await supabase
-                                .from('wa_broadcast_recipients')
-                                .update({ status: msgStatus })
-                                .eq('id', r.id);
-                        }
-                    }
-                }
-            }
-
-            // Step 3: Re-fetch recipients and recount
-            const { data: updatedRecipients } = await supabase
-                .from('wa_broadcast_recipients')
-                .select('status')
-                .eq('broadcast_id', bc.id);
-
-            const counts = { pending: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
-            for (const r of (updatedRecipients || [])) {
-                if (r.status in counts) counts[r.status as keyof typeof counts]++;
-            }
-
-            // sent_count = sent + delivered + read (they were all successfully sent)
-            const sentCount = counts.sent + counts.delivered + counts.read;
-            const deliveredCount = counts.delivered + counts.read;
-            const readCount = counts.read;
-
-            // Determine broadcast status
-            const total = (updatedRecipients || []).length;
-            let broadcastStatus = bc.status;
-            if (counts.pending > 0) broadcastStatus = 'sending';
-            else if (counts.failed === total) broadcastStatus = 'failed';
-            else if (counts.pending === 0 && total > 0) broadcastStatus = 'completed';
-
-            // Update the broadcast row in DB
-            await supabase.from('wa_broadcasts').update({
-                sent_count: sentCount,
-                delivered_count: deliveredCount,
-                read_count: readCount,
-                failed_count: counts.failed,
-                total_recipients: total,
-                status: broadcastStatus
-            }).eq('id', bc.id);
+            console.log('Broadcast status refreshed:', data);
 
             // Refresh local data
             await loadBroadcasts();
@@ -1198,15 +1208,44 @@
                         </span>
                     </div>
                     <div class="details-stats">
-                        <div class="detail-stat bg-slate-50"><p class="ds-num text-slate-700">{selectedBroadcast.total_recipients}</p><p class="ds-label">Total</p></div>
-                        <div class="detail-stat bg-emerald-50"><p class="ds-num text-emerald-600">{selectedBroadcast.sent_count || 0}</p><p class="ds-label">Sent</p></div>
-                        <div class="detail-stat bg-blue-50"><p class="ds-num text-blue-600">{selectedBroadcast.delivered_count || 0}</p><p class="ds-label">Delivered</p></div>
-                        <div class="detail-stat bg-purple-50"><p class="ds-num text-purple-600">{selectedBroadcast.read_count || 0}</p><p class="ds-label">Read</p></div>
-                        <div class="detail-stat bg-red-50"><p class="ds-num text-red-600">{selectedBroadcast.failed_count || 0}</p><p class="ds-label">Failed</p></div>
+                        <div class="detail-stat bg-slate-50"><p class="ds-num text-slate-700">{detailSummary.total_count || selectedBroadcast.total_recipients}</p><p class="ds-label">Total</p></div>
+                        <div class="detail-stat bg-emerald-50"><p class="ds-num text-emerald-600">{detailSummary.sent_count}</p><p class="ds-label">Sent</p></div>
+                        <div class="detail-stat bg-blue-50"><p class="ds-num text-blue-600">{detailSummary.delivered_count}</p><p class="ds-label">Delivered</p></div>
+                        <div class="detail-stat bg-purple-50"><p class="ds-num text-purple-600">{detailSummary.read_count}</p><p class="ds-label">Read</p></div>
+                        <div class="detail-stat bg-red-50"><p class="ds-num text-red-600">{detailSummary.failed_count}</p><p class="ds-label">Failed</p></div>
+                        <div class="detail-stat bg-amber-50"><p class="ds-num text-amber-600">{detailSummary.pending_count}</p><p class="ds-label">Pending</p></div>
                     </div>
                 </div>
 
+                <!-- Status Filter Tabs -->
+                <div class="flex flex-wrap gap-2 mb-3 px-1">
+                    <button class="px-3 py-1.5 rounded-full text-xs font-bold transition-all {detailStatusFilter === null ? 'bg-emerald-600 text-white shadow' : 'bg-white text-slate-600 hover:bg-slate-100'}" on:click={() => setDetailStatusFilter(null)}>
+                        All ({detailSummary.total_count})
+                    </button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-bold transition-all {detailStatusFilter === 'pending' ? 'bg-slate-600 text-white shadow' : 'bg-white text-slate-500 hover:bg-slate-100'}" on:click={() => setDetailStatusFilter('pending')}>
+                        ⏳ Pending ({detailSummary.pending_count})
+                    </button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-bold transition-all {detailStatusFilter === 'sent' ? 'bg-emerald-600 text-white shadow' : 'bg-white text-emerald-600 hover:bg-emerald-50'}" on:click={() => setDetailStatusFilter('sent')}>
+                        ✅ Sent ({detailSummary.sent_count})
+                    </button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-bold transition-all {detailStatusFilter === 'delivered' ? 'bg-blue-600 text-white shadow' : 'bg-white text-blue-600 hover:bg-blue-50'}" on:click={() => setDetailStatusFilter('delivered')}>
+                        📬 Delivered ({detailSummary.delivered_count})
+                    </button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-bold transition-all {detailStatusFilter === 'read' ? 'bg-purple-600 text-white shadow' : 'bg-white text-purple-600 hover:bg-purple-50'}" on:click={() => setDetailStatusFilter('read')}>
+                        👁️ Read ({detailSummary.read_count})
+                    </button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-bold transition-all {detailStatusFilter === 'failed' ? 'bg-red-600 text-white shadow' : 'bg-white text-red-600 hover:bg-red-50'}" on:click={() => setDetailStatusFilter('failed')}>
+                        ❌ Failed ({detailSummary.failed_count})
+                    </button>
+                </div>
+
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+                    {#if detailLoading}
+                        <div class="flex items-center justify-center py-12">
+                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                            <span class="ml-3 text-slate-500 text-sm">Loading recipients...</span>
+                        </div>
+                    {:else}
                     <div class="overflow-x-auto flex-1">
                         <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
                             <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
@@ -1247,14 +1286,32 @@
                                         </td>
                                     </tr>
                                 {/each}
+                                {#if detailRecipients.length === 0}
+                                    <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400 text-sm">No recipients found</td></tr>
+                                {/if}
                             </tbody>
                         </table>
                     </div>
-                    <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                        📊 {detailRecipients.length} recipient{detailRecipients.length !== 1 ? 's' : ''}
-                        {#if detailRecipients.filter(r => r.status === 'failed').length > 0}
-                            · <span class="text-red-600">{detailRecipients.filter(r => r.status === 'failed').length} failed</span>
-                        {/if}
+                    {/if}
+                    <!-- Pagination Footer -->
+                    <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600 font-semibold">
+                        <span>
+                            📊 Showing {detailPage * detailPageSize + 1}–{Math.min((detailPage + 1) * detailPageSize, detailTotalFiltered)} of {detailTotalFiltered}
+                            {#if detailStatusFilter}
+                                ({detailStatusFilter})
+                            {/if}
+                        </span>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 rounded bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                disabled={detailPage === 0} on:click={detailPrevPage}>
+                                ← Prev
+                            </button>
+                            <span class="px-2 py-1 text-slate-500">Page {detailPage + 1} / {Math.max(1, Math.ceil(detailTotalFiltered / detailPageSize))}</span>
+                            <button class="px-3 py-1 rounded bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                disabled={(detailPage + 1) * detailPageSize >= detailTotalFiltered} on:click={detailNextPage}>
+                                Next →
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

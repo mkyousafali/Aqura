@@ -166,12 +166,12 @@ async function handleStatusUpdate(supabase: any, status: any, phoneNumberId: str
                 else if (r.status === "read") counts.read++;
                 else if (r.status === "failed") counts.failed++;
               }
-              // sent_count = sent + delivered + read (all successfully sent)
+              // Store exclusive counts (each recipient counted in exactly one category)
               await supabase
                 .from("wa_broadcasts")
                 .update({
-                  sent_count: counts.sent + counts.delivered + counts.read,
-                  delivered_count: counts.delivered + counts.read,
+                  sent_count: counts.sent,
+                  delivered_count: counts.delivered,
                   read_count: counts.read,
                   failed_count: counts.failed,
                 })
