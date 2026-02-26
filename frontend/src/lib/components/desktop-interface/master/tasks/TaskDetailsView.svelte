@@ -702,7 +702,8 @@
 				assignee:assigned_to_user_id(id, username, username, user_branch:branch_id(id, name_en))
 			`)
 			.eq('assigned_to_user_id', user.id)
-			.in('status', ['assigned', 'in_progress', 'pending']);
+			.neq('status', 'completed')
+			.neq('status', 'cancelled');
 
 		if (taError) console.error('Error loading my task_assignments:', taError);
 
@@ -719,7 +720,8 @@
 				assignee:assigned_to_user_id(id, username)
 			`)
 			.eq('assigned_to_user_id', user.id)
-			.eq('status', 'pending');
+			.neq('status', 'completed')
+			.neq('status', 'cancelled');
 
 		if (qaError) console.error('Error loading my quick_task_assignments:', qaError);
 

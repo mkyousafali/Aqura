@@ -239,7 +239,8 @@
 					.from('task_assignments')
 					.select('id, status, assigned_at, deadline_date, deadline_time, task_id, assigned_by, assigned_by_name, require_task_finished, require_photo_upload, require_erp_reference')
 					.eq('assigned_to_user_id', currentUserData.id)
-					.in('status', ['assigned', 'in_progress', 'pending'])
+					.neq('status', 'completed')
+					.neq('status', 'cancelled')
 					.order('assigned_at', { ascending: false })
 					.limit(100),
 
@@ -248,7 +249,8 @@
 					.from('quick_task_assignments')
 					.select('id, status, created_at, quick_task_id, assigned_to_user_id')
 					.eq('assigned_to_user_id', currentUserData.id)
-					.in('status', ['assigned', 'in_progress', 'pending'])
+					.neq('status', 'completed')
+					.neq('status', 'cancelled')
 					.order('created_at', { ascending: false })
 					.limit(100),
 
@@ -414,6 +416,45 @@
 					clearance_certificate_url: task.clearance_certificate_url
 				};
 			});
+
+			// Fetch parent task price info for shelf tag tasks (linked_parent_task:UUID in description)
+			const parentTaskIds = [];
+			const taskToParentMap = new Map();
+			[...processedQuickTasks].forEach(t => {
+				const desc = t.description || '';
+				const parentMatch = desc.match(/linked_parent_task:([a-f0-9-]{36})/i);
+				if (parentMatch) {
+					parentTaskIds.push(parentMatch[1]);
+					taskToParentMap.set(t.id || t.assignment_id, parentMatch[1]);
+				}
+			});
+
+			if (parentTaskIds.length > 0) {
+				const { data: parentTasks } = await supabase
+					.from('quick_tasks')
+					.select('id, title, description, price_tag')
+					.in('id', [...new Set(parentTaskIds)]);
+
+				if (parentTasks) {
+					const parentMap = new Map();
+					parentTasks.forEach(pt => parentMap.set(pt.id, pt));
+
+					processedQuickTasks.forEach(t => {
+						const parentId = taskToParentMap.get(t.id || t.assignment_id);
+						if (parentId && parentMap.has(parentId)) {
+							const parent = parentMap.get(parentId);
+							const parentDesc = parent.description || '';
+							const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+							const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+							// Also try arrow format from OfferCostManager: "currentPrice → targetPrice"
+							const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+							t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
+							t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
+							t.parent_title = parent.title;
+						}
+					});
+				}
+			}
 
 			// Combine and sort all tasks
 			tasks = [...processedTasks, ...processedQuickTasks, ...processedReceivingTasks]
@@ -877,6 +918,44 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 				};
 			});
 
+			// Fetch parent task price info for completed shelf tag tasks
+			const cParentTaskIds = [];
+			const cTaskToParentMap = new Map();
+			completedQuickTasks.forEach(t => {
+				const desc = t.description || '';
+				const parentMatch = desc.match(/linked_parent_task:([a-f0-9-]{36})/i);
+				if (parentMatch) {
+					cParentTaskIds.push(parentMatch[1]);
+					cTaskToParentMap.set(t.id || t.assignment_id, parentMatch[1]);
+				}
+			});
+
+			if (cParentTaskIds.length > 0) {
+				const { data: cParentTasks } = await supabase
+					.from('quick_tasks')
+					.select('id, title, description, price_tag')
+					.in('id', [...new Set(cParentTaskIds)]);
+
+				if (cParentTasks) {
+					const cParentMap = new Map();
+					cParentTasks.forEach(pt => cParentMap.set(pt.id, pt));
+
+					completedQuickTasks.forEach(t => {
+						const parentId = cTaskToParentMap.get(t.id || t.assignment_id);
+						if (parentId && cParentMap.has(parentId)) {
+							const parent = cParentMap.get(parentId);
+							const parentDesc = parent.description || '';
+							const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+							const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+							const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+							t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
+							t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
+							t.parent_title = parent.title;
+						}
+					});
+				}
+			}
+
 			// Add completed tasks to main tasks array
 			const completedTasks = [...completedRegularTasks, ...completedQuickTasks, ...completedReceivingTasks];
 			tasks = [...tasks, ...completedTasks]
@@ -1016,7 +1095,33 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							role="button" 
 							tabindex="0"
 						>
-							<p class="task-description">{task.description}</p>
+							{#if task.parent_old_price && task.parent_new_price}
+								<div class="price-change-info">
+									<div class="price-change-row">
+										<span class="price-label">Old Price:</span>
+										<span class="price-value old-price">{parseFloat(task.parent_old_price).toFixed(2)}</span>
+										<span class="price-arrow">→</span>
+										<span class="price-label">New Price:</span>
+										<span class="price-value new-price">{parseFloat(task.parent_new_price).toFixed(2)}</span>
+									</div>
+								</div>
+							{:else if task.description}
+								{@const oldPriceMatch = task.description.match(/Old Price:\s*([\d.]+)/i)}
+								{@const newPriceMatch = task.description.match(/New Price:\s*([\d.]+)/i)}
+								{#if oldPriceMatch && newPriceMatch}
+									<div class="price-change-info">
+										<div class="price-change-row">
+											<span class="price-label">Old Price:</span>
+											<span class="price-value old-price">{parseFloat(oldPriceMatch[1]).toFixed(2)}</span>
+											<span class="price-arrow">→</span>
+											<span class="price-label">New Price:</span>
+											<span class="price-value new-price">{parseFloat(newPriceMatch[1]).toFixed(2)}</span>
+										</div>
+									</div>
+								{:else}
+									<p class="task-description">{task.description.split('\nlinked_parent_task:')[0].split('linked_parent_task:')[0]}</p>
+								{/if}
+							{/if}
 							
 							{#if task.task_type === 'quick' && task.incident_id}
 								<div class="incident-attachments-section">
@@ -1596,6 +1701,49 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
+	}
+
+	.price-change-info {
+		margin: 0.25rem 0 0.5rem 0;
+		padding: 0.5rem 0.75rem;
+		background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+		border-radius: 8px;
+		border-left: 3px solid #F59E0B;
+	}
+
+	.price-change-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		font-size: 0.8rem;
+		font-weight: 600;
+	}
+
+	.price-label {
+		color: #92400E;
+		font-weight: 500;
+		font-size: 0.72rem;
+	}
+
+	.price-value {
+		font-weight: 700;
+		font-size: 0.9rem;
+	}
+
+	.price-value.old-price {
+		color: #DC2626;
+		text-decoration: line-through;
+	}
+
+	.price-value.new-price {
+		color: #059669;
+	}
+
+	.price-arrow {
+		color: #92400E;
+		font-size: 1rem;
+		font-weight: 700;
 	}
 
 	.incident-attachments-section {

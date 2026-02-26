@@ -58,7 +58,8 @@ export const taskCountService = {
         .from("task_assignments")
         .select("id, status, deadline_date, deadline_time, assigned_at")
         .eq("assigned_to_user_id", activeUser.id)
-        .in("status", ["assigned", "in_progress", "pending"]);
+        .neq("status", "completed")
+        .neq("status", "cancelled");
 
       // Fetch quick task assignments (simplified query like mobile layout)
       const { data: quickTasks, error: quickError } = await supabase
@@ -74,14 +75,16 @@ export const taskCountService = {
 				`,
         )
         .eq("assigned_to_user_id", activeUser.id)
-        .in("status", ["assigned", "in_progress", "pending"]);
+        .neq("status", "completed")
+        .neq("status", "cancelled");
 
       // Fetch receiving tasks
       const { data: receivingTasks, error: receivingError } = await supabase
         .from("receiving_tasks")
         .select("id, task_status, due_date")
         .eq("assigned_user_id", activeUser.id)
-        .eq("task_status", "pending");
+        .neq("task_status", "completed")
+        .neq("task_status", "cancelled");
 
       if (regularError) {
         console.error("Error fetching regular task counts:", regularError);

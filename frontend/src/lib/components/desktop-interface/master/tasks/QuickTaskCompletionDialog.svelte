@@ -192,13 +192,38 @@
 		try {
 			const taskTitle = assignment.quick_tasks.title;
 			const priceTag = assignment.quick_tasks.price_tag || '';
+			const parentDesc = assignment.quick_tasks.description || '';
+			
+			// Extract old/new price from parent task description
+			const oldPriceMatch = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+			const newPriceMatch = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+			const oldPrice = oldPriceMatch ? oldPriceMatch[1] : '';
+			const newPrice = newPriceMatch ? newPriceMatch[1] : '';
+			
+			// Also try to extract from OfferCostManager format: "currentPrice → targetPrice"
+			const arrowMatch = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+			const displayOldPrice = oldPrice || (arrowMatch ? arrowMatch[1] : '');
+			const displayNewPrice = newPrice || (arrowMatch ? arrowMatch[2] : '');
+			
+			// Build price info for title and description
+			const priceInfo = displayOldPrice && displayNewPrice ? ` (${displayOldPrice} → ${displayNewPrice})` : '';
+			const priceInfoAr = displayOldPrice && displayNewPrice ? ` (${displayOldPrice} ← ${displayNewPrice})` : '';
+
+			// Build shelf tag description with price details
+			let shelfTagDescEn = `Change the shelf price tags for the price change task.`;
+			let shelfTagDescAr = `قم بتغيير بطاقات أسعار الرف لمهمة تغيير السعر.`;
+			if (displayOldPrice && displayNewPrice) {
+				shelfTagDescEn += `\n\nOld Price: ${displayOldPrice}\nNew Price: ${displayNewPrice}`;
+				shelfTagDescAr += `\n\nالسعر القديم: ${displayOldPrice}\nالسعر الجديد: ${displayNewPrice}`;
+			}
+			shelfTagDescEn += `\n\nlinked_parent_task:${assignment.quick_tasks.id}`;
 			
 			// Create the shelf tag change task
 			const { data: newTask, error: taskError } = await supabase
 				.from('quick_tasks')
 				.insert({
-					title: `Change Shelf Tag | تغيير بطاقة الرف: ${priceTag || taskTitle}`,
-					description: `linked_parent_task:${assignment.quick_tasks.id}`,
+					title: `Change Shelf Tags - Price Change | تغيير السعر: ${priceTag || taskTitle}${priceInfo}`,
+					description: `${shelfTagDescEn}\n---\n${shelfTagDescAr}`,
 					issue_type: 'shelf_tag_change',
 					priority: 'high',
 					assigned_by: $currentUser?.id,
@@ -217,6 +242,7 @@
 			const assignments = shelfTagSelectedUsers.map(userId => ({
 				quick_task_id: newTask.id,
 				assigned_to_user_id: userId,
+				status: 'assigned',
 				require_task_finished: true,
 				require_photo_upload: true,
 				require_erp_reference: false
