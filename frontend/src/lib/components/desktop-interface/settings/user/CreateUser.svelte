@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { userManagement } from '$lib/utils/userManagement';
+	import { supabase } from '$lib/utils/supabase';
 
 	const dispatch = createEventDispatcher();
 	
@@ -18,6 +19,8 @@
 	const isMasterAdminId = `isMasterAdmin-${componentId}`;
 	const isAdminId = `isAdmin-${componentId}`;
 	const avatarInputId = `avatar-input-${componentId}`;
+	const whatsappNumberId = `whatsappNumber-${componentId}`;
+	const emailFieldId = `email-${componentId}`;
 	
 	// Props from parent component
 	export let onDataChanged: (() => Promise<void>) | null = null;
@@ -35,7 +38,9 @@
 		isMasterAdmin: false,
 		isAdmin: false,
 		positionId: '',
-		avatar: null
+		avatar: null,
+		whatsappNumber: '',
+		email: ''
 	};
 
 	// Real data from database
@@ -256,6 +261,18 @@
 			errors.employeeId = 'Employee selection is required';
 		}
 
+		if (!formData.whatsappNumber.trim()) {
+			errors.whatsappNumber = 'WhatsApp number is required';
+		} else if (!/^\+?[0-9]{7,15}$/.test(formData.whatsappNumber.replace(/[\s-]/g, ''))) {
+			errors.whatsappNumber = 'Enter a valid phone number (e.g. +966501234567)';
+		}
+
+		if (!formData.email.trim()) {
+			errors.email = 'Email is required';
+		} else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+			errors.email = 'Enter a valid email address';
+		}
+
 		return Object.keys(errors).length === 0;
 	}
 
@@ -302,6 +319,20 @@
 			const result = await userManagement.createUser(userData);
 
 			if (result.success) {
+				// Save whatsapp_number and email to hr_employee_master
+				if (formData.employeeId) {
+					const { error: empUpdateError } = await supabase
+						.from('hr_employee_master')
+						.update({
+							whatsapp_number: formData.whatsappNumber.trim(),
+							email: formData.email.trim()
+						})
+						.eq('id', formData.employeeId);
+					if (empUpdateError) {
+						console.warn('⚠️ Could not update hr_employee_master with WhatsApp/email:', empUpdateError);
+					}
+				}
+
 				successMessage = `User created successfully! Quick Access Code: ${result.quick_access_code}`;
 				
 				// Notify parent component to refresh data
@@ -338,7 +369,9 @@
 			isMasterAdmin: false,
 			isAdmin: false,
 			positionId: '',
-			avatar: null
+			avatar: null,
+			whatsappNumber: '',
+			email: ''
 		};
 		errors = {};
 		successMessage = '';
@@ -351,1119 +384,470 @@
 	}
 </script>
 
-<div class="create-user">
-	<div class="header">
-		<h1 class="title">Create New User</h1>
-		<p class="subtitle">Add a new user account to the system</p>
-	</div>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+    <!-- Header -->
+    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div>
+            <h1 class="text-xl font-black text-slate-800 uppercase tracking-wide">👤 Create New User</h1>
+            <p class="text-xs text-slate-500 mt-0.5">Add a new user account to the system</p>
+        </div>
+    </div>
 
-	{#if loadingData}
-		<div class="loading-container">
-			<div class="loading-spinner"></div>
-			<p>Loading form data...</p>
-		</div>
-	{:else if dataError}
-		<div class="error-container">
-			<div class="error-message">
-				<h3>Error Loading Data</h3>
-				<p>{dataError}</p>
-				<button class="retry-btn" on:click={loadInitialData}>
-					🔄 Retry
-				</button>
-			</div>
-		</div>
-	{:else}
-		<form on:submit|preventDefault={handleSubmit} class="user-form">
-		<!-- Basic Information Section -->
-		<div class="form-section">
-			<h2 class="section-title">Basic Information</h2>
-			
-			<div class="form-row">
-				<div class="form-group">
-					<label for={usernameId} class="form-label">Username *</label>
-					<input
-						type="text"
-						id={usernameId}
-						bind:value={formData.username}
-						class="form-input"
-						class:error={errors.username}
-						placeholder="Enter username"
-						required
-					>
-					{#if errors.username}
-						<span class="error-message">{errors.username}</span>
-					{/if}
-				</div>
+    <!-- Main Content Area -->
+    <div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+        <!-- Futuristic background decorative elements -->
+        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-				<div class="form-group">
-					<label for={userTypeId} class="form-label">User Type *</label>
-					<select
-						id={userTypeId}
-						bind:value={formData.userType}
-						class="form-select"
-						class:error={errors.userType}
-					>
-						<option value="global">Global Access</option>
-						<option value="branch_specific">Branch Specific</option>
-					</select>
-				</div>
-			</div>
-		</div>
+        <div class="relative max-w-4xl mx-auto">
+            {#if loadingData}
+                <div class="flex items-center justify-center h-64">
+                    <div class="text-center">
+                        <div class="animate-spin inline-block">
+                            <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+                        </div>
+                        <p class="mt-4 text-slate-600 font-semibold">Loading form data...</p>
+                    </div>
+                </div>
+            {:else if dataError}
+                <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+                    <p class="text-red-700 font-semibold">Error: {dataError}</p>
+                    <button 
+                        class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                        on:click={loadInitialData}
+                    >
+                        🔄 Retry
+                    </button>
+                </div>
+            {:else}
+                <form on:submit|preventDefault={handleSubmit}>
+                    <!-- Basic Information Section -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                        <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
+                            <span class="inline-block w-1.5 h-5 bg-blue-600 rounded-full"></span>
+                            Basic Information
+                        </h2>
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label for={usernameId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Username *</label>
+                                <input
+                                    type="text"
+                                    id={usernameId}
+                                    bind:value={formData.username}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all {errors.username ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    placeholder="Enter username"
+                                    required
+                                >
+                                {#if errors.username}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.username}</p>
+                                {/if}
+                            </div>
 
-		<!-- Security Section -->
-		<div class="form-section">
-			<h2 class="section-title">Security</h2>
-			
-			<div class="form-row">
-				<div class="form-group">
-					<label for={passwordId} class="form-label">Password *</label>
-					<input
-						type="password"
-						id={passwordId}
-						bind:value={formData.password}
-						class="form-input"
-						class:error={errors.password}
-						placeholder="Enter password"
-						required
-					>
-					{#if errors.password}
-						<span class="error-message">{errors.password}</span>
-					{/if}
-				</div>
+                            <div>
+                                <label for={userTypeId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">User Type *</label>
+                                <select
+                                    id={userTypeId}
+                                    bind:value={formData.userType}
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                                    style="color: #000000 !important; background-color: #ffffff !important;"
+                                >
+                                    <option value="global" style="color: #000000 !important; background-color: #ffffff !important;">Global Access</option>
+                                    <option value="branch_specific" style="color: #000000 !important; background-color: #ffffff !important;">Branch Specific</option>
+                                </select>
+                            </div>
+                        </div>
 
-				<div class="form-group">
-					<label for={confirmPasswordId} class="form-label">Confirm Password *</label>
-					<input
-						type="password"
-						id={confirmPasswordId}
-						bind:value={formData.confirmPassword}
-						class="form-input"
-						class:error={errors.confirmPassword}
-						placeholder="Confirm password"
-						required
-					>
-					{#if errors.confirmPassword}
-						<span class="error-message">{errors.confirmPassword}</span>
-					{/if}
-				</div>
-			</div>
+                        <!-- WhatsApp Number and Email -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label for={whatsappNumberId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">📱 WhatsApp Number *</label>
+                                <input
+                                    type="tel"
+                                    id={whatsappNumberId}
+                                    bind:value={formData.whatsappNumber}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all {errors.whatsappNumber ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    placeholder="+966501234567"
+                                    required
+                                >
+                                {#if errors.whatsappNumber}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.whatsappNumber}</p>
+                                {/if}
+                            </div>
 
-			<!-- Password Requirements Checklist -->
-			<div class="password-checklist">
-				<h3 class="checklist-title">Password Requirements:</h3>
-				<div class="checklist-items">
-					<div class="check-item" class:valid={passwordChecks.minLength}>
-						<span class="check-icon">{passwordChecks.minLength ? '✅' : '❌'}</span>
-						At least 8 characters
-					</div>
-					<div class="check-item" class:valid={passwordChecks.hasUppercase}>
-						<span class="check-icon">{passwordChecks.hasUppercase ? '✅' : '❌'}</span>
-						One uppercase letter
-					</div>
-					<div class="check-item" class:valid={passwordChecks.hasLowercase}>
-						<span class="check-icon">{passwordChecks.hasLowercase ? '✅' : '❌'}</span>
-						One lowercase letter
-					</div>
-					<div class="check-item" class:valid={passwordChecks.hasNumber}>
-						<span class="check-icon">{passwordChecks.hasNumber ? '✅' : '❌'}</span>
-						One number
-					</div>
-					<div class="check-item" class:valid={passwordChecks.hasSpecialChar}>
-						<span class="check-icon">{passwordChecks.hasSpecialChar ? '✅' : '❌'}</span>
-						One special character
-					</div>
-				</div>
-			</div>
+                            <div>
+                                <label for={emailFieldId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">📧 Email *</label>
+                                <input
+                                    type="email"
+                                    id={emailFieldId}
+                                    bind:value={formData.email}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all {errors.email ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    placeholder="user@example.com"
+                                    required
+                                >
+                                {#if errors.email}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.email}</p>
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
 
-			<!-- Quick Access Code -->
-			<div class="form-row">
-				<div class="form-group">
-					<label for={quickAccessCodeId} class="form-label">Quick Access Code (6 digits) *</label>
-					<div class="input-with-button">
-						<input
-							type="text"
-							id={quickAccessCodeId}
-							bind:value={formData.quickAccessCode}
-							class="form-input"
-							class:error={errors.quickAccessCode}
-							placeholder="123456"
-							maxlength="6"
-							inputmode="numeric"
-						>
-						<button
-							type="button"
-							class="generate-btn"
-							on:click={generateQuickAccessCode}
-							title="Generate Random Code"
-						>
-							🎲
-						</button>
-					</div>
-					{#if errors.quickAccessCode}
-						<span class="error-message">{errors.quickAccessCode}</span>
-					{/if}
-				</div>
+                    <!-- Security Section -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                        <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
+                            <span class="inline-block w-1.5 h-5 bg-amber-500 rounded-full"></span>
+                            Security
+                        </h2>
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label for={passwordId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Password *</label>
+                                <input
+                                    type="password"
+                                    id={passwordId}
+                                    bind:value={formData.password}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all {errors.password ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    placeholder="Enter password"
+                                    required
+                                >
+                                {#if errors.password}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.password}</p>
+                                {/if}
+                            </div>
 
-				<div class="form-group">
-					<label for={confirmQuickAccessCodeId} class="form-label">Confirm Quick Access Code *</label>
-					<input
-						type="text"
-						id={confirmQuickAccessCodeId}
-						bind:value={formData.confirmQuickAccessCode}
-						class="form-input"
-						class:error={errors.confirmQuickAccessCode}
-						placeholder="123456"
-						maxlength="6"
-						inputmode="numeric"
-					>
-					{#if errors.confirmQuickAccessCode}
-						<span class="error-message">{errors.confirmQuickAccessCode}</span>
-					{/if}
-				</div>
-			</div>
-		</div>
+                            <div>
+                                <label for={confirmPasswordId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Confirm Password *</label>
+                                <input
+                                    type="password"
+                                    id={confirmPasswordId}
+                                    bind:value={formData.confirmPassword}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all {errors.confirmPassword ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    placeholder="Confirm password"
+                                    required
+                                >
+                                {#if errors.confirmPassword}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.confirmPassword}</p>
+                                {/if}
+                            </div>
+                        </div>
 
-		<!-- Assignment Section -->
-		<div class="form-section">
-			<h2 class="section-title">Assignment</h2>
-			
-			<!-- Branch Selection -->
-			{#if formData.userType === 'branch_specific'}
-				<div class="form-group full-width">
-					<label for={branchId} class="form-label">Branch *</label>
-					<select
-						id={branchId}
-						bind:value={formData.branchId}
-						class="form-select"
-						class:error={errors.branchId}
-					>
-						<option value="">Select Branch</option>
-						{#each branches as branch}
-							<option value={branch.id}>{branch.name_en || branch.name}</option>
-						{/each}
-					</select>
-					{#if errors.branchId}
-						<span class="error-message">{errors.branchId}</span>
-					{/if}
-				</div>
-			{/if}
+                        <!-- Password Requirements Checklist -->
+                        <div class="bg-slate-50/80 border border-slate-200 rounded-xl p-4 mb-4">
+                            <h3 class="text-xs font-bold text-slate-600 uppercase tracking-wide mb-3">Password Requirements</h3>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div class="flex items-center gap-2 text-xs {passwordChecks.minLength ? 'text-emerald-600' : 'text-slate-400'}">
+                                    <span>{passwordChecks.minLength ? '✅' : '❌'}</span>
+                                    At least 8 characters
+                                </div>
+                                <div class="flex items-center gap-2 text-xs {passwordChecks.hasUppercase ? 'text-emerald-600' : 'text-slate-400'}">
+                                    <span>{passwordChecks.hasUppercase ? '✅' : '❌'}</span>
+                                    One uppercase letter
+                                </div>
+                                <div class="flex items-center gap-2 text-xs {passwordChecks.hasLowercase ? 'text-emerald-600' : 'text-slate-400'}">
+                                    <span>{passwordChecks.hasLowercase ? '✅' : '❌'}</span>
+                                    One lowercase letter
+                                </div>
+                                <div class="flex items-center gap-2 text-xs {passwordChecks.hasNumber ? 'text-emerald-600' : 'text-slate-400'}">
+                                    <span>{passwordChecks.hasNumber ? '✅' : '❌'}</span>
+                                    One number
+                                </div>
+                                <div class="flex items-center gap-2 text-xs {passwordChecks.hasSpecialChar ? 'text-emerald-600' : 'text-slate-400'}">
+                                    <span>{passwordChecks.hasSpecialChar ? '✅' : '❌'}</span>
+                                    One special character
+                                </div>
+                            </div>
+                        </div>
 
-			<!-- Employee Selection Table -->
-			{#if formData.branchId || formData.userType === 'global'}
-				<div class="employee-selection">
-					<div class="selection-header">
-						<h3 class="selection-title">Select Employee *</h3>
-						{#if selectedEmployee}
-							<div class="selected-employee-info">
-								<span class="selected-badge">Selected:</span>
-								<span class="employee-name">{selectedEmployee.name}</span>
-								<span class="employee-id">({selectedEmployee.employee_id || selectedEmployee.id})</span>
-								{#if selectedEmployee.position_title_en}
-									<span class="employee-position">- {selectedEmployee.position_title_en}</span>
-								{/if}
-								<button type="button" class="clear-selection" on:click={() => { selectedEmployee = null; formData.employeeId = ''; }}>
-									×
-								</button>
-							</div>
-						{/if}
-					</div>
-					
-					{#if !selectedEmployee}
-						<!-- Search Input -->
-						<div class="employee-search">
-							<input
-								type="text"
-								bind:value={employeeSearchTerm}
-								placeholder="Search employees by name, ID, or position..."
-								class="search-input"
-							>
-							<span class="search-icon">🔍</span>
-						</div>
+                        <!-- Quick Access Code -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label for={quickAccessCodeId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Quick Access Code (6 digits) *</label>
+                                <div class="flex gap-2">
+                                    <input
+                                        type="text"
+                                        id={quickAccessCodeId}
+                                        bind:value={formData.quickAccessCode}
+                                        class="flex-1 px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all font-mono {errors.quickAccessCode ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                        placeholder="123456"
+                                        maxlength="6"
+                                        inputmode="numeric"
+                                    >
+                                    <button
+                                        type="button"
+                                        class="px-3.5 py-2.5 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition-all text-lg"
+                                        on:click={generateQuickAccessCode}
+                                        title="Generate Random Code"
+                                    >
+                                        🎲
+                                    </button>
+                                </div>
+                                {#if errors.quickAccessCode}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.quickAccessCode}</p>
+                                {/if}
+                            </div>
 
-						<!-- Employee Table -->
-						<div class="employee-table-container">
-							{#if searchedEmployees.length > 0}
-								<table class="employee-table">
-									<thead>
-										<tr>
-											<th>Employee ID</th>
-											<th>Name</th>
-											<th>Position</th>
-											<th>Action</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each searchedEmployees as employee}
-											<tr class="employee-row" on:click={() => selectEmployee(employee)}>
-												<td class="employee-id-cell">{employee.employee_id || employee.id}</td>
-												<td class="employee-name-cell">{employee.name}</td>
-												<td class="employee-position-cell">
-													{employee.position_title_en || 'No Position'}
-												</td>
-												<td class="employee-action-cell">
-													<button 
-														type="button" 
-														class="select-btn"
-														on:click|stopPropagation={() => selectEmployee(employee)}
-													>
-														Select
-													</button>
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							{:else if employeeSearchTerm}
-								<div class="no-results">
-									<p>No employees found matching "{employeeSearchTerm}"</p>
-									<p class="help-text">Try adjusting your search or check if employees are properly assigned to this branch.</p>
-								</div>
-							{:else if formData.branchId && filteredEmployees.length === 0}
-								<div class="no-results">
-									<p>No employees found in the selected branch</p>
-									<p class="help-text">This branch may not have any employees assigned yet. Please contact your administrator.</p>
-								</div>
-							{:else if !formData.branchId}
-								<div class="no-results">
-									<p>Please select a branch to view employees</p>
-									<p class="help-text">Employee selection is filtered by branch for better organization.</p>
-								</div>
-							{:else if employees.length === 0}
-								<div class="no-results">
-									<p>No employees available in the system</p>
-									<p class="help-text">Please add employees to the HR system before creating users.</p>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-				
-				{#if errors.employeeId}
-					<span class="error-message">{errors.employeeId}</span>
-				{/if}
-			{/if}
+                            <div>
+                                <label for={confirmQuickAccessCodeId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Confirm Quick Access Code *</label>
+                                <input
+                                    type="text"
+                                    id={confirmQuickAccessCodeId}
+                                    bind:value={formData.confirmQuickAccessCode}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all font-mono {errors.confirmQuickAccessCode ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    placeholder="123456"
+                                    maxlength="6"
+                                    inputmode="numeric"
+                                >
+                                {#if errors.confirmQuickAccessCode}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.confirmQuickAccessCode}</p>
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
 
-			<!-- Admin Privileges Section -->
-			<div class="form-row admin-section">
-				<div class="form-group">
-					<label class="checkbox-label">
-						<input
-							type="checkbox"
-							id={isMasterAdminId}
-							bind:checked={formData.isMasterAdmin}
-							class="form-checkbox"
-						/>
-						<span>Make Master Admin</span>
-					</label>
-					<small class="help-text">Master Admins have full system access</small>
-				</div>
+                    <!-- Assignment Section -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                        <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
+                            <span class="inline-block w-1.5 h-5 bg-emerald-600 rounded-full"></span>
+                            Assignment
+                        </h2>
+                        
+                        <!-- Branch Selection -->
+                        {#if formData.userType === 'branch_specific'}
+                            <div class="mb-4">
+                                <label for={branchId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Branch *</label>
+                                <select
+                                    id={branchId}
+                                    bind:value={formData.branchId}
+                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all {errors.branchId ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
+                                    style="color: #000000 !important; background-color: #ffffff !important;"
+                                >
+                                    <option value="" style="color: #000000 !important; background-color: #ffffff !important;">Select Branch</option>
+                                    {#each branches as branch}
+                                        <option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">{branch.name_en || branch.name}</option>
+                                    {/each}
+                                </select>
+                                {#if errors.branchId}
+                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.branchId}</p>
+                                {/if}
+                            </div>
+                        {/if}
 
-				<div class="form-group">
-					<label class="checkbox-label">
-						<input
-							type="checkbox"
-							id={isAdminId}
-							bind:checked={formData.isAdmin}
-							disabled={formData.isMasterAdmin}
-							class="form-checkbox"
-						/>
-						<span>Make Admin</span>
-					</label>
-					<small class="help-text">Admins can manage users and approve workflows (disabled if Master Admin)</small>
-				</div>
-			</div>
+                        <!-- Employee Selection Table -->
+                        {#if formData.branchId || formData.userType === 'global'}
+                            <div class="mb-4">
+                                <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
+                                    <h3 class="text-xs font-bold text-slate-600 uppercase tracking-wide">Select Employee *</h3>
+                                    {#if selectedEmployee}
+                                        <div class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-sm">
+                                            <span class="text-emerald-700 font-bold text-xs">Selected:</span>
+                                            <span class="text-slate-800 font-semibold text-xs">{selectedEmployee.name}</span>
+                                            <span class="text-slate-500 text-xs">({selectedEmployee.employee_id || selectedEmployee.id})</span>
+                                            {#if selectedEmployee.position_title_en}
+                                                <span class="text-emerald-600 text-xs">- {selectedEmployee.position_title_en}</span>
+                                            {/if}
+                                            <button type="button" class="ml-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600 transition" on:click={() => { selectedEmployee = null; formData.employeeId = ''; }}>
+                                                ×
+                                            </button>
+                                        </div>
+                                    {/if}
+                                </div>
+                                
+                                {#if !selectedEmployee}
+                                    <!-- Search Input -->
+                                    <div class="relative mb-3">
+                                        <input
+                                            type="text"
+                                            bind:value={employeeSearchTerm}
+                                            placeholder="Search employees by name, ID, or position..."
+                                            class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all pr-10"
+                                        >
+                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">🔍</span>
+                                    </div>
 
-			<!-- Position Selection -->
-			<div class="form-row">
-				<div class="form-group">
-					<label for={positionIdField} class="form-label">Position</label>
-					<select
-						id={positionIdField}
-						bind:value={formData.positionId}
-						class="form-select"
-						class:error={errors.positionId}
-					>
-						<option value="">Select Position (Optional)</option>
-						{#each positions as position}
-							<option value={position.id}>{position.position_title_en}</option>
-						{/each}
-					</select>
-					{#if errors.positionId}
-						<span class="error-message">{errors.positionId}</span>
-					{/if}
-				</div>
-			</div>
-		</div>
+                                    <!-- Employee Table -->
+                                    <div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] overflow-hidden max-h-64 overflow-y-auto">
+                                        {#if searchedEmployees.length > 0}
+                                            <table class="w-full border-collapse">
+                                                <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
+                                                    <tr>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-black uppercase tracking-wider">Employee ID</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-black uppercase tracking-wider">Name</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-black uppercase tracking-wider">Position</th>
+                                                        <th class="px-4 py-2.5 text-center text-xs font-black uppercase tracking-wider">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-200">
+                                                    {#each searchedEmployees as employee, index}
+                                                        <tr class="hover:bg-emerald-50/30 transition-colors duration-200 cursor-pointer {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}" on:click={() => selectEmployee(employee)}>
+                                                            <td class="px-4 py-2.5 text-xs text-slate-500 font-mono">{employee.employee_id || employee.id}</td>
+                                                            <td class="px-4 py-2.5 text-sm text-slate-800 font-semibold">{employee.name}</td>
+                                                            <td class="px-4 py-2.5 text-xs text-emerald-600">{employee.position_title_en || 'No Position'}</td>
+                                                            <td class="px-4 py-2.5 text-center">
+                                                                <button 
+                                                                    type="button" 
+                                                                    class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
+                                                                    on:click|stopPropagation={() => selectEmployee(employee)}
+                                                                >
+                                                                    Select
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    {/each}
+                                                </tbody>
+                                            </table>
+                                        {:else if employeeSearchTerm}
+                                            <div class="p-8 text-center text-slate-500">
+                                                <p class="font-semibold text-sm">No employees found matching "{employeeSearchTerm}"</p>
+                                                <p class="text-xs mt-1 text-slate-400">Try adjusting your search or check if employees are properly assigned to this branch.</p>
+                                            </div>
+                                        {:else if formData.branchId && filteredEmployees.length === 0}
+                                            <div class="p-8 text-center text-slate-500">
+                                                <p class="font-semibold text-sm">No employees found in the selected branch</p>
+                                                <p class="text-xs mt-1 text-slate-400">This branch may not have any employees assigned yet.</p>
+                                            </div>
+                                        {:else if !formData.branchId}
+                                            <div class="p-8 text-center text-slate-500">
+                                                <p class="font-semibold text-sm">Please select a branch to view employees</p>
+                                            </div>
+                                        {:else if employees.length === 0}
+                                            <div class="p-8 text-center text-slate-500">
+                                                <p class="font-semibold text-sm">No employees available in the system</p>
+                                                <p class="text-xs mt-1 text-slate-400">Please add employees to the HR system before creating users.</p>
+                                            </div>
+                                        {/if}
+                                    </div>
+                                {/if}
+                            </div>
+                            
+                            {#if errors.employeeId}
+                                <p class="text-red-500 text-xs mt-1 font-medium">{errors.employeeId}</p>
+                            {/if}
+                        {/if}
 
-		<!-- Avatar Section -->
-		<div class="form-section">
-			<h2 class="section-title">Avatar (Optional)</h2>
-			
-			<div class="avatar-upload">
-				<div class="avatar-preview">
-					{#if avatarPreview}
-						<img src={avatarPreview} alt="Avatar Preview" class="avatar-image">
-						<button type="button" class="remove-avatar" on:click={removeAvatar}>×</button>
-					{:else}
-						<div class="avatar-placeholder">
-							<span class="avatar-icon">👤</span>
-							<span class="avatar-text">No Avatar</span>
-						</div>
-					{/if}
-				</div>
-				
-				<div class="upload-controls">
-					<input
-						type="file"
-						id={avatarInputId}
-						accept=".png,.jpg,.jpeg,.webp"
-						on:change={handleAvatarChange}
-						class="file-input"
-						hidden
-					>
-					<label for={avatarInputId} class="upload-btn">
-						📷 Choose Image
-					</label>
-					<div class="upload-info">
-						<p>PNG, JPEG, WEBP • Max 5MB • Min 256×256px</p>
-					</div>
-				</div>
-			</div>
-			
-			{#if errors.avatar}
-				<span class="error-message">{errors.avatar}</span>
-			{/if}
-		</div>
+                        <!-- Admin Privileges Section -->
+                        <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200/50">
+                            <div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3">
+                                <input
+                                    type="checkbox"
+                                    id={isMasterAdminId}
+                                    bind:checked={formData.isMasterAdmin}
+                                    class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer"
+                                />
+                                <div>
+                                    <label for={isMasterAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Master Admin</label>
+                                    <p class="text-xs text-slate-400 mt-0.5">Full system access</p>
+                                </div>
+                            </div>
 
-		<!-- Messages -->
-		{#if errors.submit}
-			<div class="error-banner">
-				<strong>Error:</strong> {errors.submit}
-			</div>
-		{/if}
+                            <div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3">
+                                <input
+                                    type="checkbox"
+                                    id={isAdminId}
+                                    bind:checked={formData.isAdmin}
+                                    disabled={formData.isMasterAdmin}
+                                    class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer disabled:opacity-50"
+                                />
+                                <div>
+                                    <label for={isAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Admin</label>
+                                    <p class="text-xs text-slate-400 mt-0.5">Manage users & approve workflows</p>
+                                </div>
+                            </div>
+                        </div>
 
-		{#if successMessage}
-			<div class="success-banner">
-				<strong>Success:</strong> {successMessage}
-			</div>
-		{/if}
+                        <!-- Position Selection -->
+                        <div class="mt-4">
+                            <label for={positionIdField} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Position</label>
+                            <select
+                                id={positionIdField}
+                                bind:value={formData.positionId}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">Select Position (Optional)</option>
+                                {#each positions as position}
+                                    <option value={position.id} style="color: #000000 !important; background-color: #ffffff !important;">{position.position_title_en}</option>
+                                {/each}
+                            </select>
+                        </div>
+                    </div>
 
-		<!-- Form Actions -->
-		<div class="form-actions">
-			<button type="button" class="cancel-btn" on:click={handleClose} disabled={isLoading}>
-				Cancel
-			</button>
-			<button 
-				type="submit" 
-				class="submit-btn" 
-				disabled={isLoading || !isPasswordValid || !isQuickAccessValid}
-			>
-				{#if isLoading}
-					<span class="spinner"></span>
-					Creating User...
-				{:else}
-					<span class="icon">👤</span>
-					Create User
-				{/if}
-			</button>
-		</div>
-	</form>
-	{/if}
+                    <!-- Avatar Section -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                        <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
+                            <span class="inline-block w-1.5 h-5 bg-purple-500 rounded-full"></span>
+                            Avatar (Optional)
+                        </h2>
+                        
+                        <div class="flex gap-6 items-start">
+                            <div class="relative w-24 h-24 flex-shrink-0">
+                                {#if avatarPreview}
+                                    <img src={avatarPreview} alt="Avatar Preview" class="w-full h-full object-cover rounded-full border-3 border-slate-200 shadow-lg">
+                                    <button type="button" class="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600 transition shadow-md" on:click={removeAvatar}>×</button>
+                                {:else}
+                                    <div class="w-full h-full rounded-full border-2 border-dashed border-slate-300 flex flex-col items-center justify-center bg-slate-50/80">
+                                        <span class="text-3xl">👤</span>
+                                        <span class="text-[10px] text-slate-400 mt-0.5">No Avatar</span>
+                                    </div>
+                                {/if}
+                            </div>
+                            
+                            <div class="flex-1">
+                                <input
+                                    type="file"
+                                    id={avatarInputId}
+                                    accept=".png,.jpg,.jpeg,.webp"
+                                    on:change={handleAvatarChange}
+                                    hidden
+                                >
+                                <label for={avatarInputId} class="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold cursor-pointer hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105">
+                                    📷 Choose Image
+                                </label>
+                                <p class="text-xs text-slate-400 mt-2">PNG, JPEG, WEBP • Max 5MB • Min 256×256px</p>
+                            </div>
+                        </div>
+                        
+                        {#if errors.avatar}
+                            <p class="text-red-500 text-xs mt-2 font-medium">{errors.avatar}</p>
+                        {/if}
+                    </div>
+
+                    <!-- Messages -->
+                    {#if errors.submit}
+                        <div class="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 text-sm text-red-800 font-semibold">
+                            <strong>Error:</strong> {errors.submit}
+                        </div>
+                    {/if}
+
+                    {#if successMessage}
+                        <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6 text-sm text-emerald-800 font-semibold">
+                            <strong>Success:</strong> {successMessage}
+                        </div>
+                    {/if}
+
+                    <!-- Form Actions -->
+                    <div class="flex gap-3 justify-end pt-2 pb-4">
+                        <button type="button" class="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 hover:shadow-md transition-all duration-200" on:click={handleClose} disabled={isLoading}>
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            class="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                            disabled={isLoading || !isPasswordValid || !isQuickAccessValid}
+                        >
+                            {#if isLoading}
+                                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                Creating User...
+                            {:else}
+                                👤 Create User
+                            {/if}
+                        </button>
+                    </div>
+                </form>
+            {/if}
+        </div>
+    </div>
 </div>
 
 <style>
-	.create-user {
-		height: 100%;
-		background: #f8fafc;
-		overflow-y: auto;
-		padding: 24px;
-	}
-
-	/* Loading and Error States */
-	.loading-container, .error-container {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		min-height: 300px;
-		text-align: center;
-	}
-
-	.loading-spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #e5e7eb;
-		border-left-color: #3b82f6;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 16px;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.loading-container p {
-		color: #6b7280;
-		font-size: 14px;
-	}
-
-	.error-message {
-		background: #fef2f2;
-		border: 1px solid #fecaca;
-		border-radius: 8px;
-		padding: 20px;
-		max-width: 400px;
-	}
-
-	.error-message h3 {
-		color: #dc2626;
-		margin: 0 0 8px 0;
-		font-size: 16px;
-	}
-
-	.error-message p {
-		color: #7f1d1d;
-		margin: 0 0 16px 0;
-		font-size: 14px;
-	}
-
-	.retry-btn {
-		background: #dc2626;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		padding: 8px 16px;
-		font-size: 14px;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.retry-btn:hover {
-		background: #b91c1c;
-	}
-
-	.header {
-		text-align: center;
-		margin-bottom: 32px;
-	}
-
-	.title {
-		font-size: 28px;
-		font-weight: 700;
-		color: #111827;
-		margin: 0 0 8px 0;
-	}
-
-	.subtitle {
-		font-size: 16px;
-		color: #6b7280;
-		margin: 0;
-	}
-
-	.user-form {
-		max-width: 800px;
-		margin: 0 auto;
-		background: white;
-		border-radius: 12px;
-		padding: 32px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-	}
-
-	.form-section {
-		margin-bottom: 32px;
-		padding-bottom: 24px;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.form-section:last-of-type {
-		border-bottom: none;
-	}
-
-	.section-title {
-		font-size: 20px;
-		font-weight: 600;
-		color: #111827;
-		margin: 0 0 20px 0;
-	}
-
-	.form-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 20px;
-		margin-bottom: 20px;
-	}
-
-	.form-row.role-selection {
-		margin-top: 24px;
-		padding-top: 20px;
-		border-top: 1px solid #e5e7eb;
-	}
-
-	.form-group {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.form-group.full-width {
-		grid-column: 1 / -1;
-	}
-
-	/* Employee Selection Styles */
-	.employee-selection {
-		margin: 24px 0;
-	}
-
-	.selection-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 16px;
-		flex-wrap: wrap;
-		gap: 12px;
-	}
-
-	.selection-title {
-		font-size: 16px;
-		font-weight: 600;
-		color: #374151;
-		margin: 0;
-	}
-
-	.selected-employee-info {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		background: #ecfdf5;
-		border: 1px solid #a7f3d0;
-		border-radius: 6px;
-		padding: 8px 12px;
-		font-size: 14px;
-	}
-
-	.selected-badge {
-		color: #065f46;
-		font-weight: 600;
-	}
-
-	.employee-name {
-		color: #111827;
-		font-weight: 500;
-	}
-
-	.employee-id {
-		color: #6b7280;
-		font-size: 13px;
-	}
-
-	.employee-position {
-		color: #059669;
-		font-size: 13px;
-	}
-
-	.clear-selection {
-		background: #dc2626;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		width: 20px;
-		height: 20px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		font-size: 14px;
-		line-height: 1;
-	}
-
-	.clear-selection:hover {
-		background: #b91c1c;
-	}
-
-	.employee-search {
-		position: relative;
-		margin-bottom: 16px;
-	}
-
-	.search-input {
-		width: 100%;
-		padding: 10px 40px 10px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 14px;
-		transition: border-color 0.2s, box-shadow 0.2s;
-	}
-
-	.search-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.search-icon {
-		position: absolute;
-		right: 12px;
-		top: 50%;
-		transform: translateY(-50%);
-		color: #6b7280;
-		font-size: 16px;
-		pointer-events: none;
-	}
-
-	.employee-table-container {
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		overflow: hidden;
-		background: white;
-		max-height: 300px;
-		overflow-y: auto;
-	}
-
-	.employee-table {
-		width: 100%;
-		border-collapse: collapse;
-	}
-
-	.employee-table th {
-		background: #f9fafb;
-		padding: 12px;
-		text-align: left;
-		font-size: 13px;
-		font-weight: 600;
-		color: #374151;
-		border-bottom: 1px solid #e5e7eb;
-		position: sticky;
-		top: 0;
-		z-index: 10;
-	}
-
-	.employee-table td {
-		padding: 12px;
-		font-size: 14px;
-		border-bottom: 1px solid #f3f4f6;
-	}
-
-	.employee-row {
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.employee-row:hover {
-		background: #f9fafb;
-	}
-
-	.employee-row:last-child td {
-		border-bottom: none;
-	}
-
-	.employee-id-cell {
-		font-family: 'Courier New', monospace;
-		color: #6b7280;
-		font-size: 13px;
-		min-width: 120px;
-	}
-
-	.employee-name-cell {
-		color: #111827;
-		font-weight: 500;
-		min-width: 150px;
-	}
-
-	.employee-position-cell {
-		color: #059669;
-		font-size: 13px;
-		min-width: 150px;
-	}
-
-	.employee-action-cell {
-		width: 100px;
-		text-align: center;
-	}
-
-	.select-btn {
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		padding: 6px 12px;
-		font-size: 12px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.select-btn:hover {
-		background: #2563eb;
-	}
-
-	.no-results {
-		padding: 40px 20px;
-		text-align: center;
-		color: #6b7280;
-		background: #f9fafb;
-	}
-
-	.no-results p {
-		margin: 0;
-		font-size: 14px;
-	}
-
-	.no-results .help-text {
-		margin-top: 8px;
-		font-size: 12px;
-		color: #9ca3af;
-		font-style: italic;
-	}
-
-	.form-label {
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 6px;
-	}
-
-	.form-input, .form-select {
-		padding: 10px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 14px;
-		transition: border-color 0.2s, box-shadow 0.2s;
-		background: white;
-	}
-
-	.form-input:focus, .form-select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.form-input.error, .form-select.error {
-		border-color: #ef4444;
-		box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
-	}
-
-	.error-message {
-		color: #ef4444;
-		font-size: 12px;
-		margin-top: 4px;
-	}
-
-	.input-with-button {
-		display: flex;
-		gap: 8px;
-	}
-
-	.generate-btn {
-		background: #f3f4f6;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		padding: 10px 12px;
-		cursor: pointer;
-		font-size: 16px;
-		transition: all 0.2s;
-	}
-
-	.generate-btn:hover {
-		background: #e5e7eb;
-	}
-
-	/* Password Checklist */
-	.password-checklist {
-		background: #f9fafb;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		padding: 16px;
-		margin-top: 12px;
-	}
-
-	.checklist-title {
-		font-size: 14px;
-		font-weight: 600;
-		color: #374151;
-		margin: 0 0 12px 0;
-	}
-
-	.checklist-items {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 8px;
-	}
-
-	.check-item {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 13px;
-		color: #6b7280;
-	}
-
-	.check-item.valid {
-		color: #059669;
-	}
-
-	.check-icon {
-		font-size: 14px;
-	}
-
-	/* Avatar Upload */
-	.avatar-upload {
-		display: flex;
-		gap: 24px;
-		align-items: flex-start;
-	}
-
-	.avatar-preview {
-		position: relative;
-		width: 120px;
-		height: 120px;
-		flex-shrink: 0;
-	}
-
-	.avatar-image {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		border-radius: 50%;
-		border: 3px solid #e5e7eb;
-	}
-
-	.avatar-placeholder {
-		width: 100%;
-		height: 100%;
-		border-radius: 50%;
-		border: 2px dashed #d1d5db;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		background: #f9fafb;
-	}
-
-	.avatar-icon {
-		font-size: 32px;
-		margin-bottom: 4px;
-	}
-
-	.avatar-text {
-		font-size: 12px;
-		color: #6b7280;
-	}
-
-	.remove-avatar {
-		position: absolute;
-		top: -8px;
-		right: -8px;
-		width: 24px;
-		height: 24px;
-		border-radius: 50%;
-		background: #ef4444;
-		color: white;
-		border: none;
-		font-size: 16px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		line-height: 1;
-	}
-
-	.upload-controls {
-		flex: 1;
-	}
-
-	.upload-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 16px;
-		background: #3b82f6;
-		color: white;
-		border-radius: 6px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.upload-btn:hover {
-		background: #2563eb;
-	}
-
-	.upload-info {
-		margin-top: 8px;
-	}
-
-	.upload-info p {
-		font-size: 12px;
-		color: #6b7280;
-		margin: 0;
-	}
-
-	/* Messages */
-	.error-banner, .success-banner {
-		padding: 12px 16px;
-		border-radius: 8px;
-		margin-bottom: 24px;
-		font-size: 14px;
-	}
-
-	.error-banner {
-		background: #fef2f2;
-		color: #991b1b;
-		border: 1px solid #fecaca;
-	}
-
-	.success-banner {
-		background: #f0fdf4;
-		color: #166534;
-		border: 1px solid #bbf7d0;
-	}
-
-	/* Form Actions */
-	.form-actions {
-		display: flex;
-		gap: 12px;
-		justify-content: flex-end;
-		padding-top: 24px;
-		border-top: 1px solid #e5e7eb;
-	}
-
-	.cancel-btn, .submit-btn {
-		padding: 12px 24px;
-		border-radius: 6px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.cancel-btn {
-		background: white;
-		color: #6b7280;
-		border-color: #d1d5db;
-	}
-
-	.cancel-btn:hover:not(:disabled) {
-		background: #f9fafb;
-		border-color: #9ca3af;
-	}
-
-	.submit-btn {
-		background: #3b82f6;
-		color: white;
-		border-color: #3b82f6;
-	}
-
-	.submit-btn:hover:not(:disabled) {
-		background: #2563eb;
-		transform: translateY(-1px);
-	}
-
-	.submit-btn:disabled, .cancel-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-		transform: none;
-	}
-
-	.spinner {
-		width: 16px;
-		height: 16px;
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top: 2px solid white;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		0% { transform: rotate(0deg); }
-		100% { transform: rotate(360deg); }
-	}
-
-	.icon {
-		font-size: 16px;
-	}
-
-	.checkbox-group {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.checkbox-label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-		padding: 8px;
-		border-radius: 6px;
-		transition: background-color 0.2s;
-	}
-
-	.checkbox-label:hover {
-		background: #f9fafb;
-	}
-
-	.form-checkbox {
-		width: 18px;
-		height: 18px;
-		cursor: pointer;
-		accent-color: #3b82f6;
-	}
-
-	.form-checkbox:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
-	}
-
-	.checkbox-hint {
-		color: #6b7280;
-		font-size: 12px;
-		margin-left: 4px;
-	}
-
-	@media (max-width: 768px) {
-		.form-row {
-			grid-template-columns: 1fr;
-		}
-
-		.checklist-items {
-			grid-template-columns: 1fr;
-		}
-
-		.avatar-upload {
-			flex-direction: column;
-			align-items: center;
-		}
-
-		.form-actions {
-			flex-direction: column-reverse;
-		}
-
-		.selection-header {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-
-		.selected-employee-info {
-			width: 100%;
-			justify-content: space-between;
-		}
-
-		.employee-table-container {
-			overflow-x: auto;
-		}
-
-		.employee-table {
-			min-width: 600px;
-		}
-
-		.employee-table th,
-		.employee-table td {
-			padding: 8px;
-		}
-	}
+	/* Minimal scoped styles - most styling is via Tailwind classes */
 </style>

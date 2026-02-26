@@ -54,6 +54,10 @@
 	let contractFile: File | null = null;
 	let isUploadingContract = false;
 	let contractDaysUntilExpiry = 0;
+	let whatsappNumber = '';
+	let savedWhatsappNumber = '';
+	let employeeEmail = '';
+	let savedEmployeeEmail = '';
 	let bankName = '';
 	let savedBankName = '';
 	let iban = '';
@@ -364,6 +368,8 @@
 					contract_document_url,
 					bank_name,
 					iban,
+					whatsapp_number,
+					email,
 					date_of_birth,
 					join_date,
 					probation_period_expiry_date,
@@ -455,6 +461,10 @@
 		contractExpiryDate = employee.contract_expiry_date || '';
 		savedContractExpiryDate = employee.contract_expiry_date || '';
 		contractFile = null;
+		whatsappNumber = employee.whatsapp_number || '';
+		savedWhatsappNumber = employee.whatsapp_number || '';
+		employeeEmail = employee.email || '';
+		savedEmployeeEmail = employee.email || '';
 		bankName = employee.bank_name || '';
 		savedBankName = employee.bank_name || '';
 		iban = employee.iban || '';
@@ -1103,6 +1113,73 @@
 	function viewContractDocument() {
 		if (selectedEmployee?.contract_document_url) {
 			window.open(selectedEmployee.contract_document_url, '_blank');
+		}
+	}
+
+	async function saveWhatsappNumber() {
+		if (!selectedEmployee || !whatsappNumber) {
+			alert('Please enter a WhatsApp number');
+			return;
+		}
+
+		// Validate phone format
+		const cleanNumber = whatsappNumber.replace(/[\s-]/g, '');
+		if (!/^\+?[0-9]{7,15}$/.test(cleanNumber)) {
+			alert('Enter a valid phone number (e.g. +966501234567)');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ whatsapp_number: whatsappNumber })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving WhatsApp number:', error);
+				alert($t('employeeFiles.alerts.saveError'));
+				return;
+			}
+
+			selectedEmployee.whatsapp_number = whatsappNumber;
+			savedWhatsappNumber = whatsappNumber;
+			alert($t('employeeFiles.alerts.saveSuccess'));
+		} catch (error) {
+			console.error('Error saving WhatsApp number:', error);
+			alert($t('employeeFiles.alerts.saveError'));
+		}
+	}
+
+	async function saveEmployeeEmail() {
+		if (!selectedEmployee || !employeeEmail) {
+			alert('Please enter an email address');
+			return;
+		}
+
+		// Validate email format
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(employeeEmail)) {
+			alert('Enter a valid email address');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ email: employeeEmail })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving email:', error);
+				alert($t('employeeFiles.alerts.saveError'));
+				return;
+			}
+
+			selectedEmployee.email = employeeEmail;
+			savedEmployeeEmail = employeeEmail;
+			alert($t('employeeFiles.alerts.saveSuccess'));
+		} catch (error) {
+			console.error('Error saving email:', error);
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
@@ -2339,6 +2416,99 @@
 										</button>
 									{/if}
 								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Card: Contact Information -->
+					<div class="file-card bank-card">
+						<div class="file-card-content bank-content">
+							<div class="bank-form">
+								<h5>📱 Contact Information</h5>
+								
+								<!-- WhatsApp Number Field -->
+								{#if !savedWhatsappNumber}
+									<div class="form-group-compact">
+										<label for="whatsapp-number">WhatsApp Number</label>
+										<input 
+											type="tel" 
+											id="whatsapp-number" 
+											bind:value={whatsappNumber}
+											placeholder="+966501234567"
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveWhatsappNumber}>
+										💾 {$t('employeeFiles.saveNumber')}
+									</button>
+								{:else}
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">WhatsApp:</span>
+											<span class="date-value">{savedWhatsappNumber}</span>
+										</div>
+									</div>
+									
+									{#if whatsappNumber !== savedWhatsappNumber}
+										<div class="form-group-compact">
+											<label for="whatsapp-number-edit">Change WhatsApp Number</label>
+											<input 
+												type="tel" 
+												id="whatsapp-number-edit" 
+												bind:value={whatsappNumber}
+												placeholder="+966501234567"
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveWhatsappNumber}>
+											💾 {$t('employeeFiles.updateNumber')}
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => whatsappNumber = ''}>
+											✏️ {$t('employeeFiles.editNumber')}
+										</button>
+									{/if}
+								{/if}
+								
+								<!-- Email Field -->
+								{#if !savedEmployeeEmail}
+									<div class="form-group-compact">
+										<label for="employee-email">Email</label>
+										<input 
+											type="email" 
+											id="employee-email" 
+											bind:value={employeeEmail}
+											placeholder="employee@company.com"
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveEmployeeEmail}>
+										💾 {$t('employeeFiles.saveNumber')}
+									</button>
+								{:else}
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Email:</span>
+											<span class="date-value">{savedEmployeeEmail}</span>
+										</div>
+									</div>
+									
+									{#if employeeEmail !== savedEmployeeEmail}
+										<div class="form-group-compact">
+											<label for="employee-email-edit">Change Email</label>
+											<input 
+												type="email" 
+												id="employee-email-edit" 
+												bind:value={employeeEmail}
+												placeholder="employee@company.com"
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveEmployeeEmail}>
+											💾 {$t('employeeFiles.updateNumber')}
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => employeeEmail = ''}>
+											✏️ {$t('employeeFiles.editNumber')}
+										</button>
+									{/if}
+								{/if}
 							</div>
 						</div>
 					</div>

@@ -10,13 +10,28 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
+<h3>🚀 Official Launch — 26 February 2026</h3>
+<p class="change-description">Aqura has officially launched! The full ERP-integrated business management platform is now live in production across all four interfaces — Desktop, Mobile, Cashier, and Customer.</p>
+<div class="change-details">
+<h4>Launch Highlights:</h4>
+<ul>
+<li>🌐 <b>Launch Date:</b> 26 February 2026</li>
+<li>📱 <b>Contact Info Overlay:</b> Employees must provide WhatsApp (+966) and email before accessing the app</li>
+<li>🔒 <b>Privacy Policy:</b> All employees must accept the privacy policy</li>
+<li>🚪 <b>Logout from Overlay:</b> Users can logout directly from the contact overlay</li>
+<li>🖥️ <b>Full Coverage:</b> Overlay blocks all interfaces — Desktop (sidebar + taskbar), Mobile (header + nav), and Cashier</li>
+</ul>
+</div>
+</div>
+
+<div class="latest-change">
 <h3>🎉 Phase One — Complete</h3>
 <p class="change-description">Aqura Phase One development has been successfully completed. The full ERP-integrated business management platform is now live across all four interfaces — Desktop, Mobile, Cashier, and Customer.</p>
 <div class="change-details">
 <h4>Development Summary:</h4>
 <ul>
-<li>�‍💻 <b>Developed by:</b> Yousafali — mk.yousafali@gmail.com</li>
-<li>�📅 <b>Development Period:</b> July 1, 2025 — February 23, 2026</li>
+<li>👨‍💻 <b>Developed by:</b> Yousafali — mk.yousafali@gmail.com</li>
+<li>📅 <b>Development Period:</b> July 1, 2025 — February 23, 2026</li>
 <li>⏱️ <b>Total Duration:</b> 238 days</li>
 <li>🕐 <b>Average Daily Development:</b> 18 hours/day</li>
 <li>⚡ <b>Total Development Hours:</b> 4,284 hours</li>
