@@ -183,17 +183,17 @@
 			if (mode === 'cashier') {
 				clearCashierSession();
 			}
-			// Clear auth stores
-			currentUser.set(null);
-			isAuthenticated.set(false);
-			// Use persistent auth service for proper logout
-			await persistentAuthService.logout();
-			// Also sign out from supabase directly as fallback
+			// Sign out from Supabase FIRST (before touching stores)
+			// so the session is actually invalidated before any navigation
 			await supabase.auth.signOut();
+			// Also do persistent auth service logout
+			await persistentAuthService.logout();
 		} catch (err) {
 			console.error('Logout error:', err);
 		}
-		// Force redirect
+		// Clear auth stores and force hard redirect
+		currentUser.set(null);
+		isAuthenticated.set(false);
 		window.location.href = '/login';
 	}
 
