@@ -234,6 +234,54 @@
 			],
 			"isBackground": true,
 			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend && pnpm dev",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend; pnpm dev",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "pnpm dev",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend && pnpm dev --host",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend; pnpm dev --host",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Aqura Dev",
+			"type": "shell",
+			"command": "Set-Location frontend; pnpm dev --host",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }
