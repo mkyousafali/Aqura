@@ -32,7 +32,8 @@
 				.from('task_assignments')
 				.select('id, status, assigned_at, deadline_date, deadline_time, notes, task_id, assigned_by')
 				.eq('assigned_to_user_id', user.id)
-				.in('status', ['assigned', 'in_progress', 'pending'])
+				.neq('status', 'completed')
+				.neq('status', 'cancelled')
 				.order('assigned_at', { ascending: false })
 				.limit(20);
 			
@@ -66,7 +67,8 @@
 				.from('quick_task_assignments')
 				.select('id, status, created_at, quick_task_id')
 				.eq('assigned_to_user_id', user.id)
-				.in('status', ['assigned', 'in_progress', 'pending'])
+				.neq('status', 'completed')
+				.neq('status', 'cancelled')
 				.order('created_at', { ascending: false })
 				.limit(20);
 			

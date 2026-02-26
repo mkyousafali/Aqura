@@ -134,11 +134,11 @@ BEGIN
     FROM box_operations
     WHERE user_id = p_user_id AND status = 'in_use';
 
-    -- 6. Count pending tasks across all task types
+    -- 6. Count pending tasks across all task types (exclude completed and cancelled only)
     SELECT
-        (SELECT COUNT(*) FROM task_assignments WHERE assigned_to_user_id = p_user_id AND status IN ('assigned', 'in_progress', 'pending')) +
-        (SELECT COUNT(*) FROM quick_task_assignments WHERE assigned_to_user_id = p_user_id AND status IN ('assigned', 'in_progress', 'pending')) +
-        (SELECT COUNT(*) FROM receiving_tasks WHERE assigned_user_id = p_user_id AND task_status IN ('pending', 'in_progress'))
+        (SELECT COUNT(*) FROM task_assignments WHERE assigned_to_user_id = p_user_id AND status NOT IN ('completed', 'cancelled')) +
+        (SELECT COUNT(*) FROM quick_task_assignments WHERE assigned_to_user_id = p_user_id AND status NOT IN ('completed', 'cancelled')) +
+        (SELECT COUNT(*) FROM receiving_tasks WHERE assigned_user_id = p_user_id AND task_status NOT IN ('completed', 'cancelled'))
     INTO v_pending_tasks;
 
     -- 7. Get checklist assignments (active, not deleted)
