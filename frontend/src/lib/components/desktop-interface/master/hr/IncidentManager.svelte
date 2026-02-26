@@ -33,6 +33,54 @@
     let whatHappenedText = '';
     let whatHappenedIncidentId = '';
     
+    // Translation state for What Happened modal
+    let whatHappenedTranslated = '';
+    let isTranslatingWhatHappened = false;
+    let showWhatHappenedLangPicker = false;
+    let whatHappenedLangSearch = '';
+    
+    const translateLanguages = [
+        { code: 'en', name: 'English', flag: '🇬🇧' },
+        { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+        { code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+        { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+        { code: 'bn', name: 'Bengali', flag: '🇧🇩' },
+        { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+        { code: 'ne', name: 'Nepali', flag: '🇳🇵' },
+        { code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+        { code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+        { code: 'fr', name: 'French', flag: '🇫🇷' },
+        { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+        { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+        { code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+        { code: 'si', name: 'Sinhala', flag: '🇱🇰' },
+        { code: 'am', name: 'Amharic', flag: '🇪🇹' },
+    ];
+    
+    $: filteredWhatHappenedLangs = translateLanguages.filter(l => {
+        if (!whatHappenedLangSearch.trim()) return true;
+        const q = whatHappenedLangSearch.toLowerCase();
+        return l.name.toLowerCase().includes(q) || l.code.includes(q);
+    });
+    
+    async function translateWhatHappened(targetLang: string) {
+        if (!whatHappenedText?.trim()) return;
+        showWhatHappenedLangPicker = false;
+        isTranslatingWhatHappened = true;
+        try {
+            const resp = await fetch(
+                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(whatHappenedText)}`
+            );
+            const data = await resp.json();
+            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            if (translated) whatHappenedTranslated = translated;
+        } catch (e) {
+            console.error('Translation error:', e);
+        } finally {
+            isTranslatingWhatHappened = false;
+        }
+    }
+    
     // Filter state
     let filterIncidentType = '';
     let filterBranch = '';
@@ -1117,7 +1165,7 @@
                                 <div class="flex flex-wrap items-center gap-1.5">
                                     {#if incident.what_happened?.description}
                                         <button
-                                            on:click={() => { whatHappenedText = incident.what_happened.description; whatHappenedIncidentId = incident.id; showWhatHappenedModal = true; }}
+                                            on:click={() => { whatHappenedText = incident.what_happened.description; whatHappenedIncidentId = incident.id; whatHappenedTranslated = ''; showWhatHappenedModal = true; }}
                                             class="w-7 h-7 flex items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all shadow-sm border border-amber-200/50 text-sm font-bold"
                                             title={$locale === 'ar' ? 'ماذا حدث؟' : 'What happened?'}
                                         >
@@ -1544,7 +1592,7 @@
 
 <!-- What Happened Popup Modal -->
 {#if showWhatHappenedModal}
-    <div class="modal-overlay" on:click={() => showWhatHappenedModal = false}>
+    <div class="modal-overlay" on:click={() => { showWhatHappenedModal = false; showWhatHappenedLangPicker = false; }}>
         <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4" on:click|stopPropagation>
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -1552,18 +1600,62 @@
                     {$locale === 'ar' ? 'ماذا حدث' : 'What Happened'}
                     <span class="text-sm font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">#{whatHappenedIncidentId}</span>
                 </h3>
-                <button
-                    on:click={() => showWhatHappenedModal = false}
-                    class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
-                >
-                    ✕
-                </button>
+                <div class="flex items-center gap-1">
+                    <!-- Translate button -->
+                    <div class="relative">
+                        <button
+                            on:click={() => { showWhatHappenedLangPicker = !showWhatHappenedLangPicker; whatHappenedLangSearch = ''; }}
+                            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 transition text-blue-500 hover:text-blue-700"
+                            title={$locale === 'ar' ? 'ترجمة' : 'Translate'}
+                            disabled={isTranslatingWhatHappened}
+                        >
+                            {#if isTranslatingWhatHappened}
+                                <span class="animate-spin inline-block">⏳</span>
+                            {:else}
+                                🌐
+                            {/if}
+                        </button>
+                        {#if showWhatHappenedLangPicker}
+                            <div class="absolute {$locale === 'ar' ? 'left-0' : 'right-0'} top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 w-52 max-h-64 overflow-hidden flex flex-col">
+                                <div class="p-2 border-b border-slate-100">
+                                    <input type="text" bind:value={whatHappenedLangSearch}
+                                        placeholder={$locale === 'ar' ? 'بحث عن لغة...' : 'Search language...'}
+                                        class="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400" />
+                                </div>
+                                <div class="overflow-y-auto flex-1">
+                                    {#each filteredWhatHappenedLangs as lang}
+                                        <button class="w-full px-3 py-2 text-left text-xs hover:bg-blue-50 flex items-center gap-2 transition-colors"
+                                            on:click={() => translateWhatHappened(lang.code)}>
+                                            <span>{lang.flag}</span>
+                                            <span class="font-medium text-slate-700">{lang.name}</span>
+                                        </button>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                    <button
+                        on:click={() => { showWhatHappenedModal = false; showWhatHappenedLangPicker = false; }}
+                        class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
+                    >
+                        ✕
+                    </button>
+                </div>
             </div>
             <div class="bg-slate-50 rounded-xl p-4 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap max-h-[60vh] overflow-y-auto border border-slate-200/50">
                 {whatHappenedText}
             </div>
+            {#if whatHappenedTranslated}
+                <div class="mt-3 bg-blue-50 rounded-xl p-4 text-sm text-blue-800 leading-relaxed whitespace-pre-wrap max-h-[40vh] overflow-y-auto border border-blue-200/50">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-blue-600">🌐 {$locale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+                        <button on:click={() => whatHappenedTranslated = ''} class="text-xs text-blue-400 hover:text-blue-600">✕</button>
+                    </div>
+                    {whatHappenedTranslated}
+                </div>
+            {/if}
             <button
-                on:click={() => showWhatHappenedModal = false}
+                on:click={() => { showWhatHappenedModal = false; showWhatHappenedLangPicker = false; }}
                 class="w-full mt-4 px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-semibold"
             >
                 {$locale === 'ar' ? 'إغلاق' : 'Close'}
