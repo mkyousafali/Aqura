@@ -11,6 +11,7 @@
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
+	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
 
@@ -1250,6 +1251,9 @@
 				<span class="nav-label">{getTranslation('mobile.bottomNav.aiChat')}</span>
 			</a>
 		</nav>
+
+		<!-- Contact Info Overlay - mask over content, below header & bottom-nav -->
+		<ContactInfoOverlay mode="mobile" />
 	</div>
 
 	<!-- Incoming Call Overlay -->

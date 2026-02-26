@@ -9,6 +9,7 @@
 		isCashierAuthenticated 
 	} from '$lib/stores/cashierAuth';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	import { supabase } from '$lib/utils/supabase';
 
 	let isLoggedIn = false;
@@ -97,6 +98,8 @@
 			branch={selectedBranch}
 			on:logout={handleLogout}
 		/>
+		<!-- Contact Info Overlay - blocks until WhatsApp & email are provided -->
+		<ContactInfoOverlay mode="cashier" employeeId={cashierUser?.id} />
 	{/if}
 
 	<!-- Break Security QR Code - Fixed Top Right -->

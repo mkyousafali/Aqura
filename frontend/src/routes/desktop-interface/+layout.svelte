@@ -13,6 +13,7 @@
 	import ToastNotifications from '$lib/components/common/ToastNotifications.svelte';
 	import UserSwitcher from '$lib/components/common/UserSwitcher.svelte';
 	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
+	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	
 	// Enhanced imports for persistent auth
 	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
@@ -1119,6 +1120,7 @@
 
 			<!-- Incoming Call Overlay -->
 			<IncomingCallOverlay />
+
 			{/if}
 		{:else}
 			<!-- Simple layout for login page or unauthenticated users -->
@@ -1127,6 +1129,11 @@
 			</main>
 		{/if}
 	</div>
+{/if}
+
+<!-- Contact Info Overlay - rendered OUTSIDE .app to guarantee it covers sidebar & taskbar -->
+{#if isAuthenticated && !isLoginPage}
+	<ContactInfoOverlay mode="desktop" />
 {/if}
 
 <style>
