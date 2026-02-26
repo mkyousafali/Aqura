@@ -840,7 +840,6 @@
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">ETA</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Sent</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Delivered</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Read</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Failed</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Date</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Action</th>
@@ -855,6 +854,8 @@
                                         {@const etaSeconds = pendingCount > 0 ? Math.ceil(pendingCount / 5) : 0}
                                         {@const etaMin = Math.floor(etaSeconds / 60)}
                                         {@const etaSec = etaSeconds % 60}
+                                        {@const retryAllowed = (Date.now() - new Date(bc.created_at).getTime()) < 24 * 60 * 60 * 1000}
+                                        {@const displayDate = new Date(bc.completed_at || bc.scheduled_at || bc.created_at)}
                                         <tr class="hover:bg-emerald-50/30 transition-colors duration-200 cursor-pointer {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}" on:click={() => viewBroadcastDetails(bc)}>
                                             <td class="px-4 py-3 text-sm text-center font-bold text-slate-500">{index + 1}</td>
                                             <td class="px-4 py-3 text-sm">
@@ -892,13 +893,10 @@
                                                 <div class="font-bold text-blue-600">{deliveredTotal}</div>
                                                 <div class="text-[10px] text-blue-400 font-semibold">{pct(deliveredTotal, bc.total_recipients)}</div>
                                             </td>
-                                            <td class="px-4 py-3 text-sm text-center">
-                                                <div class="font-bold text-purple-600">{bc.read_count || 0}</div>
-                                                <div class="text-[10px] text-purple-400 font-semibold">{pct(bc.read_count || 0, bc.total_recipients)}</div>
-                                            </td>
                                             <td class="px-4 py-3 text-sm text-center font-bold {bc.failed_count ? 'text-red-600' : 'text-slate-300'}">{bc.failed_count || 0}</td>
                                             <td class="px-4 py-3 text-sm text-center text-slate-500">
-                                                {bc.completed_at ? new Date(bc.completed_at).toLocaleDateString() : bc.scheduled_at ? `📅 ${new Date(bc.scheduled_at).toLocaleDateString()}` : new Date(bc.created_at).toLocaleDateString()}
+                                                <div class="font-semibold">{String(displayDate.getDate()).padStart(2,'0')}-{String(displayDate.getMonth()+1).padStart(2,'0')}-{displayDate.getFullYear()}</div>
+                                                <div class="text-[10px] text-slate-400">{bc.scheduled_at && !bc.completed_at ? '📅 ' : ''}{displayDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:true})}</div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
                                                 <div class="flex items-center justify-center gap-1.5">
@@ -918,7 +916,7 @@
                                                     >
                                                         <span class={refreshingBroadcastId === bc.id ? 'animate-spin inline-block' : ''}>🔄</span>
                                                     </button>
-                                                    {#if (bc.failed_count && bc.failed_count > 0) || bc.status === 'sending'}
+                                                    {#if retryAllowed && ((bc.failed_count && bc.failed_count > 0) || bc.status === 'sending')}
                                                         <button
                                                             class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
                                                                 {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
@@ -940,7 +938,7 @@
                                                             {/if}
                                                         </button>
                                                     {/if}
-                                                    {#if bc.status === 'completed' && bc.failed_count && bc.failed_count > 0}
+                                                    {#if retryAllowed && bc.status === 'completed' && bc.failed_count && bc.failed_count > 0}
                                                         <button
                                                             class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
                                                                 {ecoRetryingBroadcastId === bc.id ? 'bg-yellow-300 text-yellow-900 cursor-wait' :
