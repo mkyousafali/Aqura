@@ -660,8 +660,8 @@
 	}
 
 	:global(.contact-overlay .privacy-checkbox-group) {
-		background: #f0f9ff;
-		border: 1px solid #bae6fd;
+		background: #fffbeb;
+		border: 2px solid #f59e0b;
 		border-radius: 12px;
 		padding: 14px 16px;
 	}
@@ -677,12 +677,17 @@
 	}
 
 	:global(.contact-overlay .privacy-checkbox) {
-		width: 20px;
-		height: 20px;
-		min-width: 20px;
+		width: 24px;
+		height: 24px;
+		min-width: 24px;
 		margin-top: 1px;
 		accent-color: #059669;
 		cursor: pointer;
+		-webkit-appearance: checkbox;
+		appearance: checkbox;
+		opacity: 1;
+		position: static;
+		pointer-events: auto;
 	}
 
 	:global(.contact-overlay .privacy-text) {
