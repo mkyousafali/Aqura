@@ -437,7 +437,40 @@
 
 				if (parentTasks) {
 					const parentMap = new Map();
-					parentTasks.forEach(pt => parentMap.set(pt.id, pt));
+					const barcodesToLookup = new Set();
+					parentTasks.forEach(pt => {
+						parentMap.set(pt.id, pt);
+						// Extract barcode from description or title
+						const barcodeMatch = (pt.description || '').match(/Barcode:\s*(\S+)/i) || (pt.description || '').match(/باركود:\s*(\S+)/);
+						const titleBarcodeMatch = (pt.title || '').match(/:\s*(\d{4,})/);
+						const barcode = barcodeMatch ? barcodeMatch[1] : (titleBarcodeMatch ? titleBarcodeMatch[1] : null);
+						if (barcode) {
+							pt._barcode = barcode;
+							barcodesToLookup.add(barcode);
+						}
+					});
+
+					// Batch lookup product names from erp_synced_products (check both barcode and auto_barcode)
+					let productNameMap = new Map();
+					if (barcodesToLookup.size > 0) {
+						const barcodeArr = [...barcodesToLookup];
+						const [byBarcode, byAutoBarcode] = await Promise.all([
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('barcode', barcodeArr),
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('auto_barcode', barcodeArr)
+						]);
+						if (byBarcode.data) {
+							byBarcode.data.forEach(p => productNameMap.set(p.barcode, p));
+						}
+						if (byAutoBarcode.data) {
+							byAutoBarcode.data.forEach(p => productNameMap.set(p.auto_barcode, p));
+						}
+					}
 
 					processedQuickTasks.forEach(t => {
 						const parentId = taskToParentMap.get(t.id || t.assignment_id);
@@ -446,11 +479,21 @@
 							const parentDesc = parent.description || '';
 							const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
 							const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
-							// Also try arrow format from OfferCostManager: "currentPrice → targetPrice"
 							const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
 							t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
 							t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
 							t.parent_title = parent.title;
+							// Map barcode to product name
+							if (parent._barcode && productNameMap.has(parent._barcode)) {
+								const prod = productNameMap.get(parent._barcode);
+								t.product_name = prod.product_name_en || prod.product_name_ar || '';
+								t.product_name_ar = prod.product_name_ar || '';
+								t.product_barcode = parent._barcode;
+								// If matched via auto_barcode, also show the real barcode
+								if (prod.auto_barcode === parent._barcode && prod.barcode !== parent._barcode) {
+									t.product_real_barcode = prod.barcode;
+								}
+							}
 						}
 					});
 				}
@@ -938,7 +981,38 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 				if (cParentTasks) {
 					const cParentMap = new Map();
-					cParentTasks.forEach(pt => cParentMap.set(pt.id, pt));
+					const cBarcodesToLookup = new Set();
+					cParentTasks.forEach(pt => {
+						cParentMap.set(pt.id, pt);
+						const barcodeMatch = (pt.description || '').match(/Barcode:\s*(\S+)/i) || (pt.description || '').match(/باركود:\s*(\S+)/);
+						const titleBarcodeMatch = (pt.title || '').match(/:\s*(\d{4,})/);
+						const barcode = barcodeMatch ? barcodeMatch[1] : (titleBarcodeMatch ? titleBarcodeMatch[1] : null);
+						if (barcode) {
+							pt._barcode = barcode;
+							cBarcodesToLookup.add(barcode);
+						}
+					});
+
+					let cProductNameMap = new Map();
+					if (cBarcodesToLookup.size > 0) {
+						const cBarcodeArr = [...cBarcodesToLookup];
+						const [cByBarcode, cByAutoBarcode] = await Promise.all([
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('barcode', cBarcodeArr),
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('auto_barcode', cBarcodeArr)
+						]);
+						if (cByBarcode.data) {
+							cByBarcode.data.forEach(p => cProductNameMap.set(p.barcode, p));
+						}
+						if (cByAutoBarcode.data) {
+							cByAutoBarcode.data.forEach(p => cProductNameMap.set(p.auto_barcode, p));
+						}
+					}
 
 					completedQuickTasks.forEach(t => {
 						const parentId = cTaskToParentMap.get(t.id || t.assignment_id);
@@ -951,6 +1025,15 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
 							t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
 							t.parent_title = parent.title;
+							if (parent._barcode && cProductNameMap.has(parent._barcode)) {
+								const prod = cProductNameMap.get(parent._barcode);
+								t.product_name = prod.product_name_en || prod.product_name_ar || '';
+								t.product_name_ar = prod.product_name_ar || '';
+								t.product_barcode = parent._barcode;
+								if (prod.auto_barcode === parent._barcode && prod.barcode !== parent._barcode) {
+									t.product_real_barcode = prod.barcode;
+								}
+							}
 						}
 					});
 				}
@@ -1097,6 +1180,17 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 						>
 							{#if task.parent_old_price && task.parent_new_price}
 								<div class="price-change-info">
+									{#if task.product_name || task.product_name_ar}
+										<div class="product-name-row">
+											<span class="product-icon">📦</span>
+											<span class="product-name-text">{task.product_name || task.product_name_ar}</span>
+											{#if task.product_real_barcode}
+												<span class="product-barcode">{task.product_real_barcode}</span>
+											{:else if task.product_barcode}
+												<span class="product-barcode">{task.product_barcode}</span>
+											{/if}
+										</div>
+									{/if}
 									<div class="price-change-row">
 										<span class="price-label">Old Price:</span>
 										<span class="price-value old-price">{parseFloat(task.parent_old_price).toFixed(2)}</span>
@@ -1744,6 +1838,34 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		color: #92400E;
 		font-size: 1rem;
 		font-weight: 700;
+	}
+
+	.product-name-row {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-bottom: 0.35rem;
+		padding-bottom: 0.35rem;
+		border-bottom: 1px dashed #D97706;
+	}
+
+	.product-icon {
+		font-size: 0.85rem;
+	}
+
+	.product-name-text {
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: #92400E;
+		flex: 1;
+		line-height: 1.3;
+	}
+
+	.product-barcode {
+		font-size: 0.68rem;
+		color: #B45309;
+		font-weight: 500;
+		white-space: nowrap;
 	}
 
 	.incident-attachments-section {

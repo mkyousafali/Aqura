@@ -124,6 +124,97 @@
 		}
 	}
 
+	// Helper: Enrich quick tasks with parent price/product info
+	async function enrichQuickTasksWithPriceInfo(taskList: any[]) {
+		const quickTasks = taskList.filter(t => t.task_type === 'quick');
+		if (quickTasks.length === 0) return;
+
+		// Find tasks with linked_parent_task in description
+		const parentTaskIds: string[] = [];
+		const taskToParentMap = new Map();
+		quickTasks.forEach(t => {
+			const desc = t.task_description || t.description || '';
+			const parentMatch = desc.match(/linked_parent_task:([a-f0-9-]{36})/i);
+			if (parentMatch) {
+				parentTaskIds.push(parentMatch[1]);
+				taskToParentMap.set(t.id || t.assignment_id || t.quick_assignment_id, parentMatch[1]);
+			}
+			// Also extract prices directly from title/description
+			const titleDesc = (t.task_title || '') + ' ' + desc;
+			const oldP = titleDesc.match(/Old Price:\s*([\d.]+)/i) || titleDesc.match(/السعر القديم:\s*([\d.]+)/);
+			const newP = titleDesc.match(/New Price:\s*([\d.]+)/i) || titleDesc.match(/السعر الجديد:\s*([\d.]+)/);
+			const arrowP = titleDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+			if (oldP || newP || arrowP) {
+				t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
+				t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
+			}
+		});
+
+		if (parentTaskIds.length === 0) return;
+
+		try {
+			const { data: parentTasks } = await supabase
+				.from('quick_tasks')
+				.select('id, title, description, price_tag')
+				.in('id', [...new Set(parentTaskIds)]);
+
+			if (!parentTasks) return;
+
+			const parentMap = new Map();
+			const barcodesToLookup = new Set<string>();
+			parentTasks.forEach(pt => {
+				parentMap.set(pt.id, pt);
+				const barcodeMatch = (pt.description || '').match(/Barcode:\s*(\S+)/i) || (pt.description || '').match(/باركود:\s*(\S+)/);
+				const titleBarcodeMatch = (pt.title || '').match(/:\s*(\d{4,})/);
+				const barcode = barcodeMatch ? barcodeMatch[1] : (titleBarcodeMatch ? titleBarcodeMatch[1] : null);
+				if (barcode) {
+					(pt as any)._barcode = barcode;
+					barcodesToLookup.add(barcode);
+				}
+			});
+
+			// Batch lookup product names from erp_synced_products
+			let productNameMap = new Map();
+			if (barcodesToLookup.size > 0) {
+				const barcodeArr = [...barcodesToLookup];
+				const [byBarcode, byAutoBarcode] = await Promise.all([
+					supabase.from('erp_synced_products').select('barcode, auto_barcode, product_name_en, product_name_ar').in('barcode', barcodeArr),
+					supabase.from('erp_synced_products').select('barcode, auto_barcode, product_name_en, product_name_ar').in('auto_barcode', barcodeArr)
+				]);
+				if (byBarcode.data) byBarcode.data.forEach(p => productNameMap.set(p.barcode, p));
+				if (byAutoBarcode.data) byAutoBarcode.data.forEach(p => productNameMap.set(p.auto_barcode, p));
+			}
+
+			// Enrich tasks with parent info
+			quickTasks.forEach(t => {
+				const key = t.id || t.assignment_id || t.quick_assignment_id;
+				const parentId = taskToParentMap.get(key);
+				if (parentId && parentMap.has(parentId)) {
+					const parent = parentMap.get(parentId);
+					const parentDesc = parent.description || '';
+					const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+					const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+					const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+					t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : t.parent_old_price);
+					t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : t.parent_new_price);
+					t.parent_title = parent.title;
+					// Map barcode to product name
+					if ((parent as any)._barcode && productNameMap.has((parent as any)._barcode)) {
+						const prod = productNameMap.get((parent as any)._barcode);
+						t.product_name = prod.product_name_en || prod.product_name_ar || '';
+						t.product_name_ar = prod.product_name_ar || '';
+						t.product_barcode = (parent as any)._barcode;
+						if (prod.auto_barcode === (parent as any)._barcode && prod.barcode !== (parent as any)._barcode) {
+							t.product_real_barcode = prod.barcode;
+						}
+					}
+				}
+			});
+		} catch (err) {
+			console.error('Error enriching tasks with price info:', err);
+		}
+	}
+
 	// 🚀 OPTIMIZATION: Pagination-based task loading
 	async function loadTasks() {
 		try {
@@ -347,6 +438,9 @@
 				allLoadedTasks = [...allLoadedTasks, ...processedReceivingTasks];
 			}
 
+			// Enrich quick tasks with price/product info
+			await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+
 			console.log(`✅ Page ${Math.floor(startIndex / pageSize)}: Total tasks loaded=${allLoadedTasks.length}, HasMore=${hasMorePages}`);
 
 		} catch (error) {
@@ -355,38 +449,52 @@
 	}
 
 	async function loadActiveTasksPage(startIndex: number) {
-		// TODO: Implement pagination for active tasks
-		console.log('Loading active tasks page:', startIndex);
+		await loadActiveTasks();
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadCompletedTasksPage(startIndex: number) {
-		// TODO: Implement pagination for completed tasks
-		console.log('Loading completed tasks page:', startIndex);
+		await loadCompletedTasks();
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadIncompleteTasksPage(startIndex: number) {
-		// TODO: Implement pagination for incomplete tasks
-		console.log('Loading incomplete tasks page:', startIndex);
+		await loadIncompleteTasks();
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadMyAssignedTasksPage(startIndex: number, user: any) {
-		// TODO: Implement pagination for my assigned tasks
-		console.log('Loading my assigned tasks page:', startIndex);
+		await loadMyAssignedTasks(user);
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadMyCompletedTasksPage(startIndex: number, user: any) {
-		// TODO: Implement pagination for my completed tasks
-		console.log('Loading my completed tasks page:', startIndex);
+		await loadMyCompletedTasks(user);
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadMyAssignmentsPage(startIndex: number, user: any) {
-		// TODO: Implement pagination for my assignments
-		console.log('Loading my assignments page:', startIndex);
+		await loadMyAssignments(user);
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadMyAssignmentsCompletedPage(startIndex: number, user: any) {
-		// TODO: Implement pagination for my assignments completed
-		console.log('Loading my assignments completed page:', startIndex);
+		await loadMyAssignmentsCompleted(user);
+		allLoadedTasks = [...tasks];
+		await enrichQuickTasksWithPriceInfo(allLoadedTasks);
+		hasMorePages = false;
 	}
 
 	async function loadActiveTasks() {
@@ -1583,6 +1691,24 @@
 									{#if task.task_description}
 										<span class="task-desc">{task.task_description.substring(0, 80)}{task.task_description.length > 80 ? '...' : ''}</span>
 									{/if}
+									{#if task.parent_old_price || task.parent_new_price}
+										<div class="price-change-badge">
+											<span class="price-old">{task.parent_old_price || '?'}</span>
+											<span class="price-arrow">→</span>
+											<span class="price-new">{task.parent_new_price || '?'}</span>
+										</div>
+									{/if}
+									{#if task.product_name}
+										<div class="product-info-badge">
+											<span class="product-icon">📦</span>
+											<span class="product-name-text">{task.product_name}</span>
+											{#if task.product_real_barcode}
+												<span class="product-barcode">{task.product_real_barcode}</span>
+											{:else if task.product_barcode}
+												<span class="product-barcode">{task.product_barcode}</span>
+											{/if}
+										</div>
+									{/if}
 								</div>
 							</td>
 							<td on:click={() => viewTaskDetails(task)}>
@@ -1713,6 +1839,38 @@
 						<div class="detail-item">
 							<label>Issue Type:</label>
 							<span class="badge badge-warning">{selectedTask.issue_type}</span>
+						</div>
+					{/if}
+
+					{#if selectedTask.parent_old_price || selectedTask.parent_new_price}
+						<div class="detail-item detail-full-width">
+							<label>Price Change:</label>
+							<div class="price-change-detail">
+								<span class="price-old-detail">{selectedTask.parent_old_price || '?'} SAR</span>
+								<span class="price-arrow-detail">→</span>
+								<span class="price-new-detail">{selectedTask.parent_new_price || '?'} SAR</span>
+							</div>
+						</div>
+					{/if}
+
+					{#if selectedTask.product_name}
+						<div class="detail-item detail-full-width">
+							<label>Product:</label>
+							<div class="product-detail-info">
+								<span>📦 {selectedTask.product_name}</span>
+								{#if selectedTask.product_real_barcode}
+									<span class="product-barcode-detail">Barcode: {selectedTask.product_real_barcode}</span>
+								{:else if selectedTask.product_barcode}
+									<span class="product-barcode-detail">Barcode: {selectedTask.product_barcode}</span>
+								{/if}
+							</div>
+						</div>
+					{/if}
+
+					{#if selectedTask.parent_title}
+						<div class="detail-item detail-full-width">
+							<label>Parent Task:</label>
+							<p>{selectedTask.parent_title}</p>
 						</div>
 					{/if}
 				</div>
@@ -1950,6 +2108,106 @@
 	.task-desc {
 		font-size: 12px;
 		color: #6b7280;
+	}
+
+	/* Price change badge in table row */
+	.price-change-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: #fef3c7;
+		border: 1px solid #f59e0b;
+		border-radius: 6px;
+		padding: 2px 8px;
+		font-size: 11px;
+		font-weight: 600;
+		margin-top: 2px;
+	}
+	.price-old {
+		color: #dc2626;
+		text-decoration: line-through;
+	}
+	.price-arrow {
+		color: #6b7280;
+		font-size: 10px;
+	}
+	.price-new {
+		color: #16a34a;
+		font-weight: 700;
+	}
+
+	/* Product info badge in table row */
+	.product-info-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: #eff6ff;
+		border: 1px solid #93c5fd;
+		border-radius: 6px;
+		padding: 2px 8px;
+		font-size: 11px;
+		margin-top: 2px;
+	}
+	.product-info-badge .product-icon {
+		font-size: 12px;
+	}
+	.product-info-badge .product-name-text {
+		color: #1e40af;
+		font-weight: 500;
+		max-width: 200px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.product-info-badge .product-barcode {
+		color: #6b7280;
+		font-size: 10px;
+		font-family: monospace;
+	}
+
+	/* Price change in detail modal */
+	.price-change-detail {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+		background: #fef3c7;
+		border-radius: 8px;
+		border: 1px solid #f59e0b;
+	}
+	.price-old-detail {
+		color: #dc2626;
+		font-size: 16px;
+		font-weight: 600;
+		text-decoration: line-through;
+	}
+	.price-arrow-detail {
+		color: #6b7280;
+		font-size: 18px;
+	}
+	.price-new-detail {
+		color: #16a34a;
+		font-size: 16px;
+		font-weight: 700;
+	}
+
+	/* Product info in detail modal */
+	.product-detail-info {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 8px 12px;
+		background: #eff6ff;
+		border-radius: 8px;
+		border: 1px solid #93c5fd;
+	}
+	.product-barcode-detail {
+		font-family: monospace;
+		font-size: 12px;
+		color: #6b7280;
+	}
+	.detail-full-width {
+		grid-column: 1 / -1;
 	}
 
 	.badge {

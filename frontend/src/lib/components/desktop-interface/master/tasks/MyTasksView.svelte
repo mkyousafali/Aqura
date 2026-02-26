@@ -71,12 +71,100 @@
 			if (error) throw error;
 
 			allTasks = data?.tasks || [];
+			await enrichTasksWithPriceInfo(allTasks);
 			extractBranches();
 			applyFilters();
 			isLoading = false;
 		} catch (err) {
 			console.error('❌ Error loading tasks:', err);
 			isLoading = false;
+		}
+	}
+
+	// Enrich quick tasks with parent price/product info
+	async function enrichTasksWithPriceInfo(taskList: any[]) {
+		const quickTasks = taskList.filter(t => t.task_type === 'quick_task');
+		if (quickTasks.length === 0) return;
+
+		const parentTaskIds: string[] = [];
+		const taskToParentMap = new Map();
+		quickTasks.forEach(t => {
+			const desc = t.description || '';
+			const parentMatch = desc.match(/linked_parent_task:([a-f0-9-]{36})/i);
+			if (parentMatch) {
+				parentTaskIds.push(parentMatch[1]);
+				taskToParentMap.set(t.id || t.assignment_id, parentMatch[1]);
+			}
+			// Also extract prices directly from title/description
+			const titleDesc = (t.title || '') + ' ' + desc;
+			const oldP = titleDesc.match(/Old Price:\s*([\d.]+)/i) || titleDesc.match(/السعر القديم:\s*([\d.]+)/);
+			const newP = titleDesc.match(/New Price:\s*([\d.]+)/i) || titleDesc.match(/السعر الجديد:\s*([\d.]+)/);
+			const arrowP = titleDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+			if (oldP || newP || arrowP) {
+				t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
+				t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
+			}
+		});
+
+		if (parentTaskIds.length === 0) return;
+
+		try {
+			const { data: parentTasks } = await supabase
+				.from('quick_tasks')
+				.select('id, title, description, price_tag')
+				.in('id', [...new Set(parentTaskIds)]);
+
+			if (!parentTasks) return;
+
+			const parentMap = new Map();
+			const barcodesToLookup = new Set<string>();
+			parentTasks.forEach(pt => {
+				parentMap.set(pt.id, pt);
+				const barcodeMatch = (pt.description || '').match(/Barcode:\s*(\S+)/i) || (pt.description || '').match(/باركود:\s*(\S+)/);
+				const titleBarcodeMatch = (pt.title || '').match(/:\s*(\d{4,})/);
+				const barcode = barcodeMatch ? barcodeMatch[1] : (titleBarcodeMatch ? titleBarcodeMatch[1] : null);
+				if (barcode) {
+					(pt as any)._barcode = barcode;
+					barcodesToLookup.add(barcode);
+				}
+			});
+
+			let productNameMap = new Map();
+			if (barcodesToLookup.size > 0) {
+				const barcodeArr = [...barcodesToLookup];
+				const [byBarcode, byAutoBarcode] = await Promise.all([
+					supabase.from('erp_synced_products').select('barcode, auto_barcode, product_name_en, product_name_ar').in('barcode', barcodeArr),
+					supabase.from('erp_synced_products').select('barcode, auto_barcode, product_name_en, product_name_ar').in('auto_barcode', barcodeArr)
+				]);
+				if (byBarcode.data) byBarcode.data.forEach(p => productNameMap.set(p.barcode, p));
+				if (byAutoBarcode.data) byAutoBarcode.data.forEach(p => productNameMap.set(p.auto_barcode, p));
+			}
+
+			quickTasks.forEach(t => {
+				const key = t.id || t.assignment_id;
+				const parentId = taskToParentMap.get(key);
+				if (parentId && parentMap.has(parentId)) {
+					const parent = parentMap.get(parentId);
+					const parentDesc = parent.description || '';
+					const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+					const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+					const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+					t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : t.parent_old_price);
+					t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : t.parent_new_price);
+					t.parent_title = parent.title;
+					if ((parent as any)._barcode && productNameMap.has((parent as any)._barcode)) {
+						const prod = productNameMap.get((parent as any)._barcode);
+						t.product_name = prod.product_name_en || prod.product_name_ar || '';
+						t.product_name_ar = prod.product_name_ar || '';
+						t.product_barcode = (parent as any)._barcode;
+						if (prod.auto_barcode === (parent as any)._barcode && prod.barcode !== (parent as any)._barcode) {
+							t.product_real_barcode = prod.barcode;
+						}
+					}
+				}
+			});
+		} catch (err) {
+			console.error('Error enriching tasks with price info:', err);
 		}
 	}
 
@@ -480,7 +568,25 @@
 												on:dblclick={() => barcode && copyToClipboard(barcode)}
 												title={barcode ? (isRTL ? 'نقر مزدوج لنسخ الباركود' : 'Double-click to copy barcode') : ''}
 											>{task.title}</div>
-											{#if task.description}
+											{#if task.parent_old_price || task.parent_new_price}
+												<div class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-bold" style="background:#fef3c7;border:1px solid #f59e0b;">
+													<span style="color:#dc2626;text-decoration:line-through;">{task.parent_old_price || '?'}</span>
+													<span style="color:#6b7280;">→</span>
+													<span style="color:#16a34a;font-weight:700;">{task.parent_new_price || '?'}</span>
+												</div>
+											{/if}
+											{#if task.product_name}
+												<div class="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-md text-[10px]" style="background:#eff6ff;border:1px solid #93c5fd;">
+													<span>📦</span>
+													<span style="color:#1e40af;font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{task.product_name}</span>
+													{#if task.product_real_barcode}
+														<span style="color:#6b7280;font-family:monospace;font-size:9px;">{task.product_real_barcode}</span>
+													{:else if task.product_barcode}
+														<span style="color:#6b7280;font-family:monospace;font-size:9px;">{task.product_barcode}</span>
+													{/if}
+												</div>
+											{/if}
+											{#if task.description && !task.parent_old_price && !task.parent_new_price}
 												{@const price = extractPrice(task.description)}
 												<div class="text-[10px] text-slate-400 truncate max-w-[280px]">
 													{#if price}
@@ -489,7 +595,7 @@
 															{price}
 														</span>
 													{:else}
-														{task.description.substring(0, 80)}
+														{task.description.split('linked_parent_task:')[0].substring(0, 80)}
 													{/if}
 												</div>
 											{/if}
@@ -663,6 +769,33 @@
 							{#if t.issue_type}<div><p class="text-[10px] text-blue-400 font-bold">{isRTL ? 'نوع المشكلة' : 'Issue Type'}</p><p class="text-sm font-semibold text-blue-700 capitalize">{t.issue_type}</p></div>{/if}
 							{#if t.price_tag}<div><p class="text-[10px] text-blue-400 font-bold">{isRTL ? 'السعر' : 'Price Tag'}</p><p class="text-sm font-semibold text-blue-700 capitalize">{t.price_tag}</p></div>{/if}
 						</div>
+					</div>
+				{/if}
+				{#if t.parent_old_price || t.parent_new_price}
+					<div class="rounded-xl p-3 border mb-5" style="background:#fefce8;border-color:#f59e0b;">
+						<p class="text-[10px] font-bold uppercase tracking-wide mb-2" style="color:#b45309;">{isRTL ? 'تغيير السعر' : 'Price Change'}</p>
+						<div class="flex items-center gap-3">
+							<span class="text-base font-bold" style="color:#dc2626;text-decoration:line-through;">{t.parent_old_price || '?'} SAR</span>
+							<span style="color:#6b7280;font-size:18px;">→</span>
+							<span class="text-base font-black" style="color:#16a34a;">{t.parent_new_price || '?'} SAR</span>
+						</div>
+					</div>
+				{/if}
+				{#if t.product_name}
+					<div class="rounded-xl p-3 border mb-5" style="background:#eff6ff;border-color:#93c5fd;">
+						<p class="text-[10px] font-bold uppercase tracking-wide mb-2" style="color:#1e40af;">{isRTL ? 'المنتج' : 'Product'}</p>
+						<p class="text-sm font-semibold" style="color:#1e3a5f;">📦 {t.product_name}</p>
+						{#if t.product_real_barcode}
+							<p class="text-xs mt-1" style="color:#6b7280;font-family:monospace;">{isRTL ? 'الباركود:' : 'Barcode:'} {t.product_real_barcode}</p>
+						{:else if t.product_barcode}
+							<p class="text-xs mt-1" style="color:#6b7280;font-family:monospace;">{isRTL ? 'الباركود:' : 'Barcode:'} {t.product_barcode}</p>
+						{/if}
+					</div>
+				{/if}
+				{#if t.parent_title}
+					<div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-5">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{isRTL ? 'المهمة الأصلية' : 'Parent Task'}</p>
+						<p class="text-sm font-semibold text-slate-700">{t.parent_title}</p>
 					</div>
 				{/if}
 				{#if t.task_type === 'receiving' && (t.role_type || t.clearance_certificate_url)}
