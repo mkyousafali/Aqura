@@ -75,6 +75,25 @@
     let refreshInterval: any;
     let messagesContainer: HTMLElement;
 
+    // Pagination for conversations
+    const CONV_PAGE_SIZE = 50;
+    let convPage = 0;
+    let convTotalCount = 0;
+    let loadingMoreConvs = false;
+    let convListContainer: HTMLElement;
+
+    // Pagination for messages
+    const MSG_PAGE_SIZE = 50;
+    let hasMoreMessages = false;
+    let loadingOlderMessages = false;
+
+    // Realtime subscriptions
+    let convSubscription: any = null;
+    let msgSubscription: any = null;
+
+    // Debounce for search
+    let searchDebounceTimer: any = null;
+
     // Audio recording
     let isRecording = false;
     let mediaRecorder: MediaRecorder | null = null;
@@ -152,11 +171,14 @@
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
         await loadAccount();
-        refreshInterval = setInterval(refreshData, 5000);
+        // Light poll every 8s (just conversations, not messages)
+        refreshInterval = setInterval(refreshConversationsOnly, 8000);
     });
 
     onDestroy(() => {
         if (refreshInterval) clearInterval(refreshInterval);
+        if (convSubscription) convSubscription.unsubscribe();
+        if (msgSubscription) msgSubscription.unsubscribe();
     });
 
     async function loadAccount() {
@@ -191,39 +213,51 @@
         } catch { loading = false; }
     }
 
-    async function loadConversations() {
+    async function loadConversations(append = false) {
         try {
-            console.log('💬 WALiveChat: Loading conversations for accountId:', accountId);
-            const { data, error: err } = await supabase
-                .from('wa_conversations')
-                .select('*')
-                .eq('wa_account_id', accountId)
-                .eq('status', 'active')
-                .order('last_message_at', { ascending: false });
-            console.log('💬 WALiveChat: Conversations result:', { count: data?.length, error: err });
+            const offset = append ? conversations.length : 0;
+            if (!append) convPage = 0;
+
+            const { data, error: err } = await supabase.rpc('get_wa_conversations_fast', {
+                p_account_id: accountId,
+                p_limit: CONV_PAGE_SIZE,
+                p_offset: offset,
+                p_search: searchQuery || null,
+                p_filter: chatFilter
+            });
             if (err) throw err;
 
-            const now = new Date();
-            conversations = (data || []).map((c: any) => {
-                const lastMsg = c.last_message_at ? new Date(c.last_message_at) : null;
-                const hrs = lastMsg ? (now.getTime() - lastMsg.getTime()) / 3600000 : Infinity;
-                return { ...c, is_inside_24hr: hrs <= 24 };
-            });
-            applyFilters();
+            const rows = data || [];
+            if (rows.length > 0) convTotalCount = rows[0].total_count;
+            else if (!append) convTotalCount = 0;
+
+            if (append) {
+                conversations = [...conversations, ...rows];
+            } else {
+                conversations = rows;
+            }
+            filteredConversations = conversations;
 
             // Auto-select conversation by initialPhone
             if (initialPhone && !selectedConv) {
                 const match = conversations.find(c => c.customer_phone === initialPhone);
                 if (match) {
                     await selectConversation(match);
-                    initialPhone = ''; // only auto-select once
+                    initialPhone = '';
                 }
             }
         } catch (e: any) {
             console.error(e);
         } finally {
             loading = false;
+            loadingMoreConvs = false;
         }
+    }
+
+    async function loadMoreConversations() {
+        if (loadingMoreConvs || conversations.length >= convTotalCount) return;
+        loadingMoreConvs = true;
+        await loadConversations(true);
     }
 
     async function loadTemplates() {
@@ -237,31 +271,62 @@
         } catch {}
     }
 
-    async function refreshData() {
+    // Light refresh — only reload conversation list (not messages)
+    async function refreshConversationsOnly() {
         await loadConversations();
-        if (selectedConv) {
-            await loadMessages(selectedConv.id, true);
-        }
     }
 
+    // Subscribe to realtime for the selected conversation's messages
+    function subscribeToMessages(convId: string) {
+        if (msgSubscription) msgSubscription.unsubscribe();
+        msgSubscription = supabase
+            .channel(`wa_messages_${convId}`)
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'wa_messages',
+                filter: `conversation_id=eq.${convId}`
+            }, (payload: any) => {
+                const newMsg = payload.new;
+                if (newMsg && !messages.find(m => m.id === newMsg.id)) {
+                    messages = [...messages, newMsg];
+                    setTimeout(() => scrollToBottom(), 50);
+                }
+            })
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'wa_messages',
+                filter: `conversation_id=eq.${convId}`
+            }, (payload: any) => {
+                const updated = payload.new;
+                if (updated) {
+                    messages = messages.map(m => m.id === updated.id ? { ...m, ...updated } : m);
+                }
+            })
+            .subscribe();
+    }
+
+    // RPC handles search + filter server-side, so applyFilters just assigns
     function applyFilters() {
-        let result = [...conversations];
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            result = result.filter(c => c.customer_name?.toLowerCase().includes(q) || c.customer_phone.includes(q));
-        }
-        if (chatFilter === 'unread') result = result.filter(c => c.unread_count > 0);
-        else if (chatFilter === 'ai') result = result.filter(c => c.is_bot_handling && c.bot_type === 'ai');
-        else if (chatFilter === 'bot') result = result.filter(c => c.is_bot_handling && c.bot_type === 'auto_reply');
-        else if (chatFilter === 'human') result = result.filter(c => !c.is_bot_handling);
-        filteredConversations = result;
+        filteredConversations = conversations;
     }
 
-    $: searchQuery, chatFilter, applyFilters();
+    // Debounced search — reload from RPC when search/filter changes
+    $: {
+        searchQuery;
+        chatFilter;
+        if (supabase && accountId) {
+            if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => loadConversations(), 300);
+        }
+    }
 
     async function selectConversation(conv: Conversation) {
         selectedConv = conv;
         await loadMessages(conv.id);
+        // Subscribe to realtime messages for this conversation
+        subscribeToMessages(conv.id);
         // Mark as read
         if (conv.unread_count > 0) {
             await supabase.from('wa_conversations').update({ unread_count: 0 }).eq('id', conv.id);
@@ -273,28 +338,18 @@
     async function loadMessages(convId: string, silent = false) {
         if (!silent) loadingMessages = true;
         try {
-            console.log('📨 WALiveChat: Loading messages for convId:', convId);
             const { data, error: msgErr } = await supabase
                 .from('wa_messages')
                 .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
                 .eq('conversation_id', convId)
                 .order('created_at', { ascending: false })
-                .limit(200);
-            console.log('📨 WALiveChat: Messages result:', { count: data?.length, error: msgErr });
+                .limit(MSG_PAGE_SIZE + 1);
             if (msgErr) console.error('📨 WALiveChat: Messages error:', msgErr);
-            messages = (data || []).reverse();
+            const rows = data || [];
+            hasMoreMessages = rows.length > MSG_PAGE_SIZE;
+            messages = (hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows).reverse();
             // Load employee names for messages sent by users
-            const userIds = [...new Set((data || []).filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
-            if (userIds.length > 0) {
-                const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
-                if (employees) {
-                    const isAr = $locale === 'ar';
-                    for (const emp of employees) {
-                        userNameCache[emp.user_id] = (isAr ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
-                    }
-                    userNameCache = { ...userNameCache };
-                }
-            }
+            await loadUserNames(messages);
             if (!silent) {
                 setTimeout(() => scrollToBottom(), 100);
             }
@@ -302,6 +357,53 @@
             console.error('📨 WALiveChat: loadMessages CATCH error:', e);
         }
         if (!silent) loadingMessages = false;
+    }
+
+    async function loadOlderMessages() {
+        if (!selectedConv || loadingOlderMessages || !hasMoreMessages || messages.length === 0) return;
+        loadingOlderMessages = true;
+        try {
+            const oldestMsg = messages[0];
+            const { data, error: msgErr } = await supabase
+                .from('wa_messages')
+                .select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
+                .eq('conversation_id', selectedConv.id)
+                .lt('created_at', oldestMsg.created_at)
+                .order('created_at', { ascending: false })
+                .limit(MSG_PAGE_SIZE + 1);
+            if (msgErr) console.error('📨 WALiveChat: loadOlderMessages error:', msgErr);
+            const rows = data || [];
+            hasMoreMessages = rows.length > MSG_PAGE_SIZE;
+            const olderMsgs = (hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows).reverse();
+            await loadUserNames(olderMsgs);
+            // Preserve scroll position
+            const container = messagesContainer;
+            const prevHeight = container?.scrollHeight || 0;
+            messages = [...olderMsgs, ...messages];
+            // After DOM updates, restore scroll so user doesn't jump
+            setTimeout(() => {
+                if (container) {
+                    container.scrollTop = container.scrollHeight - prevHeight;
+                }
+            }, 50);
+        } catch (e) {
+            console.error('📨 WALiveChat: loadOlderMessages CATCH error:', e);
+        }
+        loadingOlderMessages = false;
+    }
+
+    async function loadUserNames(msgs: Message[]) {
+        const userIds = [...new Set(msgs.filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
+        if (userIds.length > 0) {
+            const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
+            if (employees) {
+                const isAr = $locale === 'ar';
+                for (const emp of employees) {
+                    userNameCache[emp.user_id] = (isAr ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
+                }
+                userNameCache = { ...userNameCache };
+            }
+        }
     }
 
     function scrollToBottom() {
@@ -835,7 +937,13 @@
         </div>
 
         <!-- Conversation List -->
-        <div class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
+        <div class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5" bind:this={convListContainer}
+            on:scroll={(e) => {
+                const el = e.currentTarget;
+                if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
+                    loadMoreConversations();
+                }
+            }}>
             {#if loading}
                 <div class="flex justify-center py-12">
                     <div class="animate-spin w-8 h-8 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
@@ -896,6 +1004,16 @@
                         </div>
                     </div>
                 {/each}
+                {#if loadingMoreConvs}
+                    <div class="flex justify-center py-3">
+                        <div class="animate-spin w-5 h-5 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
+                    </div>
+                {:else if conversations.length < convTotalCount}
+                    <button class="w-full py-2 text-xs text-orange-500 font-medium hover:bg-orange-50 rounded-lg transition-colors"
+                        on:click={loadMoreConversations}>
+                        Load more ({convTotalCount - conversations.length} remaining)
+                    </button>
+                {/if}
             {/if}
         </div>
     </div>
@@ -953,12 +1071,29 @@
             </div>
 
             <!-- Messages Area -->
-            <div class="flex-1 overflow-y-auto p-5 space-y-2 chat-messages-area min-h-0" bind:this={messagesContainer}>
+            <div class="flex-1 overflow-y-auto p-5 space-y-2 chat-messages-area min-h-0" bind:this={messagesContainer}
+                on:scroll={(e) => {
+                    const el = e.currentTarget;
+                    if (el.scrollTop < 80 && hasMoreMessages && !loadingOlderMessages) {
+                        loadOlderMessages();
+                    }
+                }}>
                 {#if loadingMessages}
                     <div class="flex justify-center py-12">
                         <div class="animate-spin w-8 h-8 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
                     </div>
-                {:else if messages.length === 0}
+                {:else}
+                {#if hasMoreMessages}
+                    <div class="flex justify-center py-2">
+                        {#if loadingOlderMessages}
+                            <div class="animate-spin w-5 h-5 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
+                        {:else}
+                            <button class="px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-500 border border-slate-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-all shadow-sm"
+                                on:click={loadOlderMessages}>⬆️ Load older messages</button>
+                        {/if}
+                    </div>
+                {/if}
+                {#if messages.length === 0}
                     <div class="text-center py-16">
                         <div class="text-5xl mb-3 opacity-30">💬</div>
                         <p class="text-slate-400 text-sm font-medium">No messages in this conversation</p>
@@ -1058,6 +1193,7 @@
                             </div>
                         </div>
                     {/each}
+                {/if}
                 {/if}
             </div>
 

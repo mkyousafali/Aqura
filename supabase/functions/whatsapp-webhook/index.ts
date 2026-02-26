@@ -196,7 +196,8 @@ async function handleIncomingMessage(
   phoneNumberId: string
 ) {
   try {
-    const senderPhone = message.from; // e.g. "966567334726"
+    const rawPhone = message.from; // e.g. "966567334726"
+    const senderPhone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`; // normalize to +966...
     const senderName = contact.profile?.name || senderPhone;
     const messageId = message.id;
     const timestamp = message.timestamp;
@@ -207,10 +208,10 @@ async function handleIncomingMessage(
       await supabase
         .from("customers")
         .upsert(
-          { whatsapp_number: senderPhone, registration_status: "pre_registered" },
+          { whatsapp_number: rawPhone, registration_status: "pre_registered" },
           { onConflict: "whatsapp_number", ignoreDuplicates: true }
         );
-      console.log("[AUTO_CREATE] Customer ensured for:", senderPhone);
+      console.log("[AUTO_CREATE] Customer ensured for:", rawPhone);
     } catch (e) {
       console.warn("[AUTO_CREATE] Customer upsert error:", e);
     }
@@ -220,14 +221,14 @@ async function handleIncomingMessage(
       await supabase
         .from("customers")
         .update({ name: contact.profile.name, whatsapp_available: true })
-        .eq("whatsapp_number", senderPhone)
+        .eq("whatsapp_number", rawPhone)
         .in("registration_status", ["pre_registered"]); // Only update pre_registered (don't overwrite self-registered names)
 
       // Always mark whatsapp_available = true for any customer
       await supabase
         .from("customers")
         .update({ whatsapp_available: true })
-        .eq("whatsapp_number", senderPhone);
+        .eq("whatsapp_number", rawPhone);
     }
 
     // ─── Resolve WhatsApp Account ───────────────────

@@ -143,7 +143,7 @@
 						? JSON.parse(incident.user_statuses)
 						: (incident.user_statuses || {});
 					const claimedUserId = Object.keys(userStatuses).find(
-						uid => userStatuses[uid]?.claimed_at
+						uid => userStatuses[uid]?.status?.toLowerCase() === 'claimed'
 					);
 					if (claimedUserId) {
 						const { data: claimedData } = await supabase

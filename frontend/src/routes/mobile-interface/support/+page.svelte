@@ -72,6 +72,22 @@
 	let refreshInterval: any;
 	let messagesContainer: HTMLElement;
 
+	// Pagination for conversations
+	const CONV_PAGE_SIZE = 50;
+	let convTotalCount = 0;
+	let loadingMoreConvs = false;
+
+	// Pagination for messages
+	const MSG_PAGE_SIZE = 50;
+	let hasMoreMessages = false;
+	let loadingOlderMessages = false;
+
+	// Realtime subscriptions
+	let msgSubscription: any = null;
+
+	// Debounce for search
+	let searchDebounceTimer: any = null;
+
 	// Audio recording
 	let isRecording = false;
 	let mediaRecorder: MediaRecorder | null = null;
@@ -151,12 +167,14 @@
 
 	onMount(async () => {
 		await loadAccount();
-		refreshInterval = setInterval(refreshData, 5000);
+		// Light poll every 8s (just conversations, not messages)
+		refreshInterval = setInterval(refreshConversationsOnly, 8000);
 	});
 
 	onDestroy(() => {
 		if (refreshInterval) clearInterval(refreshInterval);
 		if (recordingTimer) clearInterval(recordingTimer);
+		if (msgSubscription) msgSubscription.unsubscribe();
 	});
 
 	async function loadAccount() {
@@ -187,28 +205,41 @@
 		} catch { loading = false; }
 	}
 
-	async function loadConversations() {
+	async function loadConversations(append = false) {
 		try {
-			const { data, error: err } = await supabase
-				.from('wa_conversations')
-				.select('*')
-				.eq('wa_account_id', accountId)
-				.eq('status', 'active')
-				.order('last_message_at', { ascending: false });
+			const offset = append ? conversations.length : 0;
+
+			const { data, error: err } = await supabase.rpc('get_wa_conversations_fast', {
+				p_account_id: accountId,
+				p_limit: CONV_PAGE_SIZE,
+				p_offset: offset,
+				p_search: searchQuery || null,
+				p_filter: chatFilter
+			});
 			if (err) throw err;
 
-			const now = new Date();
-			conversations = (data || []).map((c: any) => {
-				const lastMsg = c.last_message_at ? new Date(c.last_message_at) : null;
-				const hrs = lastMsg ? (now.getTime() - lastMsg.getTime()) / 3600000 : Infinity;
-				return { ...c, is_inside_24hr: hrs <= 24 };
-			});
-			applyFilters();
+			const rows = data || [];
+			if (rows.length > 0) convTotalCount = rows[0].total_count;
+			else if (!append) convTotalCount = 0;
+
+			if (append) {
+				conversations = [...conversations, ...rows];
+			} else {
+				conversations = rows;
+			}
+			filteredConversations = conversations;
 		} catch (e: any) {
 			console.error(e);
 		} finally {
 			loading = false;
+			loadingMoreConvs = false;
 		}
+	}
+
+	async function loadMoreConversations() {
+		if (loadingMoreConvs || conversations.length >= convTotalCount) return;
+		loadingMoreConvs = true;
+		await loadConversations(true);
 	}
 
 	async function loadTemplates() {
@@ -222,32 +253,63 @@
 		} catch {}
 	}
 
-	async function refreshData() {
+	// Light refresh — only reload conversation list (not messages)
+	async function refreshConversationsOnly() {
 		await loadConversations();
-		if (selectedConv) {
-			await loadMessages(selectedConv.id, true);
-		}
 	}
 
+	// Subscribe to realtime for the selected conversation's messages
+	function subscribeToMessages(convId: string) {
+		if (msgSubscription) msgSubscription.unsubscribe();
+		msgSubscription = supabase
+			.channel(`wa_messages_mobile_${convId}`)
+			.on('postgres_changes', {
+				event: 'INSERT',
+				schema: 'public',
+				table: 'wa_messages',
+				filter: `conversation_id=eq.${convId}`
+			}, (payload: any) => {
+				const newMsg = payload.new;
+				if (newMsg && !messages.find(m => m.id === newMsg.id)) {
+					messages = [...messages, newMsg];
+					setTimeout(() => scrollToBottom(), 50);
+				}
+			})
+			.on('postgres_changes', {
+				event: 'UPDATE',
+				schema: 'public',
+				table: 'wa_messages',
+				filter: `conversation_id=eq.${convId}`
+			}, (payload: any) => {
+				const updated = payload.new;
+				if (updated) {
+					messages = messages.map(m => m.id === updated.id ? { ...m, ...updated } : m);
+				}
+			})
+			.subscribe();
+	}
+
+	// RPC handles search + filter server-side, so applyFilters just assigns
 	function applyFilters() {
-		let result = [...conversations];
-		if (searchQuery) {
-			const q = searchQuery.toLowerCase();
-			result = result.filter(c => c.customer_name?.toLowerCase().includes(q) || c.customer_phone.includes(q));
-		}
-		if (chatFilter === 'unread') result = result.filter(c => c.unread_count > 0);
-		else if (chatFilter === 'ai') result = result.filter(c => c.is_bot_handling && c.bot_type === 'ai');
-		else if (chatFilter === 'bot') result = result.filter(c => c.is_bot_handling && c.bot_type === 'auto_reply');
-		else if (chatFilter === 'human') result = result.filter(c => !c.is_bot_handling);
-		filteredConversations = result;
+		filteredConversations = conversations;
 	}
 
-	$: searchQuery, chatFilter, applyFilters();
+	// Debounced search — reload from RPC when search/filter changes
+	$: {
+		searchQuery;
+		chatFilter;
+		if (accountId) {
+			if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+			searchDebounceTimer = setTimeout(() => loadConversations(), 300);
+		}
+	}
 
 	async function selectConversation(conv: Conversation) {
 		selectedConv = conv;
 		view = 'chat';
 		await loadMessages(conv.id);
+		// Subscribe to realtime messages for this conversation
+		subscribeToMessages(conv.id);
 		if (conv.unread_count > 0) {
 			await supabase.from('wa_conversations').update({ unread_count: 0 }).eq('id', conv.id);
 			conv.unread_count = 0;
@@ -261,6 +323,7 @@
 		messages = [];
 		showTemplatePicker = false;
 		showAttachMenu = false;
+		if (msgSubscription) { msgSubscription.unsubscribe(); msgSubscription = null; }
 	}
 
 	async function loadMessages(convId: string, silent = false) {
@@ -271,28 +334,58 @@
 				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
 				.eq('conversation_id', convId)
 				.order('created_at', { ascending: false })
-				.limit(200);
-			messages = (data || []).reverse();
-			// Load employee names for messages sent by users
-			const userIds = [...new Set((data || []).filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
-			if (userIds.length > 0) {
-				const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
-				if (employees) {
-					for (const emp of employees) {
-						userNameCache[emp.user_id] = (isRTL ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
-					}
-					userNameCache = { ...userNameCache };
-				}
-			}
+				.limit(MSG_PAGE_SIZE + 1);
+			const rows = data || [];
+			hasMoreMessages = rows.length > MSG_PAGE_SIZE;
+			messages = (hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows).reverse();
+			await loadUserNames(messages);
 			if (!silent) {
 				loadingMessages = false;
 				await tick();
 				scrollToBottom();
-				// Double-tick to ensure images/media have rendered
 				setTimeout(() => scrollToBottom(), 100);
 			}
 		} catch {}
 		if (!silent) loadingMessages = false;
+	}
+
+	async function loadOlderMessages() {
+		if (!selectedConv || loadingOlderMessages || !hasMoreMessages || messages.length === 0) return;
+		loadingOlderMessages = true;
+		try {
+			const oldestMsg = messages[0];
+			const { data } = await supabase
+				.from('wa_messages')
+				.select('id, direction, message_type, content, media_url, media_mime_type, template_name, status, sent_by, sent_by_user_id, metadata, created_at')
+				.eq('conversation_id', selectedConv.id)
+				.lt('created_at', oldestMsg.created_at)
+				.order('created_at', { ascending: false })
+				.limit(MSG_PAGE_SIZE + 1);
+			const rows = data || [];
+			hasMoreMessages = rows.length > MSG_PAGE_SIZE;
+			const olderMsgs = (hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows).reverse();
+			await loadUserNames(olderMsgs);
+			const container = messagesContainer;
+			const prevHeight = container?.scrollHeight || 0;
+			messages = [...olderMsgs, ...messages];
+			setTimeout(() => {
+				if (container) container.scrollTop = container.scrollHeight - prevHeight;
+			}, 50);
+		} catch {}
+		loadingOlderMessages = false;
+	}
+
+	async function loadUserNames(msgs: Message[]) {
+		const userIds = [...new Set(msgs.filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
+		if (userIds.length > 0) {
+			const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
+			if (employees) {
+				for (const emp of employees) {
+					userNameCache[emp.user_id] = (isRTL ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
+				}
+				userNameCache = { ...userNameCache };
+			}
+		}
 	}
 
 	function scrollToBottom() {
@@ -830,7 +923,12 @@
 			</div>
 
 			<!-- Conversation List -->
-			<div class="wa-conv-list">
+			<div class="wa-conv-list" on:scroll={(e) => {
+				const el = e.currentTarget;
+				if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
+					loadMoreConversations();
+				}
+			}}>
 				{#if loading}
 					<div class="wa-loading">
 						<div class="wa-spinner"></div>
@@ -883,6 +981,15 @@
 							</div>
 						</div>
 					{/each}
+					{#if loadingMoreConvs}
+						<div class="wa-loading" style="padding: 12px 0;">
+							<div class="wa-spinner" style="width: 20px; height: 20px;"></div>
+						</div>
+					{:else if conversations.length < convTotalCount}
+						<button class="wa-load-more-btn" on:click={loadMoreConversations}>
+							{isRTL ? `تحميل المزيد (${convTotalCount - conversations.length} متبقي)` : `Load more (${convTotalCount - conversations.length} remaining)`}
+						</button>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -936,12 +1043,28 @@
 			{/if}
 
 			<!-- Messages -->
-			<div class="wa-messages" bind:this={messagesContainer}>
+			<div class="wa-messages" bind:this={messagesContainer}
+				on:scroll={(e) => {
+					const el = e.currentTarget;
+					if (el.scrollTop < 80 && hasMoreMessages && !loadingOlderMessages) {
+						loadOlderMessages();
+					}
+				}}>
 				{#if loadingMessages}
 					<div class="wa-loading">
 						<div class="wa-spinner"></div>
 					</div>
-				{:else if messages.length === 0}
+				{:else}
+				{#if hasMoreMessages}
+					<div style="display:flex;justify-content:center;padding:8px 0">
+						{#if loadingOlderMessages}
+							<div class="wa-spinner" style="width:20px;height:20px"></div>
+						{:else}
+							<button style="padding:4px 12px;border-radius:16px;font-size:11px;font-weight:600;background:#fff;color:#64748b;border:1px solid #e2e8f0" on:click={loadOlderMessages}>⬆️ {isRTL ? 'تحميل رسائل أقدم' : 'Load older messages'}</button>
+						{/if}
+					</div>
+				{/if}
+				{#if messages.length === 0}
 					<div class="wa-empty-chat">
 						<div class="wa-empty-chat-box">
 							<span>🔒</span>
@@ -1041,6 +1164,7 @@
 							</div>
 						</div>
 					{/each}
+				{/if}
 				{/if}
 			</div>
 
@@ -1362,6 +1486,18 @@
 		overflow-y: auto;
 		background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(249,115,22,0.03) 100%);
 		padding: 6px 8px;
+	}
+	.wa-load-more-btn {
+		width: 100%;
+		padding: 10px;
+		background: rgba(249, 115, 22, 0.08);
+		color: #ea580c;
+		border: 1px dashed rgba(249, 115, 22, 0.3);
+		border-radius: 10px;
+		font-size: 12px;
+		font-weight: 500;
+		cursor: pointer;
+		margin-top: 4px;
 	}
 	.wa-conv-item {
 		display: flex;

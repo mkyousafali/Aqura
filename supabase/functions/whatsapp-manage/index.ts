@@ -135,16 +135,124 @@ serve(async (req: Request) => {
         result = await testConnection(accessToken, phoneNumberId);
         break;
 
-      // ─── Send Broadcast (fire-and-forget) ──────────────
-      // Returns immediately, processes in background to avoid Kong 504 timeout
+      // ─── Send Broadcast (fire-and-forget with auto-continue) ──────────────
+      // Returns immediately, processes in background to avoid Kong 504 timeout.
+      // If the function hits its 60s time limit, this .then() handler auto-invokes
+      // a NEW request to continue sending remaining pending recipients.
+      // IMPORTANT: Auto-continue happens ONLY here — NOT inside sendBroadcast() —
+      // to prevent duplicate chains (which cause exponential worker spawning).
+      // RELIABILITY: Uses fire-and-forget fetch() with 3 retries to survive
+      // edge runtime kills, network blips, and container restarts over 40+ cycles.
       case "send_broadcast": {
         // Start broadcast in background — do NOT await
-        sendBroadcast(supabase, accessToken, phoneNumberId, params).catch((err) => {
+        sendBroadcast(supabase, accessToken, phoneNumberId, params).then(async (result) => {
+          // If timed out, auto-continue by calling ourselves again (SINGLE chain only)
+          if (result?.timedOut) {
+            console.log(`[Broadcast] ↪ Auto-continue: ${result.sent} sent this round, invoking next batch...`);
+            // 3s delay to let DB writes settle and avoid worker collision
+            await new Promise((r) => setTimeout(r, 3000));
+
+            const continueBody = JSON.stringify({
+              action: 'send_broadcast',
+              account_id: params.account_id || account_id,
+              broadcast_id: params.broadcast_id,
+              template_name: params.template_name,
+              language: params.language,
+              components: params.components,
+              cached_media_id: result.cached_media_id || params.cached_media_id,
+            });
+
+            const edgeFnUrl = Deno.env.get("SUPABASE_URL") + "/functions/v1/whatsapp-manage";
+            const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+            // Retry up to 3 times with increasing delays
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                const resp = await fetch(edgeFnUrl, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${serviceKey}`,
+                  },
+                  body: continueBody,
+                  signal: AbortSignal.timeout(10000), // 10s timeout — response is immediate
+                });
+                if (resp.ok) {
+                  console.log(`[Broadcast] ↪ Auto-continue invoked successfully (attempt ${attempt})`);
+                  break; // success
+                } else {
+                  const errText = await resp.text().catch(() => "");
+                  console.error(`[Broadcast] ❌ Auto-continue HTTP ${resp.status} (attempt ${attempt}): ${errText.substring(0, 200)}`);
+                  if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+                }
+              } catch (fetchErr: any) {
+                console.error(`[Broadcast] ❌ Auto-continue fetch error (attempt ${attempt}): ${fetchErr?.message}`);
+                if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+              }
+            }
+          }
+        }).catch((err) => {
           console.error("[Broadcast] Background processing error:", err);
         });
         // Return immediately so the frontend doesn't timeout
         return new Response(
           JSON.stringify({ success: true, data: { status: "processing", message: "Broadcast started, processing in background" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // ─── Slow Ecosystem Retry (3 msg/s, only ecosystem-failed recipients) ──
+      // Standalone action: reads ecosystem-failed recipients from DB, sends them
+      // at a safe slow rate (~3/s) to avoid triggering ecosystem filter again.
+      // Auto-continues itself if time limit hit.
+      case "send_eco_retry": {
+        sendEcoRetry(supabase, accessToken, phoneNumberId, params).then(async (result) => {
+          if (result?.timedOut) {
+            console.log(`[EcoRetry] ↪ Auto-continue: ${result.sent} sent this round, continuing...`);
+            await new Promise((r) => setTimeout(r, 5000)); // 5s gap between rounds
+
+            const continueBody = JSON.stringify({
+              action: 'send_eco_retry',
+              account_id: params.account_id || account_id,
+              broadcast_id: params.broadcast_id,
+              template_name: params.template_name,
+              language: params.language,
+              components: params.components,
+              cached_media_id: result.cached_media_id || params.cached_media_id,
+            });
+
+            const edgeFnUrl = Deno.env.get("SUPABASE_URL") + "/functions/v1/whatsapp-manage";
+            const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                const resp = await fetch(edgeFnUrl, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${serviceKey}`,
+                  },
+                  body: continueBody,
+                  signal: AbortSignal.timeout(10000),
+                });
+                if (resp.ok) {
+                  console.log(`[EcoRetry] ↪ Auto-continue invoked (attempt ${attempt})`);
+                  break;
+                } else {
+                  console.error(`[EcoRetry] ❌ Auto-continue HTTP ${resp.status} (attempt ${attempt})`);
+                  if (attempt < 3) await new Promise(r => setTimeout(r, 3000 * attempt));
+                }
+              } catch (e: any) {
+                console.error(`[EcoRetry] ❌ Auto-continue error (attempt ${attempt}): ${e?.message}`);
+                if (attempt < 3) await new Promise(r => setTimeout(r, 3000 * attempt));
+              }
+            }
+          }
+        }).catch((err) => {
+          console.error("[EcoRetry] Background error:", err);
+        });
+        return new Response(
+          JSON.stringify({ success: true, data: { status: "processing", message: "Ecosystem retry started, processing slowly in background" } }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -496,16 +604,214 @@ async function sendWithRetry(
       const msg = err.message || "";
       const isRateLimit = msg.includes("code: 130429") || msg.includes("rate") || msg.includes("throttl") || msg.includes("Too many");
       const isTransient = msg.includes("code: 131026") || msg.includes("code: 131000") || msg.includes("temporarily") || msg.includes("timeout") || msg.includes("ETIMEDOUT") || msg.includes("Media upload") || msg.includes("Something went wrong");
+      const isEcosystem = msg.includes("ecosystem") || msg.includes("131049") || msg.includes("healthy ecosystem");
+
+      // Ecosystem errors are quality-based — retrying immediately won't help
+      // Let the caller handle them (defer for later)
+      if (isEcosystem) throw err;
 
       if ((isRateLimit || isTransient) && attempt < maxRetries) {
         // Exponential backoff: 2s, 4s, 8s
         const delay = Math.pow(2, attempt + 1) * 1000;
-        console.log(`[Broadcast] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        console.log(`[Broadcast] Retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries}): ${isRateLimit ? 'rate-limit' : 'transient'}`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
-      throw err; // Not retryable or max retries reached
+      throw err;
     }
+  }
+}
+
+// ─── Insert broadcast messages into wa_messages (Live Chat) ─────────────────
+// Finds or creates a conversation for each phone, then inserts the message
+// with full template content (body text, media, etc.) so chat shows real content.
+async function insertChatMessages(
+  supabase: any,
+  wa_account_id: string,
+  template_name: string,
+  sentItems: { phone: string; whatsapp_message_id: string; sent_at: string }[]
+) {
+  if (sentItems.length === 0 || !wa_account_id) return;
+  try {
+    // ─── Lookup template content from DB ───
+    let templateBody = "";
+    let templateMediaUrl = "";
+    let templateMediaMime = "";
+    let templateHeaderType = "";
+    try {
+      const { data: tpl } = await supabase
+        .from("wa_templates")
+        .select("body_text, header_type, header_content")
+        .eq("name", template_name)
+        .eq("wa_account_id", wa_account_id)
+        .limit(1)
+        .single();
+      if (tpl) {
+        templateBody = tpl.body_text || "";
+        templateHeaderType = tpl.header_type || "";
+        if (tpl.header_content) {
+          templateMediaUrl = tpl.header_content;
+          if (templateHeaderType === "document") templateMediaMime = "application/pdf";
+          else if (templateHeaderType === "image") templateMediaMime = "image/jpeg";
+          else if (templateHeaderType === "video") templateMediaMime = "video/mp4";
+        }
+      }
+    } catch (_) {
+      // Template lookup failed — fall back to basic content
+    }
+
+    const msgType = ["document", "image", "video"].includes(templateHeaderType)
+      ? templateHeaderType
+      : "template";
+
+    // Normalize phones to +966... format for conversations
+    const phones = sentItems.map(s => {
+      const clean = s.phone.replace(/^\+/, "").replace(/\D/g, "");
+      return `+${clean}`;
+    });
+
+    // Lookup customer names from customers table (uses no-plus format: 966...)
+    const rawPhones = phones.map(p => p.replace(/^\+/, ""));
+    const customerNameMap: Record<string, string> = {};
+    for (let c = 0; c < rawPhones.length; c += 500) {
+      const chunk = rawPhones.slice(c, c + 500);
+      const { data: customers } = await supabase
+        .from("customers")
+        .select("name, whatsapp_number")
+        .in("whatsapp_number", chunk);
+      if (customers) {
+        for (const cust of customers) {
+          if (cust.name && cust.whatsapp_number) {
+            customerNameMap[`+${cust.whatsapp_number}`] = cust.name;
+          }
+        }
+      }
+    }
+
+    // Batch lookup existing conversations
+    const { data: existingConvs } = await supabase
+      .from("wa_conversations")
+      .select("id, customer_phone")
+      .eq("wa_account_id", wa_account_id)
+      .eq("status", "active")
+      .in("customer_phone", phones);
+
+    const convMap: Record<string, string> = {};
+    if (existingConvs) {
+      for (const c of existingConvs) {
+        convMap[c.customer_phone] = c.id;
+      }
+    }
+
+    // Create conversations for phones that don't have one
+    const missingPhones = phones.filter(p => !convMap[p]);
+    if (missingPhones.length > 0) {
+      const inserts = missingPhones.map(phone => ({
+        wa_account_id,
+        customer_phone: phone,
+        customer_name: customerNameMap[phone] || phone,
+        status: "active",
+        handled_by: "bot",
+        is_bot_handling: true,
+        bot_type: "ai",
+        last_message_at: new Date().toISOString(),
+        unread_count: 0,
+      }));
+      const { data: newConvs } = await supabase
+        .from("wa_conversations")
+        .upsert(inserts, { onConflict: "wa_account_id,customer_phone" })
+        .select("id, customer_phone");
+      if (newConvs) {
+        for (const c of newConvs) {
+          convMap[c.customer_phone] = c.id;
+        }
+      }
+    }
+
+    // Insert wa_messages with full template content
+    const msgInserts = sentItems.map(s => {
+      const phone = `+${s.phone.replace(/^\+/, "").replace(/\D/g, "")}`;
+      const msg: Record<string, any> = {
+        conversation_id: convMap[phone],
+        wa_account_id,
+        direction: "outbound",
+        message_type: msgType,
+        content: templateBody || `📢 Broadcast: ${template_name}`,
+        template_name,
+        whatsapp_message_id: s.whatsapp_message_id,
+        status: "sent",
+        sent_by: "broadcast",
+        created_at: s.sent_at,
+      };
+      if (templateMediaUrl) {
+        msg.media_url = templateMediaUrl;
+        msg.media_mime_type = templateMediaMime;
+      }
+      return msg;
+    }).filter(m => m.conversation_id); // only insert if we have a conversation
+
+    if (msgInserts.length > 0) {
+      await supabase.from("wa_messages").insert(msgInserts);
+
+      // Update last_message_preview on conversations so chat list shows the message
+      const preview = (templateBody || `📢 Broadcast: ${template_name}`).substring(0, 100);
+      const convIds = [...new Set(msgInserts.map(m => m.conversation_id).filter(Boolean))];
+      for (let c = 0; c < convIds.length; c += 500) {
+        const chunk = convIds.slice(c, c + 500);
+        await supabase
+          .from("wa_conversations")
+          .update({ last_message_preview: preview, last_message_at: new Date().toISOString() })
+          .in("id", chunk);
+      }
+    }
+  } catch (chatErr: any) {
+    console.error(`[Broadcast] Chat message insert error (non-fatal):`, chatErr?.message);
+  }
+}
+
+// ─── Backfill sweep: finds sent recipients missing wa_message entries ───────
+// Safety net for fire-and-forget insertChatMessages calls that failed silently.
+async function backfillMissingChatMessages(
+  supabase: any,
+  wa_account_id: string,
+  template_name: string,
+  broadcast_id: string
+): Promise<number> {
+  try {
+    const { data: sentRecips } = await supabase
+      .from("wa_broadcast_recipients")
+      .select("phone_number, whatsapp_message_id, sent_at")
+      .eq("broadcast_id", broadcast_id)
+      .in("status", ["sent", "delivered", "read"])
+      .not("whatsapp_message_id", "is", null);
+    if (!sentRecips || sentRecips.length === 0) return 0;
+
+    const wamIds = sentRecips.map((r: any) => r.whatsapp_message_id).filter(Boolean);
+    const existingIds = new Set<string>();
+    for (let c = 0; c < wamIds.length; c += 500) {
+      const chunk = wamIds.slice(c, c + 500);
+      const { data: existing } = await supabase
+        .from("wa_messages")
+        .select("whatsapp_message_id")
+        .in("whatsapp_message_id", chunk);
+      if (existing) existing.forEach((m: any) => existingIds.add(m.whatsapp_message_id));
+    }
+
+    const missing = sentRecips.filter((r: any) => !existingIds.has(r.whatsapp_message_id));
+    if (missing.length === 0) return 0;
+
+    console.log(`[Broadcast] Backfill sweep: ${missing.length} sent messages missing from wa_messages, inserting...`);
+    const chatItems = missing.map((r: any) => ({
+      phone: r.phone_number,
+      whatsapp_message_id: r.whatsapp_message_id,
+      sent_at: r.sent_at || new Date().toISOString(),
+    }));
+    await insertChatMessages(supabase, wa_account_id, template_name, chatItems);
+    console.log(`[Broadcast] Backfill sweep: inserted ${missing.length} chat messages`);
+    return missing.length;
+  } catch (err: any) {
+    console.error(`[Broadcast] Backfill sweep error (non-fatal):`, err?.message);
+    return 0;
   }
 }
 
@@ -516,30 +822,115 @@ async function sendBroadcast(
   phoneNumberId: string,
   params: any
 ): Promise<any> {
-  const { broadcast_id, template_name, language, components } = params;
+  const { broadcast_id, template_name, language, components, cached_media_id } = params;
+  const wa_account_id = params.account_id;
   let { recipients } = params;
 
   if (!broadcast_id || !template_name) {
     throw new Error("Missing broadcast_id or template_name");
   }
 
+  // ─── SAFETY: 60s wall-clock limit ───
+  // The Deno edge-runtime kills workers at ~150s.
+  // We stop at 60s to guarantee safe auto-continue self-invocation.
+  const MAX_EXECUTION_MS = 60_000;
+  const functionStartTime = Date.now();
+
   // If recipients not passed (large broadcast), read them from DB directly
-  // This avoids sending a huge request body for 20k+ recipients
+  // Paginate in chunks of 5000 to bypass PostgREST default 1000 row limit
   if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
     console.log(`[Broadcast] No recipients in request body, reading from DB...`);
-    const { data: dbRecipients, error: dbErr } = await supabase
-      .from("wa_broadcast_recipients")
-      .select("id, phone_number")
-      .eq("broadcast_id", broadcast_id)
-      .eq("status", "pending");
-    
-    if (dbErr) throw new Error("Failed to load recipients: " + dbErr.message);
-    recipients = (dbRecipients || []).map((r: any) => ({ id: r.id, phone: r.phone_number }));
-    console.log(`[Broadcast] Loaded ${recipients.length} pending recipients from DB`);
+    recipients = [];
+    const PAGE_SIZE = 5000;
+    let page = 0;
+    while (true) {
+      const { data: dbRecipients, error: dbErr } = await supabase
+        .from("wa_broadcast_recipients")
+        .select("id, phone_number")
+        .eq("broadcast_id", broadcast_id)
+        .eq("status", "pending")
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      
+      if (dbErr) throw new Error("Failed to load recipients: " + dbErr.message);
+      const batch = (dbRecipients || []).map((r: any) => ({ id: r.id, phone: r.phone_number }));
+      recipients.push(...batch);
+      if (batch.length < PAGE_SIZE) break; // last page
+      page++;
+    }
+    console.log(`[Broadcast] Loaded ${recipients.length} pending recipients from DB (${page + 1} pages)`);
   }
 
   console.log(`[Broadcast] Starting: template=${template_name}, lang=${language}, recipients=${recipients?.length}, hasComponents=${!!components}`);
   if (components) console.log(`[Broadcast] Components:`, JSON.stringify(components));
+
+  // ─── Pre-upload media to WhatsApp ───
+  // Instead of passing a URL link for each message (which forces Meta to download
+  // the file thousands of times from our server, causing "Media upload error"),
+  // we upload the media ONCE to WhatsApp's servers and use the returned media_id.
+  // ─── Pre-upload media to WhatsApp (with caching across invocations) ───
+  // Upload once on first invocation, then pass cached_media_id to auto-continues.
+  let processedComponents = components;
+  let resolvedMediaId = cached_media_id || null;
+
+  if (components && Array.isArray(components)) {
+    processedComponents = JSON.parse(JSON.stringify(components)); // deep clone
+    for (const comp of processedComponents) {
+      if (comp.type === 'header' && Array.isArray(comp.parameters)) {
+        for (const param of comp.parameters) {
+          const mediaType = param.type; // 'image', 'video', 'document'
+          const mediaObj = param[mediaType];
+          if (mediaObj && mediaObj.link && !mediaObj.id) {
+            // If we already have a cached media_id from a previous invocation, reuse it
+            if (resolvedMediaId) {
+              console.log(`[Broadcast] Using cached media_id=${resolvedMediaId} (skipping re-upload)`);
+              delete mediaObj.link;
+              mediaObj.id = resolvedMediaId;
+            } else {
+              try {
+                console.log(`[Broadcast] Pre-uploading ${mediaType} to WhatsApp: ${mediaObj.link}`);
+                
+                // Download the file from our storage
+                const fileResp = await fetch(mediaObj.link);
+                if (!fileResp.ok) throw new Error(`Download failed: ${fileResp.status}`);
+                const fileBlob = await fileResp.blob();
+                const contentType = fileResp.headers.get('content-type') || 'application/octet-stream';
+                
+                // Upload to WhatsApp via Media API
+                const formData = new FormData();
+                formData.append('messaging_product', 'whatsapp');
+                formData.append('type', contentType);
+                formData.append('file', fileBlob, mediaObj.filename || 'file');
+                
+                const uploadResp = await fetch(
+                  `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
+                  {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                    body: formData,
+                  }
+                );
+                const uploadData = await uploadResp.json();
+                if (!uploadResp.ok) {
+                  throw new Error(uploadData.error?.message || `Upload failed: ${uploadResp.status}`);
+                }
+                
+                resolvedMediaId = uploadData.id;
+                console.log(`[Broadcast] Media uploaded to WhatsApp, id=${resolvedMediaId}`);
+                
+                // Replace link with id — WhatsApp serves the file from their CDN now
+                delete mediaObj.link;
+                mediaObj.id = resolvedMediaId;
+              } catch (uploadErr: any) {
+                console.error(`[Broadcast] Media pre-upload failed, keeping link fallback:`, uploadErr.message);
+                // Keep the original link as fallback
+              }
+            }
+          }
+        }
+      }
+    }
+    console.log(`[Broadcast] Processed components:`, JSON.stringify(processedComponents));
+  }
 
   // ─── Filter out unsubscribed customers (is_deleted = true) ───
   const allPhones = recipients.map((r: any) => (r.phone || "").replace(/^\+/, "").replace(/\D/g, "")).filter(Boolean);
@@ -548,7 +939,6 @@ async function sendBroadcast(
 
   let unsubscribedPhones = new Set<string>();
   if (phoneLookup.length > 0) {
-    // Batch the unsubscribe lookup in chunks to avoid URL length issues
     const LOOKUP_CHUNK = 500;
     for (let c = 0; c < phoneLookup.length; c += LOOKUP_CHUNK) {
       const chunk = phoneLookup.slice(c, c + LOOKUP_CHUNK);
@@ -570,15 +960,32 @@ async function sendBroadcast(
     }
   }
 
-  const filteredRecipients = recipients.filter((r: any) => {
+  // Mark unsubscribed recipients as 'skipped' in DB so they don't stay pending
+  const unsubRecipientIds: string[] = [];
+  const filteredRecipients: any[] = [];
+  for (const r of recipients) {
     const clean = (r.phone || "").replace(/^\+/, "").replace(/\D/g, "");
-    return !unsubscribedPhones.has(clean);
-  });
+    if (unsubscribedPhones.has(clean)) {
+      if (r.id) unsubRecipientIds.push(r.id);
+    } else {
+      filteredRecipients.push(r);
+    }
+  }
+
+  // Bulk-mark unsubscribed as skipped
+  if (unsubRecipientIds.length > 0) {
+    const SKIP_CHUNK = 200;
+    for (let c = 0; c < unsubRecipientIds.length; c += SKIP_CHUNK) {
+      const chunk = unsubRecipientIds.slice(c, c + SKIP_CHUNK);
+      await supabase
+        .from("wa_broadcast_recipients")
+        .update({ status: "failed", error_details: "Unsubscribed (is_deleted)" })
+        .in("id", chunk);
+    }
+    console.log(`[Broadcast] Marked ${unsubRecipientIds.length} unsubscribed recipients as skipped`);
+  }
 
   const skippedCount = recipients.length - filteredRecipients.length;
-  if (skippedCount > 0) {
-    console.log(`[Broadcast] Skipped ${skippedCount} unsubscribed recipients out of ${recipients.length} total`);
-  }
 
   // Update broadcast status to sending
   await supabase
@@ -588,64 +995,89 @@ async function sendBroadcast(
 
   let sentCount = 0;
   let failedCount = 0;
+  let ecosystemFailCount = 0;
   let rateLimitHits = 0;
+  let timedOut = false;
 
-  // ─── Adaptive high-performance parallel sending ───
-  // Meta allows ~80 messages/second for business accounts.
-  // Start with 40 concurrent (safe), auto-reduce if rate limited.
-  let concurrency = 40;
-  const DB_BATCH_SIZE = 200;
+  // ─── PREMIUM BROADCAST ENGINE ───
+  // Target: 10,000 messages in 10 minutes (~17 msg/s)
+  // Cruising at ~20 msg/s to leave buffer for throttle pauses.
+  //
+  // 1. WARM-UP RAMP: Start at 5 concurrency/800ms, ramp to 20 concurrency/300ms
+  //    over 15 batches. Meta flags sudden bursts — gradual ramp avoids it.
+  //
+  // 2. ECOSYSTEM AUTO-THROTTLE: When ecosystem errors appear:
+  //    - Immediately cut speed by 50%
+  //    - Add cooldown pause (3-15s based on severity)
+  //    - If >10% ecosystem fail rate in rolling window → full pause 20s
+  //    - If 8+ consecutive ecosystem fails → emergency pause 30s
+  //
+  // 3. ROLLING WINDOW: Track last 100 sends for real-time decisions.
+  //
+  // 4. ECOSYSTEM FAILURES → DEFERRED: Keep as 'pending' for next auto-continue
+  //    invocation. These are quality-based, not transient — retrying hours later
+  //    when Meta's quality score resets is the correct approach.
+
+  // Speed control state
+  let concurrency = 5;            // Start warm (not cold)
+  let delayMs = 800;              // 800ms between batches initially
+  const MAX_CONCURRENCY = 20;     // Cruising speed: 20 parallel × 300ms ≈ 20+ msg/s
+  const MIN_CONCURRENCY = 2;      // Minimum during throttle (never fully stop)
+  const RAMP_UP_BATCHES = 15;     // Batches to reach full speed (~150 msgs)
+  let batchesSent = 0;
+
+  // Ecosystem monitoring (rolling window)
+  const WINDOW_SIZE = 100;        // Last N sends to monitor
+  const rollingWindow: boolean[] = [];
+  let consecutiveEcosystemFails = 0;
+  let lastEcosystemPause = 0;
+
   const startTime = Date.now();
 
-  // Accumulate DB updates and flush in batches
-  const sentUpdates: { id: string; whatsapp_message_id: string; sent_at: string }[] = [];
-  const failedUpdates: { id: string; error_details: string }[] = [];
-
-  async function flushSentUpdates() {
-    if (sentUpdates.length === 0) return;
-    const batch = sentUpdates.splice(0, sentUpdates.length);
-    const chunks = [];
-    for (let i = 0; i < batch.length; i += 50) {
-      chunks.push(batch.slice(i, i + 50));
-    }
-    await Promise.all(chunks.map(async (chunk) => {
-      for (const item of chunk) {
-        await supabase
-          .from("wa_broadcast_recipients")
-          .update({
-            status: "sent",
-            whatsapp_message_id: item.whatsapp_message_id,
-            sent_at: item.sent_at,
-          })
-          .eq("id", item.id);
-      }
-    }));
+  // Helper: flush a batch of sent updates to DB immediately using parallel updates
+  async function flushSentBatch(batch: { id: string; whatsapp_message_id: string; sent_at: string }[]) {
+    if (batch.length === 0) return;
+    // Fire all updates in parallel (batch is max ~20 items = concurrency size)
+    await Promise.all(batch.map((item) =>
+      supabase
+        .from("wa_broadcast_recipients")
+        .update({
+          status: "sent",
+          whatsapp_message_id: item.whatsapp_message_id,
+          sent_at: item.sent_at,
+        })
+        .eq("id", item.id)
+    ));
   }
 
-  async function flushFailedUpdates() {
-    if (failedUpdates.length === 0) return;
-    const batch = failedUpdates.splice(0, failedUpdates.length);
-    const chunks = [];
-    for (let i = 0; i < batch.length; i += 50) {
-      chunks.push(batch.slice(i, i + 50));
-    }
-    await Promise.all(chunks.map(async (chunk) => {
-      for (const item of chunk) {
-        await supabase
-          .from("wa_broadcast_recipients")
-          .update({
-            status: "failed",
-            error_details: item.error_details,
-          })
-          .eq("id", item.id);
-      }
-    }));
+  // Helper: flush a batch of failed updates to DB immediately
+  async function flushFailedBatch(batch: { id: string; error_details: string }[]) {
+    if (batch.length === 0) return;
+    await Promise.all(batch.map((item) =>
+      supabase
+        .from("wa_broadcast_recipients")
+        .update({
+          status: "failed",
+          error_details: item.error_details,
+        })
+        .eq("id", item.id)
+    ));
   }
 
-  // Process recipients in concurrent batches with adaptive speed
+  // Process recipients in concurrent batches with premium adaptive speed
   for (let i = 0; i < filteredRecipients.length; i += concurrency) {
+    // ─── Time check BEFORE each batch ───
+    const elapsed = Date.now() - functionStartTime;
+    if (elapsed >= MAX_EXECUTION_MS) {
+      const remaining = filteredRecipients.length - i;
+      console.log(`[Broadcast] ⏱️ TIME LIMIT reached (${(elapsed/1000).toFixed(0)}s). ${remaining} recipients still pending. Will auto-continue.`);
+      timedOut = true;
+      break;
+    }
+
     const batch = filteredRecipients.slice(i, i + concurrency);
     let batchRateLimited = 0;
+    let batchEcosystemFails = 0;
 
     const results = await Promise.allSettled(
       batch.map(async (recipient: any) => {
@@ -659,24 +1091,30 @@ async function sendBroadcast(
           template: {
             name: template_name,
             language: { code: language || "en" },
-            ...(components ? { components } : {}),
+            ...(processedComponents ? { components: processedComponents } : {}),
           },
         };
 
-        // Use retry wrapper — auto-retries on rate limit with backoff
         const result = await sendWithRetry(accessToken, phoneNumberId, payload);
         return { recipient, waMessageId: result.messages?.[0]?.id };
       })
     );
 
-    // Collect results
+    // Collect results and flush to DB immediately
     const now = new Date().toISOString();
+    const batchSent: { id: string; whatsapp_message_id: string; sent_at: string }[] = [];
+    const batchFailed: { id: string; error_details: string }[] = [];
+    const batchEcosystem: { id: string; error_details: string }[] = [];
+
     for (let j = 0; j < results.length; j++) {
       const res = results[j];
       if (res.status === "fulfilled") {
         sentCount++;
+        consecutiveEcosystemFails = 0;
+        rollingWindow.push(true);
+        if (rollingWindow.length > WINDOW_SIZE) rollingWindow.shift();
         if (res.value.recipient.id) {
-          sentUpdates.push({
+          batchSent.push({
             id: res.value.recipient.id,
             whatsapp_message_id: res.value.waMessageId || "",
             sent_at: now,
@@ -685,70 +1123,433 @@ async function sendBroadcast(
       } else {
         const errMsg = res.reason?.message || "Send failed";
         const isRateLimit = errMsg.includes("130429") || errMsg.includes("rate") || errMsg.includes("throttl");
-        if (isRateLimit) {
+        const isEcosystem = errMsg.includes("ecosystem") || errMsg.includes("131049") || errMsg.includes("healthy ecosystem");
+        const recipient = batch[j];
+
+        if (isEcosystem) {
+          // ─── ECOSYSTEM ERROR: Defer, don't permanently fail ───
+          batchEcosystemFails++;
+          ecosystemFailCount++;
+          consecutiveEcosystemFails++;
+          rollingWindow.push(false);
+          if (rollingWindow.length > WINDOW_SIZE) rollingWindow.shift();
+          if (recipient?.id) {
+            batchEcosystem.push({
+              id: recipient.id,
+              error_details: errMsg.substring(0, 1000),
+            });
+          }
+        } else if (isRateLimit) {
           batchRateLimited++;
           rateLimitHits++;
+          failedCount++;
+          if (recipient?.id) {
+            batchFailed.push({ id: recipient.id, error_details: errMsg.substring(0, 1000) });
+          }
+        } else {
+          failedCount++;
+          if (recipient?.id) {
+            batchFailed.push({ id: recipient.id, error_details: errMsg.substring(0, 1000) });
+          }
         }
-        failedCount++;
-        const recipient = batch[j];
         console.error(`Broadcast send failed for ${recipient?.phone}:`, errMsg.substring(0, 200));
-        if (recipient?.id) {
-          failedUpdates.push({
-            id: recipient.id,
-            error_details: errMsg.substring(0, 1000),
-          });
-        }
       }
     }
 
-    // ─── Adaptive concurrency ───
-    // If we got rate limited in this batch, reduce concurrency and add longer delay
-    if (batchRateLimited > 0) {
-      const oldConcurrency = concurrency;
-      concurrency = Math.max(10, Math.floor(concurrency * 0.6)); // Reduce by 40%
-      console.log(`[Broadcast] Rate limited ${batchRateLimited}x in batch, reducing concurrency ${oldConcurrency} → ${concurrency}`);
-      await new Promise((r) => setTimeout(r, 5000)); // 5s cooldown
-    } else if (rateLimitHits === 0 && concurrency < 40) {
-      // Gradually recover concurrency if no rate limits
-      concurrency = Math.min(40, concurrency + 5);
+    // ─── IMMEDIATE DB flush ───
+    const dbOps: Promise<any>[] = [flushSentBatch(batchSent), flushFailedBatch(batchFailed)];
+    // Ecosystem failures: mark as 'pending' so auto-continue will retry them later
+    // But add error_details so we know WHY they were deferred
+    if (batchEcosystem.length > 0) {
+      dbOps.push(Promise.all(batchEcosystem.map(item =>
+        supabase.from("wa_broadcast_recipients")
+          .update({ status: "pending", error_details: `ECOSYSTEM_DEFERRED: ${item.error_details}` })
+          .eq("id", item.id)
+      )));
+    }
+    await Promise.all(dbOps);
+
+    // ─── Insert sent messages into Live Chat ───
+    const chatItems = batchSent.map((s, idx) => ({
+      phone: batch[idx]?.phone || "",
+      whatsapp_message_id: s.whatsapp_message_id,
+      sent_at: s.sent_at,
+    })).filter(c => c.phone);
+    insertChatMessages(supabase, wa_account_id, template_name, chatItems).catch(() => {});
+
+    // ─── Update broadcast counts ───
+    await supabase
+      .from("wa_broadcasts")
+      .update({
+        sent_count: sentCount,
+        failed_count: failedCount + skippedCount,
+      })
+      .eq("id", broadcast_id);
+
+    batchesSent++;
+
+    // ═══════════════════════════════════════════════════════════════
+    // PREMIUM ADAPTIVE SPEED CONTROL
+    // Target: 10K msgs / 10 min → ~17 msg/s → cruise at 20 msg/s
+    // ═══════════════════════════════════════════════════════════════
+
+    // Calculate rolling ecosystem fail rate
+    const windowFails = rollingWindow.filter(x => !x).length;
+    const windowRate = rollingWindow.length > 0 ? windowFails / rollingWindow.length : 0;
+
+    // ─── ECOSYSTEM THROTTLE ───
+    if (batchEcosystemFails > 0) {
+      const now_ts = Date.now();
+
+      if (windowRate > 0.10 || consecutiveEcosystemFails >= 8) {
+        // CRITICAL: >10% ecosystem fail rate or 8+ consecutive → emergency pause
+        const pauseMs = Math.min(30000, 5000 * Math.ceil(consecutiveEcosystemFails / 4));
+        console.log(`[Broadcast] 🛑 ECOSYSTEM CRITICAL: ${(windowRate*100).toFixed(0)}% fail rate, ${consecutiveEcosystemFails} consecutive. Pausing ${pauseMs/1000}s`);
+        concurrency = MIN_CONCURRENCY;
+        delayMs = 1500;
+        lastEcosystemPause = now_ts;
+        await new Promise(r => setTimeout(r, pauseMs));
+      } else if (windowRate > 0.05 || consecutiveEcosystemFails >= 3) {
+        // MODERATE: >5% fail rate or 3+ consecutive → slow down significantly
+        const oldC = concurrency;
+        concurrency = Math.max(MIN_CONCURRENCY, Math.floor(concurrency * 0.5));
+        delayMs = Math.min(2000, delayMs + 300);
+        lastEcosystemPause = now_ts;
+        console.log(`[Broadcast] ⚠️ ECOSYSTEM THROTTLE: ${batchEcosystemFails} in batch, ${(windowRate*100).toFixed(0)}% rate. c:${oldC}→${concurrency}, d→${delayMs}ms`);
+        await new Promise(r => setTimeout(r, 5000));
+      } else {
+        // LIGHT: occasional ecosystem error — minor slowdown
+        const oldC = concurrency;
+        concurrency = Math.max(MIN_CONCURRENCY, concurrency - 2);
+        delayMs = Math.min(1500, delayMs + 100);
+        console.log(`[Broadcast] ⚠️ ECOSYSTEM LIGHT: ${batchEcosystemFails} in batch. c:${oldC}→${concurrency}, d→${delayMs}ms`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+    // ─── RATE LIMIT THROTTLE ───
+    else if (batchRateLimited > 0) {
+      const oldC = concurrency;
+      concurrency = Math.max(MIN_CONCURRENCY, Math.floor(concurrency * 0.5));
+      delayMs = Math.min(2000, delayMs + 500);
+      console.log(`[Broadcast] Rate limited ${batchRateLimited}x, c:${oldC}→${concurrency}, d→${delayMs}ms`);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    // ─── WARM-UP RAMP (5→8→11→14→17→20 concurrency, 800→300ms delay) ───
+    else if (batchesSent <= RAMP_UP_BATCHES) {
+      const progress = batchesSent / RAMP_UP_BATCHES;
+      const targetC = Math.min(MAX_CONCURRENCY, 5 + Math.floor(progress * (MAX_CONCURRENCY - 5)));
+      const targetDelay = Math.max(300, 800 - Math.floor(progress * 500));
+      if (targetC > concurrency || targetDelay < delayMs) {
+        concurrency = targetC;
+        delayMs = targetDelay;
+        console.log(`[Broadcast] 📈 RAMP-UP ${batchesSent}/${RAMP_UP_BATCHES}: c→${concurrency}, d→${delayMs}ms (~${(concurrency / (delayMs/1000 + 0.3)).toFixed(0)} msg/s)`);
+      }
+    }
+    // ─── RECOVERY after ecosystem pause ───
+    else if (Date.now() - lastEcosystemPause > 10000 && concurrency < MAX_CONCURRENCY && windowRate < 0.03) {
+      // 10s since last pause + <3% fail rate → ramp back up aggressively
+      const oldC = concurrency;
+      concurrency = Math.min(MAX_CONCURRENCY, concurrency + 3);
+      delayMs = Math.max(300, delayMs - 150);
+      console.log(`[Broadcast] 📈 RECOVERY: c:${oldC}→${concurrency}, d→${delayMs}ms (eco rate: ${(windowRate*100).toFixed(0)}%)`);
     }
 
-    // Flush DB updates periodically
-    if (sentUpdates.length >= DB_BATCH_SIZE) await flushSentUpdates();
-    if (failedUpdates.length >= DB_BATCH_SIZE) await flushFailedUpdates();
-
-    // Log progress every 500 messages
+    // Log progress every 200 messages
     const processed = Math.min(i + batch.length, filteredRecipients.length);
-    if (processed % 500 < concurrency || processed === filteredRecipients.length) {
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    if (processed % 200 < concurrency || processed === filteredRecipients.length) {
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
       const rate = (sentCount / (Date.now() - startTime) * 1000).toFixed(1);
-      const eta = sentCount > 0 ? (((filteredRecipients.length - processed) / (sentCount / ((Date.now() - startTime) / 1000))) ).toFixed(0) : '?';
-      console.log(`[Broadcast] ${processed}/${filteredRecipients.length} | sent:${sentCount} failed:${failedCount} | ${elapsed}s elapsed | ${rate} msg/s | ETA: ${eta}s | concurrency:${concurrency}`);
+      const remaining = filteredRecipients.length - processed;
+      const eta = sentCount > 0 ? ((remaining / (sentCount / ((Date.now() - startTime) / 1000)))).toFixed(0) : '?';
+      console.log(`[Broadcast] ${processed}/${filteredRecipients.length} | sent:${sentCount} eco:${ecosystemFailCount} fail:${failedCount} | ${elapsedSec}s | ${rate} msg/s | ETA:${eta}s | c=${concurrency} d=${delayMs}ms | eco_rate:${(windowRate*100).toFixed(0)}%`);
     }
 
-    // Delay between batches — 200ms keeps us safely under 80 msg/s
+    // Inter-batch delay
     if (i + concurrency < filteredRecipients.length) {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, delayMs));
     }
   }
 
-  // Flush remaining DB updates
-  await Promise.all([flushSentUpdates(), flushFailedUpdates()]);
-
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[Broadcast] COMPLETE in ${totalTime}s | sent:${sentCount} failed:${failedCount} skipped:${skippedCount} rateLimitHits:${rateLimitHits}`);
+  const avgRate = (sentCount / Math.max(1, (Date.now() - startTime) / 1000)).toFixed(1);
 
-  // Update broadcast final status
-  const finalStatus = failedCount === filteredRecipients.length ? "failed" : "completed";
-  await supabase
-    .from("wa_broadcasts")
-    .update({
-      status: finalStatus,
-      sent_count: sentCount,
-      failed_count: failedCount + skippedCount,
-      completed_at: new Date().toISOString(),
-    })
-    .eq("id", broadcast_id);
+  if (timedOut) {
+    // ─── Partial completion — outer .then() handler will auto-continue ───
+    console.log(`[Broadcast] PARTIAL in ${totalTime}s (${avgRate} msg/s) | sent:${sentCount} eco_defer:${ecosystemFailCount} failed:${failedCount} skipped:${skippedCount} | Returning for auto-continue...`);
+    await supabase
+      .from("wa_broadcasts")
+      .update({
+        status: "sending",
+        sent_count: sentCount,
+        failed_count: failedCount + skippedCount,
+      })
+      .eq("id", broadcast_id);
+    // NOTE: Auto-continue is handled ONLY in the case handler's .then() callback
+    // to prevent duplicate chains (which cause exponential worker spawning)
+  } else {
+    // ─── Full completion — backfill missing chat messages then recount ───
+    console.log(`[Broadcast] ✅ COMPLETE in ${totalTime}s (${avgRate} msg/s) | sent:${sentCount} eco_defer:${ecosystemFailCount} failed:${failedCount} skipped:${skippedCount}`);
 
-  return { sent: sentCount, failed: failedCount, skipped: skippedCount, rateLimitHits, total: recipients.length, duration: `${totalTime}s` };
+    // Safety-net: find any sent recipients whose wa_message was lost by fire-and-forget
+    await backfillMissingChatMessages(supabase, wa_account_id, template_name, broadcast_id);
+
+    const { data: finalCounts } = await supabase
+      .from("wa_broadcast_recipients")
+      .select("status")
+      .eq("broadcast_id", broadcast_id);
+    const sc: any = {};
+    if (finalCounts) finalCounts.forEach((r: any) => { sc[r.status] = (sc[r.status] || 0) + 1; });
+    const totalSent = (sc.sent || 0) + (sc.delivered || 0) + (sc.read || 0);
+    const totalFailed = sc.failed || 0;
+    const totalPending = sc.pending || 0;
+    const finalStatus = totalSent === 0 && totalFailed > 0 ? "failed" : totalPending > 0 ? "sending" : "completed";
+    await supabase
+      .from("wa_broadcasts")
+      .update({
+        status: finalStatus,
+        sent_count: sc.sent || 0,
+        failed_count: totalFailed,
+        delivered_count: sc.delivered || 0,
+        read_count: sc.read || 0,
+        completed_at: finalStatus === 'completed' ? new Date().toISOString() : undefined,
+      })
+      .eq("id", broadcast_id);
+  }
+
+  return { sent: sentCount, failed: failedCount, ecosystem_deferred: ecosystemFailCount, skipped: skippedCount, rateLimitHits, total: recipients.length, timedOut, duration: `${totalTime}s`, avg_rate: `${avgRate} msg/s`, cached_media_id: resolvedMediaId };
+}
+
+// ─── Slow Ecosystem Retry ────────────────────────────────────────
+// Sends ecosystem-failed messages at ~3 msg/s (concurrency=1, 333ms delay)
+// to avoid triggering the ecosystem quality filter again.
+// Auto-continues via the case handler if time limit is hit.
+async function sendEcoRetry(
+  supabase: any,
+  accessToken: string,
+  phoneNumberId: string,
+  params: any
+): Promise<any> {
+  const { broadcast_id, template_name, language, components, cached_media_id } = params;
+  const wa_account_id = params.account_id;
+
+  if (!broadcast_id || !template_name) {
+    throw new Error("Missing broadcast_id or template_name");
+  }
+
+  const MAX_EXECUTION_MS = 55_000; // 55s limit (slightly shorter for safety)
+  const functionStartTime = Date.now();
+  const ECO_CONCURRENCY = 5;      // 5 parallel
+  const ECO_DELAY_MS = 1500;      // 1.5s between batches → ~3 msg/s overall
+
+  // Load ecosystem-failed recipients from DB
+  // Also pick up any ECO_RETRY_IN_PROGRESS pending (from broken chains)
+  const { data: ecoFailed, error: loadErr1 } = await supabase
+    .from("wa_broadcast_recipients")
+    .select("id, phone_number")
+    .eq("broadcast_id", broadcast_id)
+    .eq("status", "failed")
+    .like("error_details", "%ecosystem%")
+    .limit(5000);
+
+  const { data: ecoPending, error: loadErr2 } = await supabase
+    .from("wa_broadcast_recipients")
+    .select("id, phone_number")
+    .eq("broadcast_id", broadcast_id)
+    .eq("status", "pending")
+    .eq("error_details", "ECO_RETRY_IN_PROGRESS")
+    .limit(5000);
+
+  if (loadErr1) throw new Error("Failed to load eco recipients: " + loadErr1.message);
+  const allEco = [...(ecoFailed || []), ...(ecoPending || [])];
+  const recipients = allEco.map((r: any) => ({ id: r.id, phone: r.phone_number }));
+
+  if (recipients.length === 0) {
+    console.log(`[EcoRetry] No ecosystem-failed recipients to retry`);
+    return { sent: 0, failed: 0, total: 0, timedOut: false };
+  }
+
+  console.log(`[EcoRetry] Starting slow retry: ${recipients.length} ecosystem-failed, template=${template_name}, ~3 msg/s`);
+
+  // Reset them to 'pending' first so they're recognizable
+  const recipientIds = recipients.map((r: any) => r.id);
+  const CHUNK = 500;
+  for (let c = 0; c < recipientIds.length; c += CHUNK) {
+    await supabase
+      .from("wa_broadcast_recipients")
+      .update({ status: "pending", error_details: "ECO_RETRY_IN_PROGRESS" })
+      .in("id", recipientIds.slice(c, c + CHUNK));
+  }
+
+  // ─── Pre-upload media (reuse cached_media_id if available) ───
+  let processedComponents = components;
+  let resolvedMediaId = cached_media_id || null;
+
+  if (components && Array.isArray(components)) {
+    processedComponents = JSON.parse(JSON.stringify(components));
+    for (const comp of processedComponents) {
+      if (comp.type === 'header' && Array.isArray(comp.parameters)) {
+        for (const param of comp.parameters) {
+          const mediaType = param.type;
+          const mediaObj = param[mediaType];
+          if (mediaObj && mediaObj.link && !mediaObj.id) {
+            if (resolvedMediaId) {
+              delete mediaObj.link;
+              mediaObj.id = resolvedMediaId;
+            } else {
+              try {
+                const fileResp = await fetch(mediaObj.link);
+                if (!fileResp.ok) throw new Error(`Download failed: ${fileResp.status}`);
+                const fileBlob = await fileResp.blob();
+                const contentType = fileResp.headers.get('content-type') || 'application/octet-stream';
+                const formData = new FormData();
+                formData.append('messaging_product', 'whatsapp');
+                formData.append('type', contentType);
+                formData.append('file', fileBlob, mediaObj.filename || 'file');
+                const uploadResp = await fetch(
+                  `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
+                  { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: formData }
+                );
+                const uploadData = await uploadResp.json();
+                if (!uploadResp.ok) throw new Error(uploadData.error?.message || `Upload failed`);
+                resolvedMediaId = uploadData.id;
+                delete mediaObj.link;
+                mediaObj.id = resolvedMediaId;
+                console.log(`[EcoRetry] Media uploaded, id=${resolvedMediaId}`);
+              } catch (uploadErr: any) {
+                console.error(`[EcoRetry] Media upload failed, using link fallback:`, uploadErr?.message);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  let sentCount = 0;
+  let failedCount = 0;
+  let timedOut = false;
+
+  // Send in parallel batches of ECO_CONCURRENCY, with ECO_DELAY_MS between batches
+  for (let i = 0; i < recipients.length; i += ECO_CONCURRENCY) {
+    const elapsed = Date.now() - functionStartTime;
+    if (elapsed >= MAX_EXECUTION_MS) {
+      console.log(`[EcoRetry] ⏱️ TIME LIMIT (${(elapsed/1000).toFixed(0)}s). ${recipients.length - i} remaining. Will auto-continue.`);
+      timedOut = true;
+      break;
+    }
+
+    const batch = recipients.slice(i, i + ECO_CONCURRENCY);
+
+    const results = await Promise.allSettled(
+      batch.map(async (recipient: any) => {
+        const phone = (recipient.phone || "").replace(/^\+/, "");
+        if (!phone) throw new Error("No phone");
+
+        const payload = {
+          messaging_product: "whatsapp",
+          to: phone,
+          type: "template",
+          template: {
+            name: template_name,
+            language: { code: language || "en" },
+            ...(processedComponents ? { components: processedComponents } : {}),
+          },
+        };
+
+        const result = await sendWithRetry(accessToken, phoneNumberId, payload, 2);
+        return { recipient, waMessageId: result.messages?.[0]?.id || "" };
+      })
+    );
+
+    // Flush results to DB
+    const now = new Date().toISOString();
+    const dbOps: Promise<any>[] = [];
+
+    for (let j = 0; j < results.length; j++) {
+      const res = results[j];
+      if (res.status === "fulfilled") {
+        sentCount++;
+        dbOps.push(
+          supabase.from("wa_broadcast_recipients")
+            .update({
+              status: "sent",
+              whatsapp_message_id: res.value.waMessageId,
+              sent_at: now,
+              error_details: null,
+            })
+            .eq("id", res.value.recipient.id)
+        );
+      } else {
+        failedCount++;
+        const errMsg = (res.reason?.message || "Send failed").substring(0, 1000);
+        console.error(`[EcoRetry] Failed ${batch[j]?.phone}: ${errMsg.substring(0, 200)}`);
+        dbOps.push(
+          supabase.from("wa_broadcast_recipients")
+            .update({ status: "failed", error_details: errMsg })
+            .eq("id", batch[j]?.id)
+        );
+      }
+    }
+    await Promise.all(dbOps);
+
+    // Insert chat messages for eco-retried sent items
+    const ecoChatItems = [];
+    for (let j = 0; j < results.length; j++) {
+      const res = results[j];
+      if (res.status === "fulfilled" && res.value.waMessageId) {
+        ecoChatItems.push({
+          phone: batch[j]?.phone || "",
+          whatsapp_message_id: res.value.waMessageId,
+          sent_at: new Date().toISOString(),
+        });
+      }
+    }
+    if (ecoChatItems.length > 0) {
+      insertChatMessages(supabase, wa_account_id, template_name, ecoChatItems).catch(() => {});
+    }
+
+    // Log progress every 50
+    const processed = Math.min(i + batch.length, recipients.length);
+    if (processed % 50 < ECO_CONCURRENCY || processed === recipients.length) {
+      const elapsed = ((Date.now() - functionStartTime) / 1000).toFixed(1);
+      console.log(`[EcoRetry] ${processed}/${recipients.length} | sent:${sentCount} fail:${failedCount} | ${elapsed}s`);
+    }
+
+    // Delay between batches
+    if (i + ECO_CONCURRENCY < recipients.length) {
+      await new Promise(r => setTimeout(r, ECO_DELAY_MS));
+    }
+  }
+
+  const totalTime = ((Date.now() - functionStartTime) / 1000).toFixed(1);
+  console.log(`[EcoRetry] ${timedOut ? 'PARTIAL' : '✅ COMPLETE'} in ${totalTime}s | sent:${sentCount} failed:${failedCount}`);
+
+  // Backfill any missing chat messages (safety net for fire-and-forget failures)
+  if (!timedOut) {
+    await backfillMissingChatMessages(supabase, wa_account_id, template_name, broadcast_id);
+  }
+
+  // Update broadcast counts
+  const { data: counts } = await supabase
+    .from("wa_broadcast_recipients")
+    .select("status")
+    .eq("broadcast_id", broadcast_id);
+
+  if (counts) {
+    const statusCounts = counts.reduce((acc: any, r: any) => {
+      acc[r.status] = (acc[r.status] || 0) + 1;
+      return acc;
+    }, {});
+    await supabase
+      .from("wa_broadcasts")
+      .update({
+        sent_count: statusCounts.sent || 0,
+        failed_count: statusCounts.failed || 0,
+        delivered_count: statusCounts.delivered || 0,
+        read_count: statusCounts.read || 0,
+      })
+      .eq("id", broadcast_id);
+  }
+
+  return { sent: sentCount, failed: failedCount, total: recipients.length, timedOut, duration: `${totalTime}s`, cached_media_id: resolvedMediaId };
 }

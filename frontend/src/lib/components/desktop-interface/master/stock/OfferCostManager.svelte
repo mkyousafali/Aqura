@@ -632,7 +632,6 @@
 					issue_type: 'price_change',
 					priority: 'high',
 					assigned_by: $currentUser?.id,
-					assigned_to_branch_id: branchesToUpdate.length > 0 ? branchesToUpdate[0].branch.branch_id : null,
 					status: 'pending',
 					deadline_datetime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 				})

@@ -72,6 +72,34 @@
     let retryCooldowns: Record<string, number> = {}; // broadcastId -> cooldown expiry timestamp
     let retryCooldownTimers: Record<string, NodeJS.Timeout> = {};
 
+    // Eco retry state
+    let ecoRetryingBroadcastId: string | null = null;
+
+    // Stall detection: track sent_count snapshots to detect stuck broadcasts
+    let stallSnapshots: Record<string, { count: number; since: number }> = {};
+    $: {
+        // Update stall detection whenever broadcasts change
+        for (const bc of broadcasts) {
+            if (bc.status === 'sending') {
+                const totalDone = (bc.sent_count || 0) + (bc.delivered_count || 0) + (bc.read_count || 0) + (bc.failed_count || 0);
+                const snap = stallSnapshots[bc.id];
+                if (!snap || snap.count !== totalDone) {
+                    stallSnapshots = { ...stallSnapshots, [bc.id]: { count: totalDone, since: Date.now() } };
+                }
+            } else {
+                if (stallSnapshots[bc.id]) {
+                    const { [bc.id]: _, ...rest } = stallSnapshots;
+                    stallSnapshots = rest;
+                }
+            }
+        }
+    }
+    function isBroadcastStalled(bcId: string): boolean {
+        const snap = stallSnapshots[bcId];
+        if (!snap) return false;
+        return Date.now() - snap.since > 3 * 60 * 1000; // 3 minutes with no progress
+    }
+
     // Realtime channel
     let broadcastChannel: any = null;
     let autoRefreshInterval: any = null;
@@ -545,18 +573,18 @@
                 .single();
             if (!tmpl) throw new Error('Template not found');
 
-            // Get all failed recipients
-            const { data: failedRecipients } = await supabase.from('wa_broadcast_recipients')
+            // Get all failed + pending recipients
+            const { data: retryRecipients } = await supabase.from('wa_broadcast_recipients')
                 .select('id, phone_number, customer_name')
                 .eq('broadcast_id', bc.id)
-                .eq('status', 'failed');
+                .in('status', ['failed', 'pending']);
 
-            if (!failedRecipients || failedRecipients.length === 0) {
-                alert('No failed recipients to retry');
+            if (!retryRecipients || retryRecipients.length === 0) {
+                alert('No failed or pending recipients to retry');
                 return;
             }
 
-            // Reset failed recipients to pending
+            // Reset failed recipients to pending (pending ones already are)
             await supabase.from('wa_broadcast_recipients')
                 .update({ status: 'pending', error_details: null })
                 .eq('broadcast_id', bc.id)
@@ -628,6 +656,68 @@
             alert('Retry failed: ' + e.message);
         } finally {
             retryingBroadcastId = null;
+        }
+    }
+
+    async function retryEcosystemFailed(bc: Broadcast) {
+        if (ecoRetryingBroadcastId) return;
+        ecoRetryingBroadcastId = bc.id;
+
+        try {
+            // Get the template info for this broadcast
+            const { data: tmpl } = await supabase.from('wa_templates')
+                .select('*')
+                .eq('id', bc.template_id)
+                .single();
+            if (!tmpl) throw new Error('Template not found');
+
+            // Build template components (header media if needed)
+            let templateComponents: any[] | undefined = undefined;
+            if (tmpl.header_type && tmpl.header_type !== 'none' && tmpl.header_type !== 'text') {
+                const headerType = tmpl.header_type.toLowerCase();
+                const mediaUrl = tmpl.header_content;
+                if (mediaUrl) {
+                    const mediaParam: any = {};
+                    if (headerType === 'image') {
+                        mediaParam.type = 'image';
+                        mediaParam.image = { link: mediaUrl };
+                    } else if (headerType === 'video') {
+                        mediaParam.type = 'video';
+                        mediaParam.video = { link: mediaUrl };
+                    } else if (headerType === 'document') {
+                        mediaParam.type = 'document';
+                        const docFilename = mediaUrl.split('/').pop()?.split('?')[0] || 'document.pdf';
+                        mediaParam.document = { link: mediaUrl, filename: decodeURIComponent(docFilename) };
+                    }
+                    templateComponents = [{ type: 'header', parameters: [mediaParam] }];
+                }
+            }
+
+            // Call edge function with eco_retry action
+            const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+                body: {
+                    action: 'send_eco_retry',
+                    account_id: accountId,
+                    broadcast_id: bc.id,
+                    template_name: tmpl.name,
+                    language: tmpl.language,
+                    components: templateComponents
+                }
+            });
+
+            if (fnErr) {
+                console.error('Eco retry error:', fnErr);
+                alert('Eco retry failed: ' + (fnErr.message || JSON.stringify(fnErr)));
+            } else {
+                alert('Ecosystem retry started! Sending slowly (~3 msg/s) in the background.');
+            }
+
+            await loadBroadcasts();
+        } catch (e: any) {
+            console.error('Eco retry error:', e);
+            alert('Eco retry failed: ' + e.message);
+        } finally {
+            ecoRetryingBroadcastId = null;
         }
     }
 
@@ -746,6 +836,8 @@
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Template</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Status</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Recipients</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Pending</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">ETA</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Sent</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Delivered</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Read</th>
@@ -757,6 +849,12 @@
                                 <tbody class="divide-y divide-slate-200">
                                     {#each broadcasts as bc, index}
                                         {@const badge = getStatusBadge(bc.status)}
+                                        {@const sentTotal = (bc.sent_count || 0) + (bc.delivered_count || 0) + (bc.read_count || 0)}
+                                        {@const deliveredTotal = (bc.delivered_count || 0) + (bc.read_count || 0)}
+                                        {@const pendingCount = bc.total_recipients - sentTotal - (bc.failed_count || 0)}
+                                        {@const etaSeconds = pendingCount > 0 ? Math.ceil(pendingCount / 5) : 0}
+                                        {@const etaMin = Math.floor(etaSeconds / 60)}
+                                        {@const etaSec = etaSeconds % 60}
                                         <tr class="hover:bg-emerald-50/30 transition-colors duration-200 cursor-pointer {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}" on:click={() => viewBroadcastDetails(bc)}>
                                             <td class="px-4 py-3 text-sm text-center font-bold text-slate-500">{index + 1}</td>
                                             <td class="px-4 py-3 text-sm">
@@ -771,12 +869,28 @@
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center font-bold text-slate-700">{bc.total_recipients}</td>
                                             <td class="px-4 py-3 text-sm text-center">
-                                                <div class="font-bold text-emerald-600">{bc.sent_count || 0}</div>
-                                                <div class="text-[10px] text-emerald-400 font-semibold">{pct(bc.sent_count || 0, bc.total_recipients)}</div>
+                                                <div class="font-bold {pendingCount > 0 ? 'text-amber-600' : 'text-slate-300'}">{pendingCount > 0 ? pendingCount : 0}</div>
+                                                {#if pendingCount > 0}
+                                                    <div class="text-[10px] text-amber-400 font-semibold">{pct(pendingCount, bc.total_recipients)}</div>
+                                                {/if}
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
-                                                <div class="font-bold text-blue-600">{bc.delivered_count || 0}</div>
-                                                <div class="text-[10px] text-blue-400 font-semibold">{pct(bc.delivered_count || 0, bc.total_recipients)}</div>
+                                                {#if pendingCount > 0 && bc.status === 'sending'}
+                                                    <div class="font-bold text-orange-600">{etaMin > 0 ? `${etaMin}m ${etaSec}s` : `${etaSec}s`}</div>
+                                                    <div class="text-[10px] text-orange-400 font-semibold">~5 msg/s</div>
+                                                {:else if pendingCount > 0}
+                                                    <div class="font-bold text-slate-400">{etaMin > 0 ? `~${etaMin}m` : `~${etaSec}s`}</div>
+                                                {:else}
+                                                    <div class="font-bold text-slate-300">—</div>
+                                                {/if}
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <div class="font-bold text-emerald-600">{sentTotal}</div>
+                                                <div class="text-[10px] text-emerald-400 font-semibold">{pct(sentTotal, bc.total_recipients)}</div>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <div class="font-bold text-blue-600">{deliveredTotal}</div>
+                                                <div class="text-[10px] text-blue-400 font-semibold">{pct(deliveredTotal, bc.total_recipients)}</div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
                                                 <div class="font-bold text-purple-600">{bc.read_count || 0}</div>
@@ -804,22 +918,41 @@
                                                     >
                                                         <span class={refreshingBroadcastId === bc.id ? 'animate-spin inline-block' : ''}>🔄</span>
                                                     </button>
-                                                    {#if bc.failed_count && bc.failed_count > 0}
+                                                    {#if (bc.failed_count && bc.failed_count > 0) || bc.status === 'sending'}
                                                         <button
                                                             class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
                                                                 {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
                                                                  isRetryCoolingDown(bc.id) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' :
+                                                                 isBroadcastStalled(bc.id) ? 'bg-red-600 text-white animate-pulse hover:bg-red-700' :
                                                                  'bg-red-500 text-white hover:bg-red-600 hover:shadow-lg'}"
                                                             on:click|stopPropagation={() => retryFailedRecipients(bc)}
                                                             disabled={retryingBroadcastId === bc.id || isRetryCoolingDown(bc.id)}
-                                                            title={isRetryCoolingDown(bc.id) ? `Cooldown: ${getRetryCooldownRemaining(bc.id)} remaining` : 'Retry all failed recipients'}
+                                                            title={isRetryCoolingDown(bc.id) ? `Cooldown: ${getRetryCooldownRemaining(bc.id)} remaining` : isBroadcastStalled(bc.id) ? 'Broadcast stalled! Click to resume' : 'Retry all failed/pending recipients'}
                                                         >
                                                             {#if retryingBroadcastId === bc.id}
                                                                 ⏳
                                                             {:else if isRetryCoolingDown(bc.id)}
                                                                 🕐 {getRetryCooldownRemaining(bc.id)}
+                                                            {:else if isBroadcastStalled(bc.id)}
+                                                                ⚠️ Resume
                                                             {:else}
                                                                 🔄 Retry
+                                                            {/if}
+                                                        </button>
+                                                    {/if}
+                                                    {#if bc.status === 'completed' && bc.failed_count && bc.failed_count > 0}
+                                                        <button
+                                                            class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
+                                                                {ecoRetryingBroadcastId === bc.id ? 'bg-yellow-300 text-yellow-900 cursor-wait' :
+                                                                 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg'}"
+                                                            on:click|stopPropagation={() => retryEcosystemFailed(bc)}
+                                                            disabled={ecoRetryingBroadcastId === bc.id}
+                                                            title="Retry ecosystem-failed messages slowly (~3/s)"
+                                                        >
+                                                            {#if ecoRetryingBroadcastId === bc.id}
+                                                                ⏳ Eco...
+                                                            {:else}
+                                                                🐢 Eco Retry
                                                             {/if}
                                                         </button>
                                                     {/if}
