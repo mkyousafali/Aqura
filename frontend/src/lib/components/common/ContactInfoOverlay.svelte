@@ -576,7 +576,7 @@
 		font-weight: 800;
 	}
 
-	:global(.contact-overlay .form-group input) {
+	:global(.contact-overlay .form-group input:not(.wa-digit-box)) {
 		width: 100%;
 		padding: 12px 16px;
 		border: 2px solid #e5e7eb;
@@ -587,12 +587,12 @@
 		box-sizing: border-box;
 	}
 
-	:global(.contact-overlay .form-group input:focus) {
+	:global(.contact-overlay .form-group input:not(.wa-digit-box):focus) {
 		border-color: #059669;
 		box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
 	}
 
-	:global(.contact-overlay .form-group input.has-error) {
+	:global(.contact-overlay .form-group input:not(.wa-digit-box).has-error) {
 		border-color: #ef4444;
 	}
 
@@ -825,7 +825,7 @@
 			border-width: 1.5px;
 		}
 
-		:global(.contact-overlay .form-group input) {
+		:global(.contact-overlay .form-group input:not(.wa-digit-box)) {
 			padding: 10px 12px;
 			font-size: 14px;
 			border-radius: 10px;
