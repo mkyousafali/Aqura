@@ -140,8 +140,13 @@
 		return b.branch_name_en || b.branch_name_ar || '—';
 	}
 
-	function getBranchLocation(branchId: number): string {
-		const br = branches.find(x => Number(x.id) === Number(branchId));
+	function getBranchLocation(b: any): string {
+		// Try lookup by branch_id first
+		let br = branches.find(x => Number(x.id) === Number(b.branch_id));
+		// Fallback: try matching by branch name
+		if (!br && b.branch_name_en) {
+			br = branches.find(x => x.name_en === b.branch_name_en);
+		}
 		if (!br) return '';
 		return isRtl ? (br.location_ar || br.location_en || '') : (br.location_en || br.location_ar || '');
 	}
@@ -251,8 +256,8 @@
 								<span class="detail-icon">🏢</span>
 								<span class="detail-text branch-block">
 									<span class="branch-name">{getBranchName(b)}</span>
-									{#if getBranchLocation(b.branch_id)}
-										<span class="branch-location">{getBranchLocation(b.branch_id)}</span>
+									{#if getBranchLocation(b)}
+										<span class="branch-location">{getBranchLocation(b)}</span>
 									{/if}
 								</span>
 							</div>
