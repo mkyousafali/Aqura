@@ -35,6 +35,8 @@
 	let shelfTagTaskStatus = null;
 	let loadingBranchUsers = false;
 	let shelfTagSearchQuery = '';
+	let branches = [];
+	let selectedBranchId = null;
 
 	$: filteredShelfTagUsers = shelfTagBranchUsers.filter(u => {
 		if (!shelfTagSearchQuery.trim()) return true;
@@ -127,43 +129,58 @@
 
 	async function openShelfTagModal() {
 		showShelfTagModal = true;
-		loadingBranchUsers = true;
 		shelfTagSelectedUsers = [];
+		selectedBranchId = assignment?.quick_tasks?.assigned_to_branch_id || task?.assigned_to_branch_id || null;
 		
 		try {
-			// Try task's branch first, then fall back to current user's branch
-			let branchId = assignment?.quick_tasks?.assigned_to_branch_id || task?.assigned_to_branch_id;
-			if (!branchId && assignment?.assigned_to_user_id) {
-				const { data: empData } = await supabase
-					.from('hr_employee_master')
-					.select('current_branch_id')
-					.eq('user_id', assignment.assigned_to_user_id)
-					.single();
-				if (empData?.current_branch_id) {
-					branchId = empData.current_branch_id;
-				}
-			}
-			if (!branchId) {
-				alert($locale === 'ar' ? 'لا يوجد فرع مرتبط بهذه المهمة' : 'No branch associated with this task');
-				showShelfTagModal = false;
-				return;
-			}
-
-			const { data, error } = await supabase
-				.from('hr_employee_master')
-				.select('id, user_id, name_en, name_ar, hr_positions(position_title_en, position_title_ar)')
-				.eq('current_branch_id', branchId)
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+			// Load all branches
+			const { data: branchesData, error: branchesError } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar')
+				.eq('is_active', true)
 				.order('name_en');
+			
+			if (!branchesError && branchesData) {
+				branches = branchesData;
+			}
+			
+			// Load all users (not filtered by branch initially)
+			await loadShelfTagUsers(selectedBranchId);
+		} catch (err) {
+			console.error('Error opening shelf tag modal:', err);
+			alert($locale === 'ar' ? 'خطأ في تحميل البيانات' : 'Error loading data');
+			showShelfTagModal = false;
+		}
+	}
+
+	async function loadShelfTagUsers(branchId = null) {
+		loadingBranchUsers = true;
+		try {
+			let query = supabase
+				.from('hr_employee_master')
+				.select('id, user_id, name_en, name_ar, current_branch_id, hr_positions(position_title_en, position_title_ar)')
+				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job']);
+			
+			// Filter by branch if selected
+			if (branchId) {
+				query = query.eq('current_branch_id', branchId);
+			}
+			
+			const { data, error } = await query.order('name_en');
 
 			if (error) throw error;
 			shelfTagBranchUsers = (data || []).filter(u => u.user_id);
 		} catch (err) {
-			console.error('Error loading branch users:', err);
-			alert('Failed to load branch users');
+			console.error('Error loading shelf tag users:', err);
+			alert($locale === 'ar' ? 'فشل تحميل الموظفين' : 'Failed to load employees');
 		} finally {
 			loadingBranchUsers = false;
 		}
+	}
+
+	function onBranchChange() {
+		shelfTagSelectedUsers = [];
+		loadShelfTagUsers(selectedBranchId);
 	}
 
 	function toggleShelfTagUser(userId) {
@@ -763,13 +780,32 @@
 						: 'Select employees to assign the shelf tag change task. They will be required to take a photo of the shelf tag after changing it.'}
 				</p>
 				
+				<!-- Branch Filter -->
+				<div class="branch-filter-box">
+					<label class="branch-filter-label">
+						{$locale === 'ar' ? '🏢 الفرع:' : '🏢 Branch:'}
+					</label>
+					<select 
+						bind:value={selectedBranchId}
+						on:change={onBranchChange}
+						class="branch-filter-select"
+					>
+						<option value={null}>{$locale === 'ar' ? 'اختر الفرع' : 'Select Branch (All)'}</option>
+						{#each branches as branch}
+							<option value={branch.id}>
+								{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
+							</option>
+						{/each}
+					</select>
+				</div>
+				
 				{#if loadingBranchUsers}
 					<div class="shelf-loading">
 						<div class="spinner"></div>
 						<p>{$locale === 'ar' ? 'جاري تحميل الموظفين...' : 'Loading employees...'}</p>
 					</div>
 				{:else if shelfTagBranchUsers.length === 0}
-					<p class="no-users-msg">{$locale === 'ar' ? 'لا يوجد موظفين في هذا الفرع' : 'No employees found in this branch'}</p>
+					<p class="no-users-msg">{$locale === 'ar' ? 'لا يوجد موظفين متاحين' : 'No employees found'}</p>
 				{:else}
 					<div class="shelf-search-box">
 						<input
@@ -1402,6 +1438,39 @@
 		color: #6b7280;
 		margin: 0 0 16px 0;
 		line-height: 1.5;
+	}
+
+	.branch-filter-box {
+		margin-bottom: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.branch-filter-label {
+		font-size: 13px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.branch-filter-select {
+		padding: 9px 12px;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		font-size: 14px;
+		background: white;
+		color: #111827;
+		outline: none;
+		transition: border-color 0.2s;
+		cursor: pointer;
+	}
+
+	.branch-filter-select:hover {
+		border-color: #d1d5db;
+	}
+
+	.branch-filter-select:focus {
+		border-color: #3b82f6;
 	}
 
 	.shelf-loading {
