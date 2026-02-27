@@ -39,8 +39,17 @@
 	let summaryDateFrom = '';
 	let summaryDateTo = '';
 	let summaryBranch = '';
+	let summarySearchQuery = '';
 	let employeeSummaries: any[] = [];
 	let loadingSummary = false;
+
+	$: filteredSummaries = employeeSummaries.filter(emp => {
+		if (!summarySearchQuery.trim()) return true;
+		const s = summarySearchQuery.toLowerCase();
+		return (emp.employee_name_en || '').toLowerCase().includes(s)
+			|| (emp.employee_name_ar || '').includes(s)
+			|| (emp.employee_id || '').toLowerCase().includes(s);
+	});
 
 	$: isRtl = $locale === 'ar';
 
@@ -698,6 +707,11 @@
 						<input type="date" bind:value={summaryDateTo} on:change={loadSummaryData}
 							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
 					</div>
+					<div class="flex-[2] min-w-[200px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
+						<input type="text" bind:value={summarySearchQuery} placeholder={isRtl ? 'اسم الموظف أو معرفه...' : 'Employee name or ID...'}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
+					</div>
 				</div>
 
 				{#if loadingSummary}
@@ -709,7 +723,7 @@
 							<p class="mt-4 text-slate-600 font-semibold">{isRtl ? 'جاري التحميل...' : 'Loading...'}</p>
 						</div>
 					</div>
-				{:else if employeeSummaries.length === 0}
+				{:else if filteredSummaries.length === 0}
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
 						<div class="text-5xl mb-4">📊</div>
 						<p class="text-slate-600 font-semibold">{isRtl ? 'لا توجد بيانات للملخص' : 'No summary data available'}</p>
@@ -732,7 +746,7 @@
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
-									{#each employeeSummaries as emp, index}
+									{#each filteredSummaries as emp, index}
 										<tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 											<td class="px-4 py-3 text-sm text-slate-800 font-semibold">{formatSummaryDate(emp.date)}</td>
 											<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (emp.employee_name_ar || emp.employee_name_en) : (emp.employee_name_en || emp.employee_name_ar)}</td>
@@ -760,7 +774,7 @@
 
 						<!-- Footer -->
 						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-							{isRtl ? `عرض ${employeeSummaries.length} سجل` : `Showing ${employeeSummaries.length} record(s)`}
+							{isRtl ? `عرض ${filteredSummaries.length} سجل` : `Showing ${filteredSummaries.length} record(s)`}
 						</div>
 					</div>
 				{/if}
