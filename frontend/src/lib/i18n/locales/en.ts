@@ -155,6 +155,7 @@ export const englishLocale: LocaleData = {
       storageManager: "Storage Manager",
       apiKeysManager: "API Keys Manager",
       breakRegister: "Break Register",
+      securityCode: "Security Code",
       createDepartment: "Create Department",
       createLevel: "Create Level",
       createPosition: "Create Position",
