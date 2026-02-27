@@ -1334,13 +1334,13 @@
 					if (pair.workedTime && shift?.working_hours) {
 						const [wH, wM] = pair.workedTime.split(':').map(Number);
 						const workedMins = wH * 60 + wM;
-						const assignedMins = shift.working_hours * 60 + msHoursExcel;
+						const assignedMins = Math.round(shift.working_hours * 60 + msHoursExcel);
 						const diff = assignedMins - workedMins;
 						if (diff > 0) underworked = `${Math.floor(diff / 60)}${hSuffix} ${diff % 60}${mSuffix}`;
 					} else if (pair.workedTime && msHoursExcel > 0) {
 						const [wH, wM] = pair.workedTime.split(':').map(Number);
 						const workedMins = wH * 60 + wM;
-						const diff = msHoursExcel - workedMins;
+						const diff = Math.round(msHoursExcel) - workedMins;
 						if (diff > 0) underworked = `${Math.floor(diff / 60)}${hSuffix} ${diff % 60}${mSuffix}`;
 					}
 
@@ -1402,7 +1402,7 @@
 				if (pair.workedTime) {
 					const shift = getApplicableShift(pair.checkInDate || pair.checkOutDate || '');
 					const msMins = getMultiShiftWorkingHoursForDate(pair.checkInDate || pair.checkOutDate || '') * 60;
-					const totalAssigned = (shift?.working_hours ? shift.working_hours * 60 : 0) + msMins;
+					const totalAssigned = Math.round((shift?.working_hours ? shift.working_hours * 60 : 0) + msMins);
 					if (totalAssigned > 0) {
 						const [wH, wM] = pair.workedTime.split(':').map(Number);
 						const workedMins = wH * 60 + wM;
@@ -1770,12 +1770,32 @@
 					
 					// If previous shift is overnight (ends after it starts in time, meaning crosses midnight)
 					if (isOvernightPrevShift) {
+						const prevStartBufferMinutes = (prevShift.shift_start_buffer || 0) * 60;
 						const prevEndBufferMinutes = (prevShift.shift_end_buffer || 0) * 60;
 						const prevCheckOutStart = prevShiftEndMinutes - prevEndBufferMinutes;
 						const prevCheckOutEnd = prevShiftEndMinutes + prevEndBufferMinutes;
 						
 						// Adjust for negative (midnight crossing)
 						const adjustedCheckOutEnd = prevCheckOutEnd < 0 ? prevCheckOutEnd + (24 * 60) : prevCheckOutEnd;
+						
+						// NEW: Check if the previous shift's CHECK-IN window wraps past midnight
+						// E.g., shift starts at 23:59 with 3h buffer → check-in window extends to 02:59 next day
+						const prevCheckInEnd = prevShiftStartMinutes + prevStartBufferMinutes;
+						if (prevCheckInEnd > 24 * 60) {
+							const wrappedCheckInEnd = prevCheckInEnd - (24 * 60);
+							// Determine cutoff: use the check-in window end or checkout window start, whichever is smaller
+							const checkInCutoff = prevCheckOutStart >= 0 
+								? Math.min(wrappedCheckInEnd, prevCheckOutStart) 
+								: wrappedCheckInEnd;
+							
+							if (punchMinutes >= 0 && punchMinutes <= checkInCutoff) {
+								// This is a late CHECK-IN for the PREVIOUS day's overnight shift (arrived after midnight)
+								shiftDate = prevDate;
+								status = 'Check In';
+								console.log(`Punch ${txn.id} at ${punchTime} on ${calendarDate}: Reclassified as Check In for ${prevDate} (overnight check-in past midnight)`);
+								return { ...txn, calendarDate, shiftDate, status };
+							}
+						}
 						
 						// Check if this punch is in the previous shift's checkout window
 						if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
@@ -2511,7 +2531,7 @@
 											{@const workedMinutes = parseInt(pair.workedTime.split(':')[0]) * 60 + parseInt(pair.workedTime.split(':')[1])}
 											{@const assignedShift = getApplicableShift(pair.checkInDate)}
 											{@const msMinutes = getMultiShiftWorkingHoursForDate(pair.checkInDate) * 60}
-											{@const assignedMinutes = (assignedShift ? (assignedShift.working_hours || 0) * 60 : 0) + msMinutes}
+											{@const assignedMinutes = Math.round((assignedShift ? (assignedShift.working_hours || 0) * 60 : 0) + msMinutes)}
 											{@const isWorkedEnough = workedMinutes >= assignedMinutes}
 											{@const underworkedMinutes = assignedMinutes - workedMinutes}
 											{@const underworkedH = Math.floor(underworkedMinutes / 60)}
