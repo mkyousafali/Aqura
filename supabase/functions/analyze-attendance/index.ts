@@ -148,7 +148,7 @@ function getMultiShiftWorkingMins(
   for (const ms of multiShiftRegular.get(eid) || []) {
     totalHours += ms.working_hours || 0;
   }
-  return totalHours * 60;
+  return Math.round(totalHours * 60);
 }
 
 function analyzeEmployeeDays(
@@ -398,7 +398,7 @@ function analyzeEmployeeDays(
         // Use working_hours field (matches EmployeeAnalysisWindow.svelte)
         const shiftExpected = shift ? (shift.working_hours || 0) * 60 : 0;
         const msExpected = getMultiShiftWorkingMins(emp.id, date, multiShiftRegular, multiShiftDateWise, multiShiftWeekday);
-        const expected = shiftExpected + msExpected;
+        const expected = Math.round(shiftExpected + msExpected);
         if (expected > 0 && workedMins < expected) underMins = expected - workedMins;
         status = 'Worked';
       }
@@ -650,9 +650,26 @@ Deno.serve(async (req) => {
             const isOvernightPrevShift = prevShiftEndMinutes < prevShiftStartMinutes;
 
             if (isOvernightPrevShift) {
+              const prevStartBufferMinutes = (prevShift.shift_start_buffer || 0) * 60;
               const prevEndBufferMinutes = (prevShift.shift_end_buffer || 0) * 60;
+              const prevCheckOutStart = prevShiftEndMinutes - prevEndBufferMinutes;
               const prevCheckOutEnd = prevShiftEndMinutes + prevEndBufferMinutes;
               const adjustedCheckOutEnd = prevCheckOutEnd < 0 ? prevCheckOutEnd + (24 * 60) : prevCheckOutEnd;
+
+              // Check if the previous shift's CHECK-IN window wraps past midnight
+              // E.g., shift starts at 23:59 with 3h buffer → check-in window extends to 02:59 next day
+              const prevCheckInEnd = prevShiftStartMinutes + prevStartBufferMinutes;
+              if (prevCheckInEnd > 24 * 60) {
+                const wrappedCheckInEnd = prevCheckInEnd - (24 * 60);
+                const checkInCutoff = prevCheckOutStart >= 0
+                  ? Math.min(wrappedCheckInEnd, prevCheckOutStart)
+                  : wrappedCheckInEnd;
+
+                if (punchMinutes >= 0 && punchMinutes <= checkInCutoff) {
+                  shiftDate = prevDateStr;
+                  return { ...txn, calendarDate, shiftDate, status: 'Check In' };
+                }
+              }
 
               if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
                 shiftDate = prevDateStr;

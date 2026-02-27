@@ -372,7 +372,7 @@
 		switch (status) {
 			case 'Worked': return $t('hr.processFingerprint.status_worked');
 			case 'Official Day Off': return $t('hr.processFingerprint.status_official_day_off');
-			case 'Official Holiday': return $t('hr.shiftAndDayOff.officialHolidays') || 'Official Holiday';
+			case 'Official Holiday': return $t('hr.shift.tabs.official_holidays') || 'Official Holiday';
 			case 'Approved Leave (Deductible)': return $t('hr.processFingerprint.status_approved_leave_deductible') || 'Approved Leave (Deductible)';
 			case 'Approved Leave (No Deduction)': return $t('hr.processFingerprint.status_approved_leave_no_deduction') || 'Approved Leave (No Deduction)';
 			case 'Pending Approval': return $t('hr.processFingerprint.status_pending_approval') || 'Pending Approval';
