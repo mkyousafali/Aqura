@@ -23,6 +23,7 @@
 	let editingVendorDate = '';
 	let editingExpenseId: number | null = null;
 	let editingExpenseDate = '';
+	let vendorSearchQuery = '';
 
 	onMount(async () => {
 		await fetchOverduesData();
@@ -308,15 +309,17 @@
 		}
 	}
 
-	// Filter vendor data based on selected branch
+	// Filter vendor data based on selected branch and search query
 	$: {
+		let filtered = vendorData.filter(row => parseFloat(row.final_bill_amount) >= 0.01);
 		if (selectedVendorBranch) {
-			filteredVendorData = vendorData.filter(row => 
-				row.branch_id === selectedVendorBranch && parseFloat(row.final_bill_amount) >= 0.01
-			);
-		} else {
-			filteredVendorData = vendorData.filter(row => parseFloat(row.final_bill_amount) >= 0.01);
+			filtered = filtered.filter(row => row.branch_id === selectedVendorBranch);
 		}
+		if (vendorSearchQuery.trim()) {
+			const q = vendorSearchQuery.trim().toLowerCase();
+			filtered = filtered.filter(row => (row.vendor_name || '').toLowerCase().includes(q));
+		}
+		filteredVendorData = filtered;
 	}
 
 	// Filter expense data based on selected branch
@@ -332,130 +335,151 @@
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<!-- Header/Navigation -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button 
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				{showVendorTable 
+					? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={() => {
+					showVendorTable = !showVendorTable;
+					if (showVendorTable) {
+						showExpenseTable = false;
+						if (vendorData.length === 0) {
+							loadVendorTable();
+						}
+					}
+				}} 
+				disabled={loadingVendor}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">
+					{#if loadingVendor}⏳{:else}📊{/if}
+				</span>
+				<span class="relative z-10">
+					{#if loadingVendor}Loading {vendorLoadingPercent}%{:else}Vendor{/if}
+				</span>
+				{#if showVendorTable}
+					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+				{/if}
+			</button>
+			<button 
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				{showExpenseTable 
+					? 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]'
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={() => {
+					showExpenseTable = !showExpenseTable;
+					if (showExpenseTable) {
+						showVendorTable = false;
+						if (expenseData.length === 0) {
+							loadExpenseTable();
+						}
+					}
+				}} 
+				disabled={loadingExpense}
+			>
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">
+					{#if loadingExpense}⏳{:else}💸{/if}
+				</span>
+				<span class="relative z-10">
+					{#if loadingExpense}Loading {expenseLoadingPercent}%{:else}Expense{/if}
+				</span>
+				{#if showExpenseTable}
+					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+				{/if}
+			</button>
+		</div>
+		<div class="flex items-center gap-6">
+			<div class="text-right">
+				<p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Vendor Due</p>
+				<p class="text-lg font-black text-blue-700">{formatCurrency(vendorTotal)}</p>
+			</div>
+			<div class="text-right">
+				<p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Expense Due</p>
+				<p class="text-lg font-black text-orange-700">{formatCurrency(expenseTotal)}</p>
+			</div>
+		</div>
+	</div>
+
 	{#if isLoading}
-		<div class="flex flex-col items-center justify-center h-full gap-5">
-			<div class="w-10 h-10 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
-			<p class="text-slate-600 font-medium">Loading overdues data...</p>
+		<div class="flex items-center justify-center h-full">
+			<div class="text-center">
+				<div class="animate-spin inline-block">
+					<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+				</div>
+				<p class="mt-4 text-slate-600 font-semibold">Loading overdues data...</p>
+			</div>
 		</div>
 	{:else}
+		<!-- Main Content Area -->
 		<div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
-			<!-- Cards Container with Glass Morphism -->
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-				<!-- Vendor Overdue Card -->
-				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
-					<!-- Header with Button -->
-					<div class="px-6 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
-						<button 
-							class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-							on:click={() => {
-								showVendorTable = !showVendorTable;
-								if (showVendorTable) {
-									showExpenseTable = false;
-									if (vendorData.length === 0) {
-										loadVendorTable();
-									}
-								}
-							}} 
-							disabled={loadingVendor}
-						>
-							{#if loadingVendor}
-								<span>⏳</span>
-								<span>Loading {vendorLoadingPercent}%</span>
-							{:else if showVendorTable}
-								<span>👁️</span>
-								<span>Vendor</span>
-							{:else}
-								<span>📊</span>
-								<span>Vendor</span>
-							{/if}
-						</button>
-						<div class="text-right">
-							<p class="text-xs text-slate-600 font-medium">Total Due</p>
-							<p class="text-lg font-bold text-slate-900">{formatCurrency(vendorTotal)}</p>
-						</div>
-					</div>
-				</div>
+			<!-- Futuristic background decorative elements -->
+			<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+			<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-				<!-- Expense Overdue Card -->
-				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
-					<!-- Header with Button -->
-					<div class="px-6 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
-						<button 
-							class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-							on:click={() => {
-								showExpenseTable = !showExpenseTable;
-								if (showExpenseTable) {
-									showVendorTable = false;
-									if (expenseData.length === 0) {
-										loadExpenseTable();
-									}
-								}
-							}} 
-							disabled={loadingExpense}
-						>
-							{#if loadingExpense}
-								<span>⏳</span>
-								<span>Loading {expenseLoadingPercent}%</span>
-							{:else if showExpenseTable}
-								<span>👁️</span>
-								<span>Expense</span>
-							{:else}
-								<span>💸</span>
-								<span>Expense</span>
-							{/if}
-						</button>
-						<div class="text-right">
-							<p class="text-xs text-slate-600 font-medium">Total Due</p>
-							<p class="text-lg font-bold text-slate-900">{formatCurrency(expenseTotal)}</p>
-						</div>
-					</div>
-				</div>
-			</div>
+			<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
 
 		<!-- Vendor Table -->
 		{#if showVendorTable}
-			<div class="bg-white rounded-lg shadow-md border border-slate-200 mb-8">
-				<div class="sticky top-0 z-20 bg-white border-b border-slate-200">
-					<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 pb-4">
-						<h3 class="text-lg font-semibold text-slate-900">Vendor Overdue Details</h3>
-					<div class="flex items-center justify-between gap-4">
-						<div class="flex items-center gap-2">
-							<label for="vendor-branch" class="text-sm font-medium text-slate-700">Filter by Branch:</label>
-							<select id="vendor-branch" bind:value={selectedVendorBranch} class="px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-								<option value={null}>All Branches</option>
-								{#each branches as branch}
-									<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
-								{/each}
-							</select>
-						</div>
-						<button 
-							on:click={() => exportToExcel(filteredVendorData, 'Vendor_Overdue', 'vendor')}
-							class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-all duration-200 hover:shadow-md"
-						>
-							<span>📥</span>
-							<span>Export to Excel</span>
-						</button>
-						</div>
-					</div>
-					<table class="w-full text-sm table-fixed">
-						<thead class="bg-slate-50 shadow-sm">
-							<tr class="border-b border-slate-200">
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Vendor Name</th>
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Branch</th>
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Bill Date</th>
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Amount</th>
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Due Date</th>
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Payment Method</th>
-								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Status</th>
+			<!-- Filter Controls -->
+			<div class="mb-4 flex gap-3">
+				<div class="flex-1">
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="vendor-search">Search Vendor</label>
+					<input
+						id="vendor-search"
+						type="text"
+						placeholder="Search vendor name..."
+						bind:value={vendorSearchQuery}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					/>
+				</div>
+				<div class="flex-1">
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="vendor-branch">Filter Branch</label>
+					<select id="vendor-branch" bind:value={selectedVendorBranch} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" style="color: #000000 !important; background-color: #ffffff !important;">
+						<option value={null} style="color: #000000 !important; background-color: #ffffff !important;">All Branches</option>
+						{#each branches as branch}
+							<option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">{branch.name_en} - {branch.location_en}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="flex flex-col items-center justify-end">
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filtered Total</label>
+					<span class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-sm">
+						{formatCurrency(filteredVendorData.reduce((sum, r) => sum + (r.final_bill_amount || 0), 0))}
+					</span>
+				</div>
+				<div class="flex items-end">
+					<button 
+						on:click={() => exportToExcel(filteredVendorData, 'Vendor_Overdue', 'vendor')}
+						class="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm transition-all duration-200 hover:shadow-lg transform hover:scale-105"
+					>
+						<span>📥</span>
+						<span>Export</span>
+					</button>
+				</div>
+			</div>
+
+			<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col mb-8">
+				<!-- Table Wrapper -->
+				<div class="overflow-x-auto flex-1 max-h-[60vh]">
+					<table class="w-full border-collapse text-sm table-fixed [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+						<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+							<tr>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Vendor Name</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Branch</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Bill Date</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Amount</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Due Date</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Payment Method</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-1/7">Status</th>
 							</tr>
 						</thead>
-					</table>
-				</div>
-				<div class="overflow-x-auto max-h-[60vh]">
-					<table class="w-full text-sm table-fixed">
-						<tbody>
-						{#each filteredVendorData as row (row.id)}
-							<tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+						<tbody class="divide-y divide-slate-200">
+						{#each filteredVendorData as row, index (row.id)}
+							<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 								<td class="px-4 py-3 text-slate-900 w-1/7">{row.vendor_name || 'N/A'}</td>
 								<td class="px-4 py-3 text-slate-700 w-1/7">{row.branch_name || 'N/A'}</td>
 								<td class="px-4 py-3 text-slate-700 w-1/7">{formatDate(row.bill_date || '')}</td>
@@ -505,48 +529,52 @@
 
 		<!-- Expense Table -->
 		{#if showExpenseTable}
-			<div class="bg-white rounded-lg shadow-md border border-slate-200">
-				<div class="sticky top-0 z-20 bg-white border-b border-slate-200">
-					<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 pb-4">
-						<h3 class="text-lg font-semibold text-slate-900">Expense Overdue Details</h3>
-						<div class="flex items-center justify-between gap-4">
-							<div class="flex items-center gap-2">
-								<label for="expense-branch" class="text-sm font-medium text-slate-700">Filter by Branch:</label>
-								<select id="expense-branch" bind:value={selectedExpenseBranch} class="px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-									<option value={null}>All Branches</option>
-									{#each branches as branch}
-										<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
-									{/each}
-								</select>
-							</div>
-							<button 
-								on:click={() => exportToExcel(filteredExpenseData, 'Expense_Overdue', 'expense')}
-								class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-all duration-200 hover:shadow-md"
-							>
-								<span>📥</span>
-								<span>Export to Excel</span>
-							</button>
-						</div>
-					</div>
-					<table class="w-full text-sm table-fixed">
-						<thead class="bg-slate-50 shadow-sm">
-							<tr class="border-b border-slate-200">
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Description</th>
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Category</th>
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Branch</th>
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Amount</th>
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Due Date</th>
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Payment Method</th>
-							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Status</th>
+			<!-- Filter Controls -->
+			<div class="mb-4 flex gap-3">
+				<div class="flex-1">
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="expense-branch">Filter Branch</label>
+					<select id="expense-branch" bind:value={selectedExpenseBranch} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" style="color: #000000 !important; background-color: #ffffff !important;">
+						<option value={null} style="color: #000000 !important; background-color: #ffffff !important;">All Branches</option>
+						{#each branches as branch}
+							<option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">{branch.name_en} - {branch.location_en}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="flex flex-col items-center justify-end">
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filtered Total</label>
+					<span class="px-4 py-2.5 bg-orange-600 text-white rounded-xl font-black text-sm">
+						{formatCurrency(filteredExpenseData.reduce((sum, r) => sum + (r.amount || 0), 0))}
+					</span>
+				</div>
+				<div class="flex items-end">
+					<button 
+						on:click={() => exportToExcel(filteredExpenseData, 'Expense_Overdue', 'expense')}
+						class="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm transition-all duration-200 hover:shadow-lg transform hover:scale-105"
+					>
+						<span>📥</span>
+						<span>Export</span>
+					</button>
+				</div>
+			</div>
+
+			<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+				<!-- Table Wrapper -->
+				<div class="overflow-x-auto flex-1 max-h-[60vh]">
+					<table class="w-full border-collapse text-sm table-fixed [&_th]:border-x [&_th]:border-orange-500/30 [&_td]:border-x [&_td]:border-slate-200">
+						<thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
+							<tr>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Description</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Category</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Branch</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Amount</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Due Date</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Payment Method</th>
+								<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-1/7">Status</th>
 							</tr>
 						</thead>
-					</table>
-				</div>
-				<div class="overflow-x-auto max-h-[60vh]">
-					<table class="w-full text-sm table-fixed">
-						<tbody>
-						{#each filteredExpenseData as row (row.id)}
-							<tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+						<tbody class="divide-y divide-slate-200">
+						{#each filteredExpenseData as row, index (row.id)}
+							<tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 							<td class="px-4 py-3 text-slate-900 w-1/7">{row.description || 'N/A'}</td>
 							<td class="px-4 py-3 text-slate-700 w-1/7">{row.expense_category_name_en || 'N/A'}</td>
 							<td class="px-4 py-3 text-slate-700 w-1/7">{row.branch_name || 'N/A'}</td>
@@ -593,45 +621,46 @@
 				</div>
 			</div>
 		{/if}
+			</div>
 		</div>
 	{/if}
 </div>
 
 <style>
-	:global(body) {
-		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+	:global(.font-sans) {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	}
 
-	/* Spinner animation */
-	:global(.animate-spin) {
-		animation: spin 1s linear infinite;
+	.tracking-fast {
+		letter-spacing: 0.05em;
 	}
 
-	@keyframes spin {
+	/* Animate in effects */
+	@keyframes fadeIn {
 		from {
-			transform: rotate(0deg);
+			opacity: 0;
 		}
 		to {
-			transform: rotate(360deg);
+			opacity: 1;
 		}
 	}
 
-	/* Smooth transitions */
-	:global(.transition-colors) {
-		transition-property: background-color, border-color, color;
-		transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-		transition-duration: 200ms;
+	@keyframes scaleIn {
+		from {
+			opacity: 0;
+			transform: scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
 	}
 
-	:global(.transition-shadow) {
-		transition-property: box-shadow;
-		transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-		transition-duration: 200ms;
+	.animate-in {
+		animation: fadeIn 0.2s ease-out;
 	}
 
-	:global(.transition-all) {
-		transition-property: all;
-		transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-		transition-duration: 200ms;
+	.scale-in {
+		animation: scaleIn 0.3s ease-out;
 	}
 </style>
