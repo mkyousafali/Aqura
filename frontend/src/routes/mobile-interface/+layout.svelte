@@ -29,6 +29,7 @@
 	let hasBranchPerformancePermission = false;
 	let hasIncidentManagerPermission = false;
 	let hasLiveChatPermission = false;
+	let hasBreakRegisterPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -562,6 +563,7 @@
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
+			hasBreakRegisterPermission = false;
 			return;
 		}
 
@@ -578,6 +580,7 @@
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
 				hasLiveChatPermission = false;
+				hasBreakRegisterPermission = false;
 				return;
 			}
 
@@ -596,6 +599,7 @@
 					hasReportsPermission = false;
 					hasBranchPerformancePermission = false;
 					hasLiveChatPermission = false;
+					hasBreakRegisterPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
@@ -604,6 +608,7 @@
 					hasReportsPermission = buttonCodes.has('SALES_REPORT');
 					hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
 					hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
+					hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
 					
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
@@ -615,6 +620,7 @@
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
 				hasLiveChatPermission = false;
+				hasBreakRegisterPermission = false;
 			}
 			
 			// Check for incident manager permission from approval_permissions
@@ -624,6 +630,7 @@
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
+			hasBreakRegisterPermission = false;
 		}
 	}
 	
@@ -689,6 +696,7 @@
 		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
 		if (path === '/mobile-interface/support' || path === '/mobile-interface/support/') return locale === 'ar' ? 'الدعم' : 'Support';
 		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
+		if (path === '/mobile-interface/break-register-log' || path === '/mobile-interface/break-register-log/') return locale === 'ar' ? 'سجل الاستراحات' : 'Break Log';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1128,6 +1136,19 @@
 								{#if $waUnreadCounts.total > 0}
 									<span class="wa-unread-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
 								{/if}
+							</a>
+						{/if}
+						<!-- Break Register Log -->
+						{#if hasBreakRegisterPermission}
+							<a href="/mobile-interface/break-register-log" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/break-register-log')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M18 8h1a4 4 0 010 8h-1"/>
+									<path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/>
+									<line x1="6" y1="1" x2="6" y2="4"/>
+									<line x1="10" y1="1" x2="10" y2="4"/>
+									<line x1="14" y1="1" x2="14" y2="4"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'سجل الاستراحات' : 'Break Log'}</span>
 							</a>
 						{/if}
 					</div>
