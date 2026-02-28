@@ -18,7 +18,8 @@
 	$: tabs = [
 		{ id: 'Break Log', label: isRtl ? 'سجل الاستراحات' : 'Break Log', icon: '☕', color: 'green' },
 		{ id: 'Break Reasons', label: isRtl ? 'أسباب الاستراحة' : 'Break Reasons', icon: '📌', color: 'blue' },
-		{ id: 'Employee Summary', label: isRtl ? 'ملخص الموظف' : 'Employee Summary', icon: '📊', color: 'orange' }
+		{ id: 'Employee Summary', label: isRtl ? 'ملخص الموظف' : 'Employee Summary', icon: '📊', color: 'orange' },
+		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' }
 	];
 
 	// Filters
@@ -43,6 +44,14 @@
 	let employeeSummaries: any[] = [];
 	let loadingSummary = false;
 
+	// Total Summary (flat rows for all employees)
+	let totalSummaryDateFrom = '';
+	let totalSummaryDateTo = '';
+	let totalSummaryBranch = '';
+	let totalSummarySearch = '';
+	let totalSummaryData: any[] = [];
+	let loadingTotalSummary = false;
+
 	$: filteredSummaries = employeeSummaries.filter(emp => {
 		if (!summarySearchQuery.trim()) return true;
 		const s = summarySearchQuery.toLowerCase();
@@ -50,6 +59,37 @@
 			|| (emp.employee_name_ar || '').includes(s)
 			|| (emp.employee_id || '').toLowerCase().includes(s);
 	});
+
+	$: filteredTotalSummary = (() => {
+		const rows: any[] = [];
+		for (const emp of totalSummaryData) {
+			for (const day of (emp.days || [])) {
+				if (day.total_seconds > 0) {
+					rows.push({
+						date: day.date,
+						employee_name_en: emp.employee_name_en,
+						employee_name_ar: emp.employee_name_ar,
+						employee_id: emp.employee_id,
+						branch_id: emp.branch_id,
+						total_seconds: day.total_seconds,
+						break_count: day.break_count
+					});
+				}
+			}
+		}
+		rows.sort((a: any, b: any) => {
+			const dc = a.date.localeCompare(b.date);
+			if (dc !== 0) return dc;
+			return (a.employee_name_en || '').localeCompare(b.employee_name_en || '');
+		});
+		if (!totalSummarySearch.trim()) return rows;
+		const s = totalSummarySearch.toLowerCase();
+		return rows.filter((r: any) =>
+			(r.employee_name_en || '').toLowerCase().includes(s)
+			|| (r.employee_name_ar || '').includes(s)
+			|| String(r.employee_id).toLowerCase().includes(s)
+		);
+	})();
 
 	$: isRtl = $locale === 'ar';
 
@@ -86,6 +126,10 @@
 		summaryDateTo = today.toISOString().split('T')[0];
 		const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
 		summaryDateFrom = thirtyDaysAgo.toISOString().split('T')[0];
+		// Default date range for total summary (last 7 days)
+		totalSummaryDateTo = today.toISOString().split('T')[0];
+		const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+		totalSummaryDateFrom = sevenDaysAgo.toISOString().split('T')[0];
 
 		// Subscribe to realtime changes
 		setupRealtimeChannel();
@@ -157,6 +201,8 @@
 			loadBreakReasons();
 		} else if (activeTab === 'Employee Summary') {
 			loadSummaryData();
+		} else if (activeTab === 'Total Summary') {
+			loadTotalSummary();
 		}
 	}
 
@@ -376,6 +422,59 @@
 		return isRtl ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
 	}
 
+	// ═══════════════════════════════════════
+	// Total Summary (day-wise grid for all employees)
+	// ═══════════════════════════════════════
+	async function loadTotalSummary() {
+		loadingTotalSummary = true;
+		try {
+			const params: any = {
+				p_date_from: totalSummaryDateFrom,
+				p_date_to: totalSummaryDateTo
+			};
+			if (totalSummaryBranch) params.p_branch_id = parseInt(totalSummaryBranch);
+
+			const { data, error } = await supabase.rpc('get_break_summary_all_employees', params);
+			if (error) {
+				console.error('Error loading total summary:', error);
+				totalSummaryData = [];
+				return;
+			}
+
+			if (data?.employees) {
+				totalSummaryData = data.employees;
+			} else {
+				totalSummaryData = [];
+			}
+		} catch (err) {
+			console.error('Error loading total summary:', err);
+			totalSummaryData = [];
+		} finally {
+			loadingTotalSummary = false;
+		}
+	}
+
+	function formatTotalSummaryDuration(seconds: number): string {
+		if (!seconds || seconds === 0) return '—';
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		if (h > 0) return `${h}h ${m}m`;
+		if (m > 0) return `${m}m`;
+		return `${seconds}s`;
+	}
+
+	function formatShortDate(dateStr: string): string {
+		const bare = dateStr.substring(0, 10);
+		const d = new Date(bare + 'T00:00:00');
+		return d.toLocaleDateString(isRtl ? 'ar-EG' : 'en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function formatWeekday(dateStr: string): string {
+		const bare = dateStr.substring(0, 10);
+		const d = new Date(bare + 'T00:00:00');
+		return d.toLocaleDateString(isRtl ? 'ar-EG' : 'en-US', { weekday: 'short' });
+	}
+
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -387,8 +486,7 @@
 					class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
 					{activeTab === tab.id
 						? (tab.color === 'green' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]'
-							: tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'
-							: 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]')
+							: tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'						: tab.color === 'purple' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]'							: 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]')
 						: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
 					on:click={async () => {
 						activeTab = tab.id;
@@ -775,6 +873,101 @@
 						<!-- Footer -->
 						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
 							{isRtl ? `عرض ${filteredSummaries.length} سجل` : `Showing ${filteredSummaries.length} record(s)`}
+						</div>
+					</div>
+				{/if}
+
+			<!-- ═══════════════════════════════════════════════════ -->
+			<!-- TAB: Total Summary (Flat table - one row per employee per date) -->
+			<!-- ═══════════════════════════════════════════════════ -->
+			{:else if activeTab === 'Total Summary'}
+				<!-- Filters -->
+				<div class="flex gap-3 flex-wrap">
+					<div class="flex-1 min-w-[140px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'الفرع' : 'Branch'}</label>
+						<select
+							bind:value={totalSummaryBranch}
+							on:change={() => loadTotalSummary()}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+							style="color: #000000 !important; background-color: #ffffff !important;"
+						>
+							<option value="" style="color: #000000 !important;">{isRtl ? 'الكل' : 'All'}</option>
+							{#each branches as branch}
+								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}{branch.location_en || branch.location_ar ? ` - ${isRtl ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)}` : ''}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex-1 min-w-[140px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'من' : 'From'}</label>
+						<input type="date" bind:value={totalSummaryDateFrom} on:change={() => loadTotalSummary()}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-1 min-w-[140px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'إلى' : 'To'}</label>
+						<input type="date" bind:value={totalSummaryDateTo} on:change={() => loadTotalSummary()}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-[2] min-w-[200px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
+						<input type="text" bind:value={totalSummarySearch} placeholder={isRtl ? 'اسم الموظف أو معرفه...' : 'Employee name or ID...'}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
+					</div>
+				</div>
+
+				{#if loadingTotalSummary}
+					<div class="flex items-center justify-center py-16">
+						<div class="text-center">
+							<div class="animate-spin inline-block">
+								<div class="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full"></div>
+							</div>
+							<p class="mt-4 text-slate-600 font-semibold">{isRtl ? 'جاري التحميل...' : 'Loading...'}</p>
+						</div>
+					</div>
+				{:else if filteredTotalSummary.length === 0}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📈</div>
+						<p class="text-slate-600 font-semibold">{isRtl ? 'لا توجد بيانات' : 'No data available'}</p>
+						<p class="text-slate-400 text-sm mt-2">{isRtl ? 'اختر نطاق تاريخ واضغط على تحميل' : 'Select a date range to view break totals'}</p>
+					</div>
+				{:else}
+					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+						<div class="max-h-[calc(100vh-380px)] overflow-auto flex-1">
+							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-purple-500/30 [&_td]:border-x [&_td]:border-slate-200">
+								<thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
+									<tr>
+										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'التاريخ' : 'Date'}</th>
+										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'الموظف' : 'Employee'}</th>
+										<th class="px-3 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'المعرف' : 'Employee ID'}</th>
+										<th class="px-3 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'الفرع' : 'Branch'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'إجمالي الاستراحة' : 'Total Break'}</th>
+										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'عدد المرات' : 'Breaks'}</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-slate-200">
+									{#each filteredTotalSummary as row, index}
+										<tr class="hover:bg-purple-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+											<td class="px-4 py-3 text-sm text-slate-700 font-semibold whitespace-nowrap">
+												<div>{formatShortDate(row.date)}</div>
+												<div class="text-[10px] text-slate-400">{formatWeekday(row.date)}</div>
+											</td>
+											<td class="px-4 py-3 text-sm text-slate-700 font-medium whitespace-nowrap">{isRtl ? (row.employee_name_ar || row.employee_name_en) : (row.employee_name_en || row.employee_name_ar)}</td>
+											<td class="px-3 py-3 text-sm text-slate-400 font-mono">{row.employee_id}</td>
+											<td class="px-3 py-3 text-sm text-slate-700 whitespace-nowrap">
+												<div class="font-semibold">{getBranchName(row.branch_id)}</div>
+												{#if getBranchLocation(row.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(row.branch_id)}</div>{/if}
+											</td>
+											<td class="px-4 py-3 text-sm text-center font-mono font-black text-purple-700">{formatTotalSummaryDuration(row.total_seconds)}</td>
+											<td class="px-3 py-3 text-sm text-center text-slate-500">{row.break_count} {isRtl ? 'مرة' : row.break_count === 1 ? 'break' : 'breaks'}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+
+						<!-- Footer -->
+						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex justify-between">
+							<span>{isRtl ? `عرض ${filteredTotalSummary.length} سجل` : `Showing ${filteredTotalSummary.length} record(s)`}</span>
+							<span>{isRtl ? `${totalSummaryData.length} موظف` : `${totalSummaryData.length} employee(s)`}</span>
 						</div>
 					</div>
 				{/if}
