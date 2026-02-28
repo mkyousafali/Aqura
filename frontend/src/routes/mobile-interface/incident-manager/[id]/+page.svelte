@@ -11,9 +11,63 @@
 	let loading = true;
 	let incident: any = null;
 	let currentUserID: string | null = null;
+	let currentUserName: string | null = null;
 	let claimingIncident = false;
 	let showImagePreview = false;
 	let previewImageUrl = '';
+
+	// Investigation state
+	let showInvestigationForm = false;
+	let investigationText = '';
+	let savingInvestigation = false;
+
+	// Resolution state
+	let showResolutionForm = false;
+	let resolutionText = '';
+	let savingResolution = false;
+
+	// Translation state
+	let translations: Record<string, string> = {};
+	let translatingKey = '';
+	let showLangPicker = '';
+	let langSearch = '';
+	const translateLanguages = [
+		{ code: 'en', name: 'English', flag: '🇬🇧' },
+		{ code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+		{ code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+		{ code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+		{ code: 'bn', name: 'Bengali', flag: '🇧🇩' },
+		{ code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+		{ code: 'ne', name: 'Nepali', flag: '🇳🇵' },
+		{ code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+		{ code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+		{ code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+		{ code: 'fr', name: 'French', flag: '🇫🇷' },
+		{ code: 'am', name: 'Amharic', flag: '🇪🇹' },
+	];
+	$: filteredLangs = translateLanguages.filter(l => {
+		if (!langSearch.trim()) return true;
+		return l.name.toLowerCase().includes(langSearch.toLowerCase());
+	});
+
+	async function translateText(key: string, text: string, targetLang: string) {
+		if (!text?.trim()) return;
+		showLangPicker = '';
+		langSearch = '';
+		translatingKey = key;
+		try {
+			const resp = await fetch(
+				`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`
+			);
+			const data = await resp.json();
+			const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+			if (translated) translations = { ...translations, [key]: translated };
+		} catch (e) {
+			console.error('Translation error:', e);
+		} finally {
+			translatingKey = '';
+		}
+	}
 
 	$: incidentId = $page.params.id;
 
@@ -21,6 +75,7 @@
 		const userData = get(currentUser);
 		if (userData?.id) {
 			currentUserID = userData.id;
+			currentUserName = userData.employeeName || userData.username || userData.email;
 			await loadIncident();
 		} else {
 			loading = false;
@@ -44,6 +99,7 @@
 					report_type,
 					reports_to_user_ids,
 					resolution_status,
+					resolution_report,
 					user_statuses,
 					attachments,
 					investigation_report,
@@ -135,6 +191,17 @@
 				}
 			}
 
+			// Fetch warning/termination actions
+			let warningActions: any[] = [];
+			const { data: actionsData } = await supabase
+				.from('incident_actions')
+				.select('id, action_type, recourse_type, action_report, has_fine, fine_amount, fine_threat_amount, is_paid, created_at, created_by')
+				.eq('incident_id', incidentId)
+				.order('created_at', { ascending: false });
+			if (actionsData) {
+				warningActions = actionsData;
+			}
+
 			incident = {
 				...data,
 				employeeName,
@@ -142,7 +209,8 @@
 				reporterName,
 				incidentTypeName,
 				violationName,
-				claimedByName
+				claimedByName,
+				warningActions
 			};
 		} catch (err) {
 			console.error('Error loading incident:', err);
@@ -231,6 +299,74 @@
 
 	function goBack() {
 		goto('/mobile-interface/incident-manager');
+	}
+
+	// --- Investigation ---
+	async function saveInvestigation() {
+		if (!investigationText.trim() || !incident || !currentUserID) return;
+		savingInvestigation = true;
+		try {
+			const investigationReport = {
+				content: investigationText.trim(),
+				investigated_by: currentUserID,
+				investigated_by_name: currentUserName || 'Unknown',
+				investigated_at: new Date().toISOString(),
+				employee_id: incident.employee_id || null,
+				employee_name: incident.employeeName || ''
+			};
+
+			const { error } = await supabase
+				.from('incidents')
+				.update({ investigation_report: investigationReport })
+				.eq('id', incident.id);
+
+			if (error) throw error;
+
+			showInvestigationForm = false;
+			investigationText = '';
+			await loadIncident();
+			notifications.add({ type: 'success', message: $currentLocale === 'ar' ? 'تم حفظ تقرير التحقيق' : 'Investigation report saved' });
+		} catch (err) {
+			console.error('Error saving investigation:', err);
+			notifications.add({ type: 'error', message: $currentLocale === 'ar' ? 'خطأ في حفظ التحقيق' : 'Error saving investigation' });
+		} finally {
+			savingInvestigation = false;
+		}
+	}
+
+	// --- Resolution ---
+	async function saveResolution() {
+		if (!resolutionText.trim() || !incident || !currentUserID) return;
+		savingResolution = true;
+		try {
+			const resolutionReport = {
+				content: resolutionText.trim(),
+				resolved_by: currentUserID,
+				resolved_by_name: currentUserName || 'Unknown',
+				resolved_at: new Date().toISOString()
+			};
+
+			const { error } = await supabase
+				.from('incidents')
+				.update({
+					resolution_report: resolutionReport,
+					resolution_status: 'resolved',
+					updated_by: currentUserID
+				})
+				.eq('id', incident.id);
+
+			if (error) throw error;
+
+			showResolutionForm = false;
+			resolutionText = '';
+			await loadIncident();
+			notifications.add({ type: 'success', message: $currentLocale === 'ar' ? 'تم حل الحادثة بنجاح' : 'Incident resolved successfully' });
+		} catch (err) {
+			console.error('Error resolving incident:', err);
+			notifications.add({ type: 'error', message: $currentLocale === 'ar' ? 'خطأ في حل الحادثة' : 'Error resolving incident' });
+		} finally {
+			savingResolution = false;
+		}
 	}
 
 	function openImagePreview(url: string) {
@@ -328,10 +464,33 @@
 				<div class="section-title">
 					<span>📝</span>
 					{$currentLocale === 'ar' ? 'ماذا حدث؟' : 'What Happened?'}
+					<button class="translate-icon-btn" on:click={() => { showLangPicker = showLangPicker === 'what' ? '' : 'what'; langSearch = ''; }} title="Translate">🌐</button>
 				</div>
+				{#if showLangPicker === 'what'}
+					<div class="lang-picker">
+						<input class="lang-search" bind:value={langSearch} placeholder="Search..." />
+						<div class="lang-list">
+							{#each filteredLangs as lang}
+								<button class="lang-btn" on:click={() => translateText('what', incident.what_happened?.description || '', lang.code)}>{lang.flag} {lang.name}</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+				{#if translatingKey === 'what'}
+					<div class="translating-indicator">⏳ {$currentLocale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}</div>
+				{/if}
 				<p class="description-text">
 					{incident.what_happened?.description || '-'}
 				</p>
+				{#if translations['what']}
+					<div class="translated-box">
+						<div class="translated-header">
+							<span>🌐 {$currentLocale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+							<button class="close-translation" on:click={() => { const t = {...translations}; delete t['what']; translations = t; }}>✕</button>
+						</div>
+						<p>{translations['what']}</p>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Witnesses / Evidence -->
@@ -340,10 +499,33 @@
 					<div class="section-title">
 						<span>👁️</span>
 						{$currentLocale === 'ar' ? 'الشهود / الأدلة' : 'Witnesses / Evidence'}
+						<button class="translate-icon-btn" on:click={() => { showLangPicker = showLangPicker === 'witness' ? '' : 'witness'; langSearch = ''; }} title="Translate">🌐</button>
 					</div>
+					{#if showLangPicker === 'witness'}
+						<div class="lang-picker">
+							<input class="lang-search" bind:value={langSearch} placeholder="Search..." />
+							<div class="lang-list">
+								{#each filteredLangs as lang}
+									<button class="lang-btn" on:click={() => translateText('witness', incident.witness_details.details, lang.code)}>{lang.flag} {lang.name}</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+					{#if translatingKey === 'witness'}
+						<div class="translating-indicator">⏳ {$currentLocale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}</div>
+					{/if}
 					<p class="description-text">
 						{incident.witness_details.details}
 					</p>
+					{#if translations['witness']}
+						<div class="translated-box">
+							<div class="translated-header">
+								<span>🌐 {$currentLocale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+								<button class="close-translation" on:click={() => { const t = {...translations}; delete t['witness']; translations = t; }}>✕</button>
+							</div>
+							<p>{translations['witness']}</p>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -388,6 +570,219 @@
 					<span class="meta-value">{formatDate(incident.created_at)}</span>
 				</div>
 			</div>
+
+			<!-- Investigation Report -->
+			{#if incident.investigation_report}
+				<div class="detail-card report-card">
+					<div class="section-title">
+						<span>🔍</span>
+						{$currentLocale === 'ar' ? 'تقرير التحقيق' : 'Investigation Report'}
+						<button class="translate-icon-btn" on:click={() => { showLangPicker = showLangPicker === 'investigation' ? '' : 'investigation'; langSearch = ''; }} title="Translate">🌐</button>
+					</div>
+					{#if showLangPicker === 'investigation'}
+						<div class="lang-picker">
+							<input class="lang-search" bind:value={langSearch} placeholder="Search..." />
+							<div class="lang-list">
+								{#each filteredLangs as lang}
+									<button class="lang-btn" on:click={() => translateText('investigation', incident.investigation_report.content || '', lang.code)}>{lang.flag} {lang.name}</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+					{#if translatingKey === 'investigation'}
+						<div class="translating-indicator">⏳ {$currentLocale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}</div>
+					{/if}
+					<p class="description-text">{incident.investigation_report.content || '-'}</p>
+					{#if translations['investigation']}
+						<div class="translated-box">
+							<div class="translated-header">
+								<span>🌐 {$currentLocale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+								<button class="close-translation" on:click={() => { const t = {...translations}; delete t['investigation']; translations = t; }}>✕</button>
+							</div>
+							<p>{translations['investigation']}</p>
+						</div>
+					{/if}
+					<div class="report-meta">
+						<span>👤 {incident.investigation_report.investigated_by_name || '-'}</span>
+						<span>📅 {incident.investigation_report.investigated_at ? formatDate(incident.investigation_report.investigated_at) : '-'}</span>
+					</div>
+				</div>
+			{:else if isClaimedByCurrentUser() && incident.resolution_status !== 'resolved'}
+				{#if showInvestigationForm}
+					<div class="detail-card report-card">
+						<div class="section-title">
+							<span>🔍</span>
+							{$currentLocale === 'ar' ? 'كتابة تقرير التحقيق' : 'Write Investigation Report'}
+						</div>
+						<textarea
+							class="report-textarea"
+							bind:value={investigationText}
+							placeholder={$currentLocale === 'ar' ? 'اكتب تقرير التحقيق هنا...' : 'Write your investigation report here...'}
+							rows="5"
+						></textarea>
+						<div class="report-form-actions">
+							<button
+								class="action-btn save-btn"
+								on:click={saveInvestigation}
+								disabled={savingInvestigation || !investigationText.trim()}
+							>
+								{#if savingInvestigation}
+									<span class="btn-spinner"></span>
+								{:else}
+									💾
+								{/if}
+								{$currentLocale === 'ar' ? 'حفظ التحقيق' : 'Save Investigation'}
+							</button>
+							<button class="action-btn cancel-btn" on:click={() => { showInvestigationForm = false; investigationText = ''; }}>
+								{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
+							</button>
+						</div>
+					</div>
+				{:else}
+					<button class="action-btn investigate-btn" on:click={() => showInvestigationForm = true}>
+						🔍 {$currentLocale === 'ar' ? 'كتابة تقرير التحقيق' : 'Write Investigation Report'}
+					</button>
+				{/if}
+			{/if}
+
+			<!-- Warning / Termination Actions -->
+			{#if incident.warningActions && incident.warningActions.length > 0}
+				{#each incident.warningActions as action}
+					<div class="detail-card warning-card">
+						<div class="section-title">
+							<span>{action.action_type === 'termination' ? '🚫' : '⚠️'}</span>
+							{action.action_type === 'termination'
+								? ($currentLocale === 'ar' ? 'إنهاء الخدمة' : 'Termination')
+								: ($currentLocale === 'ar' ? 'تقرير الإنذار' : 'Warning Report')}
+						</div>
+
+						{#if action.recourse_type}
+							<div class="warning-type-badge">
+								{action.recourse_type.replace(/_/g, ' ')}
+							</div>
+						{/if}
+
+						{#if action.action_report?.report_content}
+							<div class="translate-row">
+								<button class="translate-icon-btn" on:click={() => { showLangPicker = showLangPicker === `warning-${action.id}` ? '' : `warning-${action.id}`; langSearch = ''; }} title="Translate">🌐</button>
+							</div>
+							{#if showLangPicker === `warning-${action.id}`}
+								<div class="lang-picker">
+									<input class="lang-search" bind:value={langSearch} placeholder="Search..." />
+									<div class="lang-list">
+										{#each filteredLangs as lang}
+											<button class="lang-btn" on:click={() => translateText(`warning-${action.id}`, action.action_report.report_content, lang.code)}>{lang.flag} {lang.name}</button>
+										{/each}
+									</div>
+								</div>
+							{/if}
+							{#if translatingKey === `warning-${action.id}`}
+								<div class="translating-indicator">⏳ {$currentLocale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}</div>
+							{/if}
+							<p class="description-text warning-content">{action.action_report.report_content}</p>
+							{#if translations[`warning-${action.id}`]}
+								<div class="translated-box">
+									<div class="translated-header">
+										<span>🌐 {$currentLocale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+										<button class="close-translation" on:click={() => { const t = {...translations}; delete t[`warning-${action.id}`]; translations = t; }}>✕</button>
+									</div>
+									<p>{translations[`warning-${action.id}`]}</p>
+								</div>
+							{/if}
+						{/if}
+
+						{#if action.has_fine}
+							<div class="fine-info">
+								<span class="fine-label">💰 {$currentLocale === 'ar' ? 'الغرامة:' : 'Fine:'}</span>
+								<span class="fine-amount">{action.fine_amount || action.fine_threat_amount || 0} SAR</span>
+								{#if action.is_paid}
+									<span class="paid-badge">{$currentLocale === 'ar' ? 'مدفوع' : 'Paid'}</span>
+								{:else}
+									<span class="unpaid-badge">{$currentLocale === 'ar' ? 'غير مدفوع' : 'Unpaid'}</span>
+								{/if}
+							</div>
+						{/if}
+
+						<div class="report-meta">
+							<span>📅 {action.created_at ? formatDate(action.created_at) : '-'}</span>
+						</div>
+					</div>
+				{/each}
+			{/if}
+
+			<!-- Resolution Report -->
+			{#if incident.resolution_report}
+				<div class="detail-card report-card">
+					<div class="section-title">
+						<span>✅</span>
+						{$currentLocale === 'ar' ? 'تقرير الحل' : 'Resolution Report'}
+						<button class="translate-icon-btn" on:click={() => { showLangPicker = showLangPicker === 'resolution' ? '' : 'resolution'; langSearch = ''; }} title="Translate">🌐</button>
+					</div>
+					{#if showLangPicker === 'resolution'}
+						<div class="lang-picker">
+							<input class="lang-search" bind:value={langSearch} placeholder="Search..." />
+							<div class="lang-list">
+								{#each filteredLangs as lang}
+									<button class="lang-btn" on:click={() => translateText('resolution', incident.resolution_report.content || '', lang.code)}>{lang.flag} {lang.name}</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+					{#if translatingKey === 'resolution'}
+						<div class="translating-indicator">⏳ {$currentLocale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}</div>
+					{/if}
+					<p class="description-text">{incident.resolution_report.content || '-'}</p>
+					{#if translations['resolution']}
+						<div class="translated-box">
+							<div class="translated-header">
+								<span>🌐 {$currentLocale === 'ar' ? 'الترجمة' : 'Translation'}</span>
+								<button class="close-translation" on:click={() => { const t = {...translations}; delete t['resolution']; translations = t; }}>✕</button>
+							</div>
+							<p>{translations['resolution']}</p>
+						</div>
+					{/if}
+					<div class="report-meta">
+						<span>👤 {incident.resolution_report.resolved_by_name || '-'}</span>
+						<span>📅 {incident.resolution_report.resolved_at ? formatDate(incident.resolution_report.resolved_at) : '-'}</span>
+					</div>
+				</div>
+			{:else if isClaimedByCurrentUser() && incident.resolution_status !== 'resolved'}
+				{#if showResolutionForm}
+					<div class="detail-card report-card">
+						<div class="section-title">
+							<span>✅</span>
+							{$currentLocale === 'ar' ? 'كتابة تقرير الحل' : 'Write Resolution Report'}
+						</div>
+						<textarea
+							class="report-textarea"
+							bind:value={resolutionText}
+							placeholder={$currentLocale === 'ar' ? 'اكتب تقرير الحل هنا...' : 'Write your resolution report here...'}
+							rows="5"
+						></textarea>
+						<div class="report-form-actions">
+							<button
+								class="action-btn save-btn resolve-btn-gradient"
+								on:click={saveResolution}
+								disabled={savingResolution || !resolutionText.trim()}
+							>
+								{#if savingResolution}
+									<span class="btn-spinner"></span>
+								{:else}
+									✅
+								{/if}
+								{$currentLocale === 'ar' ? 'حل الحادثة' : 'Resolve Incident'}
+							</button>
+							<button class="action-btn cancel-btn" on:click={() => { showResolutionForm = false; resolutionText = ''; }}>
+								{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
+							</button>
+						</div>
+					</div>
+				{:else}
+					<button class="action-btn resolve-btn" on:click={() => showResolutionForm = true}>
+						✅ {$currentLocale === 'ar' ? 'حل الحادثة' : 'Resolve Incident'}
+					</button>
+				{/if}
+			{/if}
 
 			<!-- Action Buttons -->
 			<div class="action-buttons">
@@ -785,5 +1180,276 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	/* Report Cards */
+	.report-card {
+		border-left: 3px solid #3b82f6;
+	}
+
+	.report-meta {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.65rem;
+		color: #64748b;
+		margin-top: 0.35rem;
+		padding-top: 0.25rem;
+		border-top: 1px solid #f1f5f9;
+	}
+
+	.report-textarea {
+		width: 100%;
+		padding: 0.5rem;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-family: inherit;
+		resize: vertical;
+		min-height: 80px;
+		background: #f8fafc;
+		color: #1e293b;
+		line-height: 1.5;
+		box-sizing: border-box;
+	}
+
+	.report-textarea:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+	}
+
+	.report-form-actions {
+		display: flex;
+		gap: 0.35rem;
+		margin-top: 0.4rem;
+	}
+
+	.report-form-actions .action-btn {
+		flex: 1;
+		min-height: 34px;
+		font-size: 0.76rem;
+	}
+
+	.save-btn {
+		background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+		color: white;
+	}
+
+	.save-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.resolve-btn-gradient {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+		color: white !important;
+	}
+
+	.cancel-btn {
+		background: white;
+		border: 1px solid #d1d5db;
+		color: #6b7280;
+	}
+
+	.investigate-btn {
+		background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+		color: white;
+		margin-bottom: 0.3rem;
+	}
+
+	.investigate-btn:hover {
+		transform: translateY(-1px);
+	}
+
+	.resolve-btn {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		margin-bottom: 0.3rem;
+	}
+
+	.resolve-btn:hover {
+		transform: translateY(-1px);
+	}
+
+	/* Warning Card */
+	.warning-card {
+		border-left: 3px solid #f59e0b;
+	}
+
+	.warning-type-badge {
+		display: inline-block;
+		padding: 0.1rem 0.4rem;
+		background: #fef3c7;
+		color: #92400e;
+		font-size: 0.62rem;
+		font-weight: 600;
+		border-radius: 3px;
+		text-transform: capitalize;
+		margin-bottom: 0.3rem;
+	}
+
+	.warning-content {
+		white-space: pre-wrap;
+	}
+
+	.fine-info {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-top: 0.3rem;
+		padding: 0.25rem 0.4rem;
+		background: #fffbeb;
+		border-radius: 4px;
+		font-size: 0.72rem;
+	}
+
+	.fine-label {
+		color: #92400e;
+		font-weight: 500;
+	}
+
+	.fine-amount {
+		color: #b45309;
+		font-weight: 700;
+	}
+
+	.paid-badge {
+		padding: 0.05rem 0.3rem;
+		background: #d1fae5;
+		color: #059669;
+		font-size: 0.6rem;
+		font-weight: 600;
+		border-radius: 3px;
+	}
+
+	.unpaid-badge {
+		padding: 0.05rem 0.3rem;
+		background: #fee2e2;
+		color: #dc2626;
+		font-size: 0.6rem;
+		font-weight: 600;
+		border-radius: 3px;
+	}
+
+	/* Translation */
+	.translate-icon-btn {
+		margin-inline-start: auto;
+		background: none;
+		border: none;
+		font-size: 0.82rem;
+		cursor: pointer;
+		padding: 0.1rem 0.2rem;
+		border-radius: 4px;
+		transition: background 0.2s;
+	}
+
+	.translate-icon-btn:hover {
+		background: #e2e8f0;
+	}
+
+	.translate-row {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 0.15rem;
+	}
+
+	.lang-picker {
+		background: white;
+		border: 1px solid #e2e8f0;
+		border-radius: 6px;
+		padding: 0.3rem;
+		margin-bottom: 0.3rem;
+		box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+	}
+
+	.lang-search {
+		width: 100%;
+		padding: 0.25rem 0.4rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 4px;
+		font-size: 0.72rem;
+		margin-bottom: 0.2rem;
+		box-sizing: border-box;
+	}
+
+	.lang-search:focus {
+		outline: none;
+		border-color: #3b82f6;
+	}
+
+	.lang-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem;
+		max-height: 120px;
+		overflow-y: auto;
+	}
+
+	.lang-btn {
+		padding: 0.2rem 0.4rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 4px;
+		background: #f8fafc;
+		font-size: 0.65rem;
+		cursor: pointer;
+		transition: all 0.15s;
+		white-space: nowrap;
+	}
+
+	.lang-btn:hover {
+		background: #dbeafe;
+		border-color: #93c5fd;
+	}
+
+	.translating-indicator {
+		font-size: 0.7rem;
+		color: #3b82f6;
+		padding: 0.15rem 0;
+		animation: pulse 1s infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
+	}
+
+	.translated-box {
+		margin-top: 0.3rem;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 5px;
+		padding: 0.35rem 0.45rem;
+	}
+
+	.translated-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.2rem;
+		font-size: 0.65rem;
+		font-weight: 600;
+		color: #2563eb;
+	}
+
+	.close-translation {
+		background: none;
+		border: none;
+		color: #93c5fd;
+		cursor: pointer;
+		font-size: 0.72rem;
+		padding: 0 0.15rem;
+	}
+
+	.close-translation:hover {
+		color: #2563eb;
+	}
+
+	.translated-box p {
+		margin: 0;
+		font-size: 0.76rem;
+		color: #1e40af;
+		line-height: 1.5;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 </style>
