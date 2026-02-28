@@ -34,6 +34,7 @@
 
 	// Detail view
 	let selectedRequest: BTRequest | null = null;
+	let highlightedRequestId: string | null = null;
 
 	// Photo lightbox
 	let lightboxUrl: string | null = null;
@@ -55,6 +56,31 @@
 	// Editable availability items for detail view
 	let editableItems: { barcode: string; product_name: string; quantity: number; photo_url: string | null; is_available: boolean; available_qty: number }[] = [];
 	let savingAvailability = false;
+
+	// Scroll position preservation
+	let listScrollTop = 0;
+	let listScrollContainer: HTMLElement | null = null;
+
+	function openDetail(req: BTRequest) {
+		// Save scroll position before switching to detail view
+		if (listScrollContainer) {
+			listScrollTop = listScrollContainer.scrollTop;
+		}
+		highlightedRequestId = req.id;
+		selectedRequest = req;
+	}
+
+	function goBackToList() {
+		selectedRequest = null;
+		// Restore scroll position after Svelte re-renders the list
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				if (listScrollContainer) {
+					listScrollContainer.scrollTop = listScrollTop;
+				}
+			});
+		});
+	}
 
 	// Search & Filters
 	let searchQuery = '';
@@ -654,7 +680,7 @@
 					<div class="flex items-center gap-3">
 						<button
 							class="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600"
-							on:click={() => selectedRequest = null}
+						on:click={goBackToList}
 						>←</button>
 						<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
 							<span>🔄</span> Branch Transfer Request
@@ -795,7 +821,7 @@
 						<button on:click={clearFilters} class="mt-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold hover:bg-blue-100 transition-all">{$locale === 'ar' ? 'مسح الفلاتر' : 'Clear Filters'}</button>
 					</div>
 				{:else}
-					<div class="flex-1 overflow-auto">
+					<div class="flex-1 overflow-auto" bind:this={listScrollContainer}>
 						<table class="w-full text-xs border-collapse border border-slate-300">
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-blue-600 text-white">
@@ -814,7 +840,7 @@
 							</thead>
 							<tbody>
 								{#each filteredRequests as req, i}
-									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => selectedRequest = req}>
+									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {highlightedRequestId === req.id ? 'bg-blue-100/80 ring-1 ring-blue-300' : i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => openDetail(req)}>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{req.from_branch_name}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-blue-700">{req.to_branch_name}</td>
@@ -823,7 +849,7 @@
 										<td class="border-r border-slate-300 py-2.5 px-3">
 											<button
 												class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all text-blue-700 hover:text-blue-900 text-[10px] font-bold whitespace-nowrap"
-												on:click|stopPropagation={() => selectedRequest = req}
+												on:click|stopPropagation={() => openDetail(req)}
 											>
 												{getItemsCount(req.items)} — View
 											</button>
