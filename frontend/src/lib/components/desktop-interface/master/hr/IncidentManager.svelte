@@ -33,6 +33,56 @@
     let whatHappenedText = '';
     let whatHappenedIncidentId = '';
     
+    // Live timer for response time
+    let nowTick = Date.now();
+    let timerInterval: ReturnType<typeof setInterval> | null = null;
+    
+    function getResponseTime(incident: any): { text: string; color: string; isClaimed: boolean } {
+        const createdAt = new Date(incident.created_at).getTime();
+        const isClaimed = incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved';
+        
+        // Find claimed_at from user_statuses
+        let claimedAt: number | null = null;
+        if (isClaimed && incident.user_statuses) {
+            const userStatuses = typeof incident.user_statuses === 'string'
+                ? JSON.parse(incident.user_statuses)
+                : incident.user_statuses;
+            // Find earliest claimed_at
+            for (const uid of Object.keys(userStatuses)) {
+                const s = userStatuses[uid];
+                if (s.claimed_at) {
+                    const t = new Date(s.claimed_at).getTime();
+                    if (!claimedAt || t < claimedAt) claimedAt = t;
+                }
+            }
+        }
+        
+        const endTime = claimedAt || nowTick;
+        const diffMs = endTime - createdAt;
+        if (diffMs < 0) return { text: '—', color: 'text-slate-400', isClaimed };
+        
+        const totalSeconds = Math.floor(diffMs / 1000);
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        
+        let text = '';
+        if (days > 0) text += `${days}d `;
+        if (days > 0 || hours > 0) text += `${hours}h `;
+        text += `${minutes}m`;
+        if (!isClaimed && days === 0) text += ` ${seconds}s`;
+        
+        // Color: green < 1h, yellow 1-4h, orange 4-24h, red > 24h
+        let color = 'text-emerald-600';
+        const totalHours = diffMs / 3600000;
+        if (totalHours > 24) color = 'text-red-600';
+        else if (totalHours > 4) color = 'text-orange-600';
+        else if (totalHours > 1) color = 'text-amber-600';
+        
+        return { text: text.trim(), color, isClaimed };
+    }
+    
     // Translation state for What Happened modal
     let whatHappenedTranslated = '';
     let isTranslatingWhatHappened = false;
@@ -349,6 +399,15 @@
             year: 'numeric',
             month: 'short',
             day: 'numeric'
+        });
+    }
+
+    function formatTime(dateString: string): string {
+        const date = new Date(dateString);
+        return date.toLocaleTimeString($locale === 'ar' ? 'ar-EG' : 'en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
         });
     }
     
@@ -869,6 +928,8 @@
     onMount(async () => {
         await loadIncidents();
         setupRealtime();
+        // Update live timer every second
+        timerInterval = setInterval(() => { nowTick = Date.now(); }, 1000);
     });
     
     function setupRealtime() {
@@ -898,6 +959,8 @@
             supabase.removeChannel(realtimeSubscription);
             console.log('🔌 Realtime subscription cleaned up');
         }
+        // Clean up timer
+        if (timerInterval) clearInterval(timerInterval);
     });
 </script>
 
@@ -1061,6 +1124,9 @@
                             {$locale === 'ar' ? 'مطالب من' : 'Claimed By'}
                         </th>
                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
+                            {$locale === 'ar' ? 'وقت الاستجابة' : 'Response Time'}
+                        </th>
+                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
                             {$locale === 'ar' ? 'الحالة' : 'Status'}
                         </th>
                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
@@ -1093,6 +1159,7 @@
                         <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                             <td class="px-4 py-3 text-sm text-slate-600 font-medium">
                                 <div>{formatDate(incident.created_at)}</div>
+                                <div class="text-xs text-slate-400 mt-0.5">🕐 {formatTime(incident.created_at)}</div>
                                 {#if incident.reporterName}
                                     <div class="text-xs text-slate-400 mt-0.5">📢 {incident.reporterName}</div>
                                 {/if}
@@ -1150,6 +1217,17 @@
                                 {:else}
                                     <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لم يُطالب بها' : 'Unclaimed'}</span>
                                 {/if}
+                            </td>
+                            <!-- Response Time Column -->
+                            <td class="px-4 py-3 text-sm text-center">
+                                <div class="font-mono font-bold {getResponseTime(incident).color}">
+                                    {getResponseTime(incident).text}
+                                </div>
+                                <div class="text-[10px] mt-0.5 {getResponseTime(incident).isClaimed ? 'text-emerald-500' : 'text-orange-500 animate-pulse'}">
+                                    {getResponseTime(incident).isClaimed 
+                                        ? ($locale === 'ar' ? '✓ تمت المطالبة' : '✓ Claimed')
+                                        : ($locale === 'ar' ? '⏳ في الانتظار' : '⏳ Waiting')}
+                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <span class="px-2.5 py-1.5 rounded-full text-xs font-semibold shadow-sm {getStatusBadgeColor(incident.resolution_status)}">
