@@ -1207,6 +1207,7 @@ export const englishLocale: LocaleData = {
       cashierAccessDenied: "Access denied. Cashier permission is disabled for this user.",
       confirmLogout: "Confirm Logout",
       confirmLogoutMessage: "Are you sure you want to logout from your account?",
+      changeAccessCode: "Change Access Code",
     },
 
     // Finance

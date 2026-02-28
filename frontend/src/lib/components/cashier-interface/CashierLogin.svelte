@@ -4,8 +4,11 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { setCashierAuth } from '$lib/stores/cashierAuth';
 	import { t, currentLocale, switchLocale } from '$lib/i18n';
+	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 
 	const dispatch = createEventDispatcher();
+
+	let showChangeAccessCode = false;
 
 	let accessCode = '';
 	let accessDigits = ['', '', '', '', '', ''];
@@ -59,20 +62,19 @@
 			loading = true;
 			error = '';
 
-			// Authenticate with quick access code from users table
-			const { data: userData, error: authError } = await supabase
-				.from('users')
-				.select('id, username, employee_id, branch_id')
-				.eq('quick_access_code', accessCode)
-				.eq('status', 'active')
-				.single();
+			// Authenticate with quick access code via RPC (bcrypt verification)
+			const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_quick_access_code', {
+				p_code: accessCode
+			});
 
-			if (authError || !userData) {
+			if (verifyError || !verifyResult || !verifyResult.success) {
 				error = 'Invalid access code';
 				accessDigits = ['', '', '', '', '', ''];
 				accessCode = '';
 				return;
 			}
+
+			const userData = verifyResult.user;
 
 			// Check cashier permission
 			const { data: permissionData, error: permissionError } = await supabase
@@ -355,6 +357,11 @@
 						</button>
 					</form>
 
+					<!-- Change Access Code Link -->
+					<button class="change-code-link" on:click={() => showChangeAccessCode = true}>
+						🔑 {t('auth.changeAccessCode') || 'Change Access Code'}
+					</button>
+
 				{:else}
 					<!-- Branch Selection Step -->
 					<form class="auth-form" on:submit|preventDefault={handleBranchSelect}>
@@ -450,7 +457,30 @@
 	</div>
 </div>
 
+{#if showChangeAccessCode}
+	<ChangeAccessCode locale={$currentLocale} on:close={() => showChangeAccessCode = false} />
+{/if}
+
 <style>
+	.change-code-link {
+		background: none;
+		border: none;
+		color: #3b82f6;
+		font-size: 13px;
+		cursor: pointer;
+		padding: 8px 0;
+		margin-top: 12px;
+		text-decoration: underline;
+		transition: color 0.2s;
+		display: block;
+		width: 100%;
+		text-align: center;
+	}
+
+	.change-code-link:hover {
+		color: #1d4ed8;
+	}
+
 	/* Full-page login layout matching desktop interface */
 	.cashier-login-page {
 		width: 100%;

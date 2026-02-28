@@ -270,7 +270,7 @@ export class UserManagementService {
         throw new Error("Failed to generate quick access code");
       }
 
-      // Generate salt and hash the code
+      // Generate salt for bcrypt hashing
       const { data: saltData, error: saltError } =
         await supabase.rpc("generate_salt");
 
@@ -278,6 +278,7 @@ export class UserManagementService {
         throw new Error("Failed to generate code salt");
       }
 
+      // Hash the quick access code with bcrypt
       const { data: hashedCode, error: hashError } = await supabase.rpc(
         "hash_password",
         {
@@ -290,12 +291,12 @@ export class UserManagementService {
         throw new Error("Failed to hash quick access code");
       }
 
-      // Update user with new quick access code
+      // Update user with HASHED quick access code (not plain text)
       const { error } = await supabase
         .from("users")
         .update({
-          quick_access_code: newCode,
-          quick_access_salt: hashedCode,
+          quick_access_code: hashedCode,    // Store the bcrypt hash
+          quick_access_salt: saltData,       // Store the salt
         })
         .eq("id", userId);
 
@@ -304,6 +305,7 @@ export class UserManagementService {
         throw new Error("Failed to update quick access code");
       }
 
+      // Return plain text code to show to the user
       return newCode;
     } catch (error) {
       console.error("Generate quick access code error:", error);
