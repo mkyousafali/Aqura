@@ -1,71 +1,77 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { _ as t, locale } from '$lib/i18n';
 	import * as XLSX from 'xlsx';
 
+	let supabase: any = null;
 	let isLoading = false;
-	let reportData = [];
-	let reportType = null;
-	let error = null;
+	let loadingOlder = false;
+	let allData: any[] = [];
+	let reportType: string | null = null;
+	let error: string | null = null;
 	let branchFilter = '';
 	let cashierFilter = '';
 	let fromDate = '';
 	let toDate = '';
-	let amountFilterType = ''; // 'less', 'more', 'exact'
+	let amountFilterType = '';
 	let amountFilterValue = '';
+	let showingOlderData = false;
 
-	$: filteredData = filterData(reportData, branchFilter, cashierFilter, fromDate, toDate, amountFilterType, amountFilterValue);
-	$: totalDifference = filteredData.reduce((sum, item) => sum + item.difference, 0);
+	function getTwoMonthsAgo(): string {
+		const d = new Date();
+		d.setMonth(d.getMonth() - 2);
+		return d.toISOString();
+	}
+
+	$: filteredData = filterData(allData, reportType, branchFilter, cashierFilter, fromDate, toDate, amountFilterType, amountFilterValue);
+	$: totalDifference = filteredData.reduce((sum: number, item: any) => sum + item.total_difference, 0);
 	$: recordCount = filteredData.length;
 	$: groupedByCashier = groupDataByCashier(filteredData);
+	$: uniqueBranches = [...new Set(allData.map((r: any) => r.branch_name_en))].sort();
 
-	function groupDataByCashier(data) {
-		const grouped = {};
-		
-		// Sort by cashier name first
-		const sorted = [...data].sort((a, b) => a.cashierName.localeCompare(b.cashierName));
-		
-		sorted.forEach(item => {
-			if (!grouped[item.cashierName]) {
-				grouped[item.cashierName] = [];
-			}
-			grouped[item.cashierName].push(item);
+	function groupDataByCashier(data: any[]) {
+		const grouped: Record<string, any[]> = {};
+		const sorted = [...data].sort((a, b) => (a.cashier_name_en || '').localeCompare(b.cashier_name_en || ''));
+		sorted.forEach((item: any) => {
+			const name = `${item.cashier_name_en} / ${item.cashier_name_ar}`;
+			if (!grouped[name]) grouped[name] = [];
+			grouped[name].push(item);
 		});
-
 		return Object.entries(grouped).map(([cashierName, items]) => ({
 			cashierName,
-			items: items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-			total: items.reduce((sum, item) => sum + item.difference, 0)
+			items: items.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+			total: items.reduce((sum: number, item: any) => sum + item.total_difference, 0)
 		}));
 	}
 
-	function filterData(data, branch, cashier, from, to, amountType, amountValue) {
-		return data.filter((item) => {
-			const branchMatch = !branch || item.branchName.toLowerCase().includes(branch.toLowerCase());
-			const cashierMatch = !cashier || item.cashierName.toLowerCase().includes(cashier.toLowerCase());
+	function filterData(data: any[], type: string | null, branch: string, cashier: string, from: string, to: string, amountType: string, amountValue: string) {
+		return data.filter((item: any) => {
+			// Filter by report type
+			if (type === 'short' && item.total_difference >= 0) return false;
+			if (type === 'excess' && item.total_difference <= 0) return false;
+
+			const branchMatch = !branch || item.branch_name_en === branch;
+			const cashierMatch = !cashier || 
+				(item.cashier_name_en || '').toLowerCase().includes(cashier.toLowerCase()) ||
+				(item.cashier_name_ar || '').toLowerCase().includes(cashier.toLowerCase());
 			
 			let dateMatch = true;
 			if (from || to) {
-				const itemDate = new Date(item.createdAt).getTime();
+				const itemDate = new Date(item.created_at).getTime();
 				const fromDateTime = from ? new Date(from).getTime() : 0;
-				const toDateTime = to ? new Date(to).getTime() + 86400000 : Infinity; // Add 24h to include end date
-				
+				const toDateTime = to ? new Date(to).getTime() + 86400000 : Infinity;
 				dateMatch = itemDate >= fromDateTime && itemDate <= toDateTime;
 			}
 			
 			let amountMatch = true;
 			if (amountType && amountValue) {
-				const amount = Math.abs(parseFloat(amountValue)); // Always use absolute value
+				const amount = Math.abs(parseFloat(amountValue));
 				if (!isNaN(amount)) {
-					const absDifference = Math.abs(item.difference);
-					if (amountType === 'less') {
-						amountMatch = absDifference < amount;
-					} else if (amountType === 'more') {
-						amountMatch = absDifference > amount;
-					} else if (amountType === 'exact') {
-						amountMatch = Math.abs(absDifference - amount) < 0.01; // Allow for floating point precision
-					}
+					const absDiff = Math.abs(item.total_difference);
+					if (amountType === 'less') amountMatch = absDiff < amount;
+					else if (amountType === 'more') amountMatch = absDiff > amount;
+					else if (amountType === 'exact') amountMatch = Math.abs(absDiff - amount) < 0.01;
 				}
 			}
 			
@@ -73,139 +79,23 @@
 		});
 	}
 
-	// Get unique branches for filter dropdown
-	$: uniqueBranches = [...new Set(reportData.map(r => r.branchName))].sort();
-
-	async function fetchReportData(type) {
+	async function fetchReportData(type: string) {
+		reportType = type;
+		if (allData.length > 0) return; // Already loaded, just filter
+		
 		isLoading = true;
 		error = null;
-		reportType = type;
-		reportData = [];
-		branchFilter = '';
-		cashierFilter = '';
-		fromDate = '';
-		toDate = '';
-		amountFilterType = '';
-		amountFilterValue = '';
-
 		try {
-			const { data, error: fetchError } = await supabase
-				.from('box_operations')
-				.select('id, box_number, complete_details, notes, status, total_difference, branch_id, user_id, created_at')
-				.eq('status', 'completed')
-				.order('created_at', { ascending: false });
-
-			if (fetchError) throw fetchError;
-
-			if (!data || data.length === 0) {
-				reportData = [];
-				return;
-			}
-
-			// Get unique branch IDs and user IDs
-			const branchIds = [...new Set(data.map(r => r.branch_id))];
-			const userIds = [...new Set(data.map(r => r.user_id))];
-
-			// Fetch branch data
-			const { data: branches, error: branchError } = await supabase
-				.from('branches')
-				.select('id, name_en, name_ar, location_en, location_ar')
-				.in('id', branchIds);
-
-			if (branchError) throw branchError;
-
-			// Fetch employee data
-			const { data: employees, error: employeeError } = await supabase
-				.from('hr_employee_master')
-				.select('user_id, name_en, name_ar')
-				.in('user_id', userIds);
-
-			if (employeeError) throw employeeError;
-
-			// Create branch map with name and location
-			const branchMap = {};
-			if (branches) {
-				branches.forEach(b => {
-					branchMap[b.id] = {
-						name: b.name_en || b.name_ar || 'N/A',
-						location: b.location_en || b.location_ar || 'N/A'
-					};
-				});
-			}
-
-			// Create employee map for user_id to name (both EN and AR)
-			const employeeMap = {};
-			if (employees) {
-				employees.forEach(e => {
-					employeeMap[e.user_id] = {
-						nameEn: e.name_en || 'N/A',
-						nameAr: e.name_ar || 'N/A'
-					};
-				});
-			}
-
-			// Filter and process data
-			const processed = data
-				.map((record) => {
-					let details = {};
-					let notes = {};
-
-					// Parse complete_details safely
-					if (record.complete_details) {
-						try {
-							details = typeof record.complete_details === 'string' 
-								? JSON.parse(record.complete_details) 
-								: record.complete_details;
-						} catch (e) {
-							console.warn('Failed to parse complete_details:', e);
-						}
-					}
-
-					// Parse notes safely
-					if (record.notes) {
-						try {
-							notes = typeof record.notes === 'string'
-								? JSON.parse(record.notes)
-								: record.notes;
-						} catch (e) {
-							console.warn('Failed to parse notes:', e);
-						}
-					}
-
-					const diff = details?.total_difference ?? record.total_difference ?? 0;
-
-					// Get cashier name from employee map using user_id (both EN and AR)
-					const cashierNameEn = employeeMap[record.user_id]?.nameEn || 'N/A';
-					const cashierNameAr = employeeMap[record.user_id]?.nameAr || 'N/A';
-					const cashierName = `${cashierNameEn} / ${cashierNameAr}`;
-
-					// Get branch name and location from branch map using branch_id
-					const branchName = branchMap[record.branch_id]?.name || 'N/A';
-					const branchLocation = branchMap[record.branch_id]?.location || 'N/A';
-
-					return {
-						id: record.id,
-						boxNumber: record.box_number,
-						cashierName: cashierName,
-						cashierNameEn: cashierNameEn,
-						cashierNameAr: cashierNameAr,
-						difference: parseFloat(diff),
-						branchName: branchName,
-						branchLocation: branchLocation,
-						createdAt: record.created_at
-					};
-				})
-				.filter((item) => {
-					if (type === 'short') {
-						return item.difference < 0;
-					} else if (type === 'excess') {
-						return item.difference > 0;
-					}
-					return true;
-				});
-
-			reportData = processed;
-		} catch (err) {
+			const { data, error: rpcError } = await supabase.rpc('get_pos_report', {
+				p_date_from: getTwoMonthsAgo(),
+				p_date_to: null
+			});
+			if (rpcError) throw rpcError;
+			allData = (data || []).map((r: any) => ({
+				...r,
+				total_difference: parseFloat(r.total_difference || 0)
+			}));
+		} catch (err: any) {
 			console.error('Error fetching report data:', err);
 			error = err.message || 'Failed to load report data';
 		} finally {
@@ -213,7 +103,29 @@
 		}
 	}
 
-	function formatCurrency(value) {
+	async function loadOlderData() {
+		if (loadingOlder) return;
+		loadingOlder = true;
+		try {
+			const { data, error: rpcError } = await supabase.rpc('get_pos_report', {
+				p_date_from: null,
+				p_date_to: getTwoMonthsAgo()
+			});
+			if (rpcError) throw rpcError;
+			const olderRecords = (data || []).map((r: any) => ({
+				...r,
+				total_difference: parseFloat(r.total_difference || 0)
+			}));
+			allData = [...allData, ...olderRecords];
+			showingOlderData = true;
+		} catch (err: any) {
+			console.error('Error loading older data:', err);
+		} finally {
+			loadingOlder = false;
+		}
+	}
+
+	function formatCurrency(value: number) {
 		return new Intl.NumberFormat('en-US', {
 			style: 'currency',
 			currency: 'SAR',
@@ -221,571 +133,289 @@
 		}).format(value);
 	}
 
-	function formatDate(dateString) {
+	function formatDate(dateString: string) {
 		if (!dateString) return 'N/A';
 		const date = new Date(dateString);
-		return date.toLocaleDateString('en-GB', { 
-			year: 'numeric', 
-			month: '2-digit', 
-			day: '2-digit'
-		});
+		return date.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' });
 	}
 
 	function exportToExcel() {
 		try {
-			// Prepare data with cashier summaries for Excel
-			const excelData = [];
-
-			groupedByCashier.forEach((group) => {
-				// Add all items for this cashier
-				group.items.forEach((row) => {
+			const excelData: any[] = [];
+			groupedByCashier.forEach((group: any) => {
+				group.items.forEach((row: any) => {
 					excelData.push({
-						'Date': formatDate(row.createdAt),
-						'Box Number': row.boxNumber,
-						'Cashier Name (EN)': row.cashierNameEn,
-						'Cashier Name (AR)': row.cashierNameAr,
-						'Difference': row.difference,
-						'Branch Name': row.branchName,
-						'Branch Location': row.branchLocation
+						'Date': formatDate(row.created_at),
+						'Box Number': row.box_number,
+						'Cashier Name (EN)': row.cashier_name_en,
+						'Cashier Name (AR)': row.cashier_name_ar,
+						'Difference': row.total_difference,
+						'Branch Name': row.branch_name_en,
+						'Branch Location': row.branch_location_en,
+						'Deduction Status': row.transfer_status || 'Not Transferred'
 					});
 				});
-
-				// Add summary row for this cashier
 				excelData.push({
 					'Date': '',
 					'Box Number': '',
-					'Cashier Name (EN)': `Total for ${group.cashierNameEn || group.cashierName}`,
+					'Cashier Name (EN)': `Total for ${group.cashierName}`,
 					'Cashier Name (AR)': '',
 					'Difference': group.total,
 					'Branch Name': '',
 					'Branch Location': ''
 				});
-
-				// Add blank row for spacing
-				excelData.push({
-					'Date': '',
-					'Box Number': '',
-					'Cashier Name (EN)': '',
-					'Cashier Name (AR)': '',
-					'Difference': '',
-					'Branch Name': '',
-					'Branch Location': ''
-				});
+				excelData.push({});
 			});
 
-			// Create workbook and worksheet
 			const worksheet = XLSX.utils.json_to_sheet(excelData);
 			const workbook = XLSX.utils.book_new();
-			XLSX.utils.book_append_sheet(workbook, worksheet, reportType === 'short' ? 'Short Report' : 'Excess Report');
-
-			// Style the columns
-			const colWidths = [
-				{ wch: 15 }, // Date
-				{ wch: 12 }, // Box Number
-				{ wch: 20 }, // Cashier Name EN
-				{ wch: 20 }, // Cashier Name AR
-				{ wch: 15 }, // Difference
-				{ wch: 25 }, // Branch Name
-				{ wch: 30 }  // Branch Location
-			];
-			worksheet['!cols'] = colWidths;
-
-			// Generate filename with date
-			const now = new Date();
-			const dateStr = now.toISOString().split('T')[0];
-			const filename = `POS_${reportType === 'short' ? 'Short' : 'Excess'}_Report_${dateStr}.xlsx`;
-
-			// Download the file
-			XLSX.writeFile(workbook, filename);
+			XLSX.utils.book_append_sheet(workbook, worksheet, reportType === 'short' ? 'Short Report' : reportType === 'excess' ? 'Excess Report' : 'All Report');
+			worksheet['!cols'] = [{ wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 25 }, { wch: 30 }, { wch: 18 }];
+			const dateStr = new Date().toISOString().split('T')[0];
+			XLSX.writeFile(workbook, `POS_${reportType === 'short' ? 'Short' : reportType === 'excess' ? 'Excess' : 'All'}_Report_${dateStr}.xlsx`);
 		} catch (err) {
 			console.error('Error exporting to Excel:', err);
 			error = 'Failed to export to Excel';
 		}
 	}
 
-	onMount(() => {
-		// Component ready
+	onMount(async () => {
+		const mod = await import('$lib/utils/supabase');
+		supabase = mod.supabase;
 	});
 </script>
 
-<div class="pos-report-container">
-	<div class="report-wrapper">
-		<!-- Button Section -->
-		<div class="button-section">
-			<button
-				class="report-btn short-btn"
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+	<!-- Header with report type buttons -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<h2 class="text-lg font-bold text-slate-800">📊 {$t('nav.posReport') || 'POS Report'}</h2>
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			<button 
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+				{reportType === 'short' ? 'bg-red-600 text-white shadow-lg shadow-red-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
 				on:click={() => fetchReportData('short')}
 				disabled={isLoading}
 			>
-				📉 Short Report
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📉</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'تقرير النقص' : 'Short Report'}</span>
 			</button>
-			<button
-				class="report-btn excess-btn"
+			<button 
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
+				{reportType === 'excess' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
 				on:click={() => fetchReportData('excess')}
 				disabled={isLoading}
 			>
-				📈 Excess Report
+				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📈</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'تقرير الزيادة' : 'Excess Report'}</span>
 			</button>
 		</div>
+	</div>
 
-		<!-- Report Table Section -->
-		{#if reportType}
-			<div class="table-section">
-				{#if isLoading}
-					<div class="loading-message">Loading report data...</div>
-				{:else if error}
-					<div class="error-message">Error: {error}</div>
-				{:else if reportData.length === 0}
-					<div class="empty-message">
-						No {reportType === 'short' ? 'shortage' : 'excess'} records found
+	<!-- Main Content -->
+	<div class="flex-1 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-red-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
+
+		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+			{#if !reportType}
+				<!-- Initial State -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+					<div class="text-5xl mb-4">📊</div>
+					<p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'اختر نوع التقرير لعرض البيانات' : 'Select a report type to view data'}</p>
+				</div>
+			{:else if isLoading}
+				<!-- Loading -->
+				<div class="flex items-center justify-center h-full">
+					<div class="text-center">
+						<div class="animate-spin inline-block">
+							<div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
+						</div>
+						<p class="mt-4 text-slate-600 font-semibold">{$locale === 'ar' ? 'جاري تحميل البيانات...' : 'Loading report data...'}</p>
 					</div>
-				{:else}
-					<!-- Filter Section -->
-					<div class="filter-section">
-						<div class="filter-group">
-							<label for="fromDate">From Date:</label>
-							<input 
-								id="fromDate"
-								type="date" 
-								bind:value={fromDate} 
-								class="filter-input"
-							/>
-						</div>
-
-						<div class="filter-group">
-							<label for="toDate">To Date:</label>
-							<input 
-								id="toDate"
-								type="date" 
-								bind:value={toDate} 
-								class="filter-input"
-							/>
-						</div>
-
-						<div class="filter-group">
-							<label for="branchFilter">Filter by Branch:</label>
-							<select id="branchFilter" bind:value={branchFilter} class="filter-select">
-								<option value="">All Branches</option>
-								{#each uniqueBranches as branch}
-									<option value={branch}>{branch}</option>
-								{/each}
-							</select>
-						</div>
-
-						<div class="filter-group">
-							<label for="cashierFilter">Search Cashier Name:</label>
-							<input 
-								id="cashierFilter"
-								type="text" 
-								bind:value={cashierFilter} 
-								placeholder="Enter cashier name..."
-								class="filter-input"
-							/>
-						</div>
-					<div class="filter-group amount-filter-group">
-						<label for="amountFilterType">Filter by Amount:</label>
-						<div class="amount-filter-container">
-							<select id="amountFilterType" bind:value={amountFilterType} class="filter-select amount-select">
-								<option value="">No Filter</option>
-								<option value="less">Less Than</option>
-								<option value="more">More Than</option>
-								<option value="exact">Exact Amount</option>
+				</div>
+			{:else if error}
+				<!-- Error -->
+				<div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+					<p class="text-red-700 font-semibold">Error: {error}</p>
+					<button 
+						class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+						on:click={() => { allData = []; fetchReportData(reportType); }}
+					>
+						{$locale === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+					</button>
+				</div>
+			{:else if filteredData.length === 0 && !branchFilter && !cashierFilter && !fromDate && !toDate}
+				<!-- No data -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+					<div class="text-5xl mb-4">📭</div>
+					<p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'لا توجد سجلات' : `No ${reportType === 'short' ? 'shortage' : 'excess'} records found`}</p>
+				</div>
+			{:else}
+				<!-- Filter Controls -->
+				<div class="mb-4 flex gap-3 flex-wrap">
+					<div class="flex-1 min-w-[160px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="pos-from-date">
+							{$locale === 'ar' ? 'من تاريخ' : 'From Date'}
+						</label>
+						<input id="pos-from-date" type="date" bind:value={fromDate}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-1 min-w-[160px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="pos-to-date">
+							{$locale === 'ar' ? 'إلى تاريخ' : 'To Date'}
+						</label>
+						<input id="pos-to-date" type="date" bind:value={toDate}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-1 min-w-[180px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="pos-branch-filter">
+							{$locale === 'ar' ? 'الفرع' : 'Branch'}
+						</label>
+						<select id="pos-branch-filter" bind:value={branchFilter}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+							style="color: #000000 !important; background-color: #ffffff !important;">
+							<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'جميع الفروع' : 'All Branches'}</option>
+							{#each uniqueBranches as branch}
+								<option value={branch} style="color: #000000 !important; background-color: #ffffff !important;">{branch}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex-1 min-w-[180px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="pos-cashier-filter">
+							{$locale === 'ar' ? 'بحث بالكاشير' : 'Search Cashier'}
+						</label>
+						<input id="pos-cashier-filter" type="text" bind:value={cashierFilter}
+							placeholder={$locale === 'ar' ? 'اسم الكاشير...' : 'Cashier name...'}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-1 min-w-[200px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="pos-amount-type">
+							{$locale === 'ar' ? 'فلتر المبلغ' : 'Amount Filter'}
+						</label>
+						<div class="flex gap-2">
+							<select id="pos-amount-type" bind:value={amountFilterType}
+								class="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+								style="color: #000000 !important; background-color: #ffffff !important;">
+								<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'بدون فلتر' : 'No Filter'}</option>
+								<option value="less" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'أقل من' : 'Less Than'}</option>
+								<option value="more" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'أكثر من' : 'More Than'}</option>
+								<option value="exact" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'بالضبط' : 'Exact'}</option>
 							</select>
 							{#if amountFilterType}
-								<input 
-									type="number" 
-									bind:value={amountFilterValue}
-									placeholder="Enter amount..."
-									class="filter-input amount-input"
+								<input type="number" bind:value={amountFilterValue}
+									placeholder={$locale === 'ar' ? 'المبلغ...' : 'Amount...'}
 									step="0.01"
-								/>
+									class="w-28 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
 							{/if}
 						</div>
 					</div>
-
-					<div class="filter-group export-group">
-							<button 
-								class="export-btn"
-								on:click={exportToExcel}
-								disabled={filteredData.length === 0}
-								title="Export filtered data to Excel (sorted by cashier name)"
-							>
-								📥 Export to Excel
-							</button>
-						</div>
+					<div class="flex items-end">
+						<button 
+							class="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+							on:click={exportToExcel}
+							disabled={filteredData.length === 0}
+						>
+							📥 {$locale === 'ar' ? 'تصدير إكسل' : 'Export Excel'}
+						</button>
 					</div>
+				</div>
 
-					<div class="table-container">
-						<table class="report-table">
-							<thead>
+				<!-- Table -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+					<div class="overflow-x-auto flex-1">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 {reportType === 'short' ? 'bg-red-600' : 'bg-emerald-600'} text-white shadow-lg z-10">
 								<tr>
-									<th>Date</th>
-									<th>Box Number</th>
-									<th>Cashier Name (EN / AR)</th>
-									<th>Difference</th>
-									<th>Branch Name</th>
-									<th>Branch Location</th>
+									<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 {reportType === 'short' ? 'border-red-400' : 'border-emerald-400'}">
+										{$locale === 'ar' ? 'التاريخ' : 'Date'}
+									</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 {reportType === 'short' ? 'border-red-400' : 'border-emerald-400'}">
+										{$locale === 'ar' ? 'رقم الصندوق' : 'Box #'}
+									</th>
+									<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 {reportType === 'short' ? 'border-red-400' : 'border-emerald-400'}">
+										{$locale === 'ar' ? 'الكاشير' : 'Cashier'}
+									</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 {reportType === 'short' ? 'border-red-400' : 'border-emerald-400'}">
+										{$locale === 'ar' ? 'الفرق' : 'Difference'}
+									</th>
+									<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 {reportType === 'short' ? 'border-red-400' : 'border-emerald-400'}">
+										{$locale === 'ar' ? 'الفرع' : 'Branch'}
+									</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 {reportType === 'short' ? 'border-red-400' : 'border-emerald-400'}">
+										{$locale === 'ar' ? 'حالة الخصم' : 'Deduction'}
+									</th>
 								</tr>
 							</thead>
-							<tbody>
-								{#each filteredData as row (row.id)}
-									<tr>
-										<td>{formatDate(row.createdAt)}</td>
-										<td>{row.boxNumber}</td>
-										<td>
-											<div class="cashier-names">
-												<div class="name-en">{row.cashierNameEn}</div>
-												<div class="name-ar">{row.cashierNameAr}</div>
-											</div>
+							<tbody class="divide-y divide-slate-200">
+								{#each filteredData as row, index (row.id)}
+									<tr class="hover:{reportType === 'short' ? 'bg-red-50/30' : 'bg-emerald-50/30'} transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-4 py-3 text-sm text-slate-700 font-mono">{formatDate(row.created_at)}</td>
+										<td class="px-4 py-3 text-sm text-center">
+											<span class="inline-block px-2.5 py-1 rounded-full text-xs font-black {reportType === 'short' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}">
+												Box {row.box_number}
+											</span>
 										</td>
-										<td class={row.difference < 0 ? 'negative' : 'positive'}>
-											{formatCurrency(row.difference)}
+										<td class="px-4 py-3 text-sm text-slate-700">
+											<div class="font-semibold">{row.cashier_name_en}</div>
+											<div class="text-xs text-slate-400" dir="rtl">{row.cashier_name_ar}</div>
 										</td>
-										<td>{row.branchName}</td>
-										<td>{row.branchLocation}</td>
-									</tr>
+										<td class="px-4 py-3 text-sm text-center font-bold font-mono {row.total_difference < 0 ? 'text-red-600' : 'text-emerald-600'}">
+											{formatCurrency(row.total_difference)}
+										</td>
+										<td class="px-4 py-3 text-sm text-slate-700">
+											<div>{row.branch_name_en}</div>
+											<div class="text-xs text-slate-400">{row.branch_location_en}</div>
+										</td>									<td class="px-4 py-3 text-sm text-center">
+										{#if row.transfer_status === 'Proposed'}
+											<span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">⏳ {$locale === 'ar' ? 'مقترح' : 'Proposed'}</span>
+										{:else if row.transfer_status === 'Forgiven'}
+											<span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">✅ {$locale === 'ar' ? 'معفى' : 'Forgiven'}</span>
+										{:else if row.transfer_status === 'Deducted'}
+											<span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">💰 {$locale === 'ar' ? 'مخصوم' : 'Deducted'}</span>
+										{:else}
+											<span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">— {$locale === 'ar' ? 'لم يتم' : 'None'}</span>
+										{/if}
+									</td>									</tr>
 								{/each}
 							</tbody>
 						</table>
 					</div>
 
-					<div class="summary">
-						<div class="summary-item">
-							<span>Filtered Records:</span>
-							<strong>{recordCount}</strong>
+					<!-- Footer -->
+					<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 flex items-center justify-between flex-wrap gap-3">
+						<div class="flex gap-6 text-xs font-semibold text-slate-600">
+							<span>{$locale === 'ar' ? 'السجلات:' : 'Records:'} <strong class="text-slate-800">{recordCount}</strong></span>
+							<span>{$locale === 'ar' ? 'الإجمالي:' : 'Total:'} <strong class="{totalDifference < 0 ? 'text-red-600' : 'text-emerald-600'}">{formatCurrency(totalDifference)}</strong></span>
+							<span class="text-slate-400">
+								{$locale === 'ar' 
+									? `(${showingOlderData ? 'كل الفترات' : 'آخر شهرين'})`
+									: `(${showingOlderData ? 'All time' : 'Last 2 months'})`}
+							</span>
 						</div>
-						<div class="summary-item">
-							<span>Total Difference:</span>
-							<strong class={totalDifference < 0 ? 'negative' : 'positive'}>
-								{formatCurrency(totalDifference)}
-							</strong>
+						<div class="flex gap-2">
+							{#if loadingOlder}
+								<div class="flex items-center gap-2 text-xs text-slate-500">
+									<div class="animate-spin w-4 h-4 border-2 border-slate-200 border-t-emerald-600 rounded-full"></div>
+									{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}
+								</div>
+							{:else if !showingOlderData}
+								<button 
+									class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
+									on:click={loadOlderData}
+								>
+									📜 {$locale === 'ar' ? 'تحميل بيانات أقدم' : 'Load Older Data'}
+								</button>
+							{/if}
 						</div>
 					</div>
-				{/if}
-			</div>
-		{:else}
-			<div class="initial-message">
-				<p>Select a report type to view data</p>
-			</div>
-		{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
 
 <style>
-	.pos-report-container {
-		padding: 1.5rem;
-		width: 100%;
-		height: 100%;
-		background-color: var(--background, #f8fafc);
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.report-wrapper {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	.button-section {
-		display: flex;
-		gap: 1rem;
-		flex-wrap: wrap;
-	}
-
-	.report-btn {
-		padding: 0.75rem 1.5rem;
-		border: none;
-		border-radius: 8px;
-		font-size: 1rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		white-space: nowrap;
-	}
-
-	.short-btn {
-		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-		color: white;
-	}
-
-	.short-btn:hover:not(:disabled) {
-		transform: translateY(-2px);
-		box-shadow: 0 8px 16px rgba(239, 68, 68, 0.3);
-	}
-
-	.excess-btn {
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		color: white;
-	}
-
-	.excess-btn:hover:not(:disabled) {
-		transform: translateY(-2px);
-		box-shadow: 0 8px 16px rgba(16, 185, 129, 0.3);
-	}
-
-	.report-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.table-section {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		min-height: 0;
-	}
-
-	.filter-section {
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e5e7eb;
-		padding: 1rem;
-		display: flex;
-		gap: 1.5rem;
-		flex-wrap: wrap;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-	}
-
-	.filter-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		flex: 1;
-		min-width: 200px;
-	}
-
-	.filter-group label {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: #333;
-	}
-
-	.filter-select,
-	.filter-input {
-		padding: 0.625rem 0.75rem;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-family: inherit;
-		background: white;
-	}
-
-	.filter-select:focus,
-	.filter-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.amount-filter-group {
-		grid-column: 1 / -1;
-	}
-
-	.amount-filter-container {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-	}
-
-	.amount-select {
-		flex: 0 0 140px;
-	}
-
-	.amount-input {
-		flex: 1;
-		max-width: 150px;
-	}
-
-	.export-group {
-		display: flex;
-		align-items: flex-end;
-	}
-
-	.export-btn {
-		padding: 0.625rem 1rem;
-		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		white-space: nowrap;
-	}
-
-	.export-btn:hover:not(:disabled) {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.export-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.loading-message,
-	.error-message,
-	.empty-message,
-	.initial-message {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 2rem;
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e5e7eb;
-		color: #666;
-		font-size: 1rem;
-		text-align: center;
-	}
-
-	.error-message {
-		background: #fee;
-		color: #c33;
-		border-color: #fcc;
-	}
-
-	.table-container {
-		flex: 1;
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e5e7eb;
-		overflow: auto;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-	}
-
-	.report-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.9rem;
-	}
-
-	.report-table thead {
-		background: #f3f4f6;
-		position: sticky;
-		top: 0;
-		z-index: 10;
-	}
-
-	.report-table th {
-		padding: 1rem;
-		text-align: left;
-		font-weight: 600;
-		color: #333;
-		border-bottom: 2px solid #e5e7eb;
-		white-space: nowrap;
-	}
-
-	.report-table td {
-		padding: 0.875rem 1rem;
-		border-bottom: 1px solid #e5e7eb;
-		color: #333;
-	}
-
-	.report-table tbody tr:hover {
-		background: #f9fafb;
-	}
-
-	.report-table tbody tr:last-child td {
-		border-bottom: none;
-	}
-
-	.report-table td.negative {
-		color: #dc2626;
-		font-weight: 600;
-	}
-
-	.report-table td.positive {
-		color: #059669;
-		font-weight: 600;
-	}
-
-	.cashier-names {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.cashier-names .name-en {
-		font-weight: 600;
-		color: #333;
-		font-size: 0.9rem;
-	}
-
-	.cashier-names .name-ar {
-		font-size: 0.85rem;
-		color: #666;
-		direction: rtl;
-	}
-
-	.cashier-summary-row {
-		background: #f0f9ff;
-		border-top: 2px solid #0ea5e9;
-		border-bottom: 2px solid #0ea5e9;
-		font-weight: 600;
-	}
-
-	.cashier-summary-row:hover {
-		background: #e0f2fe;
-	}
-
-	.cashier-summary-row .summary-label {
-		padding: 0.875rem 1rem;
-		color: #0369a1;
-	}
-
-	.cashier-summary-row strong {
-		font-weight: 700;
-		color: #0369a1;
-	}
-
-	.cashier-summary-row td.negative {
-		color: #dc2626;
-		font-weight: 700;
-	}
-
-	.cashier-summary-row td.positive {
-		color: #059669;
-		font-weight: 700;
-	}
-
-	.summary {
-		padding: 1rem;
-		background: #f3f4f6;
-		border-radius: 8px;
-		display: flex;
-		gap: 2rem;
-		flex-wrap: wrap;
-		font-size: 0.9rem;
-		color: #666;
-	}
-
-	.summary-item {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.summary-item span {
-		color: #666;
-	}
-
-	.summary-item strong {
-		color: #333;
-		font-weight: 600;
-	}
-
-	.summary-item strong.negative {
-		color: #dc2626;
-	}
-
-	.summary-item strong.positive {
-		color: #059669;
+	:global(.font-sans) {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	}
 </style>

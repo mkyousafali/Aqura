@@ -13,15 +13,11 @@
 	let selectedBranch = '';
 	let allLoadedBoxes: any[] = []; // raw data from server
 	let completedBoxes: any[] = []; // filtered for display
-	let existingTransfers: Map<string, string> = new Map();
 	let isLoading = true;
 	let realtimeChannel: RealtimeChannel | null = null;
 	
-	// Date-based loading: initial load = last 2 months, "Load More" = older data
-	let pageSize = 50;
-	let currentOffset = 0;
+	// Date-based loading: initial load = last 2 months, "Load Older" = everything before that
 	let totalCount = 0;
-	let hasMore = true;
 	let loadingMore = false;
 
 	// Date boundaries
@@ -35,7 +31,8 @@
 	let showingOlderData = false;
 	
 	// Filters
-	let selectedStatus = 'all'; // all, with-deduction, without-deduction
+	let selectedStatus = 'all'; // all, not-transferred, forgiven, proposed
+	let selectedDifference = 'all'; // all, short, excess
 	let searchCashierName = '';
 
 	onMount(async () => {
@@ -78,7 +75,7 @@
 			}
 
 			const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
-			const currentStatus = existingTransfers.get(transferKey);
+			const currentStatus = box.transfer_status || null;
 			const shortAmount = Math.abs(completeDetails?.total_difference || 0);
 
 			if (!currentStatus) {
@@ -100,35 +97,28 @@
 					});
 
 				if (error) throw error;
-				existingTransfers.set(transferKey, 'Forgiven');
-				existingTransfers = new Map(existingTransfers);
-				completedBoxes = [...completedBoxes]; // Force re-render
+				box.transfer_status = 'Forgiven';
+				updateBoxInList(box);
 			} else if (currentStatus === 'Forgiven') {
 				// State 2: Forgiven -> Update to Proposed
 				const { error } = await supabase
 					.from('pos_deduction_transfers')
 					.update({ status: 'Proposed' })
-					.eq('id', employeeData.id)
-					.eq('box_number', box.box_number)
-					.eq('date_closed_box', box.updated_at);
+					.eq('box_operation_id', box.id);
 
 				if (error) throw error;
-				existingTransfers.set(transferKey, 'Proposed');
-				existingTransfers = new Map(existingTransfers);
-				completedBoxes = [...completedBoxes]; // Force re-render
+				box.transfer_status = 'Proposed';
+				updateBoxInList(box);
 			} else if (currentStatus === 'Proposed') {
 				// State 3: Proposed -> Delete (Not Transferred)
 				const { error } = await supabase
 					.from('pos_deduction_transfers')
 					.delete()
-					.eq('id', employeeData.id)
-					.eq('box_number', box.box_number)
-					.eq('date_closed_box', box.updated_at);
+					.eq('box_operation_id', box.id);
 
 				if (error) throw error;
-				existingTransfers.delete(transferKey);
-				existingTransfers = new Map(existingTransfers);
-				completedBoxes = [...completedBoxes]; // Force re-render
+				box.transfer_status = null;
+				updateBoxInList(box);
 			}
 		} catch (error) {
 			console.error('Error toggling POS deduction status:', error);
@@ -149,15 +139,22 @@
 			if (error) throw error;
 
 			// Update local state
-			const index = completedBoxes.findIndex(b => b.id === box.id);
-			if (index >= 0) {
-				completedBoxes[index].status = newStatus;
-				completedBoxes = [...completedBoxes];
-			}
+			box.status = newStatus;
+			updateBoxInList(box);
 		} catch (error) {
 			console.error('Error toggling box status:', error);
 			alert($currentLocale === 'ar' ? 'خطأ في تغيير حالة الصندوق' : 'Error changing box status');
 		}
+	}
+
+	// Update a box in both allLoadedBoxes and re-apply filters
+	function updateBoxInList(box: any) {
+		const idx = allLoadedBoxes.findIndex(b => b.id === box.id);
+		if (idx >= 0) {
+			allLoadedBoxes[idx] = { ...box };
+			allLoadedBoxes = [...allLoadedBoxes];
+		}
+		applyFilters();
 	}
 
 async function loadBranches() {
@@ -188,16 +185,13 @@ async function loadBranches() {
 		}
 		try {
 
-			// For the initial 2-month load, fetch ALL records (no limit).
-			// For older data (Load More), use paginated loading.
-			const useLimit = showingOlderData ? pageSize : 100000;
-			
+			// Always fetch ALL records in the date range (no pagination limit)
 			const { data: rpcResult, error: rpcError } = await supabase.rpc('get_closed_boxes', {
 				p_branch_id: selectedBranch || 'all',
 				p_date_from: dateFrom || null,
 				p_date_to: dateTo || null,
-				p_limit: useLimit,
-				p_offset: currentOffset
+				p_limit: 100000,
+				p_offset: 0
 			});
 
 			if (rpcError) throw rpcError;
@@ -205,13 +199,8 @@ async function loadBranches() {
 			const result = rpcResult || { boxes: [], total_count: 0 };
 			let boxes = result.boxes || [];
 
-			// Build transfer map from RPC results
-			for (const box of boxes) {
-				if (box.transfer_key && box.transfer_status) {
-					existingTransfers.set(box.transfer_key, box.transfer_status);
-				}
-			}
-			existingTransfers = new Map(existingTransfers);
+			// Build transfer map from RPC results (transfer_status is already on each box)
+			// No separate map needed - status is directly on the box object
 
 			totalCount = result.total_count || 0;
 			
@@ -224,10 +213,7 @@ async function loadBranches() {
 			// Apply filters
 			applyFilters();
 			
-			// For older data loading, check if there's more to paginate
-			// For the initial 2-month load, all data is fetched at once
-			hasMore = showingOlderData && boxes.length === pageSize;
-			console.log(`📦 Loaded ${completedBoxes.length} boxes (this batch: ${boxes.length}), total in range: ${totalCount}, hasMore: ${hasMore}`);
+			console.log(`📦 Loaded ${allLoadedBoxes.length} boxes total (this batch: ${boxes.length}), total in range: ${totalCount}`);
 		} catch (error) {
 			console.error('Error loading completed boxes:', error);
 			completedBoxes = [];
@@ -237,22 +223,12 @@ async function loadBranches() {
 		}
 	}
 
-	function loadMore() {
-		if (loadingMore || isLoading) return;
-		if (hasMore) {
-			// Load next page within current date range
-			currentOffset += pageSize;
-			loadCompletedBoxes(true);
-		}
-	}
-
 	function loadOlderData() {
 		if (loadingMore || isLoading) return;
-		// Switch to loading ALL older data (before the 2-month window)
+		// Load ALL older data (before the 2-month window) and append
 		showingOlderData = true;
 		dateTo = dateFrom; // upper bound = old dateFrom
 		dateFrom = null;   // no lower bound
-		currentOffset = 0;
 		loadCompletedBoxes(true); // append to existing
 	}
 
@@ -293,20 +269,23 @@ async function loadBranches() {
 				},
 				async (payload) => {
 					console.log('📡 POS Deduction transfer update:', payload);
-					const transferKey = payload.new?.box_number 
-						? `${payload.new.box_number}-${payload.new.branch_id}-${payload.new.date_closed_box}`
-						: `${payload.old?.box_number}-${payload.old?.branch_id}-${payload.old?.date_closed_box}`;
+					const boxOpId = payload.new?.box_operation_id || payload.old?.box_operation_id;
 					
 					if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-						// Add or update the transfer in the map with status
-						existingTransfers.set(transferKey, payload.new.status);
-						existingTransfers = new Map(existingTransfers);
-						completedBoxes = [...completedBoxes]; // Force re-render
+						// Update transfer_status directly on the box
+						const box = allLoadedBoxes.find(b => b.id === boxOpId);
+						if (box) {
+							box.transfer_status = payload.new.status;
+							allLoadedBoxes = [...allLoadedBoxes];
+							applyFilters();
+						}
 					} else if (payload.eventType === 'DELETE') {
-						// Remove the transfer from the map
-						existingTransfers.delete(transferKey);
-						existingTransfers = new Map(existingTransfers);
-						completedBoxes = [...completedBoxes]; // Force re-render
+						const box = allLoadedBoxes.find(b => b.id === boxOpId);
+						if (box) {
+							box.transfer_status = null;
+							allLoadedBoxes = [...allLoadedBoxes];
+							applyFilters();
+						}
 					}
 				}
 			)
@@ -318,7 +297,14 @@ async function loadBranches() {
 	// Apply client-side filters on already-loaded data
 	function applyFilters() {
 		let filtered = [...allLoadedBoxes];
-		
+
+		// Filter by difference (short / excess)
+		if (selectedDifference === 'short') {
+			filtered = filtered.filter(box => getClosingDifference(box.complete_details) < 0);
+		} else if (selectedDifference === 'excess') {
+			filtered = filtered.filter(box => getClosingDifference(box.complete_details) > 0);
+		}
+
 		if (selectedStatus !== 'all') {
 			filtered = filtered.filter(box => {
 				const difference = getClosingDifference(box.complete_details);
@@ -326,8 +312,7 @@ async function loadBranches() {
 				
 				if (!hasAnyShortage) return false;
 				
-				const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
-				const status = existingTransfers.get(transferKey);
+				const status = box.transfer_status || null;
 				
 				if (selectedStatus === 'not-transferred') return !status;
 				if (selectedStatus === 'forgiven') return status === 'Forgiven';
@@ -349,8 +334,7 @@ async function loadBranches() {
 
 	// Watch for branch changes
 	$: if (selectedBranch && supabase) {
-		// Reset pagination and date range
-		currentOffset = 0;
+		// Reset date range
 		dateFrom = getTwoMonthsAgo();
 		dateTo = null;
 		showingOlderData = false;
@@ -359,7 +343,7 @@ async function loadBranches() {
 	}
 
 	// Watch for filter changes (client-side only, no re-fetch)
-	$: if (selectedStatus || searchCashierName !== undefined) {
+	$: if (selectedStatus || selectedDifference || searchCashierName !== undefined) {
 		if (allLoadedBoxes.length > 0) {
 			applyFilters();
 		}
@@ -418,13 +402,11 @@ async function loadBranches() {
 	}
 
 	function hasExistingTransfer(box: any): boolean {
-		const key = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
-		return existingTransfers.has(key);
+		return !!box.transfer_status;
 	}
 
 	function getTransferStatus(box: any): string {
-		const key = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
-		return existingTransfers.get(key) || '';
+		return box.transfer_status || '';
 	}
 
 	function getBranchName(branchId: number) {
@@ -492,6 +474,23 @@ async function loadBranches() {
 					</option>
 					<option value="proposed">
 						{$currentLocale === 'ar' ? '🟢 مقترح' : '🟢 Proposed'}
+					</option>
+				</select>
+			</div>
+
+			<div class="filter-section">
+				<label for="difference-select">
+					{$currentLocale === 'ar' ? 'الفرق:' : 'Difference:'}
+				</label>
+				<select id="difference-select" bind:value={selectedDifference} class="status-select">
+					<option value="all">
+						{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}
+					</option>
+					<option value="short">
+						{$currentLocale === 'ar' ? '🔴 نقص فقط' : '🔴 Short Only'}
+					</option>
+					<option value="excess">
+						{$currentLocale === 'ar' ? '🟢 زيادة فقط' : '🟢 Excess Only'}
 					</option>
 				</select>
 			</div>
@@ -593,24 +592,17 @@ async function loadBranches() {
 				</tbody>
 			</table>
 
-			<!-- Load More / Load Older buttons -->
+			<!-- Load Older Data button -->
 			<div class="load-more-container">
 				{#if loadingMore}
 					<div class="loading-more-indicator">
 						<div class="spinner-small"></div>
-						<span>{$currentLocale === 'ar' ? 'جاري تحميل المزيد...' : 'Loading more...'}</span>
+						<span>{$currentLocale === 'ar' ? 'جاري تحميل البيانات الأقدم...' : 'Loading older data...'}</span>
 					</div>
-				{:else}
-					{#if hasMore}
-						<button class="load-more-btn" on:click={loadMore}>
-							🔽 {$currentLocale === 'ar' ? 'تحميل المزيد' : 'Load More'}
-						</button>
-					{/if}
-					{#if !showingOlderData}
-						<button class="load-older-btn" on:click={loadOlderData}>
-							📜 {$currentLocale === 'ar' ? 'تحميل بيانات أقدم (قبل شهرين)' : 'Load Older Data (before 2 months)'}
-						</button>
-					{/if}
+				{:else if !showingOlderData}
+					<button class="load-older-btn" on:click={loadOlderData}>
+						📜 {$currentLocale === 'ar' ? 'تحميل بيانات أقدم (قبل شهرين)' : 'Load Older Data (before 2 months)'}
+					</button>
 				{/if}
 			</div>
 		{/if}

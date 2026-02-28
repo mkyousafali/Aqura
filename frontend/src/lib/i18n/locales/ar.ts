@@ -146,6 +146,7 @@ export const arabicLocale: LocaleData = {
       pettyCash: "النثرية",
       overdues: "المتأخرات",
       pos: "نقاط البيع",
+      posReport: "تقرير نقاط البيع",
       usersList: "المستخدمون",
       createUser: "إنشاء مستخدم",
       manageAdminUsers: "إدارة مستخدمي الإدارة",
