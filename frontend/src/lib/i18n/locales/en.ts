@@ -143,6 +143,7 @@ export const englishLocale: LocaleData = {
       pettyCash: "Petty Cash",
       overdues: "Over dues",
       pos: "POS",
+      posReport: "POS Report",
       usersList: "Users",
       createUser: "Create User",
       manageAdminUsers: "Manage Admin Users",

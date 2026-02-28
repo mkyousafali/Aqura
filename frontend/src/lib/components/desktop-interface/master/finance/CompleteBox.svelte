@@ -157,6 +157,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	
 	// Track if denominations have been added to main record
 	let denominationsAdded: boolean = false;
+	let skipDenomination: boolean = false;
 	
 	// Voucher verification and edit tracking
 	let voucherVerified: Record<number, boolean> = {};
@@ -1529,17 +1530,26 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</button>
 			<button 
 				class="add-to-denomination-btn"
-				disabled={!closingStarted || !allCheckboxesVerified || denominationsAdded}
+				disabled={!closingStarted || !allCheckboxesVerified || denominationsAdded || skipDenomination}
 				on:click={addToDenomination}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : ''}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : skipDenomination ? ($currentLocale === 'ar' ? 'تم التخطي' : 'Skipped') : ''}
 			>
-				{denominationsAdded ? ($currentLocale === 'ar' ? '✓ تمت الإضافة' : '✓ Added') : ($currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination')}
+				{denominationsAdded ? ($currentLocale === 'ar' ? '✓ تمت الإضافة' : '✓ Added') : skipDenomination ? ($currentLocale === 'ar' ? '⏭ تم التخطي' : '⏭ Skipped') : ($currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination')}
 			</button>
+			<label class="skip-denomination-label" title={$currentLocale === 'ar' ? 'إكمال بدون إضافة الفئات النقدية' : 'Complete without adding denominations'}>
+				<input 
+					type="checkbox" 
+					bind:checked={skipDenomination}
+					disabled={denominationsAdded || operation?.status === 'completed'}
+					class="skip-denomination-checkbox"
+				/>
+				<span class="skip-denomination-text">{$currentLocale === 'ar' ? 'تخطي الفئات' : 'Skip Denomination'}</span>
+			</label>
 			<button 
 				class="complete-btn"
-				disabled={!closingStarted || !allCheckboxesVerified || !denominationsAdded || operation?.status === 'completed'}
+				disabled={!closingStarted || !allCheckboxesVerified || (!denominationsAdded && !skipDenomination) || operation?.status === 'completed'}
 				on:click={completeBox}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : !denominationsAdded ? ($currentLocale === 'ar' ? 'يجب إضافة الفئات أولاً' : 'Must add to denomination first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : (!denominationsAdded && !skipDenomination) ? ($currentLocale === 'ar' ? 'أضف الفئات أو تخطاها أولاً' : 'Add denomination or skip first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
 			>
 				{operation?.status === 'completed' ? ($currentLocale === 'ar' ? '✓ مكتمل' : '✓ Completed') : ($currentLocale === 'ar' ? 'إكمال' : 'Complete')}
 			</button>
@@ -5465,6 +5475,36 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	.add-to-denomination-btn:disabled:hover {
 		transform: none;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.skip-denomination-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+		padding: 4px 10px;
+		border-radius: 8px;
+		background: rgba(251, 191, 36, 0.1);
+		border: 1px solid rgba(251, 191, 36, 0.3);
+		transition: all 0.2s ease;
+	}
+
+	.skip-denomination-label:hover {
+		background: rgba(251, 191, 36, 0.2);
+	}
+
+	.skip-denomination-checkbox {
+		width: 16px;
+		height: 16px;
+		accent-color: #f59e0b;
+		cursor: pointer;
+	}
+
+	.skip-denomination-text {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #b45309;
+		white-space: nowrap;
 	}
 
 	.complete-btn:disabled {
