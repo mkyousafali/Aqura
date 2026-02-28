@@ -47,10 +47,50 @@
 	// Total Summary (flat rows for all employees)
 	let totalSummaryDateFrom = '';
 	let totalSummaryDateTo = '';
+	let totalSummarySpecificDate = '';
 	let totalSummaryBranch = '';
 	let totalSummarySearch = '';
 	let totalSummaryData: any[] = [];
 	let loadingTotalSummary = false;
+
+	function onSpecificDateChange() {
+		if (totalSummarySpecificDate) {
+			totalSummaryDateFrom = totalSummarySpecificDate;
+			totalSummaryDateTo = totalSummarySpecificDate;
+			totalSummaryQuickFilter = '';
+			loadTotalSummary();
+		}
+	}
+
+	function onRangeDateChange() {
+		totalSummarySpecificDate = '';
+		totalSummaryQuickFilter = '';
+		loadTotalSummary();
+	}
+
+	let totalSummaryQuickFilter = '';
+
+	function setTotalSummaryQuickFilter(filter: 'today' | 'yesterday') {
+		const now = new Date();
+		const riyadhOffset = 3 * 60; // UTC+3
+		const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+		const riyadhNow = new Date(utcMs + riyadhOffset * 60000);
+		const todayStr = riyadhNow.toISOString().split('T')[0];
+
+		if (filter === 'today') {
+			totalSummaryDateFrom = todayStr;
+			totalSummaryDateTo = todayStr;
+			totalSummarySpecificDate = todayStr;
+		} else {
+			const yesterday = new Date(riyadhNow.getTime() - 24 * 60 * 60 * 1000);
+			const yesterdayStr = yesterday.toISOString().split('T')[0];
+			totalSummaryDateFrom = yesterdayStr;
+			totalSummaryDateTo = yesterdayStr;
+			totalSummarySpecificDate = yesterdayStr;
+		}
+		totalSummaryQuickFilter = filter;
+		loadTotalSummary();
+	}
 
 	$: filteredSummaries = employeeSummaries.filter(emp => {
 		if (!summarySearchQuery.trim()) return true;
@@ -78,7 +118,8 @@
 		rows.sort((a: any, b: any) => {
 			const dc = a.date.localeCompare(b.date);
 			if (dc !== 0) return dc;
-			return (a.employee_name_en || '').localeCompare(b.employee_name_en || '');
+			// Top break taker first (descending by total_seconds)
+			return (b.total_seconds || 0) - (a.total_seconds || 0);
 		});
 		if (!totalSummarySearch.trim()) return rows;
 		const s = totalSummarySearch.toLowerCase();
@@ -879,6 +920,20 @@
 			<!-- TAB: Total Summary (Flat table - one row per employee per date) -->
 			<!-- ═══════════════════════════════════════════════════ -->
 			{:else if activeTab === 'Total Summary'}
+				<!-- Quick Filters -->
+				<div class="flex gap-2 mb-3">
+					<button
+						class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wide transition-all duration-300 {totalSummaryQuickFilter === 'today' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]' : 'bg-white border border-slate-200 text-slate-600 hover:bg-purple-50 hover:border-purple-300'}"
+						on:click={() => setTotalSummaryQuickFilter('today')}>
+						📅 {isRtl ? 'اليوم' : 'Today'}
+					</button>
+					<button
+						class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wide transition-all duration-300 {totalSummaryQuickFilter === 'yesterday' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]' : 'bg-white border border-slate-200 text-slate-600 hover:bg-purple-50 hover:border-purple-300'}"
+						on:click={() => setTotalSummaryQuickFilter('yesterday')}>
+						📅 {isRtl ? 'أمس' : 'Yesterday'}
+					</button>
+				</div>
+
 				<!-- Filters -->
 				<div class="flex gap-3 flex-wrap">
 					<div class="flex-1 min-w-[140px]">
@@ -896,13 +951,18 @@
 						</select>
 					</div>
 					<div class="flex-1 min-w-[140px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'تاريخ محدد' : 'Specific Date'}</label>
+						<input type="date" bind:value={totalSummarySpecificDate} on:change={onSpecificDateChange}
+							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
+					</div>
+					<div class="flex-1 min-w-[140px]">
 						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'من' : 'From'}</label>
-						<input type="date" bind:value={totalSummaryDateFrom} on:change={() => loadTotalSummary()}
+						<input type="date" bind:value={totalSummaryDateFrom} on:change={onRangeDateChange}
 							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
 					</div>
 					<div class="flex-1 min-w-[140px]">
 						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'إلى' : 'To'}</label>
-						<input type="date" bind:value={totalSummaryDateTo} on:change={() => loadTotalSummary()}
+						<input type="date" bind:value={totalSummaryDateTo} on:change={onRangeDateChange}
 							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
 					</div>
 					<div class="flex-[2] min-w-[200px]">
