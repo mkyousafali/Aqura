@@ -731,6 +731,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let supervisorCode: string = '';
 	let supervisorName: string = '';
 	let supervisorCodeError: string = '';
+	let verifiedSupervisorUserId: string | null = null;
 	
 	// Cashier confirmation code
 	let cashierConfirmCode: string = '';
@@ -738,6 +739,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let branchName: string = '';
 	let cashierConfirmName: string = '';
 	let cashierConfirmError: string = '';
+	let verifiedCashierUserId: string | null = null;
 	
 	let closingSaved: boolean = false;
 	let closingStarted: boolean = false;
@@ -1145,33 +1147,36 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		}
 
 		try {
-			const { data, error } = await supabase
-				.from('users')
-				.select('username')
-				.eq('quick_access_code', supervisorCode)
-				.single();
+			// Use RPC for bcrypt hash verification
+			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
+				p_code: supervisorCode
+			});
 
 			if (error) throw error;
 
-			if (data) {
-				const verifiedName = data.username || '';
+			if (verifyResult && verifyResult.success && verifyResult.user) {
+				const verifiedName = verifyResult.user.username || '';
 				
 				// Don't allow supervisor to be same person as cashier
 				if (verifiedName === cashierName) {
 					supervisorName = '';
+					verifiedSupervisorUserId = null;
 					supervisorCodeError = 'Supervisor must be different from cashier';
 					return;
 				}
 				
 				supervisorName = verifiedName;
+				verifiedSupervisorUserId = verifyResult.user.id;
 				supervisorCodeError = '';
 			} else {
 				supervisorName = '';
+				verifiedSupervisorUserId = null;
 				supervisorCodeError = 'Invalid supervisor code';
 			}
 		} catch (error) {
 			console.error('Error verifying supervisor code:', error);
 			supervisorName = '';
+			verifiedSupervisorUserId = null;
 			supervisorCodeError = 'Invalid supervisor code';
 		}
 	}
@@ -1181,6 +1186,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		verifySupervisorCode();
 	} else {
 		supervisorName = '';
+		verifiedSupervisorUserId = null;
 		supervisorCodeError = '';
 	}
 
@@ -1208,34 +1214,36 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		}
 
 		try {
-			const { data, error } = await supabase
-				.from('users')
-				.select('username, quick_access_code')
-				.eq('quick_access_code', cashierConfirmCode)
-				.single();
+			// Use RPC for bcrypt hash verification
+			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
+				p_code: cashierConfirmCode
+			});
 
 			if (error) throw error;
 
-			if (data) {
-				const verifiedName = data.username || '';
-				const verifiedCode = data.quick_access_code || '';
+			if (verifyResult && verifyResult.success && verifyResult.user) {
+				const verifiedName = verifyResult.user.username || '';
 				
-				// Must match the exact cashier who started
-				if (verifiedCode !== expectedCashierCode || verifiedName !== expectedCashierName) {
+				// Must match the exact cashier who started (compare by username)
+				if (verifiedName !== expectedCashierName) {
 					cashierConfirmName = '';
+					verifiedCashierUserId = null;
 					cashierConfirmError = $currentLocale === 'ar' ? 'يجب أن يكون الكاشير نفس من بدأ العملية' : 'Must be the same cashier who started the operation';
 					return;
 				}
 				
 				cashierConfirmName = verifiedName;
+				verifiedCashierUserId = verifyResult.user.id;
 				cashierConfirmError = '';
 			} else {
 				cashierConfirmName = '';
+				verifiedCashierUserId = null;
 				cashierConfirmError = $currentLocale === 'ar' ? 'كود الكاشير غير صحيح' : 'Invalid cashier code';
 			}
 		} catch (error) {
 			console.error('Error verifying cashier code:', error);
 			cashierConfirmName = '';
+			verifiedCashierUserId = null;
 			cashierConfirmError = $currentLocale === 'ar' ? 'كود الكاشير غير صحيح' : 'Invalid cashier code';
 		}
 	}
@@ -1245,6 +1253,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		verifyCashierConfirmCode();
 	} else {
 		cashierConfirmName = '';
+		verifiedCashierUserId = null;
 		cashierConfirmError = '';
 	}
 
@@ -1254,15 +1263,12 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		}
 
 		try {
-			// Get supervisor user ID
-			const { data: supervisorData, error: supervisorError } = await supabase
-				.from('users')
-				.select('id')
-				.eq('quick_access_code', supervisorCode)
-				.single();
-
-			if (supervisorError) throw supervisorError;
-			const supervisorUserId = supervisorData?.id;
+			// Use stored supervisor user ID from verification
+			const supervisorUserId = verifiedSupervisorUserId;
+			if (!supervisorUserId) {
+				supervisorCodeError = 'Supervisor not verified';
+				return;
+			}
 
 			// Prepare closing details
 			const closingData = {
@@ -1429,17 +1435,16 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 		try {
 			console.log('🔍 Verifying completed by code:', completedByCode);
-			const { data, error } = await supabase
-				.from('users')
-				.select('username, quick_access_code')
-				.eq('quick_access_code', completedByCode)
-				.maybeSingle();
+			// Use RPC for bcrypt hash verification
+			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
+				p_code: completedByCode
+			});
 
 			if (error) {
 				console.error('Error verifying code:', error);
 				completedByCodeError = 'Error verifying code';
-			} else if (data?.username) {
-				completedByName = data.username;
+			} else if (verifyResult && verifyResult.success && verifyResult.user) {
+				completedByName = verifyResult.user.username;
 				console.log('✅ Code verified for:', completedByName);
 			} else {
 				// No match found, silently wait for more input

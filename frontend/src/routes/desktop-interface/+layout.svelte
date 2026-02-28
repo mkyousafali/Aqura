@@ -222,25 +222,73 @@
 	}
 	
 	// Handle window open requests from pop-out windows
+	// Handler to open a window from a popout request
+	function handleOpenWindowFromPopout(data: any) {
+		const { windowConfig, componentName } = data;
+		console.log('🪟 Opening window from popout:', windowConfig, 'componentName:', componentName);
+		
+		// Dynamically load the component by name since it can't be serialized via postMessage
+		const resolvedName = componentName || windowConfig?.componentName || '';
+		const loader = componentLoaderMap[resolvedName];
+		if (loader) {
+			loader().then((mod) => {
+				const fullConfig = { ...windowConfig, component: mod.default };
+				const newWindowId = windowManager.openWindow(fullConfig);
+				console.log('🪟 Window opened from popout with ID:', newWindowId);
+			}).catch((err) => {
+				console.error('🪟 Failed to load component for popout window:', resolvedName, err);
+			});
+		} else {
+			console.error('🪟 Unknown component name from popout:', resolvedName);
+			console.error('🪟 Available components:', Object.keys(componentLoaderMap).sort());
+		}
+	}
+
 	function handleCrossWindowMessages() {
 		if (typeof window !== 'undefined') {
-			window.addEventListener('message', (event) => {
-				// Only handle messages from our own domain
-				if (event.origin !== window.location.origin) return;
+			// Only set up listeners on the main app (not popout iframes)
+			if (!isPopoutMode) {
+				// Method 1: localStorage 'storage' event - most reliable cross-tab/window communication
+				window.addEventListener('storage', (event) => {
+					if (event.key && event.key.startsWith('aqura-open-window-') && event.newValue) {
+						try {
+							const data = JSON.parse(event.newValue);
+							console.log('🪟 localStorage storage event received:', data);
+							if (data && data.type === 'open-window-from-popout') {
+								handleOpenWindowFromPopout(data);
+							}
+						} catch (e) {
+							console.error('🪟 Failed to parse localStorage event:', e);
+						}
+					}
+				});
+				console.log('🪟 localStorage storage event listener set up on main app');
 				
-				console.log('🪟 Parent received message:', event.data);
+				// Method 2: BroadcastChannel backup
+				try {
+					const bc = new BroadcastChannel('aqura-window-manager');
+					bc.onmessage = (event) => {
+						console.log('🪟 BroadcastChannel received:', event.data);
+						if (event.data && event.data.type === 'open-window-from-popout') {
+							handleOpenWindowFromPopout(event.data);
+						}
+					};
+					console.log('🪟 BroadcastChannel listener set up on main app');
+				} catch (e) {
+					console.warn('🪟 BroadcastChannel not available:', e);
+				}
+			}
+			
+			window.addEventListener('message', (event) => {
+				// Accept messages from our own domain or from pop-out windows (which may have null/blank origin)
+				const isSameOrigin = event.origin === window.location.origin;
+				const isPopoutOrigin = event.origin === 'null' || event.origin === '' || event.origin === 'about:';
+				if (!isSameOrigin && !isPopoutOrigin) return;
+				
+				console.log('🪟 Parent received message:', event.data, 'from origin:', event.origin);
 				
 				if (event.data && event.data.type === 'open-window-from-popout') {
-					const { windowConfig } = event.data;
-					console.log('🪟 Opening window from popout:', windowConfig);
-					
-					// Open the window in the main application and also pop it out
-					const newWindowId = windowManager.openWindow(windowConfig);
-					
-					// Immediately pop out the new window so it appears as a separate browser window
-					setTimeout(() => {
-						windowManager.popOutWindow(newWindowId);
-					}, 100);
+					handleOpenWindowFromPopout(event.data);
 				} else if (event.data && event.data.type === 'popout-ready') {
 					const { windowId } = event.data;
 					console.log('🪟 Popout iframe ready, sending window data for:', windowId);
@@ -327,12 +375,28 @@
 		if (typeof window !== 'undefined' && popoutWindowId) {
 			window.windowManagerProxy = {
 				openWindow: (config) => {
-					// Send message to parent window to open a new window
-					if (window.parent && window.parent !== window) {
-						window.parent.postMessage({
-							type: 'open-window-from-popout',
-							windowConfig: config
-						}, window.location.origin);
+					// Extract componentName since component (Svelte class) can't be serialized
+					const componentName = config.componentName || config.component?.name || '';
+					const { component, ...serializableConfig } = config;
+					const message = {
+						type: 'open-window-from-popout',
+						windowConfig: serializableConfig,
+						componentName: componentName
+					};
+					
+					// Use BroadcastChannel for direct same-origin communication
+					// This bypasses the parent/iframe/opener chain entirely
+					try {
+						const bc = new BroadcastChannel('aqura-window-manager');
+						console.log('🪟 Sending open-window message via BroadcastChannel:', componentName);
+						bc.postMessage(message);
+						bc.close();
+					} catch (e) {
+						console.error('🪟 BroadcastChannel failed:', e);
+						// Fallback to postMessage
+						if (window.parent && window.parent !== window) {
+							window.parent.postMessage(message, '*');
+						}
 					}
 				}
 			};

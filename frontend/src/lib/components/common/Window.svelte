@@ -24,8 +24,8 @@
 		console.log('🔷 Window.svelte title updated:', { windowId: window.id, title: window.title });
 	}
 	
-	// Check if we're in a popout iframe
-	$: isInPopout = typeof globalThis !== 'undefined' && globalThis.window && globalThis.window.location.hash.includes('#popout=');
+	// Check if we're in a popout iframe (URL uses ?popout= query parameter)
+	$: isInPopout = typeof globalThis !== 'undefined' && globalThis.window && (globalThis.window.location.search.includes('popout=') || globalThis.window.location.hash.includes('#popout='));
 	
 	// Debug reactive statement
 	$: {
@@ -233,13 +233,15 @@
 	class:minimized={isMinimized}
 	class:modal={window.modal}
 	class:window-maximized={isMaximized}
+	class:popout-mode={isInPopout}
 	style={windowStyle}
 	on:mousedown={handleWindowClick}
 	role="dialog"
 	aria-label={window.title}
 	aria-modal={window.modal ? 'true' : 'false'}
 >
-	<!-- Title Bar -->
+	<!-- Title Bar - hidden in popout mode since the outer popout window provides its own header -->
+	{#if !isInPopout}
 	<div
 		bind:this={titleBarElement}
 		class="title-bar"
@@ -354,6 +356,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 
 	<!-- Window Content -->
 	<div class="window-content">
@@ -454,6 +457,20 @@
 		position: absolute !important;
 		max-width: 100% !important;
 		max-height: 100vh !important;
+	}
+
+	/* Popout mode - fill the iframe with no border/shadow/rounding */
+	.window.popout-mode {
+		border-radius: 0 !important;
+		border: none !important;
+		box-shadow: none !important;
+		left: 0 !important;
+		top: 0 !important;
+		width: 100% !important;
+		height: 100% !important;
+		position: absolute !important;
+		max-width: 100% !important;
+		max-height: 100% !important;
 	}
 
 	.title-bar {

@@ -504,7 +504,7 @@ class WindowManager {
         componentName = "WALiveChat";
       } else if (windowConfig.title.includes("Customer Account Recovery") || windowConfig.title.includes("Account Recovery")) {
         componentName = "CustomerAccountRecoveryManager";
-      } else if (windowConfig.title.includes("Customer Master")) {
+      } else if (windowConfig.title.includes("Customer Master") || windowConfig.title.includes("Customer #") || windowConfig.title.includes("العملاء")) {
         componentName = "CustomerMaster";
       } else if (windowConfig.title.includes("Approval Center")) {
         componentName = "ApprovalCenter";
@@ -699,82 +699,57 @@ class WindowManager {
 					}
 				"
 			></iframe>
-			<script>
-				// IMMEDIATE: Hide loading dialog right away
-				document.addEventListener('DOMContentLoaded', function() {
-					var loadingEl = document.getElementById('loading');
-					if (loadingEl) {
-						loadingEl.style.display = 'none';
-						console.log('🪟 Loading dialog hidden on DOMContentLoaded');
-					}
-				});
-				
-				// IMMEDIATE: Hide loading dialog without waiting
-				var loadingEl = document.getElementById('loading');
-				if (loadingEl) {
-					loadingEl.style.display = 'none';
-					console.log('🪟 Loading dialog hidden immediately on script execution');
-				}
-				
-				// Backup: Hide loading after a timeout
-				setTimeout(function() {
-					var loadingEl = document.getElementById('loading');
-					if (loadingEl && loadingEl.style.display !== 'none') {
-						console.log('🪟 Hiding loading message via timeout backup');
-						loadingEl.style.display = 'none';
-					}
-				}, 3000);
-				
-				// Immediate check after a short delay
-				setTimeout(function() {
-					var loadingEl = document.getElementById('loading');
-					if (loadingEl) {
-						loadingEl.style.display = 'none';
-						console.log('🪟 Loading message hidden immediately');
-					}
-				}, 500);
-				
-				// More aggressive backup - check multiple times
-				var attempts = 0;
-				var checkInterval = setInterval(function() {
-					attempts++;
-					var loadingEl = document.getElementById('loading');
-					if (loadingEl && loadingEl.style.display !== 'none') {
-						loadingEl.style.display = 'none';
-						console.log('🪟 Loading dialog hidden by interval check #' + attempts);
-					}
-					if (attempts >= 10) { // Stop after 10 attempts (5 seconds)
-						clearInterval(checkInterval);
-					}
-				}, 500);
-				
-				// Listen for completion message from iframe
-				window.addEventListener('message', function(event) {
-					console.log('🪟 Received message:', event.data);
-					if (event.data && event.data.type === 'popout-loading-complete') {
-						console.log('🪟 Received loading complete signal from iframe');
-						var loadingEl = document.getElementById('loading');
-						if (loadingEl) {
-							loadingEl.style.display = 'none';
-							console.log('🪟 Loading dialog hidden via iframe signal');
-						} else {
-							console.log('🪟 Loading element not found');
-						}
-					}
-				});
-				
-				function returnToApp() {
-					// Notify parent window to pop this window back in
-					if (window.opener && !window.opener.closed) {
-						window.opener.postMessage({
-							type: 'pop-in-window',
-							windowId: '${escapedWindowId}'
-						}, '*');
-						window.close();
-					}
-				}
-			</script>
 		`;
+
+    // CRITICAL: Script tags in innerHTML do NOT execute in modern browsers.
+    // We must create script elements programmatically to make them execute.
+    const popoutScript = popOutWindow.document.createElement("script");
+    popoutScript.textContent = `
+			// Hide loading dialog
+			var loadingEl = document.getElementById('loading');
+			if (loadingEl) loadingEl.style.display = 'none';
+			
+			// Backup: Hide loading after timeout
+			setTimeout(function() {
+				var el = document.getElementById('loading');
+				if (el) el.style.display = 'none';
+			}, 2000);
+			
+			// Listen for messages from the iframe
+			window.addEventListener('message', function(event) {
+				console.log('🪟 Popout window received message:', event.data);
+				
+				// Hide loading when iframe signals completion
+				if (event.data && event.data.type === 'popout-loading-complete') {
+					var el = document.getElementById('loading');
+					if (el) el.style.display = 'none';
+				}
+				
+				// RELAY: Forward open-window requests from iframe to main app opener
+				if (event.data && event.data.type === 'open-window-from-popout') {
+					console.log('🪟 Relaying open-window message to main app via opener');
+					if (window.opener && !window.opener.closed) {
+						window.opener.postMessage(event.data, '*');
+					}
+				}
+			});
+			
+			// Define returnToApp globally so the button onclick works
+			window.returnToApp = function() {
+				if (window.opener && !window.opener.closed) {
+					window.opener.postMessage({
+						type: 'pop-in-window',
+						windowId: '${escapedWindowId}'
+					}, '*');
+					window.close();
+				} else {
+					window.close();
+				}
+			};
+			
+			console.log('🪟 Popout window script initialized successfully');
+		`;
+    popOutWindow.document.body.appendChild(popoutScript);
 
     // Update window state
     this.windows.update((windows) => {

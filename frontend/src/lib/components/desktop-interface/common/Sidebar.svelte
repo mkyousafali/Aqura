@@ -56,6 +56,7 @@
 	import SocialLinkManager from '$lib/components/desktop-interface/admin-customer-app/SocialLinkManager.svelte';
 	import DeliverySettings from '$lib/components/desktop-interface/admin-customer-app/DeliverySettings.svelte';
 	import ProductsManager from '$lib/components/desktop-interface/admin-customer-app/ProductsManager.svelte';
+	import ManageProductsWindow from '$lib/components/desktop-interface/admin-customer-app/products/ManageProductsWindow.svelte';
 	import OfferManagement from '$lib/components/desktop-interface/admin-customer-app/OfferManagement.svelte';
 	import ProductSelectorWindow from '$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte';
 	import OrdersManager from '$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte';
@@ -511,6 +512,7 @@
 			id: windowId,
 			title: `${t('admin.branchesMaster') || 'Branch Master'} #${instanceNumber}`,
 			component: BranchMaster,
+			componentName: "BranchMaster",
 			icon: '🏢',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -533,6 +535,7 @@
 			id: windowId,
 			title: `${t('admin.taskMaster') || 'Task Master'} #${instanceNumber}`,
 			component: TaskMaster,
+			componentName: "TaskMaster",
 			icon: '📋',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -555,6 +558,7 @@
 			id: windowId,
 			title: 'Create New Task Template',
 			component: TaskCreateForm,
+			componentName: "TaskCreateForm",
 			icon: '📝',
 			size: { width: 600, height: 500 },
 			position: { 
@@ -578,6 +582,7 @@
 			id: windowId,
 			title: `View Task Templates #${instanceNumber}`,
 			component: TaskViewTable,
+			componentName: "TaskViewTable",
 			icon: '📋',
 			size: { width: 1200, height: 600 },
 			position: { 
@@ -625,6 +630,7 @@
 			id: windowId,
 			title: `My Assignments #${instanceNumber}`,
 			component: MyAssignmentsView,
+			componentName: "MyAssignmentsView",
 			icon: '👨‍💼',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -648,6 +654,7 @@
 			id: windowId,
 			title: `Task Status #${instanceNumber}`,
 			component: TaskStatusView,
+			componentName: "TaskStatusView",
 			icon: '📊',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -671,6 +678,7 @@
 			id: windowId,
 			title: `Assign Tasks #${instanceNumber}`,
 			component: TaskAssignmentView,
+			componentName: "TaskAssignmentView",
 			icon: '👥',
 			size: { width: 900, height: 600 },
 			position: { 
@@ -692,6 +700,7 @@
 			id: windowId,
 			title: 'Branch Performance',
 			component: BranchPerformanceWindow,
+			componentName: "BranchPerformanceWindow",
 			icon: '📊',
 			size: { width: 1000, height: 700 },
 			position: {
@@ -713,6 +722,7 @@
 			id: windowId,
 			title: 'My Daily Checklist',
 			component: DailyChecklistWindow,
+			componentName: "DailyChecklistWindow",
 			icon: '✅',
 			size: { width: 800, height: 600 },
 			position: {
@@ -737,6 +747,7 @@
 			id: windowId,
 			title: `Create Department #${instanceNumber}`,
 			component: CreateDepartment,
+			componentName: "CreateDepartment",
 			icon: '🏢',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -760,6 +771,7 @@
 			id: windowId,
 			title: `Create Level #${instanceNumber}`,
 			component: CreateLevel,
+			componentName: "CreateLevel",
 			icon: '📊',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -783,6 +795,7 @@
 			id: windowId,
 			title: `Create Position #${instanceNumber}`,
 			component: CreatePosition,
+			componentName: "CreatePosition",
 			icon: '💼',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -806,6 +819,7 @@
 			id: windowId,
 			title: `Reporting Map #${instanceNumber}`,
 			component: ReportingMap,
+			componentName: "ReportingMap",
 			icon: '📈',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -829,6 +843,7 @@
 			id: windowId,
 			title: `Assign Positions #${instanceNumber}`,
 			component: AssignPositions,
+			componentName: "AssignPositions",
 			icon: '🎯',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -852,6 +867,7 @@
 			id: windowId,
 			title: `Link ID #${instanceNumber}`,
 			component: LinkID,
+			componentName: "LinkID",
 			icon: '🔗',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -875,6 +891,7 @@
 			id: windowId,
 			title: `Export Biometric Data #${instanceNumber}`,
 			component: BiometricExport,
+			componentName: "BiometricExport",
 			icon: '📊',
 			size: { width: 800, height: 600 },
 			position: { 
@@ -898,6 +915,7 @@
 			id: windowId,
 			title: `Fingerprint Transactions #${instanceNumber}`,
 			component: FingerprintTransactions,
+			componentName: "FingerprintTransactions",
 			icon: '👆',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -921,6 +939,7 @@
 			id: windowId,
 			title: `Process Fingerprint #${instanceNumber}`,
 			component: ProcessFingerprint,
+			componentName: "ProcessFingerprint",
 			icon: '📂',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -944,6 +963,7 @@
 			id: windowId,
 			title: `Employee Files #${instanceNumber}`,
 			component: EmployeeFiles,
+			componentName: "EmployeeFiles",
 			icon: '📁',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -967,6 +987,7 @@
 			id: windowId,
 			title: `Salary and Wage #${instanceNumber}`,
 			component: SalaryAndWage,
+			componentName: "SalaryAndWage",
 			icon: '💰',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -990,6 +1011,7 @@
 			id: windowId,
 			title: `Shift and Day Off #${instanceNumber}`,
 			component: ShiftAndDayOff,
+			componentName: "ShiftAndDayOff",
 			icon: '⌚',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1013,6 +1035,7 @@
 			id: windowId,
 			title: `Leaves and Vacations #${instanceNumber}`,
 			component: LeavesAndVacations,
+			componentName: "LeavesAndVacations",
 			icon: '🌴',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1036,6 +1059,7 @@
 			id: windowId,
 			title: `Discipline #${instanceNumber}`,
 			component: Discipline,
+			componentName: "Discipline",
 			icon: '⚖️',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1059,6 +1083,7 @@
 			id: windowId,
 			title: `Incident Manager #${instanceNumber}`,
 			component: IncidentManager,
+			componentName: "IncidentManager",
 			icon: '🚨',
 			size: { width: 1200, height: 750 },
 			position: { 
@@ -1082,6 +1107,7 @@
 			id: windowId,
 			title: `Daily Checklist Manager #${instanceNumber}`,
 			component: DailyChecklistManager,
+			componentName: "DailyChecklistManager",
 			icon: '📋',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -1105,6 +1131,7 @@
 			id: windowId,
 			title: t('nav.breakRegister'),
 			component: BreakRegisterManager,
+			componentName: "BreakRegisterManager",
 			icon: '☕',
 			size: { width: 1100, height: 700 },
 			position: { 
@@ -1128,6 +1155,7 @@
 			id: windowId,
 			title: `${t('nav.securityCode')} #${instanceNumber}`,
 			component: SecurityCodeWindow,
+			componentName: "SecurityCodeWindow",
 			icon: '🔒',
 			size: { width: 900, height: 600 },
 			position: { 
@@ -1151,6 +1179,7 @@
 			id: windowId,
 			title: `Report Incident #${instanceNumber}`,
 			component: ReportIncident,
+			componentName: "ReportIncident",
 			icon: '📝',
 			size: { width: 900, height: 700 },
 			position: { 
@@ -1179,6 +1208,7 @@
 			id: windowId,
 			title: `Leave Request #${instanceNumber}`,
 			component: LeaveRequest,
+			componentName: "LeaveRequest",
 			icon: '📋',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1201,6 +1231,7 @@
 			id: windowId,
 			title: `Operations Master #${instanceNumber}`,
 			component: OperationsMaster,
+			componentName: "OperationsMaster",
 			icon: '⚙️',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -1224,6 +1255,7 @@
 			id: windowId,
 			title: `Manage Vendor #${instanceNumber}`,
 			component: ManageVendor,
+			componentName: "ManageVendor",
 			icon: '📋',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -1247,6 +1279,7 @@
 			id: windowId,
 			title: `Create Vendor #${instanceNumber}`,
 			component: EditVendor,
+			componentName: "EditVendor",
 			icon: '➕',
 			size: { width: 800, height: 600 },
 			position: { 
@@ -1284,6 +1317,7 @@
 			id: windowId,
 			title: `Upload Vendor #${instanceNumber}`,
 			component: UploadVendor,
+			componentName: "UploadVendor",
 			icon: '📤',
 			size: { width: 900, height: 700 },
 			position: { 
@@ -1306,6 +1340,7 @@
 			id: windowId,
 			title: `${t('admin.customerMaster') || 'Customer'} #${instanceNumber}`,
 			component: CustomerMaster,
+			componentName: 'CustomerMaster',
 			icon: '👥',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1328,11 +1363,35 @@
 			id: windowId,
 			title: `Ad Manager #${instanceNumber}`,
 			component: AdManager,
+			componentName: 'AdManager',
 			icon: '📢',
 			size: { width: 1400, height: 900 },
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showDeliveryManageSubmenu = false;
+	}
+
+	function openManageProductsWindow() {
+		const windowId = generateWindowId('manage-products-window');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Manage Products #${instanceNumber}`,
+			component: ManageProductsWindow,
+			componentName: 'ManageProductsWindow',
+			icon: '📦',
+			size: { width: 1200, height: 700 },
+			position: { 
+				x: 100 + (Math.random() * 50),
+				y: 100 + (Math.random() * 50) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -1373,6 +1432,7 @@
 			id: windowId,
 			title: `Products Manager #${instanceNumber}`,
 			component: ProductsManager,
+			componentName: 'ProductsManager',
 			icon: '🛍️',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1395,6 +1455,7 @@
 			id: windowId,
 			title: `Products Manager New #${instanceNumber}`,
 			component: ProductsManager,
+			componentName: 'ProductsManager',
 			icon: '🛍️',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1417,6 +1478,7 @@
 			id: windowId,
 			title: t('admin.offerManagement') || `Offer Management #${instanceNumber}`,
 			component: OfferManagement,
+			componentName: "OfferManagement",
 			icon: '🎁',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1439,6 +1501,7 @@
 			id: windowId,
 			title: `Orders Manager #${instanceNumber}`,
 			component: OrdersManager,
+			componentName: "OrdersManager",
 			icon: '🛒',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1486,6 +1549,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `User Management #${instanceNumber}`,
 			component: UserManagement,
+			componentName: "UserManagement",
 			icon: '👤',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -1508,6 +1572,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Interface Access Manager #${instanceNumber}`,
 			component: InterfaceAccessManager,
+			componentName: "InterfaceAccessManager",
 			icon: '🔧',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1530,6 +1595,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Sound Settings #${instanceNumber}`,
 			component: Settings,
+			componentName: "Settings",
 			icon: '🔊',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1552,6 +1618,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Approval Permissions #${instanceNumber}`,
 			component: ApprovalPermissionsManager,
+			componentName: "ApprovalPermissionsManager",
 			icon: '🔐',
 			size: { width: 950, height: 750 },
 			position: { 
@@ -1574,6 +1641,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Storage Manager #${instanceNumber}`,
 			component: StorageManager,
+			componentName: "StorageManager",
 			icon: '🗄️',
 			size: { width: 1100, height: 750 },
 			position: { 
@@ -1596,6 +1664,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `${t('nav.apiKeysManager')} #${instanceNumber}`,
 			component: ApiKeysManager,
+			componentName: "ApiKeysManager",
 			icon: '🔑',
 			size: { width: 750, height: 650 },
 			position: { 
@@ -1619,6 +1688,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Clear Tables #${instanceNumber}`,
 			component: ClearTables,
+			componentName: "ClearTables",
 			icon: '🗑️',
 			size: { width: 900, height: 650 },
 			position: { 
@@ -1640,6 +1710,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: 'Push Notification Settings',
 			component: PushNotificationSettings,
+			componentName: "PushNotificationSettings",
 			icon: '🔔',
 			size: { width: 650, height: 550 },
 			position: { 
@@ -1662,6 +1733,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Button Access Control #${instanceNumber}`,
 			component: ButtonAccessControl,
+			componentName: "ButtonAccessControl",
 			icon: '🎛️',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1685,6 +1757,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Button Generator #${instanceNumber}`,
 			component: ButtonGenerator,
+			componentName: "ButtonGenerator",
 			icon: '🔨',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -1708,6 +1781,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `${t('nav.themeManager')} #${instanceNumber}`,
 			component: ThemeManager,
+			componentName: "ThemeManager",
 			icon: '🎨',
 			size: { width: 1100, height: 700 },
 			position: { 
@@ -1731,6 +1805,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `AI Chat Guide #${instanceNumber}`,
 			component: AIChatGuide,
+			componentName: "AIChatGuide",
 			icon: '🤖',
 			size: { width: 900, height: 700 },
 			position: { 
@@ -1754,6 +1829,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `${t('nav.erpProductManager')} #${instanceNumber}`,
 			component: ErpProductManager,
+			componentName: "ErpProductManager",
 			icon: '🏭',
 			size: { width: 1400, height: 800 },
 			position: { 
@@ -1777,6 +1853,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Communication Center #${instanceNumber}`,
 			component: CommunicationCenter,
+			componentName: "CommunicationCenter",
 			icon: '📞',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -1802,6 +1879,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Start Receiving #${instanceNumber}`,
 			component: StartReceiving,
+			componentName: "StartReceiving",
 			icon: '📦',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -1822,6 +1900,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Default Positions #${instanceNumber}`,
 			component: DefaultPositions,
+			componentName: "DefaultPositions",
 			icon: '👥',
 			size: { width: 900, height: 700 },
 			position: { 
@@ -2076,7 +2155,7 @@ function openApprovalCenter() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-dashboard');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappDashboard')} #${n}`, component: WADashboard, icon: '📊', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappDashboard')} #${n}`, component: WADashboard, componentName: 'WADashboard', icon: '📊', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWALiveChat() {
 		collapseAllMenus();
@@ -2088,49 +2167,49 @@ function openApprovalCenter() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-broadcasts');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappBroadcasts')} #${n}`, component: WABroadcasts, icon: '📣', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappBroadcasts')} #${n}`, component: WABroadcasts, componentName: 'WABroadcasts', icon: '📣', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWATemplates() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-templates');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappTemplates')} #${n}`, component: WATemplates, icon: '📝', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappTemplates')} #${n}`, component: WATemplates, componentName: 'WATemplates', icon: '📝', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWAContacts() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-contacts');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappContacts')} #${n}`, component: WAContacts, icon: '👥', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappContacts')} #${n}`, component: WAContacts, componentName: 'WAContacts', icon: '👥', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWAAutoReplyBot() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-auto-reply');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappAutoReply')} #${n}`, component: WAAutoReplyBot, icon: '🔧', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappAutoReply')} #${n}`, component: WAAutoReplyBot, componentName: 'WAAutoReplyBot', icon: '🔧', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWAAIBot() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-ai-bot');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappAIBot')} #${n}`, component: WAaiBot, icon: '🤖', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappAIBot')} #${n}`, component: WAaiBot, componentName: 'WAaiBot', icon: '🤖', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWAAccounts() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-accounts');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappAccounts')} #${n}`, component: WAAccounts, icon: '📱', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappAccounts')} #${n}`, component: WAAccounts, componentName: 'WAAccounts', icon: '📱', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWASettings() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-settings');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappSettings')} #${n}`, component: WASettings, icon: '⚙️', size: { width: 1100, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappSettings')} #${n}`, component: WASettings, componentName: 'WASettings', icon: '⚙️', size: { width: 1100, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWACatalog() {
 		collapseAllMenus();
 		const windowId = generateWindowId('wa-catalog');
 		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappCatalog')} #${n}`, component: WACatalog, icon: '🛍️', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+		openWindow({ id: windowId, title: `${t('nav.whatsappCatalog')} #${n}`, component: WACatalog, componentName: 'WACatalog', icon: '🛍️', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 
 	// Open ERP Products List window
@@ -2143,6 +2222,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `ERP Products #${instanceNumber}`,
 			component: ErpProductsList,
+			componentName: "ErpProductsList",
 			icon: '🏭',
 			size: { width: 1400, height: 800 },
 			position: { 
@@ -2165,6 +2245,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `${t('nav.offerCostManager')} #${instanceNumber}`,
 			component: OfferCostManager,
+			componentName: "OfferCostManager",
 			icon: '💰',
 			size: { width: 1400, height: 800 },
 			position: { 
@@ -2188,6 +2269,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Product Request #${instanceNumber}`,
 			component: ProductRequestDesktop,
+			componentName: "ProductRequestDesktop",
 			icon: '📋',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2210,6 +2292,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `PO Requests #${instanceNumber}`,
 			component: PORequestsList,
+			componentName: "PORequestsList",
 			icon: '🛒',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2232,6 +2315,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Stock Requests #${instanceNumber}`,
 			component: StockRequestsList,
+			componentName: "StockRequestsList",
 			icon: '📦',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2254,6 +2338,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `BT Requests #${instanceNumber}`,
 			component: BTRequestsList,
+			componentName: "BTRequestsList",
 			icon: '🔄',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2276,6 +2361,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Near Expiry Reports #${instanceNumber}`,
 			component: NearExpiryRequestsList,
+			componentName: "NearExpiryRequestsList",
 			icon: '⏰',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2298,6 +2384,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Customer Requests #${instanceNumber}`,
 			component: CustomerProductRequestsList,
+			componentName: "CustomerProductRequestsList",
 			icon: '🛍️',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2320,6 +2407,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: t('nav.productClaimManager'),
 			component: ProductClaimManager,
+			componentName: "ProductClaimManager",
 			icon: '👤',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2341,6 +2429,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: t('nav.expiryControl'),
 			component: ExpiryControl,
+			componentName: "ExpiryControl",
 			icon: '📅',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2363,6 +2452,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Receiving #${instanceNumber}`,
 			component: Receiving,
+			componentName: "Receiving",
 			icon: '📦',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2386,6 +2476,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Paid Manager #${instanceNumber}`,
 			component: PaidManager,
+			componentName: "PaidManager",
 			icon: '💳',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2407,6 +2498,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Denomination #${instanceNumber}`,
 			component: Denomination,
+			componentName: 'Denomination',
 			icon: '💵',
 			size: { width: 900, height: 600 },
 			position: { 
@@ -2415,6 +2507,8 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
 	}
 
@@ -2428,6 +2522,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Petty Cash #${instanceNumber}`,
 			component: PettyCash,
+			componentName: "PettyCash",
 			icon: '💰',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -2451,6 +2546,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Monthly Manager #${instanceNumber}`,
 			component: MonthlyManager,
+			componentName: "MonthlyManager",
 			props: {
 				setRefreshCallback: (fn) => {
 					monthlyManagerRefreshFunction = fn;
@@ -2481,6 +2577,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Monthly Breakdown #${instanceNumber}`,
 			component: MonthlyBreakdown,
+			componentName: "MonthlyBreakdown",
 			props: {},
 			icon: '📊',
 			size: { width: 1400, height: 900 },
@@ -2502,6 +2599,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Over dues #${instanceNumber}`,
 			component: OverduesReport,
+			componentName: "OverduesReport",
 			icon: '⏰',
 			size: { width: 1600, height: 900 },
 			position: { 
@@ -2526,6 +2624,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Expenses Manager #${instanceNumber}`,
 			component: ExpensesManager,
+			componentName: "ExpensesManager",
 			icon: '�',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -2547,6 +2646,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Category Manager #${instanceNumber}`,
 			component: CategoryManager,
+			componentName: "CategoryManager",
 			icon: '📁',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -2568,6 +2668,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `${t('nav.leaseAndRent')} #${instanceNumber}`,
 			component: LeaseAndRent,
+			componentName: "LeaseAndRent",
 			icon: '🏠',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -2582,14 +2683,14 @@ function openApprovalCenter() {
 	// Open Purchase Voucher Manager window
 	function openPurchaseVoucherManager() {
 		collapseAllMenus();
-		
-		// Use fixed window ID to prevent duplicates
-		const windowId = 'purchase-voucher-manager-main';
+		const windowId = generateWindowId('purchase-voucher-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: `Purchase Voucher Manager`,
+			title: `Purchase Voucher Manager #${instanceNumber}`,
 			component: PurchaseVoucherManager,
+			componentName: "PurchaseVoucherManager",
 			icon: '📄',
 			size: { width: 1100, height: 750 },
 			position: { 
@@ -2598,20 +2699,22 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
 	}
 
 	// Open Bank Reconciliation window
 	function openBankReconciliation() {
 		collapseAllMenus();
-		
-		// Use fixed window ID to prevent duplicates
-		const windowId = 'bank-reconciliation-main';
+		const windowId = generateWindowId('bank-reconciliation');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: `Bank Reconciliation`,
+			title: `Bank Reconciliation #${instanceNumber}`,
 			component: BankReconciliation,
+			componentName: "BankReconciliation",
 			icon: '🏦',
 			size: { width: 1200, height: 750 },
 			position: { 
@@ -2620,17 +2723,22 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
 	}
 
 	// Open Manage Reconciliations window
 	function openManageReconciliations() {
 		collapseAllMenus();
-		const windowId = 'manage-reconciliations-main';
+		const windowId = generateWindowId('manage-reconciliations');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
 		openWindow({
 			id: windowId,
-			title: t('nav.manageReconciliations'),
+			title: `${t('nav.manageReconciliations')} #${instanceNumber}`,
 			component: ManageReconciliations,
+			componentName: "ManageReconciliations",
 			icon: '📋',
 			size: { width: 1400, height: 750 },
 			position: {
@@ -2639,19 +2747,22 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
 	}
 
 	// Open Asset Manager window
 	function openAssetManager() {
 		collapseAllMenus();
-		
-		const windowId = 'asset-manager-main';
+		const windowId = generateWindowId('asset-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: t('nav.assetManager'),
+			title: `${t('nav.assetManager')} #${instanceNumber}`,
 			component: AssetManager,
+			componentName: "AssetManager",
 			icon: '🏗️',
 			size: { width: 1100, height: 700 },
 			position: { 
@@ -2660,6 +2771,8 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
 	}
 
@@ -2673,6 +2786,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Day Budget Planner #${instanceNumber}`,
 			component: DayBudgetPlanner,
+			componentName: "DayBudgetPlanner",
 			icon: '📊',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -2696,6 +2810,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Manual Scheduling #${instanceNumber}`,
 			component: ManualScheduling,
+			componentName: "ManualScheduling",
 			icon: '📅',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -2718,6 +2833,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `💰 Expense Tracker #${instanceNumber}`,
 			component: ExpenseTracker,
+			componentName: "ExpenseTracker",
 			icon: '💰',
 			size: { width: 1600, height: 900 },
 			position: { 
@@ -2741,6 +2857,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Sales Report #${instanceNumber}`,
 			component: SalesReport,
+			componentName: "SalesReport",
 			icon: '📊',
 			size: { width: 1600, height: 900 },
 			position: { 
@@ -2764,6 +2881,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Vendor Payments #${instanceNumber}`,
 			component: VendorPendingPayments,
+			componentName: "VendorPendingPayments",
 			icon: '💳',
 			size: { width: 1600, height: 900 },
 			position: { 
@@ -2787,6 +2905,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Vendor Records #${instanceNumber}`,
 			component: VendorRecords,
+			componentName: "VendorRecords",
 			icon: '📋',
 			size: { width: 1600, height: 900 },
 			position: { 
@@ -2809,6 +2928,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `POS Report #${instanceNumber}`,
 			component: POSReport,
+			componentName: "POSReport",
 			icon: '💳',
 			size: { width: 1600, height: 900 },
 			position: { 
@@ -2831,6 +2951,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Receiving Records #${instanceNumber}`,
 			component: ReceivingRecords,
+			componentName: "ReceivingRecords",
 			icon: '📋',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -2853,6 +2974,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Flyer Master #${instanceNumber}`,
 			component: FlyerMasterDashboard,
+			componentName: "FlyerMasterDashboard",
 			icon: '🏷️',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2871,6 +2993,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Products #${instanceNumber}`,
 			component: ProductsDashboard,
+			componentName: "ProductsDashboard",
 			icon: '📦',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2889,6 +3012,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Product Master #${instanceNumber}`,
 			component: ProductMaster,
+			componentName: "ProductMaster",
 			icon: '📦',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2907,6 +3031,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Variation Manager #${instanceNumber}`,
 			component: VariationManager,
+			componentName: "VariationManager",
 			icon: '🔗',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2925,6 +3050,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Offer Product Editor #${instanceNumber}`,
 			component: OfferTemplates,
+			componentName: "OfferTemplates",
 			icon: '✅',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2943,6 +3069,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Create New Offer #${instanceNumber}`,
 			component: OfferProductSelector,
+			componentName: "OfferProductSelector",
 			icon: '🏷️',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2961,6 +3088,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Offer Manager #${instanceNumber}`,
 			component: OfferManager,
+			componentName: "OfferManager",
 			icon: '🎯',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2979,6 +3107,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Pricing Manager #${instanceNumber}`,
 			component: PricingManager,
+			componentName: "PricingManager",
 			icon: '💵',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -2997,6 +3126,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `ERP Entry Manager #${instanceNumber}`,
 			component: ErpEntryManager,
+			componentName: "ErpEntryManager",
 			icon: '📊',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3015,6 +3145,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Generate Flyers #${instanceNumber}`,
 			component: FlyerGenerator,
+			componentName: "FlyerGenerator",
 			icon: '📄',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3033,6 +3164,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Flyer Templates #${instanceNumber}`,
 			component: FlyerTemplates,
+			componentName: "FlyerTemplates",
 			icon: '🎨',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3051,6 +3183,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Normal Paper Manager #${instanceNumber}`,
 			component: NormalPaperManager,
+			componentName: "NormalPaperManager",
 			icon: '📄',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3069,6 +3202,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `One Day Offer Manager #${instanceNumber}`,
 			component: OneDayOfferManager,
+			componentName: "OneDayOfferManager",
 			icon: '📅',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3087,6 +3221,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Flyer Settings #${instanceNumber}`,
 			component: FlyerSettings,
+			componentName: "FlyerSettings",
 			icon: '⚙️',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3105,6 +3240,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Social Link Manager #${instanceNumber}`,
 			component: SocialLinkManager,
+			componentName: "SocialLinkManager",
 			icon: '🔗',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3123,6 +3259,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Shelf Paper Manager #${instanceNumber}`,
 			component: DesignPlanner,
+			componentName: "DesignPlanner",
 			icon: '🏷️',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3141,6 +3278,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Shelf Paper Template Designer #${instanceNumber}`,
 			component: ShelfPaperTemplateDesigner,
+			componentName: "ShelfPaperTemplateDesigner",
 			icon: '📐',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3159,6 +3297,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Near Expiry Manager #${instanceNumber}`,
 			component: NearExpiryManager,
+			componentName: "NearExpiryManager",
 			icon: '⏰',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3178,6 +3317,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Coupon Management #${instanceNumber}`,
 			component: CouponDashboard,
+			componentName: "CouponDashboard",
 			icon: '🎁',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -3200,6 +3340,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Coupon Dashboard #${instanceNumber}`,
 			component: CouponDashboard,
+			componentName: "CouponDashboard",
 			icon: '🎁',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3218,6 +3359,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Campaign Manager #${instanceNumber}`,
 			component: CampaignManager,
+			componentName: "CampaignManager",
 			icon: '📋',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3236,6 +3378,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `View Offer Manager #${instanceNumber}`,
 			component: ViewOfferManager,
+			componentName: "ViewOfferManager",
 			icon: '📊',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3254,6 +3397,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Import Customers #${instanceNumber}`,
 			component: CustomerImporter,
+			componentName: "CustomerImporter",
 			icon: '👥',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3272,6 +3416,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Product Manager #${instanceNumber}`,
 			component: ProductManager,
+			componentName: "ProductManager",
 			icon: '🎁',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3290,6 +3435,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Coupon Reports #${instanceNumber}`,
 			component: CouponReports,
+			componentName: "CouponReports",
 			icon: '📊',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
@@ -3309,6 +3455,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `ERP Connections #${instanceNumber}`,
 			component: ERPConnections,
+			componentName: "ERPConnections",
 			icon: '🔌',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -3354,6 +3501,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Create User #${instanceNumber}`,
 			component: CreateUser,
+			componentName: "CreateUser",
 			icon: '👤',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -3376,6 +3524,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: 'Create Notification',
 			component: CreateNotification,
+			componentName: "CreateNotification",
 			icon: '📝',
 			size: { width: 600, height: 700 },
 			position: { 
@@ -3399,6 +3548,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Manage Admin Users #${instanceNumber}`,
 			component: ManageAdminUsers,
+			componentName: "ManageAdminUsers",
 			icon: '👥',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -3422,6 +3572,7 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Manage Master Admin #${instanceNumber}`,
 			component: ManageMasterAdmin,
+			componentName: "ManageMasterAdmin",
 			icon: '🔐',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -3551,6 +3702,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openProductsManager}>
 								<span class="menu-icon">🛍️</span>
 								<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PRODUCTS_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManageProductsWindow}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">Manage Products</span>
 							</button>
 						</div>
 					{/if}
