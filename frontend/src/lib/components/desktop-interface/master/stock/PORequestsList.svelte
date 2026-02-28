@@ -26,8 +26,6 @@
 	let error = '';
 
 	// Caches
-	let userCache: Record<string, string> = {};
-	let branchCache: Record<number, { name: string; location: string }> = {};
 	let imageCache: Record<string, string> = {};
 
 	// Filters
@@ -39,6 +37,30 @@
 
 	// Detail view
 	let selectedRequest: PORequest | null = null;
+	let highlightedRequestId: string | null = null;
+
+	// Scroll position preservation
+	let listScrollTop = 0;
+	let listScrollContainer: HTMLElement | null = null;
+
+	function openDetail(req: PORequest) {
+		if (listScrollContainer) {
+			listScrollTop = listScrollContainer.scrollTop;
+		}
+		highlightedRequestId = req.id;
+		selectedRequest = req;
+	}
+
+	function goBackToList() {
+		selectedRequest = null;
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				if (listScrollContainer) {
+					listScrollContainer.scrollTop = listScrollTop;
+				}
+			});
+		});
+	}
 
 	// Photo lightbox
 	let lightboxUrl: string | null = null;
@@ -141,62 +163,34 @@
 		loading = true;
 		error = '';
 		try {
-			const { data, error: err } = await supabase
-				.from('product_request_po')
-				.select('*')
-				.order('created_at', { ascending: false });
+			// Single RPC call replaces 3 separate queries (requests + employees + branches)
+			const { data, error: err } = await supabase.rpc('get_po_requests_with_details');
 
 			if (err) throw err;
 
 			const rows = data || [];
+			const isAr = $locale === 'ar';
 
-			// Collect unique user IDs and branch IDs
-			const userIds = new Set<string>();
-			const branchIds = new Set<number>();
-			for (const r of rows) {
-				userIds.add(r.requester_user_id);
-				userIds.add(r.target_user_id);
-				if (r.from_branch_id) branchIds.add(r.from_branch_id);
-			}
-
-			// Batch fetch users from hr_employee_master
-			const uncachedUsers = [...userIds].filter(id => !userCache[id]);
-			if (uncachedUsers.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, name_en, name_ar')
-					.in('user_id', uncachedUsers);
-				for (const e of employees || []) {
-					userCache[e.user_id] = $locale === 'ar' ? (e.name_ar || e.name_en || e.user_id) : (e.name_en || e.name_ar || e.user_id);
-				}
-			}
-
-			// Batch fetch branches
-			const uncachedBranches = [...branchIds].filter(id => !branchCache[id]);
-			if (uncachedBranches.length > 0) {
-				const { data: branches } = await supabase
-					.from('branches')
-					.select('id, name_en, name_ar, location_en, location_ar')
-					.in('id', uncachedBranches);
-				for (const b of branches || []) {
-					const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
-					const location = $locale === 'ar' ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
-					branchCache[b.id] = { name, location };
-				}
-			}
-
-			// Enrich rows
-			requests = rows.map(r => {
-				const branch = branchCache[r.from_branch_id];
-				const branchDisplay = branch ? (branch.location ? `${branch.name} — ${branch.location}` : branch.name) : '—';
+			// Map RPC results to component format
+			requests = rows.map((r: any) => {
+				const branchName = isAr ? (r.branch_name_ar || r.branch_name_en) : (r.branch_name_en || r.branch_name_ar);
+				const branchLocation = isAr ? (r.branch_location_ar || r.branch_location_en) : (r.branch_location_en || r.branch_location_ar);
+				const branchDisplay = branchName ? (branchLocation ? `${branchName} — ${branchLocation}` : branchName) : '—';
 				return {
-					...r,
-					requester_name: userCache[r.requester_user_id] || r.requester_user_id,
-					target_name: userCache[r.target_user_id] || r.target_user_id,
+					id: r.id,
+					requester_user_id: r.requester_user_id,
+					from_branch_id: r.from_branch_id,
+					target_user_id: r.target_user_id,
+					status: r.status,
+					items: r.items,
+					document_url: r.document_url,
+					created_at: r.created_at,
+					updated_at: r.updated_at,
+					requester_name: isAr ? (r.requester_name_ar || r.requester_name_en) : (r.requester_name_en || r.requester_name_ar),
+					target_name: isAr ? (r.target_name_ar || r.target_name_en) : (r.target_name_en || r.target_name_ar),
 					branch_name: branchDisplay
 				};
 			});
-			// Pre-cache images as blob URLs
 			cacheImages(requests);
 		} catch (err: any) {
 			console.error('Error loading PO requests:', err);
@@ -500,7 +494,7 @@
 					<div class="flex items-center gap-3">
 						<button
 							class="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600"
-							on:click={() => selectedRequest = null}
+							on:click={goBackToList}
 						>←</button>
 						<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
 							<span>🛒</span> PO Request
@@ -604,7 +598,7 @@
 						<button on:click={clearFilters} class="mt-3 px-4 py-2 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-xl text-xs font-bold transition-all">{$locale === 'ar' ? 'مسح الفلاتر' : 'Clear Filters'}</button>
 					</div>
 				{:else}
-					<div class="flex-1 overflow-auto">
+					<div class="flex-1 overflow-auto" bind:this={listScrollContainer}>
 						<table class="w-full text-xs border-collapse border border-slate-300">
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-orange-600 text-white">
@@ -622,7 +616,7 @@
 							</thead>
 							<tbody>
 								{#each filteredRequests as req, i}
-									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => selectedRequest = req}>
+									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {highlightedRequestId === req.id ? 'bg-orange-100/80 ring-1 ring-orange-300' : i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => openDetail(req)}>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{req.branch_name}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-700">{req.requester_name}</td>
@@ -630,7 +624,7 @@
 										<td class="border-r border-slate-300 py-2.5 px-3">
 											<button
 												class="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 rounded-lg transition-all text-orange-700 hover:text-orange-900 text-[10px] font-bold whitespace-nowrap"
-												on:click|stopPropagation={() => selectedRequest = req}
+												on:click|stopPropagation={() => openDetail(req)}
 											>
 												{getItemsCount(req.items)} — View
 											</button>

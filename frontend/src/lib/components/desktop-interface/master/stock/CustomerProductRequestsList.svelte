@@ -25,9 +25,6 @@
 	let loading = true;
 	let error = '';
 
-	let userCache: Record<string, string> = {};
-	let branchCache: Record<number, { name: string; location: string }> = {};
-
 	let lightboxUrl: string | null = null;
 	let filterStatus = 'all';
 	let arrivedSet: Set<string> = new Set();
@@ -106,54 +103,31 @@
 		loading = true;
 		error = '';
 		try {
-			const { data, error: err } = await supabase
-				.from('customer_product_requests')
-				.select('*')
-				.order('created_at', { ascending: false });
+			// Single RPC call replaces 3 separate queries (requests + employees + branches)
+			const { data, error: err } = await supabase.rpc('get_customer_requests_with_details');
 
 			if (err) throw err;
 
 			const rows = data || [];
+			const isAr = $locale === 'ar';
 
-			const userIds = new Set<string>();
-			const branchIds = new Set<number>();
-			for (const r of rows) {
-				if (r.requester_user_id) userIds.add(r.requester_user_id);
-				if (r.target_user_id) userIds.add(r.target_user_id);
-				if (r.branch_id) branchIds.add(r.branch_id);
-			}
-
-			const uncachedUsers = [...userIds].filter(id => !userCache[id]);
-			if (uncachedUsers.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, name_en, name_ar')
-					.in('user_id', uncachedUsers);
-				for (const e of employees || []) {
-					userCache[e.user_id] = $locale === 'ar' ? (e.name_ar || e.name_en || e.user_id) : (e.name_en || e.name_ar || e.user_id);
-				}
-			}
-
-			const uncachedBranches = [...branchIds].filter(id => !branchCache[id]);
-			if (uncachedBranches.length > 0) {
-				const { data: branches } = await supabase
-					.from('branches')
-					.select('id, name_en, name_ar, location_en, location_ar')
-					.in('id', uncachedBranches);
-				for (const b of branches || []) {
-					const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
-					const location = $locale === 'ar' ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
-					branchCache[b.id] = { name, location };
-				}
-			}
-
-			requests = rows.map(r => {
-				const branch = branchCache[r.branch_id];
-				const branchDisplay = branch ? (branch.location ? `${branch.name} — ${branch.location}` : branch.name) : '—';
+			// Map RPC results to component format
+			requests = rows.map((r: any) => {
+				const branchName = isAr ? (r.branch_name_ar || r.branch_name_en) : (r.branch_name_en || r.branch_name_ar);
+				const branchLocation = isAr ? (r.branch_location_ar || r.branch_location_en) : (r.branch_location_en || r.branch_location_ar);
+				const branchDisplay = branchName ? (branchLocation ? `${branchName} — ${branchLocation}` : branchName) : '—';
 				return {
-					...r,
-					requester_name: userCache[r.requester_user_id] || r.requester_user_id,
-					target_name: r.target_user_id ? (userCache[r.target_user_id] || r.target_user_id) : '—',
+					id: r.id,
+					requester_user_id: r.requester_user_id,
+					branch_id: r.branch_id,
+					target_user_id: r.target_user_id,
+					status: r.status,
+					items: r.items,
+					notes: r.notes,
+					created_at: r.created_at,
+					updated_at: r.updated_at,
+					requester_name: isAr ? (r.requester_name_ar || r.requester_name_en) : (r.requester_name_en || r.requester_name_ar),
+					target_name: r.target_user_id ? (isAr ? (r.target_name_ar || r.target_name_en) : (r.target_name_en || r.target_name_ar)) : '—',
 					branch_name: r.branch_id ? branchDisplay : '—'
 				};
 			});
