@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CompletedBoxDetails from './CompletedBoxDetails.svelte';
@@ -8,30 +7,40 @@
 
 	export let windowId: string;
 
-	// Initialize Supabase client
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
+	let supabase: any = null;
 
 	let branches: any[] = [];
 	let selectedBranch = '';
-	let completedBoxes: any[] = [];
+	let allLoadedBoxes: any[] = []; // raw data from server
+	let completedBoxes: any[] = []; // filtered for display
 	let existingTransfers: Map<string, string> = new Map();
 	let isLoading = true;
 	let realtimeChannel: RealtimeChannel | null = null;
 	
-	// Pagination
-	let currentPage = 1;
-	let pageSize = 30;
+	// Date-based loading: initial load = last 2 months, "Load More" = older data
+	let pageSize = 50;
+	let currentOffset = 0;
 	let totalCount = 0;
 	let hasMore = true;
+	let loadingMore = false;
+
+	// Date boundaries
+	function getTwoMonthsAgo(): string {
+		const d = new Date();
+		d.setMonth(d.getMonth() - 2);
+		return d.toISOString();
+	}
+	let dateFrom: string | null = getTwoMonthsAgo();
+	let dateTo: string | null = null; // null = no upper bound (now)
+	let showingOlderData = false;
 	
 	// Filters
 	let selectedStatus = 'all'; // all, with-deduction, without-deduction
 	let searchCashierName = '';
 
 	onMount(async () => {
+		const mod = await import('$lib/utils/supabase');
+		supabase = mod.supabase;
 		await loadBranches();
 		await loadCompletedBoxes();
 		setupRealtimeSubscription();
@@ -171,114 +180,80 @@ async function loadBranches() {
 			console.error('Error loading branches:', error);
 		}
 	}
-	async function loadExistingTransfers() {
-		try {
-			const { data, error } = await supabase
-				.from('pos_deduction_transfers')
-				.select('box_number, branch_id, date_closed_box, status');
-
-			if (error) throw error;
-			
-			// Create a Map with key -> status for quick lookup
-			existingTransfers = new Map(
-				(data || []).map(t => [
-					`${t.box_number}-${t.branch_id}-${t.date_closed_box}`,
-					t.status
-				])
-			);
-		} catch (error) {
-			console.error('Error loading existing transfers:', error);
-		}
-	}
-
 	async function loadCompletedBoxes(append = false) {
-		isLoading = true;
+		if (append) {
+			loadingMore = true;
+		} else {
+			isLoading = true;
+		}
 		try {
-			let countQuery = supabase
-				.from('box_operations')
-				.select('*', { count: 'exact', head: true })
-				.eq('status', 'completed');
 
-			let dataQuery = supabase
-				.from('box_operations')
-				.select('*')
-				.eq('status', 'completed');
-
-			// Only filter by branch if not "all"
-			if (selectedBranch && selectedBranch !== 'all') {
-				countQuery = countQuery.eq('branch_id', selectedBranch);
-				dataQuery = dataQuery.eq('branch_id', selectedBranch);
-			}
-
-			// Add pagination
-			const from = (currentPage - 1) * pageSize;
-			const to = from + pageSize - 1;
-			dataQuery = dataQuery.range(from, to).order('updated_at', { ascending: false });
-
-			// Load count, data, and transfers in parallel
-			const [countResult, dataResult] = await Promise.all([
-				countQuery,
-				dataQuery,
-				loadExistingTransfers()
-			]);
-
-			if (countResult.error) throw countResult.error;
-			if (dataResult.error) throw dataResult.error;
-
-			let boxes = dataResult.data || [];
+			// For the initial 2-month load, fetch ALL records (no limit).
+			// For older data (Load More), use paginated loading.
+			const useLimit = showingOlderData ? pageSize : 100000;
 			
-			// Apply client-side filters
-			if (selectedStatus !== 'all') {
-				boxes = boxes.filter(box => {
-					const difference = getClosingDifference(box.complete_details);
-					const hasAnyShortage = difference < 0;
-					
-					if (!hasAnyShortage) return false; // Only show boxes with shortage
-					
-					const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
-					const status = existingTransfers.get(transferKey);
-					
-					if (selectedStatus === 'not-transferred') {
-						return !status; // No transfer record
-					} else if (selectedStatus === 'forgiven') {
-						return status === 'Forgiven';
-					} else if (selectedStatus === 'proposed') {
-						return status === 'Proposed';
-					}
-					return true;
-				});
-			}
-			
-			if (searchCashierName.trim()) {
-				const searchLower = searchCashierName.toLowerCase();
-				boxes = boxes.filter(box => {
-					const cashierName = parseCashierName(box.notes).toLowerCase();
-					return cashierName.includes(searchLower);
-				});
-			}
+			const { data: rpcResult, error: rpcError } = await supabase.rpc('get_closed_boxes', {
+				p_branch_id: selectedBranch || 'all',
+				p_date_from: dateFrom || null,
+				p_date_to: dateTo || null,
+				p_limit: useLimit,
+				p_offset: currentOffset
+			});
 
-			totalCount = countResult.count || 0;
+			if (rpcError) throw rpcError;
+
+			const result = rpcResult || { boxes: [], total_count: 0 };
+			let boxes = result.boxes || [];
+
+			// Build transfer map from RPC results
+			for (const box of boxes) {
+				if (box.transfer_key && box.transfer_status) {
+					existingTransfers.set(box.transfer_key, box.transfer_status);
+				}
+			}
+			existingTransfers = new Map(existingTransfers);
+
+			totalCount = result.total_count || 0;
 			
 			if (append) {
-				completedBoxes = [...completedBoxes, ...boxes];
+				allLoadedBoxes = [...allLoadedBoxes, ...boxes];
 			} else {
-				completedBoxes = boxes;
+				allLoadedBoxes = boxes;
 			}
 			
-			hasMore = completedBoxes.length < totalCount;
-			console.log(`📦 Loaded ${completedBoxes.length} of ${totalCount} boxes, hasMore: ${hasMore}`);
+			// Apply filters
+			applyFilters();
+			
+			// For older data loading, check if there's more to paginate
+			// For the initial 2-month load, all data is fetched at once
+			hasMore = showingOlderData && boxes.length === pageSize;
+			console.log(`📦 Loaded ${completedBoxes.length} boxes (this batch: ${boxes.length}), total in range: ${totalCount}, hasMore: ${hasMore}`);
 		} catch (error) {
 			console.error('Error loading completed boxes:', error);
 			completedBoxes = [];
 		} finally {
 			isLoading = false;
+			loadingMore = false;
 		}
 	}
 
 	function loadMore() {
-		if (!hasMore || isLoading) return;
-		currentPage++;
-		loadCompletedBoxes(true);
+		if (loadingMore || isLoading) return;
+		if (hasMore) {
+			// Load next page within current date range
+			currentOffset += pageSize;
+			loadCompletedBoxes(true);
+		}
+	}
+
+	function loadOlderData() {
+		if (loadingMore || isLoading) return;
+		// Switch to loading ALL older data (before the 2-month window)
+		showingOlderData = true;
+		dateTo = dateFrom; // upper bound = old dateFrom
+		dateFrom = null;   // no lower bound
+		currentOffset = 0;
+		loadCompletedBoxes(true); // append to existing
 	}
 
 	function setupRealtimeSubscription() {
@@ -340,19 +315,53 @@ async function loadBranches() {
 		realtimeChannel = subscription;
 	}
 
+	// Apply client-side filters on already-loaded data
+	function applyFilters() {
+		let filtered = [...allLoadedBoxes];
+		
+		if (selectedStatus !== 'all') {
+			filtered = filtered.filter(box => {
+				const difference = getClosingDifference(box.complete_details);
+				const hasAnyShortage = difference < 0;
+				
+				if (!hasAnyShortage) return false;
+				
+				const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
+				const status = existingTransfers.get(transferKey);
+				
+				if (selectedStatus === 'not-transferred') return !status;
+				if (selectedStatus === 'forgiven') return status === 'Forgiven';
+				if (selectedStatus === 'proposed') return status === 'Proposed';
+				return true;
+			});
+		}
+		
+		if (searchCashierName.trim()) {
+			const searchLower = searchCashierName.toLowerCase();
+			filtered = filtered.filter(box => {
+				const cashierName = parseCashierName(box.notes).toLowerCase();
+				return cashierName.includes(searchLower);
+			});
+		}
+		
+		completedBoxes = filtered;
+	}
+
 	// Watch for branch changes
-	$: if (selectedBranch) {
-		currentPage = 1; // Reset to first page when changing branch
+	$: if (selectedBranch && supabase) {
+		// Reset pagination and date range
+		currentOffset = 0;
+		dateFrom = getTwoMonthsAgo();
+		dateTo = null;
+		showingOlderData = false;
 		loadCompletedBoxes();
 		setupRealtimeSubscription();
 	}
-	
-	// Watch for filter changes
+
+	// Watch for filter changes (client-side only, no re-fetch)
 	$: if (selectedStatus || searchCashierName !== undefined) {
-		if (currentPage !== 1) {
-			currentPage = 1;
-		} else {
-			loadCompletedBoxes();
+		if (allLoadedBoxes.length > 0) {
+			applyFilters();
 		}
 	}
 
@@ -500,13 +509,12 @@ async function loadBranches() {
 				/>
 			</div>
 			
-			{#if hasMore && !isLoading}
+			{#if completedBoxes.length > 0}
 				<div class="filter-section">
-					<button class="load-more-btn" on:click={loadMore}>
-						🔽 {$currentLocale === 'ar' ? 'تحميل المزيد' : 'Load More'}
-					</button>
 					<span class="load-more-info">
-						{$currentLocale === 'ar' ? `عرض ${completedBoxes.length} من ${totalCount}` : `Showing ${completedBoxes.length} of ${totalCount}`}
+						{$currentLocale === 'ar' 
+							? `عرض ${completedBoxes.length} (${showingOlderData ? 'الكل' : 'آخر شهرين'})` 
+							: `Showing ${completedBoxes.length} (${showingOlderData ? 'All time' : 'Last 2 months'})`}
 					</span>
 				</div>
 			{/if}
@@ -584,6 +592,27 @@ async function loadBranches() {
 					{/each}
 				</tbody>
 			</table>
+
+			<!-- Load More / Load Older buttons -->
+			<div class="load-more-container">
+				{#if loadingMore}
+					<div class="loading-more-indicator">
+						<div class="spinner-small"></div>
+						<span>{$currentLocale === 'ar' ? 'جاري تحميل المزيد...' : 'Loading more...'}</span>
+					</div>
+				{:else}
+					{#if hasMore}
+						<button class="load-more-btn" on:click={loadMore}>
+							🔽 {$currentLocale === 'ar' ? 'تحميل المزيد' : 'Load More'}
+						</button>
+					{/if}
+					{#if !showingOlderData}
+						<button class="load-older-btn" on:click={loadOlderData}>
+							📜 {$currentLocale === 'ar' ? 'تحميل بيانات أقدم (قبل شهرين)' : 'Load Older Data (before 2 months)'}
+						</button>
+					{/if}
+				{/if}
+			</div>
 		{/if}
 	</div>
 </div>
@@ -972,5 +1001,62 @@ async function loadBranches() {
 
 	.status-toggle-btn.status-cancelled:hover {
 		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+	}
+
+	.load-more-container {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		align-items: center;
+		padding: 1.5rem 0 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.load-more-container .load-more-btn {
+		width: auto;
+		min-width: 180px;
+	}
+
+	.load-older-btn {
+		background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.5rem;
+		font-size: 0.9rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+		letter-spacing: 0.3px;
+		min-width: 280px;
+	}
+
+	.load-older-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+	}
+
+	.load-older-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+	}
+
+	.loading-more-indicator {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		color: #1f7a3a;
+		font-weight: 600;
+		padding: 0.75rem;
+	}
+
+	.spinner-small {
+		border: 3px solid #e8f0ed;
+		border-top: 3px solid #1f7a3a;
+		border-radius: 50%;
+		width: 24px;
+		height: 24px;
+		animation: spin 1s linear infinite;
 	}
 </style>
