@@ -261,29 +261,15 @@
 			// Pre-cache images as blob URLs
 			cacheImages(requests);
 
-			// Load assigned IM for each BT request (from quick_task_assignments)
+			// Load assigned IM for each BT request via RPC (avoids URL length limit with many IDs)
 			const reqIds = rows.map(r => r.id);
 			if (reqIds.length > 0) {
 				try {
-					const { data: imTasks } = await supabase
-						.from('quick_tasks')
-						.select('id, product_request_id')
-						.in('product_request_id', reqIds)
-						.eq('product_request_type', 'BT')
-						.eq('issue_type', 'product_request_process');
-					if (imTasks && imTasks.length > 0) {
-						const taskIds = imTasks.map(t => t.id);
-						const { data: assignments } = await supabase
-							.from('quick_task_assignments')
-							.select('quick_task_id, assigned_to_user_id')
-							.in('quick_task_id', taskIds);
-						if (assignments) {
-							for (const a of assignments) {
-								const task = imTasks.find(t => t.id === a.quick_task_id);
-								if (task?.product_request_id) {
-									btAssignedIM[task.product_request_id] = a.assigned_to_user_id;
-								}
-							}
+					const { data: imData, error: imErr } = await supabase.rpc('get_bt_assigned_ims', { p_request_ids: reqIds });
+					if (imErr) throw imErr;
+					if (imData) {
+						for (const row of imData) {
+							btAssignedIM[row.product_request_id] = row.assigned_to_user_id;
 						}
 					}
 				} catch (err) {
