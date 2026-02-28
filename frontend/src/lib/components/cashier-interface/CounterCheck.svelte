@@ -148,17 +148,23 @@
 		}
 
 		try {
-			const { data, error } = await supabase
-				.from('users')
-				.select('id, username, quick_access_code')
-				.eq('id', user.id)
-				.single();
+			// Use RPC for bcrypt hash verification
+			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
+				p_code: cashierAccessCode
+			});
 
 			if (error) throw error;
 
-			if (data && data.quick_access_code === cashierAccessCode) {
-				cashierCodeValid = true;
-				cashierName = data.username || '';
+			if (verifyResult && verifyResult.success && verifyResult.user) {
+				// Ensure the verified code belongs to the logged-in user
+				if (verifyResult.user.id === user.id) {
+					cashierCodeValid = true;
+					cashierName = verifyResult.user.username || '';
+				} else {
+					cashierCodeValid = false;
+					cashierName = '';
+					errorMessage = $currentLocale === 'ar' ? 'رمز الدخول لا يتطابق مع المستخدم المسجل' : 'Access code does not match logged user';
+				}
 			} else {
 				cashierCodeValid = false;
 				cashierName = '';
@@ -178,16 +184,15 @@
 		}
 
 		try {
-			const { data, error } = await supabase
-				.from('users')
-				.select('username')
-				.eq('quick_access_code', supervisorAccessCode)
-				.single();
+			// Use RPC for bcrypt hash verification
+			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
+				p_code: supervisorAccessCode
+			});
 
 			if (error) throw error;
 
-			if (data) {
-				supervisorName = data.username || '';
+			if (verifyResult && verifyResult.success && verifyResult.user) {
+				supervisorName = verifyResult.user.username || '';
 			} else {
 				supervisorName = '';
 				errorMessage = $currentLocale === 'ar' ? 'الرجاء إدخال رمز الدخول الصحيح' : 'Please enter correct access code';
