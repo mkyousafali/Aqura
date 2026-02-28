@@ -64,17 +64,15 @@
 		const rows: any[] = [];
 		for (const emp of totalSummaryData) {
 			for (const day of (emp.days || [])) {
-				if (day.total_seconds > 0) {
-					rows.push({
-						date: day.date,
-						employee_name_en: emp.employee_name_en,
-						employee_name_ar: emp.employee_name_ar,
-						employee_id: emp.employee_id,
-						branch_id: emp.branch_id,
-						total_seconds: day.total_seconds,
-						break_count: day.break_count
-					});
-				}
+				rows.push({
+					date: day.date,
+					employee_name_en: emp.employee_name_en,
+					employee_name_ar: emp.employee_name_ar,
+					employee_id: emp.employee_id,
+					branch_id: emp.branch_id,
+					total_seconds: day.total_seconds,
+					break_count: day.break_count
+				});
 			}
 		}
 		rows.sort((a: any, b: any) => {
