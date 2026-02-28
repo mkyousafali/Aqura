@@ -56,7 +56,7 @@ BEGIN
         ) AS emp_row
         FROM hr_employee_master e
         WHERE e.user_id IS NOT NULL
-          AND (e.employment_status IS NULL OR e.employment_status != 'terminated')
+          AND COALESCE(e.employment_status, '') NOT IN ('Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away')
           AND (p_branch_id IS NULL OR e.current_branch_id = p_branch_id)
     ) final;
 
