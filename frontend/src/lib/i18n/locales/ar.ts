@@ -1215,6 +1215,7 @@ export const arabicLocale: LocaleData = {
       cashierAccessDenied: "تم رفض الوصول. صلاحية الكاشير معطلة لهذا المستخدم.",
       confirmLogout: "تأكيد تسجيل الخروج",
       confirmLogoutMessage: "هل تريد بالتأكيد تسجيل الخروج من الحساب؟",
+      changeAccessCode: "تغيير رمز الوصول",
     },
 
     reports: {

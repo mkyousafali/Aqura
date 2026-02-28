@@ -176,36 +176,22 @@ export class PersistentAuthService {
         return { success: false, error: "Invalid access code format" };
       }
 
-      // Get user by quick access code
-      const { data: users, error: userError } = await supabase
-        .from("users")
-        .select(
-          `
-          id,
-          username,
-          user_type,
-          status,
-          is_master_admin,
-          is_admin,
-          employee_id,
-          branch_id
-        `,
-        )
-        .eq("status", "active")
-        .eq("quick_access_code", quickAccessCode)
-        .limit(1);
+      // Verify quick access code via RPC (bcrypt hash comparison)
+      const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_quick_access_code', {
+        p_code: quickAccessCode
+      });
 
-      if (userError) {
-        console.error("❌ [PersistentAuth] Database error:", userError);
+      if (verifyError) {
+        console.error("❌ [PersistentAuth] Database error:", verifyError);
         return { success: false, error: "Database connection error. Please try again." };
       }
 
-      if (!users || users.length === 0) {
+      if (!verifyResult || !verifyResult.success) {
         console.error("❌ [PersistentAuth] No user found with quick access code");
-        return { success: false, error: "Invalid access code" };
+        return { success: false, error: verifyResult?.error || "Invalid access code" };
       }
 
-      const dbUser = users[0];
+      const dbUser = verifyResult.user;
       console.log("✅ [PersistentAuth] Quick access code validated for user:", dbUser.username);
 
       // Get user permissions
@@ -249,42 +235,24 @@ export class PersistentAuthService {
         throw new Error("Invalid access code format");
       }
 
-      console.log("🔍 [PersistentAuth] Querying database for user with quick access code");
+      console.log("🔍 [PersistentAuth] Verifying quick access code via RPC");
 
-      // Step 2: Get user by quick access code directly from database
-      const { data: users, error: userError } = await supabase
-        .from("users")
-        .select(
-          `
-					id,
-					username,
-					quick_access_code,
-					quick_access_salt,
-					status,
-					user_type,
-					employee_id,
-					branch_id,
-					is_master_admin,
-					is_admin,
-					position_id,
-					avatar
-				`,
-        )
-        .eq("status", "active")
-        .eq("quick_access_code", quickAccessCode)
-        .limit(1);
+      // Step 2: Verify quick access code via RPC (bcrypt hash comparison)
+      const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_quick_access_code', {
+        p_code: quickAccessCode
+      });
 
-      if (userError) {
-        console.error("❌ [PersistentAuth] Database error:", userError);
+      if (verifyError) {
+        console.error("❌ [PersistentAuth] Database error:", verifyError);
         throw new Error("Database connection error. Please try again.");
       }
 
-      if (!users || users.length === 0) {
+      if (!verifyResult || !verifyResult.success) {
         console.error("❌ [PersistentAuth] No user found with quick access code");
-        throw new Error("Invalid access code");
+        throw new Error(verifyResult?.error || "Invalid access code");
       }
 
-      const dbUser = users[0];
+      const dbUser = verifyResult.user;
       console.log("✅ [PersistentAuth] Found user:", dbUser.username);
 
       // Step 3: Get user details from view

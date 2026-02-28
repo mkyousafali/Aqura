@@ -3,6 +3,9 @@
 	import { goto } from '$app/navigation';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
+
+	let showChangeAccessCode = false;
 
 	function t(keyPath: string): string {
 		const keys = keyPath.split('.');
@@ -662,6 +665,11 @@
 								</form>
 							{/if}
 						</div>
+
+						<!-- Change Access Code Link -->
+						<button class="change-code-link" on:click={() => showChangeAccessCode = true}>
+							🔑 {t('auth.changeAccessCode') || 'Change Access Code'}
+						</button>
 					{/if}
 				</div>
 
@@ -697,6 +705,10 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if showChangeAccessCode}
+			<ChangeAccessCode locale={$currentLocale} on:close={() => showChangeAccessCode = false} />
+		{/if}
 	{/if}
 </div>
 
@@ -1254,6 +1266,25 @@
 		opacity: 0.5;
 		cursor: not-allowed;
 		transform: none;
+	}
+
+	.change-code-link {
+		background: none;
+		border: none;
+		color: #3b82f6;
+		font-size: 13px;
+		cursor: pointer;
+		padding: 8px 0;
+		margin-top: 12px;
+		text-decoration: underline;
+		transition: color 0.2s;
+		display: block;
+		width: 100%;
+		text-align: center;
+	}
+
+	.change-code-link:hover {
+		color: #1d4ed8;
 	}
 
 	.loading-spinner {

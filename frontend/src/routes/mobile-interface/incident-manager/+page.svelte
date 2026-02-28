@@ -226,7 +226,8 @@
 				`)
 				.contains('reports_to_user_ids', [currentUserID])
 				.eq('resolution_status', 'resolved')
-				.order('created_at', { ascending: false });
+				.order('created_at', { ascending: false })
+				.limit(6);
 
 			if (error) throw error;
 
@@ -422,6 +423,12 @@
 					✅ {$currentLocale === 'ar' ? 'تم حلها' : 'Resolved'} {resolvedLoaded ? `(${resolvedIncidents.length})` : ''}
 				</button>
 			</div>
+
+			{#if viewMode === 'resolved' && !loadingResolved && resolvedLoaded}
+				<div class="latest-info">
+					ℹ️ {$currentLocale === 'ar' ? 'يتم عرض آخر 6 حوادث تم حلها فقط' : 'Showing latest 6 resolved incidents only'}
+				</div>
+			{/if}
 
 			{#if viewMode === 'resolved' && loadingResolved}
 				<div class="loading-spinner">
@@ -620,6 +627,17 @@
 	.view-toggle-btn.resolved-toggle.active {
 		background: #d1fae5;
 		color: #059669;
+	}
+
+	.latest-info {
+		font-size: 0.68rem;
+		color: #64748b;
+		text-align: center;
+		padding: 0.25rem 0.5rem;
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 6px;
+		margin-bottom: 0.4rem;
 	}
 	
 	/* Empty State */

@@ -5,6 +5,9 @@
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { localeData, currentLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
+	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
+
+	let showChangeAccessCode = false;
 
 	// Helper function to get translations
 	function t(keyPath: string): string {
@@ -410,12 +413,36 @@
 						</div>
 					</div>
 				{/if}
+				<!-- Change Access Code Button -->
+				<button class="change-code-link" on:click={() => showChangeAccessCode = true}>
+					🔑 {t('auth.changeAccessCode') || 'Change Access Code'}
+				</button>
 			</div>
 		</div>
+	{/if}
+
+	{#if showChangeAccessCode}
+		<ChangeAccessCode locale={$currentLocale} on:close={() => showChangeAccessCode = false} />
 	{/if}
 </div>
 
 <style>
+	.change-code-link {
+		background: none;
+		border: none;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 13px;
+		cursor: pointer;
+		padding: 8px 0;
+		margin-top: 12px;
+		text-decoration: underline;
+		transition: color 0.2s;
+	}
+
+	.change-code-link:hover {
+		color: white;
+	}
+
 	/* Mobile-first login page */
 	.mobile-login-page {
 		width: 100%;
