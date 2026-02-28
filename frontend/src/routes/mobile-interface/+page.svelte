@@ -25,6 +25,18 @@
 	let activeBreak: any = null;
 	let breakElapsed = 0;
 	let breakTimerInterval: ReturnType<typeof setInterval> | null = null;
+	let breakTotalToday = 0; // in seconds
+	let breakTotalYesterday = 0; // in seconds
+
+	function formatBreakDuration(totalSeconds: number): string {
+		if (totalSeconds <= 0) return '00:00';
+		const h = Math.floor(totalSeconds / 3600);
+		const m = Math.floor((totalSeconds % 3600) / 60);
+		const s = totalSeconds % 60;
+		if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
+		if (m > 0) return `${m}m ${s > 0 ? s + 's' : ''}`;
+		return `${s}s`;
+	}
 
 	function formatBreakTimer(seconds: number): string {
 		const h = Math.floor(seconds / 3600);
@@ -427,6 +439,13 @@
 					}
 				});
 
+			// Step 13: Map break totals from RPC
+			if (result.break_totals) {
+				breakTotalToday = result.break_totals.today_seconds || 0;
+				breakTotalYesterday = result.break_totals.yesterday_seconds || 0;
+				console.log('☕ Break totals - Today:', breakTotalToday, 'Yesterday:', breakTotalYesterday);
+			}
+
 			stats.pendingTasks = result.pending_tasks || 0;
 			console.log('📋 Pending tasks:', stats.pendingTasks);
 			const endTime = performance.now();
@@ -784,8 +803,19 @@
 						<h3 class="break-timer">{formatBreakTimer(breakElapsed)}</h3>
 						<p>{$localeData.code === 'ar' ? 'في استراحة' : 'On Break'}</p>
 					{:else}
-						<p>{$localeData.code === 'ar' ? 'سجل الاستراحة' : 'Break Register'}</p>
+						<p class="break-card-title">{$localeData.code === 'ar' ? 'سجل الاستراحة' : 'Break Register'}</p>
 					{/if}
+					<div class="break-totals">
+						<span class="break-total-item">
+							<span class="break-total-label">{$localeData.code === 'ar' ? 'اليوم' : 'Today'}</span>
+							<span class="break-total-value" class:has-value={breakTotalToday > 0}>{formatBreakDuration(breakTotalToday)}</span>
+						</span>
+						<span class="break-total-divider">|</span>
+						<span class="break-total-item">
+							<span class="break-total-label">{$localeData.code === 'ar' ? 'أمس' : 'Yest.'}</span>
+							<span class="break-total-value" class:has-value={breakTotalYesterday > 0}>{formatBreakDuration(breakTotalYesterday)}</span>
+						</span>
+					</div>
 				</div>
 			</div>
 
@@ -1199,6 +1229,43 @@
 		font-family: 'Courier New', monospace !important;
 		color: #EF4444 !important;
 		font-variant-numeric: tabular-nums;
+	}
+	.break-card-title {
+		margin-bottom: 2px !important;
+	}
+	.break-totals {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 3px;
+		font-size: 0.65rem;
+		color: #6B7280;
+	}
+	.break-total-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1px;
+	}
+	.break-total-label {
+		font-size: 0.55rem;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		color: #9CA3AF;
+	}
+	.break-total-value {
+		font-weight: 600;
+		font-size: 0.7rem;
+		color: #9CA3AF;
+		font-variant-numeric: tabular-nums;
+	}
+	.break-total-value.has-value {
+		color: #8B5CF6;
+	}
+	.break-total-divider {
+		color: #D1D5DB;
+		font-size: 0.7rem;
+		margin: 0 2px;
 	}
 	@keyframes break-pulse {
 		0%, 100% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15); }
