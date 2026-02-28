@@ -28,8 +28,6 @@
 	let error = '';
 
 	// Caches
-	let userCache: Record<string, string> = {};
-	let branchCache: Record<number, { name: string; location: string }> = {};
 	let imageCache: Record<string, string> = {};
 
 	// Detail view
@@ -225,61 +223,35 @@
 		loading = true;
 		error = '';
 		try {
-			const { data, error: err } = await supabase
-				.from('product_request_bt')
-				.select('*')
-				.order('created_at', { ascending: false });
+			// Single RPC call replaces 3 separate queries (requests + employees + branches)
+			const { data, error: err } = await supabase.rpc('get_bt_requests_with_details');
 
 			if (err) throw err;
 
 			const rows = data || [];
+			const isAr = $locale === 'ar';
 
-			// Collect unique user IDs and branch IDs
-			const userIds = new Set<string>();
-			const branchIds = new Set<number>();
-			for (const r of rows) {
-				userIds.add(r.requester_user_id);
-				userIds.add(r.target_user_id);
-				if (r.from_branch_id) branchIds.add(r.from_branch_id);
-				if (r.to_branch_id) branchIds.add(r.to_branch_id);
-			}
-
-			// Batch fetch users from hr_employee_master
-			const uncachedUsers = [...userIds].filter(id => !userCache[id]);
-			if (uncachedUsers.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, name_en, name_ar')
-					.in('user_id', uncachedUsers);
-				for (const e of employees || []) {
-					userCache[e.user_id] = $locale === 'ar' ? (e.name_ar || e.name_en || e.user_id) : (e.name_en || e.name_ar || e.user_id);
-				}
-			}
-
-			// Batch fetch branches
-			const uncachedBranches = [...branchIds].filter(id => !branchCache[id]);
-			if (uncachedBranches.length > 0) {
-				const { data: branches } = await supabase
-					.from('branches')
-					.select('id, name_en, name_ar, location_en, location_ar')
-					.in('id', uncachedBranches);
-				for (const b of branches || []) {
-					const name = $locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
-					const location = $locale === 'ar' ? (b.location_ar || b.location_en || '') : (b.location_en || b.location_ar || '');
-					branchCache[b.id] = { name, location };
-				}
-			}
-
-			// Enrich rows
-			requests = rows.map(r => {
-				const fromBranch = branchCache[r.from_branch_id];
-				const toBranch = branchCache[r.to_branch_id];
-				const fromDisplay = fromBranch ? (fromBranch.location ? `${fromBranch.name} — ${fromBranch.location}` : fromBranch.name) : '—';
-				const toDisplay = toBranch ? (toBranch.location ? `${toBranch.name} — ${toBranch.location}` : toBranch.name) : '—';
+			// Map RPC results to component format
+			requests = rows.map((r: any) => {
+				const fromName = isAr ? (r.from_branch_name_ar || r.from_branch_name_en) : (r.from_branch_name_en || r.from_branch_name_ar);
+				const fromLoc = isAr ? (r.from_branch_location_ar || r.from_branch_location_en) : (r.from_branch_location_en || r.from_branch_location_ar);
+				const fromDisplay = fromName ? (fromLoc ? `${fromName} — ${fromLoc}` : fromName) : '—';
+				const toName = isAr ? (r.to_branch_name_ar || r.to_branch_name_en) : (r.to_branch_name_en || r.to_branch_name_ar);
+				const toLoc = isAr ? (r.to_branch_location_ar || r.to_branch_location_en) : (r.to_branch_location_en || r.to_branch_location_ar);
+				const toDisplay = toName ? (toLoc ? `${toName} — ${toLoc}` : toName) : '—';
 				return {
-					...r,
-					requester_name: userCache[r.requester_user_id] || r.requester_user_id,
-					target_name: userCache[r.target_user_id] || r.target_user_id,
+					id: r.id,
+					requester_user_id: r.requester_user_id,
+					from_branch_id: r.from_branch_id,
+					to_branch_id: r.to_branch_id,
+					target_user_id: r.target_user_id,
+					status: r.status,
+					items: r.items,
+					document_url: r.document_url,
+					created_at: r.created_at,
+					updated_at: r.updated_at,
+					requester_name: isAr ? (r.requester_name_ar || r.requester_name_en) : (r.requester_name_en || r.requester_name_ar),
+					target_name: isAr ? (r.target_name_ar || r.target_name_en) : (r.target_name_en || r.target_name_ar),
 					from_branch_name: fromDisplay,
 					to_branch_name: toDisplay
 				};
@@ -288,7 +260,7 @@
 			cacheImages(requests);
 
 			// Load assigned IM for each BT request via RPC (avoids URL length limit with many IDs)
-			const reqIds = rows.map(r => r.id);
+			const reqIds = rows.map((r: any) => r.id);
 			if (reqIds.length > 0) {
 				try {
 					const { data: imData, error: imErr } = await supabase.rpc('get_bt_assigned_ims', { p_request_ids: reqIds });
