@@ -110,11 +110,12 @@
 		if (!assignment?.quick_tasks?.id) return;
 		try {
 			// Check if a shelf_tag_change sub-task already exists for this price_change task
+			// Use .like() since description contains other text alongside linked_parent_task:UUID
 			const { data, error } = await supabase
 				.from('quick_tasks')
 				.select('id, status')
 				.eq('issue_type', 'shelf_tag_change')
-				.eq('description', `linked_parent_task:${assignment.quick_tasks.id}`)
+				.like('description', `%linked_parent_task:${assignment.quick_tasks.id}%`)
 				.limit(1);
 			
 			if (!error && data && data.length > 0) {
