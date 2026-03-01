@@ -54,21 +54,9 @@ BEGIN
             -- Reporter name (from hr_employee_master by user_id = created_by)
             'reporter_name_en', reporter.name_en,
             'reporter_name_ar', reporter.name_ar,
-            -- Claimed-by user name (find user with status 'claimed' in user_statuses)
-            'claimed_by_name_en', (
-                SELECT e.name_en
-                FROM jsonb_each(i.user_statuses) AS us(uid, status_obj)
-                JOIN hr_employee_master e ON e.user_id = us.uid::uuid
-                WHERE LOWER(us.status_obj->>'status') = 'claimed'
-                LIMIT 1
-            ),
-            'claimed_by_name_ar', (
-                SELECT e.name_ar
-                FROM jsonb_each(i.user_statuses) AS us(uid, status_obj)
-                JOIN hr_employee_master e ON e.user_id = us.uid::uuid
-                WHERE LOWER(us.status_obj->>'status') = 'claimed'
-                LIMIT 1
-            ),
+            -- Claimed-by user name (use claimed_user_id with direct join)
+            'claimed_by_name_en', claimed_emp.name_en,
+            'claimed_by_name_ar', claimed_emp.name_ar,
             -- Report-to users with names (subquery)
             'report_to_users', (
                 SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -111,6 +99,7 @@ BEGIN
         LEFT JOIN hr_employee_master emp ON emp.id = i.employee_id
         LEFT JOIN branches b ON b.id = i.branch_id
         LEFT JOIN hr_employee_master reporter ON reporter.user_id = i.created_by
+        LEFT JOIN hr_employee_master claimed_emp ON claimed_emp.user_id = i.claimed_user_id
     ) sub;
 
     RETURN COALESCE(v_result, '[]'::JSONB);
