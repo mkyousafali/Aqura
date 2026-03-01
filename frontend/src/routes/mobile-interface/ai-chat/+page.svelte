@@ -261,9 +261,9 @@
 			const currentMonthStart = `${saudiNow.getFullYear()}-${String(saudiNow.getMonth() + 1).padStart(2, '0')}-01`;
 			const currentMonthEnd = yesterdayStr;
 
-			const lastMonthDate = new Date(saudiNow.getFullYear(), saudiNow.getMonth() - 1, 1);
+			const lastMonthDate = new Date(yesterday.getFullYear(), yesterday.getMonth() - 1, 1);
 			const lastMonthStart = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
-			const lastMonthSameDayDate = new Date(saudiNow.getFullYear(), saudiNow.getMonth() - 1, yesterday.getDate());
+			const lastMonthSameDayDate = new Date(yesterday.getFullYear(), yesterday.getMonth() - 1, yesterday.getDate());
 			const lastMonthEnd = `${lastMonthSameDayDate.getFullYear()}-${String(lastMonthSameDayDate.getMonth() + 1).padStart(2, '0')}-${String(lastMonthSameDayDate.getDate()).padStart(2, '0')}`;
 
 			const sameDateLastMonthStr = lastMonthEnd;
