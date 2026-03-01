@@ -130,7 +130,7 @@ RETURNS TABLE (
     requester_user_id UUID,
     branch_id INTEGER,
     target_user_id UUID,
-    status VARCHAR,
+    status TEXT,
     items JSONB,
     notes TEXT,
     created_at TIMESTAMPTZ,
