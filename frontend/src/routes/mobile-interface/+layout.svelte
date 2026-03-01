@@ -412,23 +412,10 @@
 				.neq('status', 'completed')
 				.neq('status', 'cancelled');
 
-			// Get quick tasks created/assigned by this user
-			const { data: myQuickTasks } = await supabase
-				.from('quick_tasks')
-				.select('id')
-				.eq('assigned_by', currentUserData.id);
-
-			let quickCount = 0;
-			if (myQuickTasks && myQuickTasks.length > 0) {
-				const quickTaskIds = myQuickTasks.map(qt => qt.id);
-				const { count } = await supabase
-					.from('quick_task_assignments')
-					.select('id', { count: 'exact', head: true })
-					.in('quick_task_id', quickTaskIds)
-					.neq('status', 'completed')
-					.neq('status', 'cancelled');
-				quickCount = count || 0;
-			}
+			// Get ongoing quick assignment count via RPC (avoids URL-too-long with many task IDs)
+			const { data: quickCountData } = await supabase
+				.rpc('get_ongoing_quick_assignment_count', { p_user_id: currentUserData.id });
+			const quickCount = quickCountData || 0;
 
 			assignmentCount = (regularCount || 0) + quickCount;
 		} catch (e) {
