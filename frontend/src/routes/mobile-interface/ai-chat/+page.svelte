@@ -258,7 +258,7 @@
 			const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
 			const yesterdayDisplay = yesterday.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Riyadh' });
 
-			const currentMonthStart = `${saudiNow.getFullYear()}-${String(saudiNow.getMonth() + 1).padStart(2, '0')}-01`;
+			const currentMonthStart = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-01`;
 			const currentMonthEnd = yesterdayStr;
 
 			const lastMonthDate = new Date(yesterday.getFullYear(), yesterday.getMonth() - 1, 1);

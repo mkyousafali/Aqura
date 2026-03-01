@@ -272,7 +272,7 @@
 			const yesterdayDisplay = yesterday.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
 			// Current month range (1st to yesterday)
-			const currentMonthStart = `${saudiNow.getFullYear()}-${String(saudiNow.getMonth() + 1).padStart(2, '0')}-01`;
+			const currentMonthStart = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-01`;
 			const currentMonthEnd = yesterdayStr;
 
 			// Last month range (1st to same date as yesterday — for fair comparison)
