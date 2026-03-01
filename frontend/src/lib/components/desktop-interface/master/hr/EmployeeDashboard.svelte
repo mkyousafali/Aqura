@@ -42,7 +42,7 @@
 	let bySponsor: { name: string; count: number; color: string }[] = [];
 
 	// Tab
-	type TabId = 'overview' | 'attendance' | 'expiry' | 'breakdown';
+	type TabId = 'overview' | 'attendance' | 'expiry' | 'breakdown' | 'all-employees';
 	let activeTab: TabId = 'overview';
 
 	const tabs: { id: TabId; icon: string; label: string; color: string }[] = [
@@ -50,6 +50,7 @@
 		{ id: 'attendance', icon: '🕐', label: 'Attendance', color: 'teal' },
 		{ id: 'expiry', icon: '⚠️', label: 'Expiry Alerts', color: 'orange' },
 		{ id: 'breakdown', icon: '📈', label: 'Breakdowns', color: 'green' },
+		{ id: 'all-employees', icon: '👥', label: 'All Employees', color: 'purple' },
 	];
 
 	const STATUS_COLORS: Record<string, string> = {
@@ -138,6 +139,7 @@
 			tabs[1].label = $t('employeeDashboard.attendance');
 			tabs[2].label = $t('employeeDashboard.expiryAlerts');
 			tabs[3].label = $t('employeeDashboard.breakdowns');
+			tabs[4].label = 'All Employees';
 
 			computeStats();
 		} catch (err: any) {
@@ -370,6 +372,7 @@
 			case 'attendance': return 'teal';
 			case 'expiry': return 'orange';
 			case 'breakdown': return 'green';
+			case 'all-employees': return 'purple';
 			default: return 'blue';
 		}
 	}
@@ -381,6 +384,7 @@
 			case 'teal': return 'bg-teal-600 text-white shadow-lg shadow-teal-200 scale-[1.02]';
 			case 'orange': return 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]';
 			case 'green': return 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]';
+			case 'purple': return 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]';
 			default: return 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]';
 		}
 	}
@@ -837,8 +841,73 @@
 							</div>
 						</div>
 					</div>
-				{/if}
+
+				<!-- TAB: All Employees -->
+				{:else if activeTab === 'all-employees'}
+					{@const filteredEmployees = getFilteredEmployees()}
+					{#if filteredEmployees.length === 0}
+						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+							<div class="text-5xl mb-4">👥</div>
+							<p class="text-slate-600 font-semibold">No employees found</p>
+						</div>
+					{:else}
+						<div class="mb-2 text-xs text-slate-500 font-semibold">
+							{$t('employeeDashboard.showing')} <strong class="text-slate-700">{filteredEmployees.length}</strong> {filteredEmployees.length === 1 ? 'employee' : 'employees'}
+						</div>
+						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
+							<div class="overflow-x-auto flex-1">
+								<table class="w-full border-collapse [&_th]:border-x [&_th]:border-purple-500/30 [&_td]:border-x [&_td]:border-slate-200">
+									<thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
+										<tr>
+											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.employeeId')}</th>
+											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.employeeName')}</th>
+											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.branch')}</th>
+											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Nationality</th>
+											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Position</th>
+											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.status')}</th>
+											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Sponsored</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-slate-200">
+										{#each filteredEmployees as emp, index}
+											<tr class="hover:bg-purple-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+												<td class="px-4 py-3 text-xs text-slate-400 font-mono">{emp.id}</td>
+												<td class="px-4 py-3 text-sm text-slate-700 font-semibold">
+													{$locale === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar)}
+												</td>
+												<td class="px-4 py-3 text-sm text-slate-600">
+													{$locale === 'ar' ? (emp.branches?.name_ar || emp.branches?.name_en || '-') : (emp.branches?.name_en || emp.branches?.name_ar || '-')}
+												</td>
+												<td class="px-4 py-3 text-sm text-slate-600">
+													{$locale === 'ar' ? (emp.nationalities?.name_ar || emp.nationalities?.name_en || '-') : (emp.nationalities?.name_en || emp.nationalities?.name_ar || '-')}
+												</td>
+												<td class="px-4 py-3 text-sm text-slate-600">
+													{$locale === 'ar' ? (emp.hr_positions?.position_title_ar || emp.hr_positions?.position_title_en || 'Unassigned') : (emp.hr_positions?.position_title_en || emp.hr_positions?.position_title_ar || 'Unassigned')}
+												</td>
+												<td class="px-4 py-3 text-center">
+													<span class="inline-block px-3 py-1 rounded-full text-[10px] font-black {STATUS_BG[emp.employment_status] || 'bg-slate-100 text-slate-700'}">
+														{emp.employment_status || 'Unknown'}
+													</span>
+												</td>
+												<td class="px-4 py-3 text-center text-sm font-semibold">
+													{#if emp.sponsorship_status}
+														<span class="text-green-600">✓ Yes</span>
+													{:else}
+														<span class="text-red-600">✗ No</span>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+							<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+								{$t('employeeDashboard.showing')} {filteredEmployees.length} {filteredEmployees.length === 1 ? 'employee' : 'employees'}
+							</div>
+						</div>
+					{/if}
 			{/if}
-		</div>
+		{/if}
 	</div>
+</div>
 </div>
