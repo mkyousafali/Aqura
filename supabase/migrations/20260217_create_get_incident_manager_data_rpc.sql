@@ -9,7 +9,9 @@ AS $$
 DECLARE
     v_result JSONB;
 BEGIN
-    SELECT jsonb_agg(incident_row ORDER BY (incident_row->>'created_at') DESC)
+    SELECT jsonb_agg(incident_row ORDER BY 
+        CASE WHEN (incident_row->>'resolution_status') = 'resolved' THEN 1 ELSE 0 END ASC,
+        (incident_row->>'created_at') DESC)
     INTO v_result
     FROM (
         SELECT jsonb_build_object(
