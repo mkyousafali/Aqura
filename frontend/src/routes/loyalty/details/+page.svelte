@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { _, currentLocale, switchLocale } from '$lib/i18n';
 	import { sanitizeText } from '$lib/utils/sanitize';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let cardNumber = $page.url.searchParams.get('cardNumber') || '';
 	let cardDataArray: any[] = [];
@@ -146,7 +147,7 @@
 					<div class="card-title"></div>
 					<div class="card-icons">
 						<div class="app-logo">
-							<img src="/icons/logo.png" alt="Aqura Logo" />
+							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" />
 						</div>
 					</div>
 				</div>

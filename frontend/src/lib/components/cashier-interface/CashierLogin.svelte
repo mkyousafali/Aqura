@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { setCashierAuth } from '$lib/stores/cashierAuth';
 	import { t, currentLocale, switchLocale } from '$lib/i18n';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
@@ -252,7 +253,7 @@
 			<div class="logo-section">
 				<div class="logo-header">
 					<div class="logo">
-						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+						<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
 					</div>
 					<button 
 						class="language-toggle-main" 

@@ -3,6 +3,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import { localeData } from '$lib/i18n';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let currentUserData = null;
 	let pendingBoxes = [];
@@ -135,9 +136,9 @@ if (amount === null || amount === undefined) return '';
 <span class="value" class:positive={details.total_difference > 0} class:negative={details.total_difference < 0}>
 {#if $localeData.code === 'ar'}
 {formatCurrency(details.total_difference)}
-<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 {:else}
-<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 {formatCurrency(details.total_difference)}
 {/if}
 </span>

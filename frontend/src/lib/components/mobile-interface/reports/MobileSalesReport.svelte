@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import { supabase } from '$lib/utils/supabase';
 	import { _ as t, currentLocale } from '$lib/i18n';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	interface DailySales {
 		date: string;
@@ -614,7 +615,7 @@
 					<div class="month-avg previous">
 						<div class="month-label">{$t('reports.previousMonth')}</div>
 						<div class="month-value">
-							<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+							<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 							{formatCurrency(previousMonthAvg.average)}
 						</div>
 						<div class="month-days">{previousMonthAvg.totalDays} {$t('reports.days')}</div>
@@ -624,7 +625,7 @@
 					<div class="month-avg current">
 						<div class="month-label">{$t('reports.currentMonth')}</div>
 						<div class="month-value">
-							<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+							<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 							{formatCurrency(currentMonthAvg.average)}
 						</div>
 						<div class="month-days">{currentMonthAvg.totalDays} {$t('reports.days')}</div>
@@ -641,12 +642,12 @@
 						<div class="sale-info">
 							<div class="date-label">{formatDate(day.date)}</div>
 							<div class="amount-label">
-								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 								{formatCurrency(day.total_amount)}
 							</div>
 							<div class="bills-label">{day.total_bills} {$t('reports.bills')}</div>
 							<div class="basket-label">
-								{$t('reports.basket')}: <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+								{$t('reports.basket')}: <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
 								{formatCurrency(day.total_bills > 0 ? day.total_amount / day.total_bills : 0)}
 							</div>
 							<div class="return-label">
@@ -680,7 +681,7 @@
 								<div class="mini-badge previous-badge">
 									<div class="badge-label">{$t('reports.previous')}</div>
 									<div class="badge-value">
-										<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-micro" />
+										<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-micro" />
 										{formatCurrency(branch.previousMonthAvg)}
 									</div>
 								</div>
@@ -689,7 +690,7 @@
 								<div class="mini-badge current-badge">
 									<div class="badge-label">{$t('reports.current')}</div>
 									<div class="badge-value">
-										<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-micro" />
+										<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-micro" />
 										{formatCurrency(branch.currentMonthAvg)}
 									</div>
 								</div>
@@ -701,12 +702,12 @@
 						<div class="sale-info">
 							<div class="date-label">{branch.branch_name}</div>
 							<div class="amount-label">
-								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 								{formatCurrency(branch.total_amount)}
 							</div>
 							<div class="bills-label">{branch.total_bills} {$t('reports.bills')}</div>
 							<div class="basket-label">
-								{$t('reports.basket')}: <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+								{$t('reports.basket')}: <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
 								{formatCurrency(branch.total_bills > 0 ? branch.total_amount / branch.total_bills : 0)}
 							</div>
 							<div class="return-label">
@@ -741,12 +742,12 @@
 						<div class="sale-info">
 							<div class="date-label">{branch.branch_name}</div>
 							<div class="amount-label">
-								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 								{formatCurrency(branch.total_amount)}
 							</div>
 							<div class="bills-label">{branch.total_bills} {$t('reports.bills')}</div>
 							<div class="basket-label">
-								{$t('reports.basket')}: <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+								{$t('reports.basket')}: <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
 								{formatCurrency(branch.total_bills > 0 ? branch.total_amount / branch.total_bills : 0)}
 							</div>
 							<div class="return-label">
@@ -781,7 +782,7 @@
 						<div class="sale-info">
 							<div class="date-label">{branch.branch_name}</div>
 							<div class="amount-label">
-								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 								{formatCurrency(branch.total_amount)}
 							</div>
 						</div>
@@ -813,7 +814,7 @@
 						<div class="sale-info">
 							<div class="date-label">{branch.branch_name}</div>
 							<div class="amount-label">
-								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 								{formatCurrency(branch.total_amount)}
 							</div>
 						</div>

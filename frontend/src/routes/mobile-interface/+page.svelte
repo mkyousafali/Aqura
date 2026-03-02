@@ -7,6 +7,7 @@
 	import { supabase, getStoragePublicUrl } from '$lib/utils/supabase';
 	import { dataService } from '$lib/utils/dataService';
 	import { realtimeService } from '$lib/utils/realtimeService';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { localeData } from '$lib/i18n';
 	
@@ -836,8 +837,8 @@
 
 	<!-- Logo at bottom -->
 	<div class="bottom-logo">
-		<img src="/icons/logo.png" alt="Aqura" />
-		<img src="/icons/Aqura%20logo.png" alt="Aqura" />
+		<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" />
+		<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" />
 	</div>
 </div>
 

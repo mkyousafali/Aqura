@@ -25,6 +25,7 @@
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+	import { loadIcons } from '$lib/stores/iconStore';
 	
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
@@ -554,6 +555,9 @@
 			isAuthenticated = currentAuthState;
 			currentUserData = currentUserState;
 			isLoading = false; // CRITICAL: Always set loading to false here
+
+			// Load app icons from database (non-blocking)
+			loadIcons().catch(e => console.warn('Icon store init failed:', e));
 			
 			// Only redirect if necessary and avoid loops
 			const isCashier = $page.url.pathname.startsWith('/cashier-interface');

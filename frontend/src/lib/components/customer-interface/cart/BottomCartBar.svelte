@@ -6,6 +6,7 @@
   import { deliveryTiers, deliveryActions, freeDeliveryThreshold } from '$lib/stores/delivery.js';
   import { orderFlow } from '$lib/stores/orderFlow.js';
   import { supabase } from '$lib/utils/supabase';
+  import { iconUrlMap } from '$lib/stores/iconStore';
   
   let offersChannel = null;
   
@@ -332,9 +333,9 @@
       <span class="total-amount">
         {#if currentLanguage === 'ar'}
           {formatPrice(total)}
-          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+          <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
         {:else}
-          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+          <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
           {formatPrice(total)}
         {/if}
       </span>

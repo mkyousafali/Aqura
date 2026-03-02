@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { cartStore, cartActions, cartTotal, cartCount } from '$lib/stores/cart.js';
   import { supabase } from '$lib/utils/supabase';
+  import { iconUrlMap } from '$lib/stores/iconStore';
   
   let currentLanguage = 'ar';
   let customerId = null;
@@ -405,9 +406,9 @@
                 <div class="item-price">
                   {#if currentLanguage === 'ar'}
                     {formatPrice(item.combinedPrice)}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                   {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {formatPrice(item.combinedPrice)}
                   {/if}
                 </div>
@@ -451,9 +452,9 @@
                 <div class="item-price">
                   {#if currentLanguage === 'ar'}
                     {formatPrice(item.combinedPrice)}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                   {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {formatPrice(item.combinedPrice)}
                   {/if}
                 </div>
@@ -488,9 +489,9 @@
                 <div class="item-price">
                   {#if currentLanguage === 'ar'}
                     {formatPrice(item.price)}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                   {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {formatPrice(item.price)}
                   {/if}
                 </div>
@@ -518,9 +519,9 @@
                 <div class="item-total">
                   {#if currentLanguage === 'ar'}
                     {formatPrice(item.price * item.quantity)}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                   {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {formatPrice(item.price * item.quantity)}
                   {/if}
                 </div>
@@ -544,9 +545,9 @@
         {#if !isFreeDelivery && total > 0}
           <div class="delivery-incentive">
             {#if currentLanguage === 'ar'}
-              🚚 أضف {formatPrice(freeDeliveryThreshold - total)} <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" /> أكثر للحصول على توصيل مجاني!
+              🚚 أضف {formatPrice(freeDeliveryThreshold - total)} <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" /> أكثر للحصول على توصيل مجاني!
             {:else}
-              🚚 Add <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" /> {formatPrice(freeDeliveryThreshold - total)} more for free delivery!
+              🚚 Add <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" /> {formatPrice(freeDeliveryThreshold - total)} more for free delivery!
             {/if}
           </div>
         {:else if isFreeDelivery}
@@ -561,9 +562,9 @@
           <span class="summary-value">
             {#if currentLanguage === 'ar'}
               {formatPrice(total)}
-              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
             {:else}
-              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
               {formatPrice(total)}
             {/if}
           </span>
@@ -577,9 +578,9 @@
             {:else}
               {#if currentLanguage === 'ar'}
                 {formatPrice(finalDeliveryFee)}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
               {:else}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                 {formatPrice(finalDeliveryFee)}
               {/if}
             {/if}
@@ -591,9 +592,9 @@
           <span class="summary-value total-value">
             {#if currentLanguage === 'ar'}
               {formatPrice(finalTotal)}
-              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
             {:else}
-              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
               {formatPrice(finalTotal)}
             {/if}
           </span>

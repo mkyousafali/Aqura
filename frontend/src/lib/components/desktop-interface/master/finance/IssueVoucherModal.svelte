@@ -2,6 +2,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	export let item = null;
 	export let itemId = '';
@@ -1010,7 +1011,7 @@
 			<div class="receipt-container">
 				<!-- App Logo - Centered -->
 				<div class="logo-container">
-					<img src="/icons/logo.png" alt="App Logo" class="app-logo" />
+					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="App Logo" class="app-logo" />
 				</div>
 
 				<!-- Header - Bilingual -->

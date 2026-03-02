@@ -5,6 +5,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { sanitizeText } from '$lib/utils/sanitize';
 	import { onMount } from 'svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let state = $state({
 		offers: [] as any[],
@@ -329,7 +330,7 @@
 		{:else if state.dataLoaded}
 			<div class="logo-wrapper">
 				<div class="logo-container">
-					<img src="/icons/logo.png" alt="Aqura Logo" class="app-logo" />
+					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="app-logo" />
 				</div>
 			</div>
 

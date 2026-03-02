@@ -4,6 +4,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 
 	export let windowId: string;
@@ -1585,7 +1586,7 @@
 					<div class="receipt-container">
 						<!-- Logo Header -->
 						<div class="receipt-logo">
-							<img src="/icons/logo.png" alt="App Logo" class="logo-image" />
+							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="App Logo" class="logo-image" />
 						</div>
 
 						<!-- Header -->

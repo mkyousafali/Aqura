@@ -5,6 +5,7 @@
 	import { localeData, t, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { favoritesStore, favoriteButtonCodes, favoritesPanelOpen } from '$lib/stores/favorites';
 	import type { FavoriteButton } from '$lib/stores/favorites';
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
@@ -556,7 +557,7 @@
 						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ1.1.1.1</button>
 
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
-							<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
+							<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
 						</div>
 						<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
 					</div>

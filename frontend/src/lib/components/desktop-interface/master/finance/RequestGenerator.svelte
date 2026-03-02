@@ -4,6 +4,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import html2canvas from 'html2canvas';
 	import { notificationService } from '$lib/utils/notificationManagement';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	// Step management
 	let currentStep = 1;
@@ -1678,7 +1679,7 @@
 					<!-- Header with Logo and App Name -->
 					<div class="template-header">
 						<div class="logo-section">
-							<img src="/icons/icon-192x192.png" alt="Logo" class="app-logo" />
+							<img src={$iconUrlMap['logo'] || '/icons/icon-192x192.png'} alt="Logo" class="app-logo" />
 							<div class="app-info">
 								<div class="app-name-en">Aqura</div>
 								<div class="app-name-ar">أكورا</div>

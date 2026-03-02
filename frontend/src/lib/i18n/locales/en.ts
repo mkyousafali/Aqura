@@ -154,6 +154,7 @@ export const englishLocale: LocaleData = {
       themeManager: "Theme Manager",
       erpProductManager: "ERP Product Manager",
       storageManager: "Storage Manager",
+      iconManager: "Icon Manager",
       apiKeysManager: "API Keys Manager",
       breakRegister: "Break Register",
       securityCode: "Security Code",
@@ -2808,6 +2809,29 @@ export const englishLocale: LocaleData = {
       previous: "Previous",
       continue: "Continue",
       finish: "Finish",
+    },
+
+    // Icon Manager
+    iconManager: {
+      title: "Icon Manager",
+      icons: "icons",
+      uploadNew: "Upload New Icon",
+      searchPlaceholder: "Search by name, key, or description...",
+      all: "All",
+      noIcons: "No icons found",
+      iconName: "Icon Name",
+      iconKey: "Icon Key",
+      iconKeyHint: "Unique identifier used in code. Auto-generated from name.",
+      category: "Category",
+      description: "Description",
+      file: "Icon File",
+      upload: "Upload",
+      editIcon: "Edit Icon",
+      currentIcon: "Current icon",
+      replaceFile: "Replace File (optional)",
+      confirmDelete: "Confirm Delete",
+      deleteWarning: "Are you sure you want to delete",
+      deleteWarningDetail: "This will remove the icon from storage. Components using this icon will show broken images.",
     },
 
     // Common Messages

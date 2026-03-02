@@ -100,6 +100,7 @@
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
+	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -1681,6 +1682,28 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 	}
 
+	function openIconManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('icon-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.iconManager')} #${instanceNumber}`,
+			component: IconManager,
+			componentName: "IconManager",
+			icon: '🎨',
+			size: { width: 1100, height: 750 },
+			position: { 
+				x: 110 + (Math.random() * 100), 
+				y: 60 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function openApiKeysManager() {
 		collapseAllMenus();
 		const windowId = generateWindowId('api-keys-manager');
@@ -2038,6 +2061,7 @@ function openApprovalCenter() {
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
 			'STORAGE_MANAGER': openStorageManager,
+			'ICON_MANAGER': openIconManager,
 			'API_KEYS_MANAGER': openApiKeysManager,
 			'PUSH_NOTIFICATION_SETTINGS': openPushNotificationSettings,
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
@@ -5782,6 +5806,14 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openStorageManager}>
 							<span class="menu-icon">🗄️</span>
 							<span class="menu-text">{t('nav.storageManager') || 'Storage Manager'}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('ICON_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openIconManager}>
+							<span class="menu-icon">🎨</span>
+							<span class="menu-text">{t('nav.iconManager') || 'Icon Manager'}</span>
 						</button>
 					</div>
 				{/if}

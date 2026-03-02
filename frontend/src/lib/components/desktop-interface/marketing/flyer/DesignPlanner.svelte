@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { supabase } from '$lib/utils/supabase';
   import { windowManager } from '$lib/stores/windowManager';
+  import { iconUrlMap } from '$lib/stores/iconStore';
   import ShelfPaperTemplateDesigner from '$lib/components/desktop-interface/marketing/flyer/ShelfPaperTemplateDesigner.svelte';
 
   interface Offer {
@@ -961,12 +962,14 @@
           if (field.label === 'offer_price' && value.includes('.')) {
             const parts = value.split('.');
             const halfFontSize = Math.round(scaledFontSize * 0.5);
+            const sarIcon = $iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png';
             // Use flexbox with baseline alignment for proper vertical alignment
-            contentHtml = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+            contentHtml = '<div style="display:flex;align-items:baseline;"><img src="' + sarIcon + '" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
           } else {
             // Add currency symbol for regular price field
+            const sarIcon2 = $iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png';
             const currencySymbol = field.label === 'price' 
-              ? '<img src="/icons/saudi-currency.png" style="width:auto;height:' + Math.round(scaledFontSize * 0.5) + 'px;margin-right:4px;" alt="SAR">' 
+              ? '<img src="' + sarIcon2 + '" style="width:auto;height:' + Math.round(scaledFontSize * 0.5) + 'px;margin-right:4px;" alt="SAR">' 
               : '';
             contentHtml = currencySymbol + value;
           }
@@ -1287,10 +1290,12 @@
             if (field.label === 'offer_price' && value.includes('.')) {
               const parts = value.split('.');
               const halfFontSize = Math.round(scaledFontSize * 0.5);
-              contentHtml = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+              const sarIcon = $iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png';
+              contentHtml = '<div style="display:flex;align-items:baseline;"><img src="' + sarIcon + '" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
             } else {
+              const sarIcon2 = $iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png';
               const currencySymbol = field.label === 'price' 
-                ? '<img src="/icons/saudi-currency.png" style="width:auto;height:' + Math.round(scaledFontSize * 0.5) + 'px;margin-right:4px;" alt="SAR">' 
+                ? '<img src="' + sarIcon2 + '" style="width:auto;height:' + Math.round(scaledFontSize * 0.5) + 'px;margin-right:4px;" alt="SAR">' 
                 : '';
               contentHtml = currencySymbol + value;
             }

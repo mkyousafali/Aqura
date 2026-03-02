@@ -3,6 +3,7 @@
     import { _ as t, locale } from '$lib/i18n';
     import { currentUser } from '$lib/utils/persistentAuth';
     import { supabase } from '$lib/utils/supabase';
+    import { iconUrlMap } from '$lib/stores/iconStore';
     import XLSX from 'xlsx-js-style';
 
     function formatDate(d: string | null): string {
@@ -964,7 +965,7 @@
                                 <input type="text" bind:value={assetsSearch} placeholder={$t('finance.assets.search')} class="pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent w-[32rem]" />
                             </div>
                             <div class="px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-700 flex items-center gap-1">
-                                {$t('finance.assets.totalAssetValue')}: <img src="/icons/saudi-currency.png" alt="SAR" class="inline h-2 w-2" /> {filteredAssets.reduce((sum, a) => sum + (Number(a.purchase_value) || 0), 0).toLocaleString()}
+                                {$t('finance.assets.totalAssetValue')}: <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="inline h-2 w-2" /> {filteredAssets.reduce((sum, a) => sum + (Number(a.purchase_value) || 0), 0).toLocaleString()}
                             </div>
                             <button class="px-4 py-2 bg-slate-100 text-slate-600 font-semibold rounded-xl hover:bg-slate-200 transition-all text-xs flex items-center gap-2" on:click={loadAssets}>
                                 <span>🔄</span>
@@ -1013,7 +1014,7 @@
                                                 {$locale === 'ar' ? (asset.asset_sub_categories?.name_ar || '-') : (asset.asset_sub_categories?.name_en || '-')}
                                             </td>
                                             <td class="border-r border-slate-300 py-2 px-3 text-slate-500">{formatDate(asset.purchase_date)}</td>
-                                            <td class="border-r border-slate-300 py-2 px-3 text-slate-600 font-mono">{#if asset.purchase_value}<img src="/icons/saudi-currency.png" alt="SAR" class="inline h-2 w-2" /> {Number(asset.purchase_value).toLocaleString()}{:else}-{/if}</td>
+                                            <td class="border-r border-slate-300 py-2 px-3 text-slate-600 font-mono">{#if asset.purchase_value}<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="inline h-2 w-2" /> {Number(asset.purchase_value).toLocaleString()}{:else}-{/if}</td>
                                             <td class="border-r border-slate-300 py-2 px-3">
                                                 {#if asset.branches}
                                                     <span class="font-semibold text-slate-800" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>{$locale === 'ar' ? asset.branches.name_ar : asset.branches.name_en}{$locale === 'ar' ? (asset.branches.location_ar ? ` - ${asset.branches.location_ar}` : '') : (asset.branches.location_en ? ` - ${asset.branches.location_en}` : '')}</span>

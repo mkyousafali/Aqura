@@ -9,6 +9,7 @@
 	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
 	import POS from '$lib/components/cashier-interface/POS.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	async function handleUpdateClick() {
 		const fn = $triggerUpdate;
@@ -109,7 +110,7 @@
 						</span>
 					{/if}
 					<div class="app-logo">
-						<img src="/icons/Aqura logo.png" alt="Aqura Logo" />
+						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" />
 					</div>
 					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
 					<span class="version-badge">{cashierVersion}</span>

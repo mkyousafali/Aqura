@@ -37,6 +37,9 @@
 	// Photo lightbox
 	let lightboxUrl: string | null = null;
 
+	// Selection
+	let selectedIds = new Set<string>();
+
 	// Filter
 	let filterStatus = 'all';
 	let searchQuery = '';
@@ -101,6 +104,68 @@
 		XLSX.utils.book_append_sheet(wb, ws, 'Near Expiry Report');
 		const titleSlug = (selectedRequest.title || 'report').replace(/[^a-zA-Z0-9\u0600-\u06FF ]/g, '_').substring(0, 40);
 		XLSX.writeFile(wb, `NearExpiry_${titleSlug}.xlsx`);
+	}
+
+	function toggleSelection(id: string) {
+		if (selectedIds.has(id)) {
+			selectedIds.delete(id);
+		} else {
+			selectedIds.add(id);
+		}
+		selectedIds = selectedIds; // trigger reactivity
+	}
+
+	function toggleSelectAll() {
+		if (selectedIds.size === filteredRequests.length) {
+			selectedIds.clear();
+		} else {
+			filteredRequests.forEach(r => selectedIds.add(r.id));
+		}
+		selectedIds = selectedIds; // trigger reactivity
+	}
+
+	function exportSelectedToExcel() {
+		if (selectedIds.size === 0) {
+			alert($locale === 'ar' ? 'الرجاء تحديد التقارير للتصدير' : 'Please select reports to export');
+			return;
+		}
+
+		const selectedRequests = filteredRequests.filter(r => selectedIds.has(r.id));
+		const headerStyle = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: 'DC2626' } }, alignment: { horizontal: 'center' } };
+		const wsData = [
+			[
+				{ v: 'Barcode', s: headerStyle },
+				{ v: 'English name', s: headerStyle },
+				{ v: 'Arabic name', s: headerStyle },
+				{ v: 'Sales price', s: headerStyle },
+				{ v: 'Unit', s: headerStyle },
+				{ v: 'Cost (cost + VAT)', s: headerStyle },
+				{ v: 'Expiry date (DD-MM-YYYY)', s: headerStyle }
+			]
+		];
+
+		for (const report of selectedRequests) {
+			const items = getItemsList(report.items);
+			for (const item of items) {
+				wsData.push([
+					item.barcode || '',
+					'',
+					'',
+					'',
+					'',
+					'',
+					formatExpiryDateDisplay(item.expiry_date)
+				]);
+			}
+		}
+
+		const ws = XLSX.utils.aoa_to_sheet(wsData);
+		ws['!cols'] = [{ wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 24 }];
+		const wb = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(wb, ws, 'Near Expiry Reports');
+		XLSX.writeFile(wb, `NearExpiry_Selected_${new Date().toISOString().split('T')[0]}.xlsx`);
+		selectedIds.clear();
+		selectedIds = selectedIds; // trigger reactivity
 	}
 
 	function printRequest() {
@@ -356,6 +421,8 @@
 		return true;
 	});
 
+	$: filteredProductCount = filteredRequests.reduce((sum, r) => sum + getItemsCount(r.items), 0);
+
 	function clearFilters() {
 		searchQuery = '';
 		filterStatus = 'all';
@@ -373,7 +440,10 @@
 		<div class="flex items-center gap-3">
 			<span class="text-2xl">⏰</span>
 			<h2 class="text-lg font-bold text-slate-800">{$t('nav.nearExpiryRequests') || 'Near Expiry Reports'}</h2>
-			<span class="text-xs font-semibold bg-red-100 text-red-600 px-3 py-1 rounded-full">{filteredRequests.length}</span>
+			<span class="text-xs font-semibold bg-red-100 text-red-600 px-3 py-1 rounded-full">{filteredProductCount} {$locale === 'ar' ? 'منتج' : 'products'}</span>
+			{#if selectedIds.size > 0}
+				<span class="text-xs font-semibold bg-blue-100 text-blue-600 px-3 py-1 rounded-full ml-2">✓ {selectedIds.size} {$locale === 'ar' ? 'مختار' : 'selected'}</span>
+			{/if}
 		</div>
 		<div class="flex items-center gap-2">
 			<!-- Search -->
@@ -408,7 +478,16 @@
 			{#if hasActiveFilters}
 				<button on:click={clearFilters} class="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all">✕ {$locale === 'ar' ? 'مسح' : 'Clear'}</button>
 			{/if}
-			<span class="text-[10px] text-slate-400 font-semibold">{filteredRequests.length} / {requests.length}</span>
+			<span class="text-[10px] text-slate-400 font-semibold">{filteredRequests.length} / {requests.length} {$locale === 'ar' ? 'تقرير' : 'reports'} • {filteredProductCount} {$locale === 'ar' ? 'منتج' : 'products'}</span>
+			{#if selectedIds.size > 0}
+				<button
+					class="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-xs shadow-lg shadow-emerald-200"
+					on:click={exportSelectedToExcel}
+				>
+					<span>📥</span>
+					{$locale === 'ar' ? 'تصدير المختار' : 'Export Selected'}
+				</button>
+			{/if}
 			<button
 				class="flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all text-xs"
 				on:click={loadRequests}
@@ -563,6 +642,9 @@
 						<table class="w-full text-xs border-collapse border border-slate-300">
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-red-600 text-white">
+									<th class="border-r border-red-500 py-2.5 px-3 text-center font-bold w-10">
+										<input type="checkbox" checked={selectedIds.size === filteredRequests.length && filteredRequests.length > 0} on:change={toggleSelectAll} class="cursor-pointer w-4 h-4" />
+									</th>
 									<th class="border-r border-red-500 py-2.5 px-3 text-left font-bold">#</th>
 									<th class="border-r border-red-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'العنوان' : 'Title'}</th>
 									<th class="border-r border-red-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.branch') || 'Branch'}</th>
@@ -578,7 +660,10 @@
 							</thead>
 							<tbody>
 								{#each filteredRequests as req, i}
-									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => selectedRequest = req}>
+									<tr class="border-b border-slate-300 hover:bg-slate-50/50 {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'} {selectedIds.has(req.id) ? 'bg-blue-50' : ''}" on:click={() => selectedRequest = req}>
+										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
+											<input type="checkbox" checked={selectedIds.has(req.id)} on:change={() => toggleSelection(req.id)} class="cursor-pointer w-4 h-4" />
+										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-bold text-slate-800 max-w-[180px] truncate" title={req.title}>{req.title || '—'}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{req.branch_name}</td>
@@ -596,7 +681,7 @@
 											<span class="text-[10px] px-2.5 py-1 rounded-full border font-bold {getStatusColor(req.status)}">{getStatusLabel(req.status)}</span>
 										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-500 text-[10px]">{formatDate(req.created_at)}</td>
-										<td class="border-r border-slate-300 py-2.5 px-3 text-center">
+										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
 											{#if req.status === 'pending'}
 												<button
 													class="p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all text-blue-600 hover:text-blue-800"
@@ -605,7 +690,7 @@
 												>👁️</button>
 											{/if}
 										</td>
-										<td class="border-r border-slate-300 py-2.5 px-3 text-center">
+										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
 											{#if req.status === 'pending' || req.status === 'reviewed'}
 												<button
 													class="p-1.5 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all text-emerald-600 hover:text-emerald-800"
@@ -614,7 +699,7 @@
 												>✅</button>
 											{/if}
 										</td>
-										<td class="py-2.5 px-3 text-center">
+										<td class="py-2.5 px-3 text-center" on:click|stopPropagation>
 											{#if req.status === 'pending' || req.status === 'reviewed'}
 												<button
 													class="p-1.5 bg-red-50 hover:bg-red-100 rounded-lg transition-all text-red-600 hover:text-red-800"

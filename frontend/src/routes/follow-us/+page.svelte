@@ -5,6 +5,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { isAuthenticated } from '$lib/utils/persistentAuth';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	interface SocialLink {
 		branch_id: number;
@@ -44,14 +45,14 @@
 		location_link: { en: 'Location', ar: 'الموقع' }
 	};
 
-	const platforms = [
-		{ key: 'snapchat', icon: '/icons/snapchat logo.png' },
-		{ key: 'tiktok', icon: '/icons/tiktok logo.jpg' },
-		{ key: 'location_link', icon: '/icons/map icon.png' },
-		{ key: 'whatsapp', icon: '/icons/whatsapp logo.png', scale: 0.5 },
-		{ key: 'instagram', icon: '/icons/instagram logo.png', scale: 2.2 },
-		{ key: 'facebook', icon: '/icons/facebook logo.jpg' },
-		{ key: 'website', icon: '/icons/logo.png' }
+	$: platforms = [
+		{ key: 'snapchat', icon: $iconUrlMap['snapchat-logo'] || '/icons/snapchat logo.png' },
+		{ key: 'tiktok', icon: $iconUrlMap['tiktok-logo'] || '/icons/tiktok logo.jpg' },
+		{ key: 'location_link', icon: $iconUrlMap['map-icon'] || '/icons/map icon.png' },
+		{ key: 'whatsapp', icon: $iconUrlMap['whatsapp-logo'] || '/icons/whatsapp logo.png', scale: 0.5 },
+		{ key: 'instagram', icon: $iconUrlMap['instagram-logo'] || '/icons/instagram logo.png', scale: 2.2 },
+		{ key: 'facebook', icon: $iconUrlMap['facebook-logo'] || '/icons/facebook logo.jpg' },
+		{ key: 'website', icon: $iconUrlMap['logo'] || '/icons/logo.png' }
 	];
 
 	function getPlatformLabel(key: string): string {
@@ -191,7 +192,7 @@
 		{:else if dataLoaded}
 			<div class="logo-wrapper">
 				<div class="logo-container">
-					<img src="/icons/logo.png" alt="Aqura Logo" class="app-logo" />
+					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="app-logo" />
 				</div>
 			</div>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	// Portal action: moves element to document.body so it escapes all stacking contexts
 	function portal(node: HTMLElement) {
@@ -160,7 +161,7 @@
 			<div class="sc-overlay-popup">
 				<!-- Logo -->
 				<div class="sc-popup-logo-section">
-					<img src="/icons/logo.png" alt="Aqura Logo" class="sc-popup-logo" />
+					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="sc-popup-logo" />
 				</div>
 
 				<!-- QR Code -->
