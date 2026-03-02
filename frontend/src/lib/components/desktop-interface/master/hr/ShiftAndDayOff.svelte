@@ -173,6 +173,7 @@
     let reasonSearchQuery = '';
     let dayOffDescription: string = '';
     let documentFile: File | null = null;
+    let existingDocumentUrl: string | null = null; // Track already-uploaded document when editing
     let documentUploadProgress = 0;
     let isUploadingDocument = false;
     let selectedEmployeeId: string | null = null;
@@ -1311,6 +1312,7 @@
         selectedDayOffReason = null;
         dayOffDescription = '';
         documentFile = null;
+        existingDocumentUrl = null;
     }
 
     function onWeekdayChange() {
@@ -2775,15 +2777,15 @@
             return;
         }
 
-        // Check if document is mandatory
-        if (selectedDayOffReason.is_document_mandatory && !documentFile) {
+        // Check if document is mandatory (allow if document already exists OR newly selected)
+        if (selectedDayOffReason.is_document_mandatory && !documentFile && !existingDocumentUrl) {
             openAlertModal($t('hr.shift.errors.doc_mandatory'), $t('common.documentRequired'));
             return;
         }
 
         isSaving = true;
         try {
-            let documentUrl = null;
+            let documentUrl = existingDocumentUrl || null; // Preserve existing document if editing
 
             // Upload document if provided (only once for entire range)
             if (documentFile) {
@@ -2895,6 +2897,7 @@
             selectedDayOffReason = null;
             dayOffDescription = '';
             documentFile = null;
+            existingDocumentUrl = null;
             documentUploadProgress = 0;
 
             // Reload Leave data immediately to show new entries in real-time
@@ -4171,6 +4174,14 @@
                                                                 selectedEmployeeId = dayOff.employee_id;
                                                                 selectedDayOffStartDate = dayOff._dateFrom || dayOff.day_off_date;
                                                                 selectedDayOffEndDate = dayOff._dateTo || dayOff.day_off_date;
+                                                                // Load the leave reason from dayOffReasons array
+                                                                if (dayOff.day_off_reason_id) {
+                                                                    selectedDayOffReason = dayOffReasons.find(r => r.id === dayOff.day_off_reason_id) || null;
+                                                                } else {
+                                                                    selectedDayOffReason = null;
+                                                                }
+                                                                // Load existing document URL if present
+                                                                existingDocumentUrl = dayOff.document_url || null;
                                                                 showModal = true;
                                                             }}
                                                             title={$t('common.edit')}
