@@ -2,6 +2,7 @@
     import { t, locale } from '$lib/i18n';
     import { currentUser } from '$lib/utils/persistentAuth';
     import { onMount } from 'svelte';
+    import { iconUrlMap } from '$lib/stores/iconStore';
     
     export let violation: any;
     export let employees: any[] = [];
@@ -610,7 +611,7 @@ ${incidentDescSectionAr}${witnessSectionAr}${investigationSectionAr}${warningRep
             </head>
             <body>
                 <div class="header">
-                    <img src="/icons/logo.png" alt="Logo" class="logo" />
+                    <img src="${$iconUrlMap['logo'] || '/icons/logo.png'}" alt="Logo" class="logo" />
                     <h1>⚠️ تحذير رسمي / Official Warning</h1>
                 </div>
                 <div class="info-row">

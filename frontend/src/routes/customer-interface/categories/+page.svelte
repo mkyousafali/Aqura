@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { orderFlow } from '$lib/stores/orderFlow.js';
   import { supabase } from '$lib/utils/supabase';
+  import { iconUrlMap } from '$lib/stores/iconStore';
 
   let currentLanguage = 'ar';
   $: flow = $orderFlow;
@@ -111,7 +112,7 @@
       </svg>
     </button>
     <div class="logo-container">
-      <img src="/icons/logo.png" alt="Urban Market" class="hero-logo" />
+      <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" class="hero-logo" />
     </div>
     <h1 class="hero-title">{texts.title}</h1>
     <p class="hero-subtitle">{texts.subtitle}</p>

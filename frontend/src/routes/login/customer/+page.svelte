@@ -5,6 +5,7 @@
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let maskPollInterval: any = null;
 	let autoLoginActive = false;
@@ -117,7 +118,7 @@
 			<div class="customer-login-card">
 				<div class="logo-section">
 					<div class="logo">
-						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+						<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
 					</div>
 					<button 
 						class="language-toggle-main" 

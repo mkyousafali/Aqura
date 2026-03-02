@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { localeData } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let isLoading = true;
 	let branches = [];
@@ -463,8 +464,8 @@
 						{#if Object.keys(notIssuedStats.byValue || {}).length > 0}
 							{#each Object.entries(notIssuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 								<div class="value-item">
-									<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+									<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 								</div>
 							{/each}
 						{:else}
@@ -479,8 +480,8 @@
 									<h4>{branchMap[branchId] || (branchId === 'unassigned' ? getTranslation('mobile.purchaseVoucher.unassigned') : branchId)}</h4>
 									{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 										<div class="value-item">
-											<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-											<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+											<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+											<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 										</div>
 									{/each}
 								</div>
@@ -508,8 +509,8 @@
 						{#if Object.keys(issuedStats.byValue || {}).length > 0}
 							{#each Object.entries(issuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 								<div class="value-item">
-									<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+									<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 								</div>
 							{/each}
 						{:else}
@@ -525,8 +526,8 @@
 									{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
 										{#each Object.entries(issueTypes) as [issueType, counts]}
 											<div class="value-item">
-												<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-												<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+												<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+												<span class="value-count">{counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 											</div>
 										{/each}
 									{/each}
@@ -555,8 +556,8 @@
 						{#if Object.keys(closedStats.byValue || {}).length > 0}
 							{#each Object.entries(closedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 								<div class="value-item">
-									<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+									<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 								</div>
 							{/each}
 						{:else}
@@ -572,8 +573,8 @@
 									{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
 										{#each Object.entries(issueTypes) as [issueType, counts]}
 											<div class="value-item">
-												<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-												<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+												<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+												<span class="value-count">{counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 											</div>
 										{/each}
 									{/each}
@@ -605,8 +606,8 @@
 					<div class="value-summary">
 						{#each Object.entries(myStockStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 							<div class="value-item">
-								<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-								<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+								<span class="value-label"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
+								<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 							</div>
 							{#if showCard4Breakdown}
 								<div class="breakdown-details">

@@ -2,13 +2,14 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { t } from '$lib/i18n';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	export let windowId: string;
 	export let box: any;
 	export let branch: any;
 	export let user: any;
 
-	let currencySymbolUrl = '/icons/saudi-currency.png';
+	$: currencySymbolUrl = $iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png';
 
 	// Denomination values
 	const denomValues: Record<string, number> = {

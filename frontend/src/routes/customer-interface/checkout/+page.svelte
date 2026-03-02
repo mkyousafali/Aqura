@@ -8,6 +8,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import LocationMapDisplay from '$lib/components/desktop-interface/admin-customer-app/LocationMapDisplay.svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	import LocationPicker from '$lib/components/desktop-interface/admin-customer-app/LocationPicker.svelte';  let offersChannel = null;
   
   let currentLanguage = 'ar';
@@ -1228,9 +1229,9 @@
                   <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                     {#if currentLanguage === 'ar'}
                       {formatPrice(item.combinedPrice)}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {:else}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                       {formatPrice(item.combinedPrice)}
                     {/if}
                   </span>
@@ -1277,9 +1278,9 @@
                   <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                     {#if currentLanguage === 'ar'}
                       {formatPrice(item.combinedPrice)}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {:else}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                       {formatPrice(item.combinedPrice)}
                     {/if}
                   </span>
@@ -1307,9 +1308,9 @@
                   <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                     {#if currentLanguage === 'ar'}
                       {formatPrice(item.price || 0)}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {:else}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                       {formatPrice(item.price || 0)}
                     {/if}
                   </span>
@@ -1318,9 +1319,9 @@
                       <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                         {#if currentLanguage === 'ar'}
                           {formatPrice(item.originalPrice || 0)}
-                          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                          <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                         {:else}
-                          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                          <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                           {formatPrice(item.originalPrice || 0)}
                         {/if}
                       </span>
@@ -1346,9 +1347,9 @@
                   <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                     {#if currentLanguage === 'ar'}
                       {formatPrice((item.price || 0) * (item.quantity || 1))}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                     {:else}
-                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                       {formatPrice((item.price || 0) * (item.quantity || 1))}
                     {/if}
                   </span>
@@ -1372,9 +1373,9 @@
         <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
           {#if currentLanguage === 'ar'}
             {formatPrice(total || 0)}
-            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
           {:else}
-            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
             {formatPrice(total || 0)}
           {/if}
         </span>
@@ -1389,9 +1390,9 @@
               <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                 {#if currentLanguage === 'ar'}
                   {formatPrice(finalDeliveryFee)}
-                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                 {:else}
-                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                   {formatPrice(finalDeliveryFee)}
                 {/if}
               </span>
@@ -1399,9 +1400,9 @@
             {#if !isFreeDelivery && amountForFreeDelivery > 0}
               <small class="delivery-hint" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
                 {#if currentLanguage === 'ar'}
-                  أضف {formatPrice(amountForFreeDelivery)} <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-tiny" /> للحصول على التوصيل المجاني
+                  أضف {formatPrice(amountForFreeDelivery)} <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-tiny" /> للحصول على التوصيل المجاني
                 {:else}
-                  Add <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-tiny" /> {formatPrice(amountForFreeDelivery)} for free delivery
+                  Add <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-tiny" /> {formatPrice(amountForFreeDelivery)} for free delivery
                 {/if}
               </small>
             {:else if isFreeDelivery}
@@ -1417,9 +1418,9 @@
         <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
           {#if currentLanguage === 'ar'}
             {formatPrice(finalTotal)}
-            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
           {:else}
-            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
             {formatPrice(finalTotal)}
           {/if}
         </span>

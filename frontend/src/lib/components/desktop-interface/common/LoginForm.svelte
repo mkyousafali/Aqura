@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { auth } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let email = '';
 	let password = '';
@@ -35,7 +36,7 @@
 <div class="login-container">
 	<div class="login-card">
 		<div class="logo">
-			<img src="/icons/logo.png" alt="Aqura" />
+			<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" />
 			<h1>Aqura</h1>
 		</div>
 

@@ -3,6 +3,7 @@
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { supabase } from '$lib/utils/supabase';
   import { currentUser } from '$lib/utils/persistentAuth';
+  import { iconUrlMap } from '$lib/stores/iconStore';
   
   export let receivingRecord = null;
   export let show = false;
@@ -512,7 +513,7 @@
     <div class="certificate-container">
         <!-- Logo -->
         <div class="logo-container">
-            <img src="/icons/logo.png" alt="Company Logo" class="logo" style="width: 80px; height: 60px; object-fit: contain; border: 2px solid #ff6600; border-radius: 8px; padding: 5px;" />
+            <img src="${$iconUrlMap['logo'] || '/icons/logo.png'}" alt="Company Logo" class="logo" style="width: 80px; height: 60px; object-fit: contain; border: 2px solid #ff6600; border-radius: 8px; padding: 5px;" />
         </div>
         
         <!-- Header -->

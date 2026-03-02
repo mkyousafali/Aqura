@@ -6,6 +6,7 @@
   import FeaturedOffers from '$lib/components/customer-interface/shopping/FeaturedOffers.svelte';
   import OfferDetailModal from '$lib/components/customer-interface/shopping/OfferDetailModal.svelte';
   import LocationPicker from '$lib/components/desktop-interface/admin-customer-app/LocationPicker.svelte';
+  import { iconUrlMap } from '$lib/stores/iconStore';
 
   let currentLanguage = 'ar';
   let videoContainer;
@@ -791,7 +792,7 @@
     <!-- Hero Header with Logo -->
     <header class="hero-header">
       <div class="logo-container">
-        <img src="/icons/logo.png" alt="Urban Market" class="hero-logo" />
+        <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" class="hero-logo" />
       </div>
       <h1 class="hero-title">{texts.greeting}</h1>
       <p class="hero-subtitle">{texts.startSubtitle}</p>
@@ -839,7 +840,7 @@
                     <!-- Moving Watermark Logo -->
                     {#if index === currentMediaIndex}
                       <div class="watermark-logo">
-                        <img src="/icons/logo.png" alt="Aqura" class="watermark-image" />
+                        <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" class="watermark-image" />
                       </div>
                     {/if}
                     
@@ -908,9 +909,9 @@
                           <span class="original-price">
                             {#if currentLanguage === 'ar'}
                               {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                               {formatPrice(media.discountInfo.originalPrice)}
                             {/if}
                           </span>
@@ -921,17 +922,17 @@
                           {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
                             {#if currentLanguage === 'ar'}
                               <span class="discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                               <span class="discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
                             {/if}
                           {:else}
                             {#if currentLanguage === 'ar'}
                               <span class="current-price">{toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}</span>
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                               <span class="current-price">{formatPrice(media.discountInfo.originalPrice)}</span>
                             {/if}
                           {/if}
@@ -955,7 +956,7 @@
                     <!-- Moving Watermark Logo -->
                     {#if index === currentMediaIndex}
                       <div class="watermark-logo">
-                        <img src="/icons/logo.png" alt="Aqura" class="watermark-image" />
+                        <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" class="watermark-image" />
                       </div>
                     {/if}
                     
@@ -1010,9 +1011,9 @@
                           <span class="original-price">
                             {#if currentLanguage === 'ar'}
                               {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                               {formatPrice(media.discountInfo.originalPrice)}
                             {/if}
                           </span>
@@ -1023,17 +1024,17 @@
                           {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
                             {#if currentLanguage === 'ar'}
                               <span class="discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                               <span class="discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
                             {/if}
                           {:else}
                             {#if currentLanguage === 'ar'}
                               <span class="current-price">{toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}</span>
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                               <span class="current-price">{formatPrice(media.discountInfo.originalPrice)}</span>
                             {/if}
                           {/if}
@@ -1057,7 +1058,7 @@
                     <!-- Moving Watermark Logo -->
                     {#if index === currentMediaIndex}
                       <div class="watermark-logo">
-                        <img src="/icons/logo.png" alt="Aqura" class="watermark-image" />
+                        <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" class="watermark-image" />
                       </div>
                     {/if}
                     
@@ -1121,9 +1122,9 @@
                           <span class="original-price">
                             {#if currentLanguage === 'ar'}
                               {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                               {formatPrice(media.discountInfo.originalPrice)}
                             {/if}
                           </span>
@@ -1134,17 +1135,17 @@
                           {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
                             {#if currentLanguage === 'ar'}
                               <span class="discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                               <span class="discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
                             {/if}
                           {:else}
                             {#if currentLanguage === 'ar'}
                               <span class="current-price">{toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}</span>
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                             {:else}
-                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                               <span class="current-price">{formatPrice(media.discountInfo.originalPrice)}</span>
                             {/if}
                           {/if}

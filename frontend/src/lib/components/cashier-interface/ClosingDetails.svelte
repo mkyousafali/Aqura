@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	export let windowId: string;
 	export let operation: any;
@@ -1082,7 +1083,7 @@
 					<div class="receipt-container">
 						<!-- Logo Header -->
 						<div class="receipt-logo">
-							<img src="/icons/logo.png" alt="App Logo" class="logo-image" />
+							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="App Logo" class="logo-image" />
 						</div>
 
 						<!-- Header -->

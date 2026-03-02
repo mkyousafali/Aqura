@@ -6,6 +6,7 @@
 	import { localeData, currentLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let showChangeAccessCode = false;
 
@@ -318,7 +319,7 @@
 				
 				<div class="mobile-logo">
 					<div class="logo-icon">
-						<img src="/icons/Aqura logo.png" alt="Aqura Logo" class="logo-image" />
+						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
 					</div>
 					<p class="app-description">{t('app.description')}</p>
 				</div>

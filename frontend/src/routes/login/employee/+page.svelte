@@ -4,6 +4,7 @@
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let showChangeAccessCode = false;
 
@@ -359,7 +360,7 @@
 								title="Logo"
 								aria-label="Aqura Logo"
 							>
-								<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+								<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
 							</button>
 						</div>
 

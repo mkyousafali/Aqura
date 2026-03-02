@@ -4,6 +4,7 @@
   import { orderFlowActions } from '$lib/stores/orderFlow.js';
   import { deliveryActions } from '$lib/stores/delivery.js';
   import { supabase } from '$lib/utils/supabase';
+  import { iconUrlMap } from '$lib/stores/iconStore';
 
   let currentLanguage = 'ar';
   let branches = [];
@@ -334,7 +335,7 @@
   <!-- Hero Header with Logo -->
   <header class="hero-header">
     <div class="logo-container">
-      <img src="/icons/logo.png" alt="Aqura" class="hero-logo" />
+      <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" class="hero-logo" />
     </div>
     <h1 class="hero-title">{texts.title}</h1>
     <p class="hero-subtitle">{texts.subtitle}</p>

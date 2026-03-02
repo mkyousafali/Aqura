@@ -157,6 +157,7 @@ export const arabicLocale: LocaleData = {
       themeManager: "مدير السمات",
       erpProductManager: "مدير منتجات ERP",
       storageManager: "مدير التخزين",
+      iconManager: "مدير الأيقونات",
       apiKeysManager: "مدير مفاتيح API",
       breakRegister: "سجل الاستراحات",
       securityCode: "رمز الأمان",
@@ -2826,6 +2827,29 @@ export const arabicLocale: LocaleData = {
       previous: "السابق",
       continue: "متابعة",
       finish: "إنهاء",
+    },
+
+    // Icon Manager
+    iconManager: {
+      title: "مدير الأيقونات",
+      icons: "أيقونات",
+      uploadNew: "رفع أيقونة جديدة",
+      searchPlaceholder: "بحث بالاسم أو المفتاح أو الوصف...",
+      all: "الكل",
+      noIcons: "لم يتم العثور على أيقونات",
+      iconName: "اسم الأيقونة",
+      iconKey: "مفتاح الأيقونة",
+      iconKeyHint: "معرف فريد يستخدم في الكود. يتم إنشاؤه تلقائياً من الاسم.",
+      category: "الفئة",
+      description: "الوصف",
+      file: "ملف الأيقونة",
+      upload: "رفع",
+      editIcon: "تعديل الأيقونة",
+      currentIcon: "الأيقونة الحالية",
+      replaceFile: "استبدال الملف (اختياري)",
+      confirmDelete: "تأكيد الحذف",
+      deleteWarning: "هل أنت متأكد من حذف",
+      deleteWarningDetail: "سيؤدي هذا إلى إزالة الأيقونة من التخزين. ستظهر صور معطلة في المكونات التي تستخدم هذه الأيقونة.",
     },
 
     // Common Messages

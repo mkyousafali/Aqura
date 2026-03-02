@@ -2,6 +2,7 @@
 	import ExcelJS from 'exceljs';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	// Near Expiry Manager Component
 	// Placeholder functions for buttons - to be implemented
@@ -401,14 +402,14 @@
 							const halfFontSize = Math.round(scaledFontSize * 0.5);
 							if (field.label === 'price') {
 								// Price field: same font size for integer and decimal, with strikethrough, half-size currency
-								displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;text-decoration:line-through;text-decoration-thickness:5px;">' + parts[0] + '.' + parts[1] + '</span></div>';
+								displayValue = '<div style="display:flex;align-items:baseline;"><img src="' + ($iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png') + '" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;text-decoration:line-through;text-decoration-thickness:5px;">' + parts[0] + '.' + parts[1] + '</span></div>';
 							} else {
 								// Offer price field: smaller font for decimal
-								displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+								displayValue = '<div style="display:flex;align-items:baseline;"><img src="' + ($iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png') + '" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
 							}
 						} else if (field.label === 'price' || field.label === 'offer_price') {
 							const halfFontSize = Math.round(scaledFontSize * 0.5);
-							const currencySymbol = '<img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR">';
+							const currencySymbol = '<img src="' + ($iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png') + '" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR">';
 							if (field.label === 'price') {
 								displayValue = currencySymbol + '<span style="text-decoration:line-through;text-decoration-thickness:5px;">' + value + '</span>';
 							} else {

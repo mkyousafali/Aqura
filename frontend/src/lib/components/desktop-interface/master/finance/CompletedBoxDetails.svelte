@@ -2,6 +2,7 @@
 	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	import IssuePurchaseVoucher from './IssuePurchaseVoucher.svelte';
 	import ClosePurchaseVoucher from './ClosePurchaseVoucher.svelte';
 
@@ -3192,7 +3193,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	<div style="width: 210mm; padding: 0.5rem; font-family: Arial, sans-serif; font-size: 11pt; background: white;">
 		<!-- Header -->
 		<div style="text-align: center; margin-bottom: 0.5rem; border-bottom: 2px solid #1e40af; padding-bottom: 0.3rem;">
-			<img src="/icons/logo.png" alt="PA Logo" style="height: 50px; margin-bottom: 0.3rem;" />
+			<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="PA Logo" style="height: 50px; margin-bottom: 0.3rem;" />
 			<div style="font-weight: 700; font-size: 0.9rem;">🧾 BOX CLOSING REPORT</div>
 			<div style="font-size: 0.65rem; color: #666;">Cashier: {cashierName || 'N/A'} | POS: {posNumber || 'N/A'} | {new Date().toLocaleDateString()}</div>
 		</div>

@@ -6,6 +6,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
 	import { fly, fade } from 'svelte/transition';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	const dispatch = createEventDispatcher();
 
@@ -530,7 +531,7 @@
 			<div class="header-left">
 				<div class="ai-avatar">
 					<div class="avatar-ring"></div>
-					<img src="/icons/Aqura logo.png" alt="Aqura" class="avatar-icon-img" />
+					<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" class="avatar-icon-img" />
 				</div>
 				<div class="header-info">
 					<h3>{titleText}</h3>
@@ -662,7 +663,7 @@
 			<div class="message {message.role}" in:fly={{ y: 20, duration: 300, delay: i === messages.length - 1 ? 50 : 0 }}>
 				{#if message.role === 'assistant'}
 					<div class="msg-avatar">
-						<img src="/icons/Aqura logo.png" alt="Aqura" class="msg-avatar-img" />
+						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" class="msg-avatar-img" />
 					</div>
 				{/if}
 				<div class="msg-bubble">
@@ -678,7 +679,7 @@
 		{#if isLoading}
 			<div class="message assistant" in:fade={{ duration: 200 }}>
 				<div class="msg-avatar">
-					<img src="/icons/Aqura logo.png" alt="Aqura" class="msg-avatar-img" />
+					<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" class="msg-avatar-img" />
 				</div>
 				<div class="msg-bubble typing">
 					<div class="typing-wave">

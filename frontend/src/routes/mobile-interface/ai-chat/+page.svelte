@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { currentLocale } from '$lib/i18n';
 	import { sendChatMessage, type ChatMessage } from '$lib/utils/chatService';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { speakWithGoogleTTS, stopSpeaking, getVoicesForLocale, getSelectedVoiceId, setSelectedVoiceId, loadVoicePreferences, type VoiceOption } from '$lib/utils/ttsService';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -469,7 +470,7 @@
 	<div class="chat-toolbar">
 		<div class="toolbar-left">
 			<div class="toolbar-status">
-				<img src="/icons/Aqura logo.png" alt="Aqura" class="toolbar-avatar" />
+				<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" class="toolbar-avatar" />
 				<span class="status-dot"></span>
 				<span class="toolbar-status-text">{isArabic ? 'متصل' : 'Online'}</span>
 			</div>
@@ -589,7 +590,7 @@
 			<div class="message {message.role}" in:fly={{ y: 20, duration: 300, delay: i === messages.length - 1 ? 50 : 0 }}>
 				{#if message.role === 'assistant'}
 					<div class="msg-avatar">
-						<img src="/icons/Aqura logo.png" alt="Aqura" class="msg-avatar-img" />
+						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" class="msg-avatar-img" />
 					</div>
 				{/if}
 				<div class="msg-bubble">
@@ -605,7 +606,7 @@
 		{#if isLoading}
 			<div class="message assistant" in:fade={{ duration: 200 }}>
 				<div class="msg-avatar">
-					<img src="/icons/Aqura logo.png" alt="Aqura" class="msg-avatar-img" />
+					<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" class="msg-avatar-img" />
 				</div>
 				<div class="msg-bubble typing">
 					<div class="typing-wave">

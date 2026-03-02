@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	// Component state
 	let isLoading = false;
@@ -2434,7 +2435,7 @@
 				<div class="print-header">
 					<div class="print-header-top">
 						<div class="print-logo">
-							<img src="/icons/logo.png" alt="Aqura Logo" class="logo-img" />
+							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-img" />
 							<span class="app-name">Aqura Management System</span>
 						</div>
 						<div class="print-meta">

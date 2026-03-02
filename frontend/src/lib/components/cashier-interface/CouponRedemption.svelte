@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { t } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	export let user: any;
 	export let branch: any;
@@ -302,7 +303,7 @@
 				<div class="receipt">
 					<div class="solid-divider"></div>
 					<div style="margin: 15px 0;">
-						<img src="/icons/logo.png" style="max-width: 240px; height: auto; margin: 0 auto; display: block;" alt="Aqura Logo">
+						<img src="${$iconUrlMap['logo'] || '/icons/logo.png'}" style="max-width: 240px; height: auto; margin: 0 auto; display: block;" alt="Aqura Logo">
 					</div>
 					<h1 class="arabic">🎁 كوبون عرض خاص 🎁</h1>
 				<h1 class="english">SPECIAL OFFER COUPON</h1>

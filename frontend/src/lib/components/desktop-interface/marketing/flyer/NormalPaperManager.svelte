@@ -3,6 +3,7 @@
 	import JsBarcode from 'jsbarcode';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let activeButton: string | null = null;
 	let importedData: any[] = [];
@@ -181,7 +182,7 @@
 							if (field.label === 'price' && value.includes('.')) {
 								const parts = value.split('.');
 								const halfFontSize = Math.round(scaledFontSize * 0.5);
-								displayValue = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+								displayValue = '<div style="display:flex;align-items:baseline;"><img src="' + ($iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png') + '" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
 							}
 
 							productFieldsHtml += '<div style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + (field.color || '#000000') + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + dirAttr + fontFamilyStyle + '">' + displayValue + '</div></div>';

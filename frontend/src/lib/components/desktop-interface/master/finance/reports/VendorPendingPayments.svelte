@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { _ as t } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let loading = true;
 	let vendors: Array<{ vendor_id: string; vendor_name: string }> = [];
@@ -550,7 +551,7 @@
 					</div>
 					<span class="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">Total</span>
 					<span class="text-xl font-black bg-gradient-to-r from-sky-600 to-blue-700 bg-clip-text text-transparent flex items-center gap-1">
-						<img src="/icons/saudi-currency.png" alt="SAR" class="h-[0.55em] opacity-70" /> {globalGrandTotal.toLocaleString()}
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-70" /> {globalGrandTotal.toLocaleString()}
 					</span>
 				</div>
 				<!-- Paid -->
@@ -560,7 +561,7 @@
 					</div>
 					<span class="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">Paid</span>
 					<span class="text-xl font-black bg-gradient-to-r from-emerald-600 to-green-700 bg-clip-text text-transparent flex items-center gap-1">
-						<img src="/icons/saudi-currency.png" alt="SAR" class="h-[0.55em] opacity-70" /> {globalTotalPaid.toLocaleString()}
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-70" /> {globalTotalPaid.toLocaleString()}
 					</span>
 				</div>
 				<!-- Unpaid -->
@@ -570,7 +571,7 @@
 					</div>
 					<span class="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">Unpaid</span>
 					<span class="text-xl font-black bg-gradient-to-r from-red-500 to-rose-600 bg-clip-text text-transparent flex items-center gap-1">
-						<img src="/icons/saudi-currency.png" alt="SAR" class="h-[0.55em] opacity-70" /> {globalTotalUnpaid.toLocaleString()}
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-70" /> {globalTotalUnpaid.toLocaleString()}
 					</span>
 				</div>
 				<!-- Vendors -->
@@ -692,19 +693,19 @@
 				<div class="flex-1 flex items-center justify-between px-4 py-2 rounded-lg bg-sky-50 border border-sky-200">
 					<span class="text-[10px] font-bold text-slate-500 uppercase">Total</span>
 					<span class="text-sm font-black text-sky-700 flex items-center gap-1">
-						<img src="/icons/saudi-currency.png" alt="SAR" class="h-[0.55em] opacity-85" /> {summaryGrandTotal.toLocaleString()}
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-85" /> {summaryGrandTotal.toLocaleString()}
 					</span>
 				</div>
 				<div class="flex-1 flex items-center justify-between px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
 					<span class="text-[10px] font-bold text-slate-500 uppercase">Paid</span>
 					<span class="text-sm font-black text-emerald-700 flex items-center gap-1">
-						<img src="/icons/saudi-currency.png" alt="SAR" class="h-[0.55em] opacity-85" /> {summaryTotalPaid.toLocaleString()}
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-85" /> {summaryTotalPaid.toLocaleString()}
 					</span>
 				</div>
 				<div class="flex-1 flex items-center justify-between px-4 py-2 rounded-lg bg-red-50 border border-red-200">
 					<span class="text-[10px] font-bold text-slate-500 uppercase">Unpaid</span>
 					<span class="text-sm font-black text-red-600 flex items-center gap-1">
-						<img src="/icons/saudi-currency.png" alt="SAR" class="h-[0.55em] opacity-85" /> {summaryTotalUnpaid.toLocaleString()}
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-85" /> {summaryTotalUnpaid.toLocaleString()}
 					</span>
 				</div>
 			</div>

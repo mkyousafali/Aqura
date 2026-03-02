@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import { supabase } from '$lib/utils/supabase';
   import html2canvas from 'html2canvas';
+  import { iconUrlMap } from '$lib/stores/iconStore';
   
   interface FlyerOffer {
     id: string;
@@ -2057,7 +2058,7 @@
                                     {/if}
                                     {#if configField.label === 'offer_price'}
                                       {@const [integerPart, decimalPart] = fieldValue.split('.')}
-                                      <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
+                                      <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                     {:else if configField.label === 'price'}
                                       <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal; color: {configField.color || '#000000'};">
                                         <span style="position: absolute; left: 0; right: 0; top: 110%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>
@@ -2439,7 +2440,7 @@
                                       {/if}
                                       {#if configField.label === 'offer_price'}
                                         {@const [integerPart, decimalPart] = fieldValue.split('.')}
-                                        <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src="/icons/saudi-currency.png" alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
+                                        <span class="offer-price" style="direction: ltr; unicode-bidi: normal; position: relative; z-index: 2; display: inline-block; font-size: 1em; line-height: 1; color: inherit; font-weight: inherit; font-family: inherit; font-style: inherit;"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="₪" style="display: inline-block; height: 0.5em; margin-right: 0.1em; transform: translateY(0.4em); vertical-align: baseline; filter: brightness(0) saturate(100%);" />{integerPart}<span style="font-size: 0.5em; display: inline-block; margin-left: 0.05em; transform: translateY(0.4em); line-height: 1; font-weight: inherit;">.{decimalPart || '00'}</span></span>
                                       {:else if configField.label === 'price'}
                                         <span class="price-field" style="position: relative; z-index: 2; display: inline-block; direction: ltr; unicode-bidi: normal; color: {configField.color || '#000000'};">
                                           <span style="position: absolute; left: 0; right: 0; top: 110%; width: 100%; height: 1px; background: {configField.color || '#000000'}; transform: translateY(-50%); pointer-events: none; z-index: 0;"></span>

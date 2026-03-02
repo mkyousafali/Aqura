@@ -6,6 +6,7 @@
   import { orderFlow } from '$lib/stores/orderFlow.js';
   import { supabase } from '$lib/utils/supabase';
   import OfferBadge from '$lib/components/customer-interface/shopping/OfferBadge.svelte';
+  import { iconUrlMap } from '$lib/stores/iconStore';
 
   let currentLanguage = 'ar';
   $: flow = $orderFlow;
@@ -804,9 +805,9 @@
             <div class="price-now" class:rtl={currentLanguage === 'ar'}>
               {#if currentLanguage === 'ar'}
                 {formatPrice(bogoOffer.bundlePrice)}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
               {:else}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                 {formatPrice(bogoOffer.bundlePrice)}
               {/if}
             </div>
@@ -814,9 +815,9 @@
               <div class="price-old" class:rtl={currentLanguage === 'ar'}>
                 {#if currentLanguage === 'ar'}
                   <span class="price-old-number">{formatPrice(bogoOffer.originalBundlePrice)}</span>
-                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                  <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                 {:else}
-                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                  <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                   <span class="price-old-number">{formatPrice(bogoOffer.originalBundlePrice)}</span>
                 {/if}
               </div>
@@ -896,18 +897,18 @@
             <div class="price-now" class:rtl={currentLanguage === 'ar'}>
               {#if currentLanguage === 'ar'}
                 {formatPrice(bundleOffer.bundlePrice)}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
               {:else}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                 {formatPrice(bundleOffer.bundlePrice)}
               {/if}
             </div>
             <div class="price-old" class:rtl={currentLanguage === 'ar'}>
               {#if currentLanguage === 'ar'}
                 <span class="price-old-number">{formatPrice(bundleOffer.originalBundlePrice)}</span>
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
               {:else}
-                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                 <span class="price-old-number">{formatPrice(bundleOffer.originalBundlePrice)}</span>
               {/if}
             </div>
@@ -1038,9 +1039,9 @@
                   {/if}
                 {:else if currentLanguage === 'ar'}
                   {formatPrice(u.basePrice)}
-                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                 {:else}
-                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
                   {formatPrice(u.basePrice)}
                 {/if}
               </div>
@@ -1048,9 +1049,9 @@
                 <div class="price-old" class:rtl={currentLanguage === 'ar'}>
                   {#if currentLanguage === 'ar'}
                     <span class="price-old-number">{formatPrice(isFree ? u.basePrice : u.originalPrice)}</span>
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                   {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                    <img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon-small" />
                     <span class="price-old-number">{formatPrice(isFree ? u.basePrice : u.originalPrice)}</span>
                   {/if}
                 </div>

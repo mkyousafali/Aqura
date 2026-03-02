@@ -4,6 +4,7 @@
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let maskPollInterval: any = null;
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
@@ -122,7 +123,7 @@
 				<div class="customer-login-card login-selection">
 					<div class="logo-section">
 						<div class="logo">
-							<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
 						</div>
 						<button 
 							class="language-toggle-main" 
@@ -178,7 +179,7 @@
 							</svg>
 						</button>
 						<div class="logo">
-							<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
 						</div>
 						<button 
 							class="language-toggle-main" 
