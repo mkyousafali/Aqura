@@ -93,7 +93,7 @@
 	// Derived: filtered requests
 	$: filteredRequests = requests.filter(r => {
 		if (filterStatus && r.status !== filterStatus) return false;
-		if (filterBranch && r.from_branch_name !== filterBranch && r.to_branch_name !== filterBranch) return false;
+		if (filterBranch && r.to_branch_name !== filterBranch) return false;
 		if (filterDateFrom) {
 			const from = new Date(filterDateFrom);
 			if (new Date(r.created_at) < from) return false;
@@ -831,21 +831,21 @@
 										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-500 text-[10px]">{formatDate(req.created_at)}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
-											{#if req.document_url}
-												<div class="flex items-center gap-1 justify-center">
-													<a href={req.document_url} target="_blank" rel="noopener" class="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 hover:text-blue-800 text-[10px] font-bold" title="View Document">📄 View</a>
-													{#if btAssignedIM[req.id] === $currentUser?.id}
+											{#if req.status === 'approved'}
+												{#if req.document_url}
+													<div class="flex items-center gap-1 justify-center">
+														<a href={req.document_url} target="_blank" rel="noopener" class="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 hover:text-blue-800 text-[10px] font-bold" title="View Document">📄 View</a>
 														<label class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 hover:text-slate-800 text-[10px] font-bold cursor-pointer {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
 															🔄 {uploadingDoc === req.id ? '...' : 'Update'}
 															<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} />
 														</label>
-													{/if}
-												</div>
-											{:else if btAssignedIM[req.id] === $currentUser?.id}
-												<label class="px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all text-blue-700 text-[10px] font-bold cursor-pointer whitespace-nowrap {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
-													📎 {uploadingDoc === req.id ? '...' : 'Upload'}
-													<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} on:click|stopPropagation />
-												</label>
+													</div>
+												{:else}
+													<label class="px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all text-blue-700 text-[10px] font-bold cursor-pointer whitespace-nowrap {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
+														📎 {uploadingDoc === req.id ? '...' : 'Upload'}
+														<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} on:click|stopPropagation />
+													</label>
+												{/if}
 											{:else}
 												<span class="text-[10px] text-slate-400">—</span>
 											{/if}

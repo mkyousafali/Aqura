@@ -34,6 +34,23 @@
 	// UI state
 	let showFilters = false;
 
+	// Helper: batch .in() queries to avoid URL-too-long errors (splits into chunks of 50)
+	async function batchedQuery(table: string, selectCols: string, filterCol: string, ids: string[], batchSize = 50) {
+		const allResults: any[] = [];
+		for (let i = 0; i < ids.length; i += batchSize) {
+			const batch = ids.slice(i, i + batchSize);
+			const { data, error } = await supabase
+				.from(table)
+				.select(selectCols)
+				.in(filterCol, batch);
+			if (error) {
+				console.error(`Error querying ${table} (batch ${Math.floor(i / batchSize) + 1}):`, error);
+			}
+			if (data) allResults.push(...data);
+		}
+		return allResults;
+	}
+
 	onMount(async () => {
 		await loadMyAssignments();
 	});
@@ -44,15 +61,15 @@
 		const quickTaskAssignments = assignments.filter(a => a.task_type === 'quick_task');
 		const regularTaskAssignments = assignments.filter(a => a.task_type === 'regular');
 
+		// Initialize attachments as empty arrays first
+		assignments.forEach(a => { if (!a.attachments) a.attachments = []; });
+
 		// Batch load quick task files
 		if (quickTaskAssignments.length > 0) {
 			const quickTaskIds = quickTaskAssignments.map(a => a.quick_task_id || a.task_id);
 			try {
-				const { data: files } = await supabase
-					.from('quick_task_files')
-					.select('*')
-					.in('quick_task_id', quickTaskIds);
-				
+				const files = await batchedQuery('quick_task_files', '*', 'quick_task_id', quickTaskIds);
+
 				if (files && files.length > 0) {
 					// Create a map of quick_task_id to files
 					const filesMap = new Map();
@@ -82,11 +99,8 @@
 		if (regularTaskAssignments.length > 0) {
 			const taskIds = regularTaskAssignments.map(a => a.task_id);
 			try {
-				const { data: images } = await supabase
-					.from('task_images')
-					.select('*')
-					.in('task_id', taskIds);
-				
+				const images = await batchedQuery('task_images', '*', 'task_id', taskIds);
+
 				if (images && images.length > 0) {
 					// Create a map of task_id to images
 					const imagesMap = new Map();
@@ -117,14 +131,14 @@
 		const quickTaskAssignments = assignments.filter(a => a.task_type === 'quick_task');
 		const regularTaskAssignments = assignments.filter(a => a.task_type === 'regular');
 
+		// Initialize completionPhotos as empty arrays first
+		assignments.forEach(a => { if (!a.completionPhotos) a.completionPhotos = []; });
+
 		// Load completion photos for regular tasks
 		if (regularTaskAssignments.length > 0) {
 			const taskIds = regularTaskAssignments.map(a => a.task_id);
 			try {
-				const { data: completions } = await supabase
-					.from('task_completions')
-					.select('id, task_id, assignment_id, completion_photo_url, completion_notes, completed_by_name, completed_at')
-					.in('task_id', taskIds);
+				const completions = await batchedQuery('task_completions', 'id, task_id, assignment_id, completion_photo_url, completion_notes, completed_by_name, completed_at', 'task_id', taskIds);
 
 				if (completions && completions.length > 0) {
 					const completionMap = new Map();
@@ -158,10 +172,7 @@
 		if (quickTaskAssignments.length > 0) {
 			const assignmentIds = quickTaskAssignments.map(a => a.id);
 			try {
-				const { data: completions } = await supabase
-					.from('quick_task_completions')
-					.select('id, quick_task_id, assignment_id, photo_path, completion_notes, completed_by_user_id, created_at')
-					.in('assignment_id', assignmentIds);
+				const completions = await batchedQuery('quick_task_completions', 'id, quick_task_id, assignment_id, photo_path, completion_notes, completed_by_user_id, created_at', 'assignment_id', assignmentIds);
 
 				if (completions && completions.length > 0) {
 					const completionMap = new Map();
@@ -366,6 +377,10 @@
 			// Load attachments for all assignments (in parallel)
 			assignments = allAssignments;
 			await Promise.all([loadAssignmentAttachments(), loadCompletionPhotos()]);
+			
+			// Force Svelte reactivity after mutating assignment objects
+			allAssignments = [...allAssignments];
+			assignments = allAssignments;
 			
 			// Calculate statistics from ALL assignments (always accurate)
 			calculateStats();
