@@ -8,9 +8,9 @@ CREATE OR REPLACE FUNCTION public.clear_sync_tables(p_tables text[])
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_table text;
     v_allowed text[] := ARRAY[
-        'desktop_themes','settings','ai_chat_guide','social_links',
+        'desktop_themes','mobile_themes','settings','ai_chat_guide','social_links',
         'branches','users','user_sessions','user_device_sessions',
-        'user_favorite_buttons','user_theme_assignments','user_voice_preferences',
+        'user_favorite_buttons','user_theme_assignments','user_mobile_theme_assignments','user_voice_preferences',
         'button_main_sections','button_sub_sections','sidebar_buttons',
         'button_permissions','interface_permissions','approval_permissions',
         'nationalities','hr_departments','hr_levels','hr_positions',
@@ -53,9 +53,9 @@ CREATE OR REPLACE FUNCTION public.import_sync_batch(p_table_name text, p_data js
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_count integer := 0;
     v_allowed text[] := ARRAY[
-        'desktop_themes','settings','ai_chat_guide','social_links',
+        'desktop_themes','mobile_themes','settings','ai_chat_guide','social_links',
         'branches','users','user_sessions','user_device_sessions',
-        'user_favorite_buttons','user_theme_assignments','user_voice_preferences',
+        'user_favorite_buttons','user_theme_assignments','user_mobile_theme_assignments','user_voice_preferences',
         'button_main_sections','button_sub_sections','sidebar_buttons',
         'button_permissions','interface_permissions','approval_permissions',
         'nationalities','hr_departments','hr_levels','hr_positions',
@@ -97,9 +97,9 @@ GRANT EXECUTE ON FUNCTION public.import_sync_batch(text,jsonb) TO authenticated,
 
 -- 3. Update existing branch_sync_config rows to include ALL sync tables
 UPDATE branch_sync_config SET sync_tables = ARRAY[
-    'desktop_themes','settings','ai_chat_guide','social_links',
+    'desktop_themes','mobile_themes','settings','ai_chat_guide','social_links',
     'branches','users','user_sessions','user_device_sessions',
-    'user_favorite_buttons','user_theme_assignments','user_voice_preferences',
+    'user_favorite_buttons','user_theme_assignments','user_mobile_theme_assignments','user_voice_preferences',
     'button_main_sections','button_sub_sections','sidebar_buttons',
     'button_permissions','interface_permissions','approval_permissions',
     'nationalities','hr_departments','hr_levels','hr_positions',
@@ -130,9 +130,9 @@ UPDATE branch_sync_config SET sync_tables = ARRAY[
 
 -- 4. Update the DEFAULT so new branch configs get all tables
 ALTER TABLE branch_sync_config ALTER COLUMN sync_tables SET DEFAULT ARRAY[
-    'desktop_themes','settings','ai_chat_guide','social_links',
+    'desktop_themes','mobile_themes','settings','ai_chat_guide','social_links',
     'branches','users','user_sessions','user_device_sessions',
-    'user_favorite_buttons','user_theme_assignments','user_voice_preferences',
+    'user_favorite_buttons','user_theme_assignments','user_mobile_theme_assignments','user_voice_preferences',
     'button_main_sections','button_sub_sections','sidebar_buttons',
     'button_permissions','interface_permissions','approval_permissions',
     'nationalities','hr_departments','hr_levels','hr_positions',

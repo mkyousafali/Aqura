@@ -9,6 +9,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
+	import { mobileThemeStore } from '$lib/stores/mobileThemeStore';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
@@ -199,6 +200,11 @@
 		
 		loadBadgeCounts(true); // Silent refresh counts when user changes
 		loadButtonPermissions(); // Load button permissions when user changes
+		
+		// Load user's mobile theme
+		if ($currentUser?.id) {
+			mobileThemeStore.loadUserTheme($currentUser.id);
+		}
 		
 		// Restart notification sound system for new user
 		// 🔴 DISABLED: Real-time notification listener disabled
@@ -928,6 +934,17 @@
 					<span class="menu-item-text">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
 				</a>
 			{/if}
+			<a href="/mobile-interface/theme-manager" class="menu-item" on:click={() => showMenu = false} title="Theme Manager">
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="1"/>
+					<path d="M12 1v6m0 6v6"/>
+					<path d="M4.22 4.22l4.24 4.24m-2.83 5.08l4.24 4.24"/>
+					<path d="M19.78 4.22l-4.24 4.24m2.83 5.08l-4.24 4.24"/>
+					<path d="M1 12h6m6 0h6"/>
+					<path d="M4.22 19.78l4.24-4.24m5.08 2.83l4.24-4.24"/>
+				</svg>
+				<span class="menu-item-text">{getTranslation('mobile.themeManager') || 'Theme Manager'}</span>
+			</a>
 			<div class="menu-item menu-language" title={getTranslation('mobile.language')} on:click={(e) => {
 				const languageBtn = e.currentTarget.querySelector('.language-btn');
 				if (languageBtn) languageBtn.click();
@@ -1405,11 +1422,11 @@
 
 	/* Global Mobile Header */
 	.global-mobile-header {
-		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-		color: white;
+		background: var(--theme-header-bg, linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%));
+		color: var(--theme-header-text, white);
 		padding: 0.8rem 1.2rem;
 		padding-top: calc(0.8rem + env(safe-area-inset-top));
-		box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 		position: sticky;
 		top: 0;
 		z-index: 100;
@@ -1481,7 +1498,7 @@
 		background: rgba(255, 255, 255, 0.1);
 		border: 1px solid rgba(255, 255, 255, 0.2);
 		border-radius: 6px;
-		color: white;
+		color: var(--theme-header-icon, white);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -1516,7 +1533,7 @@
 		backdrop-filter: blur(10px);
 		transition: all 0.2s ease;
 		flex-shrink: 0;
-		color: white;
+		color: var(--theme-header-icon, white);
 	}
 
 	.menu-btn:hover {
@@ -1672,12 +1689,14 @@
 		font-size: 0.9rem;
 		font-weight: 600;
 		margin: 0 0 0.1rem 0;
+		color: var(--theme-header-text, white);
 	}
 
 	.user-details p {
 		font-size: 0.65rem;
 		opacity: 0.8;
 		margin: 0;
+		color: var(--theme-header-text, white);
 	}
 
 	.header-actions {
@@ -1692,7 +1711,7 @@
 		background: rgba(255, 255, 255, 0.1);
 		border: 1px solid rgba(255, 255, 255, 0.2);
 		border-radius: 6px;
-		color: white;
+		color: var(--theme-header-icon, white);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1815,8 +1834,8 @@
 		left: 0;
 		right: 0;
 		height: 3.6rem; /* Reduced from 4.5rem (20% smaller) */
-		background: white;
-		border-top: 1px solid #E5E7EB;
+		background: var(--theme-navbar-bg, white);
+		border-top: 1px solid var(--theme-navbar-border, #E5E7EB);
 		display: flex;
 		align-items: center;
 		justify-content: space-around;
@@ -1832,7 +1851,7 @@
 		align-items: center;
 		justify-content: center;
 		text-decoration: none;
-		color: #6B7280;
+		color: var(--theme-navbar-btn-inactive-text, #6B7280);
 		transition: all 0.2s ease;
 		padding: 0.2rem; /* Reduced from 0.25rem */
 		border-radius: 6px; /* Reduced from 8px */
@@ -1841,17 +1860,17 @@
 	}
 
 	.nav-item:hover {
-		color: #3B82F6;
-		background: rgba(59, 130, 246, 0.05);
+		color: var(--theme-navbar-btn-active-text, #3B82F6);
+		background: var(--theme-navbar-btn-hover-bg, rgba(59, 130, 246, 0.05));
 	}
 
 	.nav-item.active {
-		color: #3B82F6;
+		color: var(--theme-navbar-btn-active-text, #3B82F6);
 	}
 
 	.nav-item.active .nav-icon {
 		background: rgba(59, 130, 246, 0.1);
-		color: #3B82F6;
+		color: var(--theme-navbar-btn-active-text, #3B82F6);
 	}
 
 	.nav-icon {
@@ -1870,14 +1889,31 @@
 		position: absolute;
 		top: -5px; /* Reduced from -6px */
 		right: -5px; /* Reduced from -6px */
-		background: #EF4444;
-		color: white;
+		background: var(--theme-badge-error-bg, #EF4444);
+		color: var(--theme-badge-error-text, white);
 		font-size: 0.5rem; /* Reduced from 0.625rem */
 		font-weight: 600;
 		padding: 1px 5px; /* Reduced from 2px 6px */
 		border-radius: 8px; /* Reduced from 10px */
 		min-width: 14px; /* Reduced from 18px */
 		height: 14px; /* Reduced from 18px */
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.header-notification-badge {
+		position: absolute;
+		top: -8px;
+		right: -8px;
+		background: var(--theme-badge-error-bg, #EF4444);
+		color: var(--theme-badge-error-text, white);
+		font-size: 0.65rem;
+		font-weight: 700;
+		padding: 2px 6px;
+		border-radius: 10px;
+		min-width: 18px;
+		height: 18px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
