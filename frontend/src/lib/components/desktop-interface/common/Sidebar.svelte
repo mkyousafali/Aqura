@@ -2033,7 +2033,7 @@ function openApprovalCenter() {
 			'REPORT_INCIDENT': openReportIncident,
 			'DAILY_CHECKLIST_MANAGER': openDailyChecklistManager,
 			'BREAK_REGISTER': openBreakRegister,
-			'SECURITY_CODE': openSecurityCode,
+			'SECURITY_CODE': openSecurityCodeWindow,
 			'EMPLOYEE_DASHBOARD': openEmployeeDashboard,
 			'FINGERPRINT_TRANSACTIONS': openFingerprintTransactions,
 			'EXPORT_BIOMETRIC_DATA': openExportBiometricData,
