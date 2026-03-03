@@ -1,913 +1,778 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
-	import { _ as t, locale } from '$lib/i18n';
+    import { onMount } from 'svelte';
+    import { _ as t, locale } from '$lib/i18n';
+    
+    let activeTab = 'Documents Expiry';
+    let loading = false;
+    let documentsExpiryData: any[] = [];
+    let searchTerm = '';
+    let selectedBranch = '';
+    let selectedNationality = '';
+    let supabase: any = null;
+    let showColumnDropdown = false;
+    
+    // Column visibility state
+    let columnVisibility = {
+        id: true,
+        name: true,
+        nationality: true,
+        branch: true,
+        doc_id: true,
+        doc_health_card: true,
+        doc_driving_licence: true,
+        doc_contract: true,
+        doc_work_permit: true,
+        doc_insurance: true,
+        doc_health_educational: true
+    };
+    
+    // Modal state for editing dates
+    let showDateModal = false;
+    let modalEmployeeId = '';
+    let modalEmployeeName = '';
+    let modalDocumentType = '';
+    let modalDocumentKey = '';
+    let modalCurrentDate = '';
+    let modalNewDate = '';
+    let isSaving = false;
+    
+    $: uniqueBranches = [
+        ...new Map(
+            documentsExpiryData.map(emp => [
+                emp.current_branch_id,
+                { id: emp.current_branch_id, name_en: emp.branch_name_en, name_ar: emp.branch_name_ar }
+            ])
+        ).values()
+    ].sort((a, b) => a.name_en.localeCompare(b.name_en));
 
-	// Data
-	let employees: any[] = [];
-	let branches: any[] = [];
-	let nationalities: any[] = [];
-	let positions: any[] = [];
-	let attendanceData: any[] = [];
-	let isLoading = true;
-	let error = '';
+    $: uniqueNationalities = [
+        ...new Map(
+            documentsExpiryData.map(emp => [
+                emp.nationality_id,
+                { id: emp.nationality_id, name_en: emp.nationality_name_en, name_ar: emp.nationality_name_ar }
+            ])
+        ).values()
+    ].sort((a, b) => a.name_en.localeCompare(b.name_en));
 
-	// Filters
-	let selectedBranch = '';
-	let selectedStatus = '';
-	let searchQuery = '';
+    $: filteredData = documentsExpiryData.filter(emp => {
+        const matchesSearch = !searchTerm || (
+            emp.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            emp.name_en.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            emp.name_ar.includes(searchTerm)
+        );
+        const matchesBranch = !selectedBranch || emp.current_branch_id === parseInt(selectedBranch);
+        const matchesNationality = !selectedNationality || emp.nationality_id === selectedNationality;
+        return matchesSearch && matchesBranch && matchesNationality;
+    });
 
-	// Computed stats
-	let totalEmployees = 0;
-	let activeEmployees = 0;
-	let resignedEmployees = 0;
-	let vacationEmployees = 0;
-	let terminatedEmployees = 0;
-	let remoteEmployees = 0;
-	let runAwayEmployees = 0;
+    function getMostUrgentDaysRemaining(emp: any): number {
+        let mostUrgent = 999999;
+        
+        // Check all documents to find the most overdue/expiring soon
+        if (emp.documents && typeof emp.documents === 'object') {
+            for (const docKey in emp.documents) {
+                const doc = emp.documents[docKey];
+                if (doc && typeof doc === 'object') {
+                    const daysRemaining = doc.daysRemaining;
+                    // Exclude -999 (no expiry date set) and check for valid numbers
+                    if (daysRemaining !== undefined && daysRemaining !== null && !isNaN(daysRemaining) && daysRemaining !== -999) {
+                        const daysNum = Number(daysRemaining);
+                        if (daysNum < mostUrgent) {
+                            mostUrgent = daysNum;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return mostUrgent === 999999 ? 999999 : mostUrgent;
+    }
 
-	// Attendance stats
-	let attendanceByStatus: { name: string; count: number; color: string }[] = [];
-	let todayAttendanceTotal = 0;
+    function getUrgencyScore(emp: any): { score: number; days: number } {
+        const mostUrgent = getMostUrgentDaysRemaining(emp);
+        const days = Number(mostUrgent);
+        
+        // Expired documents (negative) get highest priority
+        // More negative = more overdue = higher priority (smaller score = comes first)
+        if (days < 0) {
+            return { score: days, days: days };
+        }
+        
+        // Expiring soon (0-30 days)
+        if (days <= 30) {
+            return { score: 1000 + days, days: days };
+        }
+        
+        // Warning (31-90 days)
+        if (days <= 90) {
+            return { score: 2000 + days, days: days };
+        }
+        
+        // Active (>90 days)
+        return { score: 3000 + days, days: days };
+    }
 
-	// Expiry alerts
-	let expiringDocuments: any[] = [];
-	let expiryDays = 30;
+    $: sortedFilteredData = (() => {
+        const sorted = [...filteredData].sort((a, b) => {
+            const scoreA = getUrgencyScore(a).score;
+            const scoreB = getUrgencyScore(b).score;
+            return scoreA - scoreB;
+        });
+        return sorted;
+    })();
+    
+    interface DocumentExpiry {
+        id: string;
+        name_en: string;
+        name_ar: string;
+        nationality_id: string;
+        nationality_name_en: string;
+        nationality_name_ar: string;
+        current_branch_id: number;
+        branch_name_en: string;
+        branch_name_ar: string;
+        branch_location_en: string;
+        branch_location_ar: string;
+        documents: {
+            [key: string]: {
+                label: string;
+                expiryDate: string | null;
+                daysRemaining: number;
+                status: string;
+            };
+        };
+    }
+    
+    const COLUMN_LABELS = [
+        { key: 'id', label: 'Employee ID' },
+        { key: 'name', label: 'Full Name' },
+        { key: 'nationality', label: 'Nationality' },
+        { key: 'branch', label: 'Current Branch' },
+        { key: 'doc_id', label: 'ID Expiry' },
+        { key: 'doc_health_card', label: 'Health Card' },
+        { key: 'doc_driving_licence', label: 'Driving Licence' },
+        { key: 'doc_contract', label: 'Contract' },
+        { key: 'doc_work_permit', label: 'Work Permit' },
+        { key: 'doc_insurance', label: 'Insurance' },
+        { key: 'doc_health_educational', label: 'Health Educational Renewal' }
+    ];
+    
+    const DOCUMENT_TYPES = [
+        { key: 'id_expiry_date', label: 'ID', type: 'id' },
+        { key: 'health_card_expiry_date', label: 'Health Card', type: 'health_card' },
+        { key: 'driving_licence_expiry_date', label: 'Driving Licence', type: 'driving_licence' },
+        { key: 'contract_expiry_date', label: 'Contract', type: 'contract' },
+        { key: 'work_permit_expiry_date', label: 'Work Permit', type: 'work_permit' },
+        { key: 'insurance_expiry_date', label: 'Insurance', type: 'insurance' },
+        { key: 'health_educational_renewal_date', label: 'Health Educational Renewal', type: 'health_educational' },
+    ];
 
-	// Breakdowns
-	let byBranch: { name: string; count: number; color: string }[] = [];
-	let byNationality: { name: string; count: number; color: string }[] = [];
-	let byPosition: { name: string; count: number; color: string }[] = [];
-	let byStatus: { name: string; count: number; color: string }[] = [];
-	let bySponsor: { name: string; count: number; color: string }[] = [];
+    const ACTIVE_EMPLOYMENT_STATUSES = [
+        'Job (With Finger)',
+        'Job (No Finger)',
+        'Remote Job',
+        'Vacation'
+    ];
+    
+    $: tabs = [
+        { id: 'Documents Expiry', label: $t('hr.dashboard.documents_expiry') || 'Documents Expiry', icon: '📄', color: 'blue' },
+        { id: 'Performance', label: $t('hr.dashboard.performance') || 'Performance', icon: '📊', color: 'indigo' }
+    ];
 
-	// Tab
-	type TabId = 'overview' | 'attendance' | 'expiry' | 'breakdown' | 'all-employees';
-	let activeTab: TabId = 'overview';
+    async function initSupabase() {
+        if (!supabase) {
+            const mod = await import('$lib/utils/supabase');
+            supabase = mod.supabase;
+        }
+    }
 
-	const tabs: { id: TabId; icon: string; label: string; color: string }[] = [
-		{ id: 'overview', icon: '📊', label: 'Overview', color: 'blue' },
-		{ id: 'attendance', icon: '🕐', label: 'Attendance', color: 'teal' },
-		{ id: 'expiry', icon: '⚠️', label: 'Expiry Alerts', color: 'orange' },
-		{ id: 'breakdown', icon: '📈', label: 'Breakdowns', color: 'green' },
-		{ id: 'all-employees', icon: '👥', label: 'All Employees', color: 'purple' },
-	];
+    function calculateDaysRemaining(expiryDate: string | null): number {
+        if (!expiryDate) return -999;
+        const expiry = new Date(expiryDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const daysMs = expiry.getTime() - today.getTime();
+        return Math.ceil(daysMs / (1000 * 60 * 60 * 24));
+    }
 
-	const STATUS_COLORS: Record<string, string> = {
-		'Job (With Finger)': '#10b981',
-		'Job (No Finger)': '#3b82f6',
-		'Remote Job': '#8b5cf6',
-		'Vacation': '#f59e0b',
-		'Resigned': '#ef4444',
-		'Terminated': '#dc2626',
-		'Run Away': '#991b1b',
-	};
+    function getStatusDisplay(daysRemaining: number): { color: string; text: string } {
+        if (daysRemaining < 0) {
+            return { color: 'bg-red-100 text-red-800', text: $t('hr.dashboard.expired') || 'Expired' };
+        } else if (daysRemaining <= 30) {
+            return { color: 'bg-orange-100 text-orange-800', text: $t('hr.dashboard.expiring_soon') || 'Expiring Soon' };
+        } else if (daysRemaining <= 90) {
+            return { color: 'bg-yellow-100 text-yellow-800', text: $t('hr.dashboard.warning') || 'Warning' };
+        } else {
+            return { color: 'bg-green-100 text-green-800', text: $t('common.active') || 'Active' };
+        }
+    }
 
-	const STATUS_BG: Record<string, string> = {
-		'Job (With Finger)': 'bg-emerald-100 text-emerald-800',
-		'Job (No Finger)': 'bg-blue-100 text-blue-800',
-		'Remote Job': 'bg-violet-100 text-violet-800',
-		'Vacation': 'bg-amber-100 text-amber-800',
-		'Resigned': 'bg-red-100 text-red-800',
-		'Terminated': 'bg-red-200 text-red-900',
-		'Run Away': 'bg-red-300 text-red-900',
-	};
+    function getNationalityDisplay(name_en: string, name_ar: string): string {
+        return $locale === 'ar' ? (name_ar || name_en) : (name_en || name_ar);
+    }
 
-	const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#6366f1'];
+    function getEmployeeNameDisplay(name_en: string, name_ar: string): string {
+        return $locale === 'ar' ? (name_ar || name_en) : (name_en || name_ar);
+    }
 
-	const ATTENDANCE_COLORS: Record<string, string> = {
-		'Worked': '#10b981',
-		'Absent': '#ef4444',
-		'Check-In Missing': '#f97316',
-		'Check-Out Missing': '#f59e0b',
-		'Official Day Off': '#8b5cf6',
-		'Official Holiday': '#3b82f6',
-		'Approved Leave (Deductible)': '#06b6d4',
-		'Approved Leave (No Deduction)': '#0ea5e9',
-		'Pending Approval': '#eab308',
-		'Rejected-Not Deducted': '#dc2626',
-	};
+    function openDateModal(empId: string, empName: string, docType: string, docKey: string, currentDate: string) {
+        modalEmployeeId = empId;
+        modalEmployeeName = empName;
+        modalDocumentType = docType;
+        modalDocumentKey = docKey;
+        modalCurrentDate = currentDate || '';
+        modalNewDate = currentDate || '';
+        showDateModal = true;
+    }
 
-	const ATTENDANCE_BG: Record<string, string> = {
-		'Worked': 'bg-emerald-100 text-emerald-800',
-		'Absent': 'bg-red-100 text-red-800',
-		'Check-In Missing': 'bg-orange-100 text-orange-800',
-		'Check-Out Missing': 'bg-amber-100 text-amber-800',
-		'Official Day Off': 'bg-violet-100 text-violet-800',
-		'Official Holiday': 'bg-blue-100 text-blue-800',
-		'Approved Leave (Deductible)': 'bg-cyan-100 text-cyan-800',
-		'Approved Leave (No Deduction)': 'bg-sky-100 text-sky-800',
-		'Pending Approval': 'bg-yellow-100 text-yellow-800',
-		'Rejected-Not Deducted': 'bg-red-200 text-red-900',
-	};
+    function closeDateModal() {
+        showDateModal = false;
+        isSaving = false;
+    }
 
-	function getIsArabic(): boolean {
-		return $locale === 'ar';
-	}
+    async function saveDateChange() {
+        if (!supabase || !modalEmployeeId || !modalDocumentKey) return;
+        
+        isSaving = true;
+        try {
+            const updateData: any = {};
+            updateData[modalDocumentKey] = modalNewDate || null;
+            
+            const { error } = await supabase
+                .from('hr_employee_master')
+                .update(updateData)
+                .eq('id', modalEmployeeId);
+            
+            if (error) throw error;
+            
+            // Refresh data
+            await loadDocumentsExpiryData();
+            closeDateModal();
+        } catch (err) {
+            console.error('Error updating date:', err);
+            alert('Failed to update date');
+        } finally {
+            isSaving = false;
+        }
+    }
 
-	async function loadData() {
-		isLoading = true;
-		error = '';
-		try {
-			const today = new Date().toISOString().split('T')[0];
+    async function loadDocumentsExpiryData() {
+        loading = true;
+        try {
+            await initSupabase();
+            
+            let query = supabase
+                .from('hr_employee_master')
+                .select(`
+                    id,
+                    name_en,
+                    name_ar,
+                    nationality_id,
+                    current_branch_id,
+                    employment_status,
+                    id_expiry_date,
+                    health_card_expiry_date,
+                    driving_licence_expiry_date,
+                    contract_expiry_date,
+                    work_permit_expiry_date,
+                    insurance_expiry_date,
+                    health_educational_renewal_date,
+                    branches(name_en, name_ar, location_en, location_ar)
+                `)
+                .in('employment_status', ACTIVE_EMPLOYMENT_STATUSES)
+                .order('name_en', { ascending: true });
 
-			const [empRes, branchRes, natRes, posRes, attRes] = await Promise.all([
-				supabase
-					.from('hr_employee_master')
-					.select('*, branches:current_branch_id(id, name_en, name_ar, is_active), hr_positions:current_position_id(id, position_title_en, position_title_ar), nationalities:nationality_id(id, name_en, name_ar)')
-					.order('name_en'),
-				supabase.from('branches').select('id, name_en, name_ar').eq('is_active', true).order('name_en'),
-				supabase.from('nationalities').select('id, name_en, name_ar').order('name_en'),
-				supabase.from('hr_positions').select('id, position_title_en, position_title_ar').eq('is_active', true).order('position_title_en'),
-				supabase.from('hr_analysed_attendance_data').select('*').eq('shift_date', today),
-			]);
+            const { data: employees, error } = await query;
 
-			if (empRes.error) throw empRes.error;
-			if (branchRes.error) throw branchRes.error;
+            if (error) throw error;
 
-			// Filter employees to only those in active branches
-			const activeBranchIds = new Set((branchRes.data || []).map((b: any) => b.id));
-			employees = (empRes.data || []).filter((e: any) => activeBranchIds.has(e.current_branch_id));
+            // Get nationalities
+            const { data: nationalities } = await supabase
+                .from('nationalities')
+                .select('id, name_en, name_ar');
 
-			branches = branchRes.data || [];
-			nationalities = natRes.data || [];
-			positions = posRes.data || [];
-			attendanceData = attRes.data || [];
+            const nationalityMap = new Map();
+            if (nationalities) {
+                nationalities.forEach((n: any) => {
+                    nationalityMap.set(n.id, { name_en: n.name_en, name_ar: n.name_ar });
+                });
+            }
 
-			// Update tab labels with i18n
-			tabs[0].label = $t('employeeDashboard.overview');
-			tabs[1].label = $t('employeeDashboard.attendance');
-			tabs[2].label = $t('employeeDashboard.expiryAlerts');
-			tabs[3].label = $t('employeeDashboard.breakdowns');
-			tabs[4].label = 'All Employees';
+            // Group by employee
+            const groupedData: DocumentExpiry[] = [];
+            
+            if (employees) {
+                employees.forEach((emp: any) => {
+                    const nationality = nationalityMap.get(emp.nationality_id) || { name_en: 'N/A', name_ar: 'N/A' };
+                    const branch = emp.branches || { name_en: 'N/A', name_ar: 'N/A', location_en: 'N/A', location_ar: 'N/A' };
+                    const documents: any = {};
+                    
+                    // Build documents object for this employee
+                    DOCUMENT_TYPES.forEach((docType) => {
+                        const expiryDate = emp[docType.key];
+                        const daysRemaining = calculateDaysRemaining(expiryDate);
+                        const status = getStatusDisplay(daysRemaining);
+                        
+                        documents[docType.type] = {
+                            label: docType.label,
+                            expiryDate,
+                            daysRemaining,
+                            status: status.text
+                        };
+                    });
+                    
+                    groupedData.push({
+                        id: emp.id,
+                        name_en: emp.name_en || 'N/A',
+                        name_ar: emp.name_ar || 'N/A',
+                        nationality_id: emp.nationality_id || 'N/A',
+                        nationality_name_en: nationality.name_en,
+                        nationality_name_ar: nationality.name_ar,
+                        current_branch_id: emp.current_branch_id,
+                        branch_name_en: branch.name_en || 'N/A',
+                        branch_name_ar: branch.name_ar || 'N/A',
+                        branch_location_en: branch.location_en || 'N/A',
+                        branch_location_ar: branch.location_ar || 'N/A',
+                        documents
+                    });
+                });
+            }
 
-			computeStats();
-		} catch (err: any) {
-			console.error('Error loading dashboard data:', err);
-			error = err.message || 'Failed to load data';
-		} finally {
-			isLoading = false;
-		}
-	}
+            documentsExpiryData = groupedData;
+        } catch (err) {
+            console.error('Error loading documents expiry data:', err);
+        } finally {
+            loading = false;
+        }
+    }
 
-	function getFilteredEmployees() {
-		let filtered = employees;
-		if (selectedBranch) {
-			filtered = filtered.filter(e => String(e.current_branch_id) === selectedBranch);
-		}
-		if (selectedStatus) {
-			filtered = filtered.filter(e => e.employment_status === selectedStatus);
-		}
-		if (searchQuery.trim()) {
-			const q = searchQuery.trim().toLowerCase();
-			filtered = filtered.filter(e =>
-				(e.name_en || '').toLowerCase().includes(q) ||
-				(e.name_ar || '').toLowerCase().includes(q) ||
-				(e.id || '').toLowerCase().includes(q)
-			);
-		}
-		return filtered;
-	}
+    function handleTabChange() {
+        if (activeTab === 'Documents Expiry' && documentsExpiryData.length === 0) {
+            loadDocumentsExpiryData();
+        }
+    }
 
-	function computeStats() {
-		const filtered = getFilteredEmployees();
-
-		totalEmployees = filtered.length;
-		activeEmployees = filtered.filter(e => e.employment_status === 'Job (With Finger)' || e.employment_status === 'Job (No Finger)').length;
-		resignedEmployees = filtered.filter(e => e.employment_status === 'Resigned').length;
-		vacationEmployees = filtered.filter(e => e.employment_status === 'Vacation').length;
-		terminatedEmployees = filtered.filter(e => e.employment_status === 'Terminated').length;
-		remoteEmployees = filtered.filter(e => e.employment_status === 'Remote Job').length;
-		runAwayEmployees = filtered.filter(e => e.employment_status === 'Run Away').length;
-
-		// By status
-		const statusMap = new Map<string, number>();
-		filtered.forEach(e => {
-			const st = e.employment_status || 'Unknown';
-			statusMap.set(st, (statusMap.get(st) || 0) + 1);
-		});
-		byStatus = Array.from(statusMap.entries())
-			.sort((a, b) => b[1] - a[1])
-			.map(([name, count]) => ({ name, count, color: STATUS_COLORS[name] || '#64748b' }));
-
-		// By branch
-		const branchMap = new Map<string, number>();
-		filtered.forEach(e => {
-			const isAr = getIsArabic();
-			const bName = isAr
-				? (e.branches?.name_ar || e.branches?.name_en || 'Unknown')
-				: (e.branches?.name_en || e.branches?.name_ar || 'Unknown');
-			branchMap.set(bName, (branchMap.get(bName) || 0) + 1);
-		});
-		byBranch = Array.from(branchMap.entries())
-			.sort((a, b) => b[1] - a[1])
-			.map(([name, count], i) => ({ name, count, color: CHART_COLORS[i % CHART_COLORS.length] }));
-
-		// By nationality
-		const natMap = new Map<string, number>();
-		filtered.forEach(e => {
-			const isAr = getIsArabic();
-			const nName = isAr
-				? (e.nationalities?.name_ar || e.nationalities?.name_en || 'Unknown')
-				: (e.nationalities?.name_en || e.nationalities?.name_ar || 'Unknown');
-			natMap.set(nName, (natMap.get(nName) || 0) + 1);
-		});
-		byNationality = Array.from(natMap.entries())
-			.sort((a, b) => b[1] - a[1])
-			.map(([name, count], i) => ({ name, count, color: CHART_COLORS[i % CHART_COLORS.length] }));
-
-		// By position
-		const posMap = new Map<string, number>();
-		filtered.forEach(e => {
-			const isAr = getIsArabic();
-			const pName = isAr
-				? (e.hr_positions?.position_title_ar || e.hr_positions?.position_title_en || 'Unassigned')
-				: (e.hr_positions?.position_title_en || e.hr_positions?.position_title_ar || 'Unassigned');
-			posMap.set(pName, (posMap.get(pName) || 0) + 1);
-		});
-		byPosition = Array.from(posMap.entries())
-			.sort((a, b) => b[1] - a[1])
-			.map(([name, count], i) => ({ name, count, color: CHART_COLORS[i % CHART_COLORS.length] }));
-
-		// By sponsorship
-		const sponsored = filtered.filter(e => e.sponsorship_status === true).length;
-		const notSponsored = filtered.filter(e => !e.sponsorship_status).length;
-		bySponsor = [
-			{ name: $t('employeeDashboard.sponsored'), count: sponsored, color: '#10b981' },
-			{ name: $t('employeeDashboard.notSponsored'), count: notSponsored, color: '#ef4444' },
-		];
-
-		// Expiry alerts
-		computeExpiryAlerts(filtered);
-
-		// Attendance breakdown
-		computeAttendanceStats(filtered);
-	}
-
-	function computeExpiryAlerts(filtered: any[]) {
-		const today = new Date();
-		const futureDate = new Date();
-		futureDate.setDate(today.getDate() + expiryDays);
-		const todayStr = today.toISOString().split('T')[0];
-		const futureStr = futureDate.toISOString().split('T')[0];
-
-		const alerts: any[] = [];
-		const isAr = getIsArabic();
-
-		const expiryFields = [
-			{ field: 'id_expiry_date', label: $t('employeeDashboard.idExpiry') },
-			{ field: 'health_card_expiry_date', label: $t('employeeDashboard.healthCardExpiry') },
-			{ field: 'driving_licence_expiry_date', label: $t('employeeDashboard.drivingLicenceExpiry') },
-			{ field: 'contract_expiry_date', label: $t('employeeDashboard.contractExpiry') },
-			{ field: 'work_permit_expiry_date', label: $t('employeeDashboard.workPermitExpiry') },
-			{ field: 'insurance_expiry_date', label: $t('employeeDashboard.insuranceExpiry') },
-			{ field: 'health_educational_renewal_date', label: $t('employeeDashboard.healthEducationalRenewal') },
-		];
-
-		filtered.forEach(emp => {
-			// Only check active employees
-			if (emp.employment_status !== 'Job (With Finger)' && emp.employment_status !== 'Job (No Finger)' && emp.employment_status !== 'Remote Job') return;
-
-			const empName = isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.name_ar || emp.id);
-
-			expiryFields.forEach(({ field, label }) => {
-				const dateVal = emp[field];
-				if (!dateVal) return;
-
-				if (dateVal <= futureStr) {
-					const isExpired = dateVal < todayStr;
-					const daysUntil = Math.ceil((new Date(dateVal).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-					alerts.push({
-						employeeId: emp.id,
-						employeeName: empName,
-						documentType: label,
-						expiryDate: dateVal,
-						isExpired,
-						daysUntil,
-						branchName: isAr ? (emp.branches?.name_ar || emp.branches?.name_en || '') : (emp.branches?.name_en || emp.branches?.name_ar || ''),
-					});
-				}
-			});
-		});
-
-		alerts.sort((a, b) => {
-			if (a.isExpired && !b.isExpired) return -1;
-			if (!a.isExpired && b.isExpired) return 1;
-			return a.daysUntil - b.daysUntil;
-		});
-
-		expiringDocuments = alerts;
-	}
-
-	function computeAttendanceStats(filtered: any[]) {
-		// Filter attendance data by selected branch if needed
-		let filteredAttendance = attendanceData;
-		if (selectedBranch) {
-			filteredAttendance = filteredAttendance.filter(a => String(a.branch_id) === selectedBranch);
-		}
-
-		// Also filter to only employees in the filtered list
-		const empIds = new Set(filtered.map(e => e.id));
-		filteredAttendance = filteredAttendance.filter(a => empIds.has(a.employee_id));
-
-		todayAttendanceTotal = filteredAttendance.length;
-
-		const statusMap = new Map<string, number>();
-		filteredAttendance.forEach(a => {
-			const st = a.status || 'Unknown';
-			statusMap.set(st, (statusMap.get(st) || 0) + 1);
-		});
-
-		attendanceByStatus = Array.from(statusMap.entries())
-			.sort((a, b) => b[1] - a[1])
-			.map(([name, count]) => ({ name, count, color: ATTENDANCE_COLORS[name] || '#64748b' }));
-	}
-
-	function getAttendanceEmployees(status: string): any[] {
-		const isAr = getIsArabic();
-		let filteredAttendance = attendanceData.filter(a => a.status === status);
-		if (selectedBranch) {
-			filteredAttendance = filteredAttendance.filter(a => String(a.branch_id) === selectedBranch);
-		}
-		return filteredAttendance.map(a => ({
-			id: a.employee_id,
-			name: isAr ? (a.employee_name_ar || a.employee_name_en || a.employee_id) : (a.employee_name_en || a.employee_name_ar || a.employee_id),
-			status: a.status,
-			checkIn: a.check_in_time || '-',
-			checkOut: a.check_out_time || '-',
-			lateMinutes: a.late_minutes || 0,
-			workedMinutes: a.worked_minutes || 0,
-			overtimeMinutes: a.overtime_minutes || 0,
-		}));
-	}
-
-	function formatMinutes(mins: number): string {
-		if (!mins || mins === 0) return '-';
-		const h = Math.floor(mins / 60);
-		const m = mins % 60;
-		return h > 0 ? `${h}h ${m}m` : `${m}m`;
-	}
-
-	function getBarWidth(count: number, data: { count: number }[]): number {
-		const max = Math.max(...data.map(d => d.count), 1);
-		return (count / max) * 100;
-	}
-
-	function formatDate(dateStr: string): string {
-		if (!dateStr) return '-';
-		try {
-			return new Date(dateStr).toLocaleDateString($locale === 'ar' ? 'ar-SA' : 'en-US', {
-				year: 'numeric',
-				month: 'short',
-				day: 'numeric',
-			});
-		} catch {
-			return dateStr;
-		}
-	}
-
-	function getTabColor(tabId: string): string {
-		switch (tabId) {
-			case 'overview': return 'blue';
-			case 'attendance': return 'teal';
-			case 'expiry': return 'orange';
-			case 'breakdown': return 'green';
-			case 'all-employees': return 'purple';
-			default: return 'blue';
-		}
-	}
-
-	function getTabActiveClass(tabId: string): string {
-		const color = getTabColor(tabId);
-		switch (color) {
-			case 'blue': return 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]';
-			case 'teal': return 'bg-teal-600 text-white shadow-lg shadow-teal-200 scale-[1.02]';
-			case 'orange': return 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]';
-			case 'green': return 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]';
-			case 'purple': return 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]';
-			default: return 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]';
-		}
-	}
-
-	$: if (selectedBranch !== undefined || selectedStatus !== undefined || searchQuery !== undefined) {
-		if (employees.length > 0) computeStats();
-	}
-
-	onMount(() => {
-		loadData();
-	});
+    onMount(() => {
+        loadDocumentsExpiryData();
+    });
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
-	<!-- Header / Tab Navigation -->
-	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-		<div class="flex items-center gap-3">
-			<span class="text-2xl">📊</span>
-			<h1 class="text-lg font-black text-slate-800 uppercase tracking-wide">{$t('employeeDashboard.title')}</h1>
-		</div>
-		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
-			{#each tabs as tab}
-				<button
-					class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden
-					{activeTab === tab.id
-						? getTabActiveClass(tab.id)
-						: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
-					on:click={() => { activeTab = tab.id; }}
-				>
-					<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">{tab.icon}</span>
-					<span class="relative z-10">{tab.label}</span>
-					{#if tab.id === 'expiry' && expiringDocuments.length > 0}
-						<span class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-black bg-red-500 text-white rounded-full min-w-[18px]">{expiringDocuments.length}</span>
-					{/if}
-					{#if activeTab === tab.id}
-						<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
-					{/if}
-				</button>
-			{/each}
-		</div>
-	</div>
+    <!-- Header/Navigation -->
+    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end shadow-sm">
+        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+            {#each tabs as tab}
+                <button 
+                    class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+                    {activeTab === tab.id 
+                        ? (tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]' : 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]')
+                        : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+                    on:click={async () => {
+                        activeTab = tab.id;
+                        handleTabChange();
+                    }}
+                >
+                    <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">{tab.icon}</span>
+                    <span class="relative z-10">{tab.label}</span>
+                    
+                    {#if activeTab === tab.id}
+                        <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
+                    {/if}
+                </button>
+            {/each}
+        </div>
+    </div>
 
-	<!-- Main Content Area -->
-	<div class="flex-1 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
-		<!-- Decorative elements -->
-		<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
-		<div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-emerald-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
+    <!-- Main Content Area -->
+    <div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+        <!-- Futuristic background decorative elements -->
+        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/20 rounded-full blur-[120px] -mr-64 -mt-64 animate-pulse"></div>
+        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
-		<div class="relative max-w-[99%] mx-auto h-full flex flex-col">
-			{#if isLoading}
-				<div class="flex items-center justify-center h-full">
-					<div class="text-center">
-						<div class="animate-spin inline-block">
-							<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
-						</div>
-						<p class="mt-4 text-slate-600 font-semibold">{$t('employeeDashboard.loading')}</p>
-					</div>
-				</div>
-			{:else if error}
-				<div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-					<p class="text-red-700 font-semibold">{error}</p>
-					<button
-						class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
-						on:click={loadData}
-					>
-						{$t('employeeDashboard.refresh')}
-					</button>
-				</div>
-			{:else}
-				<!-- Filter Controls -->
-				<div class="mb-4 flex gap-3">
-					<div class="flex-1">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeDashboard.branch')}</label>
-						<select
-							bind:value={selectedBranch}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-							style="color: #000 !important; background-color: #fff !important;"
-						>
-							<option value="" style="color: #000 !important; background-color: #fff !important;">{$t('employeeDashboard.allBranches')}</option>
-							{#each branches as branch}
-								<option value={String(branch.id)} style="color: #000 !important; background-color: #fff !important;">
-									{$locale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}
-								</option>
-							{/each}
-						</select>
-					</div>
-					<div class="flex-1">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeDashboard.status')}</label>
-						<select
-							bind:value={selectedStatus}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-							style="color: #000 !important; background-color: #fff !important;"
-						>
-							<option value="" style="color: #000 !important; background-color: #fff !important;">{$t('employeeDashboard.allStatuses')}</option>
-							<option value="Job (With Finger)" style="color: #000 !important;">Job (With Finger)</option>
-							<option value="Job (No Finger)" style="color: #000 !important;">Job (No Finger)</option>
-							<option value="Remote Job" style="color: #000 !important;">Remote Job</option>
-							<option value="Vacation" style="color: #000 !important;">Vacation</option>
-							<option value="Resigned" style="color: #000 !important;">Resigned</option>
-							<option value="Terminated" style="color: #000 !important;">Terminated</option>
-							<option value="Run Away" style="color: #000 !important;">Run Away</option>
-						</select>
-					</div>
-					<div class="flex-1">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeDashboard.expiryWindow')}</label>
-						<select
-							bind:value={expiryDays}
-							on:change={() => computeStats()}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-							style="color: #000 !important; background-color: #fff !important;"
-						>
-							<option value={7} style="color: #000 !important;">7 {$t('employeeDashboard.days')}</option>
-							<option value={14} style="color: #000 !important;">14 {$t('employeeDashboard.days')}</option>
-							<option value={30} style="color: #000 !important;">30 {$t('employeeDashboard.days')}</option>
-							<option value={60} style="color: #000 !important;">60 {$t('employeeDashboard.days')}</option>
-							<option value={90} style="color: #000 !important;">90 {$t('employeeDashboard.days')}</option>
-						</select>
-					</div>
-					<div class="flex-1">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeDashboard.search')}</label>
-						<input
-							type="text"
-							bind:value={searchQuery}
-							placeholder={$t('employeeDashboard.searchPlaceholder')}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-						/>
-					</div>
-					<div class="flex items-end">
-						<button
-							on:click={loadData}
-							class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
-							title={$t('employeeDashboard.refresh')}
-						>
-							🔄 {$t('employeeDashboard.refresh')}
-						</button>
-					</div>
-				</div>
+        <div class="relative max-w-[99%] mx-auto h-full flex flex-col">
+            {#if activeTab === 'Documents Expiry'}
+                <!-- Documents Expiry Tab Content -->
+                <div>
+                    <!-- Header with decorative line -->
+                    <div class="mb-6 flex items-center gap-4">
+                        <div class="absolute inset-0 rounded-full blur-2xl bg-blue-400/30"></div>
+                        <h1 class="text-3xl font-black text-slate-800 tracking-tight relative z-10">
+                            📄 {$t('hr.dashboard.documents_expiry') || 'Documents Expiry'}
+                        </h1>
+                        <div class="flex-1 flex gap-3 items-center">
+                            <div class="h-[3px] w-16 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+                            <div class="h-[3px] w-16 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+                        </div>
+                    </div>
 
-				<!-- TAB: Overview -->
-				{#if activeTab === 'overview'}
-					<!-- Summary stat cards -->
-					<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-						<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-3 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid #3b82f6;">
-							<span class="text-3xl">👥</span>
-							<div>
-								<div class="text-2xl font-black text-slate-800">{totalEmployees}</div>
-								<div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{$t('employeeDashboard.totalEmployees')}</div>
-							</div>
-						</div>
-						<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-3 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid #10b981;">
-							<span class="text-3xl">✅</span>
-							<div>
-								<div class="text-2xl font-black text-emerald-700">{activeEmployees}</div>
-								<div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{$t('employeeDashboard.activeEmployees')}</div>
-							</div>
-						</div>
-						<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-3 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid #8b5cf6;">
-							<span class="text-3xl">🏠</span>
-							<div>
-								<div class="text-2xl font-black text-violet-700">{remoteEmployees}</div>
-								<div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{$t('employeeDashboard.remoteEmployees')}</div>
-							</div>
-						</div>
-						<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-3 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid #f59e0b;">
-							<span class="text-3xl">🏖️</span>
-							<div>
-								<div class="text-2xl font-black text-amber-700">{vacationEmployees}</div>
-								<div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{$t('employeeDashboard.onVacation')}</div>
-							</div>
-						</div>
-						<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-3 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid #ef4444;">
-							<span class="text-3xl">🚪</span>
-							<div>
-								<div class="text-2xl font-black text-red-700">{resignedEmployees}</div>
-								<div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{$t('employeeDashboard.resigned')}</div>
-							</div>
-						</div>
-						<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-3 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid #dc2626;">
-							<span class="text-3xl">❌</span>
-							<div>
-								<div class="text-2xl font-black text-red-800">{terminatedEmployees}</div>
-								<div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{$t('employeeDashboard.terminated')}</div>
-							</div>
-						</div>
-					</div>
+                    <!-- Search Bar and Filters (Same Row) -->
+                    <div class="mb-4 flex items-center gap-2 flex-wrap">
+                        <div class="relative flex-1 max-w-md">
+                            <input
+                                type="text"
+                                placeholder="🔍 Search by Employee ID or Name..."
+                                bind:value={searchTerm}
+                                class="w-full px-4 py-2.5 rounded-lg border border-blue-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            />
+                            {#if searchTerm}
+                                <button
+                                    on:click={() => searchTerm = ''}
+                                    class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg"
+                                >
+                                    ✕
+                                </button>
+                            {/if}
+                        </div>
 
-					<!-- Charts Grid -->
-					<div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-y-auto">
-						<!-- By Status -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">📊 {$t('employeeDashboard.byStatus')}</h3>
-							<div class="space-y-2">
-								{#each byStatus as item}
-									<div class="flex items-center gap-3">
-										<span class="text-xs text-slate-600 font-semibold min-w-[120px] max-w-[150px] truncate" title={item.name}>{item.name}</span>
-										<div class="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-											<div class="h-full rounded transition-all duration-500" style="width: {getBarWidth(item.count, byStatus)}%; background: {item.color};"></div>
-										</div>
-										<span class="text-sm font-black text-slate-700 min-w-[30px] {$locale === 'ar' ? 'text-left' : 'text-right'}">{item.count}</span>
-									</div>
-								{/each}
-							</div>
-						</div>
+                        <!-- Branch Filter -->
+                        <select
+                            bind:value={selectedBranch}
+                            class="px-4 py-2.5 rounded-lg border border-blue-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
+                        >
+                            <option value="">All Branches</option>
+                            {#each uniqueBranches as branch}
+                                <option value={branch.id}>
+                                    {$locale === 'ar' ? branch.name_ar : branch.name_en}
+                                </option>
+                            {/each}
+                        </select>
 
-						<!-- By Branch -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">🏢 {$t('employeeDashboard.byBranch')}</h3>
-							<div class="space-y-2">
-								{#each byBranch as item}
-									<div class="flex items-center gap-3">
-										<span class="text-xs text-slate-600 font-semibold min-w-[120px] max-w-[150px] truncate" title={item.name}>{item.name}</span>
-										<div class="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-											<div class="h-full rounded transition-all duration-500" style="width: {getBarWidth(item.count, byBranch)}%; background: {item.color};"></div>
-										</div>
-										<span class="text-sm font-black text-slate-700 min-w-[30px] {$locale === 'ar' ? 'text-left' : 'text-right'}">{item.count}</span>
-									</div>
-								{/each}
-							</div>
-						</div>
+                        <!-- Nationality Filter -->
+                        <select
+                            bind:value={selectedNationality}
+                            class="px-4 py-2.5 rounded-lg border border-blue-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer min-w-56"
+                        >
+                            <option value="">All Nationalities</option>
+                            {#each uniqueNationalities as nationality}
+                                <option value={nationality.id}>
+                                    {$locale === 'ar' ? nationality.name_ar : nationality.name_en}
+                                </option>
+                            {/each}
+                        </select>
 
-						<!-- Sponsorship -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">🏷️ {$t('employeeDashboard.sponsorship')}</h3>
-							<div class="space-y-2">
-								{#each bySponsor as item}
-									<div class="flex items-center gap-3">
-										<span class="text-xs text-slate-600 font-semibold min-w-[120px] max-w-[150px] truncate" title={item.name}>{item.name}</span>
-										<div class="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-											<div class="h-full rounded transition-all duration-500" style="width: {getBarWidth(item.count, bySponsor)}%; background: {item.color};"></div>
-										</div>
-										<span class="text-sm font-black text-slate-700 min-w-[30px] {$locale === 'ar' ? 'text-left' : 'text-right'}">{item.count}</span>
-									</div>
-								{/each}
-							</div>
-						</div>
+                        <!-- Clear Filters Button -->
+                        {#if selectedBranch || selectedNationality}
+                            <button
+                                on:click={() => {
+                                    selectedBranch = '';
+                                    selectedNationality = '';
+                                }}
+                                class="px-3 py-2.5 rounded-lg border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-sm font-semibold"
+                            >
+                                Clear
+                            </button>
+                        {/if}
 
-						<!-- Expiry Summary -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">⚠️ {$t('employeeDashboard.expirySummary')}</h3>
-							<div class="flex gap-4 justify-center">
-								<div class="text-center p-4 bg-red-50 border border-red-200 rounded-xl flex-1">
-									<div class="text-3xl font-black text-red-600">{expiringDocuments.filter(d => d.isExpired).length}</div>
-									<div class="text-[10px] font-bold text-red-500 uppercase tracking-wide mt-1">{$t('employeeDashboard.alreadyExpired')}</div>
-								</div>
-								<div class="text-center p-4 bg-amber-50 border border-amber-200 rounded-xl flex-1">
-									<div class="text-3xl font-black text-amber-600">{expiringDocuments.filter(d => !d.isExpired).length}</div>
-									<div class="text-[10px] font-bold text-amber-500 uppercase tracking-wide mt-1">{$t('employeeDashboard.expiringSoon')}</div>
-								</div>
-								<div class="text-center p-4 bg-blue-50 border border-blue-200 rounded-xl flex-1">
-									<div class="text-3xl font-black text-blue-600">{expiringDocuments.length}</div>
-									<div class="text-[10px] font-bold text-blue-500 uppercase tracking-wide mt-1">{$t('employeeDashboard.totalAlerts')}</div>
-								</div>
-							</div>
-						</div>
-					</div>
+                        <!-- Column Selector Dropdown -->
+                        <div class="relative">
+                            <button
+                                on:click={() => showColumnDropdown = !showColumnDropdown}
+                                class="px-3 py-2.5 rounded-lg border border-blue-200 bg-white/60 backdrop-blur-sm text-slate-700 hover:bg-white transition-colors text-sm font-semibold flex items-center gap-1"
+                            >
+                                ⚙️ Columns
+                                <span class="text-xs ml-1">{showColumnDropdown ? '▼' : '▶'}</span>
+                            </button>
 
-				<!-- TAB: Attendance -->
-				{:else if activeTab === 'attendance'}
-					<div class="flex-1 overflow-y-auto space-y-4">
-						<!-- Attendance Summary Cards -->
-						<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-							{#each attendanceByStatus as item}
-								<div class="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 hover:shadow-xl transition-all hover:-translate-y-0.5" style="border-left: 4px solid {item.color};">
-									<div class="flex items-center justify-between mb-2">
-										<span class="text-xs font-bold text-slate-600 uppercase tracking-wide truncate" title={item.name}>{item.name}</span>
-										<span class="text-2xl font-black" style="color: {item.color};">{item.count}</span>
-									</div>
-									<div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-										<div class="h-full rounded-full transition-all duration-500" style="width: {todayAttendanceTotal > 0 ? ((item.count / todayAttendanceTotal) * 100) : 0}%; background: {item.color};"></div>
-									</div>
-									<div class="text-[10px] text-slate-400 font-bold mt-1">
-										{todayAttendanceTotal > 0 ? ((item.count / todayAttendanceTotal) * 100).toFixed(1) : 0}%
-									</div>
-								</div>
-							{/each}
-						</div>
+                            {#if showColumnDropdown}
+                                <div class="absolute top-full mt-1 left-0 bg-white border border-slate-300 rounded-lg shadow-lg z-50 min-w-max p-3 max-h-96 overflow-y-auto">
+                                    {#each COLUMN_LABELS as col}
+                                        <label class="flex items-center gap-2 px-3 py-2 hover:bg-slate-100 rounded cursor-pointer whitespace-nowrap">
+                                            <input
+                                                type="checkbox"
+                                                checked={columnVisibility[col.key]}
+                                                on:change={(e) => {
+                                                    columnVisibility[col.key] = e.target.checked;
+                                                    columnVisibility = columnVisibility;
+                                                }}
+                                                class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                                            />
+                                            <span class="text-sm text-slate-700">{col.label}</span>
+                                        </label>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
 
-						<!-- Attendance Bar Chart -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">🕐 {$t('employeeDashboard.todayAttendance')} ({todayAttendanceTotal})</h3>
-							<div class="space-y-2">
-								{#each attendanceByStatus as item}
-									<div class="flex items-center gap-3">
-										<span class="text-xs text-slate-600 font-semibold min-w-[180px] max-w-[200px] truncate" title={item.name}>{item.name}</span>
-										<div class="flex-1 h-6 bg-slate-100 rounded overflow-hidden">
-											<div class="h-full rounded transition-all duration-500 flex items-center {$locale === 'ar' ? 'justify-end pr-2' : 'pl-2'}" style="width: {getBarWidth(item.count, attendanceByStatus)}%; background: {item.color};">
-												{#if getBarWidth(item.count, attendanceByStatus) > 15}
-													<span class="text-[10px] font-black text-white">{item.count}</span>
-												{/if}
-											</div>
-										</div>
-										<span class="text-sm font-black text-slate-700 min-w-[40px] {$locale === 'ar' ? 'text-left' : 'text-right'}">{item.count}</span>
-									</div>
-								{/each}
-							</div>
-						</div>
+                        <div class="text-sm text-slate-600 font-semibold ml-auto">
+                            {filteredData.length} of {documentsExpiryData.length}
+                        </div>
+                    </div>
 
-						<!-- Attendance Detail Tables per Status -->
-						{#each attendanceByStatus as statusItem}
-							{@const empList = getAttendanceEmployees(statusItem.name)}
-							{#if empList.length > 0}
-								<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden">
-									<div class="px-5 py-3 border-b border-slate-200 flex items-center gap-2">
-										<div class="w-3 h-3 rounded-full" style="background: {statusItem.color};"></div>
-										<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide">{statusItem.name}</h3>
-										<span class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full {ATTENDANCE_BG[statusItem.name] || 'bg-slate-100 text-slate-700'}">{empList.length}</span>
-									</div>
-									<div class="overflow-x-auto max-h-[300px] overflow-y-auto">
-										<table class="w-full border-collapse text-sm">
-											<thead class="sticky top-0 z-10" style="background: {statusItem.color};">
-												<tr>
-													<th class="px-4 py-2.5 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.employeeId')}</th>
-													<th class="px-4 py-2.5 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.employeeName')}</th>
-													<th class="px-4 py-2.5 text-center text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.checkIn')}</th>
-													<th class="px-4 py-2.5 text-center text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.checkOut')}</th>
-													<th class="px-4 py-2.5 text-center text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.worked')}</th>
-													<th class="px-4 py-2.5 text-center text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.lateMin')}</th>
-													<th class="px-4 py-2.5 text-center text-xs font-black uppercase tracking-wider text-white">{$t('employeeDashboard.overtime')}</th>
-												</tr>
-											</thead>
-											<tbody class="divide-y divide-slate-200">
-												{#each empList as emp, index}
-													<tr class="hover:bg-blue-50/30 transition-colors {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-														<td class="px-4 py-2 text-xs text-slate-400 font-mono">{emp.id}</td>
-														<td class="px-4 py-2 text-sm text-slate-700 font-semibold">{emp.name}</td>
-														<td class="px-4 py-2 text-sm text-center font-mono text-slate-600">{emp.checkIn}</td>
-														<td class="px-4 py-2 text-sm text-center font-mono text-slate-600">{emp.checkOut}</td>
-														<td class="px-4 py-2 text-sm text-center font-semibold text-emerald-700">{formatMinutes(emp.workedMinutes)}</td>
-														<td class="px-4 py-2 text-sm text-center font-semibold {emp.lateMinutes > 0 ? 'text-red-600' : 'text-slate-400'}">{formatMinutes(emp.lateMinutes)}</td>
-														<td class="px-4 py-2 text-sm text-center font-semibold {emp.overtimeMinutes > 0 ? 'text-blue-600' : 'text-slate-400'}">{formatMinutes(emp.overtimeMinutes)}</td>
-													</tr>
-												{/each}
-											</tbody>
-										</table>
-									</div>
-								</div>
-							{/if}
-						{/each}
+                    <!-- Table Container -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col h-full">
+                        <!-- Table with sticky header and scrollable content -->
+                        <div class="overflow-x-auto overflow-y-auto flex-1 max-h-[60vh]">
+                            <table class="w-full border-collapse">
+                                <thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+                                    <tr>
+                                        {#if columnVisibility.id}
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-r border-blue-400 min-w-fit">{$t('hr.employeeId') || 'ID'}</th>
+                                        {/if}
+                                        {#if columnVisibility.name}
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-r border-blue-400 min-w-fit">{$t('hr.fullName') || 'Full Name'}</th>
+                                        {/if}
+                                        {#if columnVisibility.nationality}
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-r border-blue-400 min-w-fit">{$t('hr.nationality') || 'Nationality'}</th>
+                                        {/if}
+                                        {#if columnVisibility.branch}
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-r border-blue-400 min-w-fit">{$t('hr.currentBranch') || 'Current Branch'}</th>
+                                        {/if}
+                                        {#each DOCUMENT_TYPES as docType}
+                                            {#if columnVisibility[`doc_${docType.type}`]}
+                                                <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-r border-blue-400 min-w-fit bg-blue-500/30">
+                                                    {docType.label}
+                                                </th>
+                                            {/if}
+                                        {/each}
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200">
+                                    {#if loading}
+                                        <tr>
+                                            <td colspan={4 + DOCUMENT_TYPES.length} class="px-4 py-8 text-center">
+                                                <div class="flex items-center justify-center">
+                                                    <div class="animate-spin">
+                                                        <div class="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+                                                    </div>
+                                                    <p class="ml-3 text-slate-600">{$t('common.loading') || 'Loading...'}</p>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {:else if documentsExpiryData.length === 0}
+                                        <tr>
+                                            <td colspan={4 + DOCUMENT_TYPES.length} class="px-4 py-8 text-center text-slate-500">
+                                                {$t('hr.dashboard.no_data') || 'No data available'}
+                                            </td>
+                                        </tr>
+                                    {:else if filteredData.length === 0}
+                                        <tr>
+                                            <td colspan={4 + DOCUMENT_TYPES.length} class="px-4 py-8 text-center text-slate-500">
+                                                No employees match your search
+                                            </td>
+                                        </tr>
+                                    {:else}
+                                        {#each sortedFilteredData as emp, index}
+                                            <tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                                {#if columnVisibility.id}
+                                                    <td class="px-4 py-3 text-sm text-slate-600 font-mono min-w-fit border-r border-slate-200">
+                                                        {emp.id}
+                                                    </td>
+                                                {/if}
+                                                {#if columnVisibility.name}
+                                                    <td class="px-4 py-3 text-sm text-slate-700 font-semibold min-w-fit border-r border-slate-200">
+                                                        {getEmployeeNameDisplay(emp.name_en, emp.name_ar)}
+                                                    </td>
+                                                {/if}
+                                                {#if columnVisibility.nationality}
+                                                    <td class="px-4 py-3 text-sm text-slate-700 min-w-fit border-r border-slate-200">
+                                                        {getNationalityDisplay(emp.nationality_name_en, emp.nationality_name_ar)}
+                                                    </td>
+                                                {/if}
+                                                {#if columnVisibility.branch}
+                                                    <td class="px-4 py-3 text-sm text-slate-700 min-w-fit border-r border-slate-200">
+                                                        <div class="flex flex-col gap-0.5">
+                                                            <div class="font-semibold">{$locale === 'ar' ? emp.branch_name_ar : emp.branch_name_en}</div>
+                                                            <div class="text-xs text-slate-500 font-normal">{$locale === 'ar' ? emp.branch_location_ar : emp.branch_location_en}</div>
+                                                        </div>
+                                                    </td>
+                                                {/if}
+                                                {#each DOCUMENT_TYPES as docType}
+                                                    {#if columnVisibility[`doc_${docType.type}`]}
+                                                        {@const doc = emp.documents[docType.type]}
+                                                        <td 
+                                                            class="px-4 py-3 text-center text-xs min-w-fit border-r border-slate-200 cursor-pointer hover:bg-blue-50"
+                                                            on:dblclick={() => openDateModal(emp.id, getEmployeeNameDisplay(emp.name_en, emp.name_ar), docType.label, docType.key, doc?.expiryDate || '')}
+                                                        >
+                                                            {#if doc && doc.expiryDate}
+                                                                <div class="flex flex-col gap-1 items-center">
+                                                                    <div class="font-mono text-slate-600 text-[10px]">{doc.expiryDate}</div>
+                                                                    <div class="font-bold {doc.daysRemaining < 0 ? 'text-red-700' : doc.daysRemaining <= 30 ? 'text-orange-700' : doc.daysRemaining <= 90 ? 'text-yellow-700' : 'text-green-700'}">
+                                                                        {#if doc.daysRemaining < 0}
+                                                                            <span class="text-red-600">
+                                                                                -{Math.abs(doc.daysRemaining)}d
+                                                                            </span>
+                                                                        {:else}
+                                                                            <span>{doc.daysRemaining}d</span>
+                                                                        {/if}
+                                                                    </div>
+                                                                    {#if doc.daysRemaining < 0}
+                                                                        <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-red-100 text-red-800 truncate max-w-[80px]">
+                                                                            Expired
+                                                                        </span>
+                                                                    {:else if doc.daysRemaining <= 30}
+                                                                        <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-orange-100 text-orange-800 truncate max-w-[80px]">
+                                                                            Soon
+                                                                        </span>
+                                                                    {:else if doc.daysRemaining <= 90}
+                                                                        <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-yellow-100 text-yellow-800 truncate max-w-[80px]">
+                                                                            Warning
+                                                                        </span>
+                                                                    {:else}
+                                                                        <span class="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-green-100 text-green-800 truncate max-w-[80px]">
+                                                                            Active
+                                                                        </span>
+                                                                    {/if}
+                                                                </div>
+                                                            {:else}
+                                                                <div class="text-slate-300 text-sm">—</div>
+                                                            {/if}
+                                                        </td>
+                                                    {/if}
+                                                {/each}
+                                            </tr>
+                                        {/each}
+                                    {/if}
+                                </tbody>
+                            </table>
+                        </div>
 
-						{#if attendanceByStatus.length === 0}
-							<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
-								<div class="text-5xl mb-4">🕐</div>
-								<p class="text-slate-600 font-semibold">{$t('employeeDashboard.noAttendanceData')}</p>
-							</div>
-						{/if}
-					</div>
+                        <!-- Footer with row count -->
+                        <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                            {searchTerm ? `${filteredData.length} of ${documentsExpiryData.length}` : `${documentsExpiryData.length}`} {$t('hr.dashboard.employees') || 'employee(s)'}
+                        </div>
+                    </div>
+                </div>
 
-				<!-- TAB: Expiry Alerts -->
-				{:else if activeTab === 'expiry'}
-					{#if expiringDocuments.length === 0}
-						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
-							<div class="text-5xl mb-4">✅</div>
-							<p class="text-slate-600 font-semibold">{$t('employeeDashboard.noExpiryAlerts')}</p>
-						</div>
-					{:else}
-						<div class="mb-2 text-xs text-slate-500 font-semibold">
-							{$t('employeeDashboard.showing')} <strong class="text-slate-700">{expiringDocuments.length}</strong> {$t('employeeDashboard.alerts')}
-						</div>
-						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
-							<div class="overflow-x-auto flex-1">
-								<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
-									<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
-										<tr>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.employeeId')}</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.employeeName')}</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.branch')}</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.documentType')}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.expiryDate')}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.daysRemaining')}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('employeeDashboard.statusLabel')}</th>
-										</tr>
-									</thead>
-									<tbody class="divide-y divide-slate-200">
-										{#each expiringDocuments as doc, index}
-											<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {doc.isExpired ? '!bg-red-50/40' : ''}">
-												<td class="px-4 py-3 text-xs text-slate-400 font-mono">{doc.employeeId}</td>
-												<td class="px-4 py-3 text-sm text-slate-700 font-semibold">{doc.employeeName}</td>
-												<td class="px-4 py-3 text-sm text-slate-600">{doc.branchName}</td>
-												<td class="px-4 py-3 text-sm text-slate-700">{doc.documentType}</td>
-												<td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{formatDate(doc.expiryDate)}</td>
-												<td class="px-4 py-3 text-sm text-center font-bold {doc.daysUntil < 0 ? 'text-red-600' : doc.daysUntil <= 7 ? 'text-orange-600' : 'text-amber-600'}">
-													{doc.daysUntil < 0 ? `${Math.abs(doc.daysUntil)} ${$t('employeeDashboard.daysOverdue')}` : `${doc.daysUntil} ${$t('employeeDashboard.days')}`}
-												</td>
-												<td class="px-4 py-3 text-center">
-													{#if doc.isExpired}
-														<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700">🔴 {$t('employeeDashboard.expired')}</span>
-													{:else if doc.daysUntil <= 7}
-														<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-orange-100 text-orange-700">🟠 {$t('employeeDashboard.critical')}</span>
-													{:else}
-														<span class="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-700">🟡 {$t('employeeDashboard.expiringSoon')}</span>
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-							<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-								{$t('employeeDashboard.showing')} {expiringDocuments.length} {$t('employeeDashboard.alerts')}
-							</div>
-						</div>
-					{/if}
+            {:else if activeTab === 'Performance'}
+                <!-- Performance Tab Content -->
+                <div>
+                    <!-- Header with decorative line -->
+                    <div class="mb-6 flex items-center gap-4">
+                        <div class="absolute inset-0 rounded-full blur-2xl bg-indigo-400/30"></div>
+                        <h1 class="text-3xl font-black text-slate-800 tracking-tight relative z-10">
+                            📊 {$t('hr.dashboard.performance') || 'Performance'}
+                        </h1>
+                        <div class="flex-1 flex gap-3 items-center">
+                            <div class="h-[3px] w-16 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(147,51,234,0.5)]"></div>
+                            <div class="h-[3px] w-16 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(147,51,234,0.5)]"></div>
+                        </div>
+                    </div>
 
-				<!-- TAB: Breakdowns -->
-				{:else if activeTab === 'breakdown'}
-					<div class="flex-1 overflow-y-auto space-y-4">
-						<!-- By Nationality -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">🌍 {$t('employeeDashboard.byNationality')}</h3>
-							<div class="space-y-2">
-								{#each byNationality as item}
-									<div class="flex items-center gap-3">
-										<span class="text-xs text-slate-600 font-semibold min-w-[120px] max-w-[150px] truncate" title={item.name}>{item.name}</span>
-										<div class="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-											<div class="h-full rounded transition-all duration-500" style="width: {getBarWidth(item.count, byNationality)}%; background: {item.color};"></div>
-										</div>
-										<span class="text-sm font-black text-slate-700 min-w-[30px] {$locale === 'ar' ? 'text-left' : 'text-right'}">{item.count}</span>
-									</div>
-								{/each}
-							</div>
-						</div>
+                    <!-- Table Container -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col h-full">
+                        <!-- Table Wrapper with horizontal scroll -->
+                        <div class="overflow-x-auto flex-1">
+                            <table class="w-full border-collapse">
+                                <thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
+                                    <tr>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.fullName') || 'Full Name'}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.currentPosition') || 'Current Position'}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('hr.promotedPosition') || 'Promoted Position'}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('common.promotionDate') || 'Promotion Date'}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('common.status') || 'Status'}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('common.action') || 'Action'}</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200">
+                                    <!-- Empty table body - to be populated later -->
+                                </tbody>
+                            </table>
+                        </div>
 
-						<!-- By Position -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">💼 {$t('employeeDashboard.byPosition')}</h3>
-							<div class="space-y-2">
-								{#each byPosition as item}
-									<div class="flex items-center gap-3">
-										<span class="text-xs text-slate-600 font-semibold min-w-[120px] max-w-[150px] truncate" title={item.name}>{item.name}</span>
-										<div class="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-											<div class="h-full rounded transition-all duration-500" style="width: {getBarWidth(item.count, byPosition)}%; background: {item.color};"></div>
-										</div>
-										<span class="text-sm font-black text-slate-700 min-w-[30px] {$locale === 'ar' ? 'text-left' : 'text-right'}">{item.count}</span>
-									</div>
-								{/each}
-							</div>
-						</div>
-
-						<!-- Branch Detail Cards -->
-						<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5">
-							<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-3">🏢 {$t('employeeDashboard.branchDetails')}</h3>
-							<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-								{#each byBranch as branch}
-									<div class="bg-white/60 rounded-xl border border-slate-200 p-4 hover:-translate-y-0.5 transition-all shadow-sm" style="border-left: 4px solid {branch.color};">
-										<div class="flex justify-between items-center">
-											<span class="text-sm text-slate-700 font-semibold truncate">{branch.name}</span>
-											<span class="text-xl font-black text-blue-600">{branch.count}</span>
-										</div>
-										<div class="text-[10px] text-slate-400 font-bold mt-1">
-											{totalEmployees > 0 ? ((branch.count / totalEmployees) * 100).toFixed(1) : 0}%
-										</div>
-									</div>
-								{/each}
-							</div>
-						</div>
-					</div>
-
-				<!-- TAB: All Employees -->
-				{:else if activeTab === 'all-employees'}
-					{@const filteredEmployees = getFilteredEmployees()}
-					{#if filteredEmployees.length === 0}
-						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
-							<div class="text-5xl mb-4">👥</div>
-							<p class="text-slate-600 font-semibold">No employees found</p>
-						</div>
-					{:else}
-						<div class="mb-2 text-xs text-slate-500 font-semibold">
-							{$t('employeeDashboard.showing')} <strong class="text-slate-700">{filteredEmployees.length}</strong> {filteredEmployees.length === 1 ? 'employee' : 'employees'}
-						</div>
-						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col flex-1">
-							<div class="overflow-x-auto flex-1">
-								<table class="w-full border-collapse [&_th]:border-x [&_th]:border-purple-500/30 [&_td]:border-x [&_td]:border-slate-200">
-									<thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
-										<tr>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.employeeId')}</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.employeeName')}</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.branch')}</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Nationality</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Position</th>
-											<th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{$t('employeeDashboard.status')}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">Sponsored</th>
-										</tr>
-									</thead>
-									<tbody class="divide-y divide-slate-200">
-										{#each filteredEmployees as emp, index}
-											<tr class="hover:bg-purple-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-												<td class="px-4 py-3 text-xs text-slate-400 font-mono">{emp.id}</td>
-												<td class="px-4 py-3 text-sm text-slate-700 font-semibold">
-													{$locale === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar)}
-												</td>
-												<td class="px-4 py-3 text-sm text-slate-600">
-													{$locale === 'ar' ? (emp.branches?.name_ar || emp.branches?.name_en || '-') : (emp.branches?.name_en || emp.branches?.name_ar || '-')}
-												</td>
-												<td class="px-4 py-3 text-sm text-slate-600">
-													{$locale === 'ar' ? (emp.nationalities?.name_ar || emp.nationalities?.name_en || '-') : (emp.nationalities?.name_en || emp.nationalities?.name_ar || '-')}
-												</td>
-												<td class="px-4 py-3 text-sm text-slate-600">
-													{$locale === 'ar' ? (emp.hr_positions?.position_title_ar || emp.hr_positions?.position_title_en || 'Unassigned') : (emp.hr_positions?.position_title_en || emp.hr_positions?.position_title_ar || 'Unassigned')}
-												</td>
-												<td class="px-4 py-3 text-center">
-													<span class="inline-block px-3 py-1 rounded-full text-[10px] font-black {STATUS_BG[emp.employment_status] || 'bg-slate-100 text-slate-700'}">
-														{emp.employment_status || 'Unknown'}
-													</span>
-												</td>
-												<td class="px-4 py-3 text-center text-sm font-semibold">
-													{#if emp.sponsorship_status}
-														<span class="text-green-600">✓ Yes</span>
-													{:else}
-														<span class="text-red-600">✗ No</span>
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-							<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-								{$t('employeeDashboard.showing')} {filteredEmployees.length} {filteredEmployees.length === 1 ? 'employee' : 'employees'}
-							</div>
-						</div>
-					{/if}
-			{/if}
-		{/if}
-	</div>
+                        <!-- Footer with row count -->
+                        <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                            {$t('hr.dashboard.no_data') || 'No data available'}
+                        </div>
+                    </div>
+                </div>
+            {/if}
+        </div>
+    </div>
 </div>
-</div>
+
+<!-- Date Edit Modal -->
+{#if showDateModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" on:click={closeDateModal}>
+        <div class="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 p-6" on:click|stopPropagation>
+            <h2 class="text-2xl font-bold text-slate-800 mb-4">Edit Document Date</h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">Employee</label>
+                    <div class="px-3 py-2 bg-slate-100 rounded border border-slate-200 text-slate-600">
+                        {modalEmployeeName}
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">Document Type</label>
+                    <div class="px-3 py-2 bg-slate-100 rounded border border-slate-200 text-slate-600">
+                        {modalDocumentType}
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">Current Date</label>
+                    <div class="px-3 py-2 bg-slate-100 rounded border border-slate-200 text-slate-600">
+                        {modalCurrentDate || 'No date set'}
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">New Expiry Date</label>
+                    <input
+                        type="date"
+                        bind:value={modalNewDate}
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                </div>
+            </div>
+            
+            <div class="flex gap-3 mt-6">
+                <button
+                    on:click={closeDateModal}
+                    disabled={isSaving}
+                    class="flex-1 px-4 py-2 bg-slate-200 text-slate-800 rounded-lg font-semibold hover:bg-slate-300 transition-colors disabled:opacity-50"
+                >
+                    Cancel
+                </button>
+                <button
+                    on:click={saveDateChange}
+                    disabled={isSaving}
+                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                    {isSaving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<style>
+    :global(.font-sans) {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .tracking-fast {
+        letter-spacing: 0.05em;
+    }
+
+    /* Animate in effects */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    @keyframes scaleIn {
+        from {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    .animate-in {
+        animation: fadeIn 0.2s ease-out;
+    }
+
+    .scale-in {
+        animation: scaleIn 0.3s ease-out;
+    }
+</style>
