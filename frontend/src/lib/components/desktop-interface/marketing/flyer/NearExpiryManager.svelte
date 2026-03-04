@@ -46,11 +46,17 @@
 	let fetchingProductNames = false;
 	let showBranchDropdown = false;
 
+	// Edit mode for price fields
+	let editingRowIndex: number | null = null;
+	let editingField: string | null = null; // 'salesPrice' or 'cost'
+	let editingValue: string = '';
+
 	// Column visibility management
 	let visibleColumns: Record<string, boolean> = {
 		delete: true,
 		sNo: true,
 		barcode: true,
+		systemExpiryDate: true,
 		productName: true,
 		salesPrice: true,
 		totalSalesPrice: true,
@@ -77,6 +83,7 @@
 		{ key: 'delete', label: 'Delete' },
 		{ key: 'sNo', label: 'S.No' },
 		{ key: 'barcode', label: 'Barcode' },
+		{ key: 'systemExpiryDate', label: 'System Expiry Date' },
 		{ key: 'productName', label: 'Product Name' },
 		{ key: 'salesPrice', label: 'Sales Price' },
 		{ key: 'totalSalesPrice', label: 'Total Sales Price' },
@@ -467,6 +474,9 @@
 				};
 			});
 			console.log('✅ ImportedData after update:', importedData);
+			
+			// Fetch system expiry dates from Supabase
+			await fetchSystemExpiryDates();
 		} catch (err) {
 			console.error('Error fetching product data:', err);
 		} finally {
@@ -563,13 +573,35 @@
 		taskUserSearchQuery = ''; // Clear search
 		showSendTaskModal = true;
 		
+		// Fetch photo from near_expiry_reports
+		try {
+			const { data: reports } = await supabase
+				.from('near_expiry_reports')
+				.select('items')
+				.not('items', 'is', null);
+
+			if (reports) {
+				for (const report of reports) {
+					if (report.items && Array.isArray(report.items)) {
+						const item = report.items.find((i: any) => i.barcode === barcode);
+						if (item && item.photo_url) {
+							taskToSendProduct = { ...taskToSendProduct, photo_url: item.photo_url };
+							break;
+						}
+					}
+				}
+			}
+		} catch (err) {
+			console.warn('⚠️ Failed to fetch photo from near_expiry_reports:', err);
+		}
+		
 		// Load users when modal opens
 		if (availableUsers.length === 0) {
 			await loadTaskAssignmentUsers();
 		}
 	}
 
-	// Send quick task for unfound barcode
+	// Send quick task for unfound barcode or system date mismatch
 	async function sendQuickTask() {
 		if (!taskSelectedUser || !taskToSendBarcode) {
 			alert('Please select a user');
@@ -602,9 +634,27 @@
 				}
 			}
 
-			// Create quick task for the unfound barcode
-			const taskTitle = `Barcode Not Found | لم يتم العثور على الباركود: ${taskToSendBarcode}`;
-			let taskDescription = `Product: ${taskToSendProduct?.englishName || taskToSendBarcode}\nBarcode: ${taskToSendBarcode}\nProduct AR: ${taskToSendProduct?.arabicName || ''}\n\nPlease check inventory and provide product information for this barcode.`;
+			// Determine task reason: barcode not found or system date mismatch
+			const isDateMismatch = isExpiryDateMismatch(taskToSendProduct?.expiryDate, taskToSendProduct?.systemExpiryDate);
+			const isNotFound = taskToSendProduct?.notFound || !isDateMismatch;
+
+			// Create quick task with appropriate title and description
+			let taskTitle: string;
+			let taskDescription: string;
+			let issueType: string;
+
+			if (isDateMismatch) {
+				// Task for system date mismatch
+				const formattedImportedDate = formatExpiryDate(String(taskToSendProduct?.expiryDate || ''));
+				taskTitle = `System Date Mismatch | عدم توافق تاريخ النظام: ${taskToSendBarcode}`;
+				taskDescription = `Product: ${taskToSendProduct?.englishName || taskToSendBarcode}\nBarcode: ${taskToSendBarcode}\nProduct AR: ${taskToSendProduct?.arabicName || ''}\n\nImported Expiry Date: ${formattedImportedDate || '—'}\nSystem Expiry Date: ${taskToSendProduct?.systemExpiryDate || '—'}\n\nPlease verify and reconcile the expiry date mismatch in the ERP system.`;
+				issueType = 'date_verification';
+			} else {
+				// Task for barcode not found
+				taskTitle = `Barcode Not Found | لم يتم العثور على الباركود: ${taskToSendBarcode}`;
+				taskDescription = `Product: ${taskToSendProduct?.englishName || taskToSendBarcode}\nBarcode: ${taskToSendBarcode}\nProduct AR: ${taskToSendProduct?.arabicName || ''}\n\nPlease check inventory and provide product information for this barcode.`;
+				issueType = 'product_verification';
+			}
 			
 			// Add photo URL to description if available
 			if (photoUrl) {
@@ -617,30 +667,63 @@
 					title: taskTitle,
 					description: taskDescription,
 					priority: 'medium',
-					issue_type: 'product_verification',
+					issue_type: issueType,
 					assigned_by: userId,
 					assigned_to_branch_id: selectedBranchId,
-					price_tag: taskToSendBarcode
+					price_tag: taskToSendBarcode,
+					require_task_finished: true,
+					require_photo_upload: true,
+					require_erp_reference: false
 				})
 				.select()
 				.single();
 
-			if (taskError) throw taskError;
+			if (taskError) {
+				console.error('❌ Task creation error:', taskError);
+				throw taskError;
+			}
 
-			// Create assignment for selected user
-			const { error: assignmentError } = await supabase
+			console.log('✅ Quick task created:', { id: quickTaskData.id, title: taskTitle });
+
+			// Create assignment for selected user with photo upload requirement
+			const assignmentPayload = {
+				quick_task_id: quickTaskData.id,
+				assigned_to_user_id: taskSelectedUser,
+				require_task_finished: true,
+				require_photo_upload: true, // CRITICAL: Always require photo upload
+				require_erp_reference: false
+			};
+
+			console.log('📝 Assignment creation:');
+			console.log('  Task ID:', quickTaskData.id);
+			console.log('  Assigned to user:', taskSelectedUser);
+			console.log('  Photo upload required:', true);
+			console.log('  Full payload:', assignmentPayload);
+
+			const { data: assignmentData, error: assignmentError } = await supabase
 				.from('quick_task_assignments')
-				.insert({
-					quick_task_id: quickTaskData.id,
-					assigned_to_user_id: taskSelectedUser,
-					require_task_finished: true,
-					require_photo_upload: true,
-					require_erp_reference: false
-				});
+				.insert(assignmentPayload)
+				.select('id, quick_task_id, assigned_to_user_id, require_task_finished, require_photo_upload, require_erp_reference')
+				.single();
 
-			if (assignmentError) throw assignmentError;
+			if (assignmentError) {
+				console.error('❌ Assignment creation FAILED:');
+				console.error('  Error:', assignmentError.message);
+				console.error('  Code:', assignmentError.code);
+				console.error('  Details:', assignmentError.details);
+				console.error('  Payload attempted:', assignmentPayload);
+				throw assignmentError;
+			}
 
-			console.log('✅ Quick task created and assigned:', quickTaskData.id);
+			console.log('✅ Assignment created successfully');
+			console.log('  ID:', assignmentData?.id);
+			console.log('  require_photo_upload from DB:', assignmentData?.require_photo_upload);
+			
+			// CRITICAL: Verify photo requirement was saved
+			if (assignmentData?.require_photo_upload !== true) {
+				console.error('❌ CRITICAL ERROR: Photo upload requirement NOT saved!');
+				console.error('  Expected: true, Got:', assignmentData?.require_photo_upload);
+			}
 			
 			// Mark barcode as having task sent
 			importedData = importedData.map(row => 
@@ -1626,6 +1709,83 @@
 		if (costValue === null || costValue === undefined || costValue === '') return true;
 		const numCost = Number(costValue);
 		return isNaN(numCost) || numCost === 0;
+	}
+
+	async function copyBarcodeToClipboard(barcode: string) {
+		try {
+			await navigator.clipboard.writeText(barcode);
+			// Visual feedback: show brief notification
+			const tmpEl = document.createElement('div');
+			tmpEl.textContent = '✓ Copied!';
+			tmpEl.style.cssText = 'position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:12px 20px;border-radius:8px;font-weight:bold;z-index:9999;animation:fadeOut 2s ease-in-out forwards;';
+			document.body.appendChild(tmpEl);
+			setTimeout(() => tmpEl.remove(), 2000);
+		} catch (err) {
+			console.error('Failed to copy barcode:', err);
+		}
+	}
+
+	async function fetchSystemExpiryDates() {
+		try {
+			const barcodes = importedData.map(row => row.barcode).filter(bc => bc);
+			if (barcodes.length === 0 || !selectedBranchId) return;
+
+			// Call RPC function to get system expiry dates
+			const { data: expiryResults, error } = await supabase.rpc('get_system_expiry_dates', {
+				barcode_list: barcodes,
+				branch_id_param: selectedBranchId
+			});
+
+			if (error) throw error;
+
+			// Create a map of barcode -> system expiry date
+			const expiryMap = new Map<string, string>();
+			if (expiryResults && Array.isArray(expiryResults)) {
+				for (const result of expiryResults) {
+					expiryMap.set(result.barcode, result.expiry_date_formatted || '—');
+				}
+			}
+
+			// Update imported data with system expiry dates
+			importedData = importedData.map(row => ({
+				...row,
+				systemExpiryDate: expiryMap.get(row.barcode) || '—'
+			}));
+
+			console.log('✅ System expiry dates fetched via RPC:', Array.from(expiryMap.entries()));
+		} catch (err) {
+			console.error('Error fetching system expiry dates:', err);
+		}
+	}
+
+	function savePriceEdit() {
+		if (editingRowIndex !== null && editingField && filteredData[editingRowIndex]) {
+			const newValue = parseFloat(editingValue);
+			if (!isNaN(newValue) && newValue >= 0) {
+				filteredData[editingRowIndex][editingField] = newValue;
+				filteredData = filteredData; // trigger reactivity
+			}
+		}
+		editingRowIndex = null;
+		editingField = null;
+		editingValue = '';
+	}
+
+	function cancelPriceEdit() {
+		editingRowIndex = null;
+		editingField = null;
+		editingValue = '';
+	}
+
+	function isExpiryDateMismatch(importedDate: any, systemDate: any): boolean {
+		// Return true if dates are different
+		if (!importedDate || systemDate === '—') return false;
+		
+		// Normalize both dates to DD-MM-YYYY format for comparison
+		const imported = formatExpiryDate(String(importedDate)); // returns DD-MM-YYYY
+		const system = String(systemDate); // already in DD-MM-YYYY from RPC
+		
+		return imported !== system;
 	}
 
 	function parseExpiryDateToTimestamp(dateValue: any): number {
@@ -3310,6 +3470,7 @@
 									{#if visibleColumns.delete}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Delete</th>{/if}
 									{#if visibleColumns.sNo}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">S.No</th>{/if}
 									{#if visibleColumns.barcode}<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Barcode</th>{/if}
+									{#if visibleColumns.systemExpiryDate}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">System Expiry Date</th>{/if}
 									{#if visibleColumns.productName}<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Product Name</th>{/if}
 									{#if visibleColumns.salesPrice}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Sales Price</th>{/if}
 									{#if visibleColumns.totalSalesPrice}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Total Sales Price</th>{/if}
@@ -3354,7 +3515,10 @@
 										<td class="px-4 py-3 text-sm font-bold text-slate-800 whitespace-nowrap text-center">{index + 1}</td>
 										{/if}
 										{#if visibleColumns.barcode}
-										<td class="px-4 py-3 text-sm font-mono text-slate-800 whitespace-nowrap">{row.barcode}</td>
+										<td class="px-4 py-3 text-sm font-mono text-slate-800 whitespace-nowrap cursor-pointer hover:bg-blue-100 hover:text-blue-900 rounded transition-all" on:dblclick={() => copyBarcodeToClipboard(row.barcode)} title="Double-click to copy barcode">{row.barcode}</td>
+										{/if}
+										{#if visibleColumns.systemExpiryDate}
+										<td class="px-4 py-3 text-sm font-mono text-center whitespace-nowrap {row.systemExpiryDate === '—' ? 'text-slate-400' : 'text-orange-700 font-semibold'}">{row.systemExpiryDate || '—'}</td>
 										{/if}
 										{#if visibleColumns.productName}
 										<td class="px-4 py-3 text-sm text-slate-700">
@@ -3363,9 +3527,29 @@
 										</td>
 										{/if}
 										{#if visibleColumns.salesPrice}
-										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap">
-											{typeof row.salesPrice === 'number' ? row.salesPrice.toFixed(2) : row.salesPrice}
-										</td>
+										{#if editingRowIndex === index && editingField === 'salesPrice'}
+											<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
+												<input
+													type="number"
+													bind:value={editingValue}
+													step="0.01"
+													min="0"
+													on:keydown={(e) => {
+														if (e.key === 'Enter') savePriceEdit();
+														if (e.key === 'Escape') cancelPriceEdit();
+													}}
+													class="w-full px-2 py-1 border-2 border-blue-500 rounded bg-blue-50 text-blue-700 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+												/>
+												<div class="flex gap-1 mt-1">
+													<button on:click={savePriceEdit} class="px-2 py-0.5 bg-green-500 text-white rounded text-xs font-bold hover:bg-green-600">✓</button>
+													<button on:click={cancelPriceEdit} class="px-2 py-0.5 bg-red-500 text-white rounded text-xs font-bold hover:bg-red-600">✕</button>
+												</div>
+											</td>
+										{:else}
+											<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap cursor-pointer hover:bg-blue-100 rounded transition-all" on:dblclick={() => { editingRowIndex = index; editingField = 'salesPrice'; editingValue = String(row.salesPrice || ''); }} title="Double-click to edit">
+												{typeof row.salesPrice === 'number' ? row.salesPrice.toFixed(2) : row.salesPrice}
+											</td>
+										{/if}
 										{/if}
 										{#if visibleColumns.totalSalesPrice}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap bg-blue-100/50">
@@ -3376,9 +3560,29 @@
 										<td class="px-4 py-3 text-sm text-slate-700 whitespace-nowrap">{row.unit}</td>
 										{/if}
 										{#if visibleColumns.cost}
-										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap {isCostZero(row.cost) ? 'bg-red-400 text-white font-bold' : ''}">
-											{typeof row.cost === 'number' ? (Number(row.cost) * (1 + vatPercent / 100)).toFixed(2) : row.cost}
-										</td>
+										{#if editingRowIndex === index && editingField === 'cost'}
+											<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
+												<input
+													type="number"
+													bind:value={editingValue}
+													step="0.01"
+													min="0"
+													on:keydown={(e) => {
+														if (e.key === 'Enter') savePriceEdit();
+														if (e.key === 'Escape') cancelPriceEdit();
+													}}
+													class="w-full px-2 py-1 border-2 border-purple-500 rounded bg-purple-50 text-purple-700 font-semibold focus:outline-none focus:ring-2 focus:ring-purple-400"
+												/>
+												<div class="flex gap-1 mt-1">
+													<button on:click={savePriceEdit} class="px-2 py-0.5 bg-green-500 text-white rounded text-xs font-bold hover:bg-green-600">✓</button>
+													<button on:click={cancelPriceEdit} class="px-2 py-0.5 bg-red-500 text-white rounded text-xs font-bold hover:bg-red-600">✕</button>
+												</div>
+											</td>
+										{:else}
+											<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap cursor-pointer hover:bg-purple-100 rounded transition-all {isCostZero(row.cost) ? 'bg-red-400 text-white font-bold' : ''}" on:dblclick={() => { editingRowIndex = index; editingField = 'cost'; editingValue = String(row.cost || ''); }} title="Double-click to edit">
+												{typeof row.cost === 'number' ? (Number(row.cost) * (1 + vatPercent / 100)).toFixed(2) : row.cost}
+											</td>
+										{/if}
 										{/if}
 										{#if visibleColumns.totalCost}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap bg-slate-200/50">
@@ -3386,7 +3590,7 @@
 										</td>
 										{/if}
 										{#if visibleColumns.expiryDate}
-										<td class="px-4 py-3 text-sm text-center text-slate-800 font-mono whitespace-nowrap {!isValidDate(row.expiryDate) ? 'bg-red-400 text-white font-bold' : ''}">
+										<td class="px-4 py-3 text-sm text-center text-slate-800 font-mono whitespace-nowrap {!isValidDate(row.expiryDate) ? 'bg-red-400 text-white font-bold' : isExpiryDateMismatch(row.expiryDate, row.systemExpiryDate) ? 'bg-red-200 text-red-900 font-bold border-2 border-red-500 heartbeat' : ''}">
 											{formatExpiryDate(String(row.expiryDate))}
 										</td>
 										{/if}
@@ -3563,11 +3767,11 @@
 										{/if}
 										{#if visibleColumns.sendTask}
 										<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
-											{#if row.notFound}
+											{#if row.notFound || isExpiryDateMismatch(row.expiryDate, row.systemExpiryDate)}
 												<button
 													on:click={() => openSendTaskModal(row.barcode, row)}
-													class="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold text-xs transition-colors"
-													title="Send task for this barcode"
+													class="px-3 py-1 {row.notFound ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600'} text-white rounded-lg font-semibold text-xs transition-colors"
+													title="{row.notFound ? 'Barcode not found' : 'System date mismatch'}"
 												>
 													📋 Task
 												</button>
@@ -3598,6 +3802,21 @@
 				<p class="text-sm text-slate-600 mt-2">Barcode: <span class="font-mono font-bold">{taskToSendBarcode}</span></p>
 				{#if taskToSendProduct?.englishName}
 					<p class="text-sm text-slate-600 mt-1">Product: {taskToSendProduct.englishName}</p>
+				{/if}
+				
+				<!-- Product Photo Preview -->
+				{#if taskToSendProduct?.photo_url}
+					<div class="mt-4 flex justify-center">
+						<img 
+							src={taskToSendProduct.photo_url} 
+							alt="" 
+							class="max-w-xs max-h-48 rounded-lg border-2 border-blue-200 object-cover"
+						/>
+					</div>
+				{:else}
+					<div class="mt-4 flex justify-center p-4 bg-slate-100 rounded-lg border-2 border-dashed border-slate-300">
+						<p class="text-xs text-slate-500">No product photo available</p>
+					</div>
 				{/if}
 			</div>
 
@@ -3719,5 +3938,32 @@
 
 	.tracking-fast {
 		letter-spacing: 0.05em;
+	}
+
+	@keyframes heartbeat {
+		0% {
+			transform: scale(1);
+			box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+		}
+		25% {
+			transform: scale(1.05);
+			box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
+		}
+		50% {
+			transform: scale(1);
+			box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+		}
+		75% {
+			transform: scale(1.05);
+			box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
+		}
+		100% {
+			transform: scale(1);
+			box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+		}
+	}
+
+	.heartbeat {
+		animation: heartbeat 1.5s infinite;
 	}
 </style>
