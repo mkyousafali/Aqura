@@ -372,7 +372,7 @@
 			console.log('Sample assignment:', allAssignments[0]);
 			
 			// Sort by creation date (newest first)
-			allAssignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+			allAssignments.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
 			
 			// Load attachments for all assignments (in parallel)
 			assignments = allAssignments;
@@ -475,6 +475,10 @@
 		showFilters = !showFilters;
 	}
 
+	function hideImage(e) {
+		e.target.style.display = 'none';
+	}
+
 	function formatDate(dateString) {
 		if (!dateString) return getTranslation('mobile.assignmentsContent.taskDetails.noDeadline');
 		const date = new Date(dateString);
@@ -524,7 +528,7 @@
 	}
 
 	/** Format deadline as remaining time or overdue duration in Saudi timezone */
-	function formatDeadline(dateString, timeString) {
+	function formatDeadline(dateString, timeString = null) {
 		if (!dateString) return { text: getTranslation('mobile.assignmentsContent.taskDetails.noDeadline'), isOverdue: false };
 		
 		const deadline = new Date(dateString);
@@ -538,7 +542,7 @@
 		const isAr = $locale === 'ar';
 		
 		// Format date in Saudi timezone
-		const saOpts = { timeZone: 'Asia/Riyadh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
+		const saOpts = { timeZone: 'Asia/Riyadh', day: '2-digit' as const, month: '2-digit' as const, year: 'numeric' as const, hour: '2-digit' as const, minute: '2-digit' as const, hour12: false };
 		const saDate = deadline.toLocaleString('en-GB', saOpts).replace(',', '');
 		
 		if (diffMs > 0) {
@@ -853,7 +857,21 @@
 						</div>
 
 						{#if assignment.task?.description}
-							<p class="task-description">{@html linkifyText(getLocalizedContent(assignment.task.description))}</p>
+							{@const urlPart = assignment.task.description.split('Photo URL:')[1]}
+							{@const photoUrl = urlPart ? urlPart.trim().split(/[\s\n]/)[0] : null}
+							<p class="task-description">{@html linkifyText(getLocalizedContent(assignment.task.description.split('Photo URL:')[0]))}</p>
+							{#if photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))}
+								<div class="barcode-image-preview">
+									<img 
+										src={photoUrl} 
+										alt="Barcode product photo" 
+										class="barcode-image" 
+										loading="lazy"
+										on:error={hideImage}
+										on:click={() => openImagePreview(photoUrl)}
+									/>
+								</div>
+							{/if}
 						{/if}
 
 						<div class="assignment-details">
@@ -1326,7 +1344,9 @@
 
 	/* Assignment Cards */
 	.assignments-list {
-		space-y: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
 	}
 
 	.assignment-card {
@@ -1784,6 +1804,32 @@
 
 	.modal-close-btn:hover {
 		background: rgba(0, 0, 0, 0.9);
+	}
+
+	/* Barcode image preview in assignment cards */
+	.barcode-image-preview {
+		margin-top: 0.75rem;
+		border-radius: 8px;
+		overflow: hidden;
+		background: #F3F4F6;
+		padding: 0.5rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		max-height: 200px;
+	}
+
+	.barcode-image {
+		max-width: 100%;
+		max-height: 180px;
+		object-fit: contain;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: transform 0.2s ease;
+	}
+
+	.barcode-image:hover {
+		transform: scale(1.05);
 	}
 
 	/* Safe area handling */

@@ -3,6 +3,18 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { currentUser } from '$lib/utils/persistentAuth';
+
+	// Branch & ERP Types
+	interface BranchErp {
+		branch_id: number;
+		branch_name_en: string;
+		branch_name_ar: string;
+		location_en: string;
+		location_ar: string;
+		tunnel_url: string;
+		erp_branch_id: number | null;
+	}
 
 	// Near Expiry Manager Component
 	// Placeholder functions for buttons - to be implemented
@@ -13,6 +25,26 @@
 	let fileInput: HTMLInputElement;
 	let targetPrice: number | string = 16;
 	let offerInputs: Map<number, any> = new Map();
+	let vatPercent: number = 15; // VAT percentage (default 15%)
+
+	// Send Task Modal State
+	let showSendTaskModal: boolean = false;
+	let taskToSendBarcode: string | null = null;
+	let taskToSendProduct: any | null = null;
+	let taskSelectedUser: string | null = null;
+	let taskSelectedUserName: string | null = null;
+	let availableUsers: any[] = [];
+	let taskUserSearchQuery: string = ''; // Search filter for users
+	let loadingUsers: boolean = false;
+	let sendingTask: boolean = false;
+	let foundBarcodes: Set<string> = new Set(); // Track found barcodes
+
+	// Branch selection
+	let branches: BranchErp[] = [];
+	let selectedBranchId: number | null = null;
+	let loadingBranches = false;
+	let fetchingProductNames = false;
+	let showBranchDropdown = false;
 
 	// Column visibility management
 	let visibleColumns: Record<string, boolean> = {
@@ -37,7 +69,8 @@
 		offerType: true,
 		offerQty: true,
 		free: true,
-		limit: true
+		limit: true,
+		sendTask: false
 	};
 
 	const columnList = [
@@ -62,7 +95,8 @@
 		{ key: 'offerType', label: 'Offer Type' },
 		{ key: 'offerQty', label: 'Offer Qty' },
 		{ key: 'free', label: 'Free' },
-		{ key: 'limit', label: 'Limit' }
+		{ key: 'limit', label: 'Limit' },
+		{ key: 'sendTask', label: 'Send Task' }
 	];
 
 	// Print functionality
@@ -94,7 +128,351 @@
 	onMount(() => {
 		loadTemplates();
 		loadCustomFonts();
+		loadBranches();
 	});
+
+	// Load templates on component mount
+	onMount(() => {
+		loadTemplates();
+		loadCustomFonts();
+		loadBranches();
+	});
+
+	async function loadBranches() {
+		loadingBranches = true;
+		try {
+			// Get active ERP connections
+			const { data: erpConns, error: erpErr } = await supabase
+				.from('erp_connections')
+				.select('branch_id, tunnel_url, erp_branch_id')
+				.eq('is_active', true)
+				.order('branch_id');
+
+			if (erpErr || !erpConns || erpConns.length === 0) {
+				console.error('Error loading ERP connections:', erpErr);
+				return;
+			}
+
+			// Get branch names
+			const branchIds = erpConns.map((c: any) => c.branch_id);
+			const { data: branchData, error: brErr } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar, location_en, location_ar')
+				.in('id', branchIds);
+
+			if (brErr) {
+				console.error('Error loading branches:', brErr);
+				return;
+			}
+
+			const branchMap = new Map((branchData || []).map((b: any) => [Number(b.id), b]));
+
+			branches = erpConns
+				.filter((c: any) => c.tunnel_url)
+				.map((c: any) => {
+					const info = branchMap.get(Number(c.branch_id)) as {name_en?: string; name_ar?: string; location_en?: string; location_ar?: string} | undefined;
+					return {
+						branch_id: c.branch_id,
+						branch_name_en: info?.name_en || `Branch ${c.branch_id}`,
+						branch_name_ar: info?.name_ar || `فرع ${c.branch_id}`,
+						location_en: info?.location_en || '',
+						location_ar: info?.location_ar || '',
+						tunnel_url: c.tunnel_url,
+						erp_branch_id: c.erp_branch_id
+					};
+				});
+		} catch (err) {
+			console.error('Error loading branches:', err);
+		} finally {
+			loadingBranches = false;
+		}
+	}
+
+	async function fetchProductNamesFromBranch() {
+		if (!selectedBranchId || importedData.length === 0) {
+			console.warn('No branch selected or no data imported');
+			return;
+		}
+
+		fetchingProductNames = true;
+		try {
+			const branch = branches.find(b => b.branch_id === selectedBranchId);
+			if (!branch) return;
+
+			const barcodes = importedData.map(row => row.barcode).filter(bc => bc);
+
+			// Fetch product names AND sales price from price-check
+			const batchSize = 10;
+			const productData = new Map<string, {en: string; ar: string; salesPrice: number; cost: number; unit: string; batchId?: number}>();
+
+			for (let i = 0; i < barcodes.length; i += batchSize) {
+				const batch = barcodes.slice(i, i + batchSize);
+				const batchPromises = batch.map(async (bc) => {
+					try {
+						const response = await fetch('/api/erp-products', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({
+								action: 'price-check',
+								tunnelUrl: branch.tunnel_url,
+								barcode: bc,
+								erpBranchId: branch.erp_branch_id
+							})
+						});
+						const result = await response.json();
+						// Extract product names and sales price from price-check
+						if (result.success && result.productName && result.prices && result.prices.length > 0) {
+							const price = result.prices[0];
+							productData.set(bc, {
+								en: result.productName || '',
+								ar: result.productNameAr || '',
+								salesPrice: price.sprice ?? 0,
+								cost: 0, // Will be populated by cost SQL query below
+								unit: price.unit_name || '' // Use price-check unit as initial, will be overridden by batch query if available
+							});
+						}
+					} catch (err) {
+						console.debug(`Error fetching price for barcode ${bc}:`, err);
+					}
+				});
+				await Promise.all(batchPromises);
+			}
+
+			// Now fetch BATCH DETAILS including unit names (exact same as PriceVerifier)
+			const barcodeList = barcodes.map(bc => `'${bc.replace(/'/g, "''")}'`).join(',');
+			const branchFilter = branch.erp_branch_id != null ? `AND pb.BranchID = ${branch.erp_branch_id}` : '';
+			
+			const costSql = `
+			SELECT SearchBarcode, Cost AS LandingCost, MultiFactor,
+				ProductBatchID AS BatchID
+			FROM (
+				SELECT SearchBarcode, Cost, MultiFactor,
+					ROW_NUMBER() OVER (PARTITION BY SearchBarcode ORDER BY ProductBatchID DESC) AS rn,
+					ProductBatchID
+				FROM (
+					-- ProductUnit barcodes: USE MultiFactor of that specific unit
+					SELECT pu.BarCode AS SearchBarcode,
+						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) * pu.MultiFactor AS Cost,
+						pu.MultiFactor,
+						pb.ProductBatchID
+					FROM ProductUnits pu
+					INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
+					WHERE pu.BarCode IN (${barcodeList}) ${branchFilter}
+
+					UNION ALL
+
+					-- MannualBarcode: NO multiplication (alternative barcode for same product)
+					SELECT pb.MannualBarcode AS SearchBarcode,
+						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+						1 AS MultiFactor,
+						pb.ProductBatchID
+					FROM ProductBatches pb
+					WHERE pb.MannualBarcode IN (${barcodeList}) ${branchFilter}
+					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+
+					UNION ALL
+
+					-- AutoBarcode: NO multiplication (alternative barcode for same product)
+					SELECT CAST(pb.AutoBarcode AS NVARCHAR(100)) AS SearchBarcode,
+						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+						1 AS MultiFactor,
+						pb.ProductBatchID
+					FROM ProductBatches pb
+					WHERE CAST(pb.AutoBarcode AS NVARCHAR(100)) IN (${barcodeList}) ${branchFilter}
+					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+					AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
+
+					UNION ALL
+
+					-- Unit2Barcode: NO multiplication (alternative barcode for same product)
+					SELECT pb.Unit2Barcode AS SearchBarcode,
+						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+						1 AS MultiFactor,
+						pb.ProductBatchID
+					FROM ProductBatches pb
+					WHERE pb.Unit2Barcode IN (${barcodeList}) ${branchFilter}
+					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+					AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
+					AND (CAST(pb.AutoBarcode AS NVARCHAR(100)) IS NULL OR CAST(pb.AutoBarcode AS NVARCHAR(100)) NOT IN (${barcodeList}))
+
+					UNION ALL
+
+					-- Unit3Barcode: NO multiplication (alternative barcode for same product)
+					SELECT pb.Unit3Barcode AS SearchBarcode,
+						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+						1 AS MultiFactor,
+						pb.ProductBatchID
+					FROM ProductBatches pb
+					WHERE pb.Unit3Barcode IN (${barcodeList}) ${branchFilter}
+					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pb.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+					AND (pb.MannualBarcode IS NULL OR pb.MannualBarcode NOT IN (${barcodeList}))
+					AND (CAST(pb.AutoBarcode AS NVARCHAR(100)) IS NULL OR CAST(pb.AutoBarcode AS NVARCHAR(100)) NOT IN (${barcodeList}))
+					AND (pb.Unit2Barcode IS NULL OR pb.Unit2Barcode NOT IN (${barcodeList}))
+
+					UNION ALL
+
+					-- ProductBarcodes: NO multiplication (alternative barcode for same product)
+					SELECT pbc.Barcode AS SearchBarcode,
+						COALESCE(NULLIF(pb.StdPurchasePrice, 0), NULLIF(pb.LastPurchaseCost, 0), NULLIF(pb.LandingCost, 0), NULLIF(pb.AvgPurchaseCost, 0), 0) AS Cost,
+						1 AS MultiFactor,
+						pbc.ProductBatchID
+					FROM ProductBarcodes pbc
+					INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID
+					WHERE pbc.Barcode IN (${barcodeList}) ${branchFilter}
+					AND NOT EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = pbc.ProductBatchID AND pu3.BranchID = pb.BranchID AND pu3.BarCode IN (${barcodeList}))
+				) AS Combined
+			) AS Ranked
+			WHERE rn = 1
+			`;
+
+			try {
+				const costResponse = await fetch('/api/erp-products', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ action: 'query', tunnelUrl: branch.tunnel_url, sql: costSql })
+				});
+				const costResult = await costResponse.json();
+				
+				// DEBUG: Log cost result
+				console.log('💰 Cost SQL Result:', costResult);
+				if (costResult.recordset) {
+					console.log(`Found ${costResult.recordset.length} cost records`);
+					costResult.recordset.forEach((r: any) => {
+						console.log(`  Barcode: ${r.SearchBarcode}, Cost: ${r.LandingCost}, MultiFactor: ${r.MultiFactor}`);
+					});
+				}
+				
+				const batchIds = new Set<number>();
+				const barcodeToSearchBarcode = new Map<string, string>(); // Map input barcode to SearchBarcode
+				const barcodeToSearchBarcodeList: Array<{ inputBarcode: string; searchBarcode: string; batchId: number }> = [];
+				
+				// DEBUG: Log input barcodes
+				console.log('🔍 Imported barcodes:', barcodes);
+				
+				if (costResult.success && costResult.recordset) {
+					console.log(`Processing ${costResult.recordset.length} cost records...`);
+					for (const row of costResult.recordset) {
+						const searchBc = String(row.SearchBarcode).trim();
+						console.log(`  Checking returned barcode: "${searchBc}" (length: ${searchBc.length})`);
+						
+						// Try to find a matching input barcode
+						let found = false;
+						for (const inputBc of barcodes) {
+							const inputBcTrimmed = inputBc.trim().toLowerCase();
+							const searchBcLower = searchBc.toLowerCase();
+							console.log(`    Compare: "${inputBc}" (trim: "${inputBcTrimmed}") === "${searchBc}" (lower: "${searchBcLower}") ? ${inputBcTrimmed === searchBcLower}`);
+							
+							if (inputBcTrimmed === searchBcLower) {
+								batchIds.add(row.BatchID);
+								barcodeToSearchBarcode.set(inputBc, searchBc);
+								barcodeToSearchBarcodeList.push({ 
+									inputBarcode: inputBc,
+									searchBarcode: searchBc,
+									batchId: row.BatchID 
+								});
+								foundBarcodes.add(inputBc); // Track found barcode
+								// Apply cost to productData
+								const existing = productData.get(inputBc);
+								if (existing) {
+									existing.cost = row.LandingCost ?? 0;
+									console.log(`✅ MATCHED & Applied cost ${row.LandingCost} to barcode ${inputBc}`);
+									found = true;
+									break;
+								} else {
+									console.warn(`⚠️ Matched but NOT in productData: ${inputBc}`);
+									found = true;
+									break;
+								}
+							}
+						}
+						if (!found) {
+							console.warn(`❌ NO MATCH for returned barcode: "${searchBc}"`);
+						}
+					}
+				}
+
+				// Now fetch unit names using batch IDs (exact same as PriceVerifier)
+				if (batchIds.size > 0) {
+					const batchIdList = Array.from(batchIds).join(',');
+					const detailSql = `
+						SELECT pu.ProductBatchID, pu.MultiFactor,
+							(SELECT TOP 1 um.UnitName FROM UnitOfMeasures um WHERE um.UnitID = pu.UnitID) AS UnitName
+						FROM ProductUnits pu
+						INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
+						WHERE pu.ProductBatchID IN (${batchIdList}) ${branchFilter}
+						ORDER BY pu.ProductBatchID, pu.MultiFactor ASC
+					`;
+
+					try {
+						const detailResp = await fetch('/api/erp-products', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ action: 'query', tunnelUrl: branch.tunnel_url, sql: detailSql })
+						});
+						const detailResult = await detailResp.json();
+						if (detailResult.success && detailResult.recordset) {
+							// Map BatchID -> UnitName (use first result per batch = lowest multiplier)
+							const batchToUnit = new Map<number, string>();
+							for (const d of detailResult.recordset) {
+								const batchId = d.ProductBatchID;
+								if (batchId && d.UnitName && !batchToUnit.has(batchId)) {
+									batchToUnit.set(batchId, d.UnitName);
+								}
+							}
+							
+							// Now apply units to products using the mapping
+							for (const mapping of barcodeToSearchBarcodeList) {
+								const unitName = batchToUnit.get(mapping.batchId);
+								if (unitName) {
+									const existing = productData.get(mapping.inputBarcode);
+									if (existing) {
+										existing.unit = unitName;
+									}
+								}
+							}
+						}
+					} catch (err) {
+						console.error(`Error fetching unit details:`, err);
+					}
+				}
+			} catch (err) {
+				console.error(`Error fetching batch details:`, err);
+			}
+
+			// Update imported data with fetched product data
+			console.log('📊 ProductData Map before update:', Array.from(productData.entries()));
+			
+			importedData = importedData.map(row => {
+				const data = productData.get(row.barcode);
+				if (data) {
+					console.log(`Updating row ${row.barcode}: cost before=${row.cost}, cost after=${data.cost}`);
+					return {
+						...row,
+						englishName: data.en || row.englishName,
+						arabicName: data.ar || row.arabicName,
+						salesPrice: data.salesPrice || row.salesPrice,
+						cost: data.cost || row.cost,
+						unit: data.unit || row.unit,
+						notFound: false
+					};
+				}
+				// Mark barcode as not found if it wasn't in the cost query results
+				const isNotFound = !foundBarcodes.has(row.barcode);
+				if (isNotFound) {
+					console.log(`⚠️ Barcode NOT FOUND: ${row.barcode}`);
+				}
+				return {
+					...row,
+					notFound: isNotFound
+				};
+			});
+			console.log('✅ ImportedData after update:', importedData);
+		} catch (err) {
+			console.error('Error fetching product data:', err);
+		} finally {
+			fetchingProductNames = false;
+		}
+	}
 
 	async function loadCustomFonts() {
 		try {
@@ -106,6 +484,180 @@
 			customFonts = data || [];
 		} catch (e) {
 			console.error('Error loading custom fonts:', e);
+		}
+	}
+
+	// Load available employees for task assignment (all users + reporters of THIS barcode)
+	async function loadTaskAssignmentUsers() {
+		loadingUsers = true;
+		try {
+			// Get all employees
+			const { data: allEmployees, error: empError } = await supabase
+				.from('hr_employee_master')
+				.select('id, user_id, name_en, name_ar, current_branch_id')
+				.order('name_en', { ascending: true });
+			
+			if (empError) throw empError;
+
+			// Get reporter_user_ids who reported THIS SPECIFIC barcode
+			let reporterUserIds = new Set<string>();
+			
+			if (taskToSendBarcode) {
+				const { data: barcodeReports, error: reportError } = await supabase
+					.from('near_expiry_reports')
+					.select('reporter_user_id, items')
+					.not('reporter_user_id', 'is', null);
+				
+				if (reportError && reportError.code !== 'PGRST116') {
+					console.warn('Warning loading barcode reports:', reportError);
+				}
+
+				// Filter for reports containing THIS barcode
+				(barcodeReports || []).forEach((report: any) => {
+					if (report.items && Array.isArray(report.items)) {
+						const hasBarcodeInItems = report.items.some((item: any) => 
+							item.barcode === taskToSendBarcode
+						);
+						if (hasBarcodeInItems && report.reporter_user_id) {
+							reporterUserIds.add(report.reporter_user_id);
+						}
+					}
+				});
+				
+				console.log(`🔍 Found ${reporterUserIds.size} users who reported barcode ${taskToSendBarcode}`);
+			}
+
+			// Combine: all employees + mark those who reported THIS barcode
+			const userMap = new Map<string, any>();
+			
+			// Add all employees
+			(allEmployees || []).forEach((emp: any) => {
+				userMap.set(emp.user_id, {
+					...emp,
+					isHighlighted: reporterUserIds.has(emp.user_id)
+				});
+			});
+
+			// Convert to array and sort (highlighted first, then by name)
+			availableUsers = Array.from(userMap.values()).sort((a, b) => {
+				if (a.isHighlighted && !b.isHighlighted) return -1;
+				if (!a.isHighlighted && b.isHighlighted) return 1;
+				return (a.name_en || a.id).localeCompare(b.name_en || b.id);
+			});
+
+			console.log('📋 Available users loaded:', availableUsers.length, '(highlighted:', reporterUserIds.size, ')');
+		} catch (err) {
+			console.error('Error loading users:', err);
+			availableUsers = [];
+		} finally {
+			loadingUsers = false;
+		}
+	}
+
+	// Open send task modal for a specific barcode
+	async function openSendTaskModal(barcode: string, product: any) {
+		taskToSendBarcode = barcode;
+		taskToSendProduct = product;
+		taskSelectedUser = null;
+		taskSelectedUserName = null;
+		taskUserSearchQuery = ''; // Clear search
+		showSendTaskModal = true;
+		
+		// Load users when modal opens
+		if (availableUsers.length === 0) {
+			await loadTaskAssignmentUsers();
+		}
+	}
+
+	// Send quick task for unfound barcode
+	async function sendQuickTask() {
+		if (!taskSelectedUser || !taskToSendBarcode) {
+			alert('Please select a user');
+			return;
+		}
+
+		sendingTask = true;
+		try {
+			// Use current user from auth store
+			if (!$currentUser) throw new Error('Not authenticated - please login again');
+			
+			const userId = $currentUser.id;
+
+			// Fetch photo_url from near_expiry_reports for this barcode
+			let photoUrl = null;
+			const { data: reports, error: reportError } = await supabase
+				.from('near_expiry_reports')
+				.select('items')
+				.not('items', 'is', null);
+
+			if (!reportError && reports) {
+				for (const report of reports) {
+					if (report.items && Array.isArray(report.items)) {
+						const item = report.items.find((i: any) => i.barcode === taskToSendBarcode);
+						if (item && item.photo_url) {
+							photoUrl = item.photo_url;
+							break;
+						}
+					}
+				}
+			}
+
+			// Create quick task for the unfound barcode
+			const taskTitle = `Barcode Not Found | لم يتم العثور على الباركود: ${taskToSendBarcode}`;
+			let taskDescription = `Product: ${taskToSendProduct?.englishName || taskToSendBarcode}\nBarcode: ${taskToSendBarcode}\nProduct AR: ${taskToSendProduct?.arabicName || ''}\n\nPlease check inventory and provide product information for this barcode.`;
+			
+			// Add photo URL to description if available
+			if (photoUrl) {
+				taskDescription += `\n\n📸 Photo URL: ${photoUrl}`;
+			}
+			
+			const { data: quickTaskData, error: taskError } = await supabase
+				.from('quick_tasks')
+				.insert({
+					title: taskTitle,
+					description: taskDescription,
+					priority: 'medium',
+					issue_type: 'product_verification',
+					assigned_by: userId,
+					assigned_to_branch_id: selectedBranchId,
+					price_tag: taskToSendBarcode
+				})
+				.select()
+				.single();
+
+			if (taskError) throw taskError;
+
+			// Create assignment for selected user
+			const { error: assignmentError } = await supabase
+				.from('quick_task_assignments')
+				.insert({
+					quick_task_id: quickTaskData.id,
+					assigned_to_user_id: taskSelectedUser,
+					require_task_finished: true,
+					require_photo_upload: true,
+					require_erp_reference: false
+				});
+
+			if (assignmentError) throw assignmentError;
+
+			console.log('✅ Quick task created and assigned:', quickTaskData.id);
+			
+			// Mark barcode as having task sent
+			importedData = importedData.map(row => 
+				row.barcode === taskToSendBarcode 
+					? { ...row, taskSent: true } 
+					: row
+			);
+
+			// Close modal
+			showSendTaskModal = false;
+			taskUserSearchQuery = ''; // Clear search
+			alert(`Task successfully sent to ${taskSelectedUserName} for barcode ${taskToSendBarcode}`);
+		} catch (err: any) {
+			console.error('Error sending task:', err);
+			alert(`Error sending task: ${err.message}`);
+		} finally {
+			sendingTask = false;
 		}
 	}
 
@@ -2526,6 +3078,25 @@
 				</div>
 			{/if}
 
+			<!-- VAT % Entry in Header -->
+			{#if importedData.length > 0}
+				<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner">
+					<div class="bg-white rounded-xl px-4 py-2 border border-slate-200 flex items-center gap-3 whitespace-nowrap h-[42px]">
+						<label for="vat-input" class="text-xs font-semibold text-slate-700">🏛️ VAT %</label>
+						<input 
+							id="vat-input"
+							type="number" 
+							bind:value={vatPercent}
+							placeholder="15"
+							min="0"
+							max="100"
+							step="0.5"
+							class="w-24 px-2 py-1 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm text-center font-semibold"
+						/>
+					</div>
+				</div>
+			{/if}
+
 			<!-- Print Shelf Paper in Header -->
 			{#if importedData.length > 0}
 				<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner">
@@ -2580,6 +3151,28 @@
 					</div>
 				</div>
 			{/if}
+
+			<!-- Branch Selector in Header -->
+			<div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200/50 shadow-inner">
+				<div class="bg-white rounded-xl px-4 py-2 border border-slate-200 flex items-center gap-3 h-[42px]">
+					<label for="branch-select" class="text-xs font-semibold text-slate-700 whitespace-nowrap">🏢 Branch</label>
+					<select 
+						id="branch-select"
+						bind:value={selectedBranchId}
+						on:change={fetchProductNamesFromBranch}
+						disabled={loadingBranches || branches.length === 0}
+						class="px-2 py-1 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs min-w-[200px]"
+					>
+						<option value="">-- Select Branch --</option>
+						{#each branches as branch}
+							<option value={branch.branch_id}>{branch.branch_name_en} ({branch.location_en})</option>
+						{/each}
+					</select>
+					{#if fetchingProductNames}
+						<span class="text-xs text-blue-600 font-semibold">Fetching...</span>
+					{/if}
+				</div>
+			</div>
 
 			<!-- Search Bar in Header -->
 			{#if importedData.length > 0}
@@ -2655,7 +3248,7 @@
 								
 								{#if importedData.filter(row => row.offerPrice).length > 0}
 									{@const totalSalesPrice = importedData.reduce((sum, row) => sum + (Number(row.salesPrice) * (Number(row.offerQty) || 1) || 0), 0)}
-									{@const totalCost = importedData.reduce((sum, row) => sum + (Number(row.cost) * (Number(row.offerQty) || 1) || 0), 0)}
+									{@const totalCost = importedData.reduce((sum, row) => sum + (Number(row.cost) * (1 + vatPercent / 100) * (Number(row.offerQty) || 1) || 0), 0)}
 									{@const totalOfferPrice = importedData.reduce((sum, row) => {
 										if (!row.offerPrice) return sum;
 										const price = Number(row.offerPrice) * (Number(row.offerQty) || 1);
@@ -2736,6 +3329,7 @@
 									{#if visibleColumns.offerQty}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Offer Qty</th>{/if}
 									{#if visibleColumns.free}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Free</th>{/if}
 									{#if visibleColumns.limit}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Limit</th>{/if}
+									{#if visibleColumns.sendTask}<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Send Task</th>{/if}
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-slate-200">
@@ -2783,12 +3377,12 @@
 										{/if}
 										{#if visibleColumns.cost}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap {isCostZero(row.cost) ? 'bg-red-400 text-white font-bold' : ''}">
-											{typeof row.cost === 'number' ? row.cost.toFixed(2) : row.cost}
+											{typeof row.cost === 'number' ? (Number(row.cost) * (1 + vatPercent / 100)).toFixed(2) : row.cost}
 										</td>
 										{/if}
 										{#if visibleColumns.totalCost}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-semibold whitespace-nowrap bg-slate-200/50">
-											{(Number(row.cost) * (Number(row.offerQty) || 1)).toFixed(2)}
+											{(Number(row.cost) * (1 + vatPercent / 100) * (Number(row.offerQty) || 1)).toFixed(2)}
 										</td>
 										{/if}
 										{#if visibleColumns.expiryDate}
@@ -2903,7 +3497,8 @@
 										{#if visibleColumns.profitPercent}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap bg-yellow-100/50">
 											{#if Number(row.cost) > 0 && Number(row.offerPrice) > 0}
-												{((((Number(row.offerPrice) * (Number(row.offerQty) || 1)) - (Number(row.cost) * (Number(row.offerQty) || 1))) / (Number(row.cost) * (Number(row.offerQty) || 1))) * 100).toFixed(2)}%
+												{@const costWithVat = Number(row.cost) * (1 + vatPercent / 100)}
+												{((((Number(row.offerPrice) * (Number(row.offerQty) || 1)) - (costWithVat * (Number(row.offerQty) || 1))) / (costWithVat * (Number(row.offerQty) || 1))) * 100).toFixed(2)}%
 											{:else}
 												-
 											{/if}
@@ -2966,6 +3561,23 @@
 											/>
 										</td>
 										{/if}
+										{#if visibleColumns.sendTask}
+										<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
+											{#if row.notFound}
+												<button
+													on:click={() => openSendTaskModal(row.barcode, row)}
+													class="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold text-xs transition-colors"
+													title="Send task for this barcode"
+												>
+													📋 Task
+												</button>
+											{:else if row.taskSent}
+												<span class="px-3 py-1 bg-green-200 text-green-700 rounded-lg font-semibold text-xs">✅ Sent</span>
+											{:else}
+												<span class="px-3 py-1 bg-slate-200 text-slate-500 rounded-lg text-xs">-</span>
+											{/if}
+										</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>
@@ -2975,6 +3587,129 @@
 			{/if}
 		</div>
 	</div>
+
+	<!-- Send Task Modal -->
+	{#if showSendTaskModal}
+	<div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+		<div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 border border-slate-200">
+			<!-- Modal Header -->
+			<div class="mb-6">
+				<h2 class="text-xl font-bold text-slate-900">Send Quick Task</h2>
+				<p class="text-sm text-slate-600 mt-2">Barcode: <span class="font-mono font-bold">{taskToSendBarcode}</span></p>
+				{#if taskToSendProduct?.englishName}
+					<p class="text-sm text-slate-600 mt-1">Product: {taskToSendProduct.englishName}</p>
+				{/if}
+			</div>
+
+			<!-- User Selection -->
+			<div class="mb-6">
+				<!-- svelte-ignore a11y-label-has-associated-control -->
+				<div class="block text-sm font-semibold text-slate-700 mb-2">Select User</div>
+				<p class="text-xs text-slate-600 mb-3">All users system-wide • ⭐ = Recent report targets</p>
+				{#if loadingUsers}
+					<div class="flex items-center justify-center py-4">
+						<span class="text-sm text-slate-600">Loading users...</span>
+					</div>
+				{:else if availableUsers.length === 0}
+					<div class="text-sm text-amber-700 bg-amber-50 rounded-lg p-3 border border-amber-200">
+						No users available in the system
+					</div>
+				{:else}
+					<!-- Search Input -->
+					<input
+						type="text"
+						placeholder="🔍 Search user..."
+						bind:value={taskUserSearchQuery}
+						class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+					/>
+					
+					<!-- Filtered User List -->
+					{@const filteredTaskUsers = availableUsers.filter(user =>
+						(user.name_en || '').toLowerCase().includes(taskUserSearchQuery.toLowerCase()) ||
+						(user.name_ar || '').toLowerCase().includes(taskUserSearchQuery.toLowerCase()) ||
+						(user.id || '').toLowerCase().includes(taskUserSearchQuery.toLowerCase())
+					)}
+					
+					{#if filteredTaskUsers.length === 0}
+						<div class="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 border border-slate-200">
+							No users found matching "{taskUserSearchQuery}"
+						</div>
+					{:else}
+						<div class="max-h-64 overflow-y-auto">
+							{#each filteredTaskUsers as user}
+								<label class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors mb-2 {user.isHighlighted ? 'bg-amber-50 hover:bg-amber-100 border border-amber-200' : 'hover:bg-slate-50 border border-transparent'}">
+									<input
+										type="radio"
+										bind:group={taskSelectedUser}
+										value={user.user_id}
+										on:change={() => {
+											taskSelectedUserName = user.name_en || user.name_ar || user.id;
+										}}
+										class="w-4 h-4 accent-blue-600"
+									/>
+									<div class="flex-1">
+										<div class="flex items-center gap-2">
+											<div class="font-semibold {user.isHighlighted ? 'text-amber-900' : 'text-slate-800'}">
+												{user.name_en || user.id}
+											</div>
+											{#if user.isHighlighted}
+												<span class="inline-block bg-amber-200 text-amber-800 text-xs font-bold px-2 py-0.5 rounded-full" title="Recent report target">
+													⭐
+												</span>
+											{/if}
+										</div>
+										{#if user.name_ar}
+											<div class="text-xs {user.isHighlighted ? 'text-amber-700' : 'text-slate-600'}">{user.name_ar}</div>
+										{/if}
+									</div>
+								</label>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+			</div>
+
+			<!-- Task Details Preview -->
+			<div class="bg-slate-50 rounded-lg p-4 mb-6 border border-slate-200">
+				<p class="text-xs font-semibold text-slate-700 mb-2">Task Details:</p>
+				<ul class="text-xs text-slate-600 space-y-1">
+					<li>• Issue Type: Product Verification</li>
+					<li>• Priority: Medium</li>
+					<li>• Barcode: {taskToSendBarcode}</li>
+					<li>• Branch: {branches.find(b => b.branch_id === selectedBranchId)?.branch_name_en || 'Unknown'}</li>
+				</ul>
+			</div>
+
+			<!-- Modal Actions -->
+			<div class="flex gap-3">
+				<button
+					on:click={() => {
+						showSendTaskModal = false;
+						taskToSendBarcode = null;
+						taskToSendProduct = null;
+						taskUserSearchQuery = ''; // Clear search
+					}}
+					disabled={sendingTask}
+					class="flex-1 px-4 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+				>
+					Cancel
+				</button>
+				<button
+					on:click={sendQuickTask}
+					disabled={sendingTask || !taskSelectedUser}
+					class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+				>
+					{#if sendingTask}
+						<span class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+						Sending...
+					{:else}
+						📬 Send Task
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+	{/if}
 </div>
 
 <style>

@@ -862,7 +862,7 @@ app.post('/price-check', authenticate, async (req, res) => {
     if (!batchId) return res.json({ success: false, error: 'Barcode not found in ERP' });
 
     // Fill missing info from ProductUnits if batchId found via 1b/1c
-    if (!unitPrice || !productName) {
+    if (!unitPrice || !productName || !unitName) {
       var rU = await p.request().query("SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductUnits pu INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON pu.UnitID = u.UnitID WHERE pu.ProductBatchID = " + parseInt(String(batchId)) + branchFilter + " AND pu.MultiFactor = 1 GROUP BY pu.BarCode, pu.MultiFactor, u.UnitName, p.ProductName, p.ItemNameinSecondLanguage");
       if (rU.recordset.length > 0) {
         var rowU = rU.recordset[0];
@@ -871,6 +871,17 @@ app.post('/price-check', authenticate, async (req, res) => {
         if (!unitPrice) unitPrice = rowU.Sprice || 0;
         if (!unitName) unitName = rowU.UnitName || '';
         if (rowU.BarCode) foundBarcode = rowU.BarCode;
+      }
+      
+      // If still missing unit name (batch has no ProductUnits), get from Products.BasicUnitID
+      if (!unitName) {
+        var rBasic = await p.request().query("SELECT TOP 1 u.UnitName, p.ProductName, p.ItemNameinSecondLanguage FROM ProductBatches pb INNER JOIN Products p ON pb.ProductID = p.ProductID LEFT JOIN UnitOfMeasures u ON p.BasicUnitID = u.UnitID WHERE pb.ProductBatchID = " + parseInt(String(batchId)) + branchFilter);
+        if (rBasic.recordset.length > 0) {
+          var rowBasic = rBasic.recordset[0];
+          if (!productName) productName = rowBasic.ProductName || '';
+          if (!productNameAr) productNameAr = rowBasic.ItemNameinSecondLanguage || '';
+          if (!unitName) unitName = rowBasic.UnitName || '';
+        }
       }
     }
     // StdSalesPrice fallback

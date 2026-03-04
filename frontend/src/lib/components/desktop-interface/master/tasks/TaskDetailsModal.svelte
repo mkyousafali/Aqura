@@ -145,6 +145,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
+	function hideImage(e) {
+		e.target.style.display = 'none';
+	}
+
 	function openTaskCompletion() {
 		const completionWindowId = `task-completion-${task.id}`;
 		openWindow({
@@ -189,12 +193,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			{error}
 		</div>
 	{:else}
+		{@const urlPart = task.description?.split('Photo URL:')[1]}
+		{@const photoUrl = urlPart ? urlPart.trim().split(/[\s\n]/)[0] : null}
 		<!-- Header -->
 		<div class="border-b pb-4">
 			<div class="flex items-start justify-between">
 				<div class="flex-1">
 					<h2 class="text-xl font-bold text-gray-900">{task.title}</h2>
-					<p class="text-gray-600 mt-2">{task.description || 'No description provided'}</p>
+					<p class="text-gray-600 mt-2">{task.description?.split('Photo URL:')[0] || 'No description provided'}</p>
+					{#if photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))}
+						<div class="barcode-image-preview mt-4">
+							<img 
+								src={photoUrl} 
+								alt="Barcode product photo" 
+								class="barcode-image-desktop" 
+								loading="lazy"
+								on:error={hideImage}
+							/>
+						</div>
+					{/if}
 				</div>
 				<div class="ml-4 flex space-x-2">
 					<span class="px-2 py-1 rounded text-xs font-medium {getPriorityColor(task.priority)}">
@@ -401,5 +418,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.aspect-video {
 		aspect-ratio: 16 / 9;
+	}
+
+	/* Barcode image preview in task details */
+	.barcode-image-preview {
+		border-radius: 12px;
+		overflow: hidden;
+		background: #F3F4F6;
+		padding: 1rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		max-height: 300px;
+		border: 2px solid #E5E7EB;
+	}
+
+	.barcode-image-desktop {
+		max-width: 100%;
+		max-height: 280px;
+		object-fit: contain;
+		border-radius: 8px;
+		transition: transform 0.2s ease;
+	}
+
+	.barcode-image-desktop:hover {
+		transform: scale(1.05);
 	}
 </style>
