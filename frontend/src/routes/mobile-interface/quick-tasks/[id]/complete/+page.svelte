@@ -166,6 +166,7 @@
 					require_erp_reference: assignmentDetails.require_erp_reference,
 					require_task_finished: assignmentDetails.require_task_finished
 				});
+				console.log('🔍 [Mobile Complete] Photo upload required?', assignmentDetails.require_photo_upload === true);
 				
 				// Get assigned by user name
 				if (taskDetails.assigned_by) {
@@ -191,6 +192,12 @@
 				
 				// Start the live countdown timer
 				startCountdownTimer();
+			} else {
+				console.warn('⚠️ No assignments found for this task and user!', {
+					taskId,
+					userId: currentUserData?.id,
+					assignmentsCount: assignments?.length
+				});
 			}
 			
 		} catch (error) {
@@ -435,6 +442,17 @@
 	
 	async function submitCompletion() {
 		if (!currentUserData || !canSubmit) return;
+		
+		// CRITICAL: Enforce photo upload requirement before allowing submission
+		if (resolvedRequirePhotoUpload && photoFiles.length === 0) {
+			errorMessage = 'Photo upload is mandatory for this task. Please select at least one photo before submitting.';
+			notifications.add({
+				type: 'error',
+				message: 'Photo upload required / يجب تحميل صورة',
+				duration: 4000
+			});
+			return;
+		}
 		
 		// Check if this is an incident follow-up task that requires incident resolution first
 		if (taskDetails?.issue_type === 'incident_followup' && taskDetails?.incident_id) {
