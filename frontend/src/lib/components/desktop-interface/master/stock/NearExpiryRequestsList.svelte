@@ -47,6 +47,11 @@
 	let filterDateFrom = '';
 	let filterDateTo = '';
 
+	// Editing barcode
+	let editingItemIndex: number | null = null;
+	let editingBarcodeValue: string = '';
+	let savingBarcode = false;
+
 	function getCachedImage(url: string | null): string | null {
 		if (!url) return null;
 		return imageCache[url] || url;
@@ -300,6 +305,46 @@
 		}
 	}
 
+	async function saveBarcode(itemIndex: number) {
+		if (!selectedRequest || editingBarcodeValue.trim() === '') {
+			editingItemIndex = null;
+			return;
+		}
+
+		savingBarcode = true;
+		try {
+			const updatedItems = [...getItemsList(selectedRequest.items)];
+			updatedItems[itemIndex] = {
+				...updatedItems[itemIndex],
+				barcode: editingBarcodeValue.trim()
+			};
+
+			const { error: err } = await supabase
+				.from('near_expiry_reports')
+				.update({ items: updatedItems, updated_at: new Date().toISOString() })
+				.eq('id', selectedRequest.id);
+
+			if (err) throw err;
+
+			// Update local state
+			selectedRequest = {
+				...selectedRequest,
+				items: updatedItems
+			};
+
+			// Update in requests list
+			requests = requests.map(r => r.id === selectedRequest.id ? selectedRequest : r);
+
+			editingItemIndex = null;
+			editingBarcodeValue = '';
+		} catch (err: any) {
+			console.error('Error saving barcode:', err);
+			alert($locale === 'ar' ? 'خطأ في حفظ الباركود' : 'Error saving barcode: ' + (err?.message || 'Unknown error'));
+		} finally {
+			savingBarcode = false;
+		}
+	}
+
 	async function updateStatus(id: string, newStatus: 'reviewed' | 'resolved' | 'dismissed') {
 		try {
 			const { error: err } = await supabase
@@ -356,6 +401,35 @@
 		} catch (err: any) {
 			console.error('Error updating status:', err);
 			alert('Failed to update status: ' + (err?.message || 'Unknown error'));
+		}
+	}
+
+	async function deleteReport(id: string) {
+		if (!confirm($locale === 'ar' ? 'هل أنت متأكد من حذف هذا التقرير نهائياً؟ لا يمكن التراجع عن هذا الإجراء.' : 'Are you sure you want to permanently delete this report? This action cannot be undone.')) {
+			return;
+		}
+
+		try {
+			const { error: err } = await supabase
+				.from('near_expiry_reports')
+				.delete()
+				.eq('id', id);
+			if (err) throw err;
+
+			// Remove from local state
+			requests = requests.filter(r => r.id !== id);
+			
+			// Clear selectedRequest if it was the deleted one
+			if (selectedRequest?.id === id) {
+				selectedRequest = null;
+			}
+
+			// Clear selection
+			selectedIds.delete(id);
+			selectedIds = selectedIds;
+		} catch (err: any) {
+			console.error('Error deleting report:', err);
+			alert($locale === 'ar' ? 'فشل حذف التقرير: ' + (err?.message || 'خطأ غير معروف') : 'Failed to delete report: ' + (err?.message || 'Unknown error'));
 		}
 	}
 
@@ -619,11 +693,62 @@
 							{#each getItemsList(selectedRequest.items) as item, i}
 								<tr class="border-b border-slate-300 hover:bg-slate-50/50 {i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}">
 									<td class="border-r border-slate-300 py-2 px-3 text-slate-400 font-mono">{i + 1}</td>
-									<td class="border-r border-slate-300 py-2 px-3 font-bold text-emerald-700 font-mono">{item.barcode || '—'}</td>
+									<td class="border-r border-slate-300 py-2 px-3 font-bold text-emerald-700 font-mono">
+										{#if editingItemIndex === i}
+											<div class="flex items-center gap-1">
+												<input
+													type="text"
+													bind:value={editingBarcodeValue}
+													on:keydown={(e) => {
+														if (e.key === 'Enter') saveBarcode(i);
+														if (e.key === 'Escape') editingItemIndex = null;
+												}}
+												placeholder="Enter barcode..."
+												class="px-2 py-1 border-2 border-emerald-500 rounded bg-emerald-50 text-emerald-700 font-mono text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+												/>
+												<button
+													class="px-2 py-1 bg-emerald-500 text-white rounded text-xs font-bold hover:bg-emerald-600 disabled:opacity-50"
+													on:click={() => saveBarcode(i)}
+													disabled={savingBarcode}
+												>✓</button>
+												<button
+													class="px-2 py-1 bg-slate-300 text-slate-700 rounded text-xs font-bold hover:bg-slate-400"
+													on:click={() => editingItemIndex = null}
+													disabled={savingBarcode}
+												>✕</button>
+											</div>
+										{:else}
+											<span
+												class="cursor-pointer hover:bg-emerald-100 px-2 py-1 rounded transition-all block"
+												on:dblclick={() => {
+													editingItemIndex = i;
+													editingBarcodeValue = item.barcode || '';
+												}}
+												on:keydown={(e) => {
+													if (e.key === 'Enter') {
+														editingItemIndex = i;
+														editingBarcodeValue = item.barcode || '';
+													}
+												}}
+												title="Double-click to edit"
+												role="button"
+												tabindex="0"
+											>
+												{item.barcode || '—'}
+											</span>
+										{/if}
+									</td>
 									<td class="border-r border-slate-300 py-2 px-3 font-semibold text-red-700">{formatExpiryDateDisplay(item.expiry_date)}</td>
 									<td class="py-2 px-3">
 										{#if item.photo_url}
-											<img src={getCachedImage(item.photo_url)} alt="Product" class="w-14 h-14 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-all hover:shadow-lg" on:click|stopPropagation={() => lightboxUrl = getCachedImage(item.photo_url)} />
+															<button
+																type="button"
+																on:click|stopPropagation={() => lightboxUrl = getCachedImage(item.photo_url)}
+																class="p-0 border-0 bg-transparent cursor-pointer"
+																title="Click to view full image"
+															>
+																<img src={getCachedImage(item.photo_url)} alt="Product" class="w-14 h-14 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-all hover:shadow-lg" />
+															</button>
 										{:else}
 											<span class="text-slate-400">—</span>
 										{/if}
@@ -670,7 +795,9 @@
 									<th class="border-r border-red-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'التاريخ' : 'Date'}</th>
 									<th class="border-r border-red-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'مراجعة' : 'Review'}</th>
 									<th class="border-r border-red-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'حل' : 'Resolve'}</th>
-									<th class="py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'رفض' : 'Dismiss'}</th>
+									{#if $currentUser?.isMasterAdmin}
+										<th class="py-2.5 px-3 text-center font-bold text-red-600">{$locale === 'ar' ? 'احذف' : 'Delete'}</th>
+									{/if}
 								</tr>
 							</thead>
 							<tbody>
@@ -723,6 +850,15 @@
 												>❌</button>
 											{/if}
 										</td>
+										{#if $currentUser?.isMasterAdmin}
+											<td class="py-2.5 px-3 text-center" on:click|stopPropagation>
+												<button
+													class="p-1.5 bg-red-100 hover:bg-red-200 rounded-lg transition-all text-red-700 hover:text-red-900 font-bold"
+													on:click|stopPropagation={() => deleteReport(req.id)}
+													title={$locale === 'ar' ? 'احذف هذا التقرير نهائياً' : 'Delete this report permanently'}
+												>🗑️</button>
+											</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>
