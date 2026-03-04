@@ -226,6 +226,10 @@
 		return fallbackName || 'Unknown User';
 	}
 
+	function hideImage(e) {
+		e.target.style.display = 'none';
+	}
+
 	async function loadTasks() {
 		try {
 			const startTime = performance.now();
@@ -501,7 +505,7 @@
 
 			// Combine and sort all tasks
 			tasks = [...processedTasks, ...processedQuickTasks, ...processedReceivingTasks]
-				.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+				.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
 			
 			// Load user cache after loading tasks
 			await loadUserCache();
@@ -1042,7 +1046,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 			// Add completed tasks to main tasks array
 			const completedTasks = [...completedRegularTasks, ...completedQuickTasks, ...completedReceivingTasks];
 			tasks = [...tasks, ...completedTasks]
-				.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+				.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
 
 			const endTime = performance.now();
 			console.log(`✅ Completed tasks loaded in ${(endTime - startTime).toFixed(0)}ms (${completedTasks.length} completed tasks)`);
@@ -1202,6 +1206,8 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							{:else if task.description}
 								{@const oldPriceMatch = task.description.match(/Old Price:\s*([\d.]+)/i)}
 								{@const newPriceMatch = task.description.match(/New Price:\s*([\d.]+)/i)}
+								{@const urlPart = task.description.split('Photo URL:')[1]}
+								{@const photoUrl = urlPart ? urlPart.trim().split(/[\s\n]/)[0] : null}
 								{#if oldPriceMatch && newPriceMatch}
 									<div class="price-change-info">
 										<div class="price-change-row">
@@ -1213,7 +1219,19 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 										</div>
 									</div>
 								{:else}
-									<p class="task-description">{task.description.split('\nlinked_parent_task:')[0].split('linked_parent_task:')[0]}</p>
+									<p class="task-description">{task.description.split('Photo URL:')[0] || task.description}</p>
+									{#if photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))}
+										<div class="barcode-image-preview">
+											<img 
+												src={photoUrl} 
+												alt="Barcode product photo" 
+												class="barcode-image" 
+												loading="lazy"
+												on:error={hideImage}
+												on:click={() => { showImagePreview = true; previewImageSrc = photoUrl; previewImageAlt = 'Barcode Product'; }} 
+											/>
+										</div>
+									{/if}
 								{/if}
 							{/if}
 							
@@ -2194,6 +2212,32 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		max-height: 100%;
 		object-fit: contain;
 		border-radius: 8px;
+	}
+
+	/* Barcode image preview in task cards */
+	.barcode-image-preview {
+		margin-top: 0.75rem;
+		border-radius: 8px;
+		overflow: hidden;
+		background: #F3F4F6;
+		padding: 0.5rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		max-height: 200px;
+	}
+
+	.barcode-image {
+		max-width: 100%;
+		max-height: 180px;
+		object-fit: contain;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: transform 0.2s ease;
+	}
+
+	.barcode-image:hover {
+		transform: scale(1.05);
 	}
 
 	/* Responsive adjustments */

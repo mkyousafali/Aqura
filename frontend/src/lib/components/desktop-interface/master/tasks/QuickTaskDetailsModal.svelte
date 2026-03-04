@@ -6,6 +6,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	export let task;
+	export let onTaskCompleted = null;
 
 	let loading = true;
 	let taskAttachments = []; // For FileDownload component
@@ -84,6 +85,10 @@
 	function formatPriceTag(priceTag) {
 		if (!priceTag) return 'Not specified';
 		return priceTag.toUpperCase();
+	}
+
+	function hideImage(e) {
+		e.target.style.display = 'none';
 	}
 
 	async function openQuickTaskCompletion() {
@@ -193,7 +198,20 @@
 				</div>
 				<h1 class="text-2xl font-bold text-gray-900 mb-2">{task.title}</h1>
 				{#if task.description}
-					<p class="text-gray-600">{task.description}</p>
+					{@const urlPart = task.description.split('Photo URL:')[1]}
+					{@const photoUrl = urlPart ? urlPart.trim().split(/[\s\n]/)[0] : null}
+					<p class="text-gray-600">{task.description.split('Photo URL:')[0] || task.description}</p>
+					{#if photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))}
+						<div class="barcode-image-preview mt-4">
+							<img 
+								src={photoUrl} 
+								alt="Barcode product photo" 
+								class="barcode-image-desktop" 
+								loading="lazy"
+								on:error={hideImage}
+							/>
+						</div>
+					{/if}
 				{:else}
 					<p class="text-gray-400 italic">No description provided</p>
 				{/if}
@@ -425,5 +443,30 @@
 	.quick-task-details-modal {
 		max-height: calc(100vh - 200px);
 		overflow-y: auto;
+	}
+
+	/* Barcode image preview in quick task details */
+	.barcode-image-preview {
+		border-radius: 12px;
+		overflow: hidden;
+		background: #F3F4F6;
+		padding: 1rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		max-height: 300px;
+		border: 2px solid #E5E7EB;
+	}
+
+	.barcode-image-desktop {
+		max-width: 100%;
+		max-height: 280px;
+		object-fit: contain;
+		border-radius: 8px;
+		transition: transform 0.2s ease;
+	}
+
+	.barcode-image-desktop:hover {
+		transform: scale(1.05);
 	}
 </style>

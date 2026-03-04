@@ -559,8 +559,8 @@ app.post('/price-check', authenticate, async (req, res) => {
       return res.json({ success: false, error: 'Barcode not found in ERP' });
     }
 
-    // If we found batchId from step 1b/1c but don't have unit price yet, get it
-    if (!unitPrice || !productName) {
+    // If we found batchId from step 1b/1c but don't have unit price/name yet, get it
+    if (!unitPrice || !productName || !unitName) {
       const rUnits = await p.request().query(`
         SELECT TOP 1 pu.BarCode, MAX(pu.Sprice) AS Sprice, pu.MultiFactor, u.UnitName,
           p.ProductName, p.ItemNameinSecondLanguage
@@ -578,6 +578,23 @@ app.post('/price-check', authenticate, async (req, res) => {
         if (!unitPrice) unitPrice = row.Sprice || 0;
         if (!unitName) unitName = row.UnitName || '';
         if (row.BarCode) foundBarcode = row.BarCode;
+      }
+      
+      // If still missing unit name (batch has no ProductUnits), get from Products.BasicUnitID
+      if (!unitName) {
+        const rBasicUnit = await p.request().query(`
+          SELECT TOP 1 u.UnitName, p.ProductName, p.ItemNameinSecondLanguage
+          FROM ProductBatches pb
+          INNER JOIN Products p ON pb.ProductID = p.ProductID
+          LEFT JOIN UnitOfMeasures u ON p.BasicUnitID = u.UnitID
+          WHERE pb.ProductBatchID = ${parseInt(String(batchId))} ${branchFilter}
+        `);
+        if (rBasicUnit.recordset.length > 0) {
+          const row = rBasicUnit.recordset[0];
+          if (!productName) productName = row.ProductName || '';
+          if (!productNameAr) productNameAr = row.ItemNameinSecondLanguage || '';
+          if (!unitName) unitName = row.UnitName || '';
+        }
       }
     }
 

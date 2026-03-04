@@ -1,8 +1,19 @@
 ╔══════════════════════════════════════════════════════╗
 ║                                                      ║
 ║     Aqura ERP Bridge - Data Manager                  ║
+║     v2.1 (Updated: March 2026)                       ║
 ║                                                      ║
 ╚══════════════════════════════════════════════════════╝
+
+WHAT'S CHANGED IN v2.1:
+═══════════════════════
+
+✓ Fixed unit name display for barcodes found in ManualBarcode,
+  AutoBarcode, Unit2Barcode, Unit3Barcode columns
+  
+✓ Price-check now fetches unit names correctly for all barcode
+  sources, not just ProductUnits.BarCode
+
 
 HOW TO USE:
 ═══════════
