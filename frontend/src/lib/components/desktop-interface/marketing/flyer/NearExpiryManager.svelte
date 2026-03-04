@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ExcelJS from 'exceljs';
+	import JSZip from 'jszip';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
@@ -1364,32 +1365,13 @@
 		}
 
 		try {
-			const workbook = new ExcelJS.Workbook();
-			const worksheet = workbook.addWorksheet('Export for Entry');
+			// Create ZIP archive with master zone folder structure
+			const zip: JSZip = new JSZip();
+			const masterZoneFolder = zip.folder('Master_Zone_Export');
 
-			// Define columns to export
-			const columns = [
-				{ header: 'S.No', key: 'sNo', width: 8 },
-				{ header: 'Barcode', key: 'barcode', width: 15 },
-				{ header: 'Product Name', key: 'productName', width: 30 },
-				{ header: 'Unit', key: 'unit', width: 12 },
-				{ header: 'Expiry Date', key: 'expiryDate', width: 15 },
-				{ header: 'To-Do', key: 'toDo', width: 12 },
-				{ header: 'Total Sales Price', key: 'totalSalesPrice', width: 18 },
-				{ header: 'Total Offer Price', key: 'totalOfferPrice', width: 18 },
-				{ header: 'Offer Qty', key: 'offerQty', width: 12 },
-				{ header: 'Free', key: 'free', width: 12 },
-				{ header: 'Limit', key: 'limit', width: 12 },
-				{ header: 'Offer Type', key: 'offerType', width: 20 },
-				{ header: 'Offer End Date', key: 'offerEndDate', width: 15 }
-			];
-
-			worksheet.columns = columns;
-
-			// Style header row
-			worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-			worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-			worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+			if (!masterZoneFolder) {
+				throw new Error('Failed to create master zone folder');
+			}
 
 			// Sort data by Offer End Date, then by Offer Type
 			const sortedData = [...importedData].sort((a, b) => {
@@ -1417,26 +1399,103 @@
 				return typeA.localeCompare(typeB);
 			});
 
-			// Add rows with serial number
-			let serialNumber = 1;
+			// Group products by offer end date
+			const groupedByDate: { [key: string]: any[] } = {};
 			sortedData.forEach((row) => {
-				const remainingDays = getRemainingDays(row.expiryDate);
-				const toDo = typeof remainingDays === 'number'
-					? remainingDays < 20
-						? '🗑️ Remove'
-						: '🏷️ Offer'
-					: '-';
+				const date = row.offerEndDate || 'No Date';
+				if (!groupedByDate[date]) {
+					groupedByDate[date] = [];
+				}
+				groupedByDate[date].push(row);
+			});
 
-				const totalOfferPrice = Number(row.offerPrice) > 0 && Number(row.offerQty) > 0
+			// For each date, group by offer type and create Excel files
+			for (const [dateStr, productsForDate] of Object.entries(groupedByDate)) {
+				// Create folder for this date
+				const dateFolder = masterZoneFolder.folder(dateStr);
+				if (!dateFolder) continue;
+
+				// Group products by offer type
+				const groupedByType: { [key: string]: any[] } = {};
+				productsForDate.forEach((row) => {
+					const offerType = getOfferType(
+						Number(row.offerQty) || 1,
+						row.offerLimit ? Number(row.offerLimit) : null,
+						Number(row.offerFree) || 0,
+						Number(row.offerPrice) || 0
+					) || 'Not Applicable';
+
+					if (!groupedByType[offerType]) {
+						groupedByType[offerType] = [];
+					}
+					groupedByType[offerType].push(row);
+				});
+
+				// Create an Excel file for each offer type
+				for (const [offerType, productsForType] of Object.entries(groupedByType)) {
+					// Sanitize filename
+					const safeOfferType = offerType
+						.replace(/[/\\?*:|"<>]/g, '-')
+						.substring(0, 50);
+
+					// Create workbook for this offer type
+					const workbook = new ExcelJS.Workbook();
+					const worksheet = workbook.addWorksheet('Data');
+
+					// Define columns to export
+					const columns = [
+						{ header: 'S.No', key: 'sNo', width: 8 },
+						{ header: 'Barcode', key: 'barcode', width: 15 },
+						{ header: 'Product Name', key: 'productName', width: 30 },
+						{ header: 'Unit', key: 'unit', width: 12 },
+						{ header: 'Expiry Date', key: 'expiryDate', width: 15 },
+						{ header: 'To-Do', key: 'toDo', width: 12 },
+						{ header: 'Total Sales Price', key: 'totalSalesPrice', width: 18 },
+						{ header: 'Total Offer Price', key: 'totalOfferPrice', width: 18 },
+						{ header: 'Offer Qty', key: 'offerQty', width: 12 },
+						{ header: 'ERP Entry', key: 'erpEntry', width: 12 },
+						{ header: 'Free', key: 'free', width: 12 },
+						{ header: 'Limit', key: 'limit', width: 12 },
+						{ header: 'Offer Type', key: 'offerType', width: 20 },
+						{ header: 'Offer End Date', key: 'offerEndDate', width: 15 }
+					];
+
+					worksheet.columns = columns;
+
+					// Style header row
+					worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+					worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+					worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+					// Add rows with serial number
+					let serialNumber = 1;
+					productsForType.forEach((row) => {
+						const remainingDays = getRemainingDays(row.expiryDate);
+					
+					// Check if product has a valid offer
+					const hasValidOffer = Number(row.offerPrice) > 0 && Number(row.offerQty) > 0;
+					
+					const toDo = !hasValidOffer
+						? '❌ Not Applicable'
+						: typeof remainingDays === 'number'
+							? remainingDays < 20
+								? '🗑️ Remove'
+								: '🏷️ Offer'
+							: '-';
+
+					const totalOfferPrice = hasValidOffer
 					? roundTo95(Number(row.offerPrice) * Number(row.offerQty)).toFixed(2)
 					: '-';
 
-				const offerType = getOfferType(
-					Number(row.offerQty) || 1,
-					row.offerLimit ? Number(row.offerLimit) : null,
-					Number(row.offerFree) || 0,
-					Number(row.offerPrice) || 0
-				);
+				// Calculate ERP Entry: Total Offer Price / Offer Qty, minus 0.01 only if qty > 1
+				let erpEntry = '';
+				if (hasValidOffer) {
+					const totalPrice = Number(totalOfferPrice);
+					const qty = Number(row.offerQty);
+					const perUnit = totalPrice / qty;
+					const reduction = qty > 1 ? 0.01 : 0;
+					erpEntry = (perUnit - reduction).toFixed(2);
+				}
 
 				worksheet.addRow({
 					sNo: serialNumber++,
@@ -1448,62 +1507,48 @@
 					totalSalesPrice: (Number(row.salesPrice) * (Number(row.offerQty) || 1)).toFixed(2),
 					totalOfferPrice: totalOfferPrice,
 					offerQty: row.offerQty || '',
+					erpEntry: erpEntry,
 					free: row.offerFree || '',
 					limit: row.offerLimit || '',
 					offerType: offerType,
 					offerEndDate: row.offerEndDate || ''
 				});
-			});
+					});
 
-			// Apply unique colors to Offer End Date cells by unique date
-			const dateColorMap: { [key: string]: string } = {};
-			const colors = [
-				'FFFFE0', // Light Yellow
-				'FFE4E1', // Misty Rose (Light Pink)
-				'E0FFFF', // Light Cyan
-				'F0FFF0', // Honeydew (Light Green)
-				'FFF0F5', // Lavender Blush (Light Purple)
-				'F5F5DC', // Beige
-				'F0F8FF', // Alice Blue
-				'FFF8DC', // Cornsilk
-				'FFE4B5', // Moccasin
-				'F5FFFA', // Mint Cream
-				'FFEFD5', // Papaya Whip
-				'FFE4C4'  // Bisque
-			];
-			let colorIndex = 0;
-
-			// Iterate through rows to assign colors based on unique dates
-			for (let rowNum = 2; rowNum <= worksheet.rowCount; rowNum++) {
-				const dateCell = worksheet.getRow(rowNum).getCell('offerEndDate');
-				const dateValue = dateCell.value?.toString() || '';
-
-				if (dateValue && dateValue !== '') {
-					if (!dateColorMap[dateValue]) {
-						dateColorMap[dateValue] = colors[colorIndex % colors.length];
-						colorIndex++;
+					// Apply blue background to offer type column
+					for (let rowNum = 2; rowNum <= worksheet.rowCount; rowNum++) {
+						const typeCell = worksheet.getRow(rowNum).getCell('offerType');
+						typeCell.fill = {
+							type: 'pattern',
+							pattern: 'solid',
+							fgColor: { argb: 'FFFFD700' } // Gold color
+						};
+						typeCell.font = { bold: true };
 					}
 
-					const color = dateColorMap[dateValue];
-					dateCell.fill = {
-						type: 'pattern',
-						pattern: 'solid',
-						fgColor: { argb: 'FF' + color }
-					};
+					// Write Excel file to ZIP
+					const buffer = await workbook.xlsx.writeBuffer();
+					const fileName = `${safeOfferType}.xlsx`;
+					dateFolder.file(fileName, buffer);
 				}
 			}
-			const buffer = await workbook.xlsx.writeBuffer();
-			const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+			// Generate ZIP file and download
+			const zipBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+			if (!zipBuffer) throw new Error('Failed to generate ZIP');
+
+			const blob = new Blob([zipBuffer], { type: 'application/zip' });
 			const url = window.URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `Export_for_Entry_${new Date().toISOString().split('T')[0]}.xlsx`;
+			a.download = `Export_for_Entry_Master_Zone_${new Date().toISOString().split('T')[0]}.zip`;
 			document.body.appendChild(a);
 			a.click();
 			window.URL.revokeObjectURL(url);
 			document.body.removeChild(a);
 
-			alert(`✓ Exported ${sortedData.length} products successfully!`);
+			const dateCount = Object.keys(groupedByDate).length;
+			alert(`✓ Exported ${sortedData.length} products successfully!\n✓ Master Zone folder created\n✓ ${dateCount} date folders with separate offer type files created`);
 		} catch (error) {
 			console.error('Error exporting data:', error);
 			alert('Error exporting data. Please try again.');
@@ -1891,15 +1936,10 @@
 		return (salesPriceTotal - offerPriceTotal) >= 1.05;
 	}
 
-	// Helper: Get allowed quantities based on price, with 15.95 cap
+	// Helper: Get allowed quantities based on price, with 7.95 cap
 	function getAllowedQuantities(priceUnit: number): number[] {
-		// For high-value items, cap at qty=1 to not exceed 15.95 total
-		if (priceUnit > 15.95) {
-			return [1];
-		}
-		if (priceUnit < 6) return [1, 2, 3, 4];
-		if (priceUnit <= 10) return [1, 2, 3];
-		return [1, 2];
+		// For all items, maximum qty=3 to not exceed 7.95 total
+		return [1, 2, 3];
 	}
 
 	// Generate offer price based on target profit percentage (EXACT MATCH with PricingManager)
@@ -1926,8 +1966,8 @@
 			const priceTotal = priceUnit * qty;
 			const costTotal = cost * qty;
 			
-			// Skip if total offer price would exceed 15.95 (cap constraint)
-			if (priceTotal > 15.95) {
+			// Skip if total offer price would exceed 7.95 (cap constraint)
+			if (priceTotal > 7.95) {
 				continue;
 			}
 			
@@ -2049,8 +2089,8 @@
 				});
 			}
 
-			// For high-margin products where qty=1 doesn't work well, try qty 2, 3, 4, 5
-			for (let qty of [2, 3, 4, 5]) {
+			// For high-margin products where qty=1 doesn't work well, try qty 2, 3
+			for (let qty of [2, 3]) {
 				const priceTotal = priceUnit * qty;
 				const targetOfferTotal = priceTotal - 1.05;
 				const targetOfferUnit = targetOfferTotal / qty;
@@ -2317,8 +2357,8 @@
 
 		const candidates: any[] = [];
 
-		// Try quantities 2, 3, 4, 5 to find a viable offer with ≥1.05 SAR decrease
-		for (let qty of [2, 3, 4, 5]) {
+		// Try quantities 2, 3 to find a viable offer with ≥1.05 SAR decrease
+		for (let qty of [2, 3]) {
 			const priceTotal = priceUnit * qty;
 
 			// Target offer total: price total - 1.05 SAR minimum decrease
@@ -2405,18 +2445,18 @@
 			};
 		}
 
-		// Calculate maximum quantity allowed (total price <= 15.95 only if cost allows it, qty <= 5)
-		let maxQtyAllowed = 5;
-		if (cost <= 15.95) {
-			maxQtyAllowed = Math.min(5, Math.floor(15.95 / priceUnit));
+		// Calculate maximum quantity allowed (total price <= 7.95 only if cost allows it, qty <= 3)
+		let maxQtyAllowed = 3;
+		if (cost <= 7.95) {
+			maxQtyAllowed = Math.min(3, Math.floor(7.95 / priceUnit));
 		}
 
 		// Try increasing quantity
 		const candidates: any[] = [];
 
 		for (let newQty = currentQty + 1; newQty <= maxQtyAllowed; newQty++) {
-			// Stop if total price would exceed 15.95 or qty exceeds 5 (but only check 15.95 if cost allows)
-			if ((cost <= 15.95 && priceUnit * newQty >= 15.95) || newQty > 5) break;
+			// Stop if total price would exceed 7.95 or qty exceeds 3 (but only check 7.95 if cost allows)
+			if ((cost <= 7.95 && priceUnit * newQty >= 7.95) || newQty > 3) break;
 
 			// Try different offer prices ending in .95
 			for (let offerInt = Math.floor(cost); offerInt < Math.floor(priceUnit); offerInt++) {
@@ -2496,10 +2536,10 @@
 			return { ...product, generation_status: 'B4 Not Applicable' };
 		}
 
-		// Calculate maximum quantity where total offer price <= 15.95 and qty <= 5 (but only check 15.95 if cost allows)
-		let maxQty = 5;
-		if (cost <= 15.95) {
-			maxQty = Math.min(5, Math.floor(15.95 / offerPricePerUnit));
+		// Calculate maximum quantity where total offer price <= 7.95 and qty <= 3 (but only check 7.95 if cost allows)
+		let maxQty = 3;
+		if (cost <= 7.95) {
+			maxQty = Math.min(3, Math.floor(7.95 / offerPricePerUnit));
 		}
 
 		// Don't decrease quantity
@@ -2574,8 +2614,8 @@
 			return { ...product, generation_status: 'B5 No Valid Price' };
 		}
 
-		// Also check total price doesn't exceed 15.95 (but only if cost allows)
-		if (totalOfferPriceRounded > 15.95 && cost <= 15.95) {
+		// Also check total price doesn't exceed 7.95 (but only if cost allows)
+		if (totalOfferPriceRounded > 7.95 && cost <= 7.95) {
 			return { ...product, generation_status: 'B5 Exceeds Max Total Price' };
 		}
 
@@ -2683,12 +2723,12 @@
 				};
 			}
 
-			// ADDITIONAL FALLBACK: Try qty=5 with prices ending in .95 for moderate items (2.00-6.00)
+			// ADDITIONAL FALLBACK: Try qty=2 with prices ending in .95 for moderate items (2.00-6.00)
 			if (priceUnit >= 2.00 && priceUnit <= 6.00) {
-				const priceTotal = priceUnit * 5;
-				const costTotal = cost * 5;
+				const priceTotal = priceUnit * 2;
+				const costTotal = cost * 2;
 				
-				// Try all prices ending in .95 from (price*5 - 2.00) down to (cost + 0.10)*5
+				// Try all prices ending in .95 from (price*2 - 2.00) down to (cost + 0.10)*2
 				for (let totalPrice = Math.floor(priceTotal - 2); totalPrice > costTotal; totalPrice--) {
 					const candidate95 = totalPrice + 0.95;
 					const decreaseAmount = priceTotal - candidate95;
@@ -2697,62 +2737,62 @@
 						const profitPercent = ((candidate95 - costTotal) / costTotal) * 100;
 						return {
 							...product,
-							offer_qty: 5,
-							offer_price: candidate95 / 5,
-							generation_status: `Fallback Qty5 (Qty: 5, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+							offer_qty: 2,
+							offer_price: candidate95 / 2,
+							generation_status: `Fallback Qty2 (Qty: 2, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 2).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 						};
 					}
 				}
 			}
 
-			// NEW FALLBACK: For very low items (0.50-2.00), try qty=5 with flexible total prices (up to 10.95)
+			// NEW FALLBACK: For very low items (0.50-2.00), try qty=3 with flexible total prices (up to 7.95)
 			if (priceUnit >= 0.50 && priceUnit < 2.00) {
-				const priceTotal = priceUnit * 5;
-				const costTotal = cost * 5;
+				const priceTotal = priceUnit * 3;
+				const costTotal = cost * 3;
 				
 				// Try prices ending in .95 and .50 from priceTotal down to costTotal
 				for (let baseTotal = Math.ceil(priceTotal); baseTotal >= costTotal; baseTotal--) {
 					// Try .95 ending first
 					const candidate95 = baseTotal + 0.95;
-					if (candidate95 <= 10.95) { // Don't go above 10.95 for qty=5 items
+					if (candidate95 <= 7.95) { // Don't go above 7.95 for qty=3 items
 						const decreaseAmount = priceTotal - candidate95;
 						
 						if (decreaseAmount >= 1.05 && candidate95 > costTotal && candidate95 < priceTotal) {
 							const profitPercent = ((candidate95 - costTotal) / costTotal) * 100;
 							return {
 								...product,
-								offer_qty: 5,
-								offer_price: candidate95 / 5,
-								generation_status: `Fallback Qty5-VeryLow (Qty: 5, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+								offer_qty: 3,
+								offer_price: candidate95 / 3,
+								generation_status: `Fallback Qty3-VeryLow (Qty: 3, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 							};
 						}
 					}
 					
 					// Try .50 ending
 					const candidate50 = baseTotal + 0.50;
-					if (candidate50 <= 10.95) {
+					if (candidate50 <= 7.95) {
 						const decreaseAmount = priceTotal - candidate50;
 						
 						if (decreaseAmount >= 1.05 && candidate50 > costTotal && candidate50 < priceTotal) {
 							const profitPercent = ((candidate50 - costTotal) / costTotal) * 100;
 							return {
 								...product,
-								offer_qty: 5,
-								offer_price: candidate50 / 5,
-								generation_status: `Fallback Qty5-VeryLow50 (Qty: 5, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+								offer_qty: 3,
+								offer_price: candidate50 / 3,
+								generation_status: `Fallback Qty3-VeryLow50 (Qty: 3, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 							};
 						}
 					}
 				}
 			}
 
-			// FALLBACK: For very low-price items, allow qty=5 with price cap (5.95 max) even if per-unit decrease is low
+			// FALLBACK: For very low-price items, allow qty=2 with price cap (2.95 max) even if per-unit decrease is low
 			if (priceUnit < 2.00) {
-				const priceTotal = priceUnit * 5;
-				const costTotal = cost * 5;
+				const priceTotal = priceUnit * 2;
+				const costTotal = cost * 2;
 				
-				// Try price ending in .95 up to max total of 5.95
-				const maxOfferTotal = 5.95;
+				// Try price ending in .95 up to max total of 2.95
+				const maxOfferTotal = 2.95;
 				const decreaseAmount = priceTotal - maxOfferTotal;
 				
 				if (maxOfferTotal > costTotal && maxOfferTotal < priceTotal && decreaseAmount >= 1.05) {
@@ -2760,9 +2800,9 @@
 					
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: maxOfferTotal / 5,
-						generation_status: `Fallback Low-Price (Qty: 5, Total: ${maxOfferTotal.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(maxOfferTotal / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 2,
+						offer_price: maxOfferTotal / 2,
+						generation_status: `Fallback Low-Price (Qty: 2, Total: ${maxOfferTotal.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(maxOfferTotal / 2).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
@@ -2786,7 +2826,7 @@
 	}
 
 	// ============= Sequential 7-Step Processing (Matches PricingManager Order) =============
-	// BUTTON 11: Final fallback for remaining unpriced items - qty=5 with any price ending in .95 or .50, decrease >= 0.45
+	// BUTTON 11: Final fallback for remaining unpriced items - qty=3 with any price ending in .95 or .50, decrease >= 0.45
 	function generateOfferPriceButton11(product: any, targetProfit: number): any {
 		const cost = product.cost || 0;
 		const priceUnit = product.salesPrice || 0;
@@ -2808,12 +2848,12 @@
 			return product;
 		}
 
-		const priceTotal = priceUnit * 5;
-		const costTotal = cost * 5;
+		const priceTotal = priceUnit * 3;
+		const costTotal = cost * 3;
 
 		console.log(`B11 Processing - Item ${priceUnit} SAR: priceTotal=${priceTotal.toFixed(2)}, costTotal=${costTotal.toFixed(2)}`);
 
-		// Try qty=5 with prices ending in .95 and .50, looking for decrease >= 0.45
+		// Try qty=3 with prices ending in .95 and .50, looking for decrease >= 0.45
 		// Start from priceTotal and go down
 		for (let baseTotal = Math.floor(priceTotal); baseTotal >= Math.floor(costTotal); baseTotal--) {
 			// Try .95 ending first
@@ -2825,12 +2865,12 @@
 
 				if (decreaseAmount >= 0.45 && candidate95 > costTotal) {
 					const profitPercent = ((candidate95 - costTotal) / costTotal) * 100;
-					console.log(`B11 SUCCESS .95: qty=5, price=${(candidate95/5).toFixed(2)}, total=${candidate95.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B11 SUCCESS .95: qty=3, price=${(candidate95/3).toFixed(2)}, total=${candidate95.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate95 / 5,
-						generation_status: `B11 Qty5-Final (Qty: 5, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate95 / 3,
+						generation_status: `B11 Qty3-Final (Qty: 3, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
@@ -2844,12 +2884,12 @@
 
 				if (decreaseAmount >= 0.45 && candidate50 > costTotal) {
 					const profitPercent = ((candidate50 - costTotal) / costTotal) * 100;
-					console.log(`B11 SUCCESS .50: qty=5, price=${(candidate50/5).toFixed(2)}, total=${candidate50.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B11 SUCCESS .50: qty=3, price=${(candidate50/3).toFixed(2)}, total=${candidate50.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate50 / 5,
-						generation_status: `B11 Qty5-Final50 (Qty: 5, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate50 / 3,
+						generation_status: `B11 Qty3-Final50 (Qty: 3, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
@@ -2881,47 +2921,47 @@
 			return product;
 		}
 
-		const priceTotal = priceUnit * 5;
-		const costTotal = cost * 5;
+		const priceTotal = priceUnit * 3;
+		const costTotal = cost * 3;
 
 		console.log(`B10 Processing - Item ${priceUnit} SAR: priceTotal=${priceTotal.toFixed(2)}, costTotal=${costTotal.toFixed(2)}`);
 
-		// Try prices ending in .95 and .50 from 20.95 down to just above costTotal
-		for (let baseTotal = 20; baseTotal > Math.floor(costTotal) - 1; baseTotal--) {
+		// Try prices ending in .95 and .50 from 7.95 down to just above costTotal
+		for (let baseTotal = 7; baseTotal > Math.floor(costTotal) - 1; baseTotal--) {
 			// Try .95 ending first
 			const candidate95 = baseTotal + 0.95;
-			if (candidate95 <= 20.95) {
+			if (candidate95 <= 7.95) {
 				const decreaseAmount = priceTotal - candidate95;
 
 				console.log(`B10 Try .95: baseTotal=${baseTotal}, candidate95=${candidate95.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}`);
 
 				if (decreaseAmount >= 1.05 && candidate95 > costTotal && candidate95 < priceTotal) {
 					const profitPercent = ((candidate95 - costTotal) / costTotal) * 100;
-					console.log(`B10 SUCCESS .95: qty=5, price=${(candidate95/5).toFixed(2)}, total=${candidate95.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B10 SUCCESS .95: qty=3, price=${(candidate95/3).toFixed(2)}, total=${candidate95.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate95 / 5,
-						generation_status: `B10 Qty5-High (Qty: 5, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate95 / 3,
+						generation_status: `B10 Qty3-High (Qty: 3, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
 
 			// Try .50 ending
 			const candidate50 = baseTotal + 0.50;
-			if (candidate50 <= 20.95) {
+			if (candidate50 <= 7.95) {
 				const decreaseAmount = priceTotal - candidate50;
 
 				console.log(`B10 Try .50: baseTotal=${baseTotal}, candidate50=${candidate50.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}`);
 
 				if (decreaseAmount >= 1.05 && candidate50 > costTotal && candidate50 < priceTotal) {
 					const profitPercent = ((candidate50 - costTotal) / costTotal) * 100;
-					console.log(`B10 SUCCESS .50: qty=5, price=${(candidate50/5).toFixed(2)}, total=${candidate50.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B10 SUCCESS .50: qty=3, price=${(candidate50/3).toFixed(2)}, total=${candidate50.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate50 / 5,
-						generation_status: `B10 Qty5-High50 (Qty: 5, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate50 / 3,
+						generation_status: `B10 Qty3-High50 (Qty: 3, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
@@ -2952,47 +2992,47 @@
 			return product;
 		}
 
-		const priceTotal = priceUnit * 5;
-		const costTotal = cost * 5;
+		const priceTotal = priceUnit * 3;
+		const costTotal = cost * 3;
 
 		console.log(`B9 Debug - Item ${priceUnit} SAR: priceTotal=${priceTotal.toFixed(2)}, costTotal=${costTotal.toFixed(2)}`);
 
-		// Try prices ending in .95 and .50 from priceTotal down, up to 10.95 max
+		// Try prices ending in .95 and .50 from priceTotal down, up to 7.95 max
 		for (let baseTotal = Math.floor(priceTotal); baseTotal > Math.floor(costTotal) - 1; baseTotal--) {
 			// Try .95 ending first
 			const candidate95 = baseTotal + 0.95;
-			if (candidate95 <= 10.95) {
+			if (candidate95 <= 7.95) {
 				const decreaseAmount = priceTotal - candidate95;
 
 				console.log(`B9 Try .95: baseTotal=${baseTotal}, candidate95=${candidate95.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}`);
 
 				if (decreaseAmount >= 1.05 && candidate95 > costTotal && candidate95 < priceTotal) {
 					const profitPercent = ((candidate95 - costTotal) / costTotal) * 100;
-					console.log(`B9 SUCCESS .95: qty=5, price=${(candidate95/5).toFixed(2)}, total=${candidate95.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B9 SUCCESS .95: qty=3, price=${(candidate95/3).toFixed(2)}, total=${candidate95.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate95 / 5,
-						generation_status: `B9 Qty5-Moderate (Qty: 5, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate95 / 3,
+						generation_status: `B9 Qty3-Moderate (Qty: 3, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
 
 			// Try .50 ending
 			const candidate50 = baseTotal + 0.50;
-			if (candidate50 <= 10.95) {
+			if (candidate50 <= 7.95) {
 				const decreaseAmount = priceTotal - candidate50;
 
 				console.log(`B9 Try .50: baseTotal=${baseTotal}, candidate50=${candidate50.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}`);
 
 				if (decreaseAmount >= 1.05 && candidate50 > costTotal && candidate50 < priceTotal) {
 					const profitPercent = ((candidate50 - costTotal) / costTotal) * 100;
-					console.log(`B9 SUCCESS .50: qty=5, price=${(candidate50/5).toFixed(2)}, total=${candidate50.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B9 SUCCESS .50: qty=3, price=${(candidate50/3).toFixed(2)}, total=${candidate50.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate50 / 5,
-						generation_status: `B9 Qty5-Moderate50 (Qty: 5, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate50 / 3,
+						generation_status: `B9 Qty3-Moderate50 (Qty: 3, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
@@ -3024,8 +3064,8 @@
 			return product;
 		}
 
-		const priceTotal = priceUnit * 5;
-		const costTotal = cost * 5;
+		const priceTotal = priceUnit * 3;
+		const costTotal = cost * 3;
 
 		// Log for debugging
 		console.log(`B8 Debug - Item ${priceUnit} SAR: priceTotal=${priceTotal.toFixed(2)}, costTotal=${costTotal.toFixed(2)}`);
@@ -3034,38 +3074,38 @@
 		for (let baseTotal = Math.floor(priceTotal); baseTotal > Math.floor(costTotal) - 1; baseTotal--) {
 			// Try .95 ending first
 			const candidate95 = baseTotal + 0.95;
-			if (candidate95 <= 10.95) {
+			if (candidate95 <= 7.95) {
 				const decreaseAmount = priceTotal - candidate95;
 
 				console.log(`B8 Try .95: baseTotal=${baseTotal}, candidate95=${candidate95.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}`);
 
 				if (decreaseAmount >= 1.05 && candidate95 > costTotal && candidate95 < priceTotal) {
 					const profitPercent = ((candidate95 - costTotal) / costTotal) * 100;
-					console.log(`B8 SUCCESS .95: qty=5, price=${(candidate95/5).toFixed(2)}, total=${candidate95.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B8 SUCCESS .95: qty=3, price=${(candidate95/3).toFixed(2)}, total=${candidate95.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate95 / 5,
-						generation_status: `B8 Qty5-Low (Qty: 5, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate95 / 3,
+						generation_status: `B8 Qty3-Low (Qty: 3, Total: ${candidate95.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate95 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
 
 			// Try .50 ending
 			const candidate50 = baseTotal + 0.50;
-			if (candidate50 <= 10.95) {
+			if (candidate50 <= 7.95) {
 				const decreaseAmount = priceTotal - candidate50;
 
 				console.log(`B8 Try .50: baseTotal=${baseTotal}, candidate50=${candidate50.toFixed(2)}, decrease=${decreaseAmount.toFixed(2)}`);
 
 				if (decreaseAmount >= 1.05 && candidate50 > costTotal && candidate50 < priceTotal) {
 					const profitPercent = ((candidate50 - costTotal) / costTotal) * 100;
-					console.log(`B8 SUCCESS .50: qty=5, price=${(candidate50/5).toFixed(2)}, total=${candidate50.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
+					console.log(`B8 SUCCESS .50: qty=3, price=${(candidate50/3).toFixed(2)}, total=${candidate50.toFixed(2)}, profit=${profitPercent.toFixed(2)}%`);
 					return {
 						...product,
-						offer_qty: 5,
-						offer_price: candidate50 / 5,
-						generation_status: `B8 Qty5-Low50 (Qty: 5, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 5).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
+						offer_qty: 3,
+						offer_price: candidate50 / 3,
+						generation_status: `B8 Qty3-Low50 (Qty: 3, Total: ${candidate50.toFixed(2)}, Decrease: ${decreaseAmount.toFixed(2)}, Per-Unit: ${(candidate50 / 3).toFixed(2)}, Profit: ${profitPercent.toFixed(2)}%)`
 					};
 				}
 			}
@@ -3111,7 +3151,7 @@
 		// Step 10: Special handling for higher-price items with qty=5 (up to 20.95) - RUNS LAST
 		result = generateOfferPriceButton10(result, targetProfit);
 
-		// Step 11: Final fallback for remaining items - qty=5 with price=0.99 (total=4.95) if decrease >= 0.55
+		// Step 11: Final fallback for remaining items - qty=3 with price ending prices (up to 7.95) if decrease >= 0.45
 		result = generateOfferPriceButton11(result, targetProfit);
 
 		return result;
@@ -3495,10 +3535,16 @@
 							</thead>
 							<tbody class="divide-y divide-slate-200">
 								{#each filteredData as row, index}
-									<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {
-										isCostZero(row.cost) || Number(row.cost) > Number(row.salesPrice)
-											? 'bg-red-300 text-red-900'
-											: ''
+									{@const currentOfferType = getOfferType(
+										Number(row.offerQty) || 1,
+										row.offerLimit ? Number(row.offerLimit) : null,
+										Number(row.offerFree) || 0,
+										Number(row.offerPrice) || 0
+									)}
+									<tr class="hover:bg-blue-50/30 transition-colors duration-200 {
+										(isCostZero(row.cost) || Number(row.cost) > Number(row.salesPrice) || currentOfferType === 'Not Applicable')
+											? 'bg-red-300 text-red-900 font-bold'
+											: (index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20')
 									}">
 										{#if visibleColumns.delete}
 										<td class="px-4 py-3 text-sm text-center whitespace-nowrap">
@@ -3667,11 +3713,21 @@
 										{/if}
 										{#if visibleColumns.totalOfferPrice}
 										<td class="px-4 py-3 text-sm text-center text-slate-800 font-bold whitespace-nowrap bg-amber-100/50">
-											{#if Number(row.offerPrice) > 0 && Number(row.offerQty) > 0}
-												{roundTo95(Number(row.offerPrice) * Number(row.offerQty)).toFixed(2)}
-											{:else}
-												-
-											{/if}
+											<input 
+												type="number" 
+												placeholder="Enter total"
+												value={Number(row.offerPrice) > 0 && Number(row.offerQty) > 0 ? roundTo95(Number(row.offerPrice) * Number(row.offerQty)) : ''}
+												on:input={(e) => {
+													const totalValue = parseFloat(e.currentTarget.value) || 0;
+													const qty = Number(row.offerQty) || 1;
+													if (totalValue > 0 && qty > 0) {
+														row.offerPrice = (totalValue / qty).toFixed(2);
+													}
+													importedData = importedData;
+												}}
+												class="w-full px-2 py-1 border border-amber-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm text-center"
+												step="0.01"
+											/>
 										</td>
 										{/if}
 										{#if visibleColumns.offerDecrease}
