@@ -82,6 +82,21 @@
 		return dateStr;
 	}
 
+	function convertDateToExcelCell(dateStr: string) {
+		if (!dateStr) return { v: '', t: 's' };
+		const parts = dateStr.split('-');
+		if (parts.length === 3) {
+			const [year, month, day] = parts;
+			const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+			return {
+				v: date,
+				t: 'd',
+				z: 'dd-mm-yyyy'
+			};
+		}
+		return { v: dateStr, t: 's' };
+	}
+
 	function exportToExcel() {
 		if (!selectedRequest) return;
 		const items = getItemsList(selectedRequest.items);
@@ -96,7 +111,7 @@
 				{ v: 'Cost (cost + VAT)', s: headerStyle },
 				{ v: 'Expiry date (DD-MM-YYYY)', s: headerStyle }
 			],
-			...items.map((item) => [item.barcode || '', '', '', '', '', '', formatExpiryDateDisplay(item.expiry_date)])
+			...items.map((item) => [{ v: item.barcode || '', t: 's' }, '', '', '', '', '', convertDateToExcelCell(item.expiry_date)])
 		];
 		const ws = XLSX.utils.aoa_to_sheet(wsData);
 		ws['!cols'] = [{ wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 24 }];
@@ -148,13 +163,13 @@
 			const items = getItemsList(report.items);
 			for (const item of items) {
 				wsData.push([
-					item.barcode || '',
+					{ v: item.barcode || '', t: 's' },
 					'',
 					'',
 					'',
 					'',
 					'',
-					formatExpiryDateDisplay(item.expiry_date)
+					convertDateToExcelCell(item.expiry_date)
 				]);
 			}
 		}
