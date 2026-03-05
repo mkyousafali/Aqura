@@ -261,6 +261,52 @@
 	let storageSyncDetail: Record<number, { bucket: string; done: number; total: number } | null> = {};
 	let bucketSyncing: Record<string, boolean> = {};  // key: "branchId:bucketName"
 	let bucketSyncStatus: Record<string, string> = {};  // key: "branchId:bucketName"
+	let localServerTest: Record<number, string> = {};  // key: branch_id, for test results
+
+	// Sync Log State
+	let showSyncLog = false;
+	let syncLogMessages: string[] = [];
+	let syncLogBranchName = '';
+
+	function addSyncLog(msg: string) {
+		const timestamp = new Date().toLocaleTimeString();
+		syncLogMessages = [...syncLogMessages, `[${timestamp}] ${msg}`];
+	}
+
+	function clearSyncLog() {
+		syncLogMessages = [];
+	}
+
+	async function testLocalServer(cfg: BranchSyncConfig) {
+		localServerTest = { ...localServerTest, [cfg.branch_id]: 'Testing...' };
+		const baseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
+		const localKey = cfg.local_supabase_key;
+
+		try {
+			const xhr = new XMLHttpRequest();
+			xhr.open('GET', `${baseUrl}/storage/v1/bucket`, true);
+			xhr.setRequestHeader('apikey', localKey);
+			xhr.setRequestHeader('Authorization', `Bearer ${localKey}`);
+			xhr.timeout = 5000;
+			const result = await new Promise((resolve, reject) => {
+				xhr.onload = () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						resolve(true);
+					} else {
+						reject(new Error(`HTTP ${xhr.status}`));
+					}
+				};
+				xhr.onerror = () => reject(new Error('Network error'));
+				xhr.ontimeout = () => reject(new Error('Timeout'));
+				xhr.send();
+			});
+			localServerTest = { ...localServerTest, [cfg.branch_id]: '✅ Local server connected!' };
+			setTimeout(() => { localServerTest = { ...localServerTest, [cfg.branch_id]: '' }; }, 4000);
+		} catch (e: any) {
+			localServerTest = { ...localServerTest, [cfg.branch_id]: `❌ ${e.message}` };
+			setTimeout(() => { localServerTest = { ...localServerTest, [cfg.branch_id]: '' }; }, 4000);
+		}
+	}
 
 	async function checkStorageSync(cfg: BranchSyncConfig) {
 		storageSyncChecking = { ...storageSyncChecking, [cfg.branch_id]: true };
@@ -275,53 +321,32 @@
 				totalSize: Number(b.total_size) || 0
 			}));
 
-			// Get branch bucket stats via XHR (skip direct local if page is HTTPS and URL is HTTP — mixed content)
+			// Get branch bucket stats via XHR (DIRECT LOCAL ONLY - NO TUNNEL FALLBACK)
 			let branchBuckets: any[] = [];
 			const baseUrl = cfg.local_supabase_url.replace(/\/+$/, '');
 			const localKey = cfg.local_supabase_key;
-			const isMixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && baseUrl.startsWith('http:');
 
-			try {
-				if (isMixedContent) throw new Error('Mixed content — skip to tunnel');
-				const xhr = new XMLHttpRequest();
-				xhr.open('POST', `${baseUrl}/rest/v1/rpc/get_storage_stats`, true);
-				xhr.setRequestHeader('Content-Type', 'application/json');
-				xhr.setRequestHeader('apikey', localKey);
-				xhr.setRequestHeader('Authorization', `Bearer ${localKey}`);
-				xhr.timeout = 15000;
-				const result: any = await new Promise((resolve, reject) => {
-					xhr.onload = () => {
-						if (xhr.status >= 200 && xhr.status < 300) {
-							try { resolve(JSON.parse(xhr.responseText)); } catch { resolve([]); }
-						} else { reject(new Error(`HTTP ${xhr.status}`)); }
-					};
-					xhr.onerror = () => reject(new Error('Network error'));
-					xhr.ontimeout = () => reject(new Error('Timeout'));
-					xhr.send('{}');
-				});
-				branchBuckets = (result || []).map((b: any) => ({
-					name: b.bucket_id || b.bucket_name,
-					fileCount: Number(b.file_count) || 0,
-					totalSize: Number(b.total_size) || 0
-				}));
-			} catch (localErr) {
-				// Try tunnel
-				if (cfg.tunnel_url) {
-					const res = await fetch('/api/branch-proxy', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ method: 'POST', baseUrl: cfg.tunnel_url.replace(/\/+$/, ''), path: '/rest/v1/rpc/get_storage_stats', apiKey: localKey, payload: {} })
-					});
-					const r = await res.json();
-					if (r.success) {
-						branchBuckets = (r.data || []).map((b: any) => ({
-							name: b.bucket_id || b.bucket_name,
-							fileCount: Number(b.file_count) || 0,
-							totalSize: Number(b.total_size) || 0
-						}));
-					}
-				}
-			}
+			const xhr = new XMLHttpRequest();
+			xhr.open('POST', `${baseUrl}/rest/v1/rpc/get_storage_stats`, true);
+			xhr.setRequestHeader('Content-Type', 'application/json');
+			xhr.setRequestHeader('apikey', localKey);
+			xhr.setRequestHeader('Authorization', `Bearer ${localKey}`);
+			xhr.timeout = 15000;
+			const result: any = await new Promise((resolve, reject) => {
+				xhr.onload = () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						try { resolve(JSON.parse(xhr.responseText)); } catch { resolve([]); }
+					} else { reject(new Error(`HTTP ${xhr.status}`)); }
+				};
+				xhr.onerror = () => reject(new Error('Network error'));
+				xhr.ontimeout = () => reject(new Error('Timeout'));
+				xhr.send('{}');
+			});
+			branchBuckets = (result || []).map((b: any) => ({
+				name: b.bucket_id || b.bucket_name,
+				fileCount: Number(b.file_count) || 0,
+				totalSize: Number(b.total_size) || 0
+			}))
 
 			const cloudTotal = cloudBuckets.reduce((s: number, b: any) => s + b.totalSize, 0);
 			const branchTotal = branchBuckets.reduce((s: number, b: any) => s + b.totalSize, 0);
@@ -350,9 +375,16 @@
 
 		bucketSyncing = { ...bucketSyncing, [bKey]: true };
 		bucketSyncStatus = { ...bucketSyncStatus, [bKey]: 'Connecting...' };
+		
+		// Show sync log modal
+		showSyncLog = true;
+		syncLogBranchName = cfg.branch_name || `Branch ${cfg.branch_id}`;
+		clearSyncLog();
+		addSyncLog(`Starting sync for bucket: ${targetBucketName}`);
 
 		let branchUrl = cfg.local_supabase_url.replace(/\/+$/, '');
 		const branchKey = cfg.local_supabase_key;
+		addSyncLog(`Connecting to: ${branchUrl}`);
 
 		// XHR helpers for branch storage API
 		function branchStorageXhr(method: string, path: string, body?: Blob | string, contentType?: string): Promise<any> {
@@ -362,7 +394,7 @@
 				xhr.setRequestHeader('apikey', branchKey);
 				xhr.setRequestHeader('Authorization', `Bearer ${branchKey}`);
 				if (contentType) xhr.setRequestHeader('Content-Type', contentType);
-				xhr.timeout = 120000;
+				xhr.timeout = 300000;
 				xhr.onload = () => {
 					if (xhr.status >= 200 && xhr.status < 300) {
 						try { resolve(xhr.responseText ? JSON.parse(xhr.responseText) : null); }
@@ -375,19 +407,16 @@
 			});
 		}
 
-		// Test branch connectivity (skip direct local if mixed content)
-		const isMixedContentSync = typeof window !== 'undefined' && window.location.protocol === 'https:' && branchUrl.startsWith('http:');
+		// Test branch connectivity (DIRECT LOCAL ONLY - NO TUNNEL FALLBACK)
 		try {
-			if (isMixedContentSync) throw new Error('Mixed content — skip to tunnel');
+			addSyncLog('Testing connectivity to branch server...');
 			await branchStorageXhr('GET', '/storage/v1/bucket');
-		} catch {
-			if (cfg.tunnel_url) {
-				branchUrl = cfg.tunnel_url.replace(/\/+$/, '');
-			} else {
-				bucketSyncStatus = { ...bucketSyncStatus, [bKey]: '\u274C Cannot connect' };
-				bucketSyncing = { ...bucketSyncing, [bKey]: false };
-				return;
-			}
+			addSyncLog('✅ Branch server is online');
+		} catch (connErr: any) {
+			addSyncLog(`❌ Connection failed: ${connErr.message}`);
+			bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `❌ Cannot connect: ${connErr.message}` };
+			bucketSyncing = { ...bucketSyncing, [bKey]: false };
+			return;
 		}
 
 		try {
@@ -396,12 +425,15 @@
 			const existingBranch = new Set((branchBucketsRes || []).map((b: any) => b.id || b.name));
 
 			if (!existingBranch.has(targetBucketName)) {
+				addSyncLog(`📦 Creating bucket: ${targetBucketName}`);
 				bucketSyncStatus = { ...bucketSyncStatus, [bKey]: 'Creating bucket...' };
 				const bucketPayload: any = { id: targetBucketName, name: targetBucketName, public: true };
 				try {
 					await branchStorageXhr('POST', '/storage/v1/bucket', JSON.stringify(bucketPayload), 'application/json');
+					addSyncLog(`✅ Bucket created`);
 				} catch (e: any) {
 					if (!e.message?.includes('already exists')) {
+						addSyncLog(`❌ Bucket creation failed: ${e.message}`);
 						bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u274C Bucket create failed: ${e.message}` };
 						bucketSyncing = { ...bucketSyncing, [bKey]: false };
 						return;
@@ -411,10 +443,13 @@
 				const verifyRes = await branchStorageXhr('GET', '/storage/v1/bucket');
 				const verified = (verifyRes || []).some((b: any) => (b.id || b.name) === targetBucketName);
 				if (!verified) {
+					addSyncLog(`❌ Bucket creation could not be verified`);
 					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u274C Bucket creation not confirmed` };
 					bucketSyncing = { ...bucketSyncing, [bKey]: false };
 					return;
 				}
+			} else {
+				addSyncLog(`✅ Bucket exists on branch`);
 			}
 
 			let totalSynced = 0;
@@ -424,6 +459,7 @@
 			{
 				const bucketId = targetBucketName;
 				bucketSyncStatus = { ...bucketSyncStatus, [bKey]: 'Listing files...' };
+				addSyncLog(`📋 Listing files in cloud bucket...`);
 
 				// List all files in cloud bucket
 				let cloudFiles: { name: string; id?: string }[] = [];
@@ -436,14 +472,17 @@
 					if (files.length < 1000) break;
 					offset += 1000;
 				}
+				addSyncLog(`📄 Found ${cloudFiles.length} files in cloud bucket`);
 
 				if (cloudFiles.length === 0) {
+					addSyncLog(`✅ Bucket is empty - nothing to sync`);
 					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: '\u2705 Empty bucket' };
 					bucketSyncing = { ...bucketSyncing, [bKey]: false };
 					return;
 				}
 
 				// List files on branch in this bucket
+				addSyncLog(`📋 Listing files on branch server...`);
 				let branchFileNames = new Set<string>();
 				try {
 					let bOffset = 0;
@@ -457,26 +496,32 @@
 						bOffset += 1000;
 					}
 				} catch { /* empty bucket on branch */ }
+				addSyncLog(`📄 Branch has ${branchFileNames.size} files`);
 
 				// Find missing files
 				const missing = cloudFiles.filter(f => !branchFileNames.has(f.name));
 				if (missing.length === 0) {
+					addSyncLog(`✅ All files in sync - no upload needed`);
 					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u2705 All ${cloudFiles.length} files in sync` };
 					bucketSyncing = { ...bucketSyncing, [bKey]: false };
 					await checkStorageSync(cfg);
 					return;
 				}
+				addSyncLog(`⚠️ Missing ${missing.length} files on branch - starting upload`);
 
 				for (let fi = 0; fi < missing.length; fi++) {
 					const file = missing[fi];
+					addSyncLog(`⬆️ [${fi + 1}/${missing.length}] Uploading: ${file.name}`);
 					bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `Syncing ${fi + 1}/${missing.length}...` };
 
 					try {
 						const { data: blob, error: dlErr } = await supabase.storage.from(bucketId).download(file.name);
 						if (dlErr || !blob) throw new Error(dlErr?.message || 'Download failed');
 						await branchStorageXhr('POST', `/storage/v1/object/${bucketId}/${file.name}`, blob, blob.type || 'application/octet-stream');
+						addSyncLog(`✅ ${file.name} uploaded successfully`);
 						totalSynced++;
 					} catch (e: any) {
+						addSyncLog(`❌ Failed to sync ${file.name}: ${e.message}`);
 						console.warn(`Storage sync ${bucketId}/${file.name}: ${e.message}`);
 						totalErrors++;
 					}
@@ -488,11 +533,15 @@
 			const statusMsg = totalErrors > 0
 				? `\u26A0\uFE0F ${totalSynced} synced, ${totalSkipped} existed, ${totalErrors} errors`
 				: `\u2705 ${totalSynced} synced, ${totalSkipped} already existed`;
+			addSyncLog(`🎉 Sync complete: ${statusMsg}`);
 			bucketSyncStatus = { ...bucketSyncStatus, [bKey]: statusMsg };
 
 			// Refresh comparison
+			addSyncLog(`🔄 Refreshing file comparison...`);
 			await checkStorageSync(cfg);
+			addSyncLog(`✅ All done!`);
 		} catch (e: any) {
+			addSyncLog(`❌ Sync failed: ${e.message}`);
 			bucketSyncStatus = { ...bucketSyncStatus, [bKey]: `\u274C ${e.message}` };
 		}
 
@@ -836,11 +885,30 @@
 			await supabase.rpc('update_branch_sync_status', {
 				p_branch_id: cfg.branch_id,
 				p_status: 'in_progress',
-				p_details: { started_at: new Date().toISOString(), method: 'pg_dump' }
+				p_details: { started_at: new Date().toISOString(), method: 'local_sync_service' }
 			});
 
-			// Call local SSH-based pg_dump sync API (SSE stream for real-time progress)
-			const response = await fetch('/api/branch-pg-sync', {
+			// ═══ Try LOCAL SYNC SERVICE first (PC-based sync) ═══
+			let syncEndpoint = '/api/branch-pg-sync'; // fallback to cloud
+			let syncMethod = 'cloud';
+			
+			try {
+				const healthCheck = await fetch('http://localhost:3333/health', { 
+					method: 'GET',
+					signal: AbortSignal.timeout(3000)
+				});
+				if (healthCheck.ok) {
+					syncEndpoint = 'http://localhost:3333/api/sync-branch';
+					syncMethod = 'local_pc';
+					syncOverallStatus = '🖥️ Using local PC sync service...';
+				}
+			} catch (healthErr) {
+				// Local service not available, fall back to cloud
+				syncOverallStatus = '☁️ Using cloud sync (local service unavailable)';
+			}
+
+			// Call sync API (either local PC service or cloud fallback)
+			const response = await fetch(syncEndpoint, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ branchIP, branchSSHUser: cfg.ssh_user || 'u' })
@@ -888,7 +956,7 @@
 				p_status: success ? 'success' : 'failed',
 				p_details: {
 					completed_at: new Date().toISOString(),
-					method: 'pg_dump',
+					method: syncMethod,
 					success
 				}
 			});
@@ -2102,6 +2170,9 @@
 											<div class="flex items-center justify-between">
 												<div class="flex items-center gap-4 text-xs">
 													<span class="font-bold text-amber-600">{"\u{1F4C1}"} Storage:</span>
+													{#if localServerTest[cfg.branch_id]}
+														<span class="text-xs {localServerTest[cfg.branch_id]?.includes('✅') ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold'}">{localServerTest[cfg.branch_id]}</span>
+													{/if}
 													{#if storageSyncChecking[cfg.branch_id]}
 														<span class="text-slate-400 animate-pulse">Comparing buckets...</span>
 													{:else if storageSyncStatus[cfg.branch_id]}
@@ -2120,6 +2191,12 @@
 													{/if}
 												</div>
 												<div class="flex items-center gap-2">
+													<button
+														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition"
+														on:click={() => testLocalServer(cfg)}
+													>
+														{"\u{1F4E1}"} Test Server
+													</button>
 													<button
 														class="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition disabled:opacity-50"
 														on:click={() => checkStorageSync(cfg)}
@@ -2483,6 +2560,34 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Sync Log Modal -->
+{#if showSyncLog}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
+		<div class="bg-slate-900 rounded-lg shadow-2xl scale-in w-full max-w-2xl max-h-96 flex flex-col">
+			<!-- Header -->
+			<div class="flex items-center justify-between p-4 border-b border-slate-700">
+				<h3 class="text-lg font-bold text-white flex items-center gap-2">
+					<span>🔄 Sync Log</span>
+					<span class="text-sm text-slate-400">({syncLogBranchName})</span>
+				</h3>
+				<button class="text-slate-400 hover:text-white transition" on:click={() => { showSyncLog = false; }}>✕</button>
+			</div>
+			<div class="flex-1 overflow-auto p-4 font-mono text-xs text-slate-300 bg-slate-950 whitespace-pre-wrap break-words">
+				{#each syncLogMessages as msg (msg)}
+					<div class="mb-1">{msg}</div>
+				{/each}
+				{#if syncLogMessages.length === 0}
+					<div class="text-slate-500">Waiting for sync to start...</div>
+				{/if}
+			</div>
+			<div class="p-3 border-t border-slate-700 flex justify-end gap-2">
+				<button class="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-700 text-white hover:bg-slate-600 transition" on:click={() => { clearSyncLog(); }}>🗑️ Clear</button>
+				<button class="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition" on:click={() => { showSyncLog = false; }}>Close</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	:global(.font-sans) {

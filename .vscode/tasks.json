@@ -282,6 +282,23 @@
 			"isBackground": true,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "🔄 Local Sync Service",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/local-sync-service.js"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			}
 		}
 	]
 }
