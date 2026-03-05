@@ -131,11 +131,15 @@ Flyer Master/
 *.rar
 frontend/aqura-frontend-build.*
 
-# Deployment pipeline temp files (deploy-to-branch.ps1)
+# Deployment pipeline temp files
 aqura_dump.sql.gz
 aqura_build.tar.gz
 reset_sequences.sql
 aqura-frontend-build.zip
+
+# Deployment pipeline scripts & guides (local use only)
+scripts/deploy-to-branch.ps1
+Do not delete/BRANCH_DEPLOYMENT_GUIDE.md
 
 # One-off utility scripts with key references
 fix_key.py
