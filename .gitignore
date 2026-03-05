@@ -45,6 +45,17 @@ VAPID_PRIVATE_KEY.txt
 *.private.key
 *.secret
 
+# SSH keys and personal credentials
+.ssh/
+*.pem
+id_rsa*
+id_ed25519*
+
+# Service configuration files with secrets
+scripts/**/.env*
+scripts/**/*.env
+**/service-key.json
+
 # Build outputs
 .next/
 out/
@@ -57,6 +68,9 @@ dist/
 # Electron app - keep local only (large size, not needed for Vercel)
 erp-sync-app/
 scripts/local-branch-sync/
+
+# Storage Sync Service (contains service keys in .env.local)
+scripts/storage-sync-service/
 
 # SvelteKit
 .svelte-kit/
