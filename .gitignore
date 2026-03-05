@@ -27,6 +27,9 @@ frontend/build/
 temp_*
 test_branch_*
 
+# Manual sync guide (contains server IPs, credentials, SSH setup)
+scripts/MANUAL_SYNC_GUIDE.md
+
 # API Keys and Secrets
 *.key
 **/OPENAI_API_KEY*
@@ -53,6 +56,7 @@ dist/
 
 # Electron app - keep local only (large size, not needed for Vercel)
 erp-sync-app/
+scripts/local-branch-sync/
 
 # SvelteKit
 .svelte-kit/
@@ -126,6 +130,12 @@ Flyer Master/
 *.tar.gz
 *.rar
 frontend/aqura-frontend-build.*
+
+# Deployment pipeline temp files (deploy-to-branch.ps1)
+aqura_dump.sql.gz
+aqura_build.tar.gz
+reset_sequences.sql
+aqura-frontend-build.zip
 
 # One-off utility scripts with key references
 fix_key.py

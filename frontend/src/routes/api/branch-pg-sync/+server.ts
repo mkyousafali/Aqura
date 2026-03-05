@@ -8,7 +8,8 @@ import { writeFileSync, unlinkSync, existsSync, statSync } from 'node:fs';
 const execAsync = promisify(exec);
 
 const CLOUD_SSH = 'root@8.213.42.21';
-const SSH_KEY = join(homedir(), '.ssh', 'id_ed25519_nopass');
+// Use forward slashes for cross-platform compatibility (even on Windows)
+const SSH_KEY = join(homedir(), '.ssh', 'id_ed25519_nopass').replace(/\\/g, '/');
 const SSH_OPTS = `-i "${SSH_KEY}" -o StrictHostKeyChecking=no -o ConnectTimeout=15`;
 
 // Tables to exclude DATA for (schema is still synced)
@@ -93,7 +94,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				// ═══ Step 3: Upload dump to branch ═══
 				send({ step: 3, total: 6, message: '⬆️ Uploading to branch...' });
-				await scp(`"${localDump}"`, `${branchSSH}:${branchDump}`);
+				const dumpSize = statSync(localDump).size;
+				const dumpSizeStr = formatBytes(dumpSize);
+				send({ step: 3, total: 6, message: `⬆️ Uploading ${dumpSizeStr} to branch (this may take a few minutes)...` });
+				// Allow up to 1 hour for large dumps to transfer over network
+				await scp(`"${localDump}"`, `${branchSSH}:${branchDump}`, 3600000);
 				send({ step: 3, total: 6, message: '✅ Uploaded to branch' });
 
 				// ═══ Step 4: Restore database on branch ═══
@@ -186,17 +191,21 @@ NOTIFY pgrst, 'reload schema';
 
 /** Run a command on a remote host via SSH */
 async function sshExec(host: string, cmd: string, timeout = 300000): Promise<string> {
-	const escapedCmd = cmd.replace(/"/g, '\\"');
-	const { stdout } = await execAsync(
-		`ssh ${SSH_OPTS} ${host} "${escapedCmd}"`,
-		{ maxBuffer: 100 * 1024 * 1024, timeout }
-	);
+	const escapedCmd = cmd.replace(/"/g, '\\"').replace(/`/g, '\\`');
+	const command = `ssh ${SSH_OPTS} ${host} "${escapedCmd}"`;
+	console.log('Executing SSH command on', host, '(command hidden for security)');
+	const { stdout } = await execAsync(command, { maxBuffer: 100 * 1024 * 1024, timeout });
 	return stdout;
 }
 
 /** SCP a file between local and remote */
 async function scp(from: string, to: string, timeout = 600000): Promise<void> {
-	await execAsync(`scp ${SSH_OPTS} ${from} ${to}`, { timeout });
+	// Normalize Windows paths to forward slashes for cross-platform compatibility
+	const fromNormalized = from.replace(/\\/g, '/');
+	const toNormalized = to.replace(/\\/g, '/');
+	const cmd = `scp ${SSH_OPTS} "${fromNormalized}" "${toNormalized}"`;
+	console.log('Executing SCP command (sanitized):', cmd.replace(SSH_KEY, '***'));
+	await execAsync(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 });
 }
 
 /** Silently delete a local temp file */
