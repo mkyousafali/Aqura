@@ -1,16 +1,7 @@
 -- =============================================================
--- RPC: get_wa_conversations_fast
--- Returns active conversations with 24hr window pre-calculated
--- Much faster than SELECT * from frontend (single indexed query)
+-- UPDATE: get_wa_conversations_fast
+-- Prioritize conversations with needs_human = TRUE at the top
 -- =============================================================
-
--- Compound index for the exact query pattern
-CREATE INDEX IF NOT EXISTS idx_wa_conv_account_status_lastmsg
-ON wa_conversations (wa_account_id, status, last_message_at DESC);
-
--- Compound index for messages by conversation + created_at
-CREATE INDEX IF NOT EXISTS idx_wa_messages_conv_created
-ON wa_messages (conversation_id, created_at DESC);
 
 CREATE OR REPLACE FUNCTION get_wa_conversations_fast(
     p_account_id UUID,
@@ -32,7 +23,6 @@ RETURNS TABLE (
     needs_human BOOLEAN,
     status VARCHAR,
     is_inside_24hr BOOLEAN,
-    is_sos BOOLEAN,
     total_count BIGINT
 ) LANGUAGE plpgsql STABLE AS $$
 BEGIN
@@ -56,7 +46,6 @@ BEGIN
             THEN TRUE
             ELSE FALSE
         END AS is_inside_24hr,
-        c.is_sos,
         -- Total count for pagination (using window function)
         COUNT(*) OVER() AS total_count
     FROM wa_conversations c
@@ -77,7 +66,10 @@ BEGIN
           OR (p_filter = 'bot' AND c.is_bot_handling = TRUE AND c.bot_type = 'auto_reply')
           OR (p_filter = 'human' AND c.is_bot_handling = FALSE)
       )
-    ORDER BY c.last_message_at DESC NULLS LAST
+    -- PRIORITY: needs_human conversations ALWAYS on top
+    ORDER BY 
+        CASE WHEN c.needs_human = TRUE THEN 0 ELSE 1 END ASC,
+        c.last_message_at DESC NULLS LAST
     LIMIT p_limit
     OFFSET p_offset;
 END;

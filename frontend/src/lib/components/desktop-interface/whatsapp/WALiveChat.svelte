@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import { getEdgeFunctionUrl } from '$lib/utils/supabase';
@@ -20,6 +20,7 @@
         needs_human: boolean;
         status: string;
         is_inside_24hr: boolean;
+        is_sos: boolean;
     }
 
     interface Message {
@@ -236,7 +237,12 @@
             } else {
                 conversations = rows;
             }
-            filteredConversations = conversations;
+            // Sort with SOS active conversations at the top
+            filteredConversations = [...conversations].sort((a, b) => {
+                if (a.is_sos && !b.is_sos) return -1;
+                if (!a.is_sos && b.is_sos) return 1;
+                return 0;
+            });
 
             // Auto-select conversation by initialPhone
             if (initialPhone && !selectedConv) {
@@ -548,11 +554,11 @@
     async function toggleAI(conv: Conversation) {
         const turnOn = !conv.is_bot_handling;
         const update: any = turnOn
-            ? { is_bot_handling: true, bot_type: 'ai', handled_by: 'bot', needs_human: false }
+            ? { is_bot_handling: true, bot_type: 'ai', handled_by: 'bot', needs_human: false, is_sos: false }
             : { is_bot_handling: false };
         await supabase.from('wa_conversations').update(update).eq('id', conv.id);
         conv.is_bot_handling = turnOn;
-        if (turnOn) { conv.bot_type = 'ai'; (conv as any).handled_by = 'bot'; conv.needs_human = false; }
+        if (turnOn) { conv.bot_type = 'ai'; (conv as any).handled_by = 'bot'; conv.needs_human = false; conv.is_sos = false; }
         conversations = [...conversations];
         if (selectedConv?.id === conv.id) selectedConv = { ...conv };
     }
@@ -568,6 +574,24 @@
         conv.is_bot_handling = true;
         conv.bot_type = 'ai';
         (conv as any).handled_by = 'bot';
+        conversations = [...conversations];
+        if (selectedConv?.id === conv.id) selectedConv = { ...conv };
+    }
+
+    async function toggleSOS(conv: Conversation) {
+        const toggleOn = !conv.is_sos;
+        const update: any = toggleOn
+            ? { is_sos: true, is_bot_handling: false }
+            : { is_sos: false, is_bot_handling: true, bot_type: 'ai', handled_by: 'bot' };
+        await supabase.from('wa_conversations').update(update).eq('id', conv.id);
+        conv.is_sos = toggleOn;
+        if (toggleOn) {
+            conv.is_bot_handling = false;
+        } else {
+            conv.is_bot_handling = true;
+            conv.bot_type = 'ai';
+            (conv as any).handled_by = 'bot';
+        }
         conversations = [...conversations];
         if (selectedConv?.id === conv.id) selectedConv = { ...conv };
     }
@@ -996,6 +1020,10 @@
                                     {#if conv.needs_human}
                                         <span role="button" tabindex="0" class="conv-badge badge-needshelp" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)} title={$locale === 'ar' ? 'اضغط لتأكيد الحل وإعادة الذكاء' : 'Click to resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'يحتاج مساعدة' : 'Needs Help'}</span>
                                     {/if}
+                                    <!-- Badge 4: SOS Mode (clickable = toggle SOS) -->
+                                    {#if conv.is_sos}
+                                        <span role="button" tabindex="0" class="conv-badge badge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)} title={$locale === 'ar' ? 'اضغط لإلغاء وضع SOS' : 'Click to remove SOS mode'}>SOS</span>
+                                    {/if}
                                     {#if conv.unread_count > 0}
                                         <span class="unread-badge">{conv.unread_count}</span>
                                     {/if}
@@ -1055,6 +1083,12 @@
                     <!-- Badge 3: Needs human help (clickable = resolve) -->
                     {#if selectedConv.needs_human}
                         <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer animate-pulse" on:click={() => resolveHelp(selectedConv)} title={$locale === 'ar' ? 'اضغط للحل وإعادة الذكاء' : 'Click to resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'يحتاج مساعدة' : 'Needs Help'}</button>
+                    {/if}
+                    <!-- Badge 4: SOS Toggle -->
+                    {#if selectedConv.is_sos}
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer animate-pulse" on:click={() => toggleSOS(selectedConv)} title={$locale === 'ar' ? 'اضغط لإزالة وضع SOS وتشغيل الذكاء' : 'Click to remove SOS & enable AI'}>� {$locale === 'ar' ? 'وضع SOS' : 'SOS Mode'}</button>
+                    {:else}
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-red-100 hover:text-red-700 hover:border-red-300 transition-colors cursor-pointer" on:click={() => toggleSOS(selectedConv)} title={$locale === 'ar' ? 'اضغط لتفعيل وضع SOS' : 'Click to enable SOS mode'}>🛑 {$locale === 'ar' ? 'تفعيل SOS' : 'Enable SOS'}</button>
                     {/if}
                     <button class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
                         on:click={() => showIncidentPopup = true}
@@ -1499,6 +1533,10 @@
     .badge-aioff:hover { background: #ede9fe; color: #6d28d9; border-color: #c4b5fd; }
     .badge-needshelp { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; cursor: pointer; animation: pulse 2s infinite; }
     .badge-needshelp:hover { background: #dcfce7; color: #15803d; border-color: #86efac; }
+    .badge-sos       { background: #22c55e; color: #ffffff; border: 2px solid #ffffff; cursor: pointer; border-radius: 20px; padding: 4px 10px; font-weight: bold; font-size: 9px; }
+    .badge-sos:hover { background: #16a34a; color: #ffffff; border: 2px solid #ffffff; }
+    .badge-sos-active { background: #ef4444; color: #ffffff; border: 2px solid #ffffff; cursor: pointer; border-radius: 20px; padding: 4px 10px; font-weight: bold; font-size: 9px; animation: pulse 2s infinite; }
+    .badge-sos-active:hover { background: #dc2626; color: #ffffff; border: 2px solid #ffffff; }
 
     /* --- Chat Messages Area (Glass BG) --- */
     .chat-messages-area {
