@@ -1,16 +1,5 @@
--- =============================================================
--- RPC: get_wa_conversations_fast
--- Returns active conversations with 24hr window pre-calculated
--- Much faster than SELECT * from frontend (single indexed query)
--- =============================================================
-
--- Compound index for the exact query pattern
-CREATE INDEX IF NOT EXISTS idx_wa_conv_account_status_lastmsg
-ON wa_conversations (wa_account_id, status, last_message_at DESC);
-
--- Compound index for messages by conversation + created_at
-CREATE INDEX IF NOT EXISTS idx_wa_messages_conv_created
-ON wa_messages (conversation_id, created_at DESC);
+-- Drop and recreate RPC function to add is_sos field
+DROP FUNCTION IF EXISTS get_wa_conversations_fast(UUID, INT, INT, TEXT, TEXT);
 
 CREATE OR REPLACE FUNCTION get_wa_conversations_fast(
     p_account_id UUID,
@@ -84,4 +73,4 @@ END;
 $$;
 
 -- Grant access
-GRANT EXECUTE ON FUNCTION get_wa_conversations_fast TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION get_wa_conversations_fast(UUID, INT, INT, TEXT, TEXT) TO anon, authenticated, service_role;

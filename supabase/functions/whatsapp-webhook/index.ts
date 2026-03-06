@@ -1138,26 +1138,33 @@ async function tryAIReply(
     ];
     const isInformational = informationalSuppressors.some(s => lowerText.includes(s));
 
+    // Phrases that ask for context FIRST before escalating
+    const contextGatheringPhrases = [
+      // Arabic — help requests that need context gathering
+      "أحتاج مساعدة", "أحتاج للمساعدة", "احتاج مساعدة",
+      "أحتاج ألي مساعدة", "احتاج الي مساعدة",
+      "انا بحاجة الى مساعدة", "ابي مساعدة", "اريد مساعدة",
+      // English — help requests that need context gathering
+      "i need help", "i want help", "i need support", "i want support",
+      "i need assistance", "someone help me"
+    ];
+
     // Multi-word / phrase-level escalation triggers (high precision)
     const escalationPhrases = [
       // English — direct requests
-      "i need help", "i want help", "i need support", "i want support",
       "i need human", "i want human", "i need a human", "i want a human",
       "connect me to", "live agent", "customer service",
       "technical support", "real person", "talk to someone",
       "speak to representative", "speak to an agent", "speak to a person",
       "let me talk to staff", "let me speak to", "escalate this",
       "transfer me", "this is urgent", "this is serious",
-      "i need assistance", "i need immediate help", "someone help me",
-      "can i talk to someone", "i want to complain", "complaint department",
+      "i need immediate help", "can i talk to someone", "i want to complain", "complaint department",
       "not satisfied", "i'm not satisfied", "im not satisfied",
       "bot is not helping", "stop bot", "enough bot",
       "i don't want ai", "i dont want ai", "no more bot",
       "i want manager", "i want a manager", "supervisor please",
       "speak to manager", "get me manager",
       // Arabic — direct requests
-      "أحتاج مساعدة", "أحتاج للمساعدة", "احتاج مساعدة",
-      "انا بحاجة الى مساعدة", "ابي مساعدة", "اريد مساعدة",
       "اريد خدمة", "ابي خدمة", "خدمة العملاء",
       "الدعم الفني", "اريد التحدث مع موظف", "اريد التحدث مع شخص",
       "اريد شخص حقيقي", "اريد انسان", "ابغى موظف", "ابغى مساعدة",
@@ -1206,19 +1213,27 @@ async function tryAIReply(
       "ما يشتغل", "ما يفيد", "ما ينفع", "سيء", "كارثي", "احتيال", "نصب"
     ];
 
-    // Check all conditions
+    const contextGatheringMatch = !isInformational && contextGatheringPhrases.some(p => lowerText.includes(p));
+    
+    // Simple help request detection: "help/support/assist" + "need/want/احتاج/ابي/اريد"
+    const isSimpleHelpRequest = !isInformational && 
+      (lowerText.includes("help") || lowerText.includes("support") || lowerText.includes("assist") || lowerText.includes("مساعدة")) &&
+      (lowerText.includes("need") || lowerText.includes("want") || lowerText.includes("احتاج") || lowerText.includes("أحتاج") || lowerText.includes("ابي") || lowerText.includes("اريد") || lowerText.includes("بحاجة"));
+    
     const phraseMatch = !isInformational && escalationPhrases.some(p => lowerText.includes(p));
     const shortPhraseMatch = !isInformational && shortPhrases.some(p => lowerText.includes(p));
     const exactMatch = exactWordEscalations.some(w => lowerText === w || new RegExp(`(^|\\s)${w}(\\s|$|!|\\?)`).test(lowerText));
     const frustrationEscalation = !isInformational && (hasAggressiveCaps || hasRepeatedPunct || hasRepeatedWords) &&
       frustrationPhrases.some(p => lowerText.includes(p));
 
-    const isEscalationRequest = phraseMatch || shortPhraseMatch || exactMatch || frustrationEscalation;
+    // Context gathering takes priority (ask for topic first)
+    const isContextGatheringRequest = contextGatheringMatch || isSimpleHelpRequest || (exactMatch && (lowerText === "خدمة" || lowerText === "خدمه"));
+    const isEscalationRequest = isContextGatheringRequest || phraseMatch || shortPhraseMatch || frustrationEscalation;
 
     if (isEscalationRequest) {
-      console.log(`[AI_BOT] Escalation detected (phrase=${phraseMatch}, short=${shortPhraseMatch}, exact=${exactMatch}, frustration=${frustrationEscalation}): "${messageText}"`);
+      console.log(`[AI_BOT] Escalation detected (contextGathering=${isContextGatheringRequest}, phrase=${phraseMatch}, short=${shortPhraseMatch}, exact=${exactMatch}, frustration=${frustrationEscalation}): "${messageText}"`);
 
-      // Stop bot and flag conversation as needing human attention
+      // Stop bot and flag conversation as needing human attention for ALL escalations
       await supabase
         .from("wa_conversations")
         .update({ handled_by: "human", is_bot_handling: false, needs_human: true })
@@ -1226,9 +1241,27 @@ async function tryAIReply(
 
       // Language-aware escalation reply
       const isArabicMsg = /[\u0600-\u06FF]/.test(messageText);
-      const escalationReply = isArabicMsg
-        ? "شكرًا لك. سيتم تحويلك إلى فريق الدعم الآن. 🙏 🇸🇦💚"
-        : "Thank you. I'm connecting you to our support team now. 🙏 🇸🇦💚";
+      
+      let escalationReply: string;
+      if (isContextGatheringRequest) {
+        // Ask for topic first (from training manual) before full escalation
+        if (isArabicMsg) {
+          escalationReply = `🤖 بكل سرور! لتساعدنا على فهم احتياجاتك بشكل أفضل، يرجى إخبارنا:
+- ما الموضوع الذي تحتاج مساعدة فيه؟ (مثال: سؤال عن منتج، شكوى، استفسار عن عرض، إلخ)
+
+سيتواصل معك أحد موظفينا الكرام خلال 12-24 ساعة بعد فهمنا لطلبك. شكرًا لاختيارك لنا. 🇸🇦💚`;
+        } else {
+          escalationReply = `🤖 We're happy to help! To better understand your needs, please tell us:
+- What topic do you need help with? (Example: product question, complaint, special offer inquiry, etc.)
+
+Our team will contact you within 12-24 hours after understanding your request. Thank you for choosing us! 🇸🇦💚`;
+        }
+      } else {
+        // Immediate escalation for other escalation types
+        escalationReply = isArabicMsg
+          ? "شكرًا لك. سيتم تحويلك إلى فريق الدعم الآن. 🙏 🇸🇦💚"
+          : "Thank you. I'm connecting you to our support team now. 🙏 🇸🇦💚";
+      }
 
       await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
         type: "text",

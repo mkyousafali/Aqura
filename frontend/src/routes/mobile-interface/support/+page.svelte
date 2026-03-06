@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
@@ -18,6 +18,7 @@
 		needs_human: boolean;
 		status: string;
 		is_inside_24hr: boolean;
+		is_sos: boolean;
 	}
 
 	interface Message {
@@ -227,7 +228,12 @@
 			} else {
 				conversations = rows;
 			}
-			filteredConversations = conversations;
+			// Sort with SOS active conversations at the top
+			filteredConversations = [...conversations].sort((a, b) => {
+				if (a.is_sos && !b.is_sos) return -1;
+				if (!a.is_sos && b.is_sos) return 1;
+				return 0;
+			});
 		} catch (e: any) {
 			console.error(e);
 		} finally {
@@ -526,11 +532,11 @@
 	async function toggleAI(conv: Conversation) {
 		const turnOn = !conv.is_bot_handling;
 		const update: any = turnOn
-			? { is_bot_handling: true, bot_type: 'ai', handled_by: 'bot', needs_human: false }
+			? { is_bot_handling: true, bot_type: 'ai', handled_by: 'bot', needs_human: false, is_sos: false }
 			: { is_bot_handling: false };
 		await supabase.from('wa_conversations').update(update).eq('id', conv.id);
 		conv.is_bot_handling = turnOn;
-		if (turnOn) { conv.bot_type = 'ai'; (conv as any).handled_by = 'bot'; conv.needs_human = false; }
+		if (turnOn) { conv.bot_type = 'ai'; (conv as any).handled_by = 'bot'; conv.needs_human = false; conv.is_sos = false; }
 		conversations = [...conversations];
 		if (selectedConv?.id === conv.id) selectedConv = { ...conv };
 	}
@@ -546,6 +552,24 @@
 		conv.is_bot_handling = true;
 		conv.bot_type = 'ai';
 		(conv as any).handled_by = 'bot';
+		conversations = [...conversations];
+		if (selectedConv?.id === conv.id) selectedConv = { ...conv };
+	}
+
+	async function toggleSOS(conv: Conversation) {
+		const toggleOn = !conv.is_sos;
+		const update: any = toggleOn
+			? { is_sos: true, is_bot_handling: false }
+			: { is_sos: false, is_bot_handling: true, bot_type: 'ai', handled_by: 'bot' };
+		await supabase.from('wa_conversations').update(update).eq('id', conv.id);
+		conv.is_sos = toggleOn;
+		if (toggleOn) {
+			conv.is_bot_handling = false;
+		} else {
+			conv.is_bot_handling = true;
+			conv.bot_type = 'ai';
+			(conv as any).handled_by = 'bot';
+		}
 		conversations = [...conversations];
 		if (selectedConv?.id === conv.id) selectedConv = { ...conv };
 	}
@@ -973,6 +997,10 @@
 										{#if conv.needs_human}
 											<span role="button" tabindex="0" class="wa-mbadge wa-mbadge-help" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)}>🆘</span>
 										{/if}
+										<!-- Badge 4: SOS mode -->
+										{#if conv.is_sos}
+											<span role="button" tabindex="0" class="wa-mbadge wa-mbadge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)}>SOS</span>
+										{/if}
 										{#if conv.unread_count > 0}
 											<span class="wa-unread-badge">{conv.unread_count > 99 ? '99+' : conv.unread_count}</span>
 										{/if}
@@ -1019,10 +1047,15 @@
 					{#if selectedConv?.needs_human}
 						<button class="wa-header-badge wa-hbadge-help" on:click={() => resolveHelp(selectedConv)} title={isRTL ? 'حل وإعادة الذكاء' : 'Resolve & re-enable AI'}>🆘</button>
 					{/if}
-					{#if selectedConv?.is_bot_handling}
-						<button class="wa-header-badge wa-hbadge-aion" on:click={() => toggleAI(selectedConv)} title={isRTL ? 'إيقاف الذكاء' : 'Pause AI'}>🤖🟢</button>
+					{#if selectedConv?.is_sos}
+						<button class="wa-header-badge wa-hbadge-sos-active" on:click={() => toggleSOS(selectedConv)} title={isRTL ? 'إزالة وضع SOS' : 'Remove SOS Mode'}>SOS</button>
 					{:else}
-						<button class="wa-header-badge wa-hbadge-aioff" on:click={() => toggleAI(selectedConv)} title={isRTL ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴</button>
+						<button class="wa-header-badge wa-hbadge-sos" on:click={() => toggleSOS(selectedConv)} title={isRTL ? 'تفعيل وضع SOS' : 'Enable SOS Mode'}>SOS</button>
+					{/if}
+					{#if selectedConv?.is_bot_handling}
+						<button class="wa-header-badge wa-hbadge-aion" on:click={() => toggleAI(selectedConv)} title={isRTL ? 'إيقاف الذكاء' : 'Pause AI'}>🤖</button>
+					{:else}
+						<button class="wa-header-badge wa-hbadge-aioff" on:click={() => toggleAI(selectedConv)} title={isRTL ? 'تفعيل الذكاء' : 'Enable AI'}>🤖</button>
 					{/if}
 					<button class="wa-incident-btn" on:click={() => goto(`/mobile-interface/report-incident?type=IN1&name=${encodeURIComponent(selectedConv?.customer_name || '')}&phone=${encodeURIComponent(selectedConv?.customer_phone || '')}`)} title={isRTL ? 'الإبلاغ عن حادثة' : 'Report Incident'}>
 						🚨
@@ -1634,6 +1667,10 @@
 	.wa-mbadge-aion   { background: #ede9fe; color: #6d28d9; border-color: #c4b5fd; cursor: pointer; }
 	.wa-mbadge-aioff  { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; cursor: pointer; }
 	.wa-mbadge-help   { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; cursor: pointer; animation: pulse 2s infinite; }
+	.wa-mbadge-sos    { background: #22c55e; color: #ffffff; border-color: #16a34a; cursor: pointer; border-radius: 20px; padding: 4px 10px; font-weight: bold; font-size: 9px; }
+	.wa-mbadge-sos:hover { background: #16a34a; color: #ffffff; border-color: #15803d; }
+	.wa-mbadge-sos-active { background: #ef4444; color: #ffffff; border-color: #dc2626; cursor: pointer; border-radius: 20px; padding: 4px 10px; font-weight: bold; font-size: 9px; animation: pulse 2s infinite; }
+	.wa-mbadge-sos-active:hover { background: #dc2626; color: #ffffff; border-color: #b91c1c; }
 	/* Header action badges */
 	.wa-header-badge {
 		width: 34px;
@@ -1646,9 +1683,11 @@
 		justify-content: center;
 		cursor: pointer;
 	}
-	.wa-hbadge-aion  { background: #ede9fe; }
-	.wa-hbadge-aioff { background: #f1f5f9; }
+	.wa-hbadge-aion  { background: #22c55e; color: #ffffff; font-weight: bold; font-size: 12px; }
+	.wa-hbadge-aioff { background: #ef4444; color: #ffffff; font-weight: bold; font-size: 12px; border: 2px solid #ffffff; }
 	.wa-hbadge-help  { background: #fee2e2; animation: pulse 2s infinite; }
+	.wa-hbadge-sos   { background: #22c55e; color: #ffffff; font-weight: bold; font-size: 12px; border: 2px solid #ffffff; }
+	.wa-hbadge-sos-active { background: #ef4444; color: #ffffff; font-weight: bold; font-size: 12px; animation: pulse 2s infinite; border: 2px solid #ffffff; }
 
 	/* Loading / Empty */
 	.wa-loading {
@@ -2462,3 +2501,6 @@
 		padding: 20px 0;
 	}
 </style>
+
+
+
