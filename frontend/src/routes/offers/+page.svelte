@@ -127,6 +127,11 @@
 		return filtered;
 	}
 
+	function isWhatsAppBrowser(): boolean {
+		const userAgent = navigator.userAgent.toLowerCase();
+		return /whatsapp/i.test(userAgent);
+	}
+
 	function openOfferFile(fileUrl: string, offerId: string) {
 		if (fileUrl) {
 			// Increment view button count
@@ -134,7 +139,21 @@
 			
 			state.downloadingOfferId = offerId;
 			state.downloadProgress = 0;
+
+			// Detect WhatsApp browser and handle differently
+			if (isWhatsAppBrowser()) {
+				// For WhatsApp browser, open URL directly (not blob) which works better
+				const newWindow = window.open(fileUrl, `offer_${offerId}`);
+				if (!newWindow) {
+					// If pop-up blocked, try direct navigation
+					window.location.href = fileUrl;
+				}
+				state.downloadingOfferId = null;
+				state.downloadProgress = 0;
+				return;
+			}
 			
+			// For regular browsers, use blob caching approach
 			// Check if file is already cached
 			if (state.fileCache.has(offerId)) {
 				// Open from cache instantly
