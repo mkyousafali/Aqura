@@ -4,6 +4,7 @@
     import { currentUser } from '$lib/utils/persistentAuth';
     import { notificationService } from '$lib/utils/notificationManagement';
     import { get } from 'svelte/store';
+    import LeaveRequestPrint from './LeaveRequestPrint.svelte';
     
     interface EmployeeShift {
         id: string;
@@ -203,6 +204,7 @@
     let dayOffBranchFilter = '';
     let dayOffNationalityFilter = '';
     let dayOffEmploymentStatusFilter = '';
+    let dayOffApprovalStatusFilter = '';
     let dayOffWeekdaySearchQuery = '';
     let dayOffWeekdayBranchFilter = '';
     let dayOffWeekdayNationalityFilter = '';
@@ -240,12 +242,21 @@
     let descriptionPopupText = '';
     let descriptionPopupEmployee = '';
 
+    // Leave Request Print Dialog state
+    let showLeaveRequestPrintDialog = false;
+    let selectedDayOffForPrint: any = null;
+
     function openViewDatesPopup(dayOff: any) {
         viewDatesData = dayOff;
         viewDatesSearch = '';
         viewDatesMonthFilter = '';
         viewDatesYearFilter = '';
         showViewDatesPopup = true;
+    }
+
+    function openLeaveRequestPrint(dayOff: any) {
+        selectedDayOffForPrint = dayOff;
+        showLeaveRequestPrintDialog = true;
     }
 
     // Format date from yyyy-mm-dd to dd-mm-yyyy with full day name
@@ -430,7 +441,7 @@
     $: groupedSpecialDateShifts = groupSpecialShiftDateWise(dateWiseShifts);
     $: filteredSpecialDateEmployees = getFilteredSpecialDateShifts(groupedSpecialDateShifts, specialDateBranchFilter, specialDateNationalityFilter, specialDateEmploymentStatusFilter, specialDateSearchQuery);
     $: groupedDayOffs = groupDayOffRequests(dayOffs);
-    $: filteredDayOffsEmployees = getFilteredDayOffs(groupedDayOffs, dayOffBranchFilter, dayOffNationalityFilter, dayOffEmploymentStatusFilter, dayOffSearchQuery);
+    $: filteredDayOffsEmployees = getFilteredDayOffs(groupedDayOffs, dayOffBranchFilter, dayOffNationalityFilter, dayOffEmploymentStatusFilter, dayOffSearchQuery, dayOffApprovalStatusFilter);
     $: filteredDayOffsWeekdayEmployees = getFilteredDayOffsWeekday(dayOffsWeekday, dayOffWeekdayBranchFilter, dayOffWeekdayNationalityFilter, dayOffWeekdayEmploymentStatusFilter, dayOffWeekdaySearchQuery);
 
     $: availableEmploymentStatuses = [
@@ -468,6 +479,13 @@
         return days;
     })();
 
+    // Reload data when tab changes
+    $: if (supabase && activeTab) {
+        (async () => {
+            await refreshCurrentTabData();
+        })();
+    }
+
     // Form data for modal
     let formData: RegularShiftData | SpecialShiftWeekdayData | SpecialShiftDateWiseData = {
         id: '',
@@ -504,6 +522,16 @@
             await loadEmployeeShiftData();
         } else if (activeTab === 'Special Shift (weekday-wise)') {
             await loadSpecialShiftWeekdayData();
+        } else if (activeTab === 'Special Shift (date-wise)') {
+            const dateRange = getDefaultDateRange();
+            specialDateFilterStart = dateRange.start;
+            specialDateFilterEnd = dateRange.end;
+            await loadSpecialShiftDateWiseData();
+        } else if (activeTab === 'Leave (date-wise)') {
+            const dateRange = getDefaultDateRange();
+            dayOffFilterStart = dateRange.start;
+            dayOffFilterEnd = dateRange.end;
+            await loadDayOffData();
         } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
         } else if (activeTab === 'Leave Reasons') {
@@ -2255,7 +2283,7 @@
         return grouped;
     }
 
-    function getFilteredDayOffs(itemList: any[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string) {
+    function getFilteredDayOffs(itemList: any[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string, approvalStatusFilter: string = '') {
         let filtered = [...itemList];
 
         if (branchFilter) {
@@ -2268,6 +2296,10 @@
 
         if (statusFilter) {
             filtered = filtered.filter(emp => emp.employment_status === statusFilter);
+        }
+
+        if (approvalStatusFilter) {
+            filtered = filtered.filter(emp => emp.approval_status === approvalStatusFilter);
         }
 
         if (searchQuery.trim()) {
@@ -3936,6 +3968,22 @@
                             </select>
                         </div>
 
+                        <!-- Approval Status Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-approval-filter">{$t('hr.shift.approval_status') || 'Approval Status'}</label>
+                            <select 
+                                id="do-d-approval-filter"
+                                bind:value={dayOffApprovalStatusFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                                <option value="approved" style="color: #000000 !important; background-color: #ffffff !important;">✅ {$locale === 'ar' ? 'موافق' : 'Approved'}</option>
+                                <option value="rejected" style="color: #000000 !important; background-color: #ffffff !important;">❌ {$locale === 'ar' ? 'مرفوض' : 'Rejected'}</option>
+                                <option value="pending" style="color: #000000 !important; background-color: #ffffff !important;">⏳ {$locale === 'ar' ? 'معلق' : 'Pending'}</option>
+                            </select>
+                        </div>
+
                         <!-- Employee Search -->
                         <div class="flex-1">
                             <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-employee-search">{$t('hr.shift.search_employee')}</label>
@@ -4020,6 +4068,7 @@
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">❌ {$locale === 'ar' ? 'مرفوض' : 'Rejected'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">⏳ {$locale === 'ar' ? 'معلق' : 'Pending'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400"> {$t('hr.shift.deduction') || 'Deduction'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">🖨️ {$locale === 'ar' ? 'طباعة' : 'Print'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
@@ -4164,6 +4213,16 @@
                                                             {/if}
                                                         </button>
                                                     {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <!-- Print Button -->
+                                                    <button 
+                                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500 text-white font-bold hover:bg-amber-600 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+                                                        on:click={() => openLeaveRequestPrint(dayOff)}
+                                                        title={$locale === 'ar' ? 'طباعة طلب الإجازة' : 'Print Leave Request'}
+                                                    >
+                                                        🖨️
+                                                    </button>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <div class="flex items-center justify-center gap-2">
@@ -6353,6 +6412,17 @@
             </div>
         </div>
     </div>
+{/if}
+
+<!-- Leave Request Print Dialog -->
+{#if showLeaveRequestPrintDialog && selectedDayOffForPrint}
+    <LeaveRequestPrint 
+        dayOff={selectedDayOffForPrint}
+        onClose={() => {
+            showLeaveRequestPrintDialog = false;
+            selectedDayOffForPrint = null;
+        }}
+    />
 {/if}
 
 <style>
