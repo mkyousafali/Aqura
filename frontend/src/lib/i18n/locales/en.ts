@@ -2290,6 +2290,7 @@ export const englishLocale: LocaleData = {
         filter_nationality: "Filter by Nationality",
         all_nationalities: "All Nationalities",
         all_statuses: "All Statuses",
+        approval_status: "Approval Status",
         search_employee: "Search Employee",
         search_placeholder: "Search by name or ID...",
         no_regular_shifts: "No regular shifts found",

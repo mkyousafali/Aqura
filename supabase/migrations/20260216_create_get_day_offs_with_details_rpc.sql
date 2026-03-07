@@ -1,5 +1,6 @@
 -- RPC function to get day offs with all related details in a single query
 -- Replaces multiple client-side queries (employees, branches, nationalities, day_off_reasons)
+-- Updated to include approver name from approval_approved_by field
 
 CREATE OR REPLACE FUNCTION get_day_offs_with_details(
     p_date_from DATE,
@@ -8,8 +9,11 @@ CREATE OR REPLACE FUNCTION get_day_offs_with_details(
 RETURNS TABLE (
     id TEXT,
     employee_id TEXT,
+    employee_id_number TEXT,
     employee_name_en TEXT,
     employee_name_ar TEXT,
+    employee_email TEXT,
+    employee_whatsapp TEXT,
     branch_id TEXT,
     branch_name_en TEXT,
     branch_name_ar TEXT,
@@ -28,15 +32,20 @@ RETURNS TABLE (
     description TEXT,
     is_deductible_on_salary BOOLEAN,
     approval_requested_at TIMESTAMPTZ,
-    day_off_reason_id TEXT
+    day_off_reason_id TEXT,
+    approver_name_en TEXT,
+    approver_name_ar TEXT
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT
         d.id::TEXT,
         d.employee_id::TEXT,
+        COALESCE(e.id_number, '')::TEXT AS employee_id_number,
         COALESCE(e.name_en, 'N/A')::TEXT AS employee_name_en,
         COALESCE(e.name_ar, 'N/A')::TEXT AS employee_name_ar,
+        COALESCE(e.email, '')::TEXT AS employee_email,
+        COALESCE(e.whatsapp_number, '')::TEXT AS employee_whatsapp,
         e.current_branch_id::TEXT AS branch_id,
         COALESCE(b.name_en, 'N/A')::TEXT AS branch_name_en,
         COALESCE(b.name_ar, 'N/A')::TEXT AS branch_name_ar,
@@ -55,12 +64,15 @@ BEGIN
         d.description::TEXT,
         COALESCE(d.is_deductible_on_salary, false) AS is_deductible_on_salary,
         d.approval_requested_at,
-        d.day_off_reason_id::TEXT
+        d.day_off_reason_id::TEXT,
+        COALESCE(a.name_en, '')::TEXT AS approver_name_en,
+        COALESCE(a.name_ar, '')::TEXT AS approver_name_ar
     FROM day_off d
     LEFT JOIN hr_employee_master e ON e.id = d.employee_id
     LEFT JOIN branches b ON b.id = e.current_branch_id
     LEFT JOIN nationalities n ON n.id = e.nationality_id
     LEFT JOIN day_off_reasons r ON r.id = d.day_off_reason_id
+    LEFT JOIN hr_employee_master a ON a.id = d.approval_approved_by::text
     WHERE d.day_off_date >= p_date_from
       AND d.day_off_date <= p_date_to
     ORDER BY d.day_off_date DESC;
