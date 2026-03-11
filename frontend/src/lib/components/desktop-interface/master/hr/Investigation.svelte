@@ -24,6 +24,9 @@
     let branches: any[] = [];
     let isTransforming = false;
     let selectedLanguage = 'en';
+    let isTranslating = false;
+    let showTranslateModal = false;
+    let translationLanguage = 'ar';
     
     const availableLanguages = [
         { code: 'ar', name: 'Arabic', nameAr: 'العربية' },
@@ -68,6 +71,36 @@
                 : `Error transforming text: ${err instanceof Error ? err.message : 'Transform failed'}`);
         } finally {
             isTransforming = false;
+        }
+    }
+
+    async function translateReport() {
+        if (!investigationReport.trim()) {
+            alert($locale === 'ar' ? 'يرجى إدخال تقرير التحقيق أولاً' : 'Please enter investigation report first');
+            return;
+        }
+
+        isTranslating = true;
+        try {
+            const resp = await fetch(
+                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${translationLanguage}&dt=t&q=${encodeURIComponent(investigationReport)}`
+            );
+            const data = await resp.json();
+            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            if (translated) {
+                investigationReport = translated;
+                showTranslateModal = false;
+                alert($locale === 'ar' ? '✅ تم الترجمة بنجاح' : '✅ Translation completed successfully');
+            } else {
+                throw new Error('No translation result');
+            }
+        } catch (err) {
+            console.error('Error translating text:', err);
+            alert($locale === 'ar' 
+                ? `خطأ في الترجمة: ${err instanceof Error ? err.message : 'فشلت الترجمة'}` 
+                : `Error translating: ${err instanceof Error ? err.message : 'Translation failed'}`);
+        } finally {
+            isTranslating = false;
         }
     }
 
@@ -364,19 +397,30 @@
 
         <!-- Action Buttons -->
         <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
+            {#if !viewMode}
+                <button 
+                    type="button"
+                    on:click={transformReport}
+                    disabled={isTransforming || !investigationReport.trim()}
+                    class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-sm flex items-center gap-2"
+                >
+                    {#if isTransforming}
+                        <span class="animate-spin">⏳</span>
+                        {$locale === 'ar' ? 'جاري التحويل...' : 'Transforming...'}
+                    {:else}
+                        <span>✨</span>
+                        {$locale === 'ar' ? 'تحويل النص' : 'Transform'}
+                    {/if}
+                </button>
+            {/if}
             <button 
                 type="button"
-                on:click={transformReport}
-                disabled={isTransforming || !investigationReport.trim()}
-                class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-sm flex items-center gap-2"
+                on:click={() => showTranslateModal = true}
+                disabled={!investigationReport.trim()}
+                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-sm flex items-center gap-2"
             >
-                {#if isTransforming}
-                    <span class="animate-spin">⏳</span>
-                    {$locale === 'ar' ? 'جاري التحويل...' : 'Transforming...'}
-                {:else}
-                    <span>✨</span>
-                    {$locale === 'ar' ? 'تحويل النص' : 'Transform'}
-                {/if}
+                <span>🌐</span>
+                {$locale === 'ar' ? 'ترجمة' : 'Translate'}
             </button>
             {#if !viewMode}
                 <button 
@@ -397,3 +441,65 @@
         </div>
     </div>
 </div>
+
+<!-- Translation Modal -->
+{#if showTranslateModal}
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-2xl max-w-md w-full max-h-96 flex flex-col">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-slate-900">
+                    {$locale === 'ar' ? 'اختر لغة الترجمة' : 'Select Translation Language'}
+                </h3>
+                <button 
+                    type="button"
+                    on:click={() => showTranslateModal = false}
+                    class="text-slate-400 hover:text-slate-600 text-2xl leading-none"
+                >×</button>
+            </div>
+
+            <!-- Modal Content - Scrollable Language List -->
+            <div class="px-6 py-4 overflow-y-auto flex-1 space-y-2">
+                {#each availableLanguages as lang}
+                    <button 
+                        type="button"
+                        on:click={() => translationLanguage = lang.code}
+                        class="w-full px-4 py-3 text-left rounded-lg border-2 transition font-medium {translationLanguage === lang.code ? 'bg-purple-100 border-purple-500 text-purple-900' : 'bg-white border-slate-200 text-slate-700 hover:border-purple-300'}"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span>{$locale === 'ar' ? lang.nameAr : lang.name}</span>
+                            {#if translationLanguage === lang.code}
+                                <span class="text-purple-600">✓</span>
+                            {/if}
+                        </div>
+                    </button>
+                {/each}
+            </div>
+
+            <!-- Modal Footer - Action Buttons -->
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+                <button 
+                    type="button"
+                    on:click={() => showTranslateModal = false}
+                    class="px-4 py-2 bg-slate-200 text-slate-900 rounded-lg hover:bg-slate-300 transition font-semibold text-sm"
+                >
+                    {$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button 
+                    type="button"
+                    on:click={translateReport}
+                    disabled={isTranslating}
+                    class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-sm flex items-center gap-2"
+                >
+                    {#if isTranslating}
+                        <span class="animate-spin">⏳</span>
+                        {$locale === 'ar' ? 'جاري الترجمة...' : 'Translating...'}
+                    {:else}
+                        <span>🌐</span>
+                        {$locale === 'ar' ? 'ترجمة' : 'Translate'}
+                    {/if}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
