@@ -206,17 +206,18 @@ function createMobileThemeStore() {
 	return {
 		subscribe,
 
-		/** Load the current user's mobile theme from the database and apply it */
+		/** Load the current user's mobile theme from the database and apply it with any per-user overrides */
 		async loadUserTheme(userId: string) {
 			try {
-				// First check if user has an assigned mobile theme
+				// Get user's theme assignment AND color overrides
 				const { data: assignment } = await supabase
 					.from('user_mobile_theme_assignments')
-					.select('theme_id')
+					.select('theme_id, color_overrides')
 					.eq('user_id', userId)
 					.maybeSingle();
 
 				let themeData: any = null;
+				let userOverrides: any = null;
 
 				if (assignment?.theme_id) {
 					const { data } = await supabase
@@ -225,6 +226,7 @@ function createMobileThemeStore() {
 						.eq('id', assignment.theme_id)
 						.single();
 					themeData = data;
+					userOverrides = assignment.color_overrides; // Capture user-specific overrides
 				}
 
 				if (!themeData) {
@@ -238,7 +240,13 @@ function createMobileThemeStore() {
 				}
 
 				if (themeData) {
-					const colors = extractColors(themeData);
+					let colors = extractColors(themeData);
+					
+					// Apply user-specific color overrides
+					if (userOverrides && typeof userOverrides === 'object') {
+						colors = { ...colors, ...userOverrides };
+					}
+					
 					set(colors);
 					applyToDOM(colors);
 				} else {
@@ -269,6 +277,44 @@ function createMobileThemeStore() {
 		applyCurrentToDOM() {
 			const current = get({ subscribe });
 			applyToDOM(current);
+		},
+
+		/** Save user-specific color customization (per-user, not global) */
+		async saveUserColorOverrides(userId: string, overrides: Partial<MobileThemeColors>) {
+			try {
+				const { error } = await supabase
+					.from('user_mobile_theme_assignments')
+					.update({
+						color_overrides: overrides,
+						updated_at: new Date().toISOString()
+					})
+					.eq('user_id', userId);
+
+				if (error) throw error;
+				return { success: true };
+			} catch (err) {
+				console.error('Failed to save user color overrides:', err);
+				return { success: false, error: err };
+			}
+		},
+
+		/** Clear user-specific color customizations and use base theme */
+		async clearUserColorOverrides(userId: string) {
+			try {
+				const { error } = await supabase
+					.from('user_mobile_theme_assignments')
+					.update({
+						color_overrides: null,
+						updated_at: new Date().toISOString()
+					})
+					.eq('user_id', userId);
+
+				if (error) throw error;
+				return { success: true };
+			} catch (err) {
+				console.error('Failed to clear user color overrides:', err);
+				return { success: false, error: err };
+			}
 		}
 	};
 }
