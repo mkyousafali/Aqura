@@ -10,21 +10,16 @@
 	let loading = true;
 	let branches = [];
 	let selectedBranch = null;
-	let defaultBranchId = null;
-	let setAsDefaultBranch = false;
 	let users = [];
-	let selectedUsers = [];
-	let defaultUserIds = [];
+	let selectedUser = null; // Single user selection
 	let searchTerm = '';
-	let setAsDefaultUsers = false;
-	let showBranchSelector = false;
-	let showUserSelector = false;
 	let showUserPopup = false;
 	let isSubmitting = false;
 	let showSuccessMessage = false;
 	let successMessage = '';
 	let showSuccessPopup = false;
 	let successTaskData = null;
+	let lastAssignedUser = null; // Keep track for "assign again"
 
 	// Form data
 	let taskTitle = ''; // Auto-generated from issue type
@@ -38,6 +33,31 @@
 	let setAsDefaultSettings = false;
 	let fileInput; // Reference to hidden file input
 	let cameraInput; // Reference to camera input
+
+	// Image Editor State
+	let showImageEditor = false;
+	let editorCanvas;
+	let editorCtx;
+	let editorImage = null;
+	let editorFileEntry = null; // The file entry being edited
+	let isDrawing = false;
+	let editorMode = 'draw'; // 'draw' or 'text'
+	let editorColor = '#FF0000';
+	let editorLineWidth = 3;
+	let lastX = 0;
+	let lastY = 0;
+	let editorHistory = []; // For undo
+	let textInput = '';
+	let textPosition = null; // {x, y} where to place text
+
+	// QR Scanner State
+	let scanningQR = false;
+	let scanVideoEl;
+	let scanStream = null;
+	let scanInterval = null;
+	let scanBarcodeDetector = null;
+	let scanCanvas = null;
+	let scanCtx = null;
 
 	// Quick Task Completion Requirements
 	let requirePhotoUpload = false;
@@ -97,6 +117,7 @@
 		const term = searchTerm.toLowerCase();
 		const positionNameEn = user.position_info?.position_title_en || '';
 		const positionNameAr = user.position_info?.position_title_ar || '';
+		const branchName = user.branch_name || '';
 		return (
 			user.username?.toLowerCase().includes(term) ||
 			user.name_en?.toLowerCase().includes(term) ||
@@ -104,18 +125,22 @@
 			user.hr_employees?.name?.toLowerCase().includes(term) ||
 			user.employee_id?.toLowerCase().includes(term) ||
 			positionNameEn.toLowerCase().includes(term) ||
-			positionNameAr.toLowerCase().includes(term)
+			positionNameAr.toLowerCase().includes(term) ||
+			branchName.toLowerCase().includes(term)
 		);
 	});
+
+	// Auto-fill branch from selected user
+	$: if (selectedUser) {
+		selectedBranch = selectedUser.current_branch_id;
+	} else {
+		selectedBranch = null;
+	}
 
 	// Get branch name by ID - handle both string and number IDs
 	$: selectedBranchName = branches.find(b => b.id == selectedBranch)?.[getBranchNameField()] || 
 	                       branches.find(b => b.id == selectedBranch)?.name || 
-	                       'Unknown Branch';
-	$: selectedBranchLocation = branches.find(b => b.id == selectedBranch)?.[getBranchLocationField()] || '';
-	$: defaultBranchName = branches.find(b => b.id == defaultBranchId)?.[getBranchNameField()] || 
-	                      branches.find(b => b.id == defaultBranchId)?.name || 
-	                      '';
+	                       '';
 
 	// Helper function to get the correct name field based on locale
 	function getBranchNameField() {
@@ -186,30 +211,8 @@
 		return positionInfo.position_title_en || positionInfo.position_title || '';
 	}
 
-	// Check if current selection matches defaults - use loose equality for type flexibility
-	$: isUsingDefaultBranch = selectedBranch == defaultBranchId;
-	$: isUsingDefaultUsers = defaultUserIds.length > 0 && 
-		selectedUsers.length === defaultUserIds.length && 
-		selectedUsers.every(id => defaultUserIds.includes(id));
-
 	onMount(async () => {
 		await loadInitialData();
-		await loadUserPreferences();
-		
-		// If no branch is selected, auto-select logged-in user's branch
-		if (!selectedBranch && $currentUser?.branch_id) {
-			const userBranchId = parseInt($currentUser.branch_id);
-			if (branches.find(b => b.id === userBranchId)) {
-				selectedBranch = userBranchId;
-				await loadBranchUsers(selectedBranch);
-			}
-		}
-		
-		// If still no branch is selected, show the branch selector
-		if (!selectedBranch) {
-			showBranchSelector = true;
-		}
-		
 		loading = false;
 	});
 
@@ -225,53 +228,8 @@
 			if (!branchError) {
 				branches = branchData || [];
 			}
-		} catch (error) {
-			console.error('Error loading initial data:', error);
-		}
-	}
 
-	async function loadUserPreferences() {
-		try {
-			const { data: preferences, error } = await supabase
-				.from('quick_task_user_preferences')
-				.select('*')
-				.eq('user_id', $currentUser?.id)
-				.single();
-
-			if (!error && preferences) {
-				defaultBranchId = preferences.default_branch_id;
-				if (preferences.default_branch_id) {
-					selectedBranch = preferences.default_branch_id;
-					await loadBranchUsers(selectedBranch);
-				}
-				priceTag = preferences.default_price_tag || 'medium';
-				issueType = preferences.default_issue_type || '';
-				priority = preferences.default_priority || 'medium';
-				
-				if (preferences.selected_user_ids) {
-					defaultUserIds = preferences.selected_user_ids;
-					if (users.length > 0) {
-						selectedUsers = [...preferences.selected_user_ids];
-					}
-				}
-			} else if (error && (error.code === 'PGRST116' || error.code === '406' || error.status === 406)) {
-				// Table doesn't exist or not accessible (PGRST116 = no rows, 406 = Not Acceptable)
-				console.log('Quick task preferences table not found, using defaults');
-			} else if (error) {
-				console.warn('Unexpected error loading preferences:', error);
-			}
-		} catch (error) {
-			console.error('Error loading user preferences:', error);
-		}
-	}
-
-	async function loadBranchUsers(branchId) {
-		if (!branchId) {
-			users = [];
-			return;
-		}
-
-		try {
+			// Load ALL active employees (no branch filter)
 			const { data: employeeData, error } = await supabase
 				.from('hr_employee_master')
 				.select(`
@@ -279,6 +237,7 @@
 					user_id,
 					name_en,
 					name_ar,
+					current_branch_id,
 					current_position_id,
 					hr_positions(
 						id,
@@ -286,7 +245,6 @@
 						position_title_ar
 					)
 				`)
-				.eq('current_branch_id', branchId)
 				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
 				.neq('user_id', 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b');
 
@@ -296,85 +254,52 @@
 				return;
 			}
 
-			// Map hr_employee_master data to the user format expected by the UI
 			const isAr = $locale === 'ar';
-			users = (employeeData || []).map(emp => ({
-				id: emp.user_id,
-				username: emp.name_en || emp.name_ar || '',
-				employee_id: emp.id,
-				name_en: emp.name_en || '',
-				name_ar: emp.name_ar || '',
-				hr_employees: {
-					id: emp.id,
-					name: isAr ? (emp.name_ar || emp.name_en || '') : (emp.name_en || emp.name_ar || '')
-				},
-				position_info: emp.hr_positions || null
-			}));
-
-			// If we have default user IDs and no users selected yet, use defaults
-			if (defaultUserIds.length > 0 && selectedUsers.length === 0) {
-				selectedUsers = [...defaultUserIds.filter(id => users.some(u => u.id === id))];
-			}
+			users = (employeeData || []).map(emp => {
+				const branch = (branchData || []).find(b => b.id === emp.current_branch_id);
+				const branchName = branch ? (isAr ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)) : '';
+				const branchLocation = branch ? (isAr ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)) : '';
+				return {
+					id: emp.user_id,
+					username: emp.name_en || emp.name_ar || '',
+					employee_id: emp.id,
+					name_en: emp.name_en || '',
+					name_ar: emp.name_ar || '',
+					current_branch_id: emp.current_branch_id,
+					branch_name: branchName,
+					branch_location: branchLocation,
+					hr_employees: {
+						id: emp.id,
+						name: isAr ? (emp.name_ar || emp.name_en || '') : (emp.name_en || emp.name_ar || '')
+					},
+					position_info: emp.hr_positions || null
+				};
+			});
 		} catch (error) {
-			console.error('Error loading branch users:', error);
+			console.error('Error loading initial data:', error);
 		}
 	}
 
-	async function handleBranchChange(event) {
-		selectedBranch = parseInt(event.target.value) || event.target.value;
-		selectedUsers = []; // Clear user selection when branch changes
-		if (selectedBranch) {
-			await loadBranchUsers(selectedBranch);
-			showBranchSelector = false;
-		} else {
-			users = [];
-		}
+	function selectUser(user) {
+		selectedUser = user;
+		showUserPopup = false;
+		searchTerm = '';
 	}
 
-	function showBranchSelection() {
-		showBranchSelector = true;
-	}
-
-	function hideBranchSelection() {
-		if (selectedBranch) {
-			showBranchSelector = false;
-		}
-	}
-
-	function showUserSelection() {
-		showUserSelector = true;
-	}
-
-	function hideUserSelection() {
-		showUserSelector = false;
-	}
-
-	function toggleUserSelection(userId) {
-		if (selectedUsers.includes(userId)) {
-			selectedUsers = selectedUsers.filter(id => id !== userId);
-		} else {
-			selectedUsers = [...selectedUsers, userId];
-		}
-	}
-
-	function useDefaultUsers() {
-		selectedUsers = [...defaultUserIds.filter(id => users.some(u => u.id === id))];
+	function clearUser() {
+		selectedUser = null;
 	}
 
 	async function saveAsDefaults() {
-		if (!setAsDefaultBranch && !setAsDefaultUsers && !setAsDefaultSettings) return;
+		if (!setAsDefaultSettings) return;
 
 		try {
 			const defaultsData = {
 				user_id: $currentUser?.id,
-				...(setAsDefaultBranch && { default_branch_id: selectedBranch }),
-				...(setAsDefaultUsers && { selected_user_ids: selectedUsers }),
-				...(setAsDefaultSettings && {
-					default_price_tag: priceTag,
-			default_issue_type: issueType,
-			default_priority: priority
-		})
-	};
+				default_price_tag: priceTag,
+				default_issue_type: issueType,
+				default_priority: priority
+			};
 
 	const { error } = await supabase
 		.from('quick_task_user_preferences')
@@ -389,8 +314,8 @@
 	}
 
 	async function assignTask() {
-		if (!taskTitle || !selectedBranch || selectedUsers.length === 0 || !issueType || !priority) {
-			notifications.add({ type: 'error', message: 'Please fill in all required fields and select at least one user.' });
+		if (!taskTitle || !selectedUser || !issueType || !priority) {
+			notifications.add({ type: 'error', message: 'Please fill in all required fields and select a user.' });
 			return;
 		}
 
@@ -480,39 +405,25 @@
 				console.log('📎 [QuickTask] File upload complete. Uploaded files:', uploadedFiles.length);
 			}
 
-			// Create assignments for selected users with completion requirements
-			const assignments = selectedUsers.map(userId => ({
+			// Create assignment for the selected user
+			const assignment = {
 				quick_task_id: taskData.id,
-				assigned_to_user_id: userId,
-				require_task_finished: true, // Always required
+				assigned_to_user_id: selectedUser.id,
+				require_task_finished: true,
 				require_photo_upload: requirePhotoUpload,
 				require_erp_reference: requireErpReference
-			}));
+			};
 
-			// Store completion requirements in a separate record or in task metadata
-			console.log('📋 [QuickTask] Completion Requirements:', {
-				requirePhotoUpload,
-				requireErpReference, 
-				requireFileUpload
-			});
-			
-		console.log('📋 [QuickTask Mobile] Assignment Objects to Insert:', assignments);
+		console.log('📋 [QuickTask Mobile] Assignment Object to Insert:', assignment);
 
 		const { data: insertedAssignments, error: assignmentError } = await supabase
 			.from('quick_task_assignments')
-			.insert(assignments)
-			.select();			if (assignmentError) {
-				console.error('Error creating assignments:', assignmentError);
-				notifications.add({ type: 'error', message: 'Error assigning task to users. Please try again.' });
-				return;
-			}
-			
-			console.log('✅ [QuickTask Mobile] Assignments created:', insertedAssignments);
-			console.log('🔍 [QuickTask Mobile] First assignment details:', JSON.stringify(insertedAssignments[0], null, 2));
+			.insert([assignment])
+			.select();
 
 			if (assignmentError) {
-				console.error('Error creating assignments:', assignmentError);
-				notifications.add({ type: 'error', message: 'Error assigning task to users. Please try again.' });
+				console.error('Error creating assignment:', assignmentError);
+				notifications.add({ type: 'error', message: 'Error assigning task. Please try again.' });
 				return;
 			}
 
@@ -524,11 +435,12 @@
 			successTaskData = {
 				id: taskData.id,
 				title: taskData.title || taskTitle,
-				assignedUsers: selectedUsers.length,
+				assignedUser: getUserDisplayName(selectedUser),
 				filesUploaded: uploadedFiles.length,
 				branch: selectedBranchName
 			};
 			showSuccessPopup = true;
+			lastAssignedUser = selectedUser;
 			
 			// Also show banner message
 			showSuccessMessage = true;
@@ -555,22 +467,13 @@
 		taskDescription = '';
 		customIssueType = '';
 		selectedFiles = [];
+		selectedUser = null;
 		
 		// Reset issue type selection if not saving defaults
-		// Set a reasonable default to keep the form functional
 		if (!setAsDefaultSettings) {
-			issueTypeWithPrice = 'filling'; // Default to filling issue
+			issueTypeWithPrice = 'filling';
 			issueType = 'filling';
 			priority = 'medium';
-		}
-		
-		// Keep selected users - they should stay selected after assignment
-		// Only reset user selection if user explicitly unchecks "set as default users"
-		// selectedUsers array is preserved to maintain user selection
-		
-		// Reset branch selection if not saving defaults  
-		if (!setAsDefaultBranch) {
-			showBranchSelector = false;
 		}
 		
 		// Reset completion requirements
@@ -580,14 +483,26 @@
 		
 		// Reset UI state
 		searchTerm = '';
-		
-		// Keep the checkbox states for saving defaults
-		// setAsDefaultBranch, setAsDefaultUsers, setAsDefaultSettings remain as they are
 	}
 
 	function closeSuccessPopup() {
 		showSuccessPopup = false;
 		successTaskData = null;
+	}
+
+	function assignAgainSameUser() {
+		if (lastAssignedUser) {
+			selectedUser = lastAssignedUser;
+		}
+		closeSuccessPopup();
+	}
+
+	function assignToNewUser() {
+		selectedUser = null;
+		closeSuccessPopup();
+		// Open user selection popup
+		showUserPopup = true;
+		searchTerm = '';
 	}
 
 	// File Upload Functions
@@ -646,19 +561,253 @@
 
 	function handleCameraCapture(event) {
 		const files = Array.from(event.target.files);
-		files.forEach(file => {
-			if (isValidFileType(file)) {
-				selectedFiles = [...selectedFiles, {
-					file,
-					name: file.name,
-					size: file.size,
-					type: file.type,
-					id: Date.now() + Math.random()
-				}];
-			}
-		});
-		// Reset input
+		if (files.length > 0 && isValidFileType(files[0])) {
+			openImageEditor(files[0]);
+		}
 		event.target.value = '';
+	}
+
+	// Image Editor Functions
+	function openImageEditor(file) {
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			const img = new Image();
+			img.onload = () => {
+				editorImage = img;
+				editorFileEntry = {
+					name: file.name,
+					type: file.type,
+					originalFile: file
+				};
+				showImageEditor = true;
+				editorHistory = [];
+				editorMode = 'draw';
+				textPosition = null;
+				textInput = '';
+				// Wait for canvas to mount
+				setTimeout(() => initEditorCanvas(), 50);
+			};
+			img.src = /** @type {string} */ (e.target?.result);
+		};
+		reader.readAsDataURL(file);
+	}
+
+	function initEditorCanvas() {
+		if (!editorCanvas || !editorImage) return;
+		editorCtx = editorCanvas.getContext('2d');
+
+		// Scale image to fit canvas while maintaining aspect ratio
+		const maxW = Math.min(window.innerWidth - 32, 600);
+		const maxH = Math.min(window.innerHeight - 200, 500);
+		const scale = Math.min(maxW / editorImage.width, maxH / editorImage.height, 1);
+		editorCanvas.width = editorImage.width * scale;
+		editorCanvas.height = editorImage.height * scale;
+		editorCtx.drawImage(editorImage, 0, 0, editorCanvas.width, editorCanvas.height);
+		saveEditorState();
+	}
+
+	function saveEditorState() {
+		if (!editorCtx || !editorCanvas) return;
+		editorHistory = [...editorHistory, editorCtx.getImageData(0, 0, editorCanvas.width, editorCanvas.height)];
+	}
+
+	function editorUndo() {
+		if (editorHistory.length <= 1) return;
+		editorHistory = editorHistory.slice(0, -1);
+		editorCtx.putImageData(editorHistory[editorHistory.length - 1], 0, 0);
+	}
+
+	function getCanvasPos(e) {
+		const rect = editorCanvas.getBoundingClientRect();
+		const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+		const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+		return {
+			x: clientX - rect.left,
+			y: clientY - rect.top
+		};
+	}
+
+	function editorPointerDown(e) {
+		if (!editorCtx) return;
+		e.preventDefault();
+		const pos = getCanvasPos(e);
+		if (editorMode === 'text') {
+			textPosition = pos;
+			return;
+		}
+		isDrawing = true;
+		lastX = pos.x;
+		lastY = pos.y;
+	}
+
+	function editorPointerMove(e) {
+		if (!isDrawing || !editorCtx || editorMode !== 'draw') return;
+		e.preventDefault();
+		const pos = getCanvasPos(e);
+		editorCtx.beginPath();
+		editorCtx.moveTo(lastX, lastY);
+		editorCtx.lineTo(pos.x, pos.y);
+		editorCtx.strokeStyle = editorColor;
+		editorCtx.lineWidth = editorLineWidth;
+		editorCtx.lineCap = 'round';
+		editorCtx.lineJoin = 'round';
+		editorCtx.stroke();
+		lastX = pos.x;
+		lastY = pos.y;
+	}
+
+	function editorPointerUp() {
+		if (isDrawing) {
+			isDrawing = false;
+			saveEditorState();
+		}
+	}
+
+	function editorPlaceText() {
+		if (!textPosition || !textInput.trim() || !editorCtx) return;
+		editorCtx.font = `bold ${editorLineWidth * 6 + 12}px sans-serif`;
+		editorCtx.fillStyle = editorColor;
+		editorCtx.fillText(textInput.trim(), textPosition.x, textPosition.y);
+		saveEditorState();
+		textInput = '';
+		textPosition = null;
+	}
+
+	function editorSave() {
+		if (!editorCanvas || !editorFileEntry) return;
+		editorCanvas.toBlob((blob) => {
+			if (!blob) return;
+			const editedFile = new File([blob], editorFileEntry.name, { type: editorFileEntry.type || 'image/jpeg' });
+			selectedFiles = [...selectedFiles, {
+				file: editedFile,
+				name: editedFile.name,
+				size: editedFile.size,
+				type: editedFile.type,
+				id: Date.now() + Math.random()
+			}];
+			closeImageEditor();
+		}, editorFileEntry.type || 'image/jpeg', 0.9);
+	}
+
+	function editorSaveSkip() {
+		// Save original without edits
+		if (!editorFileEntry) return;
+		selectedFiles = [...selectedFiles, {
+			file: editorFileEntry.originalFile,
+			name: editorFileEntry.name,
+			size: editorFileEntry.originalFile.size,
+			type: editorFileEntry.type,
+			id: Date.now() + Math.random()
+		}];
+		closeImageEditor();
+	}
+
+	// QR Scanner Functions
+	async function startQRScan() {
+		scanningQR = true;
+		try {
+			scanStream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+			});
+			await new Promise(r => setTimeout(r, 100));
+			if (scanVideoEl) {
+				scanVideoEl.srcObject = scanStream;
+				await scanVideoEl.play();
+				await new Promise(r => setTimeout(r, 500));
+				await initQRDetector();
+				detectQR();
+			}
+		} catch (err) {
+			console.error('Camera access error:', err);
+			scanningQR = false;
+		}
+	}
+
+	async function initQRDetector() {
+		// @ts-ignore
+		if ('BarcodeDetector' in window) {
+			try {
+				// @ts-ignore
+				scanBarcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
+				return;
+			} catch (e) { /* fallback */ }
+		}
+		try {
+			const { BarcodeDetector: Polyfill } = await import('barcode-detector');
+			scanBarcodeDetector = new Polyfill({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
+		} catch (e) {
+			console.error('Failed to load barcode detector:', e);
+		}
+	}
+
+	function detectQR() {
+		if (!scanBarcodeDetector) { stopQRScan(); return; }
+		scanCanvas = document.createElement('canvas');
+		scanCtx = scanCanvas.getContext('2d');
+
+		scanInterval = setInterval(async () => {
+			if (!scanVideoEl || scanVideoEl.readyState < 2 || !scanCanvas || !scanCtx) return;
+			try {
+				const vw = scanVideoEl.videoWidth;
+				const vh = scanVideoEl.videoHeight;
+				if (vw === 0 || vh === 0) return;
+				scanCanvas.width = vw;
+				scanCanvas.height = vh;
+				scanCtx.drawImage(scanVideoEl, 0, 0, vw, vh);
+
+				let barcodes = [];
+				try {
+					barcodes = await scanBarcodeDetector.detect(scanCanvas);
+				} catch (_) {
+					try {
+						const imageData = scanCtx.getImageData(0, 0, vw, vh);
+						barcodes = await scanBarcodeDetector.detect(imageData);
+					} catch (__) {}
+				}
+
+				if (barcodes.length > 0) {
+					const scannedValue = barcodes[0].rawValue;
+					stopQRScan();
+					matchScannedUser(scannedValue);
+				}
+			} catch (_) {}
+		}, 400);
+	}
+
+	function stopQRScan() {
+		if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+		if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+		scanCanvas = null;
+		scanCtx = null;
+		scanningQR = false;
+	}
+
+	function matchScannedUser(scannedValue) {
+		if (!scannedValue) return;
+		const val = scannedValue.trim().toLowerCase();
+		// Match by employee_id, user_id, or name
+		const matched = users.find(u =>
+			u.id === scannedValue ||
+			u.employee_id?.toString() === val ||
+			u.name_en?.toLowerCase() === val ||
+			u.name_ar === scannedValue
+		);
+		if (matched) {
+			selectUser(matched);
+			notifications.add({ type: 'success', message: `User found: ${getUserDisplayName(matched)}` });
+		} else {
+			notifications.add({ type: 'error', message: `No employee matched for: ${scannedValue}` });
+		}
+	}
+
+	function closeImageEditor() {
+		showImageEditor = false;
+		editorImage = null;
+		editorFileEntry = null;
+		editorCtx = null;
+		editorHistory = [];
+		textPosition = null;
+		textInput = '';
 	}
 </script>
 
@@ -713,13 +862,13 @@
 						</div>
 						
 						<div class="task-detail">
+							<span class="detail-label">👤 {getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
+							<span class="detail-value">{successTaskData.assignedUser}</span>
+						</div>
+
+						<div class="task-detail">
 							<span class="detail-label">🏢 {getTranslation('mobile.quickTaskContent.step1.branchLabel')}</span>
 							<span class="detail-value">{successTaskData.branch}</span>
-						</div>
-						
-						<div class="task-detail">
-							<span class="detail-label">👥 {getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
-							<span class="detail-value">{successTaskData.assignedUsers} {getTranslation('mobile.quickTaskContent.step2.selected')}</span>
 						</div>
 						
 						{#if successTaskData.filesUploaded > 0}
@@ -730,126 +879,110 @@
 						{/if}
 					</div>
 					
-					<div class="popup-actions">
-						<button class="popup-btn primary" on:click={closeSuccessPopup}>
-							{getTranslation('mobile.quickTaskContent.success.gotIt')}
+					<div class="popup-actions stacked">
+						<button class="popup-btn primary" on:click={assignAgainSameUser}>
+							🔄 Assign Again to Same User
+						</button>
+						<button class="popup-btn secondary" on:click={assignToNewUser}>
+							👤 Assign to New User
 						</button>
 					</div>
 				</div>
 			</div>
 		{/if}
 
-		<!-- Step 1: Branch Selection -->
+		<!-- Step 1: Select User -->
 		<div class="form-section">
-			<h3>{getTranslation('mobile.quickTaskContent.step1.title')}</h3>
-			
-			{#if selectedBranch && !showBranchSelector}
-				<div class="current-selection inline-row">
-					<div class="branch-name-block">
-						<span class="value">{selectedBranchName}</span>
-						{#if selectedBranchLocation}
-							<span class="location-text">{selectedBranchLocation}</span>
-						{/if}
-					</div>
-					{#if isUsingDefaultBranch}
-						<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
-					{/if}
-					<button type="button" on:click={showBranchSelection} class="change-btn">
-						{getTranslation('mobile.quickTaskContent.step1.change')}
+			<div class="section-header-row">
+				<h3>{getTranslation('mobile.quickTaskContent.step2.title')}</h3>
+				<div class="header-actions">
+					<button type="button" class="scan-qr-btn" on:click={startQRScan} title="Scan QR">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+							<path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+							<rect x="7" y="7" width="4" height="4"/><rect x="13" y="7" width="4" height="4"/><rect x="7" y="13" width="4" height="4"/>
+						</svg>
 					</button>
-				</div>
-			{:else}
-				<select bind:value={selectedBranch} on:change={handleBranchChange} class="form-select">
-					<option value="">{getTranslation('mobile.quickTaskContent.step1.selectBranch')}</option>
-					{#each branches as branch}
-						<option value={branch.id}>{branch[getBranchNameField()]} — {branch[getBranchLocationField()]}</option>
-					{/each}
-				</select>
-				{#if selectedBranch}
-					<label class="checkbox-label">
-						<input type="checkbox" bind:checked={setAsDefaultBranch} />
-						{getTranslation('mobile.quickTaskContent.step1.setAsDefault')}
-					</label>
-					<button type="button" on:click={hideBranchSelection} class="confirm-btn">
-						{getTranslation('mobile.quickTaskContent.step1.confirm')}
-					</button>
-				{/if}
-			{/if}
-		</div>
-
-		{#if selectedBranch && !showBranchSelector}
-			<!-- Step 2: User Selection -->
-			<div class="form-section">
-				<div class="section-header-row">
-					<h3>{getTranslation('mobile.quickTaskContent.step2.title')}</h3>
 					<button type="button" class="select-users-btn" on:click={() => { showUserPopup = true; searchTerm = ''; }}>
-						{#if selectedUsers.length > 0}
-							<span>{selectedUsers.length} {getTranslation('mobile.quickTaskContent.step2.selected')}</span>
+						{#if selectedUser}
+							<span>{getTranslation('mobile.quickTaskContent.step1.change')}</span>
 						{:else}
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 							<span>{getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
 						{/if}
 					</button>
 				</div>
-				{#if selectedUsers.length > 0}
-					<div class="selected-users-preview">
-						{#each selectedUsers as userId}
-							{@const user = users.find(u => u.id === userId)}
-							{#if user}
-								<span class="user-chip">
-									{getUserDisplayName(user)}
-									<button type="button" class="chip-remove" on:click={() => toggleUserSelection(user.id)}>&times;</button>
-								</span>
-							{/if}
-						{/each}
-					</div>
-				{/if}
 			</div>
-
-			<!-- User Selection Popup -->
-			{#if showUserPopup}
-				<div class="user-popup-overlay" on:click={() => showUserPopup = false} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && (showUserPopup = false)}>
-					<div class="user-popup" on:click|stopPropagation role="none">
-						<div class="user-popup-header">
-							<span>{getTranslation('mobile.quickTaskContent.step2.title')}</span>
-							<button type="button" class="user-popup-close" on:click={() => showUserPopup = false}>&times;</button>
-						</div>
-						<div class="user-popup-search">
-							<input 
-								type="text" 
-								placeholder={getTranslation('mobile.quickTaskContent.step2.searchPlaceholder')}
-								bind:value={searchTerm}
-								class="search-input"
-							/>
-						</div>
-						<div class="user-popup-list">
-							{#if users.length > 0}
-								{#each filteredUsers as user}
-									<label class="user-item">
-										<input 
-											type="checkbox" 
-											checked={selectedUsers.includes(user.id)}
-											on:change={() => toggleUserSelection(user.id)}
-										/>
-										<span class="user-name">{getUserDisplayName(user)}</span>
-									</label>
-								{/each}
-							{:else}
-								<p class="no-users">No users found for this branch</p>
-							{/if}
-						</div>
-						<div class="user-popup-footer">
-							<label class="checkbox-label">
-								<input type="checkbox" bind:checked={setAsDefaultUsers} />
-								{getTranslation('mobile.quickTaskContent.step2.setAsDefault')}
-							</label>
-							<button type="button" class="confirm-btn" on:click={() => showUserPopup = false}>
-								{getTranslation('mobile.quickTaskContent.step2.confirmUsers')} ({selectedUsers.length})
-							</button>
-						</div>
-					</div>
+			{#if selectedUser}
+				<div class="selected-users-preview">
+					<span class="user-chip">
+						{getUserDisplayName(selectedUser)}
+						<button type="button" class="chip-remove" on:click={clearUser}>&times;</button>
+					</span>
+					{#if selectedBranchName}
+						<span class="branch-auto-badge">🏢 {selectedBranchName}</span>
+					{/if}
 				</div>
 			{/if}
+		</div>
+
+		<!-- User Selection Popup -->
+		{#if showUserPopup}
+			<div class="user-popup-overlay" on:click={() => showUserPopup = false} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && (showUserPopup = false)}>
+				<div class="user-popup" on:click|stopPropagation role="none">
+					<div class="user-popup-header">
+						<span>{getTranslation('mobile.quickTaskContent.step2.title')}</span>
+						<button type="button" class="user-popup-close" on:click={() => showUserPopup = false}>&times;</button>
+					</div>
+					<div class="user-popup-search">
+						<input 
+							type="text" 
+							placeholder={getTranslation('mobile.quickTaskContent.step2.searchPlaceholder')}
+							bind:value={searchTerm}
+							class="search-input"
+						/>
+					</div>
+					<div class="user-popup-list">
+						{#if users.length > 0}
+							{#each filteredUsers as user}
+								<button type="button" class="user-item-btn" class:selected={selectedUser?.id === user.id} on:click={() => selectUser(user)}>
+									<div class="user-item-info">
+										<span class="user-name">{getUserDisplayName(user)}</span>
+									</div>
+									<div class="user-item-branch">
+										<span class="user-branch-label">{user.branch_name}</span>
+										{#if user.branch_location}
+											<span class="user-branch-location">{user.branch_location}</span>
+										{/if}
+									</div>
+								</button>
+							{/each}
+						{:else}
+							<p class="no-users">No users found</p>
+						{/if}
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		<!-- QR Scanner Overlay -->
+		{#if scanningQR}
+			<div class="scanner-overlay" on:click={stopQRScan} role="button" tabindex="-1" on:keydown={(e) => e.key === 'Escape' && stopQRScan()}>
+				<div class="scanner-container" on:click|stopPropagation role="none">
+					<div class="scanner-header">
+						<span>📷 Scan Employee QR / ID</span>
+						<button type="button" class="scanner-close" on:click={stopQRScan}>&times;</button>
+					</div>
+					<div class="scanner-video-wrapper">
+						<!-- svelte-ignore a11y-media-has-caption -->
+						<video bind:this={scanVideoEl} playsinline autoplay muted class="scanner-video"></video>
+						<div class="scan-line"></div>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if selectedUser}
 
 			<!-- Step 3: Task Details -->
 			<div class="form-section">
@@ -972,7 +1105,7 @@
 					type="button" 
 					on:click={assignTask} 
 					class="assign-btn"
-					disabled={isSubmitting || !taskTitle || !selectedBranch || selectedUsers.length === 0 || !issueType || !priority}
+					disabled={isSubmitting || !taskTitle || !selectedUser || !issueType || !priority}
 				>
 					{#if isSubmitting}
 						<div class="btn-spinner"></div>
@@ -985,6 +1118,79 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Image Editor Modal -->
+{#if showImageEditor}
+	<div class="editor-overlay">
+		<div class="editor-modal">
+			<div class="editor-header">
+				<span class="editor-title">Edit Photo</span>
+				<button type="button" class="editor-close-btn" on:click={closeImageEditor}>&times;</button>
+			</div>
+
+			<!-- Toolbar -->
+			<div class="editor-toolbar">
+				<button type="button" class="editor-tool-btn" class:active={editorMode === 'draw'} on:click={() => { editorMode = 'draw'; textPosition = null; }} title="Draw">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
+				</button>
+				<button type="button" class="editor-tool-btn" class:active={editorMode === 'text'} on:click={() => editorMode = 'text'} title="Text">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,7 4,4 20,4 20,7"/><line x1="9.5" y1="4" x2="9.5" y2="20"/><line x1="14.5" y1="4" x2="14.5" y2="20"/><line x1="7" y1="20" x2="17" y2="20"/></svg>
+				</button>
+				<div class="editor-separator"></div>
+				<input type="color" bind:value={editorColor} class="editor-color-picker" title="Color" />
+				<select bind:value={editorLineWidth} class="editor-size-select">
+					<option value={2}>Thin</option>
+					<option value={3}>Medium</option>
+					<option value={5}>Thick</option>
+					<option value={8}>Extra Thick</option>
+				</select>
+				<div class="editor-separator"></div>
+				<button type="button" class="editor-tool-btn" on:click={editorUndo} title="Undo" disabled={editorHistory.length <= 1}>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+				</button>
+			</div>
+
+			<!-- Canvas -->
+			<div class="editor-canvas-wrap">
+				<canvas
+					bind:this={editorCanvas}
+					on:mousedown={editorPointerDown}
+					on:mousemove={editorPointerMove}
+					on:mouseup={editorPointerUp}
+					on:mouseleave={editorPointerUp}
+					on:touchstart={editorPointerDown}
+					on:touchmove={editorPointerMove}
+					on:touchend={editorPointerUp}
+					class="editor-canvas"
+					style="cursor: {editorMode === 'text' ? 'text' : 'crosshair'}"
+				></canvas>
+				{#if editorMode === 'text' && textPosition}
+					<div class="editor-text-input-wrap" style="left: {textPosition.x}px; top: {textPosition.y}px;">
+						<input
+							type="text"
+							bind:value={textInput}
+							placeholder="Type here..."
+							class="editor-text-field"
+							style="color: {editorColor}; font-size: {editorLineWidth * 6 + 12}px;"
+							on:keydown={(e) => e.key === 'Enter' && editorPlaceText()}
+						/>
+						<button type="button" class="editor-text-ok" on:click={editorPlaceText}>OK</button>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Footer Actions -->
+			<div class="editor-footer">
+				<button type="button" class="editor-btn secondary" on:click={editorSaveSkip}>
+					Skip Editing
+				</button>
+				<button type="button" class="editor-btn primary" on:click={editorSave}>
+					Save & Attach
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Hidden file inputs -->
 <input 
@@ -1149,20 +1355,6 @@
 		min-height: 0;
 	}
 
-	.user-popup-footer {
-		padding: 0.5rem 0.75rem;
-		border-top: 1px solid #E5E7EB;
-		flex-shrink: 0;
-	}
-
-	.user-popup-footer .checkbox-label {
-		margin-bottom: 0.3rem;
-	}
-
-	.user-popup-footer .confirm-btn {
-		width: 100%;
-	}
-
 	/* Success Message Styles */
 	.success-message {
 		background: linear-gradient(135deg, #10B981, #059669);
@@ -1241,58 +1433,6 @@
 		font-size: 0.95rem;
 		font-weight: 700;
 		color: #374151;
-	}
-
-	.current-selection {
-		background: #f8f9fa;
-		border-radius: 6px;
-		padding: 0.5rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.current-selection.inline-row {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		flex-wrap: nowrap;
-	}
-
-	.branch-name-block {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-	}
-
-	.branch-name-block .location-text {
-		font-size: 0.75rem;
-		color: #9CA3AF;
-	}
-
-	.default-badge {
-		background: #e7f3ff;
-		color: #0066cc;
-		font-size: 0.75rem;
-		padding: 1px 6px;
-		border-radius: 10px;
-		font-weight: 500;
-	}
-
-	.change-btn, .confirm-btn {
-		background: #007bff;
-		color: white;
-		border: none;
-		padding: 0.35rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.9rem;
-		cursor: pointer;
-		font-weight: 600;
-		margin-left: auto;
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.change-btn:active, .confirm-btn:active {
-		background: #0056b3;
 	}
 
 	.form-select, .form-input, .form-textarea {
@@ -1401,58 +1541,64 @@
 		height: 2rem;
 	}
 
-	.user-item {
+	.user-item-btn {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		width: 100%;
 		gap: 0.4rem;
-		padding: 0.4rem 0.5rem;
+		padding: 0.6rem 0.75rem;
+		border: none;
 		border-bottom: 1px solid #F3F4F6;
 		cursor: pointer;
+		background: white;
 		transition: background 0.15s ease;
+		text-align: start;
 	}
 
-	.user-item:active {
-		background: #f0f8ff;
+	.user-item-btn:active, .user-item-btn.selected {
+		background: #EBF5FF;
 	}
 
-	.user-item:last-child {
+	.user-item-btn:last-child {
 		border-bottom: none;
 	}
 
-	.user-item input[type="checkbox"] {
-		width: 16px;
-		height: 16px;
-		margin: 0;
-		cursor: pointer;
-		accent-color: #007bff;
-		border: 2px solid #007bff;
-		border-radius: 3px;
-		background: white;
-		-webkit-appearance: none;
-		-moz-appearance: none;
-		appearance: none;
-		position: relative;
+	.user-branch-label {
+		font-size: 0.7rem;
+		color: #6B7280;
+		background: #F3F4F6;
+		padding: 0.15rem 0.45rem;
+		border-radius: 6px;
+		white-space: nowrap;
+	}
+
+	.user-item-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.user-item-branch {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.1rem;
 		flex-shrink: 0;
 	}
 
-	.user-item input[type="checkbox"]:checked {
-		background: #007bff;
-		border-color: #007bff;
+	.user-branch-location {
+		font-size: 0.65rem;
+		color: #9CA3AF;
 	}
 
-	.user-item input[type="checkbox"]:checked::after {
-		content: '✓';
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		color: white;
-		font-size: 11px;
-		font-weight: bold;
-	}
-
-	.user-info {
-		flex: 1;
+	.branch-auto-badge {
+		display: inline-block;
+		font-size: 0.75rem;
+		color: #1D4ED8;
+		background: #EFF6FF;
+		padding: 0.2rem 0.5rem;
+		border-radius: 8px;
+		margin-top: 0.25rem;
 	}
 
 	.user-name {
@@ -1460,12 +1606,6 @@
 		font-weight: 600;
 		color: #111827;
 		font-size: 0.9rem;
-	}
-
-	.user-details, .user-position {
-		display: block;
-		font-size: 0.8rem;
-		color: #6B7280;
 	}
 
 	.selected-users-preview {
@@ -1735,6 +1875,12 @@
 		border-top: 1px solid #E5E7EB;
 	}
 
+	.popup-actions.stacked {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
 	.popup-btn {
 		width: 100%;
 		padding: 0.5rem;
@@ -1753,5 +1899,301 @@
 
 	.popup-btn.primary:active {
 		background: #059669;
+	}
+
+	.popup-btn.secondary {
+		background: #E5E7EB;
+		color: #374151;
+	}
+
+	.popup-btn.secondary:active {
+		background: #D1D5DB;
+	}
+
+	/* QR Scanner Styles */
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.scan-qr-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: #047857;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.scan-qr-btn:active {
+		background: #065F46;
+	}
+
+	.scanner-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.8);
+		z-index: 1100;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+	}
+
+	.scanner-container {
+		background: #111;
+		border-radius: 12px;
+		overflow: hidden;
+		width: 100%;
+		max-width: 400px;
+	}
+
+	.scanner-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem 1rem;
+		color: white;
+		font-weight: 600;
+		font-size: 0.95rem;
+	}
+
+	.scanner-close {
+		background: none;
+		border: none;
+		color: white;
+		font-size: 1.5rem;
+		cursor: pointer;
+		line-height: 1;
+		padding: 0 0.25rem;
+	}
+
+	.scanner-video-wrapper {
+		position: relative;
+		width: 100%;
+		aspect-ratio: 4/3;
+		background: #000;
+	}
+
+	.scanner-video {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.scan-line {
+		position: absolute;
+		left: 10%;
+		right: 10%;
+		height: 2px;
+		background: #ff3b30;
+		box-shadow: 0 0 8px rgba(255, 59, 48, 0.6);
+		top: 50%;
+		animation: scanMove 2s ease-in-out infinite;
+	}
+
+	@keyframes scanMove {
+		0%, 100% { top: 30%; }
+		50% { top: 70%; }
+	}
+
+	/* Image Editor Styles */
+	.editor-overlay {
+		position: fixed;
+		top: 0; left: 0; right: 0; bottom: 0;
+		background: rgba(0,0,0,0.85);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.5rem;
+	}
+
+	.editor-modal {
+		background: white;
+		border-radius: 12px;
+		width: 100%;
+		max-width: 640px;
+		max-height: 95vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.editor-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.6rem 0.8rem;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.editor-title {
+		font-weight: 700;
+		font-size: 1rem;
+		color: #111827;
+	}
+
+	.editor-close-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		color: #6B7280;
+		cursor: pointer;
+		padding: 0 0.3rem;
+		line-height: 1;
+	}
+
+	.editor-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.4rem 0.6rem;
+		border-bottom: 1px solid #F3F4F6;
+		background: #FAFAFA;
+		flex-wrap: wrap;
+	}
+
+	.editor-tool-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		height: 34px;
+		border: 1px solid #D1D5DB;
+		border-radius: 6px;
+		background: white;
+		cursor: pointer;
+		color: #374151;
+		transition: all 0.15s;
+	}
+
+	.editor-tool-btn.active {
+		background: #007bff;
+		color: white;
+		border-color: #007bff;
+	}
+
+	.editor-tool-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.editor-separator {
+		width: 1px;
+		height: 24px;
+		background: #D1D5DB;
+		margin: 0 0.15rem;
+	}
+
+	.editor-color-picker {
+		width: 34px;
+		height: 34px;
+		border: 1px solid #D1D5DB;
+		border-radius: 6px;
+		padding: 2px;
+		cursor: pointer;
+		background: white;
+	}
+
+	.editor-size-select {
+		height: 34px;
+		border: 1px solid #D1D5DB;
+		border-radius: 6px;
+		padding: 0 0.3rem;
+		font-size: 0.8rem;
+		background: white;
+		cursor: pointer;
+	}
+
+	.editor-canvas-wrap {
+		flex: 1;
+		overflow: auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #f0f0f0;
+		position: relative;
+		min-height: 200px;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.editor-canvas {
+		display: block;
+		touch-action: none;
+		max-width: 100%;
+	}
+
+	.editor-text-input-wrap {
+		position: absolute;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		z-index: 10;
+	}
+
+	.editor-text-field {
+		background: rgba(255,255,255,0.85);
+		border: 2px solid #007bff;
+		border-radius: 4px;
+		padding: 0.2rem 0.4rem;
+		font-weight: bold;
+		font-family: sans-serif;
+		outline: none;
+		min-width: 100px;
+		max-width: 200px;
+	}
+
+	.editor-text-ok {
+		background: #007bff;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 0.25rem 0.5rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.editor-footer {
+		display: flex;
+		gap: 0.5rem;
+		padding: 0.5rem 0.8rem;
+		border-top: 1px solid #E5E7EB;
+	}
+
+	.editor-btn {
+		flex: 1;
+		padding: 0.55rem 0.75rem;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		border: none;
+		text-align: center;
+	}
+
+	.editor-btn.secondary {
+		background: #F3F4F6;
+		color: #374151;
+	}
+
+	.editor-btn.primary {
+		background: #10B981;
+		color: white;
+	}
+
+	.editor-btn.primary:active {
+		background: #059669;
+	}
+
+	.editor-btn.secondary:active {
+		background: #E5E7EB;
 	}
 </style>
