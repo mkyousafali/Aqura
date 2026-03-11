@@ -276,9 +276,12 @@ function createMobileThemeStore() {
 /** Extract MobileThemeColors from a database row */
 export function extractColors(row: any): MobileThemeColors {
 	const colors: MobileThemeColors = { ...DEFAULT_MOBILE_THEME };
+	// Colors are stored in a JSONB 'colors' column, or may be top-level
+	const source = row.colors && typeof row.colors === 'object' ? row.colors : row;
+	const parsed = typeof source === 'string' ? JSON.parse(source) : source;
 	for (const [key] of Object.entries(CSS_VAR_MAP)) {
-		if (row[key] !== undefined && row[key] !== null) {
-			colors[key as keyof MobileThemeColors] = row[key];
+		if (parsed[key] !== undefined && parsed[key] !== null) {
+			colors[key as keyof MobileThemeColors] = parsed[key];
 		}
 	}
 	return colors;

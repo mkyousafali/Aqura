@@ -931,38 +931,17 @@
 					</div>
 				</div>
 				<div class="header-actions">
-					{#if $updateAvailable}
-						<button class="header-nav-btn update-btn" on:click={handleUpdateClick} aria-label={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'} title={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}>
-							<div class="nav-icon-container">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-									<path d="M3 3v5h5"/>
-									<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-									<path d="M16 16h5v5"/>
-								</svg>
-								<span class="update-dot"></span>
-							</div>
-						</button>
-					{:else}
-						<span class="header-nav-btn uptodate-btn" title={$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}>
-							<div class="nav-icon-container">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M20 6L9 17l-5-5"/>
-								</svg>
-							</div>
-						</span>
-					{/if}
-					<a href="/mobile-interface" class="header-nav-btn" class:active={$page.url.pathname === '/mobile-interface'} aria-label={getTranslation('mobile.home')}>
+					<a href="/mobile-interface" class="header-nav-btn header-home-btn" class:active={$page.url.pathname === '/mobile-interface'} aria-label={getTranslation('mobile.home')}>
 						<div class="nav-icon-container">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 								<polyline points="9 22 9 12 15 12 15 22"/>
 							</svg>
 						</div>
 					</a>
-					<a href="/mobile-interface/notifications" class="header-nav-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/notifications')} aria-label={getTranslation('nav.viewNotifications')}>
+					<a href="/mobile-interface/notifications" class="header-nav-btn header-notif-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/notifications')} aria-label={getTranslation('nav.viewNotifications')}>
 						<div class="nav-icon-container">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
 								<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
 							</svg>
@@ -980,14 +959,12 @@
 							</svg>
 						</button>
 					{/if}
-					<button class="header-nav-btn header-scan-btn" on:click={fabStartScan} aria-label="Scan QR" title="Scan QR">
+					<button class="header-nav-btn header-scan-btn" on:click={fabStartScan} aria-label="Quick Task" title="Quick Task">
 						<div class="nav-icon-container">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-								<path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-								<path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-								<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-								<line x1="7" y1="12" x2="17" y2="12"/>
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+								<rect x="9" y="3" width="6" height="4" rx="1"/>
+								<path d="M9 14l2 2 4-4"/>
 							</svg>
 						</div>
 					</button>
@@ -1061,6 +1038,25 @@
 				</svg>
 				<span class="menu-item-text">{mobileVersion}</span>
 			</div>
+			{#if $updateAvailable}
+				<button class="menu-item menu-update" on:click={() => { handleUpdateClick(); showMenu = false; }} title={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}>
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+						<path d="M3 3v5h5"/>
+						<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+						<path d="M16 16h5v5"/>
+					</svg>
+					<span class="menu-item-text" style="color: #10B981; font-weight: 600;">{$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}</span>
+					<span class="update-dot" style="width:8px;height:8px;background:#10B981;border-radius:50%;animation:pulse-update 2s ease-in-out infinite;"></span>
+				</button>
+			{:else}
+				<div class="menu-item menu-version-status">
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M20 6L9 17l-5-5"/>
+					</svg>
+					<span class="menu-item-text" style="opacity: 0.6;">{$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}</span>
+				</div>
+			{/if}
 			<div class="menu-spacer"></div>
 			<button class="menu-item menu-logout" on:click={() => { logout(); showMenu = false; }} title={getTranslation('mobile.logout')}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2836,12 +2832,24 @@
 		}
 	}
 
+	/* ── Header Notification Button ── */
+	.header-notif-btn {
+		width: 40px;
+		height: 40px;
+		border-radius: 8px;
+	}
+
+	/* ── Header Home Button ── */
+	.header-home-btn {
+		width: 40px;
+		height: 40px;
+		border-radius: 8px;
+	}
+
 	/* ── Header Scan Button ── */
 	.header-scan-btn {
 		width: 40px;
 		height: 40px;
-		background: rgba(59, 130, 246, 0.3) !important;
-		border: 2px solid rgba(239, 68, 68, 0.8) !important;
 		border-radius: 8px;
 	}
 	.header-scan-btn :global(svg) {
