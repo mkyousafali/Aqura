@@ -235,6 +235,7 @@
 				.select(`
 					id,
 					user_id,
+					employee_id,
 					name_en,
 					name_ar,
 					current_branch_id,
@@ -262,7 +263,8 @@
 				return {
 					id: emp.user_id,
 					username: emp.name_en || emp.name_ar || '',
-					employee_id: emp.id,
+					employee_id: emp.employee_id || '',
+					hr_master_id: emp.id,
 					name_en: emp.name_en || '',
 					name_ar: emp.name_ar || '',
 					current_branch_id: emp.current_branch_id,
@@ -785,12 +787,13 @@
 	function matchScannedUser(scannedValue) {
 		if (!scannedValue) return;
 		const val = scannedValue.trim().toLowerCase();
-		// Match by employee_id, user_id, or name
+		// Match by employee_id (e.g. EMP55), user_id, hr_master_id, or name
 		const matched = users.find(u =>
-			u.id === scannedValue ||
-			u.employee_id?.toString() === val ||
+			u.employee_id?.toLowerCase() === val ||
+			u.id === scannedValue.trim() ||
+			u.hr_master_id === scannedValue.trim() ||
 			u.name_en?.toLowerCase() === val ||
-			u.name_ar === scannedValue
+			u.name_ar === scannedValue.trim()
 		);
 		if (matched) {
 			selectUser(matched);
