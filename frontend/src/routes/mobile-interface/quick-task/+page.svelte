@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { locale, getTranslation, currentLocale } from '$lib/i18n';
@@ -213,6 +214,27 @@
 
 	onMount(async () => {
 		await loadInitialData();
+		// Auto-select employee from URL query param (from FAB QR scan)
+		const employeeParam = $page.url.searchParams.get('employee');
+		if (employeeParam && users.length > 0) {
+			const val = employeeParam.trim().toLowerCase();
+			const matched = users.find(u =>
+				u.employee_id?.toLowerCase() === val ||
+				u.id === employeeParam.trim() ||
+				u.name_en?.toLowerCase() === val ||
+				u.name_ar === employeeParam.trim()
+			);
+			if (matched) {
+				selectUser(matched);
+				notifications.add({ type: 'success', message: `User found: ${getUserDisplayName(matched)}` });
+			} else {
+				notifications.add({ type: 'error', message: `No employee matched for: ${employeeParam}` });
+			}
+			// Clean URL without reloading
+			const url = new URL(window.location.href);
+			url.searchParams.delete('employee');
+			window.history.replaceState({}, '', url.pathname);
+		}
 		loading = false;
 	});
 
@@ -235,7 +257,6 @@
 				.select(`
 					id,
 					user_id,
-					employee_id,
 					name_en,
 					name_ar,
 					current_branch_id,
@@ -263,8 +284,7 @@
 				return {
 					id: emp.user_id,
 					username: emp.name_en || emp.name_ar || '',
-					employee_id: emp.employee_id || '',
-					hr_master_id: emp.id,
+					employee_id: emp.id,
 					name_en: emp.name_en || '',
 					name_ar: emp.name_ar || '',
 					current_branch_id: emp.current_branch_id,
@@ -787,11 +807,10 @@
 	function matchScannedUser(scannedValue) {
 		if (!scannedValue) return;
 		const val = scannedValue.trim().toLowerCase();
-		// Match by employee_id (e.g. EMP55), user_id, hr_master_id, or name
+		// Match by employee_id (e.g. EMP55), user_id (UUID), or name
 		const matched = users.find(u =>
 			u.employee_id?.toLowerCase() === val ||
 			u.id === scannedValue.trim() ||
-			u.hr_master_id === scannedValue.trim() ||
 			u.name_en?.toLowerCase() === val ||
 			u.name_ar === scannedValue.trim()
 		);

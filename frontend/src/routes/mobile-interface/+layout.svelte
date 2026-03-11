@@ -76,6 +76,15 @@
 	
 	// Mobile version - will be extracted from full version
 	let mobileVersion = 'AQ1';
+
+	// FAB QR Scanner State
+	let fabScanning = false;
+	let fabVideoEl: HTMLVideoElement;
+	let fabStream: MediaStream | null = null;
+	let fabScanInterval: any = null;
+	let fabBarcodeDetector: any = null;
+	let fabScanCanvas: HTMLCanvasElement | null = null;
+	let fabScanCtx: CanvasRenderingContext2D | null = null;
 	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
@@ -803,6 +812,87 @@
 			}
 		};
 	}
+
+	// ── FAB QR Scanner Functions ──
+	async function fabStartScan() {
+		fabScanning = true;
+		try {
+			fabStream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+			});
+			await new Promise(r => setTimeout(r, 100));
+			if (fabVideoEl) {
+				fabVideoEl.srcObject = fabStream;
+				await fabVideoEl.play();
+				await new Promise(r => setTimeout(r, 500));
+				await fabInitDetector();
+				fabDetectLoop();
+			}
+		} catch (err) {
+			console.error('FAB camera error:', err);
+			fabScanning = false;
+		}
+	}
+
+	async function fabInitDetector() {
+		// @ts-ignore
+		if ('BarcodeDetector' in window) {
+			try {
+				// @ts-ignore
+				fabBarcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
+				return;
+			} catch (_) { /* fallback */ }
+		}
+		try {
+			const { BarcodeDetector: Polyfill } = await import('barcode-detector');
+			fabBarcodeDetector = new Polyfill({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
+		} catch (e) {
+			console.error('Failed to load barcode detector:', e);
+		}
+	}
+
+	function fabDetectLoop() {
+		if (!fabBarcodeDetector) { fabStopScan(); return; }
+		fabScanCanvas = document.createElement('canvas');
+		fabScanCtx = fabScanCanvas.getContext('2d');
+
+		fabScanInterval = setInterval(async () => {
+			if (!fabVideoEl || fabVideoEl.readyState < 2 || !fabScanCanvas || !fabScanCtx) return;
+			try {
+				const vw = fabVideoEl.videoWidth;
+				const vh = fabVideoEl.videoHeight;
+				if (vw === 0 || vh === 0) return;
+				fabScanCanvas.width = vw;
+				fabScanCanvas.height = vh;
+				fabScanCtx.drawImage(fabVideoEl, 0, 0, vw, vh);
+
+				let barcodes: any[] = [];
+				try {
+					barcodes = await fabBarcodeDetector.detect(fabScanCanvas);
+				} catch (_) {
+					try {
+						const imageData = fabScanCtx.getImageData(0, 0, vw, vh);
+						barcodes = await fabBarcodeDetector.detect(imageData);
+					} catch (__) {}
+				}
+
+				if (barcodes.length > 0) {
+					const scannedValue = barcodes[0].rawValue;
+					fabStopScan();
+					// Navigate to quick-task with scanned employee code
+					goto(`/mobile-interface/quick-task?employee=${encodeURIComponent(scannedValue)}`);
+				}
+			} catch (_) {}
+		}, 400);
+	}
+
+	function fabStopScan() {
+		if (fabScanInterval) { clearInterval(fabScanInterval); fabScanInterval = null; }
+		if (fabStream) { fabStream.getTracks().forEach(t => t.stop()); fabStream = null; }
+		fabScanCanvas = null;
+		fabScanCtx = null;
+		fabScanning = false;
+	}
 </script>
 
 <svelte:head>
@@ -890,6 +980,17 @@
 							</svg>
 						</button>
 					{/if}
+					<button class="header-nav-btn header-scan-btn" on:click={fabStartScan} aria-label="Scan QR" title="Scan QR">
+						<div class="nav-icon-container">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+								<path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+								<path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+								<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+								<line x1="7" y1="12" x2="17" y2="12"/>
+							</svg>
+						</div>
+					</button>
 				</div>
 			</div>
 		</header>
@@ -1096,7 +1197,7 @@
 							<line x1="12" y1="17" x2="12.01" y2="17"/>
 						</svg>
 					</div>
-					<span class="nav-label">{getTranslation('mobile.emergencies')}</span>
+					<span class="nav-label">{$currentLocale === 'ar' ? 'طوارئ' : 'SOS'}</span>
 				</button>
 				
 				<!-- Emergencies Submenu -->
@@ -1170,7 +1271,7 @@
 							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
 						</svg>
 					</div>
-					<span class="nav-label">{getTranslation('mobile.humanResources')}</span>
+					<span class="nav-label">{$currentLocale === 'ar' ? 'موارد' : 'HR'}</span>
 				</button>
 				
 				<!-- HR Submenu -->
@@ -1273,9 +1374,23 @@
 						<path d="M8 10h.01M12 10h.01M16 10h.01"/>
 					</svg>
 				</div>
-				<span class="nav-label">{getTranslation('mobile.bottomNav.aiChat')}</span>
+				<span class="nav-label">{$currentLocale === 'ar' ? 'ذكاء' : 'AI'}</span>
 			</a>
 		</nav>
+
+		<!-- FAB QR Scanner Overlay -->
+		{#if fabScanning}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="fab-scanner-overlay" on:click={fabStopScan}>
+				<div class="fab-scanner-container" on:click|stopPropagation>
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video bind:this={fabVideoEl} playsinline autoplay muted class="fab-scanner-video"></video>
+					<div class="fab-scan-line"></div>
+					<button class="fab-scanner-close" on:click={fabStopScan}>&times;</button>
+				</div>
+			</div>
+		{/if}
 
 		<!-- Contact Info Overlay - mask over content, below header & bottom-nav -->
 		<ContactInfoOverlay mode="mobile" />
@@ -1933,7 +2048,11 @@
 	}
 
 	.nav-label {
-		display: none;
+		display: block;
+		font-size: 9px;
+		line-height: 1;
+		margin-top: 2px;
+		white-space: nowrap;
 	}
 
 	/* Special styling for quick task button */
@@ -2062,6 +2181,7 @@
 		border: none;
 		background: none;
 		cursor: pointer;
+		color: #EC4899;
 	}
 
 	.nav-item.hr-menu-btn:hover {
@@ -2088,6 +2208,7 @@
 		background: none;
 		cursor: pointer;
 		position: relative;
+		color: #6366F1;
 	}
 
 	.nav-item.ai-chat-btn:hover {
@@ -2378,7 +2499,7 @@
 	}
 
 	.nav-item.tasks-btn {
-		color: #6B7280;
+		color: #3B82F6;
 	}
 
 	.nav-item.tasks-btn:hover {
@@ -2396,7 +2517,7 @@
 
 	/* Orders Button & Submenu Styles */
 	.nav-item.orders-btn {
-		color: #6B7280;
+		color: #059669;
 	}
 	.nav-item.orders-btn:hover {
 		color: #059669;
@@ -2543,7 +2664,7 @@
 	}
 
 	.nav-item.stock-menu-btn {
-		color: #6B7280;
+		color: #F59E0B;
 	}
 
 	.nav-item.stock-menu-btn:hover {
@@ -2713,6 +2834,85 @@
 		:global([dir="rtl"] .user-details p) {
 			text-align: right;
 		}
+	}
+
+	/* ── Header Scan Button ── */
+	.header-scan-btn {
+		width: 40px;
+		height: 40px;
+		background: rgba(59, 130, 246, 0.3) !important;
+		border: 2px solid rgba(239, 68, 68, 0.8) !important;
+		border-radius: 8px;
+	}
+	.header-scan-btn :global(svg) {
+		width: 22px;
+		height: 22px;
+	}
+	.header-scan-btn:active {
+		background: rgba(59, 130, 246, 0.5) !important;
+	}
+
+	/* ── FAB Scanner Overlay ── */
+	.fab-scanner-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.85);
+		z-index: 10000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.fab-scanner-container {
+		position: relative;
+		width: 90vw;
+		max-width: 400px;
+		aspect-ratio: 4 / 3;
+		border-radius: 16px;
+		overflow: hidden;
+		border: 3px solid rgba(59, 130, 246, 0.6);
+	}
+
+	.fab-scanner-video {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.fab-scan-line {
+		position: absolute;
+		left: 5%;
+		right: 5%;
+		height: 3px;
+		background: linear-gradient(90deg, transparent, #3B82F6, transparent);
+		box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+		animation: fabScanLine 2s ease-in-out infinite;
+	}
+
+	@keyframes fabScanLine {
+		0%, 100% { top: 10%; }
+		50% { top: 85%; }
+	}
+
+	.fab-scanner-close {
+		position: absolute;
+		top: 8px;
+		right: 8px;
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.6);
+		color: white;
+		border: none;
+		font-size: 22px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
 	}
 </style>
 
