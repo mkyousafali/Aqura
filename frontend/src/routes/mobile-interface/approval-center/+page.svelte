@@ -1162,7 +1162,7 @@ async function rejectRequisition(reason) {
 	}
 </script>
 
-<div class="mobile-approval-center" dir={isAr ? 'rtl' : 'ltr'}>
+<div class="mobile-approval-center" dir={isAr ? 'rtl' : 'ltr'} class:modal-open={showDetailModal || showConfirmModal || showDayOffApproveModal}>
 	{#if loading}
 		<div class="loading">
 			<div class="spinner"></div>
@@ -1781,7 +1781,11 @@ async function rejectRequisition(reason) {
 <style>
 	.mobile-approval-center {
 		padding: 0.5rem;
-		padding-bottom: 4rem;
+		padding-bottom: 8rem;
+	}
+
+	.mobile-approval-center.modal-open {
+		overflow: hidden;
 	}
 
 	.loading {
@@ -1901,7 +1905,7 @@ async function rejectRequisition(reason) {
 		gap: 0.4rem;
 		max-height: calc(100vh - 200px);
 		overflow-y: auto;
-		padding-bottom: 1rem;
+		padding-bottom: 10rem;
 	}
 
 	.req-card {
