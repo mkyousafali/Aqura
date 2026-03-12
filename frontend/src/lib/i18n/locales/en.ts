@@ -105,6 +105,7 @@ export const englishLocale: LocaleData = {
       promo: "Promo",
       manage: "Manage",
       operations: "Operations",
+      localBranchUpdate: "Local Branch Update",
       receiving: "Receiving",
       receivingRecords: "Receiving Records",
       flyerMaster: "Flyer Master",

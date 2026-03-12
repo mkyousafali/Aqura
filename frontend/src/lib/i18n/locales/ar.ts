@@ -107,6 +107,7 @@ export const arabicLocale: LocaleData = {
       promo: "الترويج",
       manage: "إدارة",
       operations: "العمليات",
+      localBranchUpdate: "تحديث الفرع المحلي",
       receiving: "الاستلام",
       receivingRecords: "سجلات الاستلام",
       flyerMaster: "رئيسي النشرات",

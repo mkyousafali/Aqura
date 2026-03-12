@@ -98,6 +98,7 @@
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
 	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
+	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
@@ -1761,6 +1762,28 @@ function openApprovalCenter() {
 			componentName: "PushNotificationSettings",
 			icon: '🔔',
 			size: { width: 650, height: 550 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllSubsections();
+	}
+
+	function openLocalUpdate() {
+		const windowId = generateWindowId('local-update');
+		
+		openWindow({
+			id: windowId,
+			title: 'Local Branch Update',
+			component: LocalUpdate,
+			componentName: "LocalUpdate",
+			icon: '🚀',
+			size: { width: 1000, height: 800 },
 			position: { 
 				x: 150 + (Math.random() * 100), 
 				y: 80 + (Math.random() * 100) 
@@ -5855,6 +5878,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openPushNotificationSettings}>
 								<span class="menu-icon">🔔</span>
 								<span class="menu-text">Push Notifications</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('LOCAL_UPDATE') || $currentUser?.isMasterAdmin}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLocalUpdate}>
+								<span class="menu-icon">🚀</span>
+								<span class="menu-text">{t('nav.localBranchUpdate')}</span>
 							</button>
 						</div>
 					{/if}
