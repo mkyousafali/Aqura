@@ -64,24 +64,34 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 AS $$
+DECLARE
+  v_offset integer;
+  v_limit integer;
 BEGIN
+  v_offset := CASE WHEN (p_search_barcode IS NOT NULL OR p_search_name IS NOT NULL) THEN 0 ELSE (p_page - 1) * p_page_size END;
+  v_limit := CASE WHEN (p_search_barcode IS NOT NULL OR p_search_name IS NOT NULL) THEN NULL ELSE p_page_size END;
+
   RETURN QUERY
   SELECT
-    m.branch_id,
-    m.barcode,
-    m.product_name_en,
-    m.product_name_ar,
-    m.expiry_date,
-    m.days_left,
-    m.managed_by,
+    (entry->>'branch_id')::integer AS branch_id,
+    p.barcode,
+    p.product_name_en,
+    p.product_name_ar,
+    (entry->>'expiry_date')::date AS expiry_date,
+    ((entry->>'expiry_date')::date - CURRENT_DATE)::integer AS days_left,
+    p.managed_by,
     count(*) OVER() AS total_count
-  FROM mv_expiry_products m
-  WHERE m.expiry_hidden IS NOT TRUE
-    AND (p_branch_id IS NULL OR m.branch_id = p_branch_id)
-    AND (p_search_barcode IS NULL OR m.barcode ILIKE '%' || p_search_barcode || '%')
-    AND (p_search_name IS NULL OR m.product_name_en ILIKE '%' || p_search_name || '%' OR m.product_name_ar ILIKE '%' || p_search_name || '%')
-  ORDER BY m.days_left ASC, m.barcode
-  LIMIT CASE WHEN (p_search_barcode IS NOT NULL OR p_search_name IS NOT NULL) THEN NULL ELSE p_page_size END
-  OFFSET CASE WHEN (p_search_barcode IS NOT NULL OR p_search_name IS NOT NULL) THEN 0 ELSE (p_page - 1) * p_page_size END;
+  FROM erp_synced_products p,
+    jsonb_array_elements(p.expiry_dates) AS entry
+  WHERE p.expiry_hidden IS NOT TRUE
+    AND jsonb_array_length(p.expiry_dates) > 0
+    AND (entry->>'expiry_date') IS NOT NULL
+    AND (entry->>'branch_id') IS NOT NULL
+    AND (p_branch_id IS NULL OR (entry->>'branch_id')::integer = p_branch_id)
+    AND (p_search_barcode IS NULL OR p.barcode ILIKE '%' || p_search_barcode || '%')
+    AND (p_search_name IS NULL OR p.product_name_en ILIKE '%' || p_search_name || '%' OR p.product_name_ar ILIKE '%' || p_search_name || '%')
+  ORDER BY ((entry->>'expiry_date')::date - CURRENT_DATE) ASC, p.barcode
+  LIMIT v_limit
+  OFFSET v_offset;
 END;
 $$;

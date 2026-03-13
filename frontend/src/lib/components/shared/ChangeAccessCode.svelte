@@ -67,6 +67,7 @@
 		loading = true;
 		try {
 			// Call RPC to validate identity and generate OTP
+			console.log('📱 Requesting OTP for email:', email.trim(), 'WhatsApp:', whatsappNumber.trim());
 			const { data, error: rpcError } = await supabase.rpc('request_access_code_change', {
 				p_email: email.trim(),
 				p_whatsapp: whatsappNumber.trim()
@@ -74,14 +75,17 @@
 
 			if (rpcError) {
 				error = t('Server error. Please try again.', 'خطأ في الخادم. يرجى المحاولة مرة أخرى.');
-				console.error('RPC error:', rpcError);
+				console.error('❌ RPC error:', rpcError);
 				return;
 			}
 
 			if (!data || !data.success) {
 				error = data?.message || t('Verification failed', 'فشل التحقق');
+				console.error('❌ RPC returned error:', data);
 				return;
 			}
+
+			console.log('✅ OTP generated:', data.otp);
 
 			// Send OTP via WhatsApp using whatsapp-manage edge function
 			const otp = data.otp;
@@ -90,15 +94,22 @@
 			let whatsappSent = false;
 			try {
 				// First get default WA account
-				const { data: waAccount } = await supabase
+				console.log('🔍 Looking for default WhatsApp account...');
+				const { data: waAccount, error: waAccountError } = await supabase
 					.from('wa_accounts')
 					.select('id')
 					.eq('is_default', true)
 					.eq('is_active', true)
 					.single();
 
+				if (waAccountError) {
+					console.warn('⚠️ Error fetching WA account:', waAccountError);
+				}
+
 				if (waAccount) {
+					console.log('✅ Found WA account:', waAccount.id);
 					// Try sending as template first (requires approved template)
+					console.log('📤 Attempting to send OTP via WhatsApp template...');
 					const { data: waResult, error: waError } = await supabase.functions.invoke('whatsapp-manage', {
 						body: {
 							action: 'send_template',
@@ -126,8 +137,9 @@
 					});
 
 					if (waError) {
-						console.warn('Template send failed, trying plain text:', waError);
+						console.warn('⚠️ Template send failed:', waError);
 						// Fallback: try plain text (works within 24h window)
+						console.log('📤 Attempting fallback: plain text message...');
 						const { data: fallbackResult, error: fallbackError } = await supabase.functions.invoke('whatsapp-manage', {
 							body: {
 								action: 'send_message',
@@ -139,21 +151,27 @@
 									: `Your Aqura verification code is: *${otp}*\nThis code expires in 5 minutes.\nDo not share it with anyone.`
 							}
 						});
-						if (!fallbackError) whatsappSent = true;
-						console.log('Plain text fallback result:', fallbackResult, fallbackError);
+						if (!fallbackError) {
+							console.log('✅ Plain text message sent successfully');
+							whatsappSent = true;
+						} else {
+							console.error('❌ Plain text send also failed:', fallbackError);
+						}
+						console.log('📊 Fallback result:', fallbackResult, fallbackError);
 					} else {
+						console.log('✅ Template message sent successfully:', waResult);
 						whatsappSent = true;
-						console.log('Template message sent:', waResult);
 					}
 				} else {
-					console.warn('No default WA account found, OTP not sent via WhatsApp');
+					console.warn('⚠️ No default WA account found with is_default=true AND is_active=true');
 				}
 			} catch (waErr) {
-				console.error('WhatsApp send error (OTP still valid):', waErr);
+				console.error('❌ WhatsApp send error (OTP still valid):', waErr);
 			}
 
 			// If WhatsApp failed, show OTP in the UI as temporary fallback
 			if (!whatsappSent) {
+				console.warn('⚠️ WhatsApp delivery failed - showing OTP in UI for manual entry');
 				tempOtpDisplay = otp;
 			}
 

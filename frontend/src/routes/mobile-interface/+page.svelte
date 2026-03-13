@@ -888,12 +888,6 @@
 		</div>
 	</section>
 	{/if}
-
-	<!-- Logo at bottom -->
-	<div class="bottom-logo">
-		<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" />
-		<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura" />
-	</div>
 </div>
 
 <style>
@@ -1371,41 +1365,6 @@
 		background: rgba(6, 182, 212, 0.1) !important;
 		color: #06B6D4 !important;
 	}
-
-	.bottom-logo {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		gap: 1.5rem;
-		width: 100%;
-		padding: 6rem 0 1.5rem;
-		opacity: 0.7;
-	}
-
-	.bottom-logo img {
-		width: 120px;
-		height: 50px;
-		object-fit: contain;
-		border: 2px solid #F59E0B;
-		border-radius: 12px;
-		padding: 6px 20px;
-		background: white;
-		box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
-		animation: logo-glow 2.5s ease-in-out infinite;
-	}
-
-	@keyframes logo-glow {
-		0%, 100% {
-			box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
-			border-color: rgba(245, 158, 11, 0.6);
-		}
-		50% {
-			box-shadow: 0 0 18px rgba(245, 158, 11, 0.5);
-			border-color: rgba(245, 158, 11, 1);
-		}
-	}
-
-
 
 	.stat-card.clickable:hover {
 		transform: translateY(-5px);
