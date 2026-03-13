@@ -440,32 +440,61 @@
 				await loadApprovers();
 				closeEditApproverPopup();
 			} else {
-				// Check if already exists
-				const { data: existing } = await supabase
+				// Check if already exists AND is active
+				const { data: existing, error: checkError } = await supabase
 					.from('approval_permissions')
 					.select('*')
 					.eq('user_id', currentApprover.user_id)
-					.single();
+					.eq('is_active', true)
+					.maybeSingle();
 
-				if (existing) {
-					errorMessage = 'User already has approval permissions';
+				if (checkError && checkError.code !== 'PGRST116') {
+					errorMessage = checkError.message || 'Error checking permissions';
 					alert('Error: ' + errorMessage);
 					return;
 				}
 
-				// Create approval permission record
-				const { error: createError } = await supabase
+				if (existing) {
+					errorMessage = 'User already has active approval permissions';
+					alert('Error: ' + errorMessage);
+					return;
+				}
+
+				// Check if inactive record exists (for re-activation)
+				const { data: inactiveRecord } = await supabase
 					.from('approval_permissions')
-					.insert([{
-						user_id: currentApprover.user_id,
-						can_approve_leave_requests: true,
-						can_approve_requisitions: false,
-						can_approve_single_bill: false,
-						can_approve_multiple_bill: false,
-						can_approve_recurring_bill: false,
-						can_approve_vendor_payments: false,
-						is_active: true
-					}]);
+					.select('*')
+					.eq('user_id', currentApprover.user_id)
+					.eq('is_active', false)
+					.maybeSingle();
+
+				let createError;
+				if (inactiveRecord) {
+					// Re-activate existing record
+					const { error: updateErr } = await supabase
+						.from('approval_permissions')
+						.update({
+							can_approve_leave_requests: true,
+							is_active: true
+						})
+						.eq('user_id', currentApprover.user_id);
+					createError = updateErr;
+				} else {
+					// Create new approval permission record
+					const { error: insertErr } = await supabase
+						.from('approval_permissions')
+						.insert([{
+							user_id: currentApprover.user_id,
+							can_approve_leave_requests: true,
+							can_approve_requisitions: false,
+							can_approve_single_bill: false,
+							can_approve_multiple_bill: false,
+							can_approve_recurring_bill: false,
+							can_approve_vendor_payments: false,
+							is_active: true
+						}]);
+					createError = insertErr;
+				}
 
 				if (createError) {
 					errorMessage = createError.message || 'Failed to create approver';
