@@ -590,6 +590,16 @@
 		return new Date(dateStr).toLocaleTimeString(isRTL ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' });
 	}
 
+	function formatMsgDate(dateStr: string) {
+		const isAr = isRTL;
+		return new Date(dateStr).toLocaleDateString(isAr ? 'ar-SA' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+	}
+
+	function getMessageDate(dateStr: string): string {
+		const d = new Date(dateStr);
+		return d.toDateString();
+	}
+
 	function getStatusTick(status: string) {
 		switch (status) {
 			case 'sent': return '✓';
@@ -1105,7 +1115,12 @@
 						</div>
 					</div>
 				{:else}
-					{#each messages as msg}
+					{#each messages as msg, idx}
+						{#if idx === 0 || getMessageDate(messages[idx - 1].created_at) !== getMessageDate(msg.created_at)}
+							<div class="wa-date-separator">
+								<span>{formatMsgDate(msg.created_at)}</span>
+							</div>
+						{/if}
 						<div class="wa-msg-row" class:outbound={msg.direction === 'outbound'} class:inbound={msg.direction !== 'outbound'}>
 							<div class="wa-msg-bubble" class:wa-msg-out={msg.direction === 'outbound'} class:wa-msg-in={msg.direction !== 'outbound'}>
 								<!-- Sender label -->
@@ -1853,6 +1868,23 @@
 	}
 	.wa-msg-row.outbound { justify-content: flex-end; }
 	.wa-msg-row.inbound { justify-content: flex-start; }
+
+	.wa-date-separator {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		margin: 12px 0;
+		font-size: 12px;
+		font-weight: 500;
+		color: #64748b;
+	}
+
+	.wa-date-separator span {
+		background: #f1f5f9;
+		padding: 4px 12px;
+		border-radius: 16px;
+		white-space: nowrap;
+	}
 
 	.wa-msg-bubble {
 		max-width: 80%;

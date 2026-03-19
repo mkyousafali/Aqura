@@ -612,6 +612,15 @@
         return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    function formatMsgDate(dateStr: string) {
+        return new Date(dateStr).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    function getMessageDate(dateStr: string): string {
+        const d = new Date(dateStr);
+        return d.toDateString();
+    }
+
     function getStatusTick(status: string) {
         switch (status) {
             case 'sent': return '✓';
@@ -1133,7 +1142,14 @@
                         <p class="text-slate-400 text-sm font-medium">No messages in this conversation</p>
                     </div>
                 {:else}
-                    {#each messages as msg}
+                    {#each messages as msg, idx}
+                        {#if idx === 0 || getMessageDate(messages[idx - 1].created_at) !== getMessageDate(msg.created_at)}
+                            <div class="flex justify-center my-4">
+                                <div class="px-4 py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs font-medium">
+                                    {formatMsgDate(msg.created_at)}
+                                </div>
+                            </div>
+                        {/if}
                         <div class="flex {msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}">
                             <div class="msg-bubble max-w-[65%] px-3.5 py-2.5 text-sm
                                 {msg.direction === 'outbound'
@@ -1546,6 +1562,24 @@
         background-image:
             linear-gradient(135deg, rgba(249, 115, 22, 0.04) 0%, rgba(255, 255, 255, 0.6) 40%, rgba(34, 197, 94, 0.04) 100%),
             url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f97316' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+
+    /* --- Date Separator --- */
+    .date-separator {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin: 16px 0;
+        font-size: 13px;
+        font-weight: 500;
+        color: #64748b;
+    }
+
+    .date-separator > div {
+        background: #f1f5f9;
+        padding: 6px 14px;
+        border-radius: 16px;
+        white-space: nowrap;
     }
 
     /* --- Message Bubbles (Glass) --- */

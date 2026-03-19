@@ -165,6 +165,64 @@
 	let diskLoading = false;
 	let restarting = false;
 	let restartStatus = '';
+	let clearingLogs = false;
+	let clearLogsResult = '';
+
+	// Logs tab state
+	interface LogTableInfo {
+		table_name: string;
+		total_size: string;
+		raw_size: number;
+		row_estimate: number;
+	}
+	let logTables: LogTableInfo[] = [];
+	let logsLoading = false;
+	let logsError = '';
+	let logsTotalSize = 0;
+
+	async function loadLogTables() {
+		logsLoading = true;
+		logsError = '';
+		try {
+			const { data, error: rpcErr } = await supabase.rpc('get_analytics_log_tables');
+			if (rpcErr) {
+				logsError = rpcErr.message;
+			} else {
+				logTables = (data || []).map((r: any) => ({
+					table_name: r.table_name,
+					total_size: r.total_size,
+					raw_size: Number(r.raw_size) || 0,
+					row_estimate: Number(r.row_estimate) || 0
+				}));
+				logsTotalSize = logTables.reduce((sum, t) => sum + t.raw_size, 0);
+			}
+		} catch (e: any) {
+			logsError = e.message;
+		}
+		logsLoading = false;
+	}
+
+	async function clearAnalyticsLogs() {
+		if (clearingLogs) return;
+		if (!confirm('🧹 This will clear Supabase Analytics log tables.\n\nThese are only dashboard logs — your app data is NOT affected.\n\nProceed?')) return;
+		clearingLogs = true;
+		clearLogsResult = '';
+		try {
+			const { data, error: rpcErr } = await supabase.rpc('clear_analytics_logs');
+			if (rpcErr) {
+				clearLogsResult = '❌ ' + rpcErr.message;
+			} else {
+				clearLogsResult = '✅ ' + (data || 'Logs cleared');
+				await loadDiskUsage();
+				await loadLogTables();
+			}
+			setTimeout(() => { clearLogsResult = ''; }, 10000);
+		} catch (e: any) {
+			clearLogsResult = '❌ ' + e.message;
+			setTimeout(() => { clearLogsResult = ''; }, 5000);
+		}
+		clearingLogs = false;
+	}
 
 	async function restartServer() {
 		if (restarting) return;
@@ -289,7 +347,8 @@
 		{ id: 'storage', label: 'Storage', icon: '\u{1F5C4}\uFE0F', color: 'green' },
 		{ id: 'tables', label: 'Tables', icon: '\u{1F5C3}\uFE0F', color: 'orange' },
 		{ id: 'functions', label: 'Functions', icon: '\u{2699}\uFE0F', color: 'purple' },
-		{ id: 'edge', label: 'Edge Functions', icon: '\u{26A1}', color: 'cyan' }
+		{ id: 'edge', label: 'Edge Functions', icon: '\u{26A1}', color: 'cyan' },
+		{ id: 'logs', label: 'Logs', icon: '\u{1F4DC}', color: 'red' }
 	];
 
 	function getTabActiveClass(color: string): string {
@@ -298,7 +357,8 @@
 			orange: 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]',
 			purple: 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]',
 			cyan: 'bg-cyan-600 text-white shadow-lg shadow-cyan-200 scale-[1.02]',
-			blue: 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'
+			blue: 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]',
+			red: 'bg-red-600 text-white shadow-lg shadow-red-200 scale-[1.02]'
 		};
 		return map[color] || map.orange;
 	}
@@ -532,7 +592,7 @@
 		lastTabLoad = 'tables';
 		loadTables();
 	}
-	$: if (activeTab !== 'tables' && activeTab !== 'functions' && activeTab !== 'edge') {
+	$: if (activeTab !== 'tables' && activeTab !== 'functions' && activeTab !== 'edge' && activeTab !== 'logs') {
 		lastTabLoad = '';
 	}
 	$: if (activeTab === 'functions' && !funcsLoading && supabase && lastTabLoad !== 'functions') {
@@ -542,6 +602,10 @@
 	$: if (activeTab === 'edge' && !edgeFuncsLoading && supabase && lastTabLoad !== 'edge') {
 		lastTabLoad = 'edge';
 		loadEdgeFunctions();
+	}
+	$: if (activeTab === 'logs' && !logsLoading && supabase && lastTabLoad !== 'logs') {
+		lastTabLoad = 'logs';
+		loadLogTables();
 	}
 </script>
 
@@ -596,6 +660,19 @@
 							</div>
 							<div class="flex items-center gap-4">
 								<button
+									on:click={clearAnalyticsLogs}
+									disabled={clearingLogs}
+									class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all {clearingLogs ? 'bg-amber-500/30 text-amber-300 cursor-wait' : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 hover:text-amber-300 border border-amber-500/30 hover:border-amber-400/50'}"
+								>
+									{#if clearingLogs}
+										<span class="animate-spin">{"\u{23F3}"}</span>
+										Clearing Logs...
+									{:else}
+										<span>{"\u{1F9F9}"}</span>
+										Clear Logs
+									{/if}
+								</button>
+								<button
 									on:click={restartServer}
 									disabled={restarting}
 									class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all {restarting ? 'bg-amber-500/30 text-amber-300 cursor-wait' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 border border-red-500/30 hover:border-red-400/50'}"
@@ -646,6 +723,11 @@
 						{#if restartStatus}
 							<div class="mt-3 text-xs font-semibold {restartStatus.startsWith('\u274c') ? 'text-red-400' : 'text-emerald-400'} animate-pulse">
 								{restartStatus}
+							</div>
+						{/if}
+						{#if clearLogsResult}
+							<div class="mt-3 text-xs font-semibold {clearLogsResult.startsWith('\u274c') ? 'text-red-400' : 'text-emerald-400'} animate-pulse">
+								{clearLogsResult}
 							</div>
 						{/if}
 					</div>
@@ -1002,6 +1084,118 @@
 											</td>
 										</tr>
 									{/each}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				{/if}
+			{:else if activeTab === 'logs'}
+				<!-- Logs Tab Header -->
+				<div class="flex gap-4 mb-5 items-center">
+					<div class="flex-1 bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-4">
+						<div class="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center text-2xl">{"\u{1F4DC}"}</div>
+						<div>
+							<div class="text-2xl font-black text-slate-900">{logTables.length}</div>
+							<div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Log Tables</div>
+						</div>
+					</div>
+					<div class="flex-1 bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-4">
+						<div class="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-2xl">{"\u{1F4BE}"}</div>
+						<div>
+							<div class="text-2xl font-black text-slate-900">{formatBytes(logsTotalSize)}</div>
+							<div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Total Log Size</div>
+						</div>
+					</div>
+					<div class="flex-1 bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-4 flex items-center gap-4">
+						<div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-2xl">{"\u{1F4CA}"}</div>
+						<div>
+							<div class="text-2xl font-black text-slate-900">{logTables.reduce((s, t) => s + t.row_estimate, 0).toLocaleString()}</div>
+							<div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Total Rows</div>
+						</div>
+					</div>
+					<button
+						on:click={clearAnalyticsLogs}
+						disabled={clearingLogs}
+						class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-amber-200 hover:scale-[1.02] disabled:opacity-50 flex items-center gap-2"
+					>
+						{#if clearingLogs}
+							<span class="animate-spin">{"\u{23F3}"}</span> Clearing...
+						{:else}
+							<span>{"\u{1F9F9}"}</span> Clear All Logs
+						{/if}
+					</button>
+					<button
+						class="px-5 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-red-200 hover:scale-[1.02] disabled:opacity-50"
+						on:click={loadLogTables}
+						disabled={logsLoading}
+					>
+						<span class:animate-spin={logsLoading}>{"\u{1F504}"}</span> Refresh
+					</button>
+				</div>
+
+				{#if clearLogsResult}
+					<div class="mb-4 px-4 py-3 rounded-xl text-sm font-bold {clearLogsResult.startsWith('\u274c') ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'} animate-pulse">
+						{clearLogsResult}
+					</div>
+				{/if}
+
+				{#if logsLoading}
+					<div class="flex items-center justify-center h-full">
+						<div class="text-center">
+							<div class="animate-spin inline-block">
+								<div class="w-12 h-12 border-4 border-red-200 border-t-red-600 rounded-full"></div>
+							</div>
+							<p class="mt-4 text-slate-600 font-semibold">Loading log tables...</p>
+						</div>
+					</div>
+				{:else if logsError}
+					<div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+						<p class="text-red-700 font-semibold">{logsError}</p>
+						<button class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition" on:click={loadLogTables}>Retry</button>
+					</div>
+				{:else}
+					<div class="bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden flex-1 flex flex-col min-h-0">
+						<div class="overflow-x-auto overflow-y-auto flex-1">
+							<table class="w-full">
+								<thead class="sticky top-0 z-10">
+									<tr class="bg-slate-50 border-b border-slate-200">
+										<th class="px-4 py-3 text-left text-xs font-black text-slate-600 uppercase tracking-wide">#</th>
+										<th class="px-4 py-3 text-left text-xs font-black text-slate-600 uppercase tracking-wide">Table Name</th>
+										<th class="px-4 py-3 text-center text-xs font-black text-slate-600 uppercase tracking-wide">Rows</th>
+										<th class="px-4 py-3 text-center text-xs font-black text-slate-600 uppercase tracking-wide">Size</th>
+										<th class="px-4 py-3 text-center text-xs font-black text-slate-600 uppercase tracking-wide">% of Total</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each logTables as lt, i}
+										<tr class="border-b border-slate-100 hover:bg-red-50/50 transition-colors">
+											<td class="px-4 py-3 text-sm text-slate-500 font-bold">{i + 1}</td>
+											<td class="px-4 py-3">
+												<span class="text-sm font-bold text-slate-800 font-mono">{lt.table_name}</span>
+											</td>
+											<td class="px-4 py-3 text-center text-sm font-bold text-slate-700">{lt.row_estimate.toLocaleString()}</td>
+											<td class="px-4 py-3 text-center">
+												<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold {lt.raw_size >= 1073741824 ? 'bg-red-100 text-red-700' : lt.raw_size >= 104857600 ? 'bg-orange-100 text-orange-700' : lt.raw_size >= 1048576 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}">
+													{lt.total_size}
+												</span>
+											</td>
+											<td class="px-4 py-3 text-center">
+												<div class="flex items-center gap-2 justify-center">
+													<div class="w-24 bg-slate-200 rounded-full h-2">
+														<div class="h-2 rounded-full bg-red-500 transition-all" style="width: {logsTotalSize > 0 ? (lt.raw_size / logsTotalSize * 100) : 0}%"></div>
+													</div>
+													<span class="text-xs font-bold text-slate-500">{logsTotalSize > 0 ? (lt.raw_size / logsTotalSize * 100).toFixed(1) : 0}%</span>
+												</div>
+											</td>
+										</tr>
+									{/each}
+									{#if logTables.length === 0}
+										<tr>
+											<td colspan="5" class="px-4 py-12 text-center text-slate-400 font-semibold">
+												{"\u2705"} No analytics log tables found — logs are clean!
+											</td>
+										</tr>
+									{/if}
 								</tbody>
 							</table>
 						</div>
