@@ -26,15 +26,16 @@
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
+require('dotenv').config();
 
-// ========== CONFIGURATION - EDIT PER BRANCH ==========
-const SQL_SERVER = 'localhost';
-const SQL_DATABASE = 'URBAN2_2025';
-const SQL_USER = 'sa';
-const SQL_PASSWORD = 'Polosys*123';
-const API_SECRET = 'aqura-erp-bridge-2026';  // Must match the secret in Vercel env
-const PORT = 3333;
-// =====================================================
+// ========== CONFIGURATION - from .env or defaults ==========
+const SQL_SERVER = process.env.SQL_SERVER || 'localhost';
+const SQL_DATABASE = process.env.SQL_DATABASE || 'URBAN2_2025';
+const SQL_USER = process.env.SQL_USER || 'sa';
+const SQL_PASSWORD = process.env.SQL_PASSWORD || '';
+const API_SECRET = process.env.API_SECRET || '';
+const PORT = process.env.PORT || 3333;
+// ===========================================================
 
 const app = express();
 app.use(cors());

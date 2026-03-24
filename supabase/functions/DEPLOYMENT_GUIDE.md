@@ -32,8 +32,8 @@ supabase functions deploy send-push-notification
 After deployment, set the required environment variables in your Supabase dashboard or via CLI:
 
 ```bash
-supabase secrets set VITE_VAPID_PUBLIC_KEY=BExwv7hh64Fkg6RRzkzueFm8MQn0NkdtImUf5q2X1UUwLKyGw3RtLqgj-MixTecmRaePJSxNva9J0Y5CMZIqzS8
-supabase secrets set VAPID_PRIVATE_KEY=hCYjM5B0-NDNyZB7AjB--fe3G2SShDY4LClmhFCZry8
+supabase secrets set VITE_VAPID_PUBLIC_KEY=YOUR_VAPID_PUBLIC_KEY
+supabase secrets set VAPID_PRIVATE_KEY=YOUR_VAPID_PRIVATE_KEY
 ```
 
 ## Testing the Function
