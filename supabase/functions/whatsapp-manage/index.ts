@@ -1019,11 +1019,11 @@ async function sendBroadcast(
   //    when Meta's quality score resets is the correct approach.
 
   // Speed control state
-  let concurrency = 5;            // Start warm (not cold)
-  let delayMs = 800;              // 800ms between batches initially
-  const MAX_CONCURRENCY = 20;     // Cruising speed: 20 parallel × 300ms ≈ 20+ msg/s
+  let concurrency = 15;           // Start closer to max (faster ramp-up)
+  let delayMs = 100;              // 100ms between batches (8x faster than before)
+  const MAX_CONCURRENCY = 35;     // Increased ceiling (was 20)
   const MIN_CONCURRENCY = 2;      // Minimum during throttle (never fully stop)
-  const RAMP_UP_BATCHES = 15;     // Batches to reach full speed (~150 msgs)
+  const RAMP_UP_BATCHES = 3;      // Quick ramp-up (was 15, reduced from 45-75s to 5-15s)
   let batchesSent = 0;
 
   // Ecosystem monitoring (rolling window)
@@ -1127,17 +1127,31 @@ async function sendBroadcast(
         const recipient = batch[j];
 
         if (isEcosystem) {
-          // ─── ECOSYSTEM ERROR: Defer, don't permanently fail ───
+          // ─── ECOSYSTEM ERROR: Defer, but cap retries to prevent infinite loops ───
           batchEcosystemFails++;
           ecosystemFailCount++;
           consecutiveEcosystemFails++;
           rollingWindow.push(false);
           if (rollingWindow.length > WINDOW_SIZE) rollingWindow.shift();
           if (recipient?.id) {
-            batchEcosystem.push({
-              id: recipient.id,
-              error_details: errMsg.substring(0, 1000),
-            });
+            // Check existing retry count in error_details
+            const currentErrors = recipient.error_details || '';
+            const retryMatch = currentErrors.match(/\[RETRY:(\d+)\]/);
+            const retryCount = retryMatch ? parseInt(retryMatch[1]) : 0;
+            
+            if (retryCount < 2) {
+              // First 2 retries: defer to pending with retry counter
+              batchEcosystem.push({
+                id: recipient.id,
+                error_details: `${errMsg.substring(0, 900)} [RETRY:${retryCount + 1}]`,
+              });
+            } else {
+              // After 2 retries: give up and mark as failed
+              batchFailed.push({
+                id: recipient.id,
+                error_details: `Ecosystem error - retried ${retryCount} times: ${errMsg.substring(0, 850)}`,
+              });
+            }
           }
         } else if (isRateLimit) {
           batchRateLimited++;
@@ -1202,13 +1216,19 @@ async function sendBroadcast(
       const now_ts = Date.now();
 
       if (windowRate > 0.10 || consecutiveEcosystemFails >= 8) {
-        // CRITICAL: >10% ecosystem fail rate or 8+ consecutive → emergency pause
-        const pauseMs = Math.min(30000, 5000 * Math.ceil(consecutiveEcosystemFails / 4));
-        console.log(`[Broadcast] 🛑 ECOSYSTEM CRITICAL: ${(windowRate*100).toFixed(0)}% fail rate, ${consecutiveEcosystemFails} consecutive. Pausing ${pauseMs/1000}s`);
+        // CRITICAL: >10% ecosystem fail rate or 8+ consecutive → emergency pause (capped at 10s)
+        const pauseMs = Math.min(10000, 3000 * Math.ceil(consecutiveEcosystemFails / 4));
+        console.log(`[Broadcast] 🛑 ECOSYSTEM CRITICAL: ${(windowRate*100).toFixed(0)}% fail rate, ${consecutiveEcosystemFails} consecutive. Pausing ${pauseMs/1000}s (capped)`);
         concurrency = MIN_CONCURRENCY;
         delayMs = 1500;
         lastEcosystemPause = now_ts;
         await new Promise(r => setTimeout(r, pauseMs));
+        // If still critical, force early auto-continue instead of retrying in same cycle
+        if (windowRate > 0.15 || consecutiveEcosystemFails >= 10) {
+          console.log(`[Broadcast] 🔴 SEVERE ecosystem issues detected. Invoking auto-continue early.`);
+          timedOut = true;
+          break; // Exit loop to force auto-continue
+        }
       } else if (windowRate > 0.05 || consecutiveEcosystemFails >= 3) {
         // MODERATE: >5% fail rate or 3+ consecutive → slow down significantly
         const oldC = concurrency;
