@@ -149,8 +149,8 @@ serve(async (req: Request) => {
           // If timed out, auto-continue by calling ourselves again (SINGLE chain only)
           if (result?.timedOut) {
             console.log(`[Broadcast] ↪ Auto-continue: ${result.sent} sent this round, invoking next batch...`);
-            // 3s delay to let DB writes settle and avoid worker collision
-            await new Promise((r) => setTimeout(r, 3000));
+            // Minimal delay (1s) to let DB writes settle
+            await new Promise((r) => setTimeout(r, 1000));
 
             const continueBody = JSON.stringify({
               action: 'send_broadcast',
@@ -165,10 +165,10 @@ serve(async (req: Request) => {
             const edgeFnUrl = Deno.env.get("SUPABASE_URL") + "/functions/v1/whatsapp-manage";
             const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-            // Retry up to 5 times with exponential backoff (instead of 3 with small delays)
-            for (let attempt = 1; attempt <= 5; attempt++) {
+            // Retry up to 7 times with aggressive backoff
+            for (let attempt = 1; attempt <= 7; attempt++) {
               try {
-                console.log(`[Broadcast] ↪ Auto-continue attempt ${attempt}/5...`);
+                console.log(`[Broadcast] ↪ Auto-continue attempt ${attempt}/7...`);
                 const resp = await fetch(edgeFnUrl, {
                   method: "POST",
                   headers: {
@@ -176,7 +176,7 @@ serve(async (req: Request) => {
                     "Authorization": `Bearer ${serviceKey}`,
                   },
                   body: continueBody,
-                  signal: AbortSignal.timeout(30000), // 30s timeout (was 10s - too short)
+                  signal: AbortSignal.timeout(50000), // 50s timeout (more aggressive)
                 });
                 if (resp.ok) {
                   console.log(`[Broadcast] ↪ Auto-continue invoked successfully (attempt ${attempt})`);
@@ -184,17 +184,17 @@ serve(async (req: Request) => {
                 } else {
                   const errText = await resp.text().catch(() => "");
                   console.error(`[Broadcast] ❌ Auto-continue HTTP ${resp.status} (attempt ${attempt}): ${errText.substring(0, 200)}`);
-                  // Don't retry on non-2xx, move to next attempt
-                  if (attempt < 5) {
-                    const delayMs = Math.min(10000, 1000 * Math.pow(2, attempt)); // 2s, 4s, 8s, 16s (capped)
+                  // Retry on non-2xx
+                  if (attempt < 7) {
+                    const delayMs = attempt <= 3 ? 500 * attempt : Math.min(15000, 1000 * Math.pow(2, attempt));
                     await new Promise(r => setTimeout(r, delayMs));
                   }
                 }
               } catch (fetchErr: any) {
                 console.error(`[Broadcast] ❌ Auto-continue fetch error (attempt ${attempt}): ${fetchErr?.message}`);
-                // Exponential backoff on error
-                if (attempt < 5) {
-                  const delayMs = Math.min(10000, 1000 * Math.pow(2, attempt));
+                // Aggressive backoff on error
+                if (attempt < 7) {
+                  const delayMs = attempt <= 3 ? 500 * attempt : Math.min(15000, 1000 * Math.pow(2, attempt));
                   console.log(`[Broadcast] ↪ Retrying in ${delayMs / 1000}s...`);
                   await new Promise(r => setTimeout(r, delayMs));
                 }
@@ -243,7 +243,7 @@ serve(async (req: Request) => {
                     "Authorization": `Bearer ${serviceKey}`,
                   },
                   body: continueBody,
-                  signal: AbortSignal.timeout(10000),
+                  signal: AbortSignal.timeout(30000),
                 });
                 if (resp.ok) {
                   console.log(`[EcoRetry] ↪ Auto-continue invoked (attempt ${attempt})`);
@@ -843,7 +843,7 @@ async function sendBroadcast(
   // ─── SAFETY: 60s wall-clock limit ───
   // The Deno edge-runtime kills workers at ~150s.
   // We stop at 60s to guarantee safe auto-continue self-invocation.
-  const MAX_EXECUTION_MS = 60_000;
+  const MAX_EXECUTION_MS = 50_000; // Trigger auto-continue much earlier to chain sends
   const functionStartTime = Date.now();
 
   // If recipients not passed (large broadcast), read them from DB directly
@@ -1028,12 +1028,12 @@ async function sendBroadcast(
   //    invocation. These are quality-based, not transient — retrying hours later
   //    when Meta's quality score resets is the correct approach.
 
-  // Speed control state
-  let concurrency = 15;           // Start closer to max (faster ramp-up)
-  let delayMs = 100;              // 100ms between batches (8x faster than before)
-  const MAX_CONCURRENCY = 35;     // Increased ceiling (was 20)
+  // Speed control state (AGGRESSIVE MODE)
+  let concurrency = 20;           // Start even closer to max (was 15)
+  let delayMs = 50;               // 50ms between batches (20x faster than original 800ms)
+  const MAX_CONCURRENCY = 50;     // Higher ceiling (was 35, originally 20)
   const MIN_CONCURRENCY = 2;      // Minimum during throttle (never fully stop)
-  const RAMP_UP_BATCHES = 3;      // Quick ramp-up (was 15, reduced from 45-75s to 5-15s)
+  const RAMP_UP_BATCHES = 1;      // Minimal ramp-up (was 3, straight to full speed)
   let batchesSent = 0;
 
   // Ecosystem monitoring (rolling window)
@@ -1080,7 +1080,7 @@ async function sendBroadcast(
     const elapsed = Date.now() - functionStartTime;
     if (elapsed >= MAX_EXECUTION_MS) {
       const remaining = filteredRecipients.length - i;
-      console.log(`[Broadcast] ⏱️ TIME LIMIT reached (${(elapsed/1000).toFixed(0)}s). ${remaining} recipients still pending. Will auto-continue.`);
+      console.log(`[Broadcast] ⏱️ TIME CHECK (${(elapsed/1000).toFixed(0)}s/${(MAX_EXECUTION_MS/1000).toFixed(0)}s). ${remaining} pending. Auto-continuing...`);
       timedOut = true;
       break;
     }
@@ -1366,7 +1366,7 @@ async function sendEcoRetry(
     throw new Error("Missing broadcast_id or template_name");
   }
 
-  const MAX_EXECUTION_MS = 55_000; // 55s limit (slightly shorter for safety)
+  const MAX_EXECUTION_MS = 50_000; // 50s limit for self-hosted (more aggressive chaining)
   const functionStartTime = Date.now();
   const ECO_CONCURRENCY = 5;      // 5 parallel
   const ECO_DELAY_MS = 1500;      // 1.5s between batches → ~3 msg/s overall
