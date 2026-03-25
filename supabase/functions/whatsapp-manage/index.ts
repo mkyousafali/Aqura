@@ -165,9 +165,10 @@ serve(async (req: Request) => {
             const edgeFnUrl = Deno.env.get("SUPABASE_URL") + "/functions/v1/whatsapp-manage";
             const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-            // Retry up to 3 times with increasing delays
-            for (let attempt = 1; attempt <= 3; attempt++) {
+            // Retry up to 5 times with exponential backoff (instead of 3 with small delays)
+            for (let attempt = 1; attempt <= 5; attempt++) {
               try {
+                console.log(`[Broadcast] ↪ Auto-continue attempt ${attempt}/5...`);
                 const resp = await fetch(edgeFnUrl, {
                   method: "POST",
                   headers: {
@@ -175,7 +176,7 @@ serve(async (req: Request) => {
                     "Authorization": `Bearer ${serviceKey}`,
                   },
                   body: continueBody,
-                  signal: AbortSignal.timeout(10000), // 10s timeout — response is immediate
+                  signal: AbortSignal.timeout(30000), // 30s timeout (was 10s - too short)
                 });
                 if (resp.ok) {
                   console.log(`[Broadcast] ↪ Auto-continue invoked successfully (attempt ${attempt})`);
@@ -183,11 +184,20 @@ serve(async (req: Request) => {
                 } else {
                   const errText = await resp.text().catch(() => "");
                   console.error(`[Broadcast] ❌ Auto-continue HTTP ${resp.status} (attempt ${attempt}): ${errText.substring(0, 200)}`);
-                  if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+                  // Don't retry on non-2xx, move to next attempt
+                  if (attempt < 5) {
+                    const delayMs = Math.min(10000, 1000 * Math.pow(2, attempt)); // 2s, 4s, 8s, 16s (capped)
+                    await new Promise(r => setTimeout(r, delayMs));
+                  }
                 }
               } catch (fetchErr: any) {
                 console.error(`[Broadcast] ❌ Auto-continue fetch error (attempt ${attempt}): ${fetchErr?.message}`);
-                if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+                // Exponential backoff on error
+                if (attempt < 5) {
+                  const delayMs = Math.min(10000, 1000 * Math.pow(2, attempt));
+                  console.log(`[Broadcast] ↪ Retrying in ${delayMs / 1000}s...`);
+                  await new Promise(r => setTimeout(r, delayMs));
+                }
               }
             }
           }

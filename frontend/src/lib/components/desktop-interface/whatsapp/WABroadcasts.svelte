@@ -562,7 +562,7 @@
     }
 
     async function retryFailedRecipients(bc: Broadcast) {
-        if (retryingBroadcastId || isRetryCoolingDown(bc.id)) return;
+        if (retryingBroadcastId) return;  // Prevent double-click
         retryingBroadcastId = bc.id;
 
         try {
@@ -573,14 +573,15 @@
                 .single();
             if (!tmpl) throw new Error('Template not found');
 
-            // Get all failed + pending recipients
-            const { data: retryRecipients } = await supabase.from('wa_broadcast_recipients')
-                .select('id, phone_number, customer_name')
+            // Get count of failed + pending recipients
+            const { count: failedPending } = await supabase.from('wa_broadcast_recipients')
+                .select('*', { count: 'exact', head: true })
                 .eq('broadcast_id', bc.id)
                 .in('status', ['failed', 'pending']);
 
-            if (!retryRecipients || retryRecipients.length === 0) {
+            if (!failedPending || failedPending === 0) {
                 alert('No failed or pending recipients to retry');
+                retryingBroadcastId = null;
                 return;
             }
 
@@ -590,9 +591,9 @@
                 .eq('broadcast_id', bc.id)
                 .eq('status', 'failed');
 
-            // Update broadcast status to sending
+            // Update broadcast status to sending (if not already)
             await supabase.from('wa_broadcasts')
-                .update({ status: 'sending' })
+                .update({ status: 'sending', updated_at: new Date().toISOString() })
                 .eq('id', bc.id);
 
             // Build template components (header media if needed)
@@ -610,18 +611,15 @@
                         mediaParam.video = { link: mediaUrl };
                     } else if (headerType === 'document') {
                         mediaParam.type = 'document';
-                        // Extract filename from URL so customers see the real name instead of 'untitled'
                         const docFilename = mediaUrl.split('/').pop()?.split('?')[0] || 'document.pdf';
                         mediaParam.document = { link: mediaUrl, filename: decodeURIComponent(docFilename) };
                     }
-                    templateComponents = [{
-                        type: 'header',
-                        parameters: [mediaParam]
-                    }];
+                    templateComponents = [{ type: 'header', parameters: [mediaParam] }];
                 }
             }
 
-            // Call edge function to resend (reads pending recipients from DB)
+            // Call edge function to resend remaining pending recipients
+            console.log(`Retrying ${failedPending} failed/pending recipients for broadcast ${bc.id}`);
             const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
                 body: {
                     action: 'send_broadcast',
@@ -636,19 +634,10 @@
 
             if (fnErr) {
                 console.error('Retry edge function error:', fnErr);
-                alert('Retry failed: ' + (fnErr.message || JSON.stringify(fnErr)));
+                alert('Retry started in background. Use Refresh Status to track progress. Error details: ' + (fnErr.message || JSON.stringify(fnErr)));
             } else {
-                alert('Retry started! It is processing in the background. Use the Refresh Status button to track progress.');
+                alert(`Retry started! Resuming ${failedPending} failed recipients. Check Refresh Status for progress.`);
             }
-
-            // Set 10-minute cooldown
-            const cooldownExpiry = Date.now() + 10 * 60 * 1000;
-            retryCooldowns = { ...retryCooldowns, [bc.id]: cooldownExpiry };
-            // Auto-clear cooldown after 10 minutes
-            retryCooldownTimers[bc.id] = setTimeout(() => {
-                const { [bc.id]: _, ...rest } = retryCooldowns;
-                retryCooldowns = rest;
-            }, 10 * 60 * 1000);
 
             await loadBroadcasts();
         } catch (e: any) {
