@@ -591,22 +591,11 @@
                 .eq('broadcast_id', bc.id)
                 .eq('status', 'failed');
 
-            // Update broadcast status to sending (if not already)
-            const { data: updateData, error: updateErr } = await supabase.from('wa_broadcasts')
-                .update({ status: 'sending', updated_at: new Date().toISOString() })
-                .eq('id', bc.id)
-                .select();
-            
-            if (updateErr) {
-                console.warn('[Retry] Update status failed (non-blocking):', {
-                    error: updateErr,
-                    broadcast_id: bc.id,
-                    message: updateErr.message
-                });
-                // Continue anyway - edge function will still process
-            } else {
-                console.log('[Retry] Broadcast status updated to sending');
-            }
+            // Update broadcast status to sending
+            const { error: updateErr } = await supabase.from('wa_broadcasts')
+                .update({ status: 'sending' })
+                .eq('id', bc.id);
+            if (updateErr) console.warn('[Retry] Status update failed (non-blocking):', updateErr.message);
 
             // Build template components (header media if needed)
             let templateComponents: any[] | undefined = undefined;
@@ -631,7 +620,7 @@
             }
 
             // Call edge function to resend remaining pending recipients
-            console.log(`Retrying ${failedPending} failed/pending recipients for broadcast ${bc.id}`);
+            console.log(`[Retry Failed SLOW] Retrying ${failedPending} failed recipients for broadcast ${bc.id} at ~2 msg/s`);
             const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
                 body: {
                     action: 'send_broadcast',
@@ -639,22 +628,101 @@
                     broadcast_id: bc.id,
                     template_name: tmpl.name,
                     language: tmpl.language,
-                    components: templateComponents
-                    // recipients omitted — edge function reads pending from DB
+                    components: templateComponents,
+                    slow_mode: true  // Signal edge function to use slow speed (2 msg/s)
                 }
             });
 
             if (fnErr) {
                 console.error('Retry edge function error:', fnErr);
-                alert('Retry started in background. Use Refresh Status to track progress. Error details: ' + (fnErr.message || JSON.stringify(fnErr)));
+                alert('Retry started in background (SLOW mode ~2 msg/s to avoid blocks). Check Refresh Status.');
             } else {
-                alert(`Retry started! Resuming ${failedPending} failed recipients. Check Refresh Status for progress.`);
+                alert(`✅ Retry started! Sending ${failedPending} failed recipients SLOWLY (~2 msg/s). Check Refresh Status.`);
             }
 
             await loadBroadcasts();
         } catch (e: any) {
             console.error('Retry error:', e);
             alert('Retry failed: ' + e.message);
+        } finally {
+            retryingBroadcastId = null;
+        }
+    }
+
+    async function resumePendingRecipients(bc: Broadcast) {
+        if (!accountId || !bc?.id) throw new Error('Missing broadcast or account');
+        retryingBroadcastId = bc.id;
+
+        try {
+            const { data: tmpl } = await supabase.from('wa_templates')
+                .select('*')
+                .eq('id', bc.template_id)
+                .single();
+            if (!tmpl) throw new Error('Template not found');
+
+            // Get count of pending recipients (those never sent)
+            const { count: pendingCount } = await supabase.from('wa_broadcast_recipients')
+                .select('*', { count: 'exact', head: true })
+                .eq('broadcast_id', bc.id)
+                .eq('status', 'pending');
+
+            if (!pendingCount || pendingCount === 0) {
+                alert('No pending recipients to resume');
+                retryingBroadcastId = null;
+                return;
+            }
+
+            // Update broadcast status to sending if needed
+            const { error: statusErr } = await supabase.from('wa_broadcasts')
+                .update({ status: 'sending' })
+                .eq('id', bc.id);
+            if (statusErr) console.warn('[Resume] Status update failed (non-blocking):', statusErr.message);
+
+            // Build template components
+            let templateComponents: any[] | undefined = undefined;
+            if (tmpl.header_type && tmpl.header_type !== 'none' && tmpl.header_type !== 'text') {
+                const headerType = tmpl.header_type.toLowerCase();
+                const mediaUrl = tmpl.header_content;
+                if (mediaUrl) {
+                    const mediaParam: any = {};
+                    if (headerType === 'image') {
+                        mediaParam.type = 'image';
+                        mediaParam.image = { link: mediaUrl };
+                    } else if (headerType === 'video') {
+                        mediaParam.type = 'video';
+                        mediaParam.video = { link: mediaUrl };
+                    } else if (headerType === 'document') {
+                        mediaParam.type = 'document';
+                        const docFilename = mediaUrl.split('/').pop()?.split('?')[0] || 'document.pdf';
+                        mediaParam.document = { link: mediaUrl, filename: decodeURIComponent(docFilename) };
+                    }
+                    templateComponents = [{ type: 'header', parameters: [mediaParam] }];
+                }
+            }
+
+            console.log(`[Resume Pending] Resuming ${pendingCount} pending recipients for broadcast ${bc.id}`);
+            const { error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+                body: {
+                    action: 'send_broadcast',
+                    account_id: accountId,
+                    broadcast_id: bc.id,
+                    template_name: tmpl.name,
+                    language: tmpl.language,
+                    components: templateComponents
+                }
+            });
+
+            if (fnErr) {
+                console.error('Resume pending error:', fnErr);
+                alert('Resume started in background. Check Refresh Status. Error: ' + (fnErr.message || ''));
+            } else {
+                alert(`✅ Resuming ${pendingCount} pending recipients! Check Refresh Status for progress.`);
+            }
+
+            await loadBroadcasts();
+        } catch (e: any) {
+            console.error('Resume pending error:', e);
+            alert('Error: ' + e.message);
         } finally {
             retryingBroadcastId = null;
         }
@@ -894,13 +962,19 @@
                                                 <div class="font-bold text-blue-600">{deliveredTotal}</div>
                                                 <div class="text-[10px] text-blue-400 font-semibold">{pct(deliveredTotal, bc.total_recipients)}</div>
                                             </td>
-                                            <td class="px-4 py-3 text-sm text-center font-bold {bc.failed_count ? 'text-red-600' : 'text-slate-300'}">{bc.failed_count || 0}</td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <div class="font-bold {bc.failed_count ? 'text-red-600' : 'text-slate-300'}">{bc.failed_count || 0}</div>
+                                                {#if bc.failed_count > 0}
+                                                    <div class="text-[10px] text-red-400 font-semibold">{pct(bc.failed_count, bc.total_recipients)}</div>
+                                                {/if}
+                                            </td>
                                             <td class="px-4 py-3 text-sm text-center text-slate-500">
                                                 <div class="font-semibold">{String(displayDate.getDate()).padStart(2,'0')}-{String(displayDate.getMonth()+1).padStart(2,'0')}-{displayDate.getFullYear()}</div>
                                                 <div class="text-[10px] text-slate-400">{bc.scheduled_at && !bc.completed_at ? '📅 ' : ''}{displayDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:true})}</div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
                                                 <div class="flex items-center justify-center gap-1.5">
+                                                    
                                                     <button
                                                         class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
                                                         on:click|stopPropagation={() => viewBroadcastDetails(bc)}
@@ -917,25 +991,37 @@
                                                     >
                                                         <span class={refreshingBroadcastId === bc.id ? 'animate-spin inline-block' : ''}>🔄</span>
                                                     </button>
-                                                    {#if retryAllowed && ((bc.failed_count && bc.failed_count > 0) || bc.status === 'sending')}
+                                                    
+                                                    {#if retryAllowed && bc.failed_count && bc.failed_count > 0}
                                                         <button
                                                             class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
                                                                 {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
-                                                                 isRetryCoolingDown(bc.id) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' :
-                                                                 isBroadcastStalled(bc.id) ? 'bg-red-600 text-white animate-pulse hover:bg-red-700' :
                                                                  'bg-red-500 text-white hover:bg-red-600 hover:shadow-lg'}"
                                                             on:click|stopPropagation={() => retryFailedRecipients(bc)}
-                                                            disabled={retryingBroadcastId === bc.id || isRetryCoolingDown(bc.id)}
-                                                            title={isRetryCoolingDown(bc.id) ? `Cooldown: ${getRetryCooldownRemaining(bc.id)} remaining` : isBroadcastStalled(bc.id) ? 'Broadcast stalled! Click to resume' : 'Retry all failed/pending recipients'}
+                                                            disabled={retryingBroadcastId === bc.id}
+                                                            title="Retry {bc.failed_count} messages that failed/errored"
                                                         >
                                                             {#if retryingBroadcastId === bc.id}
-                                                                ⏳
-                                                            {:else if isRetryCoolingDown(bc.id)}
-                                                                🕐 {getRetryCooldownRemaining(bc.id)}
-                                                            {:else if isBroadcastStalled(bc.id)}
-                                                                ⚠️ Resume
+                                                                ⏳ Retrying...
                                                             {:else}
-                                                                🔄 Retry
+                                                                ❌ Retry Failed ({bc.failed_count})
+                                                            {/if}
+                                                        </button>
+                                                    {/if}
+                                                    
+                                                    {#if retryAllowed && (bc.total_recipients - (bc.sent_count || 0) - (bc.delivered_count || 0) - (bc.read_count || 0) - (bc.failed_count || 0)) > 0}
+                                                        <button
+                                                            class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
+                                                                {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
+                                                                 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg'}"
+                                                            on:click|stopPropagation={() => resumePendingRecipients(bc)}
+                                                            disabled={retryingBroadcastId === bc.id}
+                                                            title="Resume sending pending messages never sent"
+                                                        >
+                                                            {#if retryingBroadcastId === bc.id}
+                                                                ⏳ Resuming...
+                                                            {:else}
+                                                                ⏸️ Resume Pending ({bc.total_recipients - (bc.sent_count || 0) - (bc.delivered_count || 0) - (bc.read_count || 0) - (bc.failed_count || 0)})
                                                             {/if}
                                                         </button>
                                                     {/if}

@@ -149,8 +149,8 @@ serve(async (req: Request) => {
           // If timed out, auto-continue by calling ourselves again (SINGLE chain only)
           if (result?.timedOut) {
             console.log(`[Broadcast] ↪ Auto-continue: ${result.sent} sent this round, invoking next batch...`);
-            // Minimal delay (1s) to let DB writes settle
-            await new Promise((r) => setTimeout(r, 1000));
+            // No delay - aggressive chaining
+            // await new Promise((r) => setTimeout(r, 0));
 
             const continueBody = JSON.stringify({
               action: 'send_broadcast',
@@ -160,6 +160,7 @@ serve(async (req: Request) => {
               language: params.language,
               components: params.components,
               cached_media_id: result.cached_media_id || params.cached_media_id,
+              slow_mode: params.slow_mode || false,  // Preserve slow_mode through chain
             });
 
             const edgeFnUrl = Deno.env.get("SUPABASE_URL") + "/functions/v1/whatsapp-manage";
@@ -176,7 +177,7 @@ serve(async (req: Request) => {
                     "Authorization": `Bearer ${serviceKey}`,
                   },
                   body: continueBody,
-                  signal: AbortSignal.timeout(50000), // 50s timeout (more aggressive)
+                  signal: AbortSignal.timeout(40000), // 40s timeout - faster completion
                 });
                 if (resp.ok) {
                   console.log(`[Broadcast] ↪ Auto-continue invoked successfully (attempt ${attempt})`);
@@ -243,7 +244,7 @@ serve(async (req: Request) => {
                     "Authorization": `Bearer ${serviceKey}`,
                   },
                   body: continueBody,
-                  signal: AbortSignal.timeout(30000),
+                  signal: AbortSignal.timeout(35000),
                 });
                 if (resp.ok) {
                   console.log(`[EcoRetry] ↪ Auto-continue invoked (attempt ${attempt})`);
@@ -843,7 +844,7 @@ async function sendBroadcast(
   // ─── SAFETY: 60s wall-clock limit ───
   // The Deno edge-runtime kills workers at ~150s.
   // We stop at 60s to guarantee safe auto-continue self-invocation.
-  const MAX_EXECUTION_MS = 50_000; // Trigger auto-continue much earlier to chain sends
+  const MAX_EXECUTION_MS = 45_000; // Trigger auto-continue even sooner (45s vs 50s) to chain faster
   const functionStartTime = Date.now();
 
   // If recipients not passed (large broadcast), read them from DB directly
@@ -1028,13 +1029,19 @@ async function sendBroadcast(
   //    invocation. These are quality-based, not transient — retrying hours later
   //    when Meta's quality score resets is the correct approach.
 
-  // Speed control state (AGGRESSIVE MODE)
-  let concurrency = 20;           // Start even closer to max (was 15)
-  let delayMs = 50;               // 50ms between batches (20x faster than original 800ms)
-  const MAX_CONCURRENCY = 50;     // Higher ceiling (was 35, originally 20)
-  const MIN_CONCURRENCY = 2;      // Minimum during throttle (never fully stop)
-  const RAMP_UP_BATCHES = 1;      // Minimal ramp-up (was 3, straight to full speed)
+  // Speed control state - check for slow_mode flag (for retrying failed recipients)
+  const slowMode = params.slow_mode === true;
+  let concurrency = slowMode ? 2 : 40;           // Slow: 2 parallel, Fast: 40
+  let delayMs = slowMode ? 500 : 25;             // Slow: 500ms (2 msg/s), Fast: 25ms
+  const MAX_CONCURRENCY = slowMode ? 3 : 100;    // Slow: max 3, Fast: 100
+  const MIN_CONCURRENCY = slowMode ? 1 : 5;      // Slow: min 1, Fast: 5
+  const RAMP_UP_BATCHES = 0;                      // NO ramp-up for both modes
   let batchesSent = 0;
+  if (slowMode) {
+    console.log(`[Broadcast] 🐢 SLOW MODE active (2 msg/s) - retrying failed recipients carefully`);
+  } else {
+    console.log(`[Broadcast] 🚀 FAST MODE active (40+ msg/s) - maximum speed`);
+  }
 
   // Ecosystem monitoring (rolling window)
   const WINDOW_SIZE = 100;        // Last N sends to monitor
@@ -1366,7 +1373,7 @@ async function sendEcoRetry(
     throw new Error("Missing broadcast_id or template_name");
   }
 
-  const MAX_EXECUTION_MS = 50_000; // 50s limit for self-hosted (more aggressive chaining)
+  const MAX_EXECUTION_MS = 45_000; // 45s - trigger auto-continue sooner for faster chaining
   const functionStartTime = Date.now();
   const ECO_CONCURRENCY = 5;      // 5 parallel
   const ECO_DELAY_MS = 1500;      // 1.5s between batches → ~3 msg/s overall
