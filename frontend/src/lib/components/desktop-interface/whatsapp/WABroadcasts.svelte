@@ -592,9 +592,21 @@
                 .eq('status', 'failed');
 
             // Update broadcast status to sending (if not already)
-            await supabase.from('wa_broadcasts')
+            const { data: updateData, error: updateErr } = await supabase.from('wa_broadcasts')
                 .update({ status: 'sending', updated_at: new Date().toISOString() })
-                .eq('id', bc.id);
+                .eq('id', bc.id)
+                .select();
+            
+            if (updateErr) {
+                console.warn('[Retry] Update status failed (non-blocking):', {
+                    error: updateErr,
+                    broadcast_id: bc.id,
+                    message: updateErr.message
+                });
+                // Continue anyway - edge function will still process
+            } else {
+                console.log('[Retry] Broadcast status updated to sending');
+            }
 
             // Build template components (header media if needed)
             let templateComponents: any[] | undefined = undefined;
