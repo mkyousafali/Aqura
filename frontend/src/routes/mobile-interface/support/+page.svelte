@@ -228,10 +228,23 @@
 			} else {
 				conversations = rows;
 			}
-			// Sort with SOS active conversations at the top
+			// Sort with priority: SOS > Needs Help > AI Off > Regular
 			filteredConversations = [...conversations].sort((a, b) => {
+				// Priority 1: SOS conversations first
 				if (a.is_sos && !b.is_sos) return -1;
 				if (!a.is_sos && b.is_sos) return 1;
+				
+				// Priority 2: Conversations needing human help
+				if (a.needs_human && !b.needs_human) return -1;
+				if (!a.needs_human && b.needs_human) return 1;
+				
+				// Priority 3: AI is off (bot_type = null or empty, but not being handled by human yet)
+				const aAiOff = !a.is_bot_handling && (!a.bot_type || a.bot_type !== 'ai');
+				const bAiOff = !b.is_bot_handling && (!b.bot_type || b.bot_type !== 'ai');
+				if (aAiOff && !bAiOff) return -1;
+				if (!aAiOff && bAiOff) return 1;
+				
+				// Otherwise keep original order
 				return 0;
 			});
 		} catch (e: any) {
