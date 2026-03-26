@@ -640,9 +640,11 @@ async function insertChatMessages(
   supabase: any,
   wa_account_id: string,
   template_name: string,
-  sentItems: { phone: string; whatsapp_message_id: string; sent_at: string }[]
-) {
-  if (sentItems.length === 0 || !wa_account_id) return;
+  sentItems: { phone: string; whatsapp_message_id: string; sent_at: string }[],
+  broadcast_id?: string,
+  template_id?: string
+): Promise<number> {
+  if (sentItems.length === 0 || !wa_account_id) return 0;
   try {
     // ─── Lookup template content from DB ───
     let templateBody = "";
@@ -650,13 +652,25 @@ async function insertChatMessages(
     let templateMediaMime = "";
     let templateHeaderType = "";
     try {
-      const { data: tpl } = await supabase
-        .from("wa_templates")
-        .select("body_text, header_type, header_content")
-        .eq("name", template_name)
-        .eq("wa_account_id", wa_account_id)
-        .limit(1)
-        .single();
+      // Prefer template_id lookup (more reliable) over name lookup
+      let tplResponse;
+      if (template_id) {
+        tplResponse = await supabase
+          .from("wa_templates")
+          .select("body_text, header_type, header_content")
+          .eq("id", template_id)
+          .limit(1)
+          .single();
+      } else {
+        tplResponse = await supabase
+          .from("wa_templates")
+          .select("body_text, header_type, header_content")
+          .eq("name", template_name)
+          .eq("wa_account_id", wa_account_id)
+          .limit(1)
+          .single();
+      }
+      const { data: tpl } = tplResponse;
       if (tpl) {
         templateBody = tpl.body_text || "";
         templateHeaderType = tpl.header_type || "";
@@ -717,6 +731,9 @@ async function insertChatMessages(
     // Create conversations for phones that don't have one
     const missingPhones = phones.filter(p => !convMap[p]);
     if (missingPhones.length > 0) {
+      // Generate preview text (same logic as later update)
+      const preview = (templateBody || `📢 Broadcast: ${template_name}`).substring(0, 100);
+      
       const inserts = missingPhones.map(phone => ({
         wa_account_id,
         customer_phone: phone,
@@ -726,6 +743,7 @@ async function insertChatMessages(
         is_bot_handling: true,
         bot_type: "ai",
         last_message_at: new Date().toISOString(),
+        last_message_preview: preview,  // ← SET on initial creation, not just on update
         unread_count: 0,
       }));
       const { data: newConvs } = await supabase
@@ -761,22 +779,42 @@ async function insertChatMessages(
       return msg;
     }).filter(m => m.conversation_id); // only insert if we have a conversation
 
-    if (msgInserts.length > 0) {
-      await supabase.from("wa_messages").insert(msgInserts);
+      if (msgInserts.length > 0) {
+        await supabase.from("wa_messages").insert(msgInserts);
+        console.log(`[Broadcast] Inserted ${msgInserts.length} chat messages (broadcast: ${broadcast_id || 'unknown'})`);
 
-      // Update last_message_preview on conversations so chat list shows the message
-      const preview = (templateBody || `📢 Broadcast: ${template_name}`).substring(0, 100);
-      const convIds = [...new Set(msgInserts.map(m => m.conversation_id).filter(Boolean))];
-      for (let c = 0; c < convIds.length; c += 500) {
-        const chunk = convIds.slice(c, c + 500);
-        await supabase
-          .from("wa_conversations")
-          .update({ last_message_preview: preview, last_message_at: new Date().toISOString() })
-          .in("id", chunk);
+        // Update last_message_preview on conversations so chat list shows the message
+        const preview = (templateBody || `📢 Broadcast: ${template_name}`).substring(0, 100);
+        const convIds = [...new Set(msgInserts.map(m => m.conversation_id).filter(Boolean))];
+        
+        // Use the LATEST sent_at from the batch (not NOW()) to ensure correct sorting in chat list
+        // This ensures broadcast messages appear in the correct chronological position
+        const latestSentAt = sentItems.length > 0 
+          ? new Date(Math.max(...sentItems.map(s => new Date(s.sent_at).getTime()))).toISOString()
+          : new Date().toISOString();
+        
+        for (let c = 0; c < convIds.length; c += 500) {
+          const chunk = convIds.slice(c, c + 500);
+          const { error: updateErr } = await supabase
+            .from("wa_conversations")
+            .update({ 
+              last_message_preview: preview, 
+              last_message_at: latestSentAt,
+              unread_count: 0  // Mark as read since it's a broadcast message we just sent
+            })
+            .in("id", chunk);
+          
+          if (updateErr) {
+            console.error(`[Broadcast] Failed to update conversation preview:`, updateErr?.message);
+          }
+        }
+        console.log(`[Broadcast] Updated ${convIds.length} conversations with preview: "${preview}" (timestamp: ${latestSentAt})`);
+        return msgInserts.length;
       }
-    }
+      return 0;
   } catch (chatErr: any) {
-    console.error(`[Broadcast] Chat message insert error (non-fatal):`, chatErr?.message);
+    console.error(`[Broadcast] Chat message insert error (broadcast: ${broadcast_id || 'unknown'}):`, chatErr?.message);
+    return 0;
   }
 }
 
@@ -786,7 +824,8 @@ async function backfillMissingChatMessages(
   supabase: any,
   wa_account_id: string,
   template_name: string,
-  broadcast_id: string
+  broadcast_id: string,
+  template_id?: string
 ): Promise<number> {
   try {
     const { data: sentRecips } = await supabase
@@ -817,9 +856,9 @@ async function backfillMissingChatMessages(
       whatsapp_message_id: r.whatsapp_message_id,
       sent_at: r.sent_at || new Date().toISOString(),
     }));
-    await insertChatMessages(supabase, wa_account_id, template_name, chatItems);
-    console.log(`[Broadcast] Backfill sweep: inserted ${missing.length} chat messages`);
-    return missing.length;
+    const insertedCount = await insertChatMessages(supabase, wa_account_id, template_name, chatItems, broadcast_id, template_id);
+    console.log(`[Broadcast] Backfill sweep: inserted ${insertedCount} chat messages`);
+    return insertedCount;
   } catch (err: any) {
     console.error(`[Broadcast] Backfill sweep error (non-fatal):`, err?.message);
     return 0;
@@ -839,6 +878,22 @@ async function sendBroadcast(
 
   if (!broadcast_id || !template_name) {
     throw new Error("Missing broadcast_id or template_name");
+  }
+
+  // Fetch broadcast to get template_id
+  let template_id: string | undefined = undefined;
+  try {
+    const { data: broadcast } = await supabase
+      .from("wa_broadcasts")
+      .select("id, template_id")
+      .eq("id", broadcast_id)
+      .limit(1)
+      .single();
+    if (broadcast) {
+      template_id = broadcast.template_id;
+    }
+  } catch (err) {
+    console.warn(`[Broadcast] Failed to fetch template_id from broadcast: ${err?.message}`);
   }
 
   // ─── SAFETY: 60s wall-clock limit ───
@@ -1206,7 +1261,12 @@ async function sendBroadcast(
       whatsapp_message_id: s.whatsapp_message_id,
       sent_at: s.sent_at,
     })).filter(c => c.phone);
-    insertChatMessages(supabase, wa_account_id, template_name, chatItems).catch(() => {});
+    try {
+      const inserted = await insertChatMessages(supabase, wa_account_id, template_name, chatItems, broadcast_id, template_id);
+      console.log(`[Broadcast] Inserted ${inserted} chat messages for batch`);
+    } catch (err: any) {
+      console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message);
+    }
 
     // ─── Update broadcast counts ───
     await supabase
@@ -1328,7 +1388,7 @@ async function sendBroadcast(
     console.log(`[Broadcast] ✅ COMPLETE in ${totalTime}s (${avgRate} msg/s) | sent:${sentCount} eco_defer:${ecosystemFailCount} failed:${failedCount} skipped:${skippedCount}`);
 
     // Safety-net: find any sent recipients whose wa_message was lost by fire-and-forget
-    await backfillMissingChatMessages(supabase, wa_account_id, template_name, broadcast_id);
+    await backfillMissingChatMessages(supabase, wa_account_id, template_name, broadcast_id, template_id);
 
     const { data: finalCounts } = await supabase
       .from("wa_broadcast_recipients")
@@ -1371,6 +1431,22 @@ async function sendEcoRetry(
 
   if (!broadcast_id || !template_name) {
     throw new Error("Missing broadcast_id or template_name");
+  }
+
+  // Fetch broadcast to get template_id
+  let template_id: string | undefined = undefined;
+  try {
+    const { data: broadcast } = await supabase
+      .from("wa_broadcasts")
+      .select("id, template_id")
+      .eq("id", broadcast_id)
+      .limit(1)
+      .single();
+    if (broadcast) {
+      template_id = broadcast.template_id;
+    }
+  } catch (err) {
+    console.warn(`[EcoRetry] Failed to fetch template_id from broadcast: ${err?.message}`);
   }
 
   const MAX_EXECUTION_MS = 45_000; // 45s - trigger auto-continue sooner for faster chaining
@@ -1537,12 +1613,17 @@ async function sendEcoRetry(
         ecoChatItems.push({
           phone: batch[j]?.phone || "",
           whatsapp_message_id: res.value.waMessageId,
-          sent_at: new Date().toISOString(),
+          sent_at: now,  // Use 'now' timestamp that matches the DB update, not another NOW()
         });
       }
     }
     if (ecoChatItems.length > 0) {
-      insertChatMessages(supabase, wa_account_id, template_name, ecoChatItems).catch(() => {});
+      try {
+        const inserted = await insertChatMessages(supabase, wa_account_id, template_name, ecoChatItems, broadcast_id, template_id);
+        console.log(`[EcoRetry] Inserted ${inserted} chat messages`);
+      } catch (err: any) {
+        console.error(`[EcoRetry] FAILED to insert ${ecoChatItems.length} chat messages:`, err?.message);
+      }
     }
 
     // Log progress every 50
@@ -1563,7 +1644,7 @@ async function sendEcoRetry(
 
   // Backfill any missing chat messages (safety net for fire-and-forget failures)
   if (!timedOut) {
-    await backfillMissingChatMessages(supabase, wa_account_id, template_name, broadcast_id);
+    await backfillMissingChatMessages(supabase, wa_account_id, template_name, broadcast_id, template_id);
   }
 
   // Update broadcast counts
