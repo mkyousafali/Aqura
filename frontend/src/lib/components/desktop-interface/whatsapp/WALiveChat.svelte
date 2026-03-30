@@ -62,6 +62,7 @@
     let supabase: any = null;
     let conversations: Conversation[] = [];
     let filteredConversations: Conversation[] = [];
+    let priorityConversations: Conversation[] = [];
     let messages: Message[] = [];
     let templates: WATemplate[] = [];
     let loading = true;
@@ -207,7 +208,7 @@
                         }
                     }).catch(() => {});
                 }
-                await Promise.all([loadConversations(), loadTemplates()]);
+                await Promise.all([loadConversations(), loadPriorityConversations(), loadTemplates()]);
             } else {
                 loading = false;
             }
@@ -237,25 +238,8 @@
             } else {
                 conversations = rows;
             }
-// Sort with priority: SOS > Needs Help > AI Off > Regular
-		filteredConversations = [...conversations].sort((a, b) => {
-			// Priority 1: SOS conversations first
-			if (a.is_sos && !b.is_sos) return -1;
-			if (!a.is_sos && b.is_sos) return 1;
-			
-			// Priority 2: Conversations needing human help
-			if (a.needs_human && !b.needs_human) return -1;
-			if (!a.needs_human && b.needs_human) return 1;
-			
-			// Priority 3: AI is off (bot_type = null or empty, but not being handled by human yet)
-			const aAiOff = !a.is_bot_handling && (!a.bot_type || a.bot_type !== 'ai');
-			const bAiOff = !b.is_bot_handling && (!b.bot_type || b.bot_type !== 'ai');
-			if (aAiOff && !bAiOff) return -1;
-			if (!aAiOff && bAiOff) return 1;
-			
-			// Otherwise keep original order
-                return 0;
-            });
+            // Main list uses RPC order (last_message_at DESC), no client-side re-sorting needed
+            filteredConversations = conversations;
 
             // Auto-select conversation by initialPhone
             if (initialPhone && !selectedConv) {
@@ -290,9 +274,22 @@
         } catch {}
     }
 
+    // Load priority conversations (SOS + Needs Human) — separate section
+    async function loadPriorityConversations() {
+        try {
+            const { data, error: err } = await supabase.rpc('get_wa_priority_conversations', {
+                p_account_id: accountId
+            });
+            if (err) throw err;
+            priorityConversations = data || [];
+        } catch (e: any) {
+            console.error('Priority conversations error:', e);
+        }
+    }
+
     // Light refresh — only reload conversation list (not messages)
     async function refreshConversationsOnly() {
-        await loadConversations();
+        await Promise.all([loadConversations(), loadPriorityConversations()]);
     }
 
     // Subscribe to realtime for the selected conversation's messages
@@ -994,12 +991,100 @@
                 <div class="flex justify-center py-12">
                     <div class="animate-spin w-8 h-8 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
                 </div>
-            {:else if filteredConversations.length === 0}
-                <div class="text-center py-12 text-slate-400">
-                    <div class="text-4xl mb-3 opacity-40">💬</div>
-                    <p class="text-xs font-medium">No conversations yet</p>
-                </div>
             {:else}
+                <!-- Priority Section: SOS & Needs Human -->
+                {#if priorityConversations.length > 0}
+                    <!-- SOS Section -->
+                    {#if priorityConversations.some(c => c.is_sos)}
+                        <div class="priority-section-header sos-header">
+                            <span class="priority-section-icon">🚨</span>
+                            <span class="priority-section-title">{$locale === 'ar' ? 'طوارئ SOS' : 'SOS'}</span>
+                            <span class="priority-section-count">{priorityConversations.filter(c => c.is_sos).length}</span>
+                        </div>
+                        {#each priorityConversations.filter(c => c.is_sos) as conv}
+                            <div role="button" tabindex="0"
+                                class="conv-card conv-card-sos w-full px-3 py-2.5 flex items-center gap-2.5 transition-all text-left
+                                {selectedConv?.id === conv.id ? 'conv-card-active' : ''}"
+                                on:click={() => selectConversation(conv)}
+                                on:keydown={(e) => e.key === 'Enter' && selectConversation(conv)}>
+                                <div class="relative flex-shrink-0">
+                                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
+                                        {(conv.customer_name || '?')[0].toUpperCase()}
+                                    </div>
+                                    <span class="absolute -bottom-0.5 -right-0.5 text-[9px]">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between">
+                                        <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
+                                        <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between mt-0.5">
+                                        <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
+                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                            <span role="button" tabindex="0" class="conv-badge badge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)} title={$locale === 'ar' ? 'إلغاء SOS' : 'Remove SOS'}>SOS</span>
+                                            {#if conv.unread_count > 0}
+                                                <span class="unread-badge">{conv.unread_count}</span>
+                                            {/if}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {/each}
+                    {/if}
+
+                    <!-- Needs Human Section -->
+                    {#if priorityConversations.some(c => c.needs_human && !c.is_sos)}
+                        <div class="priority-section-header help-header">
+                            <span class="priority-section-icon">🆘</span>
+                            <span class="priority-section-title">{$locale === 'ar' ? 'يحتاج مساعدة' : 'Needs Help'}</span>
+                            <span class="priority-section-count">{priorityConversations.filter(c => c.needs_human && !c.is_sos).length}</span>
+                        </div>
+                        {#each priorityConversations.filter(c => c.needs_human && !c.is_sos) as conv}
+                            <div role="button" tabindex="0"
+                                class="conv-card conv-card-help w-full px-3 py-2.5 flex items-center gap-2.5 transition-all text-left
+                                {selectedConv?.id === conv.id ? 'conv-card-active' : ''}"
+                                on:click={() => selectConversation(conv)}
+                                on:keydown={(e) => e.key === 'Enter' && selectConversation(conv)}>
+                                <div class="relative flex-shrink-0">
+                                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
+                                        {(conv.customer_name || '?')[0].toUpperCase()}
+                                    </div>
+                                    <span class="absolute -bottom-0.5 -right-0.5 text-[9px]">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between">
+                                        <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
+                                        <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between mt-0.5">
+                                        <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
+                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                            <span role="button" tabindex="0" class="conv-badge badge-needshelp" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)} title={$locale === 'ar' ? 'حل وإعادة الذكاء' : 'Resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'حل' : 'Resolve'}</span>
+                                            {#if conv.unread_count > 0}
+                                                <span class="unread-badge">{conv.unread_count}</span>
+                                            {/if}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {/each}
+                    {/if}
+
+                    <!-- Separator between priority and main list -->
+                    {#if filteredConversations.length > 0}
+                        <div class="priority-separator">
+                            <span class="priority-separator-label">{$locale === 'ar' ? 'جميع المحادثات' : 'All Chats'}</span>
+                        </div>
+                    {/if}
+                {/if}
+
+                <!-- Main conversation list -->
+                {#if filteredConversations.length === 0 && priorityConversations.length === 0}
+                    <div class="text-center py-12 text-slate-400">
+                        <div class="text-4xl mb-3 opacity-40">💬</div>
+                        <p class="text-xs font-medium">No conversations yet</p>
+                    </div>
+                {/if}
                 {#each filteredConversations as conv}
                     <div role="button" tabindex="0"
                         class="conv-card w-full px-3 py-2.5 flex items-center gap-2.5 transition-all text-left
@@ -1522,6 +1607,83 @@
         background: rgba(255, 247, 237, 0.85) !important;
         border: 1px solid rgba(249, 115, 22, 0.3) !important;
         box-shadow: 0 2px 10px rgba(249, 115, 22, 0.15), inset 0 0 0 1px rgba(249, 115, 22, 0.1) !important;
+    }
+
+    /* --- Priority Section Cards --- */
+    .conv-card-sos {
+        border-left: 3px solid #ef4444;
+        background: rgba(254, 226, 226, 0.4);
+    }
+    .conv-card-sos:hover {
+        background: rgba(254, 226, 226, 0.7);
+        border-left-color: #dc2626;
+    }
+    .conv-card-help {
+        border-left: 3px solid #f59e0b;
+        background: rgba(255, 251, 235, 0.4);
+    }
+    .conv-card-help:hover {
+        background: rgba(255, 251, 235, 0.7);
+        border-left-color: #d97706;
+    }
+
+    /* --- Priority Section Headers --- */
+    .priority-section-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        margin: 4px 0 2px;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .sos-header {
+        background: linear-gradient(135deg, #fee2e2, #fecaca);
+        color: #b91c1c;
+    }
+    .help-header {
+        background: linear-gradient(135deg, #fef3c7, #fde68a);
+        color: #92400e;
+    }
+    .priority-section-icon { font-size: 12px; }
+    .priority-section-title { flex: 1; }
+    .priority-section-count {
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9999px;
+        font-size: 10px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .sos-header .priority-section-count { background: #ef4444; color: white; }
+    .help-header .priority-section-count { background: #f59e0b; color: white; }
+
+    /* --- Priority Separator --- */
+    .priority-separator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0 4px;
+        margin: 4px 6px;
+    }
+    .priority-separator::before,
+    .priority-separator::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: #e2e8f0;
+    }
+    .priority-separator-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
     }
 
     /* --- Unread Badge --- */
