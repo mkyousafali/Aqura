@@ -472,6 +472,7 @@
                 .from('incidents')
                 .update({
                     resolution_status: 'claimed',
+                    claimed_user_id: currentUserID,
                     user_statuses: userStatusesObj,
                     reports_to_user_ids: reportsToIds
                 })
@@ -1230,14 +1231,19 @@
                                 </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
-                                <span class="px-2.5 py-1.5 rounded-full text-xs font-semibold shadow-sm {getStatusBadgeColor(incident.resolution_status)}">
-                                    {$locale === 'ar'
-                                        ? incident.resolution_status === 'reported' ? 'مبلغ عنه'
-                                        : incident.resolution_status === 'claimed' ? 'مطالب به'
-                                        : incident.resolution_status === 'resolved' ? 'تم حله'
-                                        : incident.resolution_status
-                                        : incident.resolution_status.charAt(0).toUpperCase() + incident.resolution_status.slice(1)}
-                                </span>
+                                <div class="flex flex-col gap-1.5">
+                                    <span class="px-2.5 py-1.5 rounded-full text-xs font-semibold shadow-sm {getStatusBadgeColor(incident.resolution_status)}">
+                                        {$locale === 'ar'
+                                            ? incident.resolution_status === 'reported' ? 'مبلغ عنه'
+                                            : incident.resolution_status === 'claimed' ? 'مطالب به'
+                                            : incident.resolution_status === 'resolved' ? 'تم حله'
+                                            : incident.resolution_status
+                                            : incident.resolution_status.charAt(0).toUpperCase() + incident.resolution_status.slice(1)}
+                                    </span>
+                                    <div class="text-[11px] text-slate-500 font-mono bg-slate-50 px-2 py-1 rounded border border-slate-200">
+                                        {$locale === 'ar' ? 'رقم:' : 'ID:'} {incident.id}
+                                    </div>
+                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <div class="flex flex-wrap items-center gap-1.5">

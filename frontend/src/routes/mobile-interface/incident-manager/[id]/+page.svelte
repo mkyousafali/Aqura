@@ -277,11 +277,33 @@
 				claimed_at: new Date().toISOString()
 			};
 
+			// Add current user to reports_to_user_ids if not already there
+			let reportsToIds = incident.reports_to_user_ids || [];
+			if (typeof reportsToIds === 'string') {
+				try {
+					reportsToIds = JSON.parse(reportsToIds);
+				} catch (e) {
+					reportsToIds = [];
+				}
+			}
+			
+			if (!Array.isArray(reportsToIds)) {
+				reportsToIds = [];
+			} else {
+				reportsToIds = [...reportsToIds];
+			}
+			
+			if (!reportsToIds.includes(currentUserID)) {
+				reportsToIds.push(currentUserID);
+			}
+
 			const { error } = await supabase
 				.from('incidents')
 				.update({
 					resolution_status: 'claimed',
-					user_statuses: userStatusesObj
+					claimed_user_id: currentUserID,
+					user_statuses: userStatusesObj,
+					reports_to_user_ids: reportsToIds
 				})
 				.eq('id', incident.id);
 

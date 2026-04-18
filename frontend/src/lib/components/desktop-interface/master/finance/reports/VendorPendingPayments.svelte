@@ -27,6 +27,7 @@
 	let globalTotalPaid = 0;
 	let globalTotalUnpaid = 0;
 	let globalGrandTotal = 0;
+	let vendorUnpaidMap: Map<string, number> = new Map(); // Store unpaid amounts for each vendor
 
 	// Pagination
 	let currentPage = 1;
@@ -152,6 +153,14 @@
 			totalVendorCount = data.total_vendor_count || 0;
 			vendors = data.vendors || [];
 			paymentMethods = data.payment_methods || [];
+			
+			// Load vendor unpaid balances from RPC
+			await loadVendorsWithUnpaidBalances();
+			
+			console.log('✅ Vendors loaded from RPC:', vendors.length, 'vendors');
+			if (vendors.length > 0) {
+				console.log('📌 Sample vendor:', vendors[0]);
+			}
 		} catch (error) {
 			console.error('Error loading initial data:', error);
 			// Fallback to old method if RPC fails
@@ -384,6 +393,83 @@
 		paidFilter = 'unpaid';
 	}
 
+	// Load vendor unpaid balances from RPC
+	async function loadVendorsWithUnpaidBalances() {
+		try {
+			console.log('🚀 Starting RPC call: get_vendors_with_unpaid_balances...');
+			const { data, error } = await supabase.rpc('get_vendors_with_unpaid_balances');
+			
+			if (error) {
+				console.error('❌ RPC Error:', error);
+				throw error;
+			}
+			
+			if (!data) {
+				console.warn('⚠️ RPC returned no data');
+				return;
+			}
+			
+			console.log('📥 RPC returned', data.length, 'vendors');
+			
+			vendorUnpaidMap.clear();
+			for (const vendor of data) {
+				vendorUnpaidMap.set(vendor.vendor_id, vendor.total_unpaid);
+				if (vendorUnpaidMap.size <= 5) {
+					console.log(`  ${vendor.vendor_id}: ${vendor.total_unpaid}`);
+				}
+			}
+			
+			console.log('✅ Vendor unpaid balances loaded from RPC:', vendorUnpaidMap.size, 'vendors');
+			
+			// Force reactivity
+			vendorUnpaidMap = vendorUnpaidMap;
+		} catch (error) {
+			console.error('❌ Error loading vendor unpaid balances from RPC:', error);
+		}
+	}
+
+	// Load unpaid total for a specific vendor across all branches (FALLBACK - should not be called)
+	async function loadVendorUnpaidTotal(vendorId: string): Promise<number> {
+		console.warn('⚠️ FALLBACK: loadVendorUnpaidTotal() called for', vendorId, '- RPC should have pre-loaded this!');
+		try {
+			// Check cache first
+			if (vendorUnpaidMap.has(vendorId)) {
+				return vendorUnpaidMap.get(vendorId) || 0;
+			}
+			
+			let total = 0;
+			
+			// Query unpaid payments for this vendor
+			const { data: payments } = await supabase
+				.from('vendor_payment_schedule')
+				.select('final_bill_amount')
+				.eq('vendor_id', vendorId)
+				.eq('is_paid', false);
+			
+			if (payments) {
+				total += payments.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0);
+			}
+			
+			// Query unpaid expenses for this vendor
+			const { data: expenses } = await supabase
+				.from('expense_scheduler')
+				.select('amount')
+				.eq('vendor_id', vendorId)
+				.eq('is_paid', false);
+			
+			if (expenses) {
+				total += expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+			}
+			
+			console.log(`💰 Vendor ${vendorId} unpaid total: ${total}`);
+			vendorUnpaidMap.set(vendorId, total);
+			return total;
+		} catch (error) {
+			console.error(`Error loading unpaid total for vendor ${vendorId}:`, error);
+			return 0;
+		}
+	}
+
 	function openEditModal(payment: any) {
 		editingPayment = payment;
 		editFormData = {
@@ -434,6 +520,10 @@
 			);
 
 			closeEditModal();
+			
+			// Clear vendor unpaid cache to force reload on next search
+			vendorUnpaidMap.clear();
+			vendorUnpaidMap = vendorUnpaidMap;
 		} catch (error) {
 			console.error('Error saving edit:', error);
 			alert('Failed to save changes. Please try again.');
@@ -482,6 +572,13 @@
 		} else if (e.key === 'Escape') {
 			searchQuery = '';
 		}
+	}
+
+	// Get unpaid amount for a vendor (from cache)
+	function getVendorTotalUnpaid(vendorId: string): number {
+		const amount = vendorUnpaidMap.get(vendorId);
+		console.log(`🔍 Looking up unpaid for vendor ${vendorId}:`, amount || 0);
+		return amount || 0;
 	}
 
 	const filterOrder: Array<'all' | 'paid' | 'unpaid'> = ['all', 'unpaid', 'paid'];
@@ -543,7 +640,7 @@
 			<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-purple-100/10 rounded-full blur-3xl pointer-events-none"></div>
 
 			<!-- Summary Cards -->
-			<div class="grid grid-cols-4 gap-4 w-full max-w-3xl mb-10 relative z-10">
+			<div class="grid grid-cols-4 gap-4 w-full max-w-6xl mb-10 relative z-10">
 				<!-- Total -->
 				<div class="group relative bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] p-5 flex flex-col items-center gap-2 hover:shadow-[0_16px_48px_-12px_rgba(14,165,233,0.2)] hover:scale-[1.03] transition-all duration-300">
 					<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-200/50">
@@ -613,8 +710,19 @@
 										on:click={() => handleVendorSelect(vendor.vendor_id, vendor.vendor_name)}
 										on:mouseenter={() => highlightedIndex = i}
 									>
-										<div class="font-semibold text-sm text-slate-800">{vendor.vendor_name}</div>
-										<div class="text-[11px] text-slate-400 mt-0.5">ID: {vendor.vendor_id}</div>
+										<div class="flex items-center justify-between">
+											<div>
+												<div class="font-semibold text-sm text-slate-800">{vendor.vendor_name}</div>
+												<div class="text-[11px] text-slate-400 mt-0.5">ID: {vendor.vendor_id}</div>
+											</div>
+											<div class="text-right">
+												<div class="text-xs font-bold text-red-600">
+													<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-70 inline mr-1" />
+													{getVendorTotalUnpaid(vendor.vendor_id).toLocaleString()}
+												</div>
+												<div class="text-[10px] text-slate-400 mt-0.5">{$t('vendorPaymentFilters.unpaid')}</div>
+											</div>
+										</div>
 									</button>
 								{/each}
 							</div>
@@ -673,13 +781,13 @@
 				</div>
 
 				<select bind:value={selectedBranchId} class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
-					<option value="">{$t('nav.selectBranch') || 'All Branches'}</option>
+					<option value="">{$t('vendorPaymentFilters.selectBranch') || 'All Branches'}</option>
 					{#each branches as branch}
 						<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedPaymentMethod} class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
-					<option value="">All Methods</option>
+					<option value="">{$t('vendorPaymentFilters.allMethods') || 'All Methods'}</option>
 					{#each paymentMethods as method}
 						<option value={method}>{method}</option>
 					{/each}
@@ -859,7 +967,7 @@
 					<div class="flex flex-col gap-1">
 						<label for="edit-branch" class="text-xs font-bold text-slate-600 uppercase">Branch</label>
 						<select id="edit-branch" bind:value={editFormData.branch_id} class="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-							<option value="">Select Branch</option>
+						<option value="">{$t('vendorPaymentFilters.selectBranch') || 'Select Branch'}</option>
 							{#each branches as branch}
 								<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 							{/each}

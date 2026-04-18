@@ -42,6 +42,8 @@ export const englishLocale: LocaleData = {
       unpaid: "Unpaid",
       paid: "Paid",
       any: "Any",
+      allMethods: "All Methods",
+      selectBranch: "Select Branch",
     },
 
     // Navigation & UI

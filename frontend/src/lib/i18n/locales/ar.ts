@@ -44,6 +44,8 @@ export const arabicLocale: LocaleData = {
       unpaid: "غير مدفوع",
       paid: "مدفوع",
       any: "أي",
+      allMethods: "جميع الطرق",
+      selectBranch: "اختر الفرع",
     },
 
     // Navigation & UI
