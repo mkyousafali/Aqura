@@ -1259,11 +1259,15 @@
                                         <div class="text-[10px] font-semibold text-purple-500 mb-1">🤖 {$locale === 'ar' ? 'بوت الذكاء الاصطناعي' : 'AI Bot'}</div>
                                     {:else if msg.sent_by === 'auto_reply' || msg.sent_by === 'auto_reply_bot'}
                                         <div class="text-[10px] font-semibold text-blue-500 mb-1">🔧 {$locale === 'ar' ? 'بوت الرد التلقائي' : 'Auto Reply Bot'}</div>
+                                    {:else if msg.sent_by === 'system'}
+                                        <div class="text-[10px] font-semibold text-slate-400 mb-1">⚙️ {$locale === 'ar' ? 'نظام' : 'System'}</div>
                                     {:else if msg.sent_by === 'user' && msg.sent_by_user_id}
                                         <div class="text-[10px] font-semibold text-orange-600 mb-1">👤 {userNameCache[msg.sent_by_user_id] || ($locale === 'ar' ? 'مستخدم' : 'User')}</div>
-                                    {:else if msg.sent_by === 'user'}
+                                    {:else}
                                         <div class="text-[10px] font-semibold text-orange-600 mb-1">👤 {$locale === 'ar' ? 'مستخدم' : 'User'}</div>
                                     {/if}
+                                {:else if msg.direction === 'inbound'}
+                                    <div class="text-[10px] font-semibold text-slate-500 mb-1">💬 {$locale === 'ar' ? 'العميل' : 'Customer'}</div>
                                 {/if}
                                 {#if msg.message_type === 'image' && msg.media_url}
                                     <img src={msg.media_url} alt="media" class="rounded-lg max-w-[280px] w-auto h-auto mb-1 cursor-pointer" on:click={() => window.open(msg.media_url, '_blank')} />
