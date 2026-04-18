@@ -13,6 +13,8 @@
 	export let showMask: boolean = true;
 	// Auto-login code from URL (WhatsApp login button redirect)
 	export let autoLoginCode: string | null = null;
+	// Hide nav buttons (Follow Us, Offers, Loyalty) to show only access code
+	export let hideNavButtons: boolean = false;
 
 	// Component states
 	let currentView: 'login' | 'register' | 'forgot' | 'loyalty' = initialView;
@@ -497,13 +499,7 @@
 	}
 
 	function backFromLoyalty() {
-		currentView = 'login';
-		loyaltyMobileNumber = '';
-		loyaltyMobileValid = false;
-		loyaltyCardData = null;
-		loyaltyCardChecked = false;
-		errorMessage = '';
-		successMessage = '';
+		goto('/login');
 	}
 
 	// Validate and check loyalty member mobile number
@@ -673,6 +669,7 @@
 		<!-- Customer Login Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
 
+			{#if !hideNavButtons}
 			<!-- Follow Us Button -->
 			<button type="button" class="follow-us-btn" on:click={goToFollowUs} disabled={isLoading} title={$_('customer.login.followUs') || 'Follow Us'}>
 				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -708,6 +705,7 @@
 			<div class="login-divider">
 				<span>{$_('common.or') || 'OR'}</span>
 			</div>
+			{/if}
 
 			<div class="access-code-section" class:blocked={blockAccessCodeInput}>
 				{#if blockAccessCodeInput}

@@ -750,7 +750,8 @@
 			const isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
 			const isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRoute = $page.url.pathname.startsWith('/privacy');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isPopoutMode) {
+			const isLoginTestRoute = $page.url.pathname.startsWith('/logintest');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -787,7 +788,8 @@
 					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
 					const isCustomerLoginTimeout = $page.url.pathname.startsWith('/login/customer');
 					const isPrivacyRouteTimeout = $page.url.pathname.startsWith('/privacy');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isPopoutMode) {
+					const isLoginTestRouteTimeout = $page.url.pathname.startsWith('/logintest');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -816,7 +818,8 @@
 			const isCustomerRouteError = $page.url.pathname.startsWith('/customer-interface');
 			const isCustomerLoginError = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRouteError = $page.url.pathname.startsWith('/privacy');
-			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isPopoutMode) {
+			const isLoginTestRouteError = $page.url.pathname.startsWith('/logintest');
+			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isLoginTestRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -1030,6 +1033,7 @@
 	$: isCustomerInterfaceRoute = $page.url.pathname.startsWith('/customer-interface');
 	$: isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 	$: isPrivacyPage = $page.url.pathname.startsWith('/privacy');
+	$: isLoginTestPage = $page.url.pathname.startsWith('/logintest');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
@@ -1054,7 +1058,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isLoginTestPage && !isLoginPage}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">
@@ -1062,8 +1066,8 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage}
-	<!-- Mobile, cashier, and customer routes get no desktop layout - completely independent -->
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isLoginPage}
+	<!-- Mobile, cashier, customer, login, and login test routes get no desktop layout - completely independent -->
 	<slot />
 {:else}
 	<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>

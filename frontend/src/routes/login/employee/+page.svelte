@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
@@ -44,6 +45,8 @@
 	let showCustomerButton = false;
 	let showAccessCode = false;
 
+	let hideMobile = false;
+
 	onMount(async () => {
 		mounted = true;
 		setTimeout(() => {
@@ -51,6 +54,11 @@
 		}, 300);
 
 		checkExistingAuth();
+
+		// Hide mobile option when coming from desktop login page
+		if ($page.url.searchParams.get('mode') === 'desktop') {
+			hideMobile = true;
+		}
 	});
 
 	function checkExistingAuth() {
@@ -404,20 +412,22 @@
 									<span class="interface-label">{$_('customer.login.interface.desktop')}</span>
 								</button>
 
-								<button 
-									class="interface-btn mobile-btn"
-									on:click={() => chooseInterface('mobile')}
-									disabled={isLoading}
-									title={$_('customer.login.interface.mobile')}
-								>
-									<div class="interface-icon">
-										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<rect x="5" y="2" width="14" height="20" rx="2"/>
-											<path d="M12 18h.01"/>
-										</svg>
-									</div>
-									<span class="interface-label">{$_('customer.login.interface.mobile')}</span>
-								</button>
+						{#if !hideMobile}
+						<button 
+							class="interface-btn mobile-btn"
+							on:click={() => chooseInterface('mobile')}
+							disabled={isLoading}
+							title={$_('customer.login.interface.mobile')}
+						>
+							<div class="interface-icon">
+								<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="5" y="2" width="14" height="20" rx="2"/>
+									<path d="M12 18h.01"/>
+								</svg>
+							</div>
+							<span class="interface-label">{$_('customer.login.interface.mobile')}</span>
+						</button>
+						{/if}
 
 								<button 
 									class="interface-btn cashier-btn"
@@ -428,7 +438,7 @@
 								>
 									<div class="interface-icon">
 										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+											<rect x="3" y="3" width="18" height="18" rx="2"/>
 											<circle cx="8.5" cy="8.5" r="1.5"/>
 											<polyline points="21 15 16 10 5 21"/>
 											<line x1="10" y1="18" x2="18" y2="10"/>

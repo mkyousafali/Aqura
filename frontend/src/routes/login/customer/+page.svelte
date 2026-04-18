@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
@@ -18,6 +19,12 @@
 
 	// Auto-login code from URL ?code=123456
 	let autoLoginCode: string | null = null;
+
+	// Initial view from URL ?view=loyalty
+	let initialViewParam: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
+
+	// Hide nav buttons when ?minimal=true (direct access code entry)
+	let hideNavButtons = false;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -75,6 +82,17 @@
 				if (data) showMask = data.customer_login_mask_enabled;
 			} catch {}
 		}, 3000);
+
+		// Check for ?view= parameter in URL (e.g., ?view=loyalty from Points button)
+		const viewParam = $page.url.searchParams.get('view');
+		if (viewParam === 'loyalty') {
+			initialViewParam = 'loyalty';
+		}
+
+		// Check for ?minimal=true (hide Follow Us/Offers/Loyalty buttons, show only access code)
+		if ($page.url.searchParams.get('minimal') === 'true') {
+			hideNavButtons = true;
+		}
 
 		// Check for ?code= parameter in URL (from WhatsApp login button)
 		const codeParam = $page.url.searchParams.get('code');
@@ -136,10 +154,19 @@
 					</button>
 				</div>
 
-				<div class="auth-section">
+				{#if hideNavButtons}
+					<div class="back-row">
+						<button class="back-to-login" on:click={() => goto('/login')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+							{$currentLocale === 'ar' ? 'العودة' : 'Back'}
+						</button>
+					</div>
+					{/if}
+
+					<div class="auth-section">
 					<div class="customer-login-wrapper">
 
-						<CustomerLogin showMask={showMask} autoLoginCode={autoLoginCode} on:success={handleCustomerSuccess} />
+						<CustomerLogin initialView={initialViewParam} {hideNavButtons} showMask={showMask} autoLoginCode={autoLoginCode} on:success={handleCustomerSuccess} />
 					</div>
 				</div>
 			</div>
@@ -168,6 +195,30 @@
 
 	:global(input, select, textarea) {
 		font-size: 16px !important;
+	}
+
+	.back-row {
+		display: flex;
+		justify-content: flex-start;
+		padding: 8px 4px 0;
+	}
+	.back-to-login {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: none;
+		border: none;
+		color: #64748b;
+		font-size: 0.9rem;
+		font-weight: 500;
+		cursor: pointer;
+		padding: 6px 10px;
+		border-radius: 6px;
+		transition: color 0.2s, background 0.2s;
+	}
+	.back-to-login:hover {
+		color: #1e293b;
+		background: #f1f5f9;
 	}
 
 	.login-page {

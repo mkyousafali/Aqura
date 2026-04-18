@@ -90,12 +90,7 @@
 	}
 
 	function goTeam() {
-		const isMobile = window.innerWidth <= 768;
-		if (isMobile) {
-			goto('/mobile-interface/login');
-		} else {
-			goto('/login/employee?mode=desktop');
-		}
+		goto('/login/employee');
 	}
 </script>
 
@@ -125,7 +120,7 @@
 				<line x1="2" y1="12" x2="22" y2="12"/>
 				<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
 			</svg>
-			{$currentLocale === 'ar' ? 'English' : 'العربية'}
+			{$currentLocale === 'ar' ? 'English' : 'Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©'}
 		</button>
 	</div>
 
@@ -280,15 +275,7 @@
 	<!-- Weekly Offers Banner -->
 	<section class="offers-banner">
 		<div class="offers-content">
-			<div class="offers-icon">
-				<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-					<polyline points="20 12 20 22 4 22 4 12"/>
-					<rect x="2" y="7" width="20" height="5"/>
-					<line x1="12" y1="22" x2="12" y2="7"/>
-					<path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/>
-					<path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
-				</svg>
-			</div>
+			<div class="offers-icon">🎁</div>
 			<h2>
 				{#if isRTL}
 					<span class="text-dark">أفضل</span> <span class="text-orange">العروض الأسبوعية</span> <span class="text-dark">في الفروع</span>
@@ -357,78 +344,22 @@
 				</p>
 			</div>
 			<div class="footer-links">
-				<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-				<a href="/login/employee" on:click|preventDefault={goTeam} style="cursor:pointer">{isRTL ? 'دخول الفريق' : 'Team Login'}</a>
+				<a href="/login/employee">{isRTL ? 'دخول الفريق' : 'Team Login'}</a>
 			</div>
 			<div class="footer-email">
-				<span>{isRTL ? 'تواصل معنا' : 'Contact Us'}</span>
-				<a class="whatsapp-btn" href="https://api.whatsapp.com/send?phone=966567334726&text=%D8%A3%D8%AD%D8%AA%D8%A7%D8%AC%20%D8%A5%D9%84%D9%89%20%D9%85%D8%B3%D8%A7%D8%B9%D8%AF%D8%A9" target="_blank" rel="noopener noreferrer">
-					<svg viewBox="0 0 32 32" fill="white" width="18" height="18"><path d="M16.004 0C7.164 0 .002 7.16.002 15.997c0 2.82.737 5.573 2.14 7.998L.006 32l8.27-2.11a15.96 15.96 0 007.728 1.97C24.84 31.86 32 24.7 32 15.997 32 7.16 24.84 0 16.004 0zm0 29.316a13.38 13.38 0 01-7.27-2.136l-.522-.31-4.896 1.25 1.304-4.77-.34-.54A13.34 13.34 0 012.55 15.997c0-7.417 6.038-13.454 13.454-13.454 7.418 0 13.454 6.037 13.454 13.454 0 7.418-6.036 13.32-13.454 13.32zm7.39-10.078c-.405-.202-2.396-1.182-2.768-1.316-.372-.134-.643-.202-.913.202-.27.405-1.048 1.316-1.285 1.588-.237.27-.474.304-.88.1-.405-.2-1.71-.63-3.26-2.01-1.205-1.074-2.018-2.4-2.254-2.806-.237-.405-.025-.624.178-.826.183-.182.405-.474.608-.71.202-.237.27-.405.405-.676.135-.27.068-.507-.034-.71-.1-.202-.913-2.2-1.25-3.012-.33-.79-.665-.684-.913-.697l-.778-.012c-.27 0-.71.1-.08.507-.372.405-1.42 1.384-1.42 3.38 0 1.993 1.453 3.92 1.656 4.192.202.27 2.86 4.36 6.93 6.116.968.418 1.724.668 2.313.855.972.308 1.857.265 2.556.16.78-.116 2.396-.98 2.734-1.925.338-.946.338-1.757.237-1.925-.1-.168-.372-.27-.778-.474z"/></svg>
-					{isRTL ? 'واتساب' : 'WhatsApp'}
-				</a>
+				<span>{isRTL ? 'تواصل معنا:' : 'Email Us:'}</span>
+				<a href="mailto:ceo@urbanksa.com">ceo@urbanksa.com</a>
 			</div>
 		</div>
 		<div class="footer-bottom">
-			<span>© 2026 Urban Market — {isRTL ? 'جميع الحقوق محفوظة' : 'All Rights Reserved'}</span>
-		</div>
-		<div class="footer-privacy">
-			<a href="/privacy">{isRTL ? 'سياسة الخصوصية' : 'Privacy Policy'}</a>
+			<span>© 2026 Urban Market â€” {isRTL ? 'جميع الحقوق محفوظة' : 'All Rights Reserved'}</span>
 		</div>
 	</footer>
 	{/if}
 	</div><!-- .login-page-inner -->
-
-	<!-- WhatsApp Float Button -->
-	<a class="whatsapp-float" href="https://api.whatsapp.com/send?phone=966567334726&text=%D8%A3%D8%AD%D8%AA%D8%A7%D8%AC%20%D8%A5%D9%84%D9%89%20%D9%85%D8%B3%D8%A7%D8%B9%D8%AF%D8%A9" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
-		<svg viewBox="0 0 32 32" fill="white" width="32" height="32"><path d="M16.004 0C7.164 0 .002 7.16.002 15.997c0 2.82.737 5.573 2.14 7.998L.006 32l8.27-2.11a15.96 15.96 0 007.728 1.97C24.84 31.86 32 24.7 32 15.997 32 7.16 24.84 0 16.004 0zm0 29.316a13.38 13.38 0 01-7.27-2.136l-.522-.31-4.896 1.25 1.304-4.77-.34-.54A13.34 13.34 0 012.55 15.997c0-7.417 6.038-13.454 13.454-13.454 7.418 0 13.454 6.037 13.454 13.454 0 7.418-6.036 13.32-13.454 13.32zm7.39-10.078c-.405-.202-2.396-1.182-2.768-1.316-.372-.134-.643-.202-.913.202-.27.405-1.048 1.316-1.285 1.588-.237.27-.474.304-.88.1-.405-.2-1.71-.63-3.26-2.01-1.205-1.074-2.018-2.4-2.254-2.806-.237-.405-.025-.624.178-.826.183-.182.405-.474.608-.71.202-.237.27-.405.405-.676.135-.27.068-.507-.034-.71-.1-.202-.913-2.2-1.25-3.012-.33-.79-.665-.684-.913-.697l-.778-.012c-.27 0-.71.1-.08.507-.372.405-1.42 1.384-1.42 3.38 0 1.993 1.453 3.92 1.656 4.192.202.27 2.86 4.36 6.93 6.116.968.418 1.724.668 2.313.855.972.308 1.857.265 2.556.16.78-.116 2.396-.98 2.734-1.925.338-.946.338-1.757.237-1.925-.1-.168-.372-.27-.778-.474z"/></svg>
-	</a>
 </div><!-- .login-page -->
 
 <style>
-	/* WhatsApp Float */
-	.whatsapp-float {
-		position: fixed;
-		bottom: 24px;
-		right: 24px;
-		z-index: 9999;
-		width: 56px;
-		height: 56px;
-		border-radius: 50%;
-		background: #25D366;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-		transition: transform 0.2s, box-shadow 0.2s;
-		cursor: pointer;
-		text-decoration: none;
-	}
-	.whatsapp-float:hover {
-		transform: scale(1.1);
-		box-shadow: 0 6px 24px rgba(0,0,0,0.3);
-	}
-	.whatsapp-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		background: #25D366;
-		color: white !important;
-		padding: 10px 24px;
-		border-radius: 25px;
-		text-decoration: none;
-		font-size: 0.9rem;
-		font-weight: 600;
-		margin-top: 12px;
-		transition: all 0.2s;
-		box-shadow: 0 2px 8px rgba(37,211,102,0.3);
-	}
-	.whatsapp-btn:hover {
-		background: #20BD5A;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(37,211,102,0.4);
-	}
-
-
 	/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• RESET & BASE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 	.login-page {
 		background: #f0fdf4;
@@ -578,8 +509,8 @@
 		align-items: center;
 		gap: 10px;
 		background: white;
-		color: #13A538;
-		border: 2px solid #13A538;
+		color: #108C30;
+		border: 2px solid #108C30;
 		padding: 12px 30px;
 		border-radius: 12px;
 		font-size: 16px;
@@ -600,7 +531,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 10px;
-		background: #f08300;
+		background: linear-gradient(135deg, #ea580c, #f08300);
 		color: white;
 		border: none;
 		padding: 14px 32px;
@@ -623,7 +554,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 10px;
-		background: #f08300;
+		background: linear-gradient(135deg, #d97706, #f59e0b);
 		color: white;
 		border: none;
 		padding: 14px 32px;
@@ -718,7 +649,7 @@
 	}
 	.deco-3 {
 		width: 100px; height: 100px;
-		background: #f08300;
+		background: #fbbf24;
 		top: 30%; left: 5%;
 	}
 
@@ -802,8 +733,6 @@
 	.offers-icon {
 		font-size: 48px;
 		margin-bottom: 16px;
-		display: flex;
-		justify-content: center;
 	}
 	.offers-banner h2 {
 		font-size: 1.75rem;
@@ -811,8 +740,6 @@
 		color: white;
 		margin: 0 0 12px;
 	}
-	.offers-banner .text-dark { color: white; }
-	.offers-banner .text-orange { color: #f08300; }
 	.offers-banner p {
 		font-size: 0.95rem;
 		color: rgba(255,255,255,0.8);
@@ -950,24 +877,13 @@
 		gap: 12px;
 	}
 	.footer-links a {
-		display: inline-block;
-		padding: 10px 28px;
-		background: #1e293b;
-		color: #fff;
+		color: #334155;
 		text-decoration: none;
-		font-size: 0.85rem;
-		font-weight: 600;
-		letter-spacing: 0.3px;
-		border-radius: 8px;
-		transition: background 0.2s, transform 0.15s;
+		font-size: 0.9rem;
+		font-weight: 500;
+		transition: color 0.2s;
 	}
-	.footer-links a:hover {
-		background: #334155;
-		transform: translateY(-1px);
-	}
-	.footer-email {
-		text-align: center;
-	}
+	.footer-links a:hover { color: #13A538; }
 	.footer-email span {
 		display: block;
 		font-size: 0.85rem;
@@ -983,24 +899,10 @@
 	}
 	.footer-bottom {
 		border-top: 1px solid #dcfce7;
-		padding: 16px 0 8px;
+		padding: 16px 0;
 		text-align: center;
 		font-size: 0.8rem;
 		color: #94a3b8;
-	}
-	.footer-privacy {
-		text-align: center;
-		padding-bottom: 12px;
-	}
-	.footer-privacy a {
-		color: #dc2626;
-		text-decoration: none;
-		font-size: 0.78rem;
-		font-weight: 600;
-		transition: color 0.2s;
-	}
-	.footer-privacy a:hover {
-		color: #13A538;
 	}
 
 	/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• RESPONSIVE â€” TABLET â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */

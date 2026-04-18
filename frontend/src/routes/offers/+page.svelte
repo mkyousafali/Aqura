@@ -272,10 +272,9 @@
 	}
 
 	function goBack() {
-		// If referrer is login, go back there, otherwise go to home
 		const referrer = $page.url.searchParams.get('referrer');
 		if (referrer === 'login') {
-			goto('/login/customer');
+			goto('/login');
 		} else {
 			goto('/');
 		}
