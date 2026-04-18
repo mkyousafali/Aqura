@@ -201,6 +201,13 @@ async function handleIncomingMessage(
     const senderName = contact.profile?.name || senderPhone;
     const messageId = message.id;
     const timestamp = message.timestamp;
+    const messageType = message.type;
+
+    // ─── Skip System Messages ──────────────────────────────────
+    if (messageType === "system") {
+      console.log(`[WEBHOOK] Skipping system message: ${messageId}`);
+      return;
+    }
 
     // ─── Auto-Create Customer if Not Exists ─────────
     // ignoreDuplicates=true means existing customers are never touched
@@ -297,11 +304,12 @@ async function handleIncomingMessage(
 
     // ─── Extract Message Content ────────────────────
     let content = "";
-    let messageType = message.type || "text";
+    const finalMessageType = messageType || "text";
+    let storedMessageType = finalMessageType; // Track what we actually store (may differ from type)
     let mediaUrl: string | null = null;
     let mediaMimeType: string | null = null;
 
-    switch (messageType) {
+    switch (finalMessageType) {
       case "text":
         content = message.text?.body || "";
         break;
@@ -355,13 +363,13 @@ async function handleIncomingMessage(
         } else if (message.interactive?.type === "list_reply") {
           content = message.interactive.list_reply?.title || "[List Reply]";
         }
-        messageType = "text"; // normalize
+        storedMessageType = "text"; // normalize to text for storage
         break;
       case "reaction":
         content = message.reaction?.emoji || "[Reaction]";
         break;
       default:
-        content = `[${messageType}]`;
+        content = `[${finalMessageType}]`;
     }
 
     // ─── Save Message ───────────────────────────────
@@ -369,7 +377,7 @@ async function handleIncomingMessage(
       conversation_id: conversationId,
       whatsapp_message_id: messageId,
       direction: "inbound",
-      message_type: messageType,
+      message_type: storedMessageType,
       content,
       media_url: mediaUrl,
       media_mime_type: mediaMimeType,
@@ -390,7 +398,7 @@ async function handleIncomingMessage(
       .eq("id", conversationId);
 
     // ─── Trigger Auto-Reply Bot ─────────────────────
-    if (messageType === "text" && content) {
+    if (finalMessageType === "text" && content) {
       // Check if this is a flow button reply first
       if (typeof buttonReplyId === "string" && buttonReplyId.startsWith("flow_")) {
         const handled = await tryFlowButtonReply(supabase, conversationId, accountId, senderPhone, buttonReplyId, content);
