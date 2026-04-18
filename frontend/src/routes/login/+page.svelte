@@ -10,6 +10,7 @@
 	let showMask = true;
 	let maskPollInterval: any = null;
 	let branches: any[] = [];
+	let isWhatsAppBrowser = false;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -31,9 +32,27 @@
 		document.documentElement.dir = 'ltr';
 	}
 
+	function openInExternalBrowser() {
+		const url = window.location.href;
+		// Android: intent scheme to open in default browser
+		const ua = navigator.userAgent || '';
+		if (/android/i.test(ua)) {
+			window.location.href = 'intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;end;';
+		} else {
+			// iOS and others: window.open triggers Safari
+			window.open(url, '_system');
+		}
+	}
+
 	onMount(async () => {
 		mounted = true;
 		setTimeout(() => { showContent = true; }, 200);
+
+		// Detect WhatsApp in-app browser
+		const ua = navigator.userAgent || '';
+		if (/WhatsApp/i.test(ua)) {
+			isWhatsAppBrowser = true;
+		}
 
 		// Force document direction to LTR so scrollbar stays on right
 		document.documentElement.dir = 'ltr';
@@ -114,6 +133,12 @@
 </svelte:head>
 
 <div class="login-page" class:mounted dir="ltr">
+	{#if isWhatsAppBrowser}
+	<div class="wa-browser-banner" dir={isRTL ? 'rtl' : 'ltr'}>
+		<span>{isRTL ? '🌐 للحصول على أفضل تجربة، افتح في المتصفح' : '🌐 For the best experience, open in your browser'}</span>
+		<button on:click={openInExternalBrowser}>{isRTL ? 'فتح في المتصفح' : 'Open in Browser'}</button>
+	</div>
+	{/if}
 	<!-- Sticky Header (direct child of scroll container so sticky works) -->
 	<header class="sticky-header" class:rtl={isRTL} dir={isRTL ? 'rtl' : 'ltr'}>
 	<!-- Top Bar -->
@@ -454,6 +479,37 @@
 		direction: rtl;
 		text-align: right;
 		font-family: 'Tajawal', 'Noto Sans Arabic', system-ui, sans-serif;
+	}
+
+
+	/* WhatsApp In-App Browser Banner */
+	.wa-browser-banner {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		padding: 10px 16px;
+		background: #1e293b;
+		color: #fff;
+		font-size: 0.85rem;
+		font-weight: 500;
+		z-index: 200;
+		flex-wrap: wrap;
+	}
+	.wa-browser-banner button {
+		background: #f08300;
+		color: #fff;
+		border: none;
+		padding: 6px 18px;
+		border-radius: 20px;
+		font-size: 0.82rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.2s;
+		white-space: nowrap;
+	}
+	.wa-browser-banner button:hover {
+		background: #d97706;
 	}
 
 	/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• STICKY HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
