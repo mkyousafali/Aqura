@@ -140,14 +140,15 @@
 			state.downloadingOfferId = offerId;
 			state.downloadProgress = 0;
 
-			// Detect WhatsApp browser and handle differently
+			// Detect WhatsApp browser and handle differently — force download
 			if (isWhatsAppBrowser()) {
-				// For WhatsApp browser, open URL directly (not blob) which works better
-				const newWindow = window.open(fileUrl, `offer_${offerId}`);
-				if (!newWindow) {
-					// If pop-up blocked, try direct navigation
-					window.location.href = fileUrl;
-				}
+				const a = document.createElement('a');
+				a.href = fileUrl;
+				a.download = `offer_${offerId}.pdf`;
+				a.style.display = 'none';
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
 				state.downloadingOfferId = null;
 				state.downloadProgress = 0;
 				return;
