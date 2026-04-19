@@ -93,6 +93,7 @@
 	import CustomerImporter from '$lib/components/desktop-interface/marketing/coupon/CustomerImporter.svelte';
 	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
 	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
+	import GiftWheelManager from '$lib/components/desktop-interface/marketing/gift-wheel/GiftWheelManager.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
@@ -2024,6 +2025,7 @@ function openApprovalCenter() {
 			'CUSTOMER_IMPORTER': openCustomerImporter,
 			'PRODUCT_MANAGER_PROMO': openProductManagerPromo,
 			'COUPON_REPORTS': openCouponReports,
+			'GIFT_WHEEL_MANAGER': openGiftWheelManager,
 			'APPROVAL_CENTER': openApprovalCenter,
 			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
 			'BANK_RECONCILIATION': openBankReconciliation,
@@ -3521,6 +3523,25 @@ function openApprovalCenter() {
 		showPromoSubmenu = false;
 	}
 
+	function openGiftWheelManager() {
+		const windowId = generateWindowId('gift-wheel-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Gift Wheel #${instanceNumber}`,
+			component: GiftWheelManager,
+			componentName: "GiftWheelManager",
+			icon: '🎡',
+			size: { width: 1200, height: 700 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
 	function openERPConnections() {
 		const windowId = generateWindowId('erp-connections');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -4377,6 +4398,14 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openCampaignManager}>
 							<span class="menu-icon">📋</span>
 							<span class="menu-text">{t('nav.manageCampaigns')}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('GIFT_WHEEL_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openGiftWheelManager}>
+							<span class="menu-icon">🎡</span>
+							<span class="menu-text">{t('nav.giftWheel')}</span>
 						</button>
 					</div>
 				{/if}

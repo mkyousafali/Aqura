@@ -134,6 +134,8 @@ export const englishLocale: LocaleData = {
       importCustomers: "Import Customers",
       manageProducts: "Manage Products",
       reportsAndStats: "Reports & Stats",
+      giftWheel: "Gift Wheel",
+      giftWheelCoupon: "Gift Wheel Coupon",
       approvalCenter: "Approval Center",
       categoryManager: "Category Manager",
       assetManager: "Asset Manager",

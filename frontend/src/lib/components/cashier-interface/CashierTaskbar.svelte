@@ -171,6 +171,29 @@
 		});
 	}
 
+	function openGiftWheelCoupon() {
+		closeMenu();
+		const windowId = generateWindowId('gift-wheel-coupon');
+
+		import('$lib/components/cashier-interface/GiftWheelCoupon.svelte').then(({ default: GiftWheelCoupon }) => {
+			openWindow({
+				id: windowId,
+				title: t('nav.giftWheelCoupon') || 'Gift Wheel Coupon',
+				component: GiftWheelCoupon,
+				props: { user, branch },
+				icon: '🎡',
+				size: { width: 600, height: 550 },
+				position: { x: 100, y: 50 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}).catch(error => {
+			console.error('Failed to load GiftWheelCoupon component:', error);
+		});
+	}
+
 	function openReportIncident() {
 		closeMenu();
 		const windowId = generateWindowId('report-incident');
@@ -252,6 +275,10 @@
 					<button class="menu-item" on:click={openCouponRedemption}>
 						<span class="menu-item-icon">🎁</span>
 						<span class="menu-item-text">{$_('coupon.redeemCoupon') || 'Redeem Coupon'}</span>
+					</button>
+					<button class="menu-item" on:click={openGiftWheelCoupon}>
+						<span class="menu-item-icon">🎡</span>
+						<span class="menu-item-text">{$_('nav.giftWheelCoupon') || 'Gift Wheel Coupon'}</span>
 					</button>
 					<div class="menu-divider"></div>
 

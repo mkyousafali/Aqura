@@ -136,6 +136,8 @@ export const arabicLocale: LocaleData = {
       importCustomers: "استيراد العملاء",
       manageProducts: "إدارة المنتجات",
       reportsAndStats: "التقارير والإحصائيات",
+      giftWheel: "عجلة الهدايا",
+      giftWheelCoupon: "كوبون عجلة الهدايا",
       approvalCenter: "مركز الموافقات",
       categoryManager: "مدير الفئات",
       assetManager: "مدير الأصول",

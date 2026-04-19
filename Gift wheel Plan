@@ -1,0 +1,425 @@
+# Full Plan: **Gift Wheel**
+
+Create a promotional system called **Gift Wheel** with customer QR access, admin controls, daily limits, reward management, and cashier coupon printing.
+
+Works on **mobile, tablet, and desktop**.
+
+---
+
+# 1. Main Purpose
+
+Customer scans QR code after checkout, uploads bill, spins wheel, wins reward, and gets coupon for next purchase.
+
+---
+
+# 2. Customer Route
+
+Create standalone route:
+
+**/gift-wheel**
+
+QR code opens this page.
+
+---
+
+# 3. Customer Flow
+
+### Step 1: Scan QR Code
+
+Customer scans code at checkout.
+
+### Step 2: Open Page
+
+Gift Wheel page opens.
+
+### Step 3: Show Interface
+
+Display:
+
+* Store logo
+* Gift wheel in center
+* Scan bill button
+* Bill details area
+* Start button
+* Stop button while spinning
+
+---
+
+# 4. Bill Capture
+
+Customer taps:
+
+**Take Photo of Bill**
+
+Use camera or upload image.
+
+---
+
+# 5. AI OCR Reads Bill
+
+Extract:
+
+* Bill number
+* Bill amount
+
+Auto-fill fields.
+
+---
+
+# 6. Validation Before Spin
+
+System checks:
+
+* Bill number valid
+* Bill not used before
+* Gift Wheel active
+* Inside scheduled time
+* Daily spin limit not reached
+
+If valid:
+
+**Start Wheel** becomes enabled.
+
+---
+
+# 7. Spin Wheel
+
+Customer presses **Start**
+
+Wheel spins.
+
+Show **Stop** button.
+
+Customer stops wheel anytime.
+
+---
+
+# 8. Wheel Rewards (Original Only)
+
+* Better luck next time
+* 2%
+* 5%
+* 10%
+* 15%
+* 50%
+
+---
+
+# 9. Reward Rule by Bill Amount
+
+### Important Rule
+
+**15% or above rewards only available when bill amount is more than 500**
+
+If bill is 500 or less:
+
+Only lower rewards shown.
+
+---
+
+# 10. One Use Rule
+
+* One spin per bill only
+* Same bill number cannot be reused
+* Same coupon code cannot be reused
+
+---
+
+# 11. Result After Spin
+
+Show:
+
+* Reward won
+* Coupon code
+* Message: show code to cashier
+
+---
+
+# 12. Admin Panel Location
+
+Desktop sidebar:
+
+**Promo → Manage → Gift Wheel**
+
+---
+
+# 13. Admin Sections
+
+Top tabs:
+
+1. Settings
+2. Dashboard
+
+---
+
+# 14. Settings
+
+## A. Activation
+
+* Manual Enable / Disable
+
+If disabled show:
+
+**Gift Wheel is not active**
+
+---
+
+## B. Scheduled Activation
+
+Set:
+
+* Start date
+* Start time
+* End date
+* End time
+
+Timezone:
+
+**Saudi Arabia Time (Asia/Riyadh)**
+
+---
+
+## C. Daily Spin Limit
+
+Set:
+
+* Maximum spins per day
+
+If reached:
+
+* Auto deactivate for rest of day
+
+Customer sees:
+
+**Daily limit reached. Please try again tomorrow**
+
+Auto reset at:
+
+**12:00 AM Saudi time**
+
+---
+
+## D. Reward Creation / Import
+
+When creating rewards enter/import:
+
+* Gift name / label
+* Reward type (% / fixed / no reward)
+* Reward value
+* Coupon code(s)
+* Maximum discount amount
+* Usage limit
+* Expiry date
+* Minimum bill amount
+* Probability / chance
+* Active / inactive
+
+---
+
+## E. Rules
+
+* One spin per bill
+* Prevent duplicate bill numbers
+* 15%+ only if bill > 500
+
+---
+
+# 15. Dashboard
+
+Show:
+
+* Total spins today
+* Total spins all time
+* Unique bills used
+* Winning spins
+* Losing spins
+* Coupon printed count
+* Coupon redeemed count
+* Daily limit usage
+* Reward distribution
+* Rejected bills
+* Spins by date
+
+Filters:
+
+* Today
+* Week
+* Month
+* Custom
+
+Export:
+
+* CSV / Excel
+
+---
+
+# 16. Cashier Interface
+
+Add button in cashier taskbar menu:
+
+**Gift Wheel Coupon**
+
+---
+
+# 17. Cashier Window
+
+Open modal/window.
+
+Contains:
+
+* Coupon code input
+* Validate button
+* Coupon details preview
+* Print button
+
+---
+
+# 18. Cashier Flow
+
+1. Customer shows code
+2. Cashier opens Gift Wheel Coupon
+3. Enters code
+4. System validates
+5. Click Print
+
+---
+
+# 19. Printed Coupon Shows
+
+* Store logo
+* Coupon code
+* Reward value
+* Discount percentage
+* Maximum discount allowed
+* Expiry date
+* Valid next purchase only
+
+Example:
+
+10% OFF
+Max Discount: 25 SAR
+Valid Until: 31 May 2026
+
+---
+
+# 20. Redemption Rule
+
+On next purchase:
+
+Cashier enters coupon code.
+
+System applies reward but not above max amount.
+
+Example:
+
+10% reward
+Next bill = 400 SAR
+10% = 40 SAR
+
+If max allowed = 25 SAR
+
+Apply only **25 SAR**
+
+---
+
+# 21. Customer UI
+
+* Mobile first
+* Fast loading
+* Large buttons
+* Animated wheel
+* Camera support
+* Result popup
+
+---
+
+# 22. Security
+
+* Prevent duplicate bill use
+* Prevent reused coupon
+* Log all spins
+* Log all prints
+* Log all redemptions
+* Expiry enforcement
+
+---
+
+# 23. Database Tables
+
+## gift_wheel_spins
+
+* id
+* bill_number
+* bill_amount
+* reward
+* coupon_code
+* created_at
+
+## gift_wheel_rewards
+
+* id
+* label
+* value
+* max_discount
+* min_bill
+* weight
+* active
+
+## gift_wheel_coupons
+
+* code
+* reward_id
+* printed_at
+* redeemed_at
+* expires_at
+* status
+
+## gift_wheel_settings
+
+* active
+* start_datetime
+* end_datetime
+* daily_limit
+* timezone
+
+---
+
+# 24. Components
+
+## Customer
+
+* GiftWheelPage
+* BillScanner
+* OCRReader
+* SpinWheel
+* RewardPopup
+
+## Admin
+
+* GiftWheelManager
+* GiftWheelSettings
+* GiftWheelDashboard
+* RewardEditor
+* CouponImporter
+
+## Cashier
+
+* GiftWheelCouponWindow
+
+---
+
+# 25. Final Menu Locations
+
+## Admin Sidebar
+
+**Promo → Manage → Gift Wheel**
+
+## Cashier Taskbar
+
+**Gift Wheel Coupon**
+
+---
+
+# Final Summary
+
+Customer scans QR, uploads bill, OCR verifies bill, spins wheel, wins reward, cashier prints coupon, customer uses coupon next visit. Admin controls timing, rewards, limits, coupons, and reports.

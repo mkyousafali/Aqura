@@ -751,7 +751,8 @@
 			const isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRoute = $page.url.pathname.startsWith('/privacy');
 			const isLoginTestRoute = $page.url.pathname.startsWith('/logintest');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isPopoutMode) {
+			const isGiftWheelRoute = $page.url.pathname.startsWith('/gift-wheel');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -789,7 +790,8 @@
 					const isCustomerLoginTimeout = $page.url.pathname.startsWith('/login/customer');
 					const isPrivacyRouteTimeout = $page.url.pathname.startsWith('/privacy');
 					const isLoginTestRouteTimeout = $page.url.pathname.startsWith('/logintest');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isPopoutMode) {
+					const isGiftWheelRouteTimeout = $page.url.pathname.startsWith('/gift-wheel');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isGiftWheelRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -819,7 +821,8 @@
 			const isCustomerLoginError = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRouteError = $page.url.pathname.startsWith('/privacy');
 			const isLoginTestRouteError = $page.url.pathname.startsWith('/logintest');
-			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isLoginTestRouteError && !isPopoutMode) {
+			const isGiftWheelRouteError = $page.url.pathname.startsWith('/gift-wheel');
+			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isLoginTestRouteError && !isGiftWheelRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -1034,6 +1037,7 @@
 	$: isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 	$: isPrivacyPage = $page.url.pathname.startsWith('/privacy');
 	$: isLoginTestPage = $page.url.pathname.startsWith('/logintest');
+	$: isGiftWheelPage = $page.url.pathname.startsWith('/gift-wheel');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
@@ -1058,7 +1062,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isLoginTestPage && !isLoginPage}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isLoginTestPage && !isGiftWheelPage && !isLoginPage}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">
@@ -1066,7 +1070,7 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isLoginPage}
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isGiftWheelPage || isLoginPage}
 	<!-- Mobile, cashier, customer, login, and login test routes get no desktop layout - completely independent -->
 	<slot />
 {:else}
