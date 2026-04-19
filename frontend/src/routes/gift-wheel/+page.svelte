@@ -30,6 +30,10 @@
 	// Realtime
 	let realtimeChannel: any = null;
 
+	// Hidden manual entry (tap wheel 5 times to unlock)
+	let manualTapCount = 0;
+	let showManualFields = false;
+
 	const WHEEL_COLORS = [
 		'#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
 		'#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
@@ -400,7 +404,7 @@ ${fullText.substring(0, 2000)}` }] }],
 
 	{:else}
 		<!-- Wheel Display -->
-		<div class="wheel-container">
+		<div class="wheel-container" on:click={() => { if (!showManualFields) { manualTapCount++; if (manualTapCount >= 5) showManualFields = true; } }}>
 			<div class="wheel-pointer">▼</div>
 			<div
 				class="wheel"
@@ -485,7 +489,8 @@ ${fullText.substring(0, 2000)}` }] }],
 					</div>
 				{/if}
 
-				<!-- Bill Fields -->
+				<!-- Bill Fields (hidden unless tapped wheel 5 times) -->
+				{#if showManualFields}
 				<div class="bill-fields">
 					<div class="field">
 						<label>{locale === 'ar' ? 'رقم الفاتورة' : 'Bill Number'}</label>
@@ -516,6 +521,7 @@ ${fullText.substring(0, 2000)}` }] }],
 						/>
 					</div>
 				</div>
+				{/if}
 
 				<button
 					class="btn-primary"
