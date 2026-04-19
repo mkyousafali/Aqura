@@ -33,6 +33,7 @@
 	// Hidden manual entry (tap wheel 5 times to unlock)
 	let manualTapCount = 0;
 	let showManualFields = false;
+	let ocrDone = false;
 
 	const WHEEL_COLORS = [
 		'#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
@@ -245,11 +246,22 @@ ${fullText.substring(0, 2000)}` }] }],
 				if (amtMatch) billAmount = Number(amtMatch[1].replace(/,/g, ''));
 			}
 
+			ocrDone = !!(billNumber || billAmount);
 			ocrProcessing = false;
 		} catch (err) {
 			console.error('[GIFT WHEEL OCR] Error:', err);
 			ocrProcessing = false;
 		}
+	}
+
+	function retakeBill() {
+		billNumber = '';
+		billAmount = null;
+		billDate = '';
+		billImageFile = null;
+		billImagePreview = '';
+		ocrDone = false;
+		errorMessage = '';
 	}
 
 	async function validateAndPrepare() {
@@ -464,6 +476,7 @@ ${fullText.substring(0, 2000)}` }] }],
 				{/if}
 
 				<!-- Camera / Upload -->
+				{#if !ocrDone}
 				<div class="bill-upload">
 					<label class="upload-btn">
 						<span>📷 {locale === 'ar' ? 'صور الفاتورة' : 'Take Photo of Bill'}</span>
@@ -481,12 +494,39 @@ ${fullText.substring(0, 2000)}` }] }],
 						</div>
 					{/if}
 				</div>
+				{/if}
 
 				{#if ocrProcessing}
 					<div class="ocr-loading">
 						<div class="spinner-small"></div>
 						<span>{locale === 'ar' ? 'جاري قراءة الفاتورة...' : 'Reading bill...'}</span>
 					</div>
+				{/if}
+
+				<!-- OCR Results Display -->
+				{#if ocrDone && !ocrProcessing}
+				<div class="ocr-results">
+					<div class="ocr-results-header">
+						<span>✅ {locale === 'ar' ? 'تم قراءة الفاتورة' : 'Bill Read Successfully'}</span>
+					</div>
+					<div class="ocr-detail">
+						<span class="ocr-label">{locale === 'ar' ? 'رقم الفاتورة' : 'Bill Number'}</span>
+						<span class="ocr-value">{billNumber || '—'}</span>
+					</div>
+					<div class="ocr-detail">
+						<span class="ocr-label">{locale === 'ar' ? 'المبلغ' : 'Amount'}</span>
+						<span class="ocr-value">{billAmount ? `${billAmount} SAR` : '—'}</span>
+					</div>
+					{#if billDate}
+					<div class="ocr-detail">
+						<span class="ocr-label">{locale === 'ar' ? 'التاريخ' : 'Date'}</span>
+						<span class="ocr-value">{billDate}</span>
+					</div>
+					{/if}
+					<button class="btn-retake" on:click={retakeBill}>
+						📷 {locale === 'ar' ? 'إعادة التصوير' : 'Retake Photo'}
+					</button>
+				</div>
 				{/if}
 
 				<!-- Bill Fields (hidden unless tapped wheel 5 times) -->
@@ -727,6 +767,67 @@ ${fullText.substring(0, 2000)}` }] }],
 		margin-bottom: 16px;
 		text-align: center;
 		font-size: 14px;
+	}
+
+	/* OCR Results */
+	.ocr-results {
+		background: #ffffff;
+		border: 1px solid #d1fae5;
+		border-radius: 12px;
+		padding: 16px;
+		margin-bottom: 16px;
+		box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+	}
+
+	.ocr-results-header {
+		font-size: 14px;
+		font-weight: 700;
+		color: #13A538;
+		margin-bottom: 12px;
+		text-align: center;
+	}
+
+	.ocr-detail {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 8px 0;
+		border-bottom: 1px solid #f0f0f0;
+	}
+
+	.ocr-detail:last-of-type {
+		border-bottom: none;
+	}
+
+	.ocr-label {
+		font-size: 13px;
+		color: #666;
+		font-weight: 500;
+	}
+
+	.ocr-value {
+		font-size: 14px;
+		font-weight: 700;
+		color: #1a1a1a;
+	}
+
+	.btn-retake {
+		width: 100%;
+		margin-top: 12px;
+		padding: 10px;
+		background: #fff;
+		border: 1px solid #ddd;
+		border-radius: 10px;
+		color: #f08300;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-retake:hover {
+		background: rgba(240, 131, 0, 0.06);
+		border-color: #f08300;
 	}
 
 	.bill-upload {
