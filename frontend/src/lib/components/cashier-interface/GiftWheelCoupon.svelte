@@ -258,6 +258,99 @@
 			redeemStep = 'details';
 		}
 	}
+
+	function printRedeemReceipt() {
+		if (!redeemCouponData) return;
+
+		const printWindow = window.open('', '_blank', 'width=400,height=600');
+		if (printWindow) {
+			const discountText = redeemCouponData.reward_type === 'percentage'
+				? `${redeemCouponData.reward_value}% OFF`
+				: `${redeemCouponData.reward_value} SAR OFF`;
+
+			const maxDiscountHtml = redeemCouponData.max_discount
+				? `<p class="info">Max Discount: ${redeemCouponData.max_discount} SAR</p>`
+				: '';
+
+			const now = new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' });
+
+			printWindow.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Redemption Receipt</title>
+	<style>
+		body {
+			font-family: 'Courier New', monospace;
+			width: 280px;
+			margin: 0 auto;
+			padding: 20px 10px;
+			text-align: center;
+		}
+		.divider {
+			border-top: 1px dashed #000;
+			margin: 10px 0;
+		}
+		.title {
+			font-size: 16px;
+			font-weight: bold;
+			margin: 8px 0;
+		}
+		.discount {
+			font-size: 28px;
+			font-weight: bold;
+			margin: 12px 0;
+			padding: 10px;
+			border: 2px solid #000;
+		}
+		.code {
+			font-size: 18px;
+			font-weight: bold;
+			letter-spacing: 2px;
+			margin: 8px 0;
+		}
+		.info {
+			font-size: 12px;
+			color: #333;
+			margin: 4px 0;
+			text-align: left;
+		}
+		.label {
+			font-weight: bold;
+		}
+		.redeemed-badge {
+			font-size: 14px;
+			font-weight: bold;
+			padding: 6px 16px;
+			border: 2px solid #000;
+			display: inline-block;
+			margin: 8px 0;
+			letter-spacing: 2px;
+		}
+	</style>
+</head>
+<body>
+	<div class="title">🎟️ GIFT WHEEL - REDEMPTION RECEIPT</div>
+	<div class="divider"></div>
+	<div class="discount">${discountText}</div>
+	${maxDiscountHtml}
+	<div class="divider"></div>
+	<p class="info"><span class="label">Coupon Code:</span> ${redeemCouponData.code}</p>
+	<p class="info"><span class="label">Reward:</span> ${redeemCouponData.reward_label}</p>
+	${redeemCouponData.bill_number ? `<p class="info"><span class="label">Original Bill #:</span> ${redeemCouponData.bill_number}</p>` : ''}
+	${redeemCouponData.bill_amount ? `<p class="info"><span class="label">Original Bill Amount:</span> ${redeemCouponData.bill_amount} SAR</p>` : ''}
+	<div class="divider"></div>
+	<p class="info"><span class="label">Redeemed on Bill #:</span> ${redeemBillNumber}</p>
+	<p class="info"><span class="label">Discount Given:</span> ${redeemDiscountAmount} SAR</p>
+	<p class="info"><span class="label">Date/Time:</span> ${now}</p>
+	<div class="divider"></div>
+	<div class="redeemed-badge">✓ REDEEMED</div>
+	<script>window.onload = function() { window.print(); }<` + `/script>
+</body>
+</html>`);
+			printWindow.document.close();
+		}
+	}
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -509,13 +602,22 @@
 								<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
 									<div class="text-3xl mb-2">✅</div>
 									<p class="text-sm font-bold text-emerald-700">{$t('giftWheel.redeemSuccessMsg')}</p>
+									<p class="text-xs text-emerald-600/70 mt-1">{$t('giftWheel.redeemBillNumber')}: #{redeemBillNumber} &bull; {$t('giftWheel.discountGiven')}: {redeemDiscountAmount} SAR</p>
 								</div>
-								<button
-									class="w-full mt-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold uppercase tracking-wide transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md"
-									on:click={reset}
-								>
-									{$t('giftWheel.newCode')}
-								</button>
+								<div class="flex gap-3 mt-4">
+									<button
+										class="flex-1 py-3 bg-orange-600 text-white rounded-xl text-sm font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all duration-200 hover:bg-orange-700 hover:shadow-lg hover:shadow-orange-200"
+										on:click={printRedeemReceipt}
+									>
+										🖨️ {$t('giftWheel.printReceipt')}
+									</button>
+									<button
+										class="px-5 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold uppercase tracking-wide transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md"
+										on:click={reset}
+									>
+										{$t('giftWheel.newCode')}
+									</button>
+								</div>
 							</div>
 						{:else}
 							<!-- Redeem form -->

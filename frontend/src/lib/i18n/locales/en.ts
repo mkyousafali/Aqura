@@ -4130,6 +4130,7 @@ export const englishLocale: LocaleData = {
       redeemNow: "Redeem Coupon",
       redeeming: "Redeeming...",
       redeemSuccessMsg: "Coupon redeemed successfully!",
+      printReceipt: "Print Receipt",
       originalBill: "Original Bill",
       originalAmount: "Original Bill Amount",
     },

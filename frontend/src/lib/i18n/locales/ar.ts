@@ -4167,6 +4167,7 @@ export const arabicLocale: LocaleData = {
       redeemNow: "استرداد الكوبون",
       redeeming: "جاري الاسترداد...",
       redeemSuccessMsg: "تم استرداد الكوبون بنجاح!",
+      printReceipt: "طباعة الإيصال",
       originalBill: "الفاتورة الأصلية",
       originalAmount: "مبلغ الفاتورة الأصلية",
     },
