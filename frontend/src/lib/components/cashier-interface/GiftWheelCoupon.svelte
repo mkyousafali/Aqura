@@ -94,75 +94,59 @@
 			const printWindow = window.open('', '_blank', 'width=400,height=600');
 			if (printWindow) {
 				const discountText = couponData.reward_type === 'percentage'
-					? `${couponData.reward_value}% OFF`
-					: `${couponData.reward_value} SAR OFF`;
+					? `${couponData.reward_value}%`
+					: `${couponData.reward_value} SAR`;
 
 				const maxDiscountHtml = couponData.max_discount
-					? `<p style="font-size:14px;color:#666;">Max Discount: ${couponData.max_discount} SAR</p>`
+					? `<p class="bi"><span>Max Discount: ${couponData.max_discount} SAR</span><span>الحد الأقصى: ${couponData.max_discount} ر.س</span></p>`
 					: '';
 
 				printWindow.document.write(`
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset="UTF-8">
 	<title>Gift Wheel Coupon</title>
 	<style>
+		@page { margin: 0; size: 80mm auto; }
+		* { margin: 0; padding: 0; box-sizing: border-box; }
 		body {
-			font-family: 'Courier New', monospace;
-			width: 280px;
+			font-family: 'Tahoma', 'Arial', sans-serif;
+			width: 72mm;
 			margin: 0 auto;
-			padding: 20px 10px;
+			padding: 4mm 2mm;
 			text-align: center;
-		}
-		.divider {
-			border-top: 1px dashed #000;
-			margin: 10px 0;
-		}
-		.title {
-			font-size: 18px;
-			font-weight: bold;
-			margin: 8px 0;
-		}
-		.discount {
-			font-size: 32px;
-			font-weight: bold;
-			margin: 16px 0;
-			padding: 12px;
-			border: 2px dashed #000;
-		}
-		.code {
-			font-size: 20px;
-			font-weight: bold;
-			letter-spacing: 2px;
-			margin: 12px 0;
-		}
-		.info {
-			font-size: 12px;
-			color: #666;
-			margin: 4px 0;
-		}
-		.note {
 			font-size: 11px;
-			color: #999;
-			margin-top: 16px;
-			font-style: italic;
+			color: #000;
 		}
+		.hdr { font-size: 13px; font-weight: bold; margin: 2mm 0; }
+		.hdr-ar { font-size: 12px; font-weight: bold; direction: rtl; }
+		.sep { border-top: 1px dashed #000; margin: 2mm 0; }
+		.big { font-size: 24px; font-weight: bold; margin: 3mm 0; padding: 2mm; border: 2px dashed #000; }
+		.big-label { font-size: 11px; margin-bottom: 1mm; }
+		.code-box { font-size: 18px; font-weight: bold; letter-spacing: 3px; margin: 2mm 0; font-family: 'Courier New', monospace; }
+		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; }
+		.bi span:last-child { direction: rtl; font-family: 'Tahoma', 'Arial', sans-serif; }
+		.note { font-size: 9px; color: #555; margin-top: 3mm; line-height: 1.4; }
 	</style>
 </head>
 <body>
-	<div class="title">🎡 GIFT WHEEL COUPON</div>
-	<div class="divider"></div>
-	<div class="discount">${discountText}</div>
+	<div class="hdr">🎡 GIFT WHEEL COUPON</div>
+	<div class="hdr-ar">كوبون عجلة الهدايا</div>
+	<div class="sep"></div>
+	<div class="big-label">Discount / الخصم</div>
+	<div class="big">${discountText}</div>
 	${maxDiscountHtml}
-	<div class="divider"></div>
-	<p style="font-size:12px;color:#666;">Coupon Code:</p>
-	<div class="code">${couponData.code}</div>
-	<div class="divider"></div>
-	<p class="info">Valid Until: ${couponData.expiry_date || 'N/A'}</p>
-	<p class="info">Valid for next purchase only</p>
-	<div class="divider"></div>
-	<p class="note">Present this coupon at checkout</p>
-	<script>window.onload = function() { window.print(); }</` + `script>
+	<div class="sep"></div>
+	<div class="bi"><span>Coupon Code</span><span>رقم الكوبون</span></div>
+	<div class="code-box">${couponData.code}</div>
+	<div class="sep"></div>
+	<div class="bi"><span>Reward: ${couponData.reward_label_en || couponData.reward_label || ''}</span><span>الجائزة: ${couponData.reward_label_ar || couponData.reward_label || ''}</span></div>
+	<div class="bi"><span>Valid Until: ${couponData.expiry_date || 'N/A'}</span><span>صالح حتى: ${couponData.expiry_date || 'N/A'}</span></div>
+	<div class="bi"><span>Next purchase only</span><span>للشراء القادم فقط</span></div>
+	<div class="sep"></div>
+	<div class="note">Present this coupon at checkout<br>قدّم هذا الكوبون عند الدفع</div>
+	<script>window.onload = function() { window.print(); }<` + `/script>
 </body>
 </html>`);
 				printWindow.document.close();
@@ -265,86 +249,74 @@
 		const printWindow = window.open('', '_blank', 'width=400,height=600');
 		if (printWindow) {
 			const discountText = redeemCouponData.reward_type === 'percentage'
-				? `${redeemCouponData.reward_value}% OFF`
-				: `${redeemCouponData.reward_value} SAR OFF`;
+				? `${redeemCouponData.reward_value}%`
+				: `${redeemCouponData.reward_value} SAR`;
 
 			const maxDiscountHtml = redeemCouponData.max_discount
-				? `<p class="info">Max Discount: ${redeemCouponData.max_discount} SAR</p>`
+				? `<div class="bi"><span>Max: ${redeemCouponData.max_discount} SAR</span><span>الحد الأقصى: ${redeemCouponData.max_discount} ر.س</span></div>`
 				: '';
 
 			const now = new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' });
+
+			const origBillHtml = redeemCouponData.bill_number
+				? `<div class="bi"><span>Original Bill #: ${redeemCouponData.bill_number}</span><span>رقم الفاتورة الأصلية: ${redeemCouponData.bill_number}</span></div>`
+				: '';
+			const origAmountHtml = redeemCouponData.bill_amount
+				? `<div class="bi"><span>Original Amount: ${redeemCouponData.bill_amount} SAR</span><span>المبلغ الأصلي: ${redeemCouponData.bill_amount} ر.س</span></div>`
+				: '';
+			const origDateHtml = redeemCouponData.bill_date
+				? `<div class="bi"><span>Bill Date: ${redeemCouponData.bill_date}</span><span>تاريخ الفاتورة: ${redeemCouponData.bill_date}</span></div>`
+				: '';
 
 			printWindow.document.write(`
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset="UTF-8">
 	<title>Redemption Receipt</title>
 	<style>
+		@page { margin: 0; size: 80mm auto; }
+		* { margin: 0; padding: 0; box-sizing: border-box; }
 		body {
-			font-family: 'Courier New', monospace;
-			width: 280px;
+			font-family: 'Tahoma', 'Arial', sans-serif;
+			width: 72mm;
 			margin: 0 auto;
-			padding: 20px 10px;
+			padding: 4mm 2mm;
 			text-align: center;
+			font-size: 11px;
+			color: #000;
 		}
-		.divider {
-			border-top: 1px dashed #000;
-			margin: 10px 0;
-		}
-		.title {
-			font-size: 16px;
-			font-weight: bold;
-			margin: 8px 0;
-		}
-		.discount {
-			font-size: 28px;
-			font-weight: bold;
-			margin: 12px 0;
-			padding: 10px;
-			border: 2px solid #000;
-		}
-		.code {
-			font-size: 18px;
-			font-weight: bold;
-			letter-spacing: 2px;
-			margin: 8px 0;
-		}
-		.info {
-			font-size: 12px;
-			color: #333;
-			margin: 4px 0;
-			text-align: left;
-		}
-		.label {
-			font-weight: bold;
-		}
-		.redeemed-badge {
-			font-size: 14px;
-			font-weight: bold;
-			padding: 6px 16px;
-			border: 2px solid #000;
-			display: inline-block;
-			margin: 8px 0;
-			letter-spacing: 2px;
-		}
+		.hdr { font-size: 12px; font-weight: bold; margin: 1mm 0; }
+		.hdr-ar { font-size: 11px; font-weight: bold; direction: rtl; margin-bottom: 1mm; }
+		.sep { border-top: 1px dashed #000; margin: 2mm 0; }
+		.big { font-size: 22px; font-weight: bold; margin: 2mm 0; padding: 2mm; border: 2px solid #000; }
+		.big-label { font-size: 10px; margin-bottom: 1mm; }
+		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; }
+		.bi span:last-child { direction: rtl; font-family: 'Tahoma', 'Arial', sans-serif; }
+		.code-box { font-size: 16px; font-weight: bold; letter-spacing: 2px; margin: 1mm 0; font-family: 'Courier New', monospace; }
+		.badge { font-size: 13px; font-weight: bold; padding: 2mm 4mm; border: 2px solid #000; display: inline-block; margin: 2mm 0; letter-spacing: 2px; }
 	</style>
 </head>
 <body>
-	<div class="title">🎟️ GIFT WHEEL - REDEMPTION RECEIPT</div>
-	<div class="divider"></div>
-	<div class="discount">${discountText}</div>
+	<div class="hdr">🎟️ REDEMPTION RECEIPT</div>
+	<div class="hdr-ar">إيصال الاسترداد</div>
+	<div class="sep"></div>
+	<div class="big-label">Discount / الخصم</div>
+	<div class="big">${discountText}</div>
 	${maxDiscountHtml}
-	<div class="divider"></div>
-	<p class="info"><span class="label">Coupon Code:</span> ${redeemCouponData.code}</p>
-	<p class="info"><span class="label">Reward:</span> ${redeemCouponData.reward_label}</p>
-	${redeemCouponData.bill_number ? `<p class="info"><span class="label">Original Bill #:</span> ${redeemCouponData.bill_number}</p>` : ''}
-	${redeemCouponData.bill_amount ? `<p class="info"><span class="label">Original Bill Amount:</span> ${redeemCouponData.bill_amount} SAR</p>` : ''}
-	<div class="divider"></div>
-	<p class="info"><span class="label">Redeemed on Bill #:</span> ${redeemBillNumber}</p>
-	<p class="info"><span class="label">Discount Given:</span> ${redeemDiscountAmount} SAR</p>
-	<p class="info"><span class="label">Date/Time:</span> ${now}</p>
-	<div class="divider"></div>
-	<div class="redeemed-badge">✓ REDEEMED</div>
+	<div class="sep"></div>
+	<div class="bi"><span>Coupon Code / رقم الكوبون</span></div>
+	<div class="code-box">${redeemCouponData.code}</div>
+	<div class="bi"><span>Reward: ${redeemCouponData.reward_label_en || redeemCouponData.reward_label || ''}</span><span>الجائزة: ${redeemCouponData.reward_label_ar || redeemCouponData.reward_label || ''}</span></div>
+	${origBillHtml}
+	${origAmountHtml}
+	${origDateHtml}
+	<div class="sep"></div>
+	<div class="bi"><span>Redeemed Bill #: ${redeemBillNumber}</span><span>فاتورة الاسترداد: ${redeemBillNumber}</span></div>
+	<div class="bi"><span>Discount Given: ${redeemDiscountAmount} SAR</span><span>الخصم الممنوح: ${redeemDiscountAmount} ر.س</span></div>
+	<div class="bi"><span>Date: ${now}</span><span>التاريخ: ${now}</span></div>
+	<div class="sep"></div>
+	<div class="badge">✓ REDEEMED / تم الاسترداد</div>
 	<script>window.onload = function() { window.print(); }<` + `/script>
 </body>
 </html>`);
@@ -464,7 +436,7 @@
 							</div>
 							<div class="flex justify-between items-center py-2 border-b border-slate-100">
 								<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.reward')}</span>
-								<span class="text-sm font-semibold text-slate-700">{couponData.reward_label}</span>
+								<span class="text-sm font-semibold text-slate-700">{couponData.reward_label_en || couponData.reward_label || ''}{couponData.reward_label_ar ? ` / ${couponData.reward_label_ar}` : ''}</span>
 							</div>
 							<div class="flex justify-between items-center py-2 border-b border-slate-100">
 								<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.expiry')}</span>
@@ -576,7 +548,7 @@
 							</div>
 							<div class="flex justify-between items-center py-1.5 border-b border-slate-100">
 								<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.reward')}</span>
-								<span class="text-sm font-semibold text-slate-700">{redeemCouponData.reward_label}</span>
+								<span class="text-sm font-semibold text-slate-700">{redeemCouponData.reward_label_en || redeemCouponData.reward_label || ''}{redeemCouponData.reward_label_ar ? ` / ${redeemCouponData.reward_label_ar}` : ''}</span>
 							</div>
 							{#if redeemCouponData.bill_number}
 								<div class="flex justify-between items-center py-1.5 border-b border-slate-100">
@@ -588,6 +560,12 @@
 								<div class="flex justify-between items-center py-1.5 border-b border-slate-100">
 									<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.originalAmount')}</span>
 									<span class="text-sm font-semibold text-slate-700">{redeemCouponData.bill_amount} SAR</span>
+								</div>
+							{/if}
+							{#if redeemCouponData.bill_date}
+								<div class="flex justify-between items-center py-1.5 border-b border-slate-100">
+									<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.billDate')}</span>
+									<span class="text-sm font-semibold text-slate-700">{redeemCouponData.bill_date}</span>
 								</div>
 							{/if}
 							<div class="flex justify-between items-center py-1.5">

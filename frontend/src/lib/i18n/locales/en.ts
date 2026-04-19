@@ -4133,6 +4133,7 @@ export const englishLocale: LocaleData = {
       printReceipt: "Print Receipt",
       originalBill: "Original Bill",
       originalAmount: "Original Bill Amount",
+      billDate: "Bill Date",
     },
   },
 };

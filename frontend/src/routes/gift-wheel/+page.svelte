@@ -12,6 +12,7 @@
 	// Bill
 	let billNumber = '';
 	let billAmount: number | null = null;
+	let billDate = '';
 	let billImageFile: File | null = null;
 	let billImagePreview = '';
 	let ocrProcessing = false;
@@ -95,7 +96,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('gift_wheel_rewards')
-				.select('id, label, reward_type, value, min_bill, weight')
+				.select('id, label, reward_label_en, reward_label_ar, reward_type, value, min_bill, weight')
 				.eq('active', true)
 				.order('weight', { ascending: false });
 
@@ -108,12 +109,17 @@
 	}
 
 	function buildWheelSegments() {
-		wheelSegments = rewards.map((r, i) => ({
-			label: r.reward_type === 'no_reward'
-				? (locale === 'ar' ? 'حظ أوفر' : 'Better Luck!')
-				: `${r.value}%`,
-			color: WHEEL_COLORS[i % WHEEL_COLORS.length]
-		}));
+		wheelSegments = rewards.map((r, i) => {
+			let label: string;
+			if (r.reward_type === 'no_reward') {
+				label = locale === 'ar' ? 'حظ أوفر' : 'Better Luck!';
+			} else {
+				label = locale === 'ar'
+					? (r.reward_label_ar || `${r.value}%`)
+					: (r.reward_label_en || `${r.value}%`);
+			}
+			return { label, color: WHEEL_COLORS[i % WHEEL_COLORS.length] };
+		});
 	}
 
 	function handleFileCapture(event: Event) {
@@ -225,6 +231,7 @@ ${fullText.substring(0, 2000)}` }] }],
 				const parsed = JSON.parse(jsonStr);
 				if (parsed.billNumber) billNumber = String(parsed.billNumber);
 				if (parsed.totalAmount) billAmount = Number(parsed.totalAmount);
+				if (parsed.billDate) billDate = String(parsed.billDate);
 			} catch (parseErr) {
 				console.error('[GIFT WHEEL OCR] Failed to parse Gemini response:', geminiText);
 				// Fallback: try regex extraction from OCR text directly
@@ -288,13 +295,18 @@ ${fullText.substring(0, 2000)}` }] }],
 			const { data, error } = await supabase.rpc('gift_wheel_spin', {
 				p_bill_number: billNumber.trim(),
 				p_bill_amount: billAmount,
-				p_bill_image_url: null
+				p_bill_image_url: null,
+				p_bill_date: billDate.trim() || null
 			});
 
 			if (error) throw error;
 
 			if (!data.success) {
-				errorMessage = data.error;
+				if (data.error_code === 'bill_date_expired') {
+					errorMessage = locale === 'ar' ? 'انتهت فرصتك' : 'Your chance has expired';
+				} else {
+					errorMessage = data.error;
+				}
 				step = 'capture';
 				isSpinning = false;
 				return;
@@ -338,6 +350,7 @@ ${fullText.substring(0, 2000)}` }] }],
 		step = 'capture';
 		billNumber = '';
 		billAmount = null;
+		billDate = '';
 		billImageFile = null;
 		billImagePreview = '';
 		wheelRotation = 0;
@@ -494,6 +507,14 @@ ${fullText.substring(0, 2000)}` }] }],
 							disabled={step === 'validating'}
 						/>
 					</div>
+					<div class="field">
+						<label>{locale === 'ar' ? 'تاريخ الفاتورة' : 'Bill Date'}</label>
+						<input
+							type="date"
+							bind:value={billDate}
+							disabled={step === 'validating'}
+						/>
+					</div>
 				</div>
 
 				<button
@@ -516,6 +537,9 @@ ${fullText.substring(0, 2000)}` }] }],
 				<div class="bill-summary">
 					<p><strong>{locale === 'ar' ? 'الفاتورة:' : 'Bill:'}</strong> #{billNumber}</p>
 					<p><strong>{locale === 'ar' ? 'المبلغ:' : 'Amount:'}</strong> {billAmount} SAR</p>
+					{#if billDate}
+						<p><strong>{locale === 'ar' ? 'التاريخ:' : 'Date:'}</strong> {billDate}</p>
+					{/if}
 				</div>
 				<button class="btn-spin" on:click={startSpin}>
 					🎰 {locale === 'ar' ? 'ابدأ الدوران!' : 'Start Spinning!'}
@@ -537,7 +561,7 @@ ${fullText.substring(0, 2000)}` }] }],
 					<div class="confetti">🎉</div>
 					<h2>{locale === 'ar' ? 'مبروك!' : 'Congratulations!'}</h2>
 					<div class="reward-display">
-						<div class="reward-value">{spinResult.reward_label}</div>
+						<div class="reward-value">{locale === 'ar' ? (spinResult.reward_label_ar || spinResult.reward_label) : (spinResult.reward_label_en || spinResult.reward_label)}</div>
 						{#if spinResult.max_discount}
 							<p class="max-discount">
 								{locale === 'ar' ? 'أقصى خصم:' : 'Max Discount:'} {spinResult.max_discount} SAR

@@ -26,13 +26,15 @@
 	let editingReward: any = null;
 	let rewardForm = {
 		label: '',
+		reward_label_en: '',
+		reward_label_ar: '',
 		reward_type: 'percentage',
 		value: 0,
 		max_discount: null as number | null,
 		min_bill: 0,
 		weight: 1,
 		usage_limit: null as number | null,
-		expiry_date: '',
+		validity_days: 7,
 		active: true
 	};
 	let rewardSaving = false;
@@ -181,13 +183,15 @@
 		editingReward = null;
 		rewardForm = {
 			label: '',
+			reward_label_en: '',
+			reward_label_ar: '',
 			reward_type: 'percentage',
 			value: 0,
 			max_discount: null,
 			min_bill: 0,
 			weight: 1,
 			usage_limit: null,
-			expiry_date: '',
+			validity_days: 7,
 			active: true
 		};
 		showRewardModal = true;
@@ -197,13 +201,15 @@
 		editingReward = reward;
 		rewardForm = {
 			label: reward.label,
+			reward_label_en: reward.reward_label_en || '',
+			reward_label_ar: reward.reward_label_ar || '',
 			reward_type: reward.reward_type,
 			value: reward.value,
 			max_discount: reward.max_discount,
 			min_bill: reward.min_bill,
 			weight: reward.weight,
 			usage_limit: reward.usage_limit,
-			expiry_date: reward.expiry_date || '',
+			validity_days: reward.validity_days ?? 7,
 			active: reward.active
 		};
 		showRewardModal = true;
@@ -213,14 +219,16 @@
 		rewardSaving = true;
 		try {
 			const data: any = {
-				label: rewardForm.label,
+				label: rewardForm.reward_label_en || rewardForm.label,
+				reward_label_en: rewardForm.reward_label_en || rewardForm.label || null,
+				reward_label_ar: rewardForm.reward_label_ar || null,
 				reward_type: rewardForm.reward_type,
 				value: rewardForm.value,
 				max_discount: rewardForm.max_discount || null,
 				min_bill: rewardForm.min_bill,
 				weight: rewardForm.weight,
 				usage_limit: rewardForm.usage_limit || null,
-				expiry_date: rewardForm.expiry_date || null,
+				validity_days: rewardForm.validity_days || 7,
 				active: rewardForm.active,
 				updated_at: new Date().toISOString()
 			};
@@ -512,12 +520,14 @@
 							<table class="w-full border-collapse">
 								<thead>
 									<tr class="bg-amber-500 text-white">
-										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Label</th>
+										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Label (EN)</th>
+										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Label (AR)</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Type</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Value</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Max Disc.</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Min Bill</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Weight</th>
+										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Valid Days</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Usage</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Active</th>
 										<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Actions</th>
@@ -526,7 +536,8 @@
 								<tbody>
 									{#each rewards as reward}
 										<tr class="hover:bg-amber-50/40 transition-colors duration-200 border-b border-slate-100 {!reward.active ? 'opacity-40' : ''}">
-											<td class="px-3 py-2.5 text-sm text-slate-700 font-semibold">{reward.label}</td>
+											<td class="px-3 py-2.5 text-sm text-slate-700 font-semibold">{reward.reward_label_en || reward.label}</td>
+											<td class="px-3 py-2.5 text-sm text-slate-700 font-semibold" dir="rtl">{reward.reward_label_ar || '-'}</td>
 											<td class="px-3 py-2.5 text-sm">
 												{#if reward.reward_type === 'percentage'}
 													<span class="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-blue-100 text-blue-600">percentage</span>
@@ -540,6 +551,7 @@
 											<td class="px-3 py-2.5 text-sm text-slate-700">{reward.max_discount || '-'}</td>
 											<td class="px-3 py-2.5 text-sm text-slate-700">{reward.min_bill}</td>
 											<td class="px-3 py-2.5 text-sm text-slate-700">{reward.weight}</td>
+											<td class="px-3 py-2.5 text-sm text-slate-700">{reward.validity_days ?? 7}d</td>
 											<td class="px-3 py-2.5 text-sm text-slate-700">{reward.usage_count}{reward.usage_limit ? '/' + reward.usage_limit : ''}</td>
 											<td class="px-3 py-2.5 text-sm">
 												<button class="text-base transition-transform hover:scale-125" on:click={() => toggleRewardActive(reward)}>
@@ -553,7 +565,7 @@
 										</tr>
 									{/each}
 									{#if rewards.length === 0}
-										<tr><td colspan="9" class="text-center text-slate-400 py-8 text-sm">No rewards configured</td></tr>
+										<tr><td colspan="11" class="text-center text-slate-400 py-8 text-sm">No rewards configured</td></tr>
 									{/if}
 								</tbody>
 							</table>
@@ -696,9 +708,15 @@
 					<button class="text-white/80 hover:text-white text-xl font-bold transition-colors" on:click={() => showRewardModal = false}>✕</button>
 				</div>
 				<div class="px-6 py-5 space-y-3">
-					<div>
-						<span class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Label</span>
-						<input type="text" bind:value={rewardForm.label} placeholder="e.g. 10% Off" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<span class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Label (English)</span>
+							<input type="text" bind:value={rewardForm.reward_label_en} placeholder="e.g. 10% Off" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+						</div>
+						<div>
+							<span class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Label (Arabic)</span>
+							<input type="text" bind:value={rewardForm.reward_label_ar} placeholder="مثال: خصم 10%" dir="rtl" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+						</div>
 					</div>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
@@ -736,8 +754,9 @@
 					</div>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<span class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Expiry Date</span>
-							<input type="date" bind:value={rewardForm.expiry_date} class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+							<span class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Validity (Days)</span>
+							<input type="number" bind:value={rewardForm.validity_days} min="1" max="365" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+							<p class="text-[10px] text-slate-400 mt-1">Coupon expires this many days after issue</p>
 						</div>
 						<div class="flex flex-col">
 							<span class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Active</span>
@@ -753,7 +772,7 @@
 					<button
 						class="px-5 py-2 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
 						on:click={saveReward}
-						disabled={rewardSaving || !rewardForm.label}
+						disabled={rewardSaving || (!rewardForm.reward_label_en && !rewardForm.label)}
 					>
 						{rewardSaving ? 'Saving...' : 'Save Reward'}
 					</button>

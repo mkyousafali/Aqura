@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS public.gift_wheel_rewards (
     weight integer NOT NULL DEFAULT 1,
     usage_limit integer DEFAULT NULL,
     usage_count integer NOT NULL DEFAULT 0,
-    expiry_date date DEFAULT NULL,
+    validity_days integer NOT NULL DEFAULT 7,
+    reward_label_en text,
+    reward_label_ar text,
     active boolean NOT NULL DEFAULT true,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
@@ -56,13 +58,13 @@ CREATE POLICY "Allow anon all gift_wheel_rewards"
     ON public.gift_wheel_rewards FOR ALL TO anon USING (true) WITH CHECK (true);
 
 -- Insert default rewards
-INSERT INTO public.gift_wheel_rewards (label, reward_type, value, max_discount, min_bill, weight, active) VALUES
-    ('Better luck next time', 'no_reward', 0, NULL, 0, 40, true),
-    ('2% Off', 'percentage', 2, NULL, 0, 25, true),
-    ('5% Off', 'percentage', 5, NULL, 0, 18, true),
-    ('10% Off', 'percentage', 10, NULL, 0, 10, true),
-    ('15% Off', 'percentage', 15, NULL, 500, 5, true),
-    ('50% Off', 'percentage', 50, NULL, 500, 2, true);
+INSERT INTO public.gift_wheel_rewards (label, reward_type, value, max_discount, min_bill, weight, validity_days, active) VALUES
+    ('Better luck next time', 'no_reward', 0, NULL, 0, 40, 7, true),
+    ('2% Off', 'percentage', 2, NULL, 0, 25, 7, true),
+    ('5% Off', 'percentage', 5, NULL, 0, 18, 7, true),
+    ('10% Off', 'percentage', 10, NULL, 0, 10, 7, true),
+    ('15% Off', 'percentage', 15, NULL, 500, 5, 7, true),
+    ('50% Off', 'percentage', 50, NULL, 500, 2, 7, true);
 
 -- ============================================================
 -- 3. GIFT WHEEL COUPONS TABLE
@@ -72,6 +74,8 @@ CREATE TABLE IF NOT EXISTS public.gift_wheel_coupons (
     code text UNIQUE NOT NULL,
     reward_id uuid NOT NULL REFERENCES public.gift_wheel_rewards(id) ON DELETE CASCADE,
     reward_label text,
+    reward_label_en text,
+    reward_label_ar text,
     reward_type text,
     reward_value numeric,
     max_discount numeric,
@@ -83,6 +87,7 @@ CREATE TABLE IF NOT EXISTS public.gift_wheel_coupons (
     branch_id text,
     bill_number text,
     bill_amount numeric,
+    bill_date text,
     redeemed_bill_number text,
     created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -105,6 +110,7 @@ CREATE TABLE IF NOT EXISTS public.gift_wheel_spins (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     bill_number text NOT NULL,
     bill_amount numeric NOT NULL DEFAULT 0,
+    bill_date text,
     bill_image_url text,
     reward_id uuid REFERENCES public.gift_wheel_rewards(id),
     reward_label text,
@@ -190,7 +196,8 @@ GRANT EXECUTE ON FUNCTION public.gift_wheel_check_status() TO anon;
 CREATE OR REPLACE FUNCTION public.gift_wheel_spin(
     p_bill_number text,
     p_bill_amount numeric,
-    p_bill_image_url text DEFAULT NULL
+    p_bill_image_url text DEFAULT NULL,
+    p_bill_date text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -209,6 +216,7 @@ DECLARE
     cumulative integer;
     coupon_code_val text;
     new_coupon_id uuid;
+    computed_expiry date;
 BEGIN
     -- Get settings
     SELECT * INTO settings_row FROM gift_wheel_settings LIMIT 1;
@@ -218,6 +226,11 @@ BEGIN
     END IF;
 
     now_riyadh := now() AT TIME ZONE settings_row.timezone;
+
+    -- Validate bill date = today
+    IF p_bill_date IS NOT NULL AND p_bill_date != to_char(now_riyadh, 'YYYY-MM-DD') THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Your chance has expired', 'error_code', 'bill_date_expired');
+    END IF;
 
     -- Check scheduled time
     IF settings_row.start_datetime IS NOT NULL AND now() < settings_row.start_datetime THEN
@@ -249,13 +262,12 @@ BEGIN
     FROM gift_wheel_rewards r
     WHERE r.active = true
       AND r.min_bill <= p_bill_amount
-      AND (r.usage_limit IS NULL OR r.usage_count < r.usage_limit)
-      AND (r.expiry_date IS NULL OR r.expiry_date >= CURRENT_DATE);
+      AND (r.usage_limit IS NULL OR r.usage_count < r.usage_limit);
 
     IF eligible_rewards IS NULL OR array_length(eligible_rewards, 1) IS NULL THEN
         -- No rewards available, record rejected spin
-        INSERT INTO gift_wheel_spins (bill_number, bill_amount, bill_image_url, rejected, reject_reason)
-        VALUES (p_bill_number, p_bill_amount, p_bill_image_url, true, 'No eligible rewards');
+        INSERT INTO gift_wheel_spins (bill_number, bill_amount, bill_date, bill_image_url, rejected, reject_reason)
+        VALUES (p_bill_number, p_bill_amount, p_bill_date, p_bill_image_url, true, 'No eligible rewards');
 
         RETURN jsonb_build_object('success', false, 'error', 'No rewards available at this time');
     END IF;
@@ -285,18 +297,24 @@ BEGIN
             EXIT WHEN NOT EXISTS (SELECT 1 FROM gift_wheel_coupons WHERE code = coupon_code_val);
         END LOOP;
 
-        INSERT INTO gift_wheel_coupons (code, reward_id, reward_label, reward_type, reward_value, max_discount, expiry_date, status, bill_number, bill_amount)
+        -- Compute expiry from validity_days
+        computed_expiry := (CURRENT_DATE + (reward_row.validity_days || ' days')::interval)::date;
+
+        INSERT INTO gift_wheel_coupons (code, reward_id, reward_label, reward_label_en, reward_label_ar, reward_type, reward_value, max_discount, expiry_date, status, bill_number, bill_amount, bill_date)
         VALUES (
             coupon_code_val,
             reward_row.id,
-            reward_row.label,
+            COALESCE(reward_row.reward_label_en, reward_row.label),
+            reward_row.reward_label_en,
+            reward_row.reward_label_ar,
             reward_row.reward_type,
             reward_row.value,
             reward_row.max_discount,
-            COALESCE(reward_row.expiry_date, (CURRENT_DATE + interval '30 days')::date),
+            computed_expiry,
             'active',
             p_bill_number,
-            p_bill_amount
+            p_bill_amount,
+            p_bill_date
         )
         RETURNING id INTO new_coupon_id;
 
@@ -304,35 +322,40 @@ BEGIN
         UPDATE gift_wheel_rewards SET usage_count = usage_count + 1, updated_at = now() WHERE id = reward_row.id;
 
         -- Record winning spin
-        INSERT INTO gift_wheel_spins (bill_number, bill_amount, bill_image_url, reward_id, reward_label, coupon_code, is_winner)
-        VALUES (p_bill_number, p_bill_amount, p_bill_image_url, reward_row.id, reward_row.label, coupon_code_val, true);
+        INSERT INTO gift_wheel_spins (bill_number, bill_amount, bill_date, bill_image_url, reward_id, reward_label, coupon_code, is_winner)
+        VALUES (p_bill_number, p_bill_amount, p_bill_date, p_bill_image_url, reward_row.id, COALESCE(reward_row.reward_label_en, reward_row.label), coupon_code_val, true);
 
         RETURN jsonb_build_object(
             'success', true,
             'is_winner', true,
-            'reward_label', reward_row.label,
+            'reward_label', COALESCE(reward_row.reward_label_en, reward_row.label),
+            'reward_label_en', reward_row.reward_label_en,
+            'reward_label_ar', reward_row.reward_label_ar,
             'reward_type', reward_row.reward_type,
             'reward_value', reward_row.value,
             'max_discount', reward_row.max_discount,
             'coupon_code', coupon_code_val,
-            'expiry_date', COALESCE(reward_row.expiry_date, (CURRENT_DATE + interval '30 days')::date)
+            'expiry_date', computed_expiry,
+            'validity_days', reward_row.validity_days
         );
     ELSE
         -- No reward (better luck next time)
-        INSERT INTO gift_wheel_spins (bill_number, bill_amount, bill_image_url, reward_id, reward_label, is_winner)
-        VALUES (p_bill_number, p_bill_amount, p_bill_image_url, reward_row.id, reward_row.label, false);
+        INSERT INTO gift_wheel_spins (bill_number, bill_amount, bill_date, bill_image_url, reward_id, reward_label, is_winner)
+        VALUES (p_bill_number, p_bill_amount, p_bill_date, p_bill_image_url, reward_row.id, COALESCE(reward_row.reward_label_en, reward_row.label), false);
 
         RETURN jsonb_build_object(
             'success', true,
             'is_winner', false,
-            'reward_label', reward_row.label
+            'reward_label', COALESCE(reward_row.reward_label_en, reward_row.label),
+            'reward_label_en', reward_row.reward_label_en,
+            'reward_label_ar', reward_row.reward_label_ar
         );
     END IF;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.gift_wheel_spin(text, numeric, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.gift_wheel_spin(text, numeric, text) TO anon;
+GRANT EXECUTE ON FUNCTION public.gift_wheel_spin(text, numeric, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.gift_wheel_spin(text, numeric, text, text) TO anon;
 
 -- ============================================================
 -- 7. RPC: VALIDATE COUPON (for cashier)
@@ -368,6 +391,8 @@ BEGIN
         'valid', true,
         'code', coupon_row.code,
         'reward_label', coupon_row.reward_label,
+        'reward_label_en', coupon_row.reward_label_en,
+        'reward_label_ar', coupon_row.reward_label_ar,
         'reward_type', coupon_row.reward_type,
         'reward_value', coupon_row.reward_value,
         'max_discount', coupon_row.max_discount,
@@ -375,7 +400,8 @@ BEGIN
         'status', coupon_row.status,
         'branch_id', coupon_row.branch_id,
         'bill_number', coupon_row.bill_number,
-        'bill_amount', coupon_row.bill_amount
+        'bill_amount', coupon_row.bill_amount,
+        'bill_date', coupon_row.bill_date
     );
 END;
 $$;

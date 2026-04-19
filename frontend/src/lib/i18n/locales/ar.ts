@@ -4170,6 +4170,7 @@ export const arabicLocale: LocaleData = {
       printReceipt: "طباعة الإيصال",
       originalBill: "الفاتورة الأصلية",
       originalAmount: "مبلغ الفاتورة الأصلية",
+      billDate: "تاريخ الفاتورة",
     },
   },
 };
