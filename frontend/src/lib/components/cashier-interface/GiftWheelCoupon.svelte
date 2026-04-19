@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _ as t, locale } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	export let user: any;
 	export let branch: any;
@@ -93,6 +94,10 @@
 
 			const printWindow = window.open('', '_blank', 'width=400,height=600');
 			if (printWindow) {
+				const logoUrl = $iconUrlMap['logo'] || '/icons/logo.png';
+				const branchNameEn = branch?.name_en || branch?.name || '';
+				const branchNameAr = branch?.name_ar || '';
+
 				const discountText = couponData.reward_type === 'percentage'
 					? `${couponData.reward_value}%`
 					: `${couponData.reward_value} SAR`;
@@ -128,9 +133,15 @@
 		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; }
 		.bi span:last-child { direction: rtl; font-family: 'Tahoma', 'Arial', sans-serif; }
 		.note { font-size: 9px; color: #555; margin-top: 3mm; line-height: 1.4; }
+		.logo { height: 14mm; margin: 0 auto 1mm; display: block; }
+		.branch { font-size: 11px; font-weight: bold; margin: 1mm 0; }
+		.branch-ar { font-size: 10px; font-weight: bold; direction: rtl; margin-bottom: 1mm; }
 	</style>
 </head>
 <body>
+	<img src="${logoUrl}" alt="Logo" class="logo" />
+	<div class="branch">${branchNameEn}</div>
+	<div class="branch-ar">${branchNameAr}</div>
 	<div class="hdr">🎡 GIFT WHEEL COUPON</div>
 	<div class="hdr-ar">كوبون عجلة الهدايا</div>
 	<div class="sep"></div>
@@ -248,6 +259,10 @@
 
 		const printWindow = window.open('', '_blank', 'width=400,height=600');
 		if (printWindow) {
+			const logoUrl = $iconUrlMap['logo'] || '/icons/logo.png';
+			const branchNameEn = branch?.name_en || branch?.name || '';
+			const branchNameAr = branch?.name_ar || '';
+
 			const discountText = redeemCouponData.reward_type === 'percentage'
 				? `${redeemCouponData.reward_value}%`
 				: `${redeemCouponData.reward_value} SAR`;
@@ -295,9 +310,15 @@
 		.bi span:last-child { direction: rtl; font-family: 'Tahoma', 'Arial', sans-serif; }
 		.code-box { font-size: 16px; font-weight: bold; letter-spacing: 2px; margin: 1mm 0; font-family: 'Courier New', monospace; }
 		.badge { font-size: 13px; font-weight: bold; padding: 2mm 4mm; border: 2px solid #000; display: inline-block; margin: 2mm 0; letter-spacing: 2px; }
+		.logo { height: 14mm; margin: 0 auto 1mm; display: block; }
+		.branch { font-size: 11px; font-weight: bold; margin: 1mm 0; }
+		.branch-ar { font-size: 10px; font-weight: bold; direction: rtl; margin-bottom: 1mm; }
 	</style>
 </head>
 <body>
+	<img src="${logoUrl}" alt="Logo" class="logo" />
+	<div class="branch">${branchNameEn}</div>
+	<div class="branch-ar">${branchNameAr}</div>
 	<div class="hdr">🎟️ REDEMPTION RECEIPT</div>
 	<div class="hdr-ar">إيصال الاسترداد</div>
 	<div class="sep"></div>
