@@ -74,10 +74,11 @@
 		step = 'printing';
 
 		try {
-			// Mark as printed
+			// Mark as printed with branch_id
 			const { data, error: rpcError } = await supabase.rpc('gift_wheel_redeem_coupon', {
 				p_code: couponData.code,
-				p_action: 'print'
+				p_action: 'print',
+				p_branch_id: branch?.id || null
 			});
 
 			if (rpcError) throw rpcError;
@@ -199,7 +200,7 @@
 					type="text"
 					bind:value={couponCode}
 					on:keydown={handleKeydown}
-					placeholder="Enter coupon code (e.g. GW-XXXXXXXX)"
+					placeholder="Enter 6-digit coupon code"
 					disabled={loading}
 					autofocus
 				/>

@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.gift_wheel_coupons (
     redeemed_at timestamptz,
     redeemed_amount numeric,
     status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'printed', 'redeemed', 'expired', 'cancelled')),
+    branch_id uuid,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -276,7 +277,10 @@ BEGIN
 
     -- Generate coupon code for winning spins
     IF reward_row.reward_type != 'no_reward' THEN
-        coupon_code_val := 'GW-' || upper(substr(md5(random()::text), 1, 8));
+        LOOP
+            coupon_code_val := lpad((floor(random() * 900000) + 100000)::text, 6, '0');
+            EXIT WHEN NOT EXISTS (SELECT 1 FROM gift_wheel_coupons WHERE code = coupon_code_val);
+        END LOOP;
 
         INSERT INTO gift_wheel_coupons (code, reward_id, reward_label, reward_type, reward_value, max_discount, expiry_date, status)
         VALUES (
@@ -337,7 +341,7 @@ AS $$
 DECLARE
     coupon_row gift_wheel_coupons%ROWTYPE;
 BEGIN
-    SELECT * INTO coupon_row FROM gift_wheel_coupons WHERE code = upper(trim(p_code));
+    SELECT * INTO coupon_row FROM gift_wheel_coupons WHERE code = trim(p_code);
 
     IF coupon_row.id IS NULL THEN
         RETURN jsonb_build_object('valid', false, 'error', 'Coupon not found');
@@ -363,7 +367,8 @@ BEGIN
         'reward_value', coupon_row.reward_value,
         'max_discount', coupon_row.max_discount,
         'expiry_date', coupon_row.expiry_date,
-        'status', coupon_row.status
+        'status', coupon_row.status,
+        'branch_id', coupon_row.branch_id
     );
 END;
 $$;
@@ -374,7 +379,7 @@ GRANT EXECUTE ON FUNCTION public.gift_wheel_validate_coupon(text) TO anon;
 -- ============================================================
 -- 8. RPC: REDEEM COUPON (cashier marks as printed/redeemed)
 -- ============================================================
-CREATE OR REPLACE FUNCTION public.gift_wheel_redeem_coupon(p_code text, p_action text DEFAULT 'print')
+CREATE OR REPLACE FUNCTION public.gift_wheel_redeem_coupon(p_code text, p_action text DEFAULT 'print', p_branch_id uuid DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -383,7 +388,7 @@ AS $$
 DECLARE
     coupon_row gift_wheel_coupons%ROWTYPE;
 BEGIN
-    SELECT * INTO coupon_row FROM gift_wheel_coupons WHERE code = upper(trim(p_code));
+    SELECT * INTO coupon_row FROM gift_wheel_coupons WHERE code = trim(p_code);
 
     IF coupon_row.id IS NULL THEN
         RETURN jsonb_build_object('success', false, 'error', 'Coupon not found');
@@ -399,10 +404,10 @@ BEGIN
     END IF;
 
     IF p_action = 'print' THEN
-        UPDATE gift_wheel_coupons SET status = 'printed', printed_at = now() WHERE id = coupon_row.id;
+        UPDATE gift_wheel_coupons SET status = 'printed', printed_at = now(), branch_id = p_branch_id WHERE id = coupon_row.id;
         RETURN jsonb_build_object('success', true, 'action', 'printed');
     ELSIF p_action = 'redeem' THEN
-        UPDATE gift_wheel_coupons SET status = 'redeemed', redeemed_at = now() WHERE id = coupon_row.id;
+        UPDATE gift_wheel_coupons SET status = 'redeemed', redeemed_at = now(), branch_id = COALESCE(p_branch_id, branch_id) WHERE id = coupon_row.id;
         RETURN jsonb_build_object('success', true, 'action', 'redeemed');
     ELSE
         RETURN jsonb_build_object('success', false, 'error', 'Invalid action');
@@ -410,8 +415,8 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text) TO anon;
+GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text, uuid) TO anon;
 
 -- ============================================================
 -- 9. RPC: DASHBOARD STATS
