@@ -86,7 +86,7 @@
 			const { data, error: rpcError } = await supabase.rpc('gift_wheel_redeem_coupon', {
 				p_code: couponData.code,
 				p_action: 'print',
-				p_branch_id: branch?.id || null
+				p_branch_id: branch?.id ? String(branch.id) : null
 			});
 
 			if (rpcError) throw rpcError;
@@ -239,7 +239,7 @@
 			const { data, error: rpcError } = await supabase.rpc('gift_wheel_redeem_coupon', {
 				p_code: redeemCouponData.code,
 				p_action: 'redeem',
-				p_branch_id: branch?.id || null,
+				p_branch_id: branch?.id ? String(branch.id) : null,
 				p_redeemed_bill_number: redeemBillNumber.trim(),
 				p_redeemed_amount: parseFloat(redeemDiscountAmount)
 			});

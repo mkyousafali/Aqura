@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS public.gift_wheel_coupons (
     redeemed_at timestamptz,
     redeemed_amount numeric,
     status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'printed', 'redeemed', 'expired', 'cancelled')),
-    branch_id uuid,
+    branch_id text,
     bill_number text,
     bill_amount numeric,
     redeemed_bill_number text,
@@ -386,7 +386,7 @@ GRANT EXECUTE ON FUNCTION public.gift_wheel_validate_coupon(text) TO anon;
 -- ============================================================
 -- 8. RPC: REDEEM COUPON (cashier marks as printed/redeemed)
 -- ============================================================
-CREATE OR REPLACE FUNCTION public.gift_wheel_redeem_coupon(p_code text, p_action text DEFAULT 'print', p_branch_id uuid DEFAULT NULL, p_redeemed_bill_number text DEFAULT NULL, p_redeemed_amount numeric DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.gift_wheel_redeem_coupon(p_code text, p_action text DEFAULT 'print', p_branch_id text DEFAULT NULL, p_redeemed_bill_number text DEFAULT NULL, p_redeemed_amount numeric DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -422,8 +422,8 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text, uuid, text, numeric) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text, uuid, text, numeric) TO anon;
+GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text, text, text, numeric) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.gift_wheel_redeem_coupon(text, text, text, text, numeric) TO anon;
 
 -- ============================================================
 -- 9. RPC: DASHBOARD STATS
