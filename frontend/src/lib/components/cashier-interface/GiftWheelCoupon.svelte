@@ -123,16 +123,17 @@
 			text-align: center;
 			font-size: 11px;
 			color: #000;
+			font-weight: bold;
 		}
 		.hdr { font-size: 13px; font-weight: bold; margin: 2mm 0; }
 		.hdr-ar { font-size: 12px; font-weight: bold; direction: rtl; }
 		.sep { border-top: 1px dashed #000; margin: 2mm 0; }
 		.big { font-size: 24px; font-weight: bold; margin: 3mm 0; padding: 2mm; border: 2px dashed #000; }
-		.big-label { font-size: 11px; margin-bottom: 1mm; }
+		.big-label { font-size: 11px; font-weight: bold; margin-bottom: 1mm; }
 		.code-box { font-size: 18px; font-weight: bold; letter-spacing: 3px; margin: 2mm 0; font-family: 'Courier New', monospace; }
-		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; }
+		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; font-weight: bold; }
 		.bi span:last-child { direction: rtl; font-family: 'Tahoma', 'Arial', sans-serif; }
-		.note { font-size: 9px; color: #555; margin-top: 3mm; line-height: 1.4; }
+		.note { font-size: 9px; color: #555; margin-top: 3mm; line-height: 1.4; font-weight: bold; }
 		.logo { height: 14mm; margin: 0 auto 1mm; display: block; }
 		.branch { font-size: 11px; font-weight: bold; margin: 1mm 0; }
 		.branch-ar { font-size: 10px; font-weight: bold; direction: rtl; margin-bottom: 1mm; }
@@ -300,13 +301,14 @@
 			text-align: center;
 			font-size: 11px;
 			color: #000;
+			font-weight: bold;
 		}
 		.hdr { font-size: 12px; font-weight: bold; margin: 1mm 0; }
 		.hdr-ar { font-size: 11px; font-weight: bold; direction: rtl; margin-bottom: 1mm; }
 		.sep { border-top: 1px dashed #000; margin: 2mm 0; }
 		.big { font-size: 22px; font-weight: bold; margin: 2mm 0; padding: 2mm; border: 2px solid #000; }
-		.big-label { font-size: 10px; margin-bottom: 1mm; }
-		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; }
+		.big-label { font-size: 10px; font-weight: bold; margin-bottom: 1mm; }
+		.bi { display: flex; justify-content: space-between; margin: 1mm 0; font-size: 10px; font-weight: bold; }
 		.bi span:last-child { direction: rtl; font-family: 'Tahoma', 'Arial', sans-serif; }
 		.code-box { font-size: 16px; font-weight: bold; letter-spacing: 2px; margin: 1mm 0; font-family: 'Courier New', monospace; }
 		.badge { font-size: 13px; font-weight: bold; padding: 2mm 4mm; border: 2px solid #000; display: inline-block; margin: 2mm 0; letter-spacing: 2px; }
