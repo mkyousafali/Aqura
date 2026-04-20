@@ -324,6 +324,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 	}
 
+	function openGiftWheelCoupon() {
+		const windowId = generateWindowId('gift-wheel-coupon');
+		import('$lib/components/cashier-interface/GiftWheelCoupon.svelte').then(({ default: GiftWheelCoupon }) => {
+			openWindow({
+				id: windowId,
+				title: t('nav.giftWheelCoupon') || 'Gift Wheel Coupon',
+				component: GiftWheelCoupon,
+				props: { user: $currentUser, branch: { id: $currentUser?.branch_id, name_en: $currentUser?.branchName } },
+				icon: '🎡',
+				size: { width: 600, height: 550 },
+				position: { x: 100, y: 50 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		});
+	}
+
 	function openDailyChecklist() {
 		const windowId = generateWindowId('daily-checklist');
 		openWindow({
@@ -788,6 +807,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			{#if counts.unread > 0}
 				<div class="quick-badge">{counts.unread > 99 ? '99+' : counts.unread}</div>
 			{/if}
+		</button>
+		{/if}
+
+		<!-- Gift Wheel Coupon -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('GIFT_WHEEL_MANAGER')}
+		<button 
+			class="quick-btn gift-wheel-btn"
+			on:click={openGiftWheelCoupon}
+			title="Gift Wheel Coupon"
+		>
+			<div class="quick-icon">🎡</div>
 		</button>
 		{/if}
 

@@ -61,6 +61,11 @@
 	// Realtime
 	let realtimeChannel: any = null;
 
+	// Fireworks Lottie
+	let fireworksCanvas: HTMLCanvasElement;
+	let winFireworksCanvas: HTMLCanvasElement;
+	let winLottieInitialized = false;
+
 	// Hidden manual entry (tap wheel 5 times to unlock)
 	let manualTapCount = 0;
 	let showManualFields = false;
@@ -91,6 +96,21 @@
 		await checkStatus();
 		await loadRewards();
 		setupRealtime();
+
+		// Init fireworks Lottie
+		if (fireworksCanvas) {
+			try {
+				const { DotLottie } = await import('@lottiefiles/dotlottie-web');
+				new DotLottie({
+					autoplay: true,
+					loop: true,
+					canvas: fireworksCanvas,
+					src: 'https://assets-v2.lottiefiles.com/a/d601a13e-1151-11ee-b2e2-73fdc183ef8e/eHMKup59WG.lottie',
+				});
+			} catch (e) {
+				console.warn('Fireworks animation failed to load', e);
+			}
+		}
 	});
 
 	onDestroy(() => {
@@ -170,6 +190,19 @@
 	// Rebuild wheel segments when locale changes
 	$: if (rewards.length > 0 && $locale) {
 		buildWheelSegments();
+	}
+
+	// Init win fireworks Lottie when canvas appears
+	$: if (winFireworksCanvas && !winLottieInitialized) {
+		winLottieInitialized = true;
+		import('@lottiefiles/dotlottie-web').then(({ DotLottie }) => {
+			new DotLottie({
+				autoplay: true,
+				loop: true,
+				canvas: winFireworksCanvas,
+				src: 'https://assets-v2.lottiefiles.com/a/d601a13e-1151-11ee-b2e2-73fdc183ef8e/eHMKup59WG.lottie',
+			});
+		}).catch(e => console.warn('Win fireworks failed', e));
 	}
 
 	function handleFileCapture(event: Event) {
@@ -541,6 +574,7 @@ ${fullText.substring(0, 900)}` }] }],
 		manualTapCount = 0;
 		manualEntryUserId = null;
 		manualEntryUsername = null;
+		winLottieInitialized = false;
 		checkStatus();
 	}
 
@@ -548,6 +582,511 @@ ${fullText.substring(0, 900)}` }] }],
 		const newLocale = $locale === 'en' ? 'ar' : 'en';
 		switchLocale(newLocale);
 		buildWheelSegments();
+	}
+
+	async function downloadCouponImage() {
+		if (!spinResult) return;
+		const isAr = $locale === 'ar';
+		const w = 540;
+		// We'll set final height after layout - start with large canvas
+		let h = 1200;
+		const canvas = document.createElement('canvas');
+		canvas.width = w;
+		canvas.height = h;
+		const ctx = canvas.getContext('2d')!;
+
+		// Gold palette
+		const gold = '#c8a24e';
+		const goldLight = '#e8d48b';
+		const goldDark = '#8b6914';
+		const goldBg = '#fffdf5';
+		const cream = '#faf6ea';
+		const darkBrown = '#3d2b1f';
+		const warmGray = '#7a6e5d';
+
+		// Load logo and currency symbol
+		const logo = new Image();
+		logo.crossOrigin = 'anonymous';
+		logo.src = 'https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/logo.png';
+		const currImg = new Image();
+		currImg.crossOrigin = 'anonymous';
+		currImg.src = 'https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png';
+		await Promise.all([
+			new Promise<void>((r) => { logo.onload = () => r(); logo.onerror = () => r(); }),
+			new Promise<void>((r) => { currImg.onload = () => r(); currImg.onerror = () => r(); })
+		]);
+		const hasCurr = currImg.complete && currImg.naturalWidth > 0;
+		const drawCurrency = (cx: number, cy: number, size: number) => {
+			if (hasCurr) {
+				const cw = (currImg.naturalWidth / currImg.naturalHeight) * size;
+				ctx.drawImage(currImg, cx, cy - size + 2, cw, size);
+				return cw;
+			}
+			return 0;
+		};
+
+		// === DARK BACKGROUND ===
+		const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+		bgGrad.addColorStop(0, '#1a1510');
+		bgGrad.addColorStop(0.3, '#231c14');
+		bgGrad.addColorStop(0.7, '#1e1812');
+		bgGrad.addColorStop(1, '#141010');
+		ctx.fillStyle = bgGrad;
+		ctx.beginPath();
+		ctx.roundRect(0, 0, w, h, 20);
+		ctx.fill();
+
+		// === GOLD DOUBLE BORDER ===
+		ctx.strokeStyle = gold;
+		ctx.lineWidth = 3;
+		ctx.beginPath();
+		ctx.roundRect(8, 8, w - 16, h - 16, 16);
+		ctx.stroke();
+		ctx.strokeStyle = goldLight;
+		ctx.lineWidth = 1;
+		ctx.beginPath();
+		ctx.roundRect(14, 14, w - 28, h - 28, 13);
+		ctx.stroke();
+
+		// === CORNER ORNAMENTS ===
+		const drawCorner = (cx: number, cy: number, flipX: number, flipY: number) => {
+			ctx.strokeStyle = goldLight;
+			ctx.lineWidth = 1.5;
+			ctx.globalAlpha = 0.6;
+			// L-shape flourish
+			ctx.beginPath();
+			ctx.moveTo(cx + 25 * flipX, cy);
+			ctx.lineTo(cx, cy);
+			ctx.lineTo(cx, cy + 25 * flipY);
+			ctx.stroke();
+			// Diamond
+			ctx.fillStyle = gold;
+			ctx.beginPath();
+			ctx.moveTo(cx + 8 * flipX, cy + 8 * flipY);
+			ctx.lineTo(cx + 12 * flipX, cy + 4 * flipY);
+			ctx.lineTo(cx + 16 * flipX, cy + 8 * flipY);
+			ctx.lineTo(cx + 12 * flipX, cy + 12 * flipY);
+			ctx.closePath();
+			ctx.fill();
+			ctx.globalAlpha = 1;
+		};
+		drawCorner(24, 24, 1, 1);
+		drawCorner(w - 24, 24, -1, 1);
+		drawCorner(24, h - 24, 1, -1);
+		drawCorner(w - 24, h - 24, -1, -1);
+
+		// === SUBTLE SHIMMER DOTS ===
+		for (let i = 0; i < 30; i++) {
+			const sx = 30 + Math.random() * (w - 60);
+			const sy = 30 + Math.random() * (h - 60);
+			ctx.fillStyle = goldLight;
+			ctx.globalAlpha = 0.04 + Math.random() * 0.08;
+			ctx.beginPath();
+			ctx.arc(sx, sy, 1 + Math.random() * 2, 0, Math.PI * 2);
+			ctx.fill();
+		}
+		ctx.globalAlpha = 1;
+
+		// === GOLD STARS ===
+		const drawStar = (sx: number, sy: number, outerR: number, innerR: number, points: number) => {
+			ctx.beginPath();
+			for (let i = 0; i < points * 2; i++) {
+				const r = i % 2 === 0 ? outerR : innerR;
+				const a = (i * Math.PI) / points - Math.PI / 2;
+				ctx[i === 0 ? 'moveTo' : 'lineTo'](sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+			}
+			ctx.closePath();
+			ctx.fill();
+		};
+		// Top area stars
+		const starPositions = [
+			{ x: 45, y: 50, s: 8, a: 0.35 },
+			{ x: w - 50, y: 45, s: 10, a: 0.4 },
+			{ x: 70, y: 130, s: 6, a: 0.25 },
+			{ x: w - 65, y: 125, s: 7, a: 0.3 },
+			{ x: 35, y: 220, s: 5, a: 0.2 },
+			{ x: w - 40, y: 210, s: 9, a: 0.35 },
+			{ x: 55, y: 340, s: 6, a: 0.2 },
+			{ x: w - 55, y: 350, s: 5, a: 0.18 },
+			// Middle area
+			{ x: 30, y: 500, s: 7, a: 0.22 },
+			{ x: w - 35, y: 520, s: 6, a: 0.2 },
+			{ x: 45, y: 680, s: 5, a: 0.18 },
+			{ x: w - 45, y: 700, s: 8, a: 0.28 },
+			// Bottom area
+			{ x: 50, y: h - 180, s: 7, a: 0.25 },
+			{ x: w - 50, y: h - 160, s: 9, a: 0.3 },
+			{ x: 35, y: h - 80, s: 6, a: 0.22 },
+			{ x: w - 40, y: h - 70, s: 5, a: 0.2 },
+			// Scattered small sparkles
+			{ x: 90, y: 80, s: 4, a: 0.15 },
+			{ x: w - 90, y: 280, s: 4, a: 0.15 },
+			{ x: 80, y: 450, s: 3, a: 0.12 },
+			{ x: w - 70, y: 600, s: 4, a: 0.15 },
+			{ x: 60, y: h - 250, s: 3, a: 0.12 },
+			{ x: w - 60, y: h - 300, s: 4, a: 0.14 },
+		];
+		for (const star of starPositions) {
+			ctx.fillStyle = goldLight;
+			ctx.globalAlpha = star.a;
+			drawStar(star.x, star.y, star.s, star.s * 0.4, 5);
+		}
+		// Add 4-point sparkle stars (cross shape)
+		const sparklePositions = [
+			{ x: 55, y: 170, s: 10, a: 0.3 },
+			{ x: w - 55, y: 180, s: 12, a: 0.35 },
+			{ x: 40, y: 400, s: 8, a: 0.2 },
+			{ x: w - 45, y: 440, s: 10, a: 0.25 },
+			{ x: 50, y: h - 120, s: 10, a: 0.25 },
+			{ x: w - 50, y: h - 130, s: 8, a: 0.2 },
+		];
+		for (const sp of sparklePositions) {
+			ctx.fillStyle = gold;
+			ctx.globalAlpha = sp.a;
+			drawStar(sp.x, sp.y, sp.s, sp.s * 0.2, 4);
+		}
+		ctx.globalAlpha = 1;
+
+		// === TOP GOLD BAR ===
+		const topBarGrad = ctx.createLinearGradient(0, 0, w, 0);
+		topBarGrad.addColorStop(0, 'transparent');
+		topBarGrad.addColorStop(0.2, goldDark);
+		topBarGrad.addColorStop(0.5, goldLight);
+		topBarGrad.addColorStop(0.8, goldDark);
+		topBarGrad.addColorStop(1, 'transparent');
+		ctx.fillStyle = topBarGrad;
+		ctx.fillRect(30, 5, w - 60, 3);
+
+		let y = 30;
+
+		// === LOGO CONTAINER ===
+		if (logo.complete && logo.naturalWidth) {
+			const logoH = 55;
+			const logoW = (logo.naturalWidth / logo.naturalHeight) * logoH;
+			const logoPadX = 22, logoPadY = 14;
+			const contW = logoW + logoPadX * 2;
+			const contH = logoH + logoPadY * 2;
+			const contX = (w - contW) / 2;
+			// White card with gold border
+			ctx.fillStyle = '#ffffff';
+			ctx.beginPath();
+			ctx.roundRect(contX, y, contW, contH, 12);
+			ctx.fill();
+			ctx.strokeStyle = gold;
+			ctx.lineWidth = 1.5;
+			ctx.stroke();
+			ctx.drawImage(logo, contX + logoPadX, y + logoPadY, logoW, logoH);
+			y += contH + 18;
+		}
+
+		// === CONGRATULATIONS BADGE ===
+		const badgeW = 340, badgeH = 48;
+		const badgeGrad = ctx.createLinearGradient((w - badgeW) / 2, y, (w + badgeW) / 2, y + badgeH);
+		badgeGrad.addColorStop(0, goldDark);
+		badgeGrad.addColorStop(0.3, gold);
+		badgeGrad.addColorStop(0.5, goldLight);
+		badgeGrad.addColorStop(0.7, gold);
+		badgeGrad.addColorStop(1, goldDark);
+		ctx.fillStyle = badgeGrad;
+		ctx.beginPath();
+		ctx.roundRect((w - badgeW) / 2, y, badgeW, badgeH, 24);
+		ctx.fill();
+		ctx.textAlign = 'center';
+		ctx.fillStyle = darkBrown;
+		ctx.font = 'bold 24px Georgia, serif';
+		ctx.fillText(isAr ? '✨ مبروك ✨' : '✨ Congratulations ✨', w / 2, y + 33);
+		y += badgeH + 28;
+
+		// === REWARD TEXT ===
+		ctx.fillStyle = goldLight;
+		ctx.font = 'bold 32px Georgia, serif';
+		const rewardText = isAr
+			? (spinResult.reward_label_ar || spinResult.reward_label || '')
+			: (spinResult.reward_label_en || spinResult.reward_label || '');
+		ctx.fillText(rewardText, w / 2, y);
+		y += 16;
+
+		// Gold ornamental divider
+		const divGrad = ctx.createLinearGradient(w / 2 - 100, 0, w / 2 + 100, 0);
+		divGrad.addColorStop(0, 'transparent');
+		divGrad.addColorStop(0.15, goldDark);
+		divGrad.addColorStop(0.5, goldLight);
+		divGrad.addColorStop(0.85, goldDark);
+		divGrad.addColorStop(1, 'transparent');
+		ctx.strokeStyle = divGrad;
+		ctx.lineWidth = 1.5;
+		ctx.beginPath();
+		ctx.moveTo(w / 2 - 100, y + 5);
+		ctx.lineTo(w / 2 + 100, y + 5);
+		ctx.stroke();
+		// Center diamond on divider
+		ctx.fillStyle = gold;
+		ctx.beginPath();
+		ctx.moveTo(w / 2, y);
+		ctx.lineTo(w / 2 + 6, y + 5);
+		ctx.lineTo(w / 2, y + 10);
+		ctx.lineTo(w / 2 - 6, y + 5);
+		ctx.closePath();
+		ctx.fill();
+		y += 26;
+
+		// Max discount in white card with red text
+		if (spinResult.max_discount) {
+			const mdVal = `${spinResult.max_discount}`;
+			const mdText = isAr
+				? `أو بحد أقصى ${mdVal} ريال خصم، أيهما أقل`
+				: `Or a maximum discount of ${mdVal} Riyals, whichever is lower`;
+			ctx.font = 'bold 14px Georgia, serif';
+			const textW = ctx.measureText(mdText).width;
+			const cardW = Math.max(textW + 40, 260);
+			const cardH = 42;
+			const cardX = (w - cardW) / 2;
+			// White card background
+			ctx.fillStyle = '#ffffff';
+			ctx.beginPath();
+			ctx.roundRect(cardX, y - 4, cardW, cardH, 10);
+			ctx.fill();
+			ctx.strokeStyle = '#dc2626';
+			ctx.lineWidth = 1.5;
+			ctx.stroke();
+			// Red text centered
+			ctx.fillStyle = '#dc2626';
+			ctx.font = 'bold 14px Georgia, serif';
+			ctx.textAlign = 'center';
+			ctx.fillText(mdText, w / 2, y + cardH / 2 + 1);
+			y += cardH + 14;
+		}
+
+		// === QR CODE BOX ===
+		y += 5;
+		try {
+			const QRCode = (await import('qrcode')).default;
+			const qrDataUrl = await QRCode.toDataURL(spinResult.coupon_code || '', {
+				width: 200,
+				margin: 1,
+				color: { dark: '#3d2b1f', light: '#fffdf5' }
+			});
+			const qrImg = new Image();
+			qrImg.src = qrDataUrl;
+			await new Promise<void>((r) => { qrImg.onload = () => r(); qrImg.onerror = () => r(); });
+			if (qrImg.complete && qrImg.naturalWidth) {
+				const qrSize = 140;
+				const boxPad = 20;
+				const boxH = qrSize + boxPad * 2 + 30;
+				const boxX = 50, boxW = w - 100;
+				// Box bg
+				ctx.fillStyle = '#2a2218';
+				ctx.beginPath();
+				ctx.roundRect(boxX, y, boxW, boxH, 12);
+				ctx.fill();
+				ctx.strokeStyle = gold;
+				ctx.lineWidth = 1.5;
+				ctx.stroke();
+				// Label
+				ctx.fillStyle = goldLight;
+				ctx.font = '13px Georgia, serif';
+				ctx.fillText(isAr ? 'امسح الرمز' : 'Scan QR Code', w / 2, y + 22);
+				// QR on cream bg
+				ctx.fillStyle = goldBg;
+				ctx.beginPath();
+				ctx.roundRect((w - qrSize - 10) / 2, y + 30, qrSize + 10, qrSize + 10, 6);
+				ctx.fill();
+				ctx.drawImage(qrImg, (w - qrSize) / 2, y + 35, qrSize, qrSize);
+				y += boxH + 18;
+			}
+		} catch (e) {
+			console.warn('QR generation failed', e);
+		}
+
+		// === TICKET TEAR LINE ===
+		ctx.setLineDash([4, 6]);
+		ctx.strokeStyle = goldDark;
+		ctx.lineWidth = 1;
+		ctx.globalAlpha = 0.5;
+		ctx.beginPath();
+		ctx.moveTo(35, y);
+		ctx.lineTo(w - 35, y);
+		ctx.stroke();
+		ctx.setLineDash([]);
+		ctx.globalAlpha = 1;
+		// Semicircle cutouts
+		ctx.fillStyle = '#1a1510';
+		ctx.beginPath();
+		ctx.arc(14, y, 10, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.strokeStyle = gold;
+		ctx.lineWidth = 1;
+		ctx.stroke();
+		ctx.fillStyle = '#1a1510';
+		ctx.beginPath();
+		ctx.arc(w - 14, y, 10, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.strokeStyle = gold;
+		ctx.lineWidth = 1;
+		ctx.stroke();
+		y += 24;
+
+		// === BILL DETAILS ===
+		ctx.textAlign = 'center';
+		ctx.fillStyle = gold;
+		ctx.font = 'bold 13px Georgia, serif';
+		ctx.fillText(isAr ? '─── تفاصيل الفاتورة ───' : '─── Bill Details ───', w / 2, y);
+		y += 24;
+
+		ctx.fillStyle = goldLight;
+		ctx.font = '15px Georgia, serif';
+
+		// Bill Number
+		ctx.fillText(isAr ? `رقم الفاتورة: ${billNumber || '-'}` : `Bill #: ${billNumber || '-'}`, w / 2, y);
+		y += 22;
+
+		// Amount with currency
+		const amtLabelPre = isAr ? 'المبلغ: ' : 'Amount: ';
+		const amtVal = `${billAmount || '-'}`;
+		const currS2 = 8;
+		const currW2 = hasCurr ? (currImg.naturalWidth / currImg.naturalHeight) * currS2 : 0;
+		const amtPreW = ctx.measureText(amtLabelPre).width;
+		const amtValW = ctx.measureText(amtVal).width;
+		const amtTotalW = amtPreW + currW2 + 3 + amtValW;
+		const amtStartX = (w - amtTotalW) / 2;
+		ctx.textAlign = 'left';
+		ctx.fillText(amtLabelPre, amtStartX, y);
+		drawCurrency(amtStartX + amtPreW, y, currS2);
+		ctx.fillText(amtVal, amtStartX + amtPreW + currW2 + 3, y);
+		ctx.textAlign = 'center';
+		y += 22;
+
+		// Bill Date
+		ctx.fillText(isAr ? `التاريخ: ${billDate || '-'}` : `Date: ${billDate || '-'}`, w / 2, y);
+		y += 35;
+
+		// === EXPIRY ===
+		ctx.fillStyle = goldLight;
+		ctx.font = 'bold 14px Georgia, serif';
+		const expiryText = isAr
+			? `⏰ الكوبون صالح حتى: ${spinResult.expiry_date || ''}`
+			: `⏰ Coupon valid until: ${spinResult.expiry_date || ''}`;
+		ctx.fillText(expiryText, w / 2, y);
+		y += 30;
+
+		// Instructions
+		ctx.fillStyle = warmGray;
+		ctx.font = '12px Georgia, serif';
+		const hint = isAr
+			? 'أرِ هذا الرمز للكاشير للحصول على كوبون مطبوع'
+			: 'Show this code to the cashier to get a printed coupon';
+		ctx.fillText(hint, w / 2, y);
+		y += 30;
+
+		// === BARCODE ===
+		try {
+			const JsBarcode = (await import('jsbarcode')).default;
+			const bcCanvas = document.createElement('canvas');
+			JsBarcode(bcCanvas, spinResult.coupon_code || '', {
+				format: 'CODE128',
+				width: 2,
+				height: 45,
+				displayValue: false,
+				margin: 5,
+				background: goldBg,
+				lineColor: darkBrown
+			});
+			const bcW = 280;
+			const bcH = (bcCanvas.height / bcCanvas.width) * bcW;
+			// Barcode container with gold border
+			ctx.fillStyle = goldBg;
+			ctx.strokeStyle = gold;
+			ctx.lineWidth = 1;
+			ctx.beginPath();
+			ctx.roundRect((w - bcW - 24) / 2, y - 6, bcW + 24, bcH + 12, 8);
+			ctx.fill();
+			ctx.stroke();
+			ctx.drawImage(bcCanvas, (w - bcW) / 2, y, bcW, bcH);
+			y += bcH + 28;
+		} catch (e) {
+			console.warn('Barcode generation failed', e);
+		}
+
+		// === THANK YOU ===
+		ctx.fillStyle = gold;
+		ctx.font = 'italic 14px Georgia, serif';
+		ctx.textAlign = 'center';
+		ctx.fillText(isAr ? '🙏 شكراً لتسوقكم معنا 🙏' : '🙏 Thank you for shopping with us 🙏', w / 2, y);
+		y += 20;
+
+		// === TRIM CANVAS TO CONTENT ===
+		h = y + 20;
+		const finalCanvas = document.createElement('canvas');
+		finalCanvas.width = w;
+		finalCanvas.height = h;
+		const fCtx = finalCanvas.getContext('2d')!;
+
+		// Redraw background on final canvas
+		const bgGrad2 = fCtx.createLinearGradient(0, 0, 0, h);
+		bgGrad2.addColorStop(0, '#1a1510');
+		bgGrad2.addColorStop(0.3, '#231c14');
+		bgGrad2.addColorStop(0.7, '#1e1812');
+		bgGrad2.addColorStop(1, '#141010');
+		fCtx.fillStyle = bgGrad2;
+		fCtx.beginPath();
+		fCtx.roundRect(0, 0, w, h, 20);
+		fCtx.fill();
+
+		// Copy content from original canvas
+		fCtx.drawImage(canvas, 0, 0);
+
+		// Gold double border on final
+		fCtx.strokeStyle = gold;
+		fCtx.lineWidth = 3;
+		fCtx.beginPath();
+		fCtx.roundRect(8, 8, w - 16, h - 16, 16);
+		fCtx.stroke();
+		fCtx.strokeStyle = goldLight;
+		fCtx.lineWidth = 1;
+		fCtx.beginPath();
+		fCtx.roundRect(14, 14, w - 28, h - 28, 13);
+		fCtx.stroke();
+
+		// Corner ornaments on final
+		const drawCorner2 = (cx: number, cy: number, flipX: number, flipY: number) => {
+			fCtx.strokeStyle = goldLight;
+			fCtx.lineWidth = 1.5;
+			fCtx.globalAlpha = 0.6;
+			fCtx.beginPath();
+			fCtx.moveTo(cx + 25 * flipX, cy);
+			fCtx.lineTo(cx, cy);
+			fCtx.lineTo(cx, cy + 25 * flipY);
+			fCtx.stroke();
+			fCtx.fillStyle = gold;
+			fCtx.beginPath();
+			fCtx.moveTo(cx + 8 * flipX, cy + 8 * flipY);
+			fCtx.lineTo(cx + 12 * flipX, cy + 4 * flipY);
+			fCtx.lineTo(cx + 16 * flipX, cy + 8 * flipY);
+			fCtx.lineTo(cx + 12 * flipX, cy + 12 * flipY);
+			fCtx.closePath();
+			fCtx.fill();
+			fCtx.globalAlpha = 1;
+		};
+		drawCorner2(24, 24, 1, 1);
+		drawCorner2(w - 24, 24, -1, 1);
+		drawCorner2(24, h - 24, 1, -1);
+		drawCorner2(w - 24, h - 24, -1, -1);
+
+		// Bottom gold bar on final
+		const botBarGrad = fCtx.createLinearGradient(0, h - 6, w, h);
+		botBarGrad.addColorStop(0, 'transparent');
+		botBarGrad.addColorStop(0.2, goldDark);
+		botBarGrad.addColorStop(0.5, goldLight);
+		botBarGrad.addColorStop(0.8, goldDark);
+		botBarGrad.addColorStop(1, 'transparent');
+		fCtx.fillStyle = botBarGrad;
+		fCtx.fillRect(30, h - 8, w - 60, 3);
+
+		// Download
+		const link = document.createElement('a');
+		link.download = `coupon-${spinResult.coupon_code || 'gift'}.png`;
+		link.href = finalCanvas.toDataURL('image/png');
+		link.click();
 	}
 </script>
 
@@ -596,20 +1135,7 @@ ${fullText.substring(0, 900)}` }] }],
 	{:else}
 		<!-- Wheel Display -->
 		<div class="wheel-wrapper">
-			<div class="wheel-fireworks">
-				{#each [
-					{x:'5%',y:'10%',d:0}, {x:'50%',y:'0%',d:0.6}, {x:'90%',y:'8%',d:1.1},
-					{x:'0%',y:'45%',d:0.4}, {x:'95%',y:'50%',d:1.5}, 
-					{x:'8%',y:'85%',d:0.8}, {x:'50%',y:'95%',d:1.8}, {x:'88%',y:'88%',d:1.3},
-					{x:'25%',y:'25%',d:2.0}, {x:'75%',y:'20%',d:0.3}, {x:'20%',y:'75%',d:1.6}, {x:'78%',y:'72%',d:2.2}
-				] as r}
-					<div class="fw-rocket" style="--rx:{r.x}; --ry:{r.y}; --rd:{r.d}s;">
-						{#each Array(10) as _, j}
-							<div class="fw-particle" style="--pd: {0.1 + j * 0.04}s; --pc: {['#f08300','#ffd93d','#ff6b9d','#13A538','#00d4ff','#ff4444','#ffaa00','#7dff9a','#ff69b4','#fff'][j]};"></div>
-						{/each}
-					</div>
-				{/each}
-			</div>
+			<canvas bind:this={fireworksCanvas} class="wheel-fireworks-canvas" width="400" height="400"></canvas>
 			<div class="wheel-container" on:click={() => { if (!showManualFields && !showAccessCodePopup) { manualTapCount++; if (manualTapCount >= 5) { showAccessCodePopup = true; manualTapCount = 0; } } }}>
 			<div class="wheel-pointer">▼</div>
 			<div
@@ -859,17 +1385,8 @@ ${fullText.substring(0, 900)}` }] }],
 		{:else if step === 'result'}
 			<div class="result-section" class:winner={spinResult?.is_winner}>
 				{#if spinResult?.is_winner}
-					<!-- Fireworks Animation -->
-					<div class="fireworks-container">
-						<div class="firework" style="--x: 20%; --delay: 0s;"></div>
-						<div class="firework" style="--x: 30%; --delay: 0.1s;"></div>
-						<div class="firework" style="--x: 40%; --delay: 0.2s;"></div>
-						<div class="firework" style="--x: 50%; --delay: 0.3s;"></div>
-						<div class="firework" style="--x: 60%; --delay: 0.4s;"></div>
-						<div class="firework" style="--x: 70%; --delay: 0.5s;"></div>
-						<div class="firework" style="--x: 80%; --delay: 0.6s;"></div>
-						<div class="firework" style="--x: 90%; --delay: 0.7s;"></div>
-					</div>
+					<!-- Fireworks Lottie Animation -->
+					<canvas bind:this={winFireworksCanvas} class="win-fireworks-canvas" width="600" height="600"></canvas>
 					
 					<div class="confetti">🎉</div>
 					<h2>{$locale === 'ar' ? 'مبروك' : 'Congratulations'}</h2>
@@ -893,12 +1410,13 @@ ${fullText.substring(0, 900)}` }] }],
 						<p class="expiry">
 							{$locale === 'ar' ? 'صالح حتى:' : 'Valid Until:'} {spinResult.expiry_date}
 						</p>
-					</div>
-					<div class="coupon-display">
-						<label>{$locale === 'ar' ? 'رمز الكوبون:' : 'Coupon Code:'}</label>
-						<div class="coupon-code">{spinResult.coupon_code}</div>
-						<p class="coupon-hint">
-							{$locale === 'ar' ? 'أرِ هذا الرمز للكاشير للحصول على كوبون مطبوع، وقدّم الكوبون المطبوع للكاشير عند الشراء القادم. بدون الكوبون المطبوع يكون العرض غير صالح' : 'Show this code to the cashier to get a printed coupon, and give the printed coupon to the cashier on your next purchase. Without the printed coupon, the offer will be invalid'}
+						<button class="btn-get-coupon" on:click={downloadCouponImage}>
+							<span class="btn-get-coupon-icon">👆</span>
+							<span class="btn-get-coupon-text">{$locale === 'ar' ? 'اضغط هنا للحصول على الكوبون' : 'Press here to get coupon'}</span>
+							<span class="btn-get-coupon-shimmer"></span>
+						</button>
+						<p class="coupon-instruction">
+							🛒 {$locale === 'ar' ? 'أظهر الكوبون للكاشير للحصول على مكافأتك في عملية الشراء القادمة' : 'Show the coupon to the cashier to get your reward on next purchase'}
 						</p>
 					</div>
 				{:else}
@@ -1142,67 +1660,16 @@ ${fullText.substring(0, 900)}` }] }],
 		align-items: center;
 	}
 
-	.wheel-fireworks {
+	.wheel-fireworks-canvas {
 		position: absolute;
-		width: 360px;
-		height: 360px;
+		width: 400px;
+		height: 400px;
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
 		pointer-events: none;
 		z-index: 0;
 	}
-
-	.fw-rocket {
-		position: absolute;
-		left: var(--rx);
-		top: var(--ry);
-		animation: fw-launch 2.8s ease-in-out infinite;
-		animation-delay: var(--rd);
-	}
-
-	@keyframes fw-launch {
-		0% { transform: scale(0); opacity: 0; }
-		8% { transform: scale(1.3); opacity: 1; }
-		12% { transform: scale(1); opacity: 1; }
-		15%, 100% { transform: scale(1); opacity: 0; }
-	}
-
-	.fw-particle {
-		position: absolute;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--pc);
-		box-shadow: 0 0 8px 3px var(--pc), 0 0 16px var(--pc);
-		opacity: 0;
-		animation-duration: 2.8s;
-		animation-timing-function: ease-out;
-		animation-iteration-count: infinite;
-		animation-delay: calc(var(--rd) + 0.2s + var(--pd));
-	}
-
-	.fw-particle:nth-child(1) { animation-name: fw-p1; }
-	.fw-particle:nth-child(2) { animation-name: fw-p2; }
-	.fw-particle:nth-child(3) { animation-name: fw-p3; }
-	.fw-particle:nth-child(4) { animation-name: fw-p4; }
-	.fw-particle:nth-child(5) { animation-name: fw-p5; }
-	.fw-particle:nth-child(6) { animation-name: fw-p6; }
-	.fw-particle:nth-child(7) { animation-name: fw-p7; }
-	.fw-particle:nth-child(8) { animation-name: fw-p8; }
-	.fw-particle:nth-child(9) { animation-name: fw-p9; }
-	.fw-particle:nth-child(10) { animation-name: fw-p10; }
-
-	@keyframes fw-p1 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(30px,0) scale(1.2);opacity:1} 50%{transform:translate(60px,15px) scale(0.8);opacity:0.8} 100%{transform:translate(70px,40px) scale(0);opacity:0} }
-	@keyframes fw-p2 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(21px,21px) scale(1.2);opacity:1} 50%{transform:translate(42px,50px) scale(0.8);opacity:0.8} 100%{transform:translate(50px,70px) scale(0);opacity:0} }
-	@keyframes fw-p3 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(0,30px) scale(1.2);opacity:1} 50%{transform:translate(0,65px) scale(0.8);opacity:0.8} 100%{transform:translate(0,90px) scale(0);opacity:0} }
-	@keyframes fw-p4 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-21px,21px) scale(1.2);opacity:1} 50%{transform:translate(-42px,50px) scale(0.8);opacity:0.8} 100%{transform:translate(-50px,70px) scale(0);opacity:0} }
-	@keyframes fw-p5 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-30px,0) scale(1.2);opacity:1} 50%{transform:translate(-60px,15px) scale(0.8);opacity:0.8} 100%{transform:translate(-70px,40px) scale(0);opacity:0} }
-	@keyframes fw-p6 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-21px,-21px) scale(1.2);opacity:1} 50%{transform:translate(-42px,-30px) scale(0.8);opacity:0.8} 100%{transform:translate(-50px,-10px) scale(0);opacity:0} }
-	@keyframes fw-p7 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(0,-30px) scale(1.2);opacity:1} 50%{transform:translate(0,-50px) scale(0.8);opacity:0.8} 100%{transform:translate(0,-25px) scale(0);opacity:0} }
-	@keyframes fw-p8 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(21px,-21px) scale(1.2);opacity:1} 50%{transform:translate(42px,-30px) scale(0.8);opacity:0.8} 100%{transform:translate(50px,-10px) scale(0);opacity:0} }
-	@keyframes fw-p9 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(25px,10px) scale(1.2);opacity:1} 50%{transform:translate(50px,35px) scale(0.8);opacity:0.8} 100%{transform:translate(60px,55px) scale(0);opacity:0} }
-	@keyframes fw-p10 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-25px,10px) scale(1.2);opacity:1} 50%{transform:translate(-50px,35px) scale(0.8);opacity:0.8} 100%{transform:translate(-60px,55px) scale(0);opacity:0} }
 
 	.wheel-container {
 		position: relative;
@@ -1597,13 +2064,13 @@ ${fullText.substring(0, 900)}` }] }],
 
 	.coupon-code {
 		font-size: 28px;
-		font-weight: 800;
-		color: #13A538;
+		font-weight: 900;
+		color: #dc2626;
 		letter-spacing: 3px;
 		margin: 8px 0;
 		padding: 12px;
-		background: rgba(19, 165, 56, 0.06);
-		border: 2px dashed rgba(19, 165, 56, 0.3);
+		background: rgba(220, 38, 38, 0.06);
+		border: 2px dashed rgba(220, 38, 38, 0.3);
 		border-radius: 8px;
 		user-select: all;
 	}
@@ -1614,52 +2081,91 @@ ${fullText.substring(0, 900)}` }] }],
 		margin: 8px 0 0;
 	}
 
+	.btn-get-coupon {
+		position: relative;
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		width: 100%;
+		margin: 18px 0 0;
+		padding: 14px 24px;
+		background: linear-gradient(135deg, #d4a017, #f5c842, #d4a017);
+		background-size: 200% 200%;
+		animation: goldShift 3s ease infinite;
+		color: #3a2400;
+		border: 2px solid #c8981a;
+		border-radius: 12px;
+		font-size: 17px;
+		font-weight: 800;
+		cursor: pointer;
+		transition: transform 0.15s, box-shadow 0.15s;
+		box-shadow: 0 4px 16px rgba(212, 160, 23, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+		letter-spacing: 0.5px;
+	}
+
+	.btn-get-coupon:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 6px 20px rgba(212, 160, 23, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+	}
+
+	.btn-get-coupon:active {
+		transform: scale(0.97);
+	}
+
+	.btn-get-coupon-icon {
+		font-size: 22px;
+	}
+
+	.btn-get-coupon-text {
+		position: relative;
+		z-index: 1;
+	}
+
+	.btn-get-coupon-shimmer {
+		position: absolute;
+		top: 0;
+		left: -100%;
+		width: 60%;
+		height: 100%;
+		background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+		animation: shimmer 2.5s ease-in-out infinite;
+		pointer-events: none;
+	}
+
+	@keyframes goldShift {
+		0% { background-position: 0% 50%; }
+		50% { background-position: 100% 50%; }
+		100% { background-position: 0% 50%; }
+	}
+
+	@keyframes shimmer {
+		0% { left: -100%; }
+		100% { left: 200%; }
+	}
+
+	.coupon-instruction {
+		margin: 12px 0 0;
+		padding: 8px 12px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #2d6a1e;
+		background: rgba(19, 165, 56, 0.06);
+		border-radius: 8px;
+		line-height: 1.5;
+	}
+
 	/* Fireworks Animation */
-	.fireworks-container {
+	.win-fireworks-canvas {
 		position: fixed;
 		top: 0;
 		left: 0;
-		width: 100%;
-		height: 100%;
+		width: 100vw;
+		height: 100vh;
 		pointer-events: none;
 		z-index: 9999;
 	}
-
-	.firework {
-		position: absolute;
-		width: 8px;
-		height: 8px;
-		background: radial-gradient(circle, #f08300 0%, #ff6b9d 40%, #ffd93d 70%, #00d4ff 100%);
-		border-radius: 50%;
-		top: -20px;
-		left: var(--x);
-		animation: fireworkBurst 1.5s ease-out forwards;
-		animation-delay: var(--delay);
-		box-shadow: 0 0 6px rgba(240, 131, 0, 0.6);
-	}
-
-	@keyframes fireworkBurst {
-		0% {
-			transform: translate(0, 0) scale(1);
-			opacity: 1;
-		}
-		20% {
-			opacity: 1;
-		}
-		100% {
-			transform: translate(var(--tx, 0px), var(--ty, 300px)) scale(0);
-			opacity: 0;
-		}
-	}
-
-	.firework:nth-child(1) { --tx: -80px; --ty: 250px; }
-	.firework:nth-child(2) { --tx: -60px; --ty: 280px; }
-	.firework:nth-child(3) { --tx: -30px; --ty: 320px; }
-	.firework:nth-child(4) { --tx: 0px; --ty: 300px; }
-	.firework:nth-child(5) { --tx: 30px; --ty: 320px; }
-	.firework:nth-child(6) { --tx: 60px; --ty: 280px; }
-	.firework:nth-child(7) { --tx: 80px; --ty: 250px; }
-	.firework:nth-child(8) { --tx: 100px; --ty: 300px; }
 
 	/* Spinners */
 	.spinner-large, .spinner-small {
