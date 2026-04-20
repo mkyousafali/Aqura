@@ -79,6 +79,15 @@
 	];
 
 	onMount(async () => {
+		// If running inside PWA, open in browser instead
+		if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
+			window.open(window.location.href, '_blank');
+			return;
+		}
+		// Default to Arabic
+		if ($locale !== 'ar') {
+			switchLocale('ar');
+		}
 		await checkStatus();
 		await loadRewards();
 		setupRealtime();
@@ -555,11 +564,7 @@ ${fullText.substring(0, 900)}` }] }],
 
 	<!-- Header -->
 	<div class="header">
-		<div class="logo">🎡</div>
 		<h1>{$locale === 'ar' ? 'عجلة الهدايا' : 'Gift Wheel'}</h1>
-		<p class="subtitle">
-			{$locale === 'ar' ? 'ادر العجلة واربح جائزتك' : 'Spin the wheel and win your prize'}
-		</p>
 	</div>
 
 	<!-- Loading -->
@@ -590,7 +595,22 @@ ${fullText.substring(0, 900)}` }] }],
 
 	{:else}
 		<!-- Wheel Display -->
-		<div class="wheel-container" on:click={() => { if (!showManualFields && !showAccessCodePopup) { manualTapCount++; if (manualTapCount >= 5) { showAccessCodePopup = true; manualTapCount = 0; } } }}>
+		<div class="wheel-wrapper">
+			<div class="wheel-fireworks">
+				{#each [
+					{x:'5%',y:'10%',d:0}, {x:'50%',y:'0%',d:0.6}, {x:'90%',y:'8%',d:1.1},
+					{x:'0%',y:'45%',d:0.4}, {x:'95%',y:'50%',d:1.5}, 
+					{x:'8%',y:'85%',d:0.8}, {x:'50%',y:'95%',d:1.8}, {x:'88%',y:'88%',d:1.3},
+					{x:'25%',y:'25%',d:2.0}, {x:'75%',y:'20%',d:0.3}, {x:'20%',y:'75%',d:1.6}, {x:'78%',y:'72%',d:2.2}
+				] as r}
+					<div class="fw-rocket" style="--rx:{r.x}; --ry:{r.y}; --rd:{r.d}s;">
+						{#each Array(10) as _, j}
+							<div class="fw-particle" style="--pd: {0.1 + j * 0.04}s; --pc: {['#f08300','#ffd93d','#ff6b9d','#13A538','#00d4ff','#ff4444','#ffaa00','#7dff9a','#ff69b4','#fff'][j]};"></div>
+						{/each}
+					</div>
+				{/each}
+			</div>
+			<div class="wheel-container" on:click={() => { if (!showManualFields && !showAccessCodePopup) { manualTapCount++; if (manualTapCount >= 5) { showAccessCodePopup = true; manualTapCount = 0; } } }}>
 			<div class="wheel-pointer">▼</div>
 			<div
 				class="wheel"
@@ -671,6 +691,7 @@ ${fullText.substring(0, 900)}` }] }],
 				{/if}
 			</div>
 		</div>
+		</div>
 
 		<!-- Bill Capture Step -->
 		{#if step === 'capture' || step === 'validating'}
@@ -683,7 +704,8 @@ ${fullText.substring(0, 900)}` }] }],
 				{#if !ocrDone}
 				<div class="bill-upload">
 					<label class="upload-btn">
-						<span>📷 {$locale === 'ar' ? 'صور الفاتورة' : 'Take Photo of Bill'}</span>
+						<span class="upload-camera">📷</span>
+						<span>{$locale === 'ar' ? 'اضغط هنا لتصوير فاتورتك' : 'Press here to take photo of your bill'}</span>
 						<input
 							type="file"
 							accept="image/*"
@@ -776,7 +798,7 @@ ${fullText.substring(0, 900)}` }] }],
 						<span class="spinner-small"></span>
 						{$locale === 'ar' ? 'جاري التحقق...' : 'Validating...'}
 					{:else}
-						{$locale === 'ar' ? 'تحقق وادخل' : 'Validate & Enter'}
+						{$locale === 'ar' ? 'تحقق من الأهلية' : 'Check Eligibility'}
 					{/if}
 				</button>
 
@@ -1080,14 +1102,10 @@ ${fullText.substring(0, 900)}` }] }],
 		padding: 24px 0 8px;
 	}
 
-	.logo {
-		font-size: 48px;
-		margin-bottom: 8px;
-	}
-
 	.header h1 {
 		margin: 0;
 		font-size: 28px;
+		font-weight: 900;
 		background: linear-gradient(135deg, #13A538, #0d8a2d);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
@@ -1117,6 +1135,75 @@ ${fullText.substring(0, 900)}` }] }],
 	}
 
 	/* Wheel */
+	.wheel-wrapper {
+		position: relative;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.wheel-fireworks {
+		position: absolute;
+		width: 360px;
+		height: 360px;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		pointer-events: none;
+		z-index: 0;
+	}
+
+	.fw-rocket {
+		position: absolute;
+		left: var(--rx);
+		top: var(--ry);
+		animation: fw-launch 2.8s ease-in-out infinite;
+		animation-delay: var(--rd);
+	}
+
+	@keyframes fw-launch {
+		0% { transform: scale(0); opacity: 0; }
+		8% { transform: scale(1.3); opacity: 1; }
+		12% { transform: scale(1); opacity: 1; }
+		15%, 100% { transform: scale(1); opacity: 0; }
+	}
+
+	.fw-particle {
+		position: absolute;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--pc);
+		box-shadow: 0 0 8px 3px var(--pc), 0 0 16px var(--pc);
+		opacity: 0;
+		animation-duration: 2.8s;
+		animation-timing-function: ease-out;
+		animation-iteration-count: infinite;
+		animation-delay: calc(var(--rd) + 0.2s + var(--pd));
+	}
+
+	.fw-particle:nth-child(1) { animation-name: fw-p1; }
+	.fw-particle:nth-child(2) { animation-name: fw-p2; }
+	.fw-particle:nth-child(3) { animation-name: fw-p3; }
+	.fw-particle:nth-child(4) { animation-name: fw-p4; }
+	.fw-particle:nth-child(5) { animation-name: fw-p5; }
+	.fw-particle:nth-child(6) { animation-name: fw-p6; }
+	.fw-particle:nth-child(7) { animation-name: fw-p7; }
+	.fw-particle:nth-child(8) { animation-name: fw-p8; }
+	.fw-particle:nth-child(9) { animation-name: fw-p9; }
+	.fw-particle:nth-child(10) { animation-name: fw-p10; }
+
+	@keyframes fw-p1 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(30px,0) scale(1.2);opacity:1} 50%{transform:translate(60px,15px) scale(0.8);opacity:0.8} 100%{transform:translate(70px,40px) scale(0);opacity:0} }
+	@keyframes fw-p2 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(21px,21px) scale(1.2);opacity:1} 50%{transform:translate(42px,50px) scale(0.8);opacity:0.8} 100%{transform:translate(50px,70px) scale(0);opacity:0} }
+	@keyframes fw-p3 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(0,30px) scale(1.2);opacity:1} 50%{transform:translate(0,65px) scale(0.8);opacity:0.8} 100%{transform:translate(0,90px) scale(0);opacity:0} }
+	@keyframes fw-p4 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-21px,21px) scale(1.2);opacity:1} 50%{transform:translate(-42px,50px) scale(0.8);opacity:0.8} 100%{transform:translate(-50px,70px) scale(0);opacity:0} }
+	@keyframes fw-p5 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-30px,0) scale(1.2);opacity:1} 50%{transform:translate(-60px,15px) scale(0.8);opacity:0.8} 100%{transform:translate(-70px,40px) scale(0);opacity:0} }
+	@keyframes fw-p6 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-21px,-21px) scale(1.2);opacity:1} 50%{transform:translate(-42px,-30px) scale(0.8);opacity:0.8} 100%{transform:translate(-50px,-10px) scale(0);opacity:0} }
+	@keyframes fw-p7 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(0,-30px) scale(1.2);opacity:1} 50%{transform:translate(0,-50px) scale(0.8);opacity:0.8} 100%{transform:translate(0,-25px) scale(0);opacity:0} }
+	@keyframes fw-p8 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(21px,-21px) scale(1.2);opacity:1} 50%{transform:translate(42px,-30px) scale(0.8);opacity:0.8} 100%{transform:translate(50px,-10px) scale(0);opacity:0} }
+	@keyframes fw-p9 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(25px,10px) scale(1.2);opacity:1} 50%{transform:translate(50px,35px) scale(0.8);opacity:0.8} 100%{transform:translate(60px,55px) scale(0);opacity:0} }
+	@keyframes fw-p10 { 0%{transform:translate(0,0) scale(0);opacity:0} 5%{transform:translate(0,0) scale(1.5);opacity:1} 15%{transform:translate(-25px,10px) scale(1.2);opacity:1} 50%{transform:translate(-50px,35px) scale(0.8);opacity:0.8} 100%{transform:translate(-60px,55px) scale(0);opacity:0} }
+
 	.wheel-container {
 		position: relative;
 		width: 280px;
@@ -1255,18 +1342,24 @@ ${fullText.substring(0, 900)}` }] }],
 		font-size: 16px;
 		cursor: pointer;
 		transition: all 0.2s;
-		animation: heartbeat-upload 1.5s ease-in-out infinite;
-	}
-
-	@keyframes heartbeat-upload {
-		0%, 100% { transform: scale(1); border-color: rgba(240, 131, 0, 0.4); }
-		25% { transform: scale(1.03); border-color: rgba(240, 131, 0, 0.8); }
-		50% { transform: scale(1); border-color: rgba(240, 131, 0, 0.4); }
-		75% { transform: scale(1.02); border-color: rgba(240, 131, 0, 0.6); }
 	}
 
 	.upload-btn:hover {
 		background: rgba(240, 131, 0, 0.15);
+	}
+
+	.upload-camera {
+		font-size: 28px;
+		line-height: 1;
+		margin-top: -4px;
+		animation: heartbeat-camera 1.5s ease-in-out infinite;
+	}
+
+	@keyframes heartbeat-camera {
+		0%, 100% { transform: scale(1); }
+		25% { transform: scale(1.2); }
+		50% { transform: scale(1); }
+		75% { transform: scale(1.15); }
 	}
 
 	.bill-preview {
@@ -1373,16 +1466,18 @@ ${fullText.substring(0, 900)}` }] }],
 		font-weight: 700;
 		cursor: pointer;
 		transition: all 0.2s;
-		animation: pulse-glow 2s infinite;
+		animation: heartbeat-spin 1.5s ease-in-out infinite;
 	}
 
 	.btn-spin:hover {
-		transform: scale(1.02);
+		transform: scale(1.05);
 	}
 
-	@keyframes pulse-glow {
-		0%, 100% { box-shadow: 0 0 20px rgba(19, 165, 56, 0.3); }
-		50% { box-shadow: 0 0 40px rgba(19, 165, 56, 0.6); }
+	@keyframes heartbeat-spin {
+		0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(19, 165, 56, 0.3); }
+		25% { transform: scale(1.04); box-shadow: 0 0 35px rgba(19, 165, 56, 0.6); }
+		50% { transform: scale(1); box-shadow: 0 0 20px rgba(19, 165, 56, 0.3); }
+		75% { transform: scale(1.03); box-shadow: 0 0 30px rgba(19, 165, 56, 0.5); }
 	}
 
 	/* Ready */

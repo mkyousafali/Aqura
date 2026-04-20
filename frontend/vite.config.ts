@@ -32,6 +32,7 @@ export default defineConfig(({ mode }) => ({
                 /^\/api\//,
                 /^\/__pwa__.*/,
                 /^\/offline\.html$/,
+                /^\/gift-wheel/,
                 /^\/[^/]*$/,
               ],
               // Remove conflicting skipWaiting since we handle it in our SW
