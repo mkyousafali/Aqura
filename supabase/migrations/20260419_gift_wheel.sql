@@ -251,10 +251,10 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'Daily limit reached. Please try again tomorrow');
     END IF;
 
-    -- Check duplicate bill
-    SELECT * INTO existing_spin FROM gift_wheel_spins WHERE bill_number = p_bill_number AND rejected = false LIMIT 1;
+    -- Check duplicate bill with same amount
+    SELECT * INTO existing_spin FROM gift_wheel_spins WHERE bill_number = p_bill_number AND bill_amount = p_bill_amount AND rejected = false LIMIT 1;
     IF existing_spin.id IS NOT NULL THEN
-        RETURN jsonb_build_object('success', false, 'error', 'This bill has already been used');
+        RETURN jsonb_build_object('success', false, 'error', 'This bill with the same amount has already been used');
     END IF;
 
     -- Get eligible rewards based on bill amount

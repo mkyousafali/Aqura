@@ -3,7 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 
 	let supabase: any = null;
-	let activeTab: 'settings' | 'dashboard' = 'settings';
+	let activeTab: 'settings' | 'dashboard' | 'logs' = 'settings';
 	let loading = true;
 
 	// Settings state
@@ -51,6 +51,14 @@
 	let customFrom = '';
 	let customTo = '';
 
+	// Logs state
+	let spinLogs: any[] = [];
+	let logsLoading = false;
+	let logsFilter = 'all';
+	let logsPage = 0;
+	let logsHasMore = true;
+	const LOGS_PER_PAGE = 50;
+
 	// Realtime
 	let realtimeChannel: any = null;
 
@@ -80,6 +88,7 @@
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'gift_wheel_spins' }, () => {
 				if (activeTab === 'dashboard') loadDashboard();
+				if (activeTab === 'logs') loadLogs(true);
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'gift_wheel_coupons' }, () => {
 				if (activeTab === 'dashboard') loadDashboard();
@@ -401,9 +410,57 @@
 		URL.revokeObjectURL(url);
 	}
 
+	// ============ LOGS ============
+
+	async function loadLogs(reset = false) {
+		logsLoading = true;
+		if (reset) { logsPage = 0; spinLogs = []; logsHasMore = true; }
+		try {
+			let query = supabase
+				.from('gift_wheel_spins')
+				.select('*')
+				.order('created_at', { ascending: false })
+				.range(logsPage * LOGS_PER_PAGE, (logsPage + 1) * LOGS_PER_PAGE - 1);
+
+			if (logsFilter === 'manual') query = query.eq('manual_entry', true);
+			else if (logsFilter === 'winners') query = query.eq('is_winner', true);
+			else if (logsFilter === 'losers') query = query.eq('is_winner', false).eq('rejected', false);
+			else if (logsFilter === 'rejected') query = query.eq('rejected', true);
+
+			const { data, error } = await query;
+			if (error) throw error;
+
+			if (reset) {
+				spinLogs = data || [];
+			} else {
+				spinLogs = [...spinLogs, ...(data || [])];
+			}
+			logsHasMore = (data || []).length === LOGS_PER_PAGE;
+		} catch (err) {
+			console.error('Failed to load logs:', err);
+		} finally {
+			logsLoading = false;
+		}
+	}
+
+	function loadMoreLogs() {
+		logsPage++;
+		loadLogs();
+	}
+
+	function formatLogDate(dateStr: string) {
+		const d = new Date(dateStr);
+		return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+	}
+
 	// Auto-load dashboard when switching to it
 	$: if (activeTab === 'dashboard' && !dashboardStats && supabase) {
 		loadDashboard();
+	}
+
+	// Auto-load logs when switching to it
+	$: if (activeTab === 'logs' && spinLogs.length === 0 && supabase) {
+		loadLogs(true);
 	}
 </script>
 
@@ -427,6 +484,12 @@
 				on:click={() => activeTab = 'dashboard'}
 			>
 				📊 Dashboard
+			</button>
+			<button
+				class="group relative flex items-center gap-2 px-5 py-2 text-xs font-black uppercase tracking-wider transition-all duration-300 rounded-xl overflow-hidden {activeTab === 'logs' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+				on:click={() => activeTab = 'logs'}
+			>
+				📋 Spin Logs
 			</button>
 		</div>
 
@@ -694,6 +757,96 @@
 							No data available. Click a filter to load.
 						</div>
 					{/if}
+				<!-- Logs Tab -->
+				{:else if activeTab === 'logs'}
+					<!-- Filters -->
+					<div class="flex items-center gap-2 mb-4 flex-wrap">
+						{#each [{ key: 'all', label: '📋 All' }, { key: 'manual', label: '✏️ Manual Entry' }, { key: 'winners', label: '🏆 Winners' }, { key: 'losers', label: '😔 Losers' }, { key: 'rejected', label: '🚫 Rejected' }] as f}
+							<button
+								class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all duration-200 {logsFilter === f.key ? 'bg-blue-50 border-blue-400 text-blue-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}"
+								on:click={() => { logsFilter = f.key; loadLogs(true); }}
+							>
+								{f.label}
+							</button>
+						{/each}
+						<button
+							class="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-all"
+							on:click={() => loadLogs(true)}
+						>
+							🔄 Refresh
+						</button>
+					</div>
+
+					{#if logsLoading && spinLogs.length === 0}
+						<div class="flex items-center justify-center py-16">
+							<div class="w-8 h-8 border-3 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
+						</div>
+					{:else}
+						<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
+							<div class="overflow-x-auto">
+								<table class="w-full border-collapse">
+									<thead>
+										<tr class="bg-blue-600 text-white">
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Date</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Bill #</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Amount</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Bill Date</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Result</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Reward</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Coupon</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Entry</th>
+											<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Entered By</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each spinLogs as log}
+											<tr class="hover:bg-blue-50/40 transition-colors duration-200 border-b border-slate-100">
+												<td class="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{formatLogDate(log.created_at)}</td>
+												<td class="px-3 py-2 text-sm text-slate-700 font-semibold">{log.bill_number}</td>
+												<td class="px-3 py-2 text-sm text-slate-700">{log.bill_amount} SAR</td>
+												<td class="px-3 py-2 text-xs text-slate-500">{log.bill_date || '-'}</td>
+												<td class="px-3 py-2 text-xs">
+													{#if log.rejected}
+														<span class="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-red-100 text-red-600">Rejected</span>
+													{:else if log.is_winner}
+														<span class="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-emerald-100 text-emerald-600">Winner</span>
+													{:else}
+														<span class="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-500">No Win</span>
+													{/if}
+												</td>
+												<td class="px-3 py-2 text-sm text-slate-700">{log.reward_label || log.reject_reason || '-'}</td>
+												<td class="px-3 py-2 text-sm font-mono text-emerald-600 font-bold">{log.coupon_code || '-'}</td>
+												<td class="px-3 py-2 text-xs">
+													{#if log.manual_entry}
+														<span class="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-orange-100 text-orange-600">Manual</span>
+													{:else}
+														<span class="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-blue-100 text-blue-600">OCR</span>
+													{/if}
+												</td>
+												<td class="px-3 py-2 text-xs text-slate-600 font-semibold">{log.manual_entry_username || '-'}</td>
+											</tr>
+										{/each}
+										{#if spinLogs.length === 0}
+											<tr><td colspan="9" class="text-center text-slate-400 py-8 text-sm">No spin logs found</td></tr>
+										{/if}
+									</tbody>
+								</table>
+							</div>
+							{#if logsHasMore && spinLogs.length > 0}
+								<div class="p-3 text-center border-t border-slate-100">
+									<button
+										class="px-4 py-2 rounded-xl text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-all disabled:opacity-50"
+										on:click={loadMoreLogs}
+										disabled={logsLoading}
+									>
+										{logsLoading ? 'Loading...' : 'Load More'}
+									</button>
+								</div>
+							{/if}
+						</div>
+						<p class="text-xs text-slate-400 mt-2">Showing {spinLogs.length} records</p>
+					{/if}
+
 				{/if}
 			</div>
 		</div>
