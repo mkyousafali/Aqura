@@ -4162,6 +4162,202 @@ export const englishLocale: LocaleData = {
         "Offer valid while daily limit lasts.",
         "Management reserves the right to modify or stop the promotion at any time."
       ],
+      manager: {
+        loading: "Loading Gift Wheel Manager...",
+        tabs: {
+          settings: "Settings",
+          dashboard: "Dashboard",
+          spinLogs: "Spin Logs",
+          redemptionLogs: "Redemption Logs"
+        },
+        actions: {
+          refresh: "Refresh",
+          loadMore: "Load More",
+          loading: "Loading..."
+        },
+        common: {
+          showing: "Showing",
+          records: "records"
+        },
+        messages: {
+          settingsSaved: "Settings saved successfully!",
+          errorPrefix: "Error: ",
+          failedToSave: "Failed to save"
+        },
+        settings: {
+          activation: {
+            title: "Activation",
+            activeLabel: "Gift Wheel Active",
+            disabled: "Gift Wheel is currently disabled"
+          },
+          schedule: {
+            title: "Scheduled Activation",
+            startDate: "Start Date",
+            startTime: "Start Time",
+            endDate: "End Date",
+            endTime: "End Time",
+            timezone: "Timezone: Saudi Arabia (Asia/Riyadh)"
+          },
+          dailyLimit: {
+            title: "Daily Spin Limit",
+            label: "Maximum spins per day",
+            hint: "Auto resets at 12:00 AM Saudi time"
+          },
+          minimumBill: {
+            title: "Minimum Bill To Spin",
+            label: "Minimum bill amount required",
+            hint: "Set to 0 to allow all bill amounts."
+          },
+          save: "Save Settings"
+        },
+        rewards: {
+          title: "Rewards",
+          import: "Import",
+          addReward: "Add Reward",
+          edit: "Edit",
+          delete: "Delete",
+          empty: "No rewards configured",
+          columns: {
+            labelEn: "Label (EN)",
+            labelAr: "Label (AR)",
+            type: "Type",
+            value: "Value",
+            maxDiscount: "Max Disc.",
+            minBill: "Min Bill",
+            weight: "Weight",
+            validDays: "Valid Days",
+            usage: "Usage",
+            active: "Active",
+            actions: "Actions"
+          },
+          type: {
+            percentage: "percentage",
+            fixed: "fixed",
+            noReward: "no_reward"
+          }
+        },
+        rules: {
+          title: "Rules",
+          oneSpinPerBill: "One spin per bill only",
+          duplicatePrevented: "Duplicate bill numbers are prevented",
+          minimumBill: "Bill must be at least",
+          highRewardThreshold: "15%+ rewards only if bill amount > 500"
+        },
+        dashboard: {
+          filters: {
+            today: "Today",
+            week: "Week",
+            month: "Month",
+            custom: "Custom",
+            to: "to",
+            apply: "Apply"
+          },
+          exportCsv: "Export CSV",
+          stats: {
+            spinsToday: "Spins Today",
+            totalSpins: "Total Spins",
+            uniqueBills: "Unique Bills",
+            winningSpins: "Winning Spins",
+            losingSpins: "Losing Spins",
+            couponsPrinted: "Coupons Printed",
+            couponsRedeemed: "Coupons Redeemed",
+            rejectedBills: "Rejected Bills"
+          },
+          rewardDistribution: "Reward Distribution",
+          spinsByDate: "Spins by Date",
+          empty: "No data available. Click a filter to load."
+        },
+        logs: {
+          filters: {
+            all: "📋 All",
+            manual: "✏️ Manual Entry",
+            winners: "🏆 Winners",
+            losers: "😔 Losers",
+            rejected: "🚫 Rejected"
+          },
+          columns: {
+            date: "Date",
+            bill: "Bill #",
+            amount: "Amount",
+            billDate: "Bill Date",
+            result: "Result",
+            reward: "Reward",
+            coupon: "Coupon",
+            entry: "Entry",
+            enteredBy: "Entered By"
+          },
+          status: {
+            rejected: "Rejected",
+            winner: "Winner",
+            noWin: "No Win"
+          },
+          entry: {
+            manual: "Manual",
+            ocr: "OCR"
+          },
+          empty: "No spin logs found"
+        },
+        redemptions: {
+          filters: {
+            all: "📋 All",
+            used: "🟡 Used",
+            redeemed: "✅ Redeemed"
+          },
+          columns: {
+            status: "Status",
+            coupon: "Coupon",
+            reward: "Reward",
+            originalBill: "Original Bill",
+            originalAmount: "Original Amount",
+            redeemedBill: "Redeemed Bill",
+            redeemedAmount: "Redeemed Amount",
+            branch: "Branch",
+            printedAt: "Printed At",
+            redeemedAt: "Redeemed At"
+          },
+          status: {
+            used: "Used",
+            redeemed: "Redeemed"
+          },
+          empty: "No redemption logs found"
+        },
+        modals: {
+          common: {
+            cancel: "Cancel"
+          },
+          reward: {
+            editTitle: "Edit Reward",
+            newTitle: "New Reward",
+            labelEn: "Label (English)",
+            labelAr: "Label (Arabic)",
+            labelEnPlaceholder: "e.g. 10% Off",
+            labelArPlaceholder: "e.g. Arabic reward label",
+            type: "Type",
+            typePercentage: "Percentage (%)",
+            typeFixed: "Fixed Amount",
+            typeNoReward: "No Reward",
+            value: "Value",
+            maxDiscount: "Max Discount",
+            minBill: "Min Bill Amount",
+            noLimit: "No limit",
+            weight: "Weight (probability)",
+            usageLimit: "Usage Limit",
+            unlimited: "Unlimited",
+            validityDays: "Validity (Days)",
+            validityHint: "Coupon expires this many days after issue",
+            active: "Active",
+            save: "Save Reward"
+          },
+          import: {
+            title: "Import Rewards",
+            csvFormat: "CSV format: label, type, value, max_discount, min_bill, weight",
+            example: "Example: 10% Off, percentage, 10, 25, 0, 10",
+            placeholder: "Paste CSV data here...",
+            import: "Import",
+            importing: "Importing..."
+          }
+        }
+      }
     },
   },
 };

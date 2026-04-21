@@ -143,7 +143,23 @@
 		try {
 			const { data, error } = await supabase.rpc('gift_wheel_check_status');
 			if (error) throw error;
-			statusInfo = data;
+
+			let minimumBillAmount = 0;
+			try {
+				const { data: settingsData } = await supabase
+					.from('gift_wheel_settings')
+					.select('minimum_bill_amount')
+					.limit(1)
+					.single();
+				minimumBillAmount = Number(settingsData?.minimum_bill_amount || 0);
+			} catch (_) {
+				minimumBillAmount = 0;
+			}
+
+			statusInfo = {
+				...(data || {}),
+				minimum_bill_amount: minimumBillAmount
+			};
 			if (!data.active) {
 				step = 'inactive';
 				errorReason = data.reason || 'default';
@@ -455,6 +471,14 @@ ${fullText.substring(0, 900)}` }] }],
 			return;
 		}
 
+		const minRequired = Number(statusInfo?.minimum_bill_amount || 0);
+		if (minRequired > 0 && Number(billAmount) < minRequired) {
+			errorMessage = $locale === 'ar'
+				? `الحد الأدنى لمبلغ الفاتورة للدخول هو ${minRequired} ريال`
+				: `Minimum bill amount to spin is ${minRequired}`;
+			return;
+		}
+
 		errorMessage = '';
 		step = 'validating';
 
@@ -516,6 +540,11 @@ ${fullText.substring(0, 900)}` }] }],
 			if (!data.success) {
 				if (data.error_code === 'bill_date_expired') {
 					errorMessage = $locale === 'ar' ? 'انتهت فترة الفرصة' : 'Chance expired';
+				} else if (data.error_code === 'minimum_bill_not_met') {
+					const minRequired = Number(data.minimum_bill_amount || statusInfo?.minimum_bill_amount || 0);
+					errorMessage = $locale === 'ar'
+						? `الحد الأدنى لمبلغ الفاتورة للدخول هو ${minRequired} ريال`
+						: `Minimum bill amount to spin is ${minRequired}`;
 				} else {
 					errorMessage = data.error;
 				}
@@ -1336,6 +1365,18 @@ ${fullText.substring(0, 900)}` }] }],
 							{$locale === 'ar'
 								? 'المحاولات المتبقية لهذا اليوم: '
 								: 'Spins remaining today: '}<span class="remaining-count">{statusInfo.remaining}</span>
+						</span>
+					</div>
+				{/if}
+
+				{#if statusInfo && Number(statusInfo.minimum_bill_amount || 0) > 0}
+					<div class="remaining-spins">
+						<span class="remaining-icon">💵</span>
+						<span class="remaining-text">
+							{$locale === 'ar'
+								? 'الحد الأدنى للفاتورة للدخول: '
+								: 'Minimum bill to spin: '}
+							<span class="remaining-count currency-amount"><img src="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png" alt="Currency" class="currency-icon" />{statusInfo.minimum_bill_amount}</span>
 						</span>
 					</div>
 				{/if}

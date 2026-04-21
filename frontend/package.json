@@ -68,6 +68,7 @@
     "html2pdf.js": "^0.14.0",
     "jsbarcode": "^3.12.3",
     "jszip": "^3.10.1",
+    "kleur": "4.1.5",
     "lottie-web": "^5.13.0",
     "lucide-svelte": "^0.447.0",
     "mssql": "^12.1.1",

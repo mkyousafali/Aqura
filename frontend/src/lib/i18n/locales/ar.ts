@@ -4199,6 +4199,202 @@ export const arabicLocale: LocaleData = {
         "العرض صحيح طالما الحد اليومي قائماً.",
         "تحتفظ الإدارة بالحق في تعديل أو إيقاف الترويج في أي وقت."
       ],
+      manager: {
+        loading: "جاري تحميل إدارة عجلة الهدايا...",
+        tabs: {
+          settings: "الإعدادات",
+          dashboard: "لوحة الإحصائيات",
+          spinLogs: "سجل الدوران",
+          redemptionLogs: "سجل الاسترداد"
+        },
+        actions: {
+          refresh: "تحديث",
+          loadMore: "تحميل المزيد",
+          loading: "جاري التحميل..."
+        },
+        common: {
+          showing: "عرض",
+          records: "سجل"
+        },
+        messages: {
+          settingsSaved: "تم حفظ الإعدادات بنجاح!",
+          errorPrefix: "خطأ: ",
+          failedToSave: "فشل الحفظ"
+        },
+        settings: {
+          activation: {
+            title: "التفعيل",
+            activeLabel: "عجلة الهدايا مفعلة",
+            disabled: "عجلة الهدايا متوقفة حالياً"
+          },
+          schedule: {
+            title: "التفعيل المجدول",
+            startDate: "تاريخ البداية",
+            startTime: "وقت البداية",
+            endDate: "تاريخ النهاية",
+            endTime: "وقت النهاية",
+            timezone: "المنطقة الزمنية: السعودية (Asia/Riyadh)"
+          },
+          dailyLimit: {
+            title: "الحد اليومي للدوران",
+            label: "الحد الأقصى للدورات يومياً",
+            hint: "يتم إعادة الضبط تلقائياً عند 12:00 صباحاً بتوقيت السعودية"
+          },
+          minimumBill: {
+            title: "الحد الأدنى للفاتورة للدوران",
+            label: "الحد الأدنى المطلوب لقيمة الفاتورة",
+            hint: "اضبطه على 0 للسماح بجميع قيم الفواتير."
+          },
+          save: "حفظ الإعدادات"
+        },
+        rewards: {
+          title: "الجوائز",
+          import: "استيراد",
+          addReward: "إضافة جائزة",
+          edit: "تعديل",
+          delete: "حذف",
+          empty: "لا توجد جوائز مضافة",
+          columns: {
+            labelEn: "الاسم (EN)",
+            labelAr: "الاسم (AR)",
+            type: "النوع",
+            value: "القيمة",
+            maxDiscount: "أقصى خصم",
+            minBill: "أقل فاتورة",
+            weight: "الوزن",
+            validDays: "أيام الصلاحية",
+            usage: "الاستخدام",
+            active: "مفعل",
+            actions: "الإجراءات"
+          },
+          type: {
+            percentage: "نسبة مئوية",
+            fixed: "قيمة ثابتة",
+            noReward: "بدون جائزة"
+          }
+        },
+        rules: {
+          title: "القواعد",
+          oneSpinPerBill: "دورة واحدة فقط لكل فاتورة",
+          duplicatePrevented: "يتم منع أرقام الفواتير المكررة",
+          minimumBill: "يجب أن تكون الفاتورة على الأقل",
+          highRewardThreshold: "جوائز 15% فأكثر فقط إذا كانت قيمة الفاتورة أكبر من 500"
+        },
+        dashboard: {
+          filters: {
+            today: "اليوم",
+            week: "الأسبوع",
+            month: "الشهر",
+            custom: "مخصص",
+            to: "إلى",
+            apply: "تطبيق"
+          },
+          exportCsv: "تصدير CSV",
+          stats: {
+            spinsToday: "دورات اليوم",
+            totalSpins: "إجمالي الدورات",
+            uniqueBills: "الفواتير الفريدة",
+            winningSpins: "الدورات الرابحة",
+            losingSpins: "الدورات غير الرابحة",
+            couponsPrinted: "الكوبونات المطبوعة",
+            couponsRedeemed: "الكوبونات المستردة",
+            rejectedBills: "الفواتير المرفوضة"
+          },
+          rewardDistribution: "توزيع الجوائز",
+          spinsByDate: "الدورات حسب التاريخ",
+          empty: "لا توجد بيانات متاحة. اختر فلتر للتحميل."
+        },
+        logs: {
+          filters: {
+            all: "📋 الكل",
+            manual: "✏️ إدخال يدوي",
+            winners: "🏆 رابحون",
+            losers: "😔 غير رابحين",
+            rejected: "🚫 مرفوض"
+          },
+          columns: {
+            date: "التاريخ",
+            bill: "رقم الفاتورة",
+            amount: "المبلغ",
+            billDate: "تاريخ الفاتورة",
+            result: "النتيجة",
+            reward: "الجائزة",
+            coupon: "الكوبون",
+            entry: "طريقة الإدخال",
+            enteredBy: "أُدخل بواسطة"
+          },
+          status: {
+            rejected: "مرفوض",
+            winner: "رابح",
+            noWin: "بدون ربح"
+          },
+          entry: {
+            manual: "يدوي",
+            ocr: "قراءة آلية"
+          },
+          empty: "لا توجد سجلات دوران"
+        },
+        redemptions: {
+          filters: {
+            all: "📋 الكل",
+            used: "🟡 مستخدم",
+            redeemed: "✅ تم الاسترداد"
+          },
+          columns: {
+            status: "الحالة",
+            coupon: "الكوبون",
+            reward: "الجائزة",
+            originalBill: "الفاتورة الأصلية",
+            originalAmount: "المبلغ الأصلي",
+            redeemedBill: "فاتورة الاسترداد",
+            redeemedAmount: "مبلغ الاسترداد",
+            branch: "الفرع",
+            printedAt: "وقت الطباعة",
+            redeemedAt: "وقت الاسترداد"
+          },
+          status: {
+            used: "مستخدم",
+            redeemed: "تم الاسترداد"
+          },
+          empty: "لا توجد سجلات استرداد"
+        },
+        modals: {
+          common: {
+            cancel: "إلغاء"
+          },
+          reward: {
+            editTitle: "تعديل الجائزة",
+            newTitle: "جائزة جديدة",
+            labelEn: "الاسم (إنجليزي)",
+            labelAr: "الاسم (عربي)",
+            labelEnPlaceholder: "مثال: خصم 10%",
+            labelArPlaceholder: "مثال: خصم 10%",
+            type: "النوع",
+            typePercentage: "نسبة مئوية (%)",
+            typeFixed: "قيمة ثابتة",
+            typeNoReward: "بدون جائزة",
+            value: "القيمة",
+            maxDiscount: "أقصى خصم",
+            minBill: "أقل مبلغ فاتورة",
+            noLimit: "بدون حد",
+            weight: "الوزن (الاحتمالية)",
+            usageLimit: "حد الاستخدام",
+            unlimited: "غير محدود",
+            validityDays: "مدة الصلاحية (أيام)",
+            validityHint: "تنتهي صلاحية الكوبون بعد هذا العدد من الأيام من تاريخ الإصدار",
+            active: "مفعل",
+            save: "حفظ الجائزة"
+          },
+          import: {
+            title: "استيراد الجوائز",
+            csvFormat: "صيغة CSV: label, type, value, max_discount, min_bill, weight",
+            example: "مثال: 10% Off, percentage, 10, 25, 0, 10",
+            placeholder: "الصق بيانات CSV هنا...",
+            import: "استيراد",
+            importing: "جاري الاستيراد..."
+          }
+        }
+      }
     },
   },
 };
