@@ -94,6 +94,7 @@
 	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
 	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
 	import GiftWheelManager from '$lib/components/desktop-interface/marketing/gift-wheel/GiftWheelManager.svelte';
+	import AIMarketing from '$lib/components/desktop-interface/marketing/ai-marketing/AIMarketing.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
@@ -261,6 +262,7 @@
 		'COUPON_DASHBOARD_PROMO': 'nav.couponDashboard', 'CAMPAIGN_MANAGER': 'nav.manageCampaigns',
 		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
 		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
+		'AI_MARKETING': 'nav.aiMarketing',
 		'APPROVAL_CENTER': 'nav.approvalCenter', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
 		'BANK_RECONCILIATION': 'nav.bankReconciliation', 'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
 		'DAY_BUDGET_PLANNER': 'nav.dayBudgetPlanner', 'MONTHLY_MANAGER': 'nav.monthlyManager',
@@ -2026,6 +2028,7 @@ function openApprovalCenter() {
 			'PRODUCT_MANAGER_PROMO': openProductManagerPromo,
 			'COUPON_REPORTS': openCouponReports,
 			'GIFT_WHEEL_MANAGER': openGiftWheelManager,
+			'AI_MARKETING': openAIMarketing,
 			'APPROVAL_CENTER': openApprovalCenter,
 			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
 			'BANK_RECONCILIATION': openBankReconciliation,
@@ -3447,6 +3450,25 @@ function openApprovalCenter() {
 		showPromoSubmenu = false;
 	}
 
+	function openAIMarketing() {
+		const windowId = generateWindowId('ai-marketing');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `AI Marketing #${instanceNumber}`,
+			component: AIMarketing,
+			componentName: 'AIMarketing',
+			icon: '🤖',
+			size: { width: 1400, height: 900 },
+			position: { x: 60 + (Math.random() * 100), y: 60 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
 	function openViewOfferManager() {
 		const windowId = generateWindowId('view-offer-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -4406,6 +4428,14 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openGiftWheelManager}>
 							<span class="menu-icon">🎡</span>
 							<span class="menu-text">{t('nav.giftWheel')}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('AI_MARKETING')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openAIMarketing}>
+							<span class="menu-icon">🤖</span>
+							<span class="menu-text">{t('nav.aiMarketing')}</span>
 						</button>
 					</div>
 				{/if}

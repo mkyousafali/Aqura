@@ -1,0 +1,4 @@
+# Never commit anything in this folder
+*
+!.gitignore
+!README.md

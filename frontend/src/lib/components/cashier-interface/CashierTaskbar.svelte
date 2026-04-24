@@ -355,6 +355,15 @@
 				<div class="quick-icon">🛒</div>
 			</button>
 
+			<!-- Gift Wheel Redemption -->
+			<button 
+				class="quick-btn gift-wheel-btn"
+				on:click={openGiftWheelCoupon}
+				title={$_('nav.giftWheelCoupon') || 'Gift Wheel Redemption'}
+			>
+				<div class="quick-icon">🎡</div>
+			</button>
+
 			<!-- Redeem Coupon -->
 			<button 
 				class="quick-btn coupon-btn"

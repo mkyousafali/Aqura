@@ -3,14 +3,13 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
-	export let user: any;
 	export let branch: any;
 
 	let supabase: any = null;
 
 	// Redeem state
 	let redeemCode = '';
-	let redeemStep: 'input' | 'validating' | 'details' | 'redeeming' = 'input';
+	let redeemStep: 'input' | 'verifying' | 'verification_popup' | 'details' | 'redeeming' = 'input';
 	let redeemLoading = false;
 	let redeemError = '';
 	let redeemSuccess = false;
@@ -18,6 +17,16 @@
 	let redeemBillNumber = '';
 	let redeemBillAmount = '';
 	let redeemDiscountAmount = '';
+	
+	// Verification state
+	let verificationStatus = {
+		couponFound: false,
+		alreadyRedeemed: false,
+		isExpired: false,
+		isCancelled: false,
+		isValid: false,
+		errorMessage: ''
+	};
 
 	$: maxAllowedDiscount = redeemCouponData ? (() => {
 		if (redeemCouponData.reward_type === 'percentage') {
@@ -38,16 +47,7 @@
 	$: discountExceeded = maxAllowedDiscount !== null && redeemDiscountAmount && parseFloat(redeemDiscountAmount) > maxAllowedDiscount;
 
 	let realtimeChannel: any = null;
-	let autoValidateTimer: any = null;
 	let redeemInput: HTMLInputElement;
-	let lastValidatedCode = '';
-
-	$: if (redeemCode && redeemCode.trim().length >= 12 && redeemStep === 'input' && supabase && redeemCode.trim() !== lastValidatedCode) {
-		clearTimeout(autoValidateTimer);
-		autoValidateTimer = setTimeout(() => {
-			validateForRedeem();
-		}, 300);
-	}
 
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
@@ -67,7 +67,10 @@
 		realtimeChannel = supabase.channel('gift-wheel-coupon-cashier-realtime')
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'gift_wheel_coupons' }, (payload: any) => {
 				if (redeemCouponData && payload.new && payload.new.code === redeemCouponData.code) {
-					validateForRedeem();
+					// Re-validate coupon if data changed
+					if (redeemStep === 'verification_popup') {
+						checkCouponValidity();
+					}
 				}
 			})
 			.subscribe();
@@ -86,13 +89,70 @@
 		redeemBillNumber = '';
 		redeemBillAmount = '';
 		redeemDiscountAmount = '';
-		lastValidatedCode = '';
+		verificationStatus = {
+			couponFound: false,
+			alreadyRedeemed: false,
+			isExpired: false,
+			isCancelled: false,
+			isValid: false,
+			errorMessage: ''
+		};
 		setTimeout(() => redeemInput?.focus(), 50);
+	}
+
+	async function checkCouponValidity() {
+		if (!redeemCode.trim() || !supabase) return;
+
+		redeemLoading = true;
+		redeemError = '';
+		redeemStep = 'verifying';
+
+		try {
+			const { data, error: rpcError } = await supabase.rpc('gift_wheel_validate_coupon', {
+				p_code: redeemCode.trim()
+			});
+
+			if (rpcError) throw rpcError;
+
+			// Build verification status
+			verificationStatus = {
+				couponFound: data.valid || data.status === 'redeemed',
+				alreadyRedeemed: data.status === 'redeemed',
+				isExpired: data.status === 'expired' || (data.error && data.error.includes('expired')),
+				isCancelled: data.status === 'cancelled',
+				isValid: data.valid,
+				errorMessage: data.error || ''
+			};
+
+			if (data.valid || data.status === 'redeemed') {
+				redeemCouponData = data;
+				redeemStep = 'verification_popup';
+			} else {
+				redeemError = translateError(data.error || 'Invalid coupon');
+				redeemStep = 'input';
+			}
+		} catch (err: any) {
+			redeemError = translateError(err.message || 'Validation failed');
+			verificationStatus.errorMessage = err.message || 'Validation failed';
+			redeemStep = 'input';
+		} finally {
+			redeemLoading = false;
+		}
+	}
+
+	function proceedWithRedemption() {
+		if (redeemCouponData && redeemCouponData.valid) {
+			redeemStep = 'details';
+		}
+	}
+
+	function cancelVerification() {
+		reset();
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
-			if (redeemStep === 'input') validateForRedeem();
+			if (redeemStep === 'input') checkCouponValidity();
 		}
 	}
 
@@ -115,40 +175,6 @@
 			return `لا يمكن استرداد الكوبون (الحالة: ${status})`;
 		}
 		return msg;
-	}
-
-	async function validateForRedeem() {
-		if (!redeemCode.trim() || !supabase) return;
-
-		lastValidatedCode = redeemCode.trim();
-		redeemLoading = true;
-		redeemError = '';
-		redeemSuccess = false;
-		redeemStep = 'validating';
-
-		try {
-			const { data, error: rpcError } = await supabase.rpc('gift_wheel_validate_coupon', {
-				p_code: redeemCode.trim()
-			});
-
-			if (rpcError) throw rpcError;
-
-			if (!data.valid) {
-				redeemError = translateError(data.error || 'Invalid coupon');
-				redeemStep = 'input';
-			} else if (data.status !== 'issued' && data.status !== 'printed' && data.status !== 'active') {
-				redeemError = translateError('Coupon cannot be redeemed (status: ' + data.status + ')');
-				redeemStep = 'input';
-			} else {
-				redeemCouponData = data;
-				redeemStep = 'details';
-			}
-		} catch (err: any) {
-			redeemError = translateError(err.message || 'Validation failed');
-			redeemStep = 'input';
-		} finally {
-			redeemLoading = false;
-		}
 	}
 
 	async function redeemCoupon() {
@@ -293,13 +319,13 @@
 
 		<div class="relative max-w-lg mx-auto">
 			<!-- REDEEM GIFT -->
-			{#if redeemStep === 'input' || redeemStep === 'validating'}
+			{#if redeemStep === 'input' || redeemStep === 'verifying'}
 					<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.08)] p-6">
 						<div class="flex items-center gap-3 mb-5">
 							<div class="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-lg">🎟️</div>
 							<div>
-								<h3 class="text-sm font-black text-slate-800 uppercase tracking-wide">{$t('giftWheel.redeemGift')}</h3>
-								<p class="text-xs text-slate-400 mt-0.5">{$t('giftWheel.redeemGiftDesc')}</p>
+								<h2 class="text-sm font-black text-slate-800 uppercase tracking-wide">{$locale === 'ar' ? 'التحقق من الكوبون' : 'Check Coupon Validity'}</h2>
+								<p class="text-xs text-slate-400 mt-0.5">{$locale === 'ar' ? 'امسح الكود أو أدخل رقم الكوبون' : 'Scan or enter the coupon code'}</p>
 							</div>
 						</div>
 
@@ -322,13 +348,162 @@
 							/>
 						</div>
 
-						{#if redeemLoading}
-							<div class="flex items-center justify-center gap-2 py-3 text-sm text-orange-600 font-bold">
-								<div class="w-4 h-4 border-2 border-orange-300 border-t-orange-600 rounded-full animate-spin"></div>
-								{$t('giftWheel.validating')}
+						<div class="flex gap-3">
+							<button
+								class="flex-1 py-3 bg-orange-600 text-white rounded-xl text-sm font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all duration-200 hover:bg-orange-700 hover:shadow-lg hover:shadow-orange-200 disabled:opacity-50 disabled:cursor-not-allowed"
+								on:click={checkCouponValidity}
+								disabled={redeemLoading || !redeemCode.trim()}
+							>
+								{#if redeemLoading}
+									<div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+									{$locale === 'ar' ? 'جاري التحقق...' : 'Checking...'}
+								{:else}
+									✓ {$locale === 'ar' ? 'تحقق من الصلاحية' : 'Check Validity'}
+								{/if}
+							</button>
+						</div>
+					</div>
+
+			{:else if redeemStep === 'verification_popup'}
+				<!-- VERIFICATION POPUP -->
+				<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
+					<!-- Header -->
+					<div class="bg-gradient-to-br from-blue-50 to-blue-100/50 border-b border-blue-200/50 p-6 text-center">
+						<div class="inline-block">
+							<span class="text-4xl">🔍</span>
+						</div>
+						<h3 class="text-sm font-black text-blue-900 mt-3 uppercase tracking-wide">{$locale === 'ar' ? 'التحقق من صحة الكوبون' : 'Coupon Validity Check'}</h3>
+					</div>
+
+					<!-- Verification Details -->
+					<div class="p-6 space-y-4">
+						<!-- Coupon Code -->
+						<div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+							<div>
+								<p class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'رقم الكوبون' : 'Coupon Code'}</p>
+								<p class="text-sm font-mono font-bold text-slate-800">{redeemCouponData?.code}</p>
+							</div>
+						</div>
+
+						<!-- Verification Steps -->
+						<div class="space-y-3 mt-5">
+							<!-- Step 1: Coupon Found -->
+							<div class="flex items-start gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+								<div class="text-2xl mt-0.5">✓</div>
+								<div class="flex-1">
+									<p class="text-sm font-bold text-emerald-800">{$locale === 'ar' ? 'تم العثور على الكوبون' : 'Coupon Found'}</p>
+									<p class="text-xs text-emerald-600/70">{$locale === 'ar' ? 'تم إصدار هذا الكوبون بنجاح' : 'This coupon was successfully issued'}</p>
+								</div>
+							</div>
+
+							<!-- Step 2: Not Redeemed -->
+							{#if verificationStatus.alreadyRedeemed}
+							<div class="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+								<div class="text-2xl mt-0.5">ℹ️</div>
+								<div class="flex-1">
+									<p class="text-sm font-bold text-amber-800">{$t('giftWheel.alreadyRedeemed')}</p>
+									<p class="text-xs text-amber-600/70">{$t('giftWheel.alreadyRedeemedDesc')}</p>
+								</div>
+							</div>
+
+							<!-- Redemption Details - Always show when redeemed -->
+							<div class="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+								<div class="text-xs font-bold text-slate-600 uppercase tracking-wide">{$t('giftWheel.previousRedemptionDetails')}</div>
+								{#if redeemCouponData?.redeemed_bill_number}
+									<div class="flex justify-between items-center py-1.5 border-b border-slate-100">
+										<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.redeemedBillNumber')}</span>
+										<span class="text-sm font-bold font-mono text-slate-700">#{redeemCouponData.redeemed_bill_number}</span>
+									</div>
+								{/if}
+								{#if redeemCouponData?.redeemed_amount}
+									<div class="flex justify-between items-center py-1.5 border-b border-slate-100">
+										<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.discountGiven')}</span>
+										<span class="text-sm font-bold text-slate-700">{redeemCouponData.redeemed_amount} SAR</span>
+									</div>
+								{/if}
+								{#if redeemCouponData?.redeemed_at}
+									<div class="flex justify-between items-center py-1.5">
+										<span class="text-xs font-bold text-slate-500 uppercase tracking-wide">{$t('giftWheel.redeemedOn')}</span>
+										<span class="text-sm font-semibold text-slate-700">{new Date(redeemCouponData.redeemed_at).toLocaleString()}</span>
+									</div>
+								{/if}
+								{#if !redeemCouponData?.redeemed_bill_number && !redeemCouponData?.redeemed_amount && !redeemCouponData?.redeemed_at}
+									<div class="text-xs text-slate-500 italic">{$locale === 'ar' ? 'لا توجد تفاصيل متاحة' : 'No details available'}</div>
+								{/if}
+							</div>
+						{:else}
+							<div class="flex items-start gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+								<div class="text-2xl mt-0.5">✓</div>
+								<div class="flex-1">
+									<p class="text-sm font-bold text-emerald-800">{$t('giftWheel.notYetRedeemed')}</p>
+									<p class="text-xs text-emerald-600/70">{$t('giftWheel.notYetRedeemedDesc')}</p>
+								</div>
+							</div>
+						{/if}
+							{#if verificationStatus.isExpired}
+								<div class="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+									<div class="text-2xl mt-0.5">✗</div>
+									<div class="flex-1">
+										<p class="text-sm font-bold text-red-800">{$locale === 'ar' ? 'الكوبون منتهي الصلاحية' : 'Coupon Expired'}</p>
+										<p class="text-xs text-red-600/70">{$locale === 'ar' ? 'انتهت صلاحية هذا الكوبون' : 'This coupon has expired'}</p>
+									</div>
+								</div>
+							{:else}
+								<div class="flex items-start gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+									<div class="text-2xl mt-0.5">✓</div>
+									<div class="flex-1">
+										<p class="text-sm font-bold text-emerald-800">{$locale === 'ar' ? 'سارية المفعول' : 'Valid'}</p>
+										<p class="text-xs text-emerald-600/70">{$locale === 'ar' ? 'صلاحية الكوبون صحيحة' : 'Coupon is still valid'}</p>
+										{#if redeemCouponData?.expiry_date}
+											<p class="text-xs text-emerald-600 mt-1">{$locale === 'ar' ? 'تاريخ الانتهاء' : 'Expires'}: {redeemCouponData.expiry_date}</p>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						</div>
+
+						<!-- Reward Info -->
+						{#if redeemCouponData}
+							<div class="mt-6 p-4 bg-gradient-to-br from-orange-50 to-orange-100/50 border border-orange-200/50 rounded-xl text-center">
+								<p class="text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'قيمة الجائزة' : 'Reward Value'}</p>
+								<div>
+									{#if redeemCouponData.reward_type === 'percentage'}
+										<span class="text-3xl font-black text-orange-700">{redeemCouponData.reward_value}%</span>
+										<span class="text-base font-bold text-orange-600 ml-1">{$locale === 'ar' ? 'خصم' : 'OFF'}</span>
+									{:else}
+										<span class="text-3xl font-black text-orange-700">{redeemCouponData.reward_value}</span>
+										<span class="text-base font-bold text-orange-600 ml-1">SAR {$locale === 'ar' ? 'خصم' : 'OFF'}</span>
+									{/if}
+								</div>
+								{#if redeemCouponData.max_discount}
+									<p class="text-xs text-orange-600/70 mt-2">{$locale === 'ar' ? 'الحد الأقصى' : 'Max Discount'}: {redeemCouponData.max_discount} SAR</p>
+								{/if}
+								<p class="text-xs text-orange-600/70 mt-1">{redeemCouponData.reward_label_en || redeemCouponData.reward_label}</p>
+								{#if redeemCouponData.reward_label_ar}
+									<p class="text-xs text-orange-600/70">{redeemCouponData.reward_label_ar}</p>
+								{/if}
 							</div>
 						{/if}
 					</div>
+
+					<!-- Action Buttons -->
+					<div class="flex gap-3 p-6 border-t border-slate-100 bg-slate-50">
+						{#if !verificationStatus.alreadyRedeemed && !verificationStatus.isExpired && !verificationStatus.isCancelled}
+							<button
+								class="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all duration-200 hover:bg-emerald-700 hover:shadow-lg hover:shadow-emerald-200"
+								on:click={proceedWithRedemption}
+							>
+								→ {$locale === 'ar' ? 'متابعة الاسترجاع' : 'Proceed to Redemption'}
+							</button>
+						{/if}
+						<button
+							class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold uppercase tracking-wide transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md"
+							on:click={cancelVerification}
+						>
+							{$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+						</button>
+					</div>
+				</div>
 
 				{:else if redeemStep === 'details' || redeemStep === 'redeeming'}
 					<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.08)] overflow-hidden">

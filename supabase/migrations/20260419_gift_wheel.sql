@@ -376,7 +376,25 @@ BEGIN
     END IF;
 
     IF coupon_row.status = 'redeemed' THEN
-        RETURN jsonb_build_object('valid', false, 'error', 'Coupon already redeemed');
+        RETURN jsonb_build_object(
+            'valid', false,
+            'error', 'Coupon already redeemed',
+            'code', coupon_row.code,
+            'reward_label', coupon_row.reward_label,
+            'reward_label_en', coupon_row.reward_label_en,
+            'reward_label_ar', coupon_row.reward_label_ar,
+            'reward_type', coupon_row.reward_type,
+            'reward_value', coupon_row.reward_value,
+            'max_discount', coupon_row.max_discount,
+            'expiry_date', coupon_row.expiry_date,
+            'status', coupon_row.status,
+            'bill_number', coupon_row.bill_number,
+            'bill_amount', coupon_row.bill_amount,
+            'bill_date', coupon_row.bill_date,
+            'redeemed_bill_number', coupon_row.redeemed_bill_number,
+            'redeemed_amount', coupon_row.redeemed_amount,
+            'redeemed_at', coupon_row.redeemed_at
+        );
     END IF;
 
     IF coupon_row.status = 'expired' OR (coupon_row.expiry_date IS NOT NULL AND coupon_row.expiry_date < CURRENT_DATE) THEN
