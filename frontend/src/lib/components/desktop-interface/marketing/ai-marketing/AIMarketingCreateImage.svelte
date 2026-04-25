@@ -36,7 +36,7 @@
         if (!brandId || !supabase) return;
         const { data } = await supabase
             .from('ai_brand_characters')
-            .select('id, name, role, description, image_url')
+            .select('id, name, role, description, ai_prompt, image_url')
             .eq('brand_id', brandId)
             .order('display_order', { ascending: true });
         characters = data || [];
@@ -108,7 +108,7 @@
         supabase = mod.supabase;
         const { data } = await supabase
             .from('ai_brand_libraries')
-            .select('id, name, primary_color, accent_color, is_default')
+            .select('id, name, primary_color, accent_color, brand_tone, rules, logo_url, is_default')
             .eq('is_archived', false)
             .order('is_default', { ascending: false });
         brands = data || [];
@@ -123,11 +123,33 @@
         if (generating || !prompt.trim()) return;
         generating = true; errorMessage = ''; generatedUrl = null; generatedPrompt = null;
         try {
+            // Send character prompts (NOT images) for consistent design every time
+            const characterPayload = selectedCharacters.map((c: any) => ({
+                name: c.name,
+                role: c.role,
+                description: c.description,
+                ai_prompt: c.ai_prompt
+            }));
+
+            const brandPayload = selectedBrand ? {
+                id: selectedBrand.id,
+                name: selectedBrand.name,
+                primary_color: selectedBrand.primary_color,
+                accent_color: selectedBrand.accent_color,
+                brand_tone: selectedBrand.brand_tone,
+                rules: selectedBrand.rules
+            } : null;
+
             const res = await fetch('https://supabase.urbanaqura.com/functions/v1/ai-generate-poster', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    extraPrompt: prompt.trim()
+                    extraPrompt: prompt.trim(),
+                    language,
+                    aspectRatio,
+                    platform: selectedPlatformId,
+                    brand: brandPayload,
+                    characters: characterPayload
                 })
             });
             const data = await res.json();
@@ -135,16 +157,110 @@
                 errorMessage = `[${data.stage ?? 'error'}] ${data.error}`;
                 return;
             }
-            // Edge function returns base64 image
-            const imageData = `data:image/png;base64,${data.imageB64}`;
-            generatedUrl = imageData;
-            generatedPrompt = prompt.trim();
-            history = [{ url: imageData, prompt: prompt.trim() }, ...history].slice(0, 5);
+            // Composite brand logo on top using Canvas (so logo is exact, not AI-redrawn)
+            const finalDataUrl = await compositeLogo(
+                `data:image/png;base64,${data.imageB64}`,
+                selectedBrand?.logo_url ?? null,
+                language
+            );
+            generatedUrl = finalDataUrl;
+            generatedPrompt = data.imagePrompt ?? prompt.trim();
+            history = [{ url: finalDataUrl, prompt: prompt.trim() }, ...history].slice(0, 5);
         } catch (err: any) {
             errorMessage = err?.message ?? String(err);
         } finally {
             generating = false;
         }
+    }
+
+    async function compositeLogo(
+        baseImageDataUrl: string,
+        logoStoragePath: string | null,
+        lang: 'ar' | 'en'
+    ): Promise<string> {
+        if (!logoStoragePath || !supabase) return baseImageDataUrl;
+        try {
+            // Resolve logo URL
+            let logoUrl: string;
+            if (logoStoragePath.startsWith('http') || logoStoragePath.startsWith('blob:')) {
+                logoUrl = logoStoragePath;
+            } else {
+                const { data: signed } = await supabase.storage
+                    .from('ai-marketing-files')
+                    .createSignedUrl(logoStoragePath, 300);
+                if (!signed?.signedUrl) return baseImageDataUrl;
+                logoUrl = signed.signedUrl;
+            }
+
+            // Load both images
+            const [baseImg, logoImg] = await Promise.all([
+                loadImage(baseImageDataUrl),
+                loadImage(logoUrl)
+            ]);
+
+            // Draw to canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = baseImg.width;
+            canvas.height = baseImg.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return baseImageDataUrl;
+
+            ctx.drawImage(baseImg, 0, 0);
+
+            // Logo sizing/position (matches original Vercel API logic)
+            const W = canvas.width;
+            const logoSize = Math.round(W * 0.13);
+            const logoPad = Math.round(W * 0.025);
+            const bgPadding = Math.round(logoSize * 0.18);
+            const bgSize = logoSize + bgPadding * 2;
+            const logoLeft = lang === 'ar' ? W - logoSize - logoPad : logoPad;
+            const logoTop = logoPad;
+            const bgLeft = Math.max(0, logoLeft - bgPadding);
+            const bgTop = Math.max(0, logoTop - bgPadding);
+            const bgRadius = Math.round(bgSize * 0.16);
+
+            // White rounded backing
+            ctx.fillStyle = '#ffffff';
+            roundRect(ctx, bgLeft, bgTop, bgSize, bgSize, bgRadius);
+            ctx.fill();
+
+            // Logo image (preserve aspect ratio, fit inside logoSize x logoSize)
+            const ratio = Math.min(logoSize / logoImg.width, logoSize / logoImg.height);
+            const drawW = logoImg.width * ratio;
+            const drawH = logoImg.height * ratio;
+            const drawL = logoLeft + (logoSize - drawW) / 2;
+            const drawT = logoTop + (logoSize - drawH) / 2;
+            ctx.drawImage(logoImg, drawL, drawT, drawW, drawH);
+
+            return canvas.toDataURL('image/png');
+        } catch (err) {
+            console.warn('[compositeLogo] failed:', err);
+            return baseImageDataUrl;
+        }
+    }
+
+    function loadImage(src: string): Promise<HTMLImageElement> {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = src;
+        });
+    }
+
+    function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
     }
 
     async function downloadImage() {

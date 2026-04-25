@@ -77,6 +77,7 @@
     let charName         = '';
     let charRole         = 'custom';
     let charDescription  = '';
+    let charAiPrompt     = '';
     let charVoiceId      = '';
     let charImageFile: File | null = null;
     let charImagePreview = '';
@@ -127,7 +128,7 @@
 
     function openNewChar() {
         charEditing = null;
-        charName = ''; charRole = 'custom'; charDescription = ''; charVoiceId = '';
+        charName = ''; charRole = 'custom'; charDescription = ''; charAiPrompt = ''; charVoiceId = '';
         charImageFile = null; charImagePreview = '';
         showCharForm = true;
     }
@@ -137,6 +138,7 @@
         charName        = char.name;
         charRole        = char.role || 'custom';
         charDescription = char.description || '';
+        charAiPrompt    = char.ai_prompt || '';
         charVoiceId     = char.voice_id || '';
         charImageFile   = null;
         // Use blob preview (if already replaced), then signed URL, then nothing
@@ -155,13 +157,13 @@
             const blobPreview = charImageFile ? charImagePreview : (charEditing._blobPreview || '');
             characters = characters.map(c =>
                 c === charEditing
-                    ? { ...c, name: charName, role: charRole, description: charDescription, voice_id: charVoiceId, _imageFile: charImageFile, _blobPreview: blobPreview }
+                    ? { ...c, name: charName, role: charRole, description: charDescription, ai_prompt: charAiPrompt, voice_id: charVoiceId, _imageFile: charImageFile, _blobPreview: blobPreview }
                     : c
             );
         } else {
             characters = [...characters, {
                 _isNew: true, name: charName, role: charRole,
-                description: charDescription, voice_id: charVoiceId,
+                description: charDescription, ai_prompt: charAiPrompt, voice_id: charVoiceId,
                 _imageFile: charImageFile,
                 image_url: charImagePreview,
                 display_order: characters.length
@@ -258,6 +260,7 @@
                     name:         c.name,
                     role:         c.role || null,
                     description:  c.description || null,
+                    ai_prompt:    c.ai_prompt || null,
                     voice_id:     c.voice_id || null,
                     image_url:    imageUrl,
                     display_order: i
@@ -545,6 +548,25 @@
                                     class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm
                                            focus:outline-none focus:ring-2 focus:ring-emerald-500 text-black resize-none"
                                 ></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-[10px] font-bold text-emerald-700 mb-1 uppercase" for="ch-aiprompt">
+                                    🎨 {$locale === 'ar' ? 'وصف الذكاء الاصطناعي (للتوليد المتسق)' : 'AI Visual Prompt (for consistent generation)'}
+                                </label>
+                                <textarea
+                                    id="ch-aiprompt" bind:value={charAiPrompt} rows="4"
+                                    placeholder={$locale === 'ar'
+                                        ? 'مثال: امرأة سعودية ترتدي عباءة سوداء وحجاب أسود، عيون بنية، ابتسامة ودودة، رسوم متحركة ثلاثية الأبعاد، إضاءة سينمائية'
+                                        : 'e.g. Saudi woman wearing black abaya and black hijab, brown eyes, friendly smile, 3D cartoon animation style, cinematic lighting, photorealistic'}
+                                    class="w-full px-3 py-2 bg-emerald-50 border-2 border-emerald-200 rounded-xl text-sm
+                                           focus:outline-none focus:ring-2 focus:ring-emerald-500 text-black resize-none"
+                                ></textarea>
+                                <p class="text-[10px] text-slate-500 mt-1">
+                                    {$locale === 'ar'
+                                        ? 'هذا النص يُستخدم بواسطة Imagen لتوليد الشخصية بنفس التصميم في كل مرة. كن دقيقًا ومفصلًا.'
+                                        : 'This exact text is used by Imagen to render the character with the SAME design every time. Be specific and detailed.'}
+                                </p>
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
