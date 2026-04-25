@@ -234,13 +234,16 @@ export default defineConfig(({ mode }) => ({
   build: {
     sourcemap: true,
     rollupOptions: {
-      external: ['mssql'],
+      external: ['mssql', 'sharp'],
       output: {
         manualChunks: {
           vendor: ["svelte"],
         },
       },
     },
+  },
+  ssr: {
+    external: ['sharp'],
   },
   define: {
     "import.meta.env.VITE_PWA_ENABLED": JSON.stringify(

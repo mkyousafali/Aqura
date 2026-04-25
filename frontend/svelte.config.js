@@ -12,7 +12,7 @@ const config = {
   },
   preprocess: vitePreprocess(),
   kit: {
-    adapter: useNode ? adapterNode({ out: 'build' }) : adapterVercel(),
+    adapter: useNode ? adapterNode({ out: 'build' }) : adapterVercel({ external: ['sharp'] }),
     alias: {
       $lib: "./src/lib",
       $components: "./src/lib/components",
