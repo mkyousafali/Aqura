@@ -619,14 +619,17 @@ ${fullText.substring(0, 900)}` }] }],
 		canvas.height = h;
 		const ctx = canvas.getContext('2d')!;
 
-		// Gold palette
-		const gold = '#c8a24e';
-		const goldLight = '#e8d48b';
-		const goldDark = '#8b6914';
-		const goldBg = '#fffdf5';
-		const cream = '#faf6ea';
-		const darkBrown = '#3d2b1f';
-		const warmGray = '#7a6e5d';
+		// Green + orange palette
+		const gold = '#f08300';      // orange (borders, accents)
+		const goldLight = '#ffffff'; // white (text, highlights)
+		const goldDark = '#c06900';  // dark orange
+		const goldBg = '#ffffff';    // white (barcode/QR bg)
+		const cream = '#ffffff';
+		const darkBrown = '#085520'; // dark green (badge text)
+		const warmGray = '#ffffff';  // white (instruction text — visible on green bg)
+		const tealDark = '#085520';
+		const tealMid = '#0d7a28';
+		const tealLight = '#13A538';
 
 		// Load logo and currency symbol
 		const logo = new Image();
@@ -649,16 +652,24 @@ ${fullText.substring(0, 900)}` }] }],
 			return 0;
 		};
 
-		// === DARK BACKGROUND ===
-		const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-		bgGrad.addColorStop(0, '#1a1510');
-		bgGrad.addColorStop(0.3, '#231c14');
-		bgGrad.addColorStop(0.7, '#1e1812');
-		bgGrad.addColorStop(1, '#141010');
+		// === TEAL+GOLD BACKGROUND ===
+		const bgGrad = ctx.createLinearGradient(0, 0, w, h);
+		bgGrad.addColorStop(0, '#085520');
+		bgGrad.addColorStop(0.25, '#0d7a28');
+		bgGrad.addColorStop(0.5, '#13A538');
+		bgGrad.addColorStop(0.75, '#0d7a28');
+		bgGrad.addColorStop(1, '#085520');
 		ctx.fillStyle = bgGrad;
 		ctx.beginPath();
 		ctx.roundRect(0, 0, w, h, 20);
 		ctx.fill();
+		// Diagonal gold shimmer overlay
+		const shimGrad = ctx.createLinearGradient(0, 0, w, h);
+		shimGrad.addColorStop(0, 'rgba(240,131,0,0.07)');
+		shimGrad.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+		shimGrad.addColorStop(1, 'rgba(240,131,0,0.07)');
+		ctx.fillStyle = shimGrad;
+		ctx.fillRect(0, 0, w, h);
 
 		// === GOLD DOUBLE BORDER ===
 		ctx.strokeStyle = gold;
@@ -858,8 +869,8 @@ ${fullText.substring(0, 900)}` }] }],
 		if (spinResult.max_discount) {
 			const mdVal = `${spinResult.max_discount}`;
 			const mdText = isAr
-				? `أو بحد أقصى ${mdVal} ريال خصم، أيهما أقل`
-				: `Or a maximum discount of ${mdVal} Riyals, whichever is lower`;
+				? `أو بحد أقصى ${mdVal} ريال خصم`
+				: `Or a maximum discount of ${mdVal} Riyals`;
 			ctx.font = 'bold 14px Georgia, serif';
 			const textW = ctx.measureText(mdText).width;
 			const cardW = Math.max(textW + 40, 260);
@@ -881,45 +892,95 @@ ${fullText.substring(0, 900)}` }] }],
 			y += cardH + 14;
 		}
 
-		// === QR CODE BOX ===
+		// === BARCODE SECTION (full-width, readable, first) ===
 		y += 5;
 		try {
 			const QRCode = (await import('qrcode')).default;
+			const JsBarcodeLib = (await import('jsbarcode')).default;
+
+			// ── BARCODE BOX ──────────────────────────────────────────────
+			const bcMain = document.createElement('canvas');
+			JsBarcodeLib(bcMain, spinResult.coupon_code || '0', {
+				format: 'CODE128', width: 2.4, height: 70,
+				displayValue: false, margin: 8,
+				background: '#ffffff', lineColor: '#085520'
+			});
+			const bcBoxX = 40, bcBoxW = w - 80;
+			const bcDrawW = bcBoxW - 24;
+			const bcDrawH = (bcMain.height / bcMain.width) * bcDrawW;
+			const bcBoxH = bcDrawH + 36; // room for label only
+			// Box bg
+			ctx.fillStyle = '#085520';
+			ctx.beginPath();
+			ctx.roundRect(bcBoxX, y, bcBoxW, bcBoxH, 14);
+			ctx.fill();
+			ctx.strokeStyle = gold;
+			ctx.lineWidth = 2;
+			ctx.beginPath();
+			ctx.roundRect(bcBoxX, y, bcBoxW, bcBoxH, 14);
+			ctx.stroke();
+			ctx.strokeStyle = goldLight;
+			ctx.lineWidth = 0.7;
+			ctx.beginPath();
+			ctx.roundRect(bcBoxX + 4, y + 4, bcBoxW - 8, bcBoxH - 8, 11);
+			ctx.stroke();
+			// Label
+			ctx.fillStyle = goldLight;
+			ctx.font = 'bold 12px Georgia, serif';
+			ctx.textAlign = 'center';
+			ctx.fillText(isAr ? 'الرمز الشريطي' : 'Barcode', w / 2, y + 18);
+			// Barcode image on cream bg
+			ctx.fillStyle = goldBg;
+			ctx.beginPath();
+			ctx.roundRect(bcBoxX + 10, y + 24, bcDrawW + 4, bcDrawH + 4, 5);
+			ctx.fill();
+			if (bcMain.width > 0) ctx.drawImage(bcMain, bcBoxX + 12, y + 26, bcDrawW, bcDrawH);
+			y += bcBoxH + 14;
+
+			// ── QR CODE BOX ───────────────────────────────────────────────
 			const qrDataUrl = await QRCode.toDataURL(spinResult.coupon_code || '', {
-				width: 200,
-				margin: 1,
-				color: { dark: '#3d2b1f', light: '#fffdf5' }
+				width: 260, margin: 2,
+				color: { dark: '#085520', light: '#ffffff' }
 			});
 			const qrImg = new Image();
 			qrImg.src = qrDataUrl;
 			await new Promise<void>((r) => { qrImg.onload = () => r(); qrImg.onerror = () => r(); });
+
 			if (qrImg.complete && qrImg.naturalWidth) {
-				const qrSize = 140;
-				const boxPad = 20;
-				const boxH = qrSize + boxPad * 2 + 30;
-				const boxX = 50, boxW = w - 100;
+				const qrSize = 200;
+				const qrBoxX = 40, qrBoxW = w - 80;
+				const qrBoxH = qrSize + 50;
 				// Box bg
-				ctx.fillStyle = '#2a2218';
+				ctx.fillStyle = '#085520';
 				ctx.beginPath();
-				ctx.roundRect(boxX, y, boxW, boxH, 12);
+				ctx.roundRect(qrBoxX, y, qrBoxW, qrBoxH, 14);
 				ctx.fill();
 				ctx.strokeStyle = gold;
-				ctx.lineWidth = 1.5;
+				ctx.lineWidth = 2;
+				ctx.beginPath();
+				ctx.roundRect(qrBoxX, y, qrBoxW, qrBoxH, 14);
+				ctx.stroke();
+				ctx.strokeStyle = goldLight;
+				ctx.lineWidth = 0.7;
+				ctx.beginPath();
+				ctx.roundRect(qrBoxX + 4, y + 4, qrBoxW - 8, qrBoxH - 8, 11);
 				ctx.stroke();
 				// Label
 				ctx.fillStyle = goldLight;
-				ctx.font = '13px Georgia, serif';
-				ctx.fillText(isAr ? 'امسح الرمز' : 'Scan QR Code', w / 2, y + 22);
-				// QR on cream bg
+				ctx.font = 'bold 12px Georgia, serif';
+				ctx.textAlign = 'center';
+				ctx.fillText(isAr ? 'امسح الرمز' : 'Scan QR Code', w / 2, y + 18);
+				// QR on cream bg, centered
+				const qrX = (w - qrSize) / 2;
 				ctx.fillStyle = goldBg;
 				ctx.beginPath();
-				ctx.roundRect((w - qrSize - 10) / 2, y + 30, qrSize + 10, qrSize + 10, 6);
+				ctx.roundRect(qrX - 5, y + 24, qrSize + 10, qrSize + 10, 6);
 				ctx.fill();
-				ctx.drawImage(qrImg, (w - qrSize) / 2, y + 35, qrSize, qrSize);
-				y += boxH + 18;
+				ctx.drawImage(qrImg, qrX, y + 29, qrSize, qrSize);
+				y += qrBoxH + 18;
 			}
 		} catch (e) {
-			console.warn('QR generation failed', e);
+			console.warn('QR/Barcode generation failed', e);
 		}
 
 		// === TICKET TEAR LINE ===
@@ -934,14 +995,14 @@ ${fullText.substring(0, 900)}` }] }],
 		ctx.setLineDash([]);
 		ctx.globalAlpha = 1;
 		// Semicircle cutouts
-		ctx.fillStyle = '#1a1510';
+		ctx.fillStyle = '#085520';
 		ctx.beginPath();
 		ctx.arc(14, y, 10, 0, Math.PI * 2);
 		ctx.fill();
 		ctx.strokeStyle = gold;
 		ctx.lineWidth = 1;
 		ctx.stroke();
-		ctx.fillStyle = '#1a1510';
+		ctx.fillStyle = '#085520';
 		ctx.beginPath();
 		ctx.arc(w - 14, y, 10, 0, Math.PI * 2);
 		ctx.fill();
@@ -1002,33 +1063,78 @@ ${fullText.substring(0, 900)}` }] }],
 		ctx.fillText(hint, w / 2, y);
 		y += 30;
 
-		// === BARCODE ===
-		try {
-			const JsBarcode = (await import('jsbarcode')).default;
-			const bcCanvas = document.createElement('canvas');
-			JsBarcode(bcCanvas, spinResult.coupon_code || '', {
-				format: 'CODE128',
-				width: 2,
-				height: 45,
-				displayValue: false,
-				margin: 5,
-				background: goldBg,
-				lineColor: darkBrown
-			});
-			const bcW = 280;
-			const bcH = (bcCanvas.height / bcCanvas.width) * bcW;
-			// Barcode container with gold border
-			ctx.fillStyle = goldBg;
-			ctx.strokeStyle = gold;
-			ctx.lineWidth = 1;
+		// === LOYALTY CARD (replaces barcode) ===
+		{
+			const cardW = 340, cardH = 90;
+			const cardX = (w - cardW) / 2;
+			// Card base — dark teal with gold foil gradient
+			const cardGrad = ctx.createLinearGradient(cardX, y, cardX + cardW, y + cardH);
+			cardGrad.addColorStop(0, '#085520');
+			cardGrad.addColorStop(0.3, '#13A538');
+			cardGrad.addColorStop(0.55, '#0d7a28');
+			cardGrad.addColorStop(0.8, '#13A538');
+			cardGrad.addColorStop(1, '#085520');
+			ctx.fillStyle = cardGrad;
 			ctx.beginPath();
-			ctx.roundRect((w - bcW - 24) / 2, y - 6, bcW + 24, bcH + 12, 8);
+			ctx.roundRect(cardX, y, cardW, cardH, 10);
 			ctx.fill();
+			// Gold foil shimmer lines
+			for (let fi = 0; fi < 5; fi++) {
+				const fx = cardX + (cardW / 5) * fi;
+				const fGrad = ctx.createLinearGradient(fx, y, fx + cardW / 5, y + cardH);
+				fGrad.addColorStop(0, 'rgba(232,212,139,0)');
+				fGrad.addColorStop(0.5, `rgba(255,255,255,${0.04 + fi * 0.01})`);
+				fGrad.addColorStop(1, 'rgba(232,212,139,0)');
+				ctx.fillStyle = fGrad;
+				ctx.fillRect(fx, y, cardW / 5, cardH);
+			}
+			// Gold double border
+			ctx.strokeStyle = gold;
+			ctx.lineWidth = 2;
+			ctx.beginPath();
+			ctx.roundRect(cardX, y, cardW, cardH, 10);
 			ctx.stroke();
-			ctx.drawImage(bcCanvas, (w - bcW) / 2, y, bcW, bcH);
-			y += bcH + 28;
-		} catch (e) {
-			console.warn('Barcode generation failed', e);
+			ctx.strokeStyle = goldLight;
+			ctx.lineWidth = 0.7;
+			ctx.beginPath();
+			ctx.roundRect(cardX + 4, y + 4, cardW - 8, cardH - 8, 7);
+			ctx.stroke();
+			// Chip graphic
+			const chipX = cardX + 18, chipY = y + 22;
+			const chipW = 34, chipH = 26;
+			const chipGrad = ctx.createLinearGradient(chipX, chipY, chipX + chipW, chipY + chipH);
+			chipGrad.addColorStop(0, '#c06900');
+			chipGrad.addColorStop(0.5, '#ffb347');
+			chipGrad.addColorStop(1, '#f08300');
+			ctx.fillStyle = chipGrad;
+			ctx.beginPath();
+			ctx.roundRect(chipX, chipY, chipW, chipH, 4);
+			ctx.fill();
+			ctx.strokeStyle = goldDark;
+			ctx.lineWidth = 0.5;
+			// Chip lines
+			for (let ci = 1; ci < 3; ci++) {
+				ctx.beginPath(); ctx.moveTo(chipX, chipY + (chipH/3)*ci); ctx.lineTo(chipX+chipW, chipY+(chipH/3)*ci); ctx.stroke();
+				ctx.beginPath(); ctx.moveTo(chipX+(chipW/3)*ci, chipY); ctx.lineTo(chipX+(chipW/3)*ci, chipY+chipH); ctx.stroke();
+			}
+			// Contactless wave symbol
+			ctx.strokeStyle = goldLight;
+			ctx.lineWidth = 1.5;
+			for (let wi2 = 0; wi2 < 3; wi2++) {
+				ctx.globalAlpha = 0.4 + wi2 * 0.2;
+				ctx.beginPath();
+				ctx.arc(chipX + chipW + 16 + wi2 * 7, y + cardH / 2, 6 + wi2 * 5, -Math.PI * 0.4, Math.PI * 0.4);
+				ctx.stroke();
+			}
+			ctx.globalAlpha = 1;
+			// Card number (full coupon code)
+			const code = spinResult.coupon_code || '';
+			ctx.fillStyle = goldLight;
+			ctx.font = 'bold 12px monospace';
+			ctx.textAlign = 'left';
+			ctx.fillText(code, cardX + 18, y + cardH - 16);
+			ctx.textAlign = 'center';
+			y += cardH + 22;
 		}
 
 		// === THANK YOU ===
@@ -1047,10 +1153,11 @@ ${fullText.substring(0, 900)}` }] }],
 
 		// Redraw background on final canvas
 		const bgGrad2 = fCtx.createLinearGradient(0, 0, 0, h);
-		bgGrad2.addColorStop(0, '#1a1510');
-		bgGrad2.addColorStop(0.3, '#231c14');
-		bgGrad2.addColorStop(0.7, '#1e1812');
-		bgGrad2.addColorStop(1, '#141010');
+		bgGrad2.addColorStop(0, '#085520');
+		bgGrad2.addColorStop(0.25, '#0d7a28');
+		bgGrad2.addColorStop(0.5, '#13A538');
+		bgGrad2.addColorStop(0.75, '#0d7a28');
+		bgGrad2.addColorStop(1, '#085520');
 		fCtx.fillStyle = bgGrad2;
 		fCtx.beginPath();
 		fCtx.roundRect(0, 0, w, h, 20);
