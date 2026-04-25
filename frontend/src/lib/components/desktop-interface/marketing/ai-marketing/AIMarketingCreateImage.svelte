@@ -58,6 +58,13 @@
         selectedCharacterIds = s;
     }
 
+    let charDropdownOpen = false;
+    function toggleCharDropdown() { charDropdownOpen = !charDropdownOpen; }
+    function closeCharDropdownOnOutside(e: MouseEvent) {
+        const target = e.target as HTMLElement;
+        if (!target.closest('[data-char-dropdown]')) charDropdownOpen = false;
+    }
+
     $: selectedCharacters = characters.filter(c => selectedCharacterIds.has(c.id));
 
     // ── Language ──────────────────────────────────────────────────────────
@@ -338,6 +345,8 @@
     }
 </script>
 
+<svelte:window on:click={closeCharDropdownOnOutside}/>
+
 <div class="w-full" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <div class="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-6">
 
@@ -371,7 +380,7 @@
 
             <!-- Characters -->
             {#if characters.length > 0}
-                <div class="bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-[0_4px_16px_-4px_rgba(0,0,0,0.08)] p-4 space-y-3">
+                <div class="bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-[0_4px_16px_-4px_rgba(0,0,0,0.08)] p-4 space-y-2" data-char-dropdown>
                     <div class="flex items-center justify-between">
                         <label class="block text-[10px] font-black text-slate-500 uppercase tracking-wider">👤 {$locale === 'ar' ? 'الشخصيات' : 'Characters'}</label>
                         {#if selectedCharacterIds.size > 0}
@@ -381,39 +390,45 @@
                             </button>
                         {/if}
                     </div>
-                    <p class="text-[10px] text-slate-400 font-semibold -mt-1">
-                        {$locale === 'ar' ? 'اختر شخصية أو أكثر لتظهر في الصورة' : 'Select one or more characters to appear in the image'}
-                    </p>
-                    <div class="grid grid-cols-2 gap-2">
-                        {#each characters as char}
-                            {@const isSelected = selectedCharacterIds.has(char.id)}
-                            <button on:click={() => toggleCharacter(char.id)}
-                                class="flex items-center gap-2.5 p-2.5 rounded-xl border-2 transition-all text-left
-                                       {isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-300'}">
-                                <div class="relative flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-slate-100 border border-slate-200">
-                                    {#if charSignedUrls[char.id]}
-                                        <img src={charSignedUrls[char.id]} alt={char.name} class="w-full h-full object-cover"/>
-                                    {:else}
-                                        <div class="w-full h-full flex items-center justify-center text-xl">🧑</div>
-                                    {/if}
-                                    {#if isSelected}
-                                        <div class="absolute inset-0 flex items-center justify-center bg-emerald-600/70 rounded-lg">
-                                            <span class="text-white text-sm font-black">✓</span>
-                                        </div>
-                                    {/if}
-                                </div>
-                                <div class="min-w-0 flex-1">
-                                    <p class="text-xs font-black text-slate-700 truncate leading-tight">{char.name}</p>
-                                    {#if char.role}
-                                        <p class="text-[9px] font-bold text-slate-400 truncate">{char.role}</p>
-                                    {/if}
-                                    {#if char.description}
-                                        <p class="text-[9px] text-slate-400 leading-snug line-clamp-2 mt-0.5">{char.description}</p>
-                                    {/if}
-                                </div>
-                            </button>
-                        {/each}
-                    </div>
+
+                    <!-- Dropdown trigger -->
+                    <button type="button" on:click={toggleCharDropdown}
+                        class="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold hover:border-emerald-400 transition-all">
+                        <span class="flex items-center gap-2 min-w-0 flex-1">
+                            {#if selectedCharacterIds.size === 0}
+                                <span class="text-slate-400 text-xs">{$locale === 'ar' ? '— اختر شخصية أو أكثر —' : '— Select character(s) —'}</span>
+                            {:else}
+                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-black flex-shrink-0">{selectedCharacterIds.size}</span>
+                                <span class="truncate text-xs text-slate-700">{selectedCharacters.map(c => c.name).join(', ')}</span>
+                            {/if}
+                        </span>
+                        <svg class="w-4 h-4 text-slate-400 transition-transform flex-shrink-0 {charDropdownOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+
+                    {#if charDropdownOpen}
+                        <div class="bg-white border border-slate-200 rounded-xl shadow-md max-h-72 overflow-y-auto">
+                            {#each characters as char}
+                                {@const isSelected = selectedCharacterIds.has(char.id)}
+                                <button type="button" on:click={() => toggleCharacter(char.id)}
+                                    class="w-full flex items-center gap-2.5 p-2.5 text-left hover:bg-emerald-50 border-b border-slate-100 last:border-b-0 transition-colors">
+                                    <input type="checkbox" checked={isSelected} readonly
+                                        class="w-4 h-4 rounded border-2 border-slate-300 text-emerald-600 focus:ring-emerald-500 pointer-events-none flex-shrink-0"/>
+                                    <div class="relative flex-shrink-0 w-9 h-9 rounded-lg overflow-hidden bg-slate-100 border border-slate-200">
+                                        {#if charSignedUrls[char.id]}
+                                            <img src={charSignedUrls[char.id]} alt={char.name} class="w-full h-full object-cover"/>
+                                        {:else}
+                                            <div class="w-full h-full flex items-center justify-center text-lg">🧑</div>
+                                        {/if}
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-xs font-black text-slate-700 truncate leading-tight">{char.name}</p>
+                                        {#if char.role}<p class="text-[9px] font-bold text-slate-400 truncate">{char.role}</p>{/if}
+                                    </div>
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
+
                     {#if selectedCharacterIds.size > 0}
                         <p class="text-[9px] font-black text-emerald-600 bg-emerald-50 rounded-lg px-2 py-1.5">
                             ✓ {$locale === 'ar'
