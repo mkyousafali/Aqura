@@ -28,29 +28,46 @@ if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedTok
 
 const clientEmail = env.GOOGLE_CLIENT_EMAIL;
 const privateKeyRaw = env.GOOGLE_PRIVATE_KEY;
-if (!clientEmail || !privateKeyRaw) throw new Error('Missing Google credentials');
-const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
+if (!clientEmail || !privateKeyRaw) throw new Error('Missing GOOGLE_CLIENT_EMAIL or GOOGLE_PRIVATE_KEY');
 
-const b64url = (buf: Buffer | string) =>
-Buffer.from(buf as any).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+try {
+  const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
 
-const now = Math.floor(Date.now() / 1000);
-const header  = { alg: 'RS256', typ: 'JWT' };
-const payload = { iss: clientEmail, scope: 'https://www.googleapis.com/auth/cloud-platform', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 };
-const input   = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-const signer  = crypto.createSign('RSA-SHA256');
-signer.update(input);
-const jwt = `${input}.${b64url(signer.sign(privateKey))}`;
+  const b64url = (buf: Buffer | string) =>
+    Buffer.from(buf as any).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
-const res  = await fetch('https://oauth2.googleapis.com/token', {
-method: 'POST',
-headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt })
-});
-const data = await res.json();
-if (!res.ok || !data.access_token) throw new Error(`Token error: ${JSON.stringify(data)}`);
-cachedToken = { value: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
-return cachedToken.value;
+  const now = Math.floor(Date.now() / 1000);
+  const header  = { alg: 'RS256', typ: 'JWT' };
+  const payload = { iss: clientEmail, scope: 'https://www.googleapis.com/auth/cloud-platform', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 };
+  const input   = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  
+  let jwt: string;
+  try {
+    const signer  = crypto.createSign('RSA-SHA256');
+    signer.update(input);
+    jwt = `${input}.${b64url(signer.sign(privateKey))}`;
+  } catch (sigErr: any) {
+    console.error('[getAccessToken] JWT signing failed - invalid private key format?', sigErr?.message);
+    throw new Error(`JWT signing failed: ${sigErr?.message}`);
+  }
+
+  const res  = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    const errorMsg = `Token exchange failed [${res.status}]: ${JSON.stringify(data)}`;
+    console.error('[getAccessToken] ', errorMsg);
+    throw new Error(errorMsg);
+  }
+  cachedToken = { value: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
+  return cachedToken.value;
+} catch (err: any) {
+  console.error('[getAccessToken] Failed:', err?.message);
+  throw err;
+}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,14 +79,23 @@ const location  = env.GOOGLE_LOCATION || 'europe-west4';
 const model     = 'gemini-2.5-flash';
 const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent`;
 
-const res = await fetch(url, {
-method: 'POST',
-headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] })
-});
-const data = await res.json();
-if (!res.ok) throw new Error(`Gemini error: ${JSON.stringify(data)}`);
-return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+try {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const errorMsg = `Gemini error [${res.status}]: ${JSON.stringify(data)}`;
+    console.error('[callGemini] ', errorMsg);
+    throw new Error(errorMsg);
+  }
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+} catch (err: any) {
+  console.error('[callGemini] Failed:', err?.message);
+  throw err;
+}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,22 +118,35 @@ async function callImagen(
 const projectId = env.GOOGLE_PROJECT_ID;
 const url = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/${model}:predict`;
 
-const instance: any = { prompt };
-if (referenceImages.length > 0) instance.referenceImages = referenceImages;
+try {
+  const instance: any = { prompt };
+  if (referenceImages.length > 0) instance.referenceImages = referenceImages;
 
-const res = await fetch(url, {
-method: 'POST',
-headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-body: JSON.stringify({
-instances: [instance],
-parameters: { sampleCount: 1, aspectRatio, safetyFilterLevel: 'block_some', personGeneration: 'allow_adult' }
-})
-});
-const data = await res.json();
-if (!res.ok) throw new Error(`Imagen error: ${JSON.stringify(data)}`);
-const b64 = data?.predictions?.[0]?.bytesBase64Encoded;
-if (!b64) throw new Error(`Imagen returned no image. Response: ${JSON.stringify(data)}`);
-return b64;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      instances: [instance],
+      parameters: { sampleCount: 1, aspectRatio, safetyFilterLevel: 'block_some', personGeneration: 'allow_adult' }
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const errorMsg = `Imagen error [${res.status}] (model: ${model}): ${JSON.stringify(data)}`;
+    console.error('[callImagen] ', errorMsg);
+    throw new Error(errorMsg);
+  }
+  const b64 = data?.predictions?.[0]?.bytesBase64Encoded;
+  if (!b64) {
+    const errorMsg = `Imagen returned no image (model: ${model}). Response: ${JSON.stringify(data)}`;
+    console.error('[callImagen] ', errorMsg);
+    throw new Error(errorMsg);
+  }
+  return b64;
+} catch (err: any) {
+  console.error('[callImagen] Failed:', err?.message);
+  throw err;
+}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -449,8 +488,21 @@ export const config = { maxDuration: 300 };
 
 export const POST: RequestHandler = async ({ request }) => {
 const projectId = env.GOOGLE_PROJECT_ID;
-if (!projectId || !env.GOOGLE_CLIENT_EMAIL || !env.GOOGLE_PRIVATE_KEY) {
-return json({ ok: false, message: 'Google Cloud credentials not configured' }, { status: 400 });
+const clientEmail = env.GOOGLE_CLIENT_EMAIL;
+const privateKey = env.GOOGLE_PRIVATE_KEY;
+
+// Enhanced credential check with specific error messages
+if (!projectId) {
+console.error('[generate-poster] Missing GOOGLE_PROJECT_ID environment variable');
+return json({ ok: false, message: 'Missing GOOGLE_PROJECT_ID', stage: 'init', debug: 'GOOGLE_PROJECT_ID not set' }, { status: 400 });
+}
+if (!clientEmail) {
+console.error('[generate-poster] Missing GOOGLE_CLIENT_EMAIL environment variable');
+return json({ ok: false, message: 'Missing GOOGLE_CLIENT_EMAIL', stage: 'init', debug: 'GOOGLE_CLIENT_EMAIL not set' }, { status: 400 });
+}
+if (!privateKey) {
+console.error('[generate-poster] Missing GOOGLE_PRIVATE_KEY environment variable');
+return json({ ok: false, message: 'Missing GOOGLE_PRIVATE_KEY', stage: 'init', debug: 'GOOGLE_PRIVATE_KEY not set' }, { status: 400 });
 }
 
 let body: any;
@@ -550,7 +602,17 @@ Output ONLY the Imagen 3 prompt text — no preamble, no markdown.`;
   if (!backgroundPrompt) throw new Error('Gemini returned empty background prompt');
 }
 } catch (err: any) {
-return json({ ok: false, stage: 'prompt_generation', message: err?.message ?? String(err) }, { status: 500 });
+const errorMsg = err?.message ?? String(err);
+console.error('[generate-poster] prompt_generation error:', errorMsg);
+return json({ 
+  ok: false, 
+  stage: 'prompt_generation', 
+  message: errorMsg,
+  debug: {
+    hasAccessToken: accessToken ? 'yes' : 'no',
+    errorStack: err?.stack?.split('\n').slice(0, 3).join(' ')
+  }
+}, { status: 500 });
 }
 
 try {
@@ -600,7 +662,19 @@ try {
     }
   }
 } catch (err: any) {
-return json({ ok: false, stage: 'imagen', message: err?.message ?? String(err), imagePrompt: backgroundPrompt }, { status: 500 });
+const errorMsg = err?.message ?? String(err);
+console.error('[generate-poster] imagen error:', errorMsg);
+return json({ 
+  ok: false, 
+  stage: 'imagen', 
+  message: errorMsg, 
+  imagePrompt: backgroundPrompt,
+  debug: {
+    errorCode: err?.code,
+    errorStatus: err?.status,
+    errorStack: err?.stack?.split('\n').slice(0, 3).join(' ')
+  }
+}, { status: 500 });
 }
 
 // ── Step 2: Fetch assets & composite (only when products exist) ───────

@@ -123,30 +123,23 @@
         if (generating || !prompt.trim()) return;
         generating = true; errorMessage = ''; generatedUrl = null; generatedPrompt = null;
         try {
-            const res = await fetch('/api/ai-marketing/generate-poster', {
+            const res = await fetch('https://supabase.urbanaqura.com/functions/v1/ai-generate-poster', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    brandId:     selectedBrandId,
-                    products:    [],
-                    platform:    selectedPlatformId,
-                    aspectRatio,
-                    language,
-                    headline:    '',
-                    extraPrompt: prompt.trim(),
-                    characters:  selectedCharacters.map(c => ({ name: c.name, role: c.role, description: c.description, image_url: c.image_url ?? null })),
-                    userId
+                    extraPrompt: prompt.trim()
                 })
             });
             const data = await res.json();
             if (!data.ok) {
-                errorMessage = `[${data.stage ?? 'error'}] ${data.message}`;
-                if (data.imagePrompt) generatedPrompt = data.imagePrompt;
+                errorMessage = `[${data.stage ?? 'error'}] ${data.error}`;
                 return;
             }
-            generatedUrl    = data.signedUrl;
-            generatedPrompt = data.imagePrompt;
-            history = [{ url: data.signedUrl, prompt: prompt.trim() }, ...history].slice(0, 5);
+            // Edge function returns base64 image
+            const imageData = `data:image/png;base64,${data.imageB64}`;
+            generatedUrl = imageData;
+            generatedPrompt = prompt.trim();
+            history = [{ url: imageData, prompt: prompt.trim() }, ...history].slice(0, 5);
         } catch (err: any) {
             errorMessage = err?.message ?? String(err);
         } finally {
