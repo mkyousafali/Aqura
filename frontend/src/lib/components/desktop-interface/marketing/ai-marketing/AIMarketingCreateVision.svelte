@@ -136,8 +136,16 @@
 
     async function downloadVideo() {
         if (!generatedUrl) return;
-        const a = document.createElement('a');
-        a.href = generatedUrl; a.download = `video-${Date.now()}.mp4`; a.click();
+        try {
+            const res = await fetch(generatedUrl);
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl; a.download = `video-${Date.now()}.mp4`; a.click();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        } catch {
+            window.open(generatedUrl, '_blank');
+        }
     }
 </script>
 

@@ -174,10 +174,19 @@
 
     async function downloadImage() {
         if (!generatedUrl) return;
-        const a = document.createElement('a');
-        a.href = generatedUrl;
-        a.download = `poster-${Date.now()}.png`;
-        a.click();
+        try {
+            const res = await fetch(generatedUrl);
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `poster-${Date.now()}.png`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+        } catch {
+            // Fallback: open in new tab
+            window.open(generatedUrl, '_blank');
+        }
     }
 
     // ── Drag-to-reposition in preview ─────────────────────────────────────
