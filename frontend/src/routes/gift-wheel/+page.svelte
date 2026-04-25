@@ -3,6 +3,17 @@
 	import { _, locale, switchLocale } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { goto } from '$app/navigation';
+	import { isAuthenticated as persistentAuthState, currentUser } from '$lib/utils/persistentAuth';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
+
+	// Back-to-interface button: only visible if the visitor is a logged-in app user
+	// (e.g. opened the gift-wheel link from inside the installed PWA).
+	$: showBackToInterface = $persistentAuthState && !!$currentUser;
+	function goBackToInterface() {
+		const route = interfacePreferenceService.getAppropriateRoute($currentUser?.id);
+		goto(route || '/');
+	}
 
 	// State
 	let step: 'loading' | 'inactive' | 'capture' | 'validating' | 'ready' | 'spinning' | 'result' = 'loading';
@@ -1232,6 +1243,14 @@ ${fullText.substring(0, 900)}` }] }],
 		{$locale === 'ar' ? 'English' : 'العربية'}
 	</button>
 
+	<!-- Back to my interface (only for logged-in app users) -->
+	{#if showBackToInterface}
+		<button class="back-to-interface" on:click={goBackToInterface} title={$locale === 'ar' ? 'العودة إلى واجهتي' : 'Back to my interface'}>
+			<span class="back-arrow">{$locale === 'ar' ? '→' : '←'}</span>
+			<span class="back-label">{$locale === 'ar' ? 'واجهتي' : 'My Interface'}</span>
+		</button>
+	{/if}
+
 	<!-- Header -->
 	<div class="header">
 		<h1>{$locale === 'ar' ? 'عجلة الهدايا' : 'Gift Wheel'}</h1>
@@ -1756,6 +1775,41 @@ ${fullText.substring(0, 900)}` }] }],
 	[dir='rtl'] .lang-toggle {
 		right: auto;
 		left: 12px;
+	}
+
+	.back-to-interface {
+		position: absolute;
+		top: 12px;
+		left: 12px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: linear-gradient(135deg, #13A538, #0d8a2d);
+		border: none;
+		color: #fff;
+		padding: 6px 14px;
+		border-radius: 20px;
+		cursor: pointer;
+		font-size: 13px;
+		font-weight: 600;
+		z-index: 10;
+		box-shadow: 0 2px 6px rgba(19, 165, 56, 0.25);
+		transition: transform 0.15s ease, box-shadow 0.15s ease;
+	}
+
+	.back-to-interface:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 3px 10px rgba(19, 165, 56, 0.35);
+	}
+
+	.back-to-interface .back-arrow {
+		font-size: 15px;
+		line-height: 1;
+	}
+
+	[dir='rtl'] .back-to-interface {
+		left: auto;
+		right: 12px;
 	}
 
 	.header {

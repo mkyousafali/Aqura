@@ -526,12 +526,23 @@
 			if (currentAuthState && currentUserState) {
 				const userId = currentUserState.id;
 				const currentPath = $page.url.pathname;
-				
-				// Check if user has mobile preference and isn't already on mobile routes (exclude cashier)
+
+				// Public / standalone routes that must NEVER be redirected based on interface preference
+				// (gift wheel, customer interface, cashier, privacy, login-test, popout windows, etc.)
+				const isStandalonePublicRoute =
+					currentPath.startsWith('/gift-wheel') ||
+					currentPath.startsWith('/customer-interface') ||
+					currentPath.startsWith('/login/customer') ||
+					currentPath.startsWith('/cashier-interface') ||
+					currentPath.startsWith('/privacy') ||
+					currentPath.startsWith('/login-test') ||
+					$page.url.searchParams.get('popout') === 'true';
+
+				// Check if user has mobile preference and isn't already on mobile routes (exclude cashier + public routes)
 				if (interfacePreferenceService.isMobilePreferred(userId) && 
 					!currentPath.startsWith('/mobile-interface') && 
 					!currentPath.startsWith('/mobile-interface/login') &&
-					!currentPath.startsWith('/cashier-interface')) {
+					!isStandalonePublicRoute) {
 					
 					console.log('🔐 User has mobile preference, redirecting to mobile interface');
 					isLoading = false; // Set loading false before redirect
@@ -539,10 +550,10 @@
 					return;
 				}
 				
-				// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier)
+				// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier + public routes)
 				if (!interfacePreferenceService.isMobilePreferred(userId) && 
 					currentPath.startsWith('/mobile-interface') &&
-					!currentPath.startsWith('/cashier-interface')) {
+					!isStandalonePublicRoute) {
 					
 					console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
 					isLoading = false; // Set loading false before redirect
