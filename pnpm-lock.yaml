@@ -102,6 +102,9 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       tailwind-merge:
         specifier: ^2.5.3
         version: 2.6.0
@@ -178,9 +181,6 @@ importers:
       prettier-plugin-svelte:
         specifier: ^3.2.7
         version: 3.4.0(prettier@3.6.2)(svelte@5.39.8)
-      sharp:
-        specifier: ^0.34.5
-        version: 0.34.5
       svelte:
         specifier: ^5.1.9
         version: 5.39.8
