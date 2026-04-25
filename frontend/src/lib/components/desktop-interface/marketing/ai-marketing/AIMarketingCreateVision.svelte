@@ -66,6 +66,65 @@
     // ── Prompt ────────────────────────────────────────────────────────────
     let prompt = '';
 
+    // ── Background image upload ──────────────────────────────────────────
+    let bgFile: File | null = null;
+    let bgPreviewUrl: string | null = null;
+    let bgDescription: string = '';
+    let bgDescribing = false;
+    let bgError = '';
+
+    async function fileToBase64(file: File): Promise<{ b64: string; mimeType: string }> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const dataUrl = String(reader.result || '');
+                const comma = dataUrl.indexOf(',');
+                const meta = dataUrl.substring(5, comma);
+                const mimeType = meta.split(';')[0] || 'image/jpeg';
+                const b64 = dataUrl.substring(comma + 1);
+                resolve({ b64, mimeType });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function onBgChange(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const file = input.files?.[0];
+        if (!file) return;
+        bgFile = file;
+        bgError = '';
+        bgDescription = '';
+        if (bgPreviewUrl) URL.revokeObjectURL(bgPreviewUrl);
+        bgPreviewUrl = URL.createObjectURL(file);
+        bgDescribing = true;
+        try {
+            const { b64, mimeType } = await fileToBase64(file);
+            const res = await fetch('https://supabase.urbanaqura.com/functions/v1/describe-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageB64: b64, mimeType, language })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Describe failed');
+            bgDescription = String(data.description || '').trim();
+        } catch (err: any) {
+            bgError = err?.message ?? String(err);
+            bgFile = null;
+            if (bgPreviewUrl) { URL.revokeObjectURL(bgPreviewUrl); bgPreviewUrl = null; }
+        } finally {
+            bgDescribing = false;
+        }
+    }
+
+    function clearBg() {
+        bgFile = null;
+        if (bgPreviewUrl) { URL.revokeObjectURL(bgPreviewUrl); bgPreviewUrl = null; }
+        bgDescription = '';
+        bgError = '';
+    }
+
     // ── State ─────────────────────────────────────────────────────────────
     let generating = false;
     let errorMessage = '';
@@ -102,6 +161,9 @@
         elapsedSeconds = 0;
         elapsedTimer = setInterval(() => { elapsedSeconds++; }, 1000);
         try {
+            const finalPrompt = bgDescription.trim()
+                ? `Background scene: ${bgDescription.trim()}\n\n${prompt.trim()}`
+                : prompt.trim();
             const res = await fetch('/api/ai-marketing/generate-video', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -110,7 +172,7 @@
                     platform:        selectedPlatformId,
                     aspectRatio,
                     language,
-                    extraPrompt:     prompt.trim(),
+                    extraPrompt:     finalPrompt,
                     characters:      selectedCharacters.map(c => ({ name: c.name, role: c.role, description: c.description })),
                     durationSeconds,
                     userId
@@ -281,6 +343,41 @@
                 <p class="text-[10px] text-amber-600 font-semibold bg-amber-50 rounded-lg px-2 py-1">
                     ⏳ {$locale === 'ar' ? 'إنشاء الفيديو يستغرق 1–3 دقائق' : 'Video generation takes 1–3 minutes'}
                 </p>
+            </div>
+
+            <!-- Background image upload (optional) -->
+            <div class="bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-[0_4px_16px_-4px_rgba(0,0,0,0.08)] p-4 space-y-3">
+                <label class="block text-[10px] font-black text-slate-500 uppercase tracking-wider">🖼️ {$locale === 'ar' ? 'صورة الخلفية (اختياري)' : 'Background Image (optional)'}</label>
+                <p class="text-[10px] text-slate-400 font-semibold -mt-1">
+                    {$locale === 'ar' ? 'ارفع صورة لاستخدامها كخلفية للمشهد — سيقوم الذكاء الاصطناعي بوصفها وإعادة توليدها' : 'Upload a photo to use as the background scene — AI will describe it and recreate the setting'}
+                </p>
+                {#if !bgPreviewUrl}
+                    <label class="flex flex-col items-center justify-center gap-2 px-3 py-6 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-orange-400 hover:bg-orange-50/50 transition-all">
+                        <span class="text-3xl">📷</span>
+                        <span class="text-xs font-black text-slate-500">{$locale === 'ar' ? 'انقر لرفع صورة' : 'Click to upload image'}</span>
+                        <span class="text-[10px] text-slate-400 font-semibold">JPG / PNG / WEBP</span>
+                        <input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" on:change={onBgChange} />
+                    </label>
+                {:else}
+                    <div class="relative rounded-xl overflow-hidden border-2 border-orange-500 bg-slate-100">
+                        <img src={bgPreviewUrl} alt="Background" class="w-full h-32 object-cover"/>
+                        <button on:click={clearBg} class="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-red-500/90 text-white text-xs font-black shadow-md hover:bg-red-600 transition-all">✕</button>
+                    </div>
+                    {#if bgDescribing}
+                        <div class="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg">
+                            <span class="inline-block w-3 h-3 border-t-amber-600 rounded-full animate-spin" style="border:2px solid rgba(217,119,6,0.3); border-top-color:#d97706;"></span>
+                            <span class="text-[10px] font-black text-amber-700">{$locale === 'ar' ? 'جارٍ تحليل الخلفية...' : 'Analyzing background...'}</span>
+                        </div>
+                    {:else if bgDescription}
+                        <div class="px-3 py-2 bg-orange-50 rounded-lg">
+                            <p class="text-[10px] font-black text-orange-700 mb-1">✓ {$locale === 'ar' ? 'تم التحليل' : 'Analyzed'}</p>
+                            <p class="text-[10px] text-slate-600 leading-relaxed line-clamp-3">{bgDescription}</p>
+                        </div>
+                    {/if}
+                    {#if bgError}
+                        <p class="text-[10px] font-black text-red-600 bg-red-50 rounded-lg px-2 py-1.5">⚠ {bgError}</p>
+                    {/if}
+                {/if}
             </div>
 
             <!-- Generate -->
