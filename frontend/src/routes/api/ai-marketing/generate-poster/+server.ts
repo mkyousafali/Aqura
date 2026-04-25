@@ -444,6 +444,9 @@ return sharp(bgBuf).composite(composites).png().toBuffer();
 // ─────────────────────────────────────────────────────────────────────────────
 // POST handler
 // ─────────────────────────────────────────────────────────────────────────────
+// Tell Vercel to allow up to 300 seconds for this function
+export const config = { maxDuration: 300 };
+
 export const POST: RequestHandler = async ({ request }) => {
 const projectId = env.GOOGLE_PROJECT_ID;
 if (!projectId || !env.GOOGLE_CLIENT_EMAIL || !env.GOOGLE_PRIVATE_KEY) {

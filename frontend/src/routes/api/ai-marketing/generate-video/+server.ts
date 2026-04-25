@@ -63,6 +63,9 @@ function toVeoRatio(aspectRatio: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────────────────────
+// Tell Vercel to allow up to 300 seconds for this function
+export const config = { maxDuration: 300 };
+
 export const POST: RequestHandler = async ({ request }) => {
   let body: any;
   try { body = await request.json(); }
@@ -195,7 +198,7 @@ export const POST: RequestHandler = async ({ request }) => {
   let videoB64: string | null = null;
   let mimeType = 'video/mp4';
   const pollStart = Date.now();
-  const maxWait   = 360_000; // 6 minutes — Veo 2 typically takes 4–6 min
+  const maxWait   = 240_000; // 4 minutes — stay within Vercel's 300s function limit
   const fetchOpUrl = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/veo-2.0-generate-001:fetchPredictOperation`;
 
   while (Date.now() - pollStart < maxWait) {
@@ -241,7 +244,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   if (!videoB64) {
-    return json({ ok: false, stage: 'veo_timeout', message: 'Video generation timed out after 6 minutes', videoPrompt }, { status: 500 });
+    return json({ ok: false, stage: 'veo_timeout', message: 'Video generation timed out after 4 minutes', videoPrompt }, { status: 500 });
   }
 
   // ── Step 3: Upload to Supabase storage ────────────────────────────────
