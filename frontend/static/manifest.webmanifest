@@ -6,6 +6,8 @@
   "background_color": "#ffffff",
   "lang": "en",
   "scope": "/",
+  "capture_links": "none",
+  "launch_handler": { "client_mode": "navigate-existing" },
   "description": "PWA-first windowed management platform with bilingual support",
   "theme_color": "#f08300",
   "orientation": "any",

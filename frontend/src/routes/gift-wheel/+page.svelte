@@ -84,11 +84,6 @@
 	];
 
 	onMount(async () => {
-		// If running inside PWA, open in browser instead
-		if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
-			window.open(window.location.href, '_blank');
-			return;
-		}
 		// Default to Arabic
 		if ($locale !== 'ar') {
 			switchLocale('ar');

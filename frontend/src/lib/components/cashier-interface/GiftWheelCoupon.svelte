@@ -476,7 +476,12 @@
 									{/if}
 								</div>
 								{#if redeemCouponData.max_discount}
-									<p class="text-xs text-orange-600/70 mt-2">{$locale === 'ar' ? 'الحد الأقصى' : 'Max Discount'}: {redeemCouponData.max_discount} SAR</p>
+									<div class="mt-3 px-3 py-1.5 bg-orange-200/60 rounded-lg inline-block">
+										<p class="text-sm font-black text-orange-800">
+											{$locale === 'ar' ? 'الحد الأقصى للخصم' : 'Max Discount'}:
+											<span class="text-orange-900">{redeemCouponData.max_discount} {$locale === 'ar' ? 'ر.س' : 'SAR'}</span>
+										</p>
+									</div>
 								{/if}
 								<p class="text-xs text-orange-600/70 mt-1">{redeemCouponData.reward_label_en || redeemCouponData.reward_label}</p>
 								{#if redeemCouponData.reward_label_ar}
@@ -519,7 +524,12 @@
 								{/if}
 							</div>
 							{#if redeemCouponData.max_discount}
-								<p class="text-xs text-orange-600/70 mt-1">{$t('giftWheel.maxDiscount')}: {redeemCouponData.max_discount} SAR</p>
+							<div class="mt-2 px-3 py-1.5 bg-orange-200/60 rounded-lg inline-block">
+								<p class="text-sm font-black text-orange-800">
+									{$locale === 'ar' ? 'الحد الأقصى للخصم' : 'Max Discount'}:
+									<span class="text-orange-900">{redeemCouponData.max_discount} {$locale === 'ar' ? 'ر.س' : 'SAR'}</span>
+								</p>
+							</div>
 							{/if}
 						</div>
 
