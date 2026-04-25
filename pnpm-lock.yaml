@@ -212,9 +212,6 @@ importers:
         specifier: ^7.1.0
         version: 7.3.0
     optionalDependencies:
-      '@img/sharp-linux-arm64':
-        specifier: ^0.34.0
-        version: 0.34.5
       '@img/sharp-linux-x64':
         specifier: ^0.34.0
         version: 0.34.5
