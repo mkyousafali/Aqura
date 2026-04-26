@@ -713,13 +713,13 @@ async function insertChatMessages(
       }
     }
 
-    // Batch lookup existing conversations
+    // Batch lookup existing conversations (any status — we just need the id)
     const { data: existingConvs } = await supabase
       .from("wa_conversations")
       .select("id, customer_phone")
       .eq("wa_account_id", wa_account_id)
-      .eq("status", "active")
-      .in("customer_phone", phones);
+      .in("customer_phone", phones)
+      .order("created_at", { ascending: false }); // newest first so we pick the latest conv
 
     const convMap: Record<string, string> = {};
     if (existingConvs) {
@@ -748,7 +748,7 @@ async function insertChatMessages(
       }));
       const { data: newConvs } = await supabase
         .from("wa_conversations")
-        .upsert(inserts, { onConflict: "wa_account_id,customer_phone" })
+        .insert(inserts)
         .select("id, customer_phone");
       if (newConvs) {
         for (const c of newConvs) {
@@ -1174,7 +1174,7 @@ async function sendBroadcast(
 
     // Collect results and flush to DB immediately
     const now = new Date().toISOString();
-    const batchSent: { id: string; whatsapp_message_id: string; sent_at: string }[] = [];
+    const batchSent: { id: string; phone: string; whatsapp_message_id: string; sent_at: string }[] = [];
     const batchFailed: { id: string; error_details: string }[] = [];
     const batchEcosystem: { id: string; error_details: string }[] = [];
 
@@ -1188,6 +1188,7 @@ async function sendBroadcast(
         if (res.value.recipient.id) {
           batchSent.push({
             id: res.value.recipient.id,
+            phone: res.value.recipient.phone || "",
             whatsapp_message_id: res.value.waMessageId || "",
             sent_at: now,
           });
@@ -1256,8 +1257,8 @@ async function sendBroadcast(
     await Promise.all(dbOps);
 
     // ─── Insert sent messages into Live Chat ───
-    const chatItems = batchSent.map((s, idx) => ({
-      phone: batch[idx]?.phone || "",
+    const chatItems = batchSent.map(s => ({
+      phone: s.phone,
       whatsapp_message_id: s.whatsapp_message_id,
       sent_at: s.sent_at,
     })).filter(c => c.phone);
