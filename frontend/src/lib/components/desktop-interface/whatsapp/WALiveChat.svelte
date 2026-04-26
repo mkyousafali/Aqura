@@ -57,6 +57,9 @@
         body_text: string;
         language: string;
         status: string;
+        header_type?: string | null;
+        header_content?: string | null;
+        buttons?: any[] | null;
     }
 
     let supabase: any = null;
@@ -76,6 +79,14 @@
     let showTemplatePicker = false;
     let refreshInterval: any;
     let messagesContainer: HTMLElement;
+
+    // Template variable modal
+    let showTemplateVarsModal = false;
+    let pendingTemplate: WATemplate | null = null;
+    let pendingBodyVars: number[] = [];
+    let pendingUrlButtons: { idx: number; text: string; url: string }[] = [];
+    let bodyVarValues: Record<string, string> = {};
+    let urlBtnValues: Record<string, string> = {};
 
     // Pagination for conversations
     const CONV_PAGE_SIZE = 50;
@@ -285,7 +296,7 @@
         try {
             const { data } = await supabase
                 .from('wa_templates')
-                .select('id, name, body_text, language, status')
+                .select('id, name, body_text, language, status, header_type, header_content, buttons')
                 .eq('wa_account_id', accountId)
                 .eq('status', 'APPROVED');
             templates = data || [];
@@ -669,34 +680,152 @@
 
     async function sendTemplate(template: WATemplate) {
         if (!selectedConv || sending) return;
+
+        // Detect body variables
+        const bodyVarMatches = (template.body_text || '').match(/\{\{\s*(\d+)\s*\}\}/g) || [];
+        const uniqueBodyIdx = Array.from(new Set(bodyVarMatches.map((m: string) => parseInt(m.replace(/[^0-9]/g, ''), 10)))).sort((a, b) => a - b);
+
+        // Detect URL button variables
+        const btns = Array.isArray(template.buttons) ? template.buttons : [];
+        const urlBtns: { idx: number; text: string; url: string }[] = [];
+        for (let i = 0; i < btns.length; i++) {
+            const b = btns[i];
+            if (String(b?.type || '').toUpperCase() === 'URL' && typeof b.url === 'string' && /\{\{\s*\d+\s*\}\}/.test(b.url)) {
+                urlBtns.push({ idx: i, text: b.text || 'Link', url: b.url });
+            }
+        }
+
+        // Auto-fill body variables from conversation context
+        // {{1}} → customer name, {{2}} → phone, others → blank
+        const customerName = selectedConv.customer_name || '';
+        const customerPhone = selectedConv.customer_phone || '';
+        const autoBodyValues: Record<string, string> = {};
+        for (const i of uniqueBodyIdx) {
+            if (i === 1) autoBodyValues[String(i)] = customerName;
+            else if (i === 2) autoBodyValues[String(i)] = customerPhone;
+            else autoBodyValues[String(i)] = '';
+        }
+
+        const allBodyAutoFilled = uniqueBodyIdx.every(i => !!autoBodyValues[String(i)]);
+
+        // No variables at all → send immediately
+        if (uniqueBodyIdx.length === 0 && urlBtns.length === 0) {
+            await actuallySendTemplate(template, []);
+            return;
+        }
+
+        // All body vars auto-filled and no URL button vars → send immediately
+        if (allBodyAutoFilled && urlBtns.length === 0) {
+            const components: any[] = [{
+                type: 'body',
+                parameters: uniqueBodyIdx.map(i => ({ type: 'text', text: autoBodyValues[String(i)] }))
+            }];
+            await actuallySendTemplate(template, components);
+            return;
+        }
+
+        // Otherwise show modal with auto-filled defaults (user can review/edit)
+        pendingTemplate = template;
+        pendingBodyVars = uniqueBodyIdx;
+        pendingUrlButtons = urlBtns;
+        bodyVarValues = { ...autoBodyValues };
+        urlBtnValues = {};
+        for (const b of urlBtns) urlBtnValues[String(b.idx)] = '';
+        showTemplatePicker = false;
+        showTemplateVarsModal = true;
+    }
+
+    function cancelTemplateVars() {
+        showTemplateVarsModal = false;
+        pendingTemplate = null;
+        pendingBodyVars = [];
+        pendingUrlButtons = [];
+        bodyVarValues = {};
+        urlBtnValues = {};
+    }
+
+    async function confirmTemplateVars() {
+        if (!pendingTemplate) return;
+        const tmpl = pendingTemplate;
+
+        // Validate all values filled
+        for (const i of pendingBodyVars) {
+            if (!bodyVarValues[String(i)] || !bodyVarValues[String(i)].trim()) {
+                alert(`Please fill body variable {{${i}}}`);
+                return;
+            }
+        }
+        for (const b of pendingUrlButtons) {
+            if (!urlBtnValues[String(b.idx)] || !urlBtnValues[String(b.idx)].trim()) {
+                alert(`Please fill button "${b.text}" parameter`);
+                return;
+            }
+        }
+
+        const components: any[] = [];
+
+        if (pendingBodyVars.length > 0) {
+            components.push({
+                type: 'body',
+                parameters: pendingBodyVars.map(i => ({ type: 'text', text: bodyVarValues[String(i)] }))
+            });
+        }
+        for (const b of pendingUrlButtons) {
+            components.push({
+                type: 'button',
+                sub_type: 'url',
+                index: String(b.idx),
+                parameters: [{ type: 'text', text: urlBtnValues[String(b.idx)] }]
+            });
+        }
+
+        showTemplateVarsModal = false;
+        pendingTemplate = null;
+        pendingBodyVars = [];
+        pendingUrlButtons = [];
+
+        await actuallySendTemplate(tmpl, components);
+    }
+
+    async function actuallySendTemplate(template: WATemplate, extraComponents: any[]) {
+        if (!selectedConv || sending) return;
         sending = true;
         showTemplatePicker = false;
         try {
-            const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
-            let wamid: string | null = null;
-            if (accData) {
-                const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
-                const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+            const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
 
-                const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accData.access_token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        messaging_product: 'whatsapp',
-                        to: phone,
-                        type: 'template',
-                        template: {
-                            name: template.name,
-                            language: { code: template.language }
-                        }
-                    })
-                });
-                const waResult = await waResp.json();
-                wamid = waResult?.messages?.[0]?.id || null;
+            // Build components: header media (if any) + extras (body vars / url btn params)
+            const components: any[] = [];
+
+            if (template.header_type && template.header_type !== 'NONE' && template.header_type !== 'TEXT' && template.header_content) {
+                const ht = String(template.header_type).toLowerCase();
+                const mediaKey = ht === 'image' ? 'image' : ht === 'video' ? 'video' : ht === 'document' ? 'document' : null;
+                if (mediaKey) {
+                    components.push({
+                        type: 'header',
+                        parameters: [{ type: mediaKey, [mediaKey]: { link: template.header_content } }]
+                    });
+                }
             }
+
+            for (const c of extraComponents) components.push(c);
+
+            // Use edge function (avoids browser CORS block on graph.facebook.com)
+            const { data: waResult, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+                body: {
+                    action: 'send_template',
+                    account_id: accountId,
+                    to: phone,
+                    template_name: template.name,
+                    language: template.language,
+                    components: components.length ? components : undefined
+                }
+            });
+            if (fnErr) {
+                throw new Error(fnErr.message || 'Failed to send template');
+            }
+            const wamid: string | null = waResult?.data?.messages?.[0]?.id || waResult?.messages?.[0]?.id || null;
 
             // Save message record
             await supabase.from('wa_messages').insert({
@@ -721,6 +850,7 @@
             scrollToBottom();
         } catch (e: any) {
             console.error('Send template error:', e);
+            alert('Failed to send template: ' + (e?.message || 'Unknown error'));
         } finally {
             sending = false;
         }
@@ -1807,6 +1937,78 @@
                 <!-- Report Incident Form (reusing mobile component) -->
                 <div class="flex-1 overflow-y-auto incident-popup-body">
                     <ReportIncident presetTypeId="IN1" presetCustomerName={selectedConv?.customer_name || ''} presetCustomerPhone={selectedConv?.customer_phone || ''} />
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    <!-- Template Variables Modal -->
+    {#if showTemplateVarsModal && pendingTemplate}
+        <div class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm" on:click={cancelTemplateVars} on:keydown={(e) => e.key === 'Escape' && cancelTemplateVars()} role="presentation">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" on:click|stopPropagation on:keydown|stopPropagation role="dialog" tabindex="-1" aria-modal="true" aria-label="Fill template variables">
+                <div class="px-5 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white flex items-center justify-between">
+                    <div>
+                        <div class="text-base font-semibold">📝 Fill template variables</div>
+                        <div class="text-xs text-emerald-100 mt-0.5">{pendingTemplate.name}</div>
+                    </div>
+                    <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white" on:click={cancelTemplateVars} aria-label="Close">✕</button>
+                </div>
+
+                <div class="p-5 max-h-[60vh] overflow-y-auto space-y-4">
+                    <!-- Body preview -->
+                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700 whitespace-pre-wrap">
+                        {pendingTemplate.body_text}
+                    </div>
+
+                    {#if pendingBodyVars.length > 0}
+                        <div class="space-y-3">
+                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Body variables</div>
+                            {#each pendingBodyVars as varIdx}
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1" for="bodyvar-{varIdx}">
+                                        Variable <span class="font-mono text-emerald-700">{`{{${varIdx}}}`}</span>
+                                    </label>
+                                    <input
+                                        id="bodyvar-{varIdx}"
+                                        type="text"
+                                        bind:value={bodyVarValues[String(varIdx)]}
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm"
+                                        placeholder="Enter value..."
+                                        autocomplete="off"
+                                    />
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+
+                    {#if pendingUrlButtons.length > 0}
+                        <div class="space-y-3">
+                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">URL button parameters</div>
+                            {#each pendingUrlButtons as btn}
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1" for="urlbtn-{btn.idx}">
+                                        Button "{btn.text}"
+                                        <span class="block text-xs text-slate-400 font-normal mt-0.5 truncate">{btn.url}</span>
+                                    </label>
+                                    <input
+                                        id="urlbtn-{btn.idx}"
+                                        type="text"
+                                        bind:value={urlBtnValues[String(btn.idx)]}
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm"
+                                        placeholder="Enter URL parameter..."
+                                        autocomplete="off"
+                                    />
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
+
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+                    <button class="px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-sm font-medium" on:click={cancelTemplateVars}>Cancel</button>
+                    <button class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50" on:click={confirmTemplateVars} disabled={sending}>
+                        {sending ? 'Sending...' : 'Send Template'}
+                    </button>
                 </div>
             </div>
         </div>

@@ -59,6 +59,10 @@
 	let logsFilter = 'all';
 	let logsPage = 0;
 	let logsHasMore = true;
+	let logsDateFilter = 'today'; // 'today' | 'yesterday' | 'specific' | 'range' | 'all'
+	let logsSpecificDate = '';
+	let logsDateFrom = '';
+	let logsDateTo = '';
 
 	// Redemption logs state
 	let redemptionLogs: any[] = [];
@@ -66,6 +70,10 @@
 	let redemptionFilter = 'all';
 	let redemptionPage = 0;
 	let redemptionHasMore = true;
+	let redemptionDateFilter = 'today'; // 'today' | 'yesterday' | 'specific' | 'range' | 'all'
+	let redemptionSpecificDate = '';
+	let redemptionDateFrom = '';
+	let redemptionDateTo = '';
 	const LOGS_PER_PAGE = 50;
 
 	// Realtime
@@ -448,6 +456,10 @@
 			else if (logsFilter === 'losers') query = query.eq('is_winner', false).eq('rejected', false);
 			else if (logsFilter === 'rejected') query = query.eq('rejected', true);
 
+			const { from, to } = getDateBounds(logsDateFilter, logsSpecificDate, logsDateFrom, logsDateTo);
+			if (from) query = query.gte('created_at', from);
+			if (to) query = query.lte('created_at', to);
+
 			const { data, error } = await query;
 			if (error) throw error;
 
@@ -485,6 +497,10 @@
 			if (redemptionFilter === 'redeemed') query = query.eq('status', 'redeemed');
 			else if (redemptionFilter === 'used') query = query.in('status', ['used', 'printed', 'active']);
 
+			const { from, to } = getDateBounds(redemptionDateFilter, redemptionSpecificDate, redemptionDateFrom, redemptionDateTo);
+			if (from) query = query.gte('created_at', from);
+			if (to) query = query.lte('created_at', to);
+
 			const { data, error } = await query;
 			if (error) throw error;
 
@@ -509,6 +525,30 @@
 	function formatLogDate(dateStr: string) {
 		const d = new Date(dateStr);
 		return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+	}
+
+	function getDateBounds(filter: string, specificDate: string, dateFrom: string, dateTo: string) {
+		const now = new Date();
+		const todayStr = now.toISOString().split('T')[0];
+		const yest = new Date(now.getTime() - 86400000);
+		const yesterdayStr = yest.toISOString().split('T')[0];
+		let from: string | null = null;
+		let to: string | null = null;
+		if (filter === 'today') {
+			from = todayStr + 'T00:00:00.000Z';
+			to = todayStr + 'T23:59:59.999Z';
+		} else if (filter === 'yesterday') {
+			from = yesterdayStr + 'T00:00:00.000Z';
+			to = yesterdayStr + 'T23:59:59.999Z';
+		} else if (filter === 'specific' && specificDate) {
+			from = specificDate + 'T00:00:00.000Z';
+			to = specificDate + 'T23:59:59.999Z';
+		} else if (filter === 'range') {
+			if (dateFrom) from = dateFrom + 'T00:00:00.000Z';
+			if (dateTo) to = dateTo + 'T23:59:59.999Z';
+		}
+		// 'all' => no date bounds
+		return { from, to };
 	}
 
 	// Auto-load dashboard when switching to it
@@ -844,7 +884,41 @@
 					{/if}
 				<!-- Logs Tab -->
 				{:else if activeTab === 'logs'}
-					<!-- Filters -->
+					<!-- Date Filters -->
+					<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] p-4 mb-3">
+						<div class="flex items-center gap-2 flex-wrap">
+							<span class="text-xs font-black text-slate-500 uppercase tracking-wide mr-1">📅 Date:</span>
+							{#each [
+								{ key: 'today', label: 'Today' },
+								{ key: 'yesterday', label: 'Yesterday' },
+								{ key: 'specific', label: 'Specific Date' },
+								{ key: 'range', label: 'Date Range' },
+								{ key: 'all', label: 'All Time' }
+							] as df}
+								<button
+									class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all duration-200 {logsDateFilter === df.key ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}"
+									on:click={() => { logsDateFilter = df.key; loadLogs(true); }}
+								>
+									{df.label}
+								</button>
+							{/each}
+						</div>
+						{#if logsDateFilter === 'specific'}
+							<div class="mt-3 flex items-center gap-2">
+								<input type="date" bind:value={logsSpecificDate} on:change={() => loadLogs(true)}
+									class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+							</div>
+						{:else if logsDateFilter === 'range'}
+							<div class="mt-3 flex items-center gap-2 flex-wrap">
+								<input type="date" bind:value={logsDateFrom} on:change={() => loadLogs(true)}
+									class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+								<span class="text-xs text-slate-400 font-bold">→</span>
+								<input type="date" bind:value={logsDateTo} on:change={() => loadLogs(true)}
+									class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+							</div>
+						{/if}
+					</div>
+					<!-- Status Filters -->
 					<div class="flex items-center gap-2 mb-4 flex-wrap">
 						{#each [
 							{ key: 'all', label: $t('giftWheel.manager.logs.filters.all') },
@@ -940,7 +1014,41 @@
 
 				<!-- Redemption Logs Tab -->
 				{:else if activeTab === 'redemptions'}
-					<!-- Filters -->
+					<!-- Date Filters -->
+					<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] p-4 mb-3">
+						<div class="flex items-center gap-2 flex-wrap">
+							<span class="text-xs font-black text-slate-500 uppercase tracking-wide mr-1">📅 Date:</span>
+							{#each [
+								{ key: 'today', label: 'Today' },
+								{ key: 'yesterday', label: 'Yesterday' },
+								{ key: 'specific', label: 'Specific Date' },
+								{ key: 'range', label: 'Date Range' },
+								{ key: 'all', label: 'All Time' }
+							] as df}
+								<button
+									class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all duration-200 {redemptionDateFilter === df.key ? 'bg-purple-600 border-purple-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}"
+									on:click={() => { redemptionDateFilter = df.key; loadRedemptionLogs(true); }}
+								>
+									{df.label}
+								</button>
+							{/each}
+						</div>
+						{#if redemptionDateFilter === 'specific'}
+							<div class="mt-3 flex items-center gap-2">
+								<input type="date" bind:value={redemptionSpecificDate} on:change={() => loadRedemptionLogs(true)}
+									class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all" />
+							</div>
+						{:else if redemptionDateFilter === 'range'}
+							<div class="mt-3 flex items-center gap-2 flex-wrap">
+								<input type="date" bind:value={redemptionDateFrom} on:change={() => loadRedemptionLogs(true)}
+									class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all" />
+								<span class="text-xs text-slate-400 font-bold">→</span>
+								<input type="date" bind:value={redemptionDateTo} on:change={() => loadRedemptionLogs(true)}
+									class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all" />
+							</div>
+						{/if}
+					</div>
+					<!-- Status Filters -->
 					<div class="flex items-center gap-2 mb-4 flex-wrap">
 						{#each [{ key: 'all', label: $t('giftWheel.manager.redemptions.filters.all') }, { key: 'used', label: $t('giftWheel.manager.redemptions.filters.used') }, { key: 'redeemed', label: $t('giftWheel.manager.redemptions.filters.redeemed') }] as f}
 							<button

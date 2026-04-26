@@ -43,6 +43,9 @@
 	};
 	let savingEdit = false;
 
+	// Checkboxes
+	let checkedPaymentIds: Set<string> = new Set();
+
 	// Filtered vendors based on search
 	$: filteredVendors = vendors.filter(v => 
 		v.vendor_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -86,6 +89,36 @@
 	// Reset to page 1 when filters change and current page is out of bounds
 	$: if (currentPage > totalPages && totalPages > 0) {
 		currentPage = 1;
+	}
+
+	// Clear checkboxes when vendor or filters change
+	$: if (selectedVendorId || paidFilter || selectedBranchId || selectedPaymentMethod) {
+		checkedPaymentIds = new Set();
+	}
+
+	// Checked rows derived from all filteredPayments (not just current page)
+	$: checkedCount = checkedPaymentIds.size;
+	$: checkedTotal = filteredPayments
+		.filter(p => checkedPaymentIds.has(String(p.id)))
+		.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0);
+	$: allPageChecked = paginatedPayments.length > 0 && paginatedPayments.every(p => checkedPaymentIds.has(String(p.id)));
+
+	function toggleRow(id: string) {
+		if (checkedPaymentIds.has(id)) {
+			checkedPaymentIds.delete(id);
+		} else {
+			checkedPaymentIds.add(id);
+		}
+		checkedPaymentIds = checkedPaymentIds; // trigger reactivity
+	}
+
+	function toggleAllPage() {
+		if (allPageChecked) {
+			paginatedPayments.forEach(p => checkedPaymentIds.delete(String(p.id)));
+		} else {
+			paginatedPayments.forEach(p => checkedPaymentIds.add(String(p.id)));
+		}
+		checkedPaymentIds = checkedPaymentIds;
 	}
 
 	// Calculate total amount
@@ -833,11 +866,33 @@
 			{:else}
 				<!-- Receiving Payments Table -->
 				{#if filteredPayments.length > 0}
+					<!-- Checked Summary Bar -->
+					{#if checkedCount > 0}
+						<div class="mb-3 flex items-center gap-4 px-4 py-2.5 rounded-xl bg-blue-600 text-white shadow-lg text-xs font-bold">
+							<span class="flex items-center gap-1.5">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+								{checkedCount} selected
+							</span>
+							<span class="flex items-center gap-1">
+								Total:
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.7em] opacity-80 inline mx-0.5" />
+								<span class="text-sm font-black">{checkedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+							</span>
+							<button
+								class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all"
+								on:click={() => { checkedPaymentIds = new Set(); }}
+							>Clear</button>
+						</div>
+					{/if}
 					<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden mb-4">
 						<div class="overflow-x-auto">
 							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
 								<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
 									<tr>
+										<th class="px-2 py-2.5 text-center text-[11px] font-black uppercase border-b-2 border-blue-400 w-8">
+											<input type="checkbox" checked={allPageChecked} on:change={toggleAllPage}
+												class="w-3.5 h-3.5 rounded cursor-pointer accent-white" />
+										</th>
 										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Branch</th>
 										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Bill Date</th>
 										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Due Date</th>
@@ -850,7 +905,13 @@
 								</thead>
 								<tbody class="divide-y divide-slate-200">
 									{#each paginatedPayments as payment, index}
-										<tr class="hover:bg-blue-50/30 transition-colors {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<tr class="hover:bg-blue-50/30 transition-colors {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {checkedPaymentIds.has(String(payment.id)) ? '!bg-blue-50/60' : ''}">
+											<td class="px-2 py-2 text-center w-8">
+												<input type="checkbox"
+													checked={checkedPaymentIds.has(String(payment.id))}
+													on:change={() => toggleRow(String(payment.id))}
+													class="w-3.5 h-3.5 rounded cursor-pointer accent-blue-600" />
+											</td>
 											<td class="px-3 py-2 text-xs text-slate-700">{payment.branches?.name_en || payment.branch_name || '-'}</td>
 											<td class="px-3 py-2 text-xs text-slate-700 font-mono">{formatDate(payment.bill_date)}</td>
 											<td class="px-3 py-2 text-xs text-slate-700 font-mono">{formatDate(payment.due_date)}</td>

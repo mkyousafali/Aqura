@@ -55,6 +55,9 @@
 		body_text: string;
 		language: string;
 		status: string;
+		header_type?: string | null;
+		header_content?: string | null;
+		buttons?: any[] | null;
 	}
 
 	let accountId = '';
@@ -73,6 +76,14 @@
 	let showTemplatePicker = false;
 	let refreshInterval: any;
 	let messagesContainer: HTMLElement;
+
+	// Template variable modal
+	let showTemplateVarsModal = false;
+	let pendingTemplate: WATemplate | null = null;
+	let pendingBodyVars: number[] = [];
+	let pendingUrlButtons: { idx: number; text: string; url: string }[] = [];
+	let bodyVarValues: Record<string, string> = {};
+	let urlBtnValues: Record<string, string> = {};
 
 	// Pagination for conversations
 	const CONV_PAGE_SIZE = 50;
@@ -267,7 +278,7 @@
 		try {
 			const { data } = await supabase
 				.from('wa_templates')
-				.select('id, name, body_text, language, status')
+				.select('id, name, body_text, language, status, header_type, header_content, buttons')
 				.eq('wa_account_id', accountId)
 				.eq('status', 'APPROVED');
 			templates = data || [];
@@ -488,34 +499,139 @@
 
 	async function sendTemplate(template: WATemplate) {
 		if (!selectedConv || sending) return;
+
+		// Detect body variables
+		const bodyVarMatches = (template.body_text || '').match(/\{\{\s*(\d+)\s*\}\}/g) || [];
+		const uniqueBodyIdx = Array.from(new Set(bodyVarMatches.map((m: string) => parseInt(m.replace(/[^0-9]/g, ''), 10)))).sort((a, b) => a - b);
+
+		// Detect URL button variables
+		const btns = Array.isArray(template.buttons) ? template.buttons : [];
+		const urlBtns: { idx: number; text: string; url: string }[] = [];
+		for (let i = 0; i < btns.length; i++) {
+			const b = btns[i];
+			if (String(b?.type || '').toUpperCase() === 'URL' && typeof b.url === 'string' && /\{\{\s*\d+\s*\}\}/.test(b.url)) {
+				urlBtns.push({ idx: i, text: b.text || 'Link', url: b.url });
+			}
+		}
+
+		// Auto-fill: {{1}} → customer name, {{2}} → phone
+		const customerName = selectedConv.customer_name || '';
+		const customerPhone = selectedConv.customer_phone || '';
+		const autoBodyValues: Record<string, string> = {};
+		for (const i of uniqueBodyIdx) {
+			if (i === 1) autoBodyValues[String(i)] = customerName;
+			else if (i === 2) autoBodyValues[String(i)] = customerPhone;
+			else autoBodyValues[String(i)] = '';
+		}
+		const allBodyAutoFilled = uniqueBodyIdx.every(i => !!autoBodyValues[String(i)]);
+
+		if (uniqueBodyIdx.length === 0 && urlBtns.length === 0) {
+			await actuallySendTemplate(template, []);
+			return;
+		}
+
+		if (allBodyAutoFilled && urlBtns.length === 0) {
+			const components: any[] = [{
+				type: 'body',
+				parameters: uniqueBodyIdx.map(i => ({ type: 'text', text: autoBodyValues[String(i)] }))
+			}];
+			await actuallySendTemplate(template, components);
+			return;
+		}
+
+		pendingTemplate = template;
+		pendingBodyVars = uniqueBodyIdx;
+		pendingUrlButtons = urlBtns;
+		bodyVarValues = { ...autoBodyValues };
+		urlBtnValues = {};
+		for (const b of urlBtns) urlBtnValues[String(b.idx)] = '';
+		showTemplatePicker = false;
+		showTemplateVarsModal = true;
+	}
+
+	function cancelTemplateVars() {
+		showTemplateVarsModal = false;
+		pendingTemplate = null;
+		pendingBodyVars = [];
+		pendingUrlButtons = [];
+		bodyVarValues = {};
+		urlBtnValues = {};
+	}
+
+	async function confirmTemplateVars() {
+		if (!pendingTemplate) return;
+		const tmpl = pendingTemplate;
+
+		for (const i of pendingBodyVars) {
+			if (!bodyVarValues[String(i)] || !bodyVarValues[String(i)].trim()) {
+				alert(`Please fill body variable {{${i}}}`);
+				return;
+			}
+		}
+		for (const b of pendingUrlButtons) {
+			if (!urlBtnValues[String(b.idx)] || !urlBtnValues[String(b.idx)].trim()) {
+				alert(`Please fill button "${b.text}" parameter`);
+				return;
+			}
+		}
+
+		const components: any[] = [];
+		if (pendingBodyVars.length > 0) {
+			components.push({
+				type: 'body',
+				parameters: pendingBodyVars.map(i => ({ type: 'text', text: bodyVarValues[String(i)] }))
+			});
+		}
+		for (const b of pendingUrlButtons) {
+			components.push({
+				type: 'button',
+				sub_type: 'url',
+				index: String(b.idx),
+				parameters: [{ type: 'text', text: urlBtnValues[String(b.idx)] }]
+			});
+		}
+
+		showTemplateVarsModal = false;
+		pendingTemplate = null;
+		pendingBodyVars = [];
+		pendingUrlButtons = [];
+
+		await actuallySendTemplate(tmpl, components);
+	}
+
+	async function actuallySendTemplate(template: WATemplate, extraComponents: any[]) {
+		if (!selectedConv || sending) return;
 		sending = true;
 		showTemplatePicker = false;
 		try {
-			const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
-			let wamid: string | null = null;
-			if (accData) {
-				const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
-				const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+			const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
+			const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
 
-				const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
-					method: 'POST',
-					headers: {
-						'Authorization': `Bearer ${accData.access_token}`,
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({
-						messaging_product: 'whatsapp',
-						to: phone,
-						type: 'template',
-						template: {
-							name: template.name,
-							language: { code: template.language }
-						}
-					})
-				});
-				const waResult = await waResp.json();
-				wamid = waResult?.messages?.[0]?.id || null;
+			const components: any[] = [];
+			if (template.header_type && template.header_type !== 'NONE' && template.header_type !== 'TEXT' && template.header_content) {
+				const ht = String(template.header_type).toLowerCase();
+				const mediaKey = ht === 'image' ? 'image' : ht === 'video' ? 'video' : ht === 'document' ? 'document' : null;
+				if (mediaKey) {
+					components.push({
+						type: 'header',
+						parameters: [{ type: mediaKey, [mediaKey]: { link: template.header_content } }]
+					});
+				}
 			}
+			for (const c of extraComponents) components.push(c);
+
+			const { data: waResult, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+				body: {
+					action: 'send_template',
+					account_id: accountId,
+					to: phone,
+					template_name: template.name,
+					language: template.language,
+					components: components.length ? components : undefined
+				}
+			});
+			if (fnErr) throw new Error(fnErr.message || 'Failed to send template');
+			const wamid: string | null = waResult?.data?.messages?.[0]?.id || waResult?.messages?.[0]?.id || null;
 
 			await supabase.from('wa_messages').insert({
 				conversation_id: selectedConv.id,
@@ -539,6 +655,7 @@
 			scrollToBottom();
 		} catch (e: any) {
 			console.error('Send template error:', e);
+			alert('Failed to send template: ' + (e?.message || 'Unknown error'));
 		} finally {
 			sending = false;
 		}
@@ -1704,6 +1821,52 @@
 					</button>
 				</div>
 			{/if}
+		</div>
+	</div>
+{/if}
+
+<!-- Template Variables Modal -->
+{#if showTemplateVarsModal && pendingTemplate}
+	<div class="tmplvars-overlay" on:click={cancelTemplateVars} on:keydown={(e) => e.key === 'Escape' && cancelTemplateVars()} role="presentation">
+		<div class="tmplvars-modal" on:click|stopPropagation on:keydown|stopPropagation role="dialog" tabindex="-1" aria-modal="true" aria-label="Fill template variables">
+			<div class="tmplvars-header">
+				<div>
+					<div class="tmplvars-title">📝 {isRTL ? 'تعبئة متغيرات القالب' : 'Fill template variables'}</div>
+					<div class="tmplvars-subtitle">{pendingTemplate.name}</div>
+				</div>
+				<button class="tmplvars-close" on:click={cancelTemplateVars} aria-label="Close">✕</button>
+			</div>
+
+			<div class="tmplvars-body">
+				<div class="tmplvars-preview">{pendingTemplate.body_text}</div>
+
+				{#if pendingBodyVars.length > 0}
+					<div class="tmplvars-section-label">{isRTL ? 'متغيرات النص' : 'Body variables'}</div>
+					{#each pendingBodyVars as varIdx}
+						<div class="tmplvars-field">
+							<label for="m-bodyvar-{varIdx}">{isRTL ? 'متغير' : 'Variable'} <code>{`{{${varIdx}}}`}</code></label>
+							<input id="m-bodyvar-{varIdx}" type="text" bind:value={bodyVarValues[String(varIdx)]} placeholder={isRTL ? 'أدخل قيمة...' : 'Enter value...'} autocomplete="off" />
+						</div>
+					{/each}
+				{/if}
+
+				{#if pendingUrlButtons.length > 0}
+					<div class="tmplvars-section-label">{isRTL ? 'متغيرات أزرار الرابط' : 'URL button parameters'}</div>
+					{#each pendingUrlButtons as btn}
+						<div class="tmplvars-field">
+							<label for="m-urlbtn-{btn.idx}">"{btn.text}" <span class="tmplvars-url">{btn.url}</span></label>
+							<input id="m-urlbtn-{btn.idx}" type="text" bind:value={urlBtnValues[String(btn.idx)]} placeholder={isRTL ? 'أدخل المتغير...' : 'Enter parameter...'} autocomplete="off" />
+						</div>
+					{/each}
+				{/if}
+			</div>
+
+			<div class="tmplvars-footer">
+				<button class="tmplvars-cancel" on:click={cancelTemplateVars}>{isRTL ? 'إلغاء' : 'Cancel'}</button>
+				<button class="tmplvars-send" on:click={confirmTemplateVars} disabled={sending}>
+					{sending ? (isRTL ? 'جاري الإرسال...' : 'Sending...') : (isRTL ? 'إرسال' : 'Send')}
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -3129,6 +3292,74 @@
 	.offer-cancel-btn:hover {
 		background: #cbd5e1;
 	}
+
+	/* Template variables modal */
+	.tmplvars-overlay {
+		position: fixed; inset: 0; z-index: 1000;
+		background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);
+		display: flex; align-items: center; justify-content: center; padding: 16px;
+	}
+	.tmplvars-modal {
+		background: white; border-radius: 16px; width: 100%; max-width: 420px;
+		max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
+		box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4);
+	}
+	.tmplvars-header {
+		padding: 14px 18px; background: linear-gradient(135deg, #059669, #047857); color: white;
+		display: flex; align-items: center; justify-content: space-between;
+	}
+	.tmplvars-title { font-size: 15px; font-weight: 600; }
+	.tmplvars-subtitle { font-size: 11px; color: #d1fae5; margin-top: 2px; }
+	.tmplvars-close {
+		width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.2);
+		border: none; color: white; cursor: pointer; font-size: 14px;
+	}
+	.tmplvars-close:hover { background: rgba(255,255,255,0.3); }
+	.tmplvars-body { padding: 16px; overflow-y: auto; flex: 1; }
+	.tmplvars-preview {
+		background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+		padding: 10px 12px; font-size: 13px; color: #475569; white-space: pre-wrap;
+		margin-bottom: 14px;
+	}
+	.tmplvars-section-label {
+		font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase;
+		letter-spacing: 0.05em; margin: 10px 0 8px;
+	}
+	.tmplvars-field { margin-bottom: 12px; }
+	.tmplvars-field label {
+		display: block; font-size: 13px; font-weight: 500; color: #334155; margin-bottom: 4px;
+	}
+	.tmplvars-field code {
+		background: #ecfdf5; color: #059669; padding: 1px 6px; border-radius: 4px;
+		font-family: ui-monospace, monospace; font-size: 12px;
+	}
+	.tmplvars-url {
+		display: block; font-size: 11px; color: #94a3b8; font-weight: normal; margin-top: 2px;
+		word-break: break-all;
+	}
+	.tmplvars-field input {
+		width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+		font-size: 14px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+		box-sizing: border-box;
+	}
+	.tmplvars-field input:focus {
+		border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+	}
+	.tmplvars-footer {
+		padding: 12px 16px; background: #f8fafc; border-top: 1px solid #e2e8f0;
+		display: flex; justify-content: flex-end; gap: 8px;
+	}
+	.tmplvars-cancel {
+		padding: 9px 16px; border-radius: 8px; background: white; border: 1px solid #cbd5e1;
+		color: #475569; font-size: 13px; font-weight: 500; cursor: pointer;
+	}
+	.tmplvars-cancel:hover { background: #f1f5f9; }
+	.tmplvars-send {
+		padding: 9px 18px; border-radius: 8px; background: #059669; border: none;
+		color: white; font-size: 13px; font-weight: 500; cursor: pointer;
+	}
+	.tmplvars-send:hover:not(:disabled) { background: #047857; }
+	.tmplvars-send:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 
 
