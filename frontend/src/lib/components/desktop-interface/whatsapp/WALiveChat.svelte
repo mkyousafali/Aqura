@@ -113,6 +113,24 @@
     let isInputTransforming = false;
     let showInputTranslatePicker = false;
     let inputTranslateLangSearch = '';
+
+    // Offer selection
+    interface Offer {
+        id: string;
+        offer_name: string;
+        branch_id: number;
+        branch_name?: string;
+        branch_location?: string;
+        file_url: string;
+        start_date: string;
+        end_date: string;
+        start_time: string;
+        end_time: string;
+    }
+    let showOfferModal = false;
+    let availableOffers: Offer[] = [];
+    let selectedOffer: Offer | null = null;
+    let loadingOffers = false;
     let isInputTranslating = false;
 
     $: filteredInputTranslateLangs = translateLanguages.filter(l =>
@@ -428,6 +446,166 @@
         }
     }
 
+    async function fetchValidOffers() {
+        if (!supabase) return;
+        loadingOffers = true;
+        try {
+            const now = new Date();
+            const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            const currentTime = now.toTimeString().slice(0, 8); // HH:MM:SS
+
+            // Fetch ALL offers and filter in JavaScript to ensure we get all matching offers
+            const { data: offersData, error: offersError } = await supabase
+                .from('view_offer')
+                .select('id, offer_name, branch_id, file_url, start_date, end_date, start_time, end_time');
+
+            if (offersError) throw offersError;
+
+            // Filter for currently active offers (between start and end dates)
+            const timeFilteredOffers = (offersData || []).filter((offer: any) => {
+                // Check if offer has started (date only)
+                if (offer.start_date > currentDate) return false;
+                // Check if offer has ended (respect end_time on the last day)
+                if (offer.end_date < currentDate) return false;
+                if (offer.end_date === currentDate && currentTime > (offer.end_time || '23:59:00')) return false;
+                return true;
+            });
+
+            // Get unique branch IDs
+            const branchIds = [...new Set(timeFilteredOffers.map((o: any) => o.branch_id))];
+            
+            // Fetch branch names and locations
+            let branchMap: Record<number, { name: string; location: string }> = {};
+            if (branchIds.length > 0) {
+                const { data: branchesData, error: branchError } = await supabase
+                    .from('branches')
+                    .select('id, name_en, name_ar, location_en, location_ar')
+                    .in('id', branchIds);
+                
+                if (!branchError && branchesData) {
+                    branchesData.forEach((b: any) => {
+                        // Use current locale to display branch name and location - clean any newlines
+                        const branchName = $locale === 'ar' ? (b.name_ar || '') : (b.name_en || '');
+                        const branchLocation = $locale === 'ar' ? (b.location_ar || '') : (b.location_en || '');
+                        branchMap[b.id] = {
+                            name: branchName.trim().replace(/[\n\r]/g, ' '),
+                            location: branchLocation.trim().replace(/[\n\r]/g, ' ')
+                        };
+                    });
+                }
+            }
+
+            // Map offers with branch names and locations
+            availableOffers = timeFilteredOffers.map((offer: any) => {
+                const branchInfo = branchMap[offer.branch_id];
+                return {
+                    ...offer,
+                    offer_name: (offer.offer_name || '').trim().replace(/[\n\r]/g, ' '),
+                    branch_name: branchInfo?.name || 'Unknown Branch',
+                    branch_location: branchInfo?.location || ''
+                };
+            });
+
+            if (availableOffers.length > 0) {
+                showOfferModal = true;
+            } else {
+                alert($locale === 'ar' ? 'لا توجد عروض متاحة حالياً' : 'No offers available at this time');
+            }
+        } catch (e: any) {
+            console.error('Fetch offers error:', e);
+            alert($locale === 'ar' ? 'خطأ في جلب العروض' : 'Error fetching offers');
+        } finally {
+            loadingOffers = false;
+        }
+    }
+
+    async function sendOfferPDF() {
+        if (!selectedOffer || !selectedConv || sending) return;
+        sending = true;
+        showOfferModal = false;
+        try {
+            const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
+            if (!accData) throw new Error('No account data');
+
+            // Use the existing file_url from the offer
+            const publicUrl = selectedOffer.file_url;
+
+            // Send via WhatsApp API
+            const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+
+            const offerFileName = `${selectedOffer.offer_name}.pdf`;
+            const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accData.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messaging_product: 'whatsapp',
+                    to: phone,
+                    type: 'document',
+                    document: {
+                        link: publicUrl,
+                        filename: offerFileName
+                    }
+                })
+            });
+            const waResult = await waResp.json();
+            const wamid = waResult?.messages?.[0]?.id || null;
+
+            // Save to DB
+            await supabase.from('wa_messages').insert({
+                conversation_id: selectedConv.id,
+                wa_account_id: accountId,
+                direction: 'outbound',
+                message_type: 'document',
+                content: `🎁 ${selectedOffer.offer_name}`,
+                media_url: publicUrl,
+                media_mime_type: 'application/pdf',
+                whatsapp_message_id: wamid,
+                status: 'sent',
+                sent_by: 'user',
+                sent_by_user_id: $currentUser?.id || null
+            });
+
+            await supabase.from('wa_conversations').update({
+                last_message_at: new Date().toISOString(),
+                last_message_preview: `🎁 ${selectedOffer.offer_name}`
+            }).eq('id', selectedConv.id);
+
+            await loadMessages(selectedConv.id);
+            scrollToBottom();
+            selectedOffer = null;
+        } catch (e: any) {
+            console.error('Send offer error:', e);
+            alert($locale === 'ar' ? 'خطأ في إرسال العرض' : 'Error sending offer');
+        } finally {
+            sending = false;
+        }
+    }
+
+    async function sendCurrentOffer() {
+        if (!selectedConv || !selectedConv.is_inside_24hr) return;
+        selectedOffer = null;
+        await fetchValidOffers();
+    }
+
+    function getRemainingDays(endDate: string): number {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(0, 0, 0, 0);
+        const diffTime = end.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return Math.max(0, diffDays);
+    }
+
+    function cleanText(text: string): string {
+        if (!text) return '';
+        return text.trim().replace(/[\n\r]/g, ' ');
+    }
+
     async function sendMessage() {
         if (!messageInput.trim() || !selectedConv || sending) return;
         if (!selectedConv.is_inside_24hr) return; // Can't send free-form outside 24hr
@@ -476,7 +654,7 @@
             // Update conversation
             await supabase.from('wa_conversations').update({
                 last_message_at: new Date().toISOString(),
-                last_message_preview: messageInput.trim().substring(0, 100)
+                last_message_preview: cleanText(messageInput).substring(0, 100)
             }).eq('id', selectedConv.id);
 
             messageInput = '';
@@ -1294,7 +1472,7 @@
                                     </div>
                                 {/if}
                                 {#if msg.content && !(['image','audio','voice','video','sticker'].includes(msg.message_type) && msg.media_url && /^\[.+\]$/.test(msg.content.trim()))}
-                                    <p class="whitespace-pre-wrap break-words">{msg.content}</p>
+                                    <p class="whitespace-pre-wrap break-words">{cleanText(msg.content)}</p>
                                 {/if}
                                 <!-- Interactive buttons -->
                                 {#if msg.message_type === 'interactive' && msg.metadata}
@@ -1408,6 +1586,15 @@
                                 {/if}
                             </div>
 
+                            <!-- Send Current Offer (inside 24h window only) -->
+                            <button
+                                class="px-3 h-10 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold rounded-full flex items-center gap-1.5 hover:from-pink-600 hover:to-rose-600 shadow-sm transition-all whitespace-nowrap"
+                                on:click={sendCurrentOffer}
+                                title={$locale === 'ar' ? 'إرسال العرض الحالي' : 'Send Current Offer'}
+                            >
+                                🎁 <span>{$locale === 'ar' ? 'إرسال العرض' : 'Send Offer'}</span>
+                            </button>
+
                             <textarea bind:value={messageInput} rows="1"
                                 placeholder="Type a message..."
                                 class="flex-1 px-4 py-2.5 bg-white/80 border border-orange-300 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 resize-none max-h-24 backdrop-blur-sm transition-all"
@@ -1460,10 +1647,69 @@
                                 {#each templates as tmpl}
                                     <button class="w-full text-left px-3 py-2.5 bg-white/60 rounded-xl hover:bg-orange-50 transition-all border border-orange-100/50 hover:border-orange-200"
                                         on:click={() => sendTemplate(tmpl)}>
-                                        <p class="text-xs font-bold text-slate-700">{tmpl.name}</p>
-                                        <p class="text-[10px] text-slate-500 truncate mt-0.5">{tmpl.body_text}</p>
+                                        <p class="text-xs font-bold text-slate-700">{cleanText(tmpl.name)}</p>
+                                        <p class="text-[10px] text-slate-500 truncate mt-0.5">{cleanText(tmpl.body_text)}</p>
                                         <span class="text-[9px] text-orange-500 font-medium">{tmpl.language === 'ar' ? '🇸🇦' : '🇺🇸'} {tmpl.language.toUpperCase()}</span>
                                     </button>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+
+                <!-- Offer Selection Modal -->
+                {#if showOfferModal}
+                    <div class="offer-modal">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-sm font-bold text-pink-600 uppercase tracking-wider">🎁 {$locale === 'ar' ? 'اختر عرضاً' : 'Select an Offer'}</h4>
+                            <button class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 text-xs transition-colors" on:click={() => { showOfferModal = false; selectedOffer = null; }}>✕</button>
+                        </div>
+                        {#if loadingOffers}
+                            <div class="flex items-center justify-center py-6">
+                                <span class="animate-spin inline-block w-4 h-4 border border-pink-300 border-t-pink-600 rounded-full mr-2"></span>
+                                <span class="text-xs text-slate-500">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</span>
+                            </div>
+                        {:else}
+                            <div class="space-y-2 max-h-64 overflow-y-auto">
+                                {#each availableOffers as offer}
+                                    <div
+                                        role="button"
+                                        tabindex="0"
+                                        class="w-full text-left px-4 py-3 rounded-xl transition-all border-2 cursor-pointer {selectedOffer?.id === offer.id ? 'bg-pink-50 border-pink-400 shadow-md' : 'bg-white/60 border-pink-100/50 hover:bg-pink-50 hover:border-pink-200'}"
+                                        on:click={() => { selectedOffer = selectedOffer?.id === offer.id ? null : offer; }}
+                                        on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { selectedOffer = selectedOffer?.id === offer.id ? null : offer; } }}
+                                    >
+                                        <p class="text-sm font-bold text-slate-800">{offer.offer_name}</p>
+                                        <p class="text-[11px] text-slate-600 mt-1 flex items-center gap-2">
+                                            <span>🏪 {offer.branch_name || 'Unknown Branch'}</span>
+                                            {#if offer.branch_location}
+                                                <span class="text-slate-500">📍 {offer.branch_location}</span>
+                                            {/if}
+                                        </p>
+                                        <p class="text-[10px] text-slate-500 mt-1 flex items-center gap-3">
+                                            <span>📅 {offer.start_date} {$locale === 'ar' ? 'إلى' : 'to'} {offer.end_date}</span>
+                                            <span class="font-semibold {getRemainingDays(offer.end_date) <= 3 ? 'text-red-500' : 'text-green-600'}">
+                                                ⏰ {getRemainingDays(offer.end_date)} {$locale === 'ar' ? 'أيام' : 'days'}
+                                            </span>
+                                        </p>
+                                        {#if selectedOffer?.id === offer.id}
+                                            <div class="mt-2 flex gap-2">
+                                                <button
+                                                    class="flex-1 px-3 py-2 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold rounded-lg hover:from-pink-600 hover:to-rose-600 transition-all disabled:opacity-50"
+                                                    on:click|stopPropagation={sendOfferPDF}
+                                                    disabled={sending}
+                                                >
+                                                    {sending ? '⏳' : '✓ Send'}
+                                                </button>
+                                                <button
+                                                    class="flex-1 px-3 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-all"
+                                                    on:click|stopPropagation={() => { selectedOffer = null; }}
+                                                >
+                                                    {$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                                                </button>
+                                            </div>
+                                        {/if}
+                                    </div>
                                 {/each}
                             </div>
                         {/if}
@@ -1833,6 +2079,17 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
         padding: 14px;
         max-height: 260px;
+        overflow-y: auto;
+    }
+
+    .offer-modal {
+        margin-top: 10px;
+        background: white;
+        border: 2px solid #fbcfe8;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(236, 72, 153, 0.1);
+        padding: 14px;
+        max-height: 300px;
         overflow-y: auto;
     }
 

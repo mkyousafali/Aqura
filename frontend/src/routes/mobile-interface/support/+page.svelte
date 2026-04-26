@@ -148,6 +148,24 @@
 	let fileInput: HTMLInputElement;
 	let showAttachMenu = false;
 
+	// Offer-related state
+	interface Offer {
+		id: string;
+		offer_name: string;
+		branch_id: number;
+		branch_name: string;
+		branch_location: string;
+		file_url: string;
+		start_date: string;
+		end_date: string;
+		start_time: string;
+		end_time: string;
+	}
+	let showOfferModal = false;
+	let availableOffers: Offer[] = [];
+	let selectedOffer: Offer | null = null;
+	let loadingOffers = false;
+
 	// Input text transform & translate
 	let isInputTransforming = false;
 	let showInputTranslatePicker = false;
@@ -521,6 +539,165 @@
 			scrollToBottom();
 		} catch (e: any) {
 			console.error('Send template error:', e);
+		} finally {
+			sending = false;
+		}
+	}
+
+	// Clean text by removing newlines and carriage returns
+	function cleanText(text: string): string {
+		return text.trim().replace(/[\n\r]/g, ' ');
+	}
+
+	// Calculate remaining days for an offer
+	function getRemainingDays(endDate: string): number {
+		const end = new Date(endDate);
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		end.setHours(0, 0, 0, 0);
+		const diffTime = end.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		return Math.max(0, diffDays);
+	}
+
+	// Fetch available offers from database
+	async function fetchValidOffers() {
+		if (!supabase) return;
+		loadingOffers = true;
+		try {
+			const now = new Date();
+			const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+			const currentTime = now.toTimeString().slice(0, 8); // HH:MM:SS
+
+			// Fetch ALL offers and filter in JavaScript to ensure we get all matching offers
+			const { data: offersData, error: offersError } = await supabase
+				.from('view_offer')
+				.select('id, offer_name, branch_id, file_url, start_date, end_date, start_time, end_time');
+
+			if (offersError) throw offersError;
+
+			// Filter for currently active offers (between start and end dates)
+			const timeFilteredOffers = (offersData || []).filter((offer: any) => {
+				// Check if offer has started (date only)
+				if (offer.start_date > currentDate) return false;
+				// Check if offer has ended (respect end_time on the last day)
+				if (offer.end_date < currentDate) return false;
+				if (offer.end_date === currentDate && currentTime > (offer.end_time || '23:59:00')) return false;
+				return true;
+			});
+
+			// Get unique branch IDs
+			const branchIds = [...new Set(timeFilteredOffers.map((o: any) => o.branch_id))];
+			
+			// Fetch branch names and locations
+			let branchMap: Record<number, { name: string; location: string }> = {};
+			if (branchIds.length > 0) {
+				const { data: branchesData, error: branchError } = await supabase
+					.from('branches')
+					.select('id, name_en, name_ar, location_en, location_ar')
+					.in('id', branchIds);
+				
+				if (!branchError && branchesData) {
+					branchesData.forEach((b: any) => {
+						// Use current locale to display branch name and location - clean any newlines
+						const branchName = $currentLocale === 'ar' ? (b.name_ar || '') : (b.name_en || '');
+						const branchLocation = $currentLocale === 'ar' ? (b.location_ar || '') : (b.location_en || '');
+						branchMap[b.id] = {
+							name: branchName.trim().replace(/[\n\r]/g, ' '),
+							location: branchLocation.trim().replace(/[\n\r]/g, ' ')
+						};
+					});
+				}
+			}
+
+			// Map offers with branch names and locations
+			availableOffers = timeFilteredOffers.map((offer: any) => {
+				const branchInfo = branchMap[offer.branch_id];
+				return {
+					...offer,
+					offer_name: cleanText(offer.offer_name || ''),
+					branch_name: branchInfo?.name || 'Unknown Branch',
+					branch_location: branchInfo?.location || ''
+				};
+			});
+
+			if (availableOffers.length > 0) {
+				showOfferModal = true;
+			} else {
+				alert($currentLocale === 'ar' ? 'لا توجد عروض متاحة حالياً' : 'No offers available at this time');
+			}
+		} catch (e: any) {
+			console.error('Fetch offers error:', e);
+			alert($currentLocale === 'ar' ? 'خطأ في جلب العروض' : 'Error fetching offers');
+		} finally {
+			loadingOffers = false;
+		}
+	}
+
+	// Send offer PDF via WhatsApp
+	async function sendOfferPDF() {
+		if (!selectedOffer || !selectedConv || sending) return;
+		const offer = selectedOffer; // capture before nulling
+		sending = true;
+		showOfferModal = false;
+		selectedOffer = null;
+		try {
+			const { data: accData } = await supabase.from('wa_accounts').select('phone_number_id, access_token').eq('id', accountId).single();
+			if (!accData) throw new Error('No account data');
+
+			// Use the existing file_url from the offer
+			const publicUrl = offer.file_url;
+
+			// Send via WhatsApp API
+			const cleanPhone = selectedConv.customer_phone.replace(/[\s\-()]/g, '');
+			const phone = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+
+			const offerFileName = `${cleanText(offer.offer_name)}.pdf`;
+			const waResp = await fetch(`https://graph.facebook.com/v22.0/${accData.phone_number_id}/messages`, {
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${accData.access_token}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					messaging_product: 'whatsapp',
+					to: phone,
+					type: 'document',
+					document: {
+						link: publicUrl,
+						filename: offerFileName
+					}
+				})
+			});
+
+			const waResult = await waResp.json();
+			const wamid = waResult?.messages?.[0]?.id;
+
+			// Log the message to database
+			await supabase.from('wa_messages').insert({
+				conversation_id: selectedConv.id,
+				wa_account_id: accountId,
+				direction: 'outbound',
+				message_type: 'document',
+				content: `Offer: ${cleanText(offer.offer_name)}`,
+				whatsapp_message_id: wamid,
+				status: 'sent',
+				sent_by: 'user',
+				sent_by_user_id: $currentUser?.id || null,
+				media_url: publicUrl
+			});
+
+			// Update conversation
+			await supabase.from('wa_conversations').update({
+				last_message_at: new Date().toISOString(),
+				last_message_preview: `📄 ${cleanText(offer.offer_name)}`
+			}).eq('id', selectedConv.id);
+
+			await loadMessages(selectedConv.id);
+			scrollToBottom();
+		} catch (e: any) {
+			console.error('Send offer error:', e);
+			alert($currentLocale === 'ar' ? 'خطأ في إرسال العرض' : 'Error sending offer');
 		} finally {
 			sending = false;
 		}
@@ -1357,6 +1534,13 @@
 							{/if}
 						</div>
 
+						<!-- Send Offer -->
+						{#if selectedConv?.is_inside_24hr}
+							<button class="wa-offer-btn" on:click={fetchValidOffers} disabled={sending} title={isRTL ? 'إرسال عرض' : 'Send Offer'}>
+								🎁
+							</button>
+						{/if}
+
 						<!-- Text input -->
 						<div class="wa-text-input-wrap">
 							<textarea bind:value={messageInput} rows="1"
@@ -1473,6 +1657,56 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Offer Selection Modal - OUTSIDE wa-mobile to avoid clipping by overflow: hidden -->
+{#if showOfferModal}
+	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+	<div class="offer-modal-backdrop" on:click={() => { showOfferModal = false; selectedOffer = null; }}>
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="offer-modal" on:click|stopPropagation>
+			<div class="offer-modal-header">
+				<span>🎁 {isRTL ? 'اختر عرضاً' : 'SELECT AN OFFER'}</span>
+				<button on:click={() => { showOfferModal = false; selectedOffer = null; }}>✕</button>
+			</div>
+			{#if loadingOffers}
+				<div class="offer-loading">
+					<div class="spinner"></div>
+					<p>{isRTL ? 'جاري تحميل العروض...' : 'Loading offers...'}</p>
+				</div>
+			{:else}
+				<div class="offer-list">
+					{#each availableOffers as offer}
+						<button class="offer-item" class:selected={selectedOffer?.id === offer.id} on:click={() => selectedOffer = selectedOffer?.id === offer.id ? null : offer}>
+							<div class="offer-name">{cleanText(offer.offer_name)}</div>
+							<div class="offer-branch-location">
+								<span class="offer-branch">🏪 {cleanText(offer.branch_name)}</span>
+								{#if offer.branch_location}
+									<span class="offer-location">📍 {cleanText(offer.branch_location)}</span>
+								{/if}
+							</div>
+							<div class="offer-dates-days">
+								<span class="offer-dates">📅 {offer.start_date} - {offer.end_date}</span>
+								<span class="offer-remaining" class:expiring={getRemainingDays(offer.end_date) <= 3}>
+									⏰ {getRemainingDays(offer.end_date)} {isRTL ? 'أيام' : 'days'}
+								</span>
+							</div>
+						</button>
+					{/each}
+				</div>
+			{/if}
+			{#if selectedOffer}
+				<div class="offer-modal-actions">
+					<button class="offer-send-btn" on:click={sendOfferPDF} disabled={sending}>
+						{sending ? '⏳' : '📤'} {isRTL ? 'إرسال' : 'Send'}
+					</button>
+					<button class="offer-cancel-btn" on:click={() => { showOfferModal = false; selectedOffer = null; }}>
+						{isRTL ? 'إلغاء' : 'Cancel'}
+					</button>
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
 
 <style>
 	/* Override parent layout scroll — this page manages its own scrolling */
@@ -2691,6 +2925,209 @@
 		color: #667781;
 		font-size: 13px;
 		padding: 20px 0;
+	}
+
+	/* ===== Offer Modal ===== */
+	.wa-offer-btn {
+		background: linear-gradient(135deg, #ec4899, #f43f5e);
+		border: none;
+		color: white;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 20px;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: opacity 0.2s ease;
+	}
+	.wa-offer-btn:hover:not(:disabled) {
+		opacity: 0.85;
+	}
+	.wa-offer-btn:active:not(:disabled) {
+		transform: scale(0.95);
+	}
+	.wa-offer-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.offer-modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 9998;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.offer-modal {
+		position: relative;
+		background: white;
+		border: 2px solid #fbcfe8;
+		border-radius: 12px;
+		width: 90%;
+		max-width: 500px;
+		max-height: 70vh;
+		display: flex;
+		flex-direction: column;
+		z-index: 9999;
+		box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+	}
+
+	.offer-modal-header {
+		padding: 16px;
+		border-bottom: 1px solid #fbcfe8;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-weight: 600;
+		color: #1e293b;
+	}
+	.offer-modal-header button {
+		background: none;
+		border: none;
+		font-size: 20px;
+		cursor: pointer;
+		color: #64748b;
+	}
+
+	.offer-loading {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 40px 20px;
+		gap: 16px;
+	}
+	.spinner {
+		width: 40px;
+		height: 40px;
+		border: 4px solid #f0f0f0;
+		border-top: 4px solid #ec4899;
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.offer-list {
+		flex: 1;
+		overflow-y: auto;
+		padding: 8px 0;
+	}
+
+	.offer-item {
+		width: 100%;
+		padding: 12px 16px;
+		border: none;
+		background: transparent;
+		border-bottom: 1px solid #fbcfe8;
+		text-align: start;
+		cursor: pointer;
+		transition: background-color 0.2s ease;
+	}
+	.offer-item:hover {
+		background-color: #fce7f3;
+	}
+	.offer-item.selected {
+		background-color: #fbcfe8;
+	}
+
+	.offer-name {
+		font-size: 14px;
+		font-weight: 600;
+		color: #1e293b;
+		margin: 0 0 6px 0;
+	}
+
+	.offer-branch-location {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-bottom: 6px;
+	}
+	.offer-branch {
+		font-size: 12px;
+		color: #475569;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.offer-location {
+		font-size: 11px;
+		color: #64748b;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.offer-dates-days {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-top: 6px;
+	}
+	.offer-dates {
+		font-size: 11px;
+		color: #64748b;
+	}
+	.offer-remaining {
+		font-size: 11px;
+		font-weight: 600;
+		color: #10b981;
+		padding: 2px 6px;
+		background-color: #ecfdf5;
+		border-radius: 4px;
+	}
+	.offer-remaining.expiring {
+		color: #dc2626;
+		background-color: #fee2e2;
+	}
+
+	.offer-modal-actions {
+		display: flex;
+		gap: 12px;
+		padding: 16px;
+		border-top: 1px solid #fbcfe8;
+	}
+
+	.offer-send-btn {
+		flex: 1;
+		padding: 10px 16px;
+		background: linear-gradient(135deg, #ec4899, #f43f5e);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: opacity 0.2s ease;
+	}
+	.offer-send-btn:hover:not(:disabled) {
+		opacity: 0.85;
+	}
+	.offer-send-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.offer-cancel-btn {
+		flex: 1;
+		padding: 10px 16px;
+		background: #e2e8f0;
+		color: #1e293b;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background-color 0.2s ease;
+	}
+	.offer-cancel-btn:hover {
+		background: #cbd5e1;
 	}
 </style>
 
