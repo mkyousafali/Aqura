@@ -23,6 +23,7 @@
 	// Quick action buttons permission
 	let hasSalesPermission = false;
 	let salesLoading = false;
+	let dailyLoading = false;
 
 	// Voice input (speech recognition)
 	let isListening = false;
@@ -453,6 +454,239 @@
 		await scrollToBottom();
 	}
 
+	async function handleDailyReport() {
+		if (dailyLoading) return;
+		if (closingCountdown) cancelCountdown();
+		resetInactivityTimer();
+
+		messages = [...messages, { role: 'user', content: isArabic ? '📋 التقرير اليومي' : '📋 Daily Report' }];
+		await scrollToBottom();
+
+		dailyLoading = true;
+		isLoading = true;
+
+		try {
+			const { data: sessionData } = await supabase.auth.getSession();
+			const token = sessionData.session?.access_token;
+
+			const res = await fetch(
+				`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/daily-report`,
+				{
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Authorization': `Bearer ${token}`,
+					},
+					body: JSON.stringify({}),
+				}
+			);
+
+			if (!res.ok) throw new Error(`Edge function error: ${res.status}`);
+			const report = await res.json();
+			if (report.error) throw new Error(report.error);
+
+			const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+			const cur = isArabic ? 'ر.س' : 'SAR';
+			const na  = isArabic ? 'لا توجد بيانات' : 'No data available';
+			const L   = (ar: string, en: string) => isArabic ? ar : en;
+			const lines: string[] = [];
+
+			lines.push(L(`تقرير يوم ${report.date}`, `Daily Report for ${report.date}`));
+
+			// 1. Sales
+			lines.push('');
+			lines.push(L('المبيعات حسب الفرع:', 'Sales by Branch:'));
+			if (report.sales?.length) {
+				let tAmt = 0, tBills = 0, tRet = 0;
+				report.sales.forEach((s: any) => {
+					const name = L(s.branch_name_ar, s.branch_name_en);
+					lines.push(L(
+						`${name}: ${fmt(s.net_amount)} ${cur}، ${s.net_bills} فاتورة، مرتجع ${fmt(s.return_amount)} ${cur}`,
+						`${name}: ${fmt(s.net_amount)} ${cur}, ${s.net_bills} bills, returns ${fmt(s.return_amount)} ${cur}`
+					));
+					tAmt += s.net_amount || 0; tBills += s.net_bills || 0; tRet += s.return_amount || 0;
+				});
+				lines.push(L(
+					`الإجمالي: ${fmt(tAmt)} ${cur}، ${tBills} فاتورة، مرتجعات ${fmt(tRet)} ${cur}`,
+					`Total: ${fmt(tAmt)} ${cur}, ${tBills} bills, returns ${fmt(tRet)} ${cur}`
+				));
+			} else { lines.push(na); }
+
+			// 2. Received Bills — grouped by branch
+			lines.push('');
+			lines.push(L('الفواتير المستلمة من الموردين:', 'Vendor Bills Received:'));
+			if (report.receivedBills?.length) {
+				let grandTotal = 0, grandCount = 0;
+				report.receivedBills.forEach((group: any) => {
+					const branchName = L(group.branch_name_ar, group.branch_name_en);
+					lines.push(L(
+						`${branchName}: ${group.count} فاتورة بإجمالي ${fmt(group.subtotal)} ${cur}`,
+						`${branchName}: ${group.count} bill(s), subtotal ${fmt(group.subtotal)} ${cur}`
+					));
+					(group.bills || []).forEach((b: any) => {
+						lines.push(`  ${b.vendor_name}: ${fmt(b.bill_amount)} ${cur}`);
+					});
+					grandTotal += group.subtotal || 0;
+					grandCount += group.count || 0;
+				});
+				lines.push(L(
+					`الإجمالي الكلي: ${fmt(grandTotal)} ${cur} (${grandCount} فاتورة)`,
+					`Grand total: ${fmt(grandTotal)} ${cur} across ${grandCount} bill(s)`
+				));
+			} else { lines.push(na); }
+
+			// 3. Paid Bills
+			lines.push('');
+			lines.push(L('الفواتير المدفوعة اليوم:', 'Bills Paid Today:'));
+			if (report.paidBills?.length) {
+				let total = 0;
+				report.paidBills.forEach((b: any) => {
+					total += b.amount || 0;
+					lines.push(`${b.vendor_name}${b.branch_name ? ` (${b.branch_name})` : ''}: ${fmt(b.amount)} ${cur}${b.payment_method ? `, ${b.payment_method}` : ''}`);
+				});
+				lines.push(L(`إجمالي المدفوع: ${fmt(total)} ${cur}`, `Total paid: ${fmt(total)} ${cur}`));
+			} else { lines.push(na); }
+
+			// 4. Paid Expenses — exclude zero-amount items (same as Central Performance)
+			lines.push('');
+			lines.push(L('المصروفات المدفوعة:', 'Paid Expenses:'));
+			const filteredExpenses = (report.paidExpenses || []).filter((e: any) => (e.amount || 0) > 0);
+			if (filteredExpenses.length) {
+				let total = 0;
+				filteredExpenses.forEach((e: any) => {
+					total += e.amount || 0;
+					const cat = L(e.category_ar, e.category_en);
+					lines.push(`${cat}${e.vendor_name ? ` - ${e.vendor_name}` : ''} (${e.branch_name}): ${fmt(e.amount)} ${cur}${e.payment_method ? `, ${e.payment_method}` : ''}`);
+				});
+				lines.push(L(`إجمالي المصروفات: ${fmt(total)} ${cur}`, `Total expenses: ${fmt(total)} ${cur}`));
+			} else { lines.push(na); }
+
+			// 5. Cashier Reports — show cash diff + card diff separately (same as Central Performance)
+			lines.push('');
+			lines.push(L('تقارير الكاشيرات:', 'Cashier Reports:'));
+			if (report.cashierReports?.length) {
+				report.cashierReports.forEach((c: any, i: number) => {
+					const branch = L(c.branch_name_ar, c.branch_name_en);
+					const totalSign = c.difference_total >= 0 ? '+' : '';
+					const cashSign  = c.difference_cash  >= 0 ? '+' : '';
+					const cardSign  = c.difference_card  >= 0 ? '+' : '';
+					lines.push(L(
+						`${i + 1}. ${c.cashier_name || 'غير معروف'} - ${branch} - موقع ${c.box_number}: مبيعات ${fmt(c.total_sales)} ${cur} | فرق نقد ${cashSign}${fmt(c.difference_cash)} | فرق بطاقة ${cardSign}${fmt(c.difference_card)} | الصافي ${totalSign}${fmt(c.difference_total)} ${cur}`,
+						`${i + 1}. ${c.cashier_name || 'Unknown'} - ${branch} - position ${c.box_number}: sales ${fmt(c.total_sales)} ${cur} | cash diff ${cashSign}${fmt(c.difference_cash)} | card diff ${cardSign}${fmt(c.difference_card)} | net ${totalSign}${fmt(c.difference_total)} ${cur}`
+					));
+				});
+				const summary = report.cashierSummary;
+				if (summary) {
+					lines.push(L(
+						`ملخص: ${summary.totalBoxes} صندوق مُغلق، ${summary.flagged} بهم فروق، إجمالي الزيادات ${fmt(summary.totalExcess)} ${cur}، إجمالي النقص ${fmt(Math.abs(summary.totalShort))} ${cur}`,
+						`Summary: ${summary.totalBoxes} boxes closed, ${summary.flagged} with differences, total excess ${fmt(summary.totalExcess)} ${cur}, total short ${fmt(Math.abs(summary.totalShort))} ${cur}`
+					));
+				}
+			} else {
+				lines.push(L('لا توجد فروق تستدعي الانتباه', 'No cashier differences above 5 SAR'));
+			}
+
+			// 6. Task Performance
+			lines.push('');
+			lines.push(L('أداء المهام حسب الفرع:', 'Branch Task Performance:'));
+			if (report.taskPerformance?.length) {
+				report.taskPerformance.forEach((t: any) => {
+					const branch = L(t.branch_name_ar, t.branch_name_en);
+					const rate = t.completion_rate ? ` (${Math.round(t.completion_rate)}%)` : '';
+					lines.push(L(
+						`${branch}: مكتمل ${t.completed}، معلق ${t.pending}، متأخر ${t.overdue}${rate}`,
+						`${branch}: completed ${t.completed}, pending ${t.pending}, overdue ${t.overdue}${rate}`
+					));
+				});
+			} else { lines.push(na); }
+
+			// 7. Attendance
+			lines.push('');
+			lines.push(L('ملخص الحضور:', 'Attendance Summary:'));
+			if (report.attendance?.length) {
+				report.attendance.forEach((a: any) => {
+					const branch = L(a.branch_name_ar, a.branch_name_en);
+					lines.push(L(
+						`${branch}: حاضر ${a.present}، غائب ${a.absent}، متأخر ${a.late}، إجمالي ${a.total}`,
+						`${branch}: present ${a.present}, absent ${a.absent}, late ${a.late}, total ${a.total}`
+					));
+					if (a.absent_names?.length) {
+						lines.push(L(
+							`  الغائبون: ${a.absent_names.join('، ')}`,
+							`  Absent: ${a.absent_names.join(', ')}`
+						));
+					}
+					if (a.late_names?.length) {
+						const lateList = a.late_names.map((l: any) => L(
+							`${l.name} (${l.late_minutes} دقيقة)`,
+							`${l.name} (${l.late_minutes} min)`
+						)).join(L('، ', ', '));
+						lines.push(L(
+							`  متأخرون أكثر من 5 دقائق: ${lateList}`,
+							`  Late more than 5 min: ${lateList}`
+						));
+					}
+					if (a.missing_checkout?.length) {
+						lines.push(L(
+							`  مفقود تسجيل الخروج: ${a.missing_checkout.join('، ')}`,
+							`  Missing punch-out: ${a.missing_checkout.join(', ')}`
+						));
+					}
+					if (a.under_time?.length) {
+						const underList = a.under_time.map((u: any) => L(
+							`${u.name} (ناقص ${u.under_minutes} دقيقة)`,
+							`${u.name} (short ${u.under_minutes} min)`
+						)).join(L('، ', ', '));
+						lines.push(L(
+							`  لم يكملوا ساعات الدوام: ${underList}`,
+							`  Did not complete duty hours: ${underList}`
+						));
+					}
+				});
+			} else { lines.push(na); }
+
+			// 8. Incidents
+			lines.push('');
+			lines.push(L('الحوادث المُبلَّغ عنها:', 'Reported Incidents:'));
+			if (report.incidents?.length) {
+				report.incidents.forEach((inc: any, i: number) => {
+					const type      = L(inc.incident_type_ar, inc.incident_type_en) || '?';
+					const emp       = L(inc.employee_name_ar, inc.employee_name_en) || '-';
+					const branch    = L(inc.branch_name_ar,   inc.branch_name_en)   || '-';
+					const status    = inc.resolution_status || 'pending';
+					const violation = inc.violation_en ? `, ${L(inc.violation_ar, inc.violation_en)}` : '';
+					lines.push(`${i + 1}. ${type} - ${emp} - ${branch}${violation} - ${L('الحالة', 'status')}: ${status}`);
+					if (inc.what_happened) lines.push(`   ${inc.what_happened}`);
+				});
+				lines.push(L(`الإجمالي: ${report.incidents.length} حادثة`, `Total: ${report.incidents.length} incident(s)`));
+			} else { lines.push(L('لا توجد حوادث مُبلَّغ عنها', 'No incidents reported')); }
+
+			// Send to Gemini — TTS-compatible prompt (no markdown), demand full detail
+			const dataContext = lines.join('\n');
+			const prompt = L(
+				`فيما يلي تقرير يوم أمس الكامل:\n\n${dataContext}\n\nبناءً على هذه البيانات، قدّم تحليلاً شاملاً يشمل المحاور التالية بالترتيب:\n\nأولاً، التحليل: حلل كل قسم بالتفصيل الكامل، واذكر كل الأرقام والمبالغ والأعداد الواردة في التقرير بوضوح. اذكر اسم كل فرع وأرقامه الفعلية دون إهمال أي بند.\n\nثانياً، المخاوف والتنبيهات: اذكر أي مشاكل تحتاج اهتماماً فورياً مع تفاصيل الأرقام مثل نقص في الكاشير وقيمته، وغياب الموظفين وأسماؤهم، والمهام المتأخرة وعددها.\n\nثالثاً، الاقتراحات: قدم اقتراحات عملية مبنية على الأرقام الفعلية الواردة في التقرير.\n\nرابعاً، التوجيه والتعليم: أضف ملاحظات تعليمية أو إرشادات للفريق حول أفضل الممارسات.\n\nخامساً، التعليمات: اذكر خطوات واضحة وقابلة للتنفيذ يجب على الإدارة اتخاذها اليوم.\n\nمهم جداً: اكتب الرد بلغة طبيعية محادثاتية مناسبة للقراءة بصوت عالٍ. لا تستخدم أي تنسيق نصي مثل النجوم أو الشرطات أو العناوين الغامقة. اكتب جملاً كاملة ومتسلسلة بدون قوائم. لا تختصر أو تُهمل أي رقم وارد في التقرير.`,
+				`Below is yesterday's complete daily report:\n\n${dataContext}\n\nBased on this data, provide a thorough analysis covering the following areas in order:\n\nFirst, Analysis: go through every section in full detail. Mention every branch by name, every amount, every count, and every figure from the report. Do not skip any number or abbreviate any section.\n\nSecond, Concerns and Alerts: call out issues needing immediate attention, always referencing the specific numbers, names, and amounts involved. For example name which cashier had a shortage and by how much, which employees were absent or late and by how many minutes.\n\nThird, Suggestions: provide practical recommendations tied to the actual figures in the report.\n\nFourth, Guidance and Education: add coaching notes or best practice guidance relevant to what appeared in the report.\n\nFifth, Action Instructions: list clear steps that management should take today.\n\nVery important: write your response in natural conversational language suitable for text-to-speech reading. Do not use any markdown formatting, asterisks, bullet points, dashes, bold text, or special symbols. Write in complete flowing sentences and paragraphs. You must mention every number from the report by name and value. Do not summarise or omit any figures.`
+			);
+
+			const reply = await sendChatMessage([{ role: 'user', content: prompt }], $currentLocale);
+			messages = [...messages, { role: 'assistant', content: reply }];
+			speakText(reply);
+
+		} catch (err: any) {
+			messages = [...messages, {
+				role: 'assistant',
+				content: isArabic
+					? `عذرًا، حدث خطأ: ${err.message}`
+					: `Sorry, an error occurred: ${err.message}`
+			}];
+		}
+
+		dailyLoading = false;
+		isLoading = false;
+		resetInactivityTimer();
+		await scrollToBottom();
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.altKey && !e.shiftKey) {
 			e.preventDefault();
@@ -631,6 +865,20 @@
 		>
 			<span class="quick-action-icon">📊</span>
 			<span class="quick-action-label">{isArabic ? 'مبيعات أمس' : 'Sales Report'}</span>
+			{#if !hasSalesPermission}
+				<span class="lock-icon">🔒</span>
+			{/if}
+		</button>
+		<button
+			class="quick-action-btn"
+			on:click={handleDailyReport}
+			disabled={!hasSalesPermission || dailyLoading}
+			title={hasSalesPermission
+				? (isArabic ? 'التقرير اليومي الكامل' : 'Full Daily Report')
+				: (isArabic ? 'ليس لديك صلاحية' : 'No permission')}
+		>
+			<span class="quick-action-icon">{dailyLoading ? '⏳' : '📋'}</span>
+			<span class="quick-action-label">{isArabic ? 'التقرير اليومي' : 'Daily Report'}</span>
 			{#if !hasSalesPermission}
 				<span class="lock-icon">🔒</span>
 			{/if}
