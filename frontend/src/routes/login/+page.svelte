@@ -11,6 +11,7 @@
 	let maskPollInterval: any = null;
 	let branches: any[] = [];
 	let isWhatsAppBrowser = false;
+	let giftWheelActive = false;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -64,6 +65,12 @@
 				.select('customer_login_mask_enabled')
 				.single();
 			if (data) showMask = data.customer_login_mask_enabled;
+		} catch {}
+
+		// Check gift wheel status
+		try {
+			const { data: gwData } = await supabase.rpc('gift_wheel_check_status');
+			giftWheelActive = !!(gwData?.active);
 		} catch {}
 
 		// Load branches
@@ -218,6 +225,12 @@
 						</svg>
 						{isRTL ? 'مواقعنا' : 'Locate Us'}
 					</button>
+					{#if giftWheelActive}
+					<a class="btn-gift-wheel" href="/gift-wheel">
+						🎡
+						{isRTL ? 'عجلة الهدايا' : 'Gift Wheel'}
+					</a>
+					{/if}
 				</div>
 
 				<!-- Coming Soon Mask (over customer login) -->
@@ -721,6 +734,29 @@
 	}
 	.btn-locate:active { transform: translateY(0); }
 
+	.btn-gift-wheel {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		padding: 14px 28px;
+		border-radius: 50px;
+		font-weight: 700;
+		font-size: 16px;
+		cursor: pointer;
+		transition: all 0.3s;
+		text-decoration: none;
+		border: none;
+		background: linear-gradient(135deg, #f59e0b, #d97706);
+		color: white;
+		box-shadow: 0 4px 16px rgba(245,158,11,0.35);
+	}
+	.btn-gift-wheel:hover {
+		background: linear-gradient(135deg, #d97706, #b45309);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 24px rgba(245,158,11,0.5);
+	}
+	.btn-gift-wheel:active { transform: translateY(0); }
+
 	/* Coming Soon Mask */
 	.mask-notice {
 		position: absolute;
@@ -1093,7 +1129,7 @@
 		.hero-logo-img { width: 140px; height: 140px; }
 
 		.hero-buttons { flex-direction: column; align-items: stretch; }
-		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate {
+		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel {
 			justify-content: center;
 			padding: 14px 20px;
 			font-size: 15px;
@@ -1120,7 +1156,7 @@
 		.hero-text h1 { font-size: 1.45rem; }
 		.hero-sub { font-size: 0.82rem; }
 		.hero-logo-img { width: 110px; height: 110px; }
-		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate { font-size: 14px; padding: 12px 16px; }
+		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel { font-size: 14px; padding: 12px 16px; }
 		.feature-card h3 { font-size: 0.95rem; }
 		.offers-banner h2 { font-size: 1.15rem; }
 		.section-title { font-size: 1.3rem; }
