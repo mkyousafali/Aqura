@@ -58,7 +58,8 @@
 		foodAllowance: true, foodDeduction: true, gosiDeduction: true, lateDeductions: true,
 		underWorkedDeductions: true, posShortage: true, salaryAdvance: true,
 		loanDeductions: true, penaltiesDeductions: true, unapprovedLeaveDeductions: true,
-		otherDeductions: true, grossEarnings: true, totalDeductions: true, netSalary: true, netBank: true, netCash: true,
+                otherDeductions: true, grossEarnings: true, totalDeductions: true, netSalary: true, netBank: true, netCash: true,
+		idNumber: true, whatsappNumber: true,
 	};
 	function toggleAllColumns(visible: boolean) {
 		(Object.keys(colVis) as Array<keyof typeof colVis>).forEach(k => colVis[k] = visible);
@@ -920,6 +921,8 @@
 					name_ar,
 					current_branch_id,
 					employment_status,
+					id_number,
+					whatsapp_number,
 					nationality_id,
 					nationalities (
 						name_en
@@ -1112,6 +1115,8 @@
 					currentBranchId: emp.current_branch_id,
 					nationality: emp.nationality_name_en,
 					employmentStatus: emp.employment_status,
+					idNumber: emp.id_number ?? null,
+					whatsappNumber: emp.whatsapp_number ?? null,
 					shiftInfo,
 					dayByDay,
 					totalWorkedMinutes,
@@ -1776,6 +1781,8 @@
 			currentBranchId: emp.current_branch_id,
 			nationality: emp.nationality_name_en,
 			employmentStatus: emp.employment_status,
+			idNumber: emp.id_number ?? null,
+			whatsappNumber: emp.whatsapp_number ?? null,
 			shiftInfo,
 			dayByDay,
 			totalWorkedMinutes,
@@ -1795,6 +1802,15 @@
 		const m = mins % 60;
 		return `${h}h ${m}m`;
 	}
+
+function sanitizeWhatsappNumber(raw: string | null | undefined, defaultCountryCode = '966'): string | null {
+if (!raw) return null;
+let n = String(raw).replace(/[\s\-().+]/g, '');
+if (n.startsWith('00')) n = n.slice(2);
+if (n.startsWith('0')) n = defaultCountryCode + n.slice(1);
+if (!/^\d{7,15}$/.test(n)) return null;
+return n;
+}
 
 	function calculateTotalHoursInPeriod(shiftMins: number): number {
 		// Calculate total hours from 25th of start month to 24th of end month
@@ -1960,6 +1976,8 @@
 						<div class="p-2 space-y-0.5 overflow-y-auto">
 							{#each [
 								['status', $t('hr.salaryStatement.status')],
+				['idNumber', $t('hr.salaryStatement.idNumber')],
+				['whatsappNumber', $t('hr.salaryStatement.whatsappNumber')],
 								['workedHours', $t('hr.salaryStatement.totalWorkedHours')],
 								['expectedHours', $t('hr.salaryStatement.totalExpectedHours')],
 								['underWorkedHours', $t('hr.salaryStatement.totalUnderWorkedHours')],
@@ -2029,6 +2047,8 @@
 							</th>
 							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[100px] sticky top-0 z-50 bg-slate-50 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">{$t('hr.employeeId')}</th>
 							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[200px] sticky top-0 z-50 bg-slate-50 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'}">{$t('hr.fullName')}</th>
+							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[130px] whitespace-nowrap {colVis.idNumber ? '' : 'hidden'}">{$t('hr.salaryStatement.idNumber')}</th>
+							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-green-700 border-b border-r bg-green-50 text-center w-[160px] whitespace-nowrap {colVis.whatsappNumber ? '' : 'hidden'}">{$t('hr.salaryStatement.whatsappNumber')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[130px] whitespace-nowrap {colVis.status ? '' : 'hidden'}">{$t('hr.salaryStatement.status')}</th>
 							{#each datesInRange as date}
 								<th class="sticky top-0 z-30 hidden px-3 py-2 font-bold text-slate-700 border-b border-r text-center w-[100px] whitespace-nowrap bg-slate-50">
@@ -2109,6 +2129,29 @@
 											<span class="text-[9px] text-slate-500 font-normal">{row.shiftInfo}</span>
 										{/if}
 									</div>
+								</td>
+								<td class="px-4 py-3 border-r text-center text-sm font-mono text-slate-700 w-[130px] whitespace-nowrap {colVis.idNumber ? '' : 'hidden'}">
+									{row.idNumber || '—'}
+								</td>
+								<td class="px-4 py-3 border-r text-center w-[160px] {colVis.whatsappNumber ? '' : 'hidden'}">
+									{#if row.whatsappNumber}
+										<div class="flex items-center justify-center gap-2">
+											<span dir="ltr" class="text-sm font-mono text-slate-700">{row.whatsappNumber}</span>
+											{#if sanitizeWhatsappNumber(row.whatsappNumber)}
+											<button
+												type="button"
+												class="flex-shrink-0 hover:scale-110 transition-transform"
+												aria-label={$t('hr.salaryStatement.openWhatsapp')}
+												title={$t('hr.salaryStatement.openWhatsapp')}
+												on:click|stopPropagation={() => window.open(`https://wa.me/${sanitizeWhatsappNumber(row.whatsappNumber)}`, '_blank', 'noopener,noreferrer')}
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#25D366"/><path fill="#ffffff" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+											</button>
+											{/if}
+										</div>
+									{:else}
+										<span class="text-slate-400">—</span>
+									{/if}
 								</td>
 								<td class="px-3 py-3 border-r text-center w-[130px] {colVis.status ? '' : 'hidden'}">
 									{#if row.employmentStatus === 'Job (With Finger)'}
