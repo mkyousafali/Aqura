@@ -258,6 +258,15 @@ export const englishLocale: LocaleData = {
       createNotification: "Create Notification",
       assignmentDetails: "Assignment Details",
       cancel: "Cancel",
+      // ERP Quick Sign-In (keyboard-wedge QR)
+      erp: {
+        label: "ERP",
+        selectBranch: "Select Branch",
+        qrTitle: "ERP Quick Sign-In",
+        usernameCaption: "Username",
+        scanHelper: "Scan with your ERP login scanner. The QR will type your username, press Tab, type your password, and press Enter automatically.",
+        branch: "Branch",
+      },
       // Bottom navigation
       bottomNav: {
         tasks: "Tasks",

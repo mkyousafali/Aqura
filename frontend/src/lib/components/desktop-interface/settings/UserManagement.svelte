@@ -6,6 +6,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { userManagement } from '$lib/utils/userManagement';
 	import { supabase } from '$lib/utils/supabase';
 	import EditUser from '$lib/components/desktop-interface/settings/user/EditUser.svelte';
+	import ErpCredentialsModal from '$lib/components/desktop-interface/settings/ErpCredentialsModal.svelte';
 
 	// Real user data from database
 	let users = [];
@@ -17,6 +18,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let searchQuery = '';
 	let branchFilter = '';
 	let statusFilter = '';
+
+	// ERP Credentials modal state
+	let showErpCredentialsModal = false;
+	let erpCredentialsUser = null;
+
+	function openErpCredentials(user) {
+		erpCredentialsUser = user;
+		showErpCredentialsModal = true;
+	}
+
+	function closeErpCredentials() {
+		showErpCredentialsModal = false;
+		erpCredentialsUser = null;
+	}
 
 	// Change Branch modal state
 	let showChangeBranchModal = false;
@@ -513,8 +528,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 														on:click={() => toggleUserLock(user)}
 														title={user.status === 'locked' ? 'Unlock' : 'Lock'}
 														disabled={user.is_master_admin}
-													>{user.status === 'locked' ? '🔓' : '🔒'}</button>
-												</div>
+													>{user.status === 'locked' ? '🔓' : '🔒'}</button>												{#if userIsAdmin}
+												<button 
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-violet-600 text-white font-bold hover:bg-violet-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													on:click={() => openErpCredentials(user)}
+													title="Manage ERP Credentials"
+													aria-label="Manage ERP Credentials"
+												>🔑</button>
+												{/if}												</div>
 											</td>
 										</tr>
 									{/each}
@@ -531,6 +552,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</div>
 	{/if}
 </div>
+
+<!-- ERP Credentials Modal -->
+{#if showErpCredentialsModal && erpCredentialsUser}
+	<ErpCredentialsModal
+		user={erpCredentialsUser}
+		{branches}
+		onClose={closeErpCredentials}
+	/>
+{/if}
 
 <!-- Change Branch Modal -->
 {#if showChangeBranchModal}

@@ -265,6 +265,15 @@ export const arabicLocale: LocaleData = {
       createNotification: "إنشاء إشعار",
       assignmentDetails: "تفاصيل التكليف",
       cancel: "إلغاء",
+      // ERP Quick Sign-In (keyboard-wedge QR)
+      erp: {
+        label: "نظام ERP",
+        selectBranch: "اختر الفرع",
+        qrTitle: "تسجيل الدخول السريع لـ ERP",
+        usernameCaption: "اسم المستخدم",
+        scanHelper: "امسح الرمز باستخدام ماسح تسجيل دخول ERP. سيقوم الرمز بكتابة اسم المستخدم، ثم Tab، ثم كلمة المرور، ثم Enter تلقائيًا.",
+        branch: "الفرع",
+      },
       // Bottom navigation
       bottomNav: {
         tasks: "المهام",
