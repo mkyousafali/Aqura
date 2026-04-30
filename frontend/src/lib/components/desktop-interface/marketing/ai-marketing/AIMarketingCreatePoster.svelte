@@ -20,6 +20,7 @@
     let generating = false;
     let errorMessage = '';
     let generatedUrl: string | null = null;
+    let generatedDialogue = '';
 
     $: userId = $currentUser?.id;
 
@@ -28,6 +29,7 @@
         generating = true;
         errorMessage = '';
         generatedUrl = null;
+        generatedDialogue = '';
         try {
             const res = await fetch('/api/ai-marketing/generate-poster', {
                 method: 'POST',
@@ -37,6 +39,7 @@
             const data = await res.json();
             if (!data.ok) { errorMessage = data.message || 'Generation failed'; return; }
             generatedUrl = data.signedUrl;
+            generatedDialogue = data.dialogueOverlay ?? '';
         } catch (err: any) {
             errorMessage = err?.message ?? String(err);
         } finally {
@@ -166,8 +169,19 @@
                     </div>
                 {:else if generatedUrl}
                     <div class="w-full flex flex-col items-center gap-3">
-                        <div class="rounded-2xl overflow-hidden shadow-xl max-w-md w-full {previewAspect}">
+                        <div class="rounded-2xl overflow-hidden shadow-xl max-w-md w-full {previewAspect} relative">
                             <img src={generatedUrl} alt="Generated" class="w-full h-full object-contain bg-white" />
+                            {#if generatedDialogue}
+                                <!-- Arabic speech bubble overlaid as HTML — model cannot render Arabic -->
+                                <div class="absolute bottom-[12%] right-[6%] w-[52%] pointer-events-none z-10">
+                                    <div class="relative bg-white rounded-2xl px-4 py-3 text-gray-900 text-center font-bold leading-snug shadow-lg border border-gray-100"
+                                         style="direction:rtl; font-family:'Tahoma','Arial',sans-serif; font-size:clamp(11px,2.8vw,16px);">
+                                        {generatedDialogue}
+                                        <div class="absolute bottom-[-13px] right-[22%] w-0 h-0"
+                                             style="border-left:11px solid transparent; border-right:11px solid transparent; border-top:13px solid white;"></div>
+                                    </div>
+                                </div>
+                            {/if}
                         </div>
                     </div>
                 {:else}
