@@ -143,11 +143,12 @@ serve(async (req: Request) => {
     ].filter(Boolean).join(" ");
 
     const videoPrompt = [
-      "NO TEXT. NO CAPTIONS. NO SUBTITLES. NO WATERMARKS. NO WRITTEN WORDS OF ANY KIND in the video.",
+      "NO TEXT. NO CAPTIONS. NO SUBTITLES. NO WATERMARKS. NO WRITTEN WORDS OF ANY KIND visible in the video.",
       charHint,
       extraPrompt.trim(),
       `Cinematic quality, smooth camera movement, vibrant colors, professional marketing video for ${platformLabel}.`,
       brandHint,
+      "Include upbeat background music and natural ambient sound.",
     ].filter(Boolean).join(" ");
 
     const veoRatio = toVeoRatio(aspectRatio);
@@ -158,7 +159,7 @@ serve(async (req: Request) => {
     const accessToken = await getAccessToken();
 
     const veoRes = await fetch(
-      `https://us-central1-aiplatform.googleapis.com/v1/projects/${GOOGLE_PROJECT_ID}/locations/us-central1/publishers/google/models/veo-2.0-generate-001:predictLongRunning`,
+      `https://us-central1-aiplatform.googleapis.com/v1/projects/${GOOGLE_PROJECT_ID}/locations/us-central1/publishers/google/models/veo-3.0-generate-001:predictLongRunning`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -168,8 +169,8 @@ serve(async (req: Request) => {
             aspectRatio: veoRatio,
             sampleCount: 1,
             durationSeconds: dur,
-            enhancePrompt: false,
-            generateAudio: false,
+            enhancePrompt: true,
+            generateAudio: true,
           },
         }),
       }

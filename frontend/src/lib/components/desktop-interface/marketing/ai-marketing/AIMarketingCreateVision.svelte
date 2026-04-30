@@ -211,7 +211,7 @@
             };
 
             const pollStart = Date.now();
-            const maxWait   = 5 * 60 * 1000; // 5 minutes
+            const maxWait   = 10 * 60 * 1000; // 10 minutes (Veo 3 with audio can take ~5-8 min)
 
             while (Date.now() - pollStart < maxWait) {
                 await new Promise(r => setTimeout(r, 10_000));
@@ -263,7 +263,7 @@
                 // done === false → keep polling
             }
 
-            errorMessage = 'Video generation timed out after 5 minutes';
+            errorMessage = 'Video generation timed out after 10 minutes';
         } catch (err: any) {
             errorMessage = err?.message ?? String(err);
         } finally {
@@ -611,12 +611,12 @@
                             </div>
                             <div class="text-center">
                                 <p class="font-black text-slate-700 text-sm">{$locale === 'ar' ? 'الذكاء الاصطناعي يصنع فيديوك...' : 'AI is creating your video...'}</p>
-                                <p class="text-xs text-slate-400 font-semibold mt-1">{$locale === 'ar' ? '1–3 دقائق' : '1–3 minutes'}</p>
+                                <p class="text-xs text-slate-400 font-semibold mt-1">{$locale === 'ar' ? '3–8 دقائق' : '3–8 minutes'}</p>
                                 <div class="mt-3 px-4 py-1.5 bg-orange-50 rounded-xl border border-orange-100">
                                     <p class="text-xs font-black text-orange-600">{elapsedSeconds}s</p>
                                     <div class="mt-1 w-32 h-1.5 bg-orange-100 rounded-full overflow-hidden">
                                         <div class="h-full bg-orange-400 rounded-full transition-all duration-1000"
-                                             style="width:{Math.min(100, (elapsedSeconds / 180) * 100)}%"></div>
+                                             style="width:{Math.min(100, (elapsedSeconds / 480) * 100)}%"></div>
                                     </div>
                                 </div>
                             </div>

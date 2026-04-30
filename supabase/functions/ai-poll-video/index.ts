@@ -123,14 +123,31 @@ serve(async (req: Request) => {
     // ── Poll Veo 2 operation (once) ──────────────────────────────────────────
     const accessToken = await getAccessToken();
 
-    const pollRes = await fetch(
-      `https://us-central1-aiplatform.googleapis.com/v1/projects/${GOOGLE_PROJECT_ID}/locations/us-central1/publishers/google/models/veo-2.0-generate-001:fetchPredictOperation`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ operationName }),
-      }
-    );
+    // Use a 25s timeout so Supabase wall-clock limit doesn't kill us mid-request
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 25_000);
+
+    let pollRes: Response;
+    try {
+      pollRes = await fetch(
+        `https://us-central1-aiplatform.googleapis.com/v1/projects/${GOOGLE_PROJECT_ID}/locations/us-central1/publishers/google/models/veo-3.0-generate-001:fetchPredictOperation`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ operationName }),
+          signal: controller.signal,
+        }
+      );
+    } catch (fetchErr: any) {
+      clearTimeout(abortTimer);
+      // Timed out or network error — tell frontend to retry
+      console.log("[ai-poll-video] Poll fetch timed out or errored, will retry:", fetchErr?.message);
+      return new Response(
+        JSON.stringify({ ok: true, done: false }),
+        { headers: { ...CORS, "Content-Type": "application/json" } }
+      );
+    }
+    clearTimeout(abortTimer);
 
     if (!pollRes.ok) {
       const errText = await pollRes.text();
@@ -155,8 +172,8 @@ serve(async (req: Request) => {
     // Veo reported an error
     if (pollData.error) {
       return new Response(
-        JSON.stringify({ ok: false, done: true, stage: "veo_poll", message: JSON.stringify(pollData.error), videoPrompt }),
-        { status: 500, headers: { ...CORS, "Content-Type": "application/json" } }
+        JSON.stringify({ ok: false, done: true, stage: "veo_poll", message: pollData.error?.message ?? JSON.stringify(pollData.error), videoPrompt }),
+        { status: 200, headers: { ...CORS, "Content-Type": "application/json" } }
       );
     }
 
@@ -171,7 +188,7 @@ serve(async (req: Request) => {
     if (!videoEntry?.bytesBase64Encoded) {
       return new Response(
         JSON.stringify({ ok: false, done: true, stage: "veo_parse", message: `Unrecognised Veo response: ${JSON.stringify(resp).slice(0, 600)}`, videoPrompt }),
-        { status: 500, headers: { ...CORS, "Content-Type": "application/json" } }
+        { status: 200, headers: { ...CORS, "Content-Type": "application/json" } }
       );
     }
 
