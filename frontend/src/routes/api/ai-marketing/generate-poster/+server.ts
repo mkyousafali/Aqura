@@ -229,13 +229,31 @@ return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g
 
 /** Extract first quoted speech/dialogue from prompt. Returns clean prompt and the extracted text. */
 function extractDialogue(prompt: string): { clean: string; dialogue: string } {
-  // Matches: says/said/speaks ... : "text" or 'text' or \u201ctext\u201d etc.
-  const re = /(?:says?|said|speaks?|proclaims?|announces?|displayed?\s+as\s+a\s+speech\s+bubble)\s*[:\-\u2013\u2014]?\s*[\u0027\u0022\u2018\u2019\u201c\u201d\u00ab\u00bb]([^\u0027\u0022\u2018\u2019\u201c\u201d\u00ab\u00bb\n]{1,300})[\u0027\u0022\u2018\u2019\u201c\u201d\u00ab\u00bb]/gi;
   let dialogue = '';
-  const clean = prompt.replace(re, (_match, text) => {
-    if (!dialogue) dialogue = text.trim();
-    return '';
-  }).replace(/\s{2,}/g, ' ').trim();
+  let clean = prompt;
+
+  // Strategy 1: standalone quoted line (most common format — quote on its own line)
+  // Matches a line that is just: "text" or “text” or 'text' etc.
+  const standaloneRe = /^[ \t]*["\u201c\u2018\u00ab‹]([^\n"\u201d\u2019\u00bb\u203a]{1,400})["\u201d\u2019\u00bb\u203a][ \t]*$/m;
+  const m1 = standaloneRe.exec(prompt);
+  if (m1 && /[\u0600-\u06FF]/.test(m1[1])) {
+    dialogue = m1[1].trim();
+    clean = prompt.replace(m1[0], '');
+  }
+
+  // Strategy 2: inline after says/speaks/bubble keyword (same line)
+  if (!dialogue) {
+    const inlineRe = /(?:says?|said|speaks?|proclaims?|announces?)[^\n]{0,80}["\u201c\u2018\u00ab]([^\n"\u201d\u2019\u00bb]{1,300})["\u201d\u2019\u00bb]/gi;
+    clean = prompt.replace(inlineRe, (_m, text) => { if (!dialogue) dialogue = text.trim(); return ''; });
+  }
+
+  // Remove speech bubble instruction lines
+  clean = clean
+    .replace(/[^\n]*speech\s*bubble[^\n]*/gi, '')
+    .replace(/[^\n]*displays?\s+as\s+a[^\n]*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
   return { clean, dialogue };
 }
 

@@ -562,11 +562,11 @@
                                     draggable="false"
                                 />
                                 {#if generatedDialogue}
-                                    <div class="absolute top-[6%] left-[50%] -translate-x-1/2 w-[82%] pointer-events-none z-10">
-                                        <div class="relative bg-black/80 rounded-2xl px-4 py-3 text-white text-center font-bold leading-snug" style="direction:rtl; font-family: 'Tahoma', 'Arial', sans-serif; font-size: clamp(11px, 3.2vw, 18px);">
+                                    <div class="absolute top-[8%] right-[8%] w-[55%] pointer-events-none z-10">
+                                        <div class="relative bg-white rounded-2xl px-4 py-3 text-gray-900 text-center font-bold leading-snug shadow-lg border border-gray-100" style="direction:rtl; font-family: 'Tahoma', 'Arial', sans-serif; font-size: clamp(12px, 3vw, 17px);">
                                             {generatedDialogue}
-                                            <!-- Tail -->
-                                            <div class="absolute bottom-[-10px] left-[35%] w-0 h-0" style="border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid rgba(0,0,0,0.8);"></div>
+                                            <!-- Tail pointing down-left toward husband -->
+                                            <div class="absolute bottom-[-14px] left-[20%] w-0 h-0" style="border-left:12px solid transparent; border-right:12px solid transparent; border-top:14px solid white; filter: drop-shadow(0 2px 1px rgba(0,0,0,0.08));"></div>
                                         </div>
                                     </div>
                                 {/if}
