@@ -37,6 +37,7 @@
 	let gosiValues: { [key: string]: string } = {};
 	let gosiIsPercentage: { [key: string]: boolean } = {};
 	let gosiPercentage: { [key: string]: string } = {};
+	let foodDeductionActive: { [key: string]: boolean } = {};
 
 	$: filteredEmployees = employees.filter(emp => {
 		const matchesSearch = 
@@ -187,7 +188,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('hr_basic_salary')
-				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, food_allowance, food_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction');
+				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, food_allowance, food_payment_mode, food_deduction_active, travel_allowance, travel_payment_mode, gosi_deduction');
 
 			if (error) {
 				console.error('Error loading basic salaries:', error);
@@ -205,6 +206,7 @@
 					accommodationPaymentMode[item.employee_id] = item.accommodation_payment_mode || 'Bank';
 					foodValues[item.employee_id] = item.food_allowance?.toString() || '';
 					foodPaymentMode[item.employee_id] = item.food_payment_mode || 'Bank';
+					foodDeductionActive[item.employee_id] = item.food_deduction_active ?? false;
 					travelValues[item.employee_id] = item.travel_allowance?.toString() || '';
 					travelPaymentMode[item.employee_id] = item.travel_payment_mode || 'Bank';
 					gosiValues[item.employee_id] = item.gosi_deduction?.toString() || '';
@@ -239,6 +241,7 @@
 		if (!gosiValues[employeeId]) gosiValues[employeeId] = '';
 		if (gosiIsPercentage[employeeId] === undefined) gosiIsPercentage[employeeId] = true;
 		if (!gosiPercentage[employeeId]) gosiPercentage[employeeId] = '';
+		if (foodDeductionActive[employeeId] === undefined) foodDeductionActive[employeeId] = false;
 		
 		showModal = true;
 	}
@@ -320,6 +323,7 @@
 					accommodation_payment_mode: accommodationPaymentMode[employeeId] || 'Bank',
 					food_allowance: foodVal,
 					food_payment_mode: foodPaymentMode[employeeId] || 'Bank',
+					food_deduction_active: foodDeductionActive[employeeId] ?? false,
 					travel_allowance: travelVal,
 					travel_payment_mode: travelPaymentMode[employeeId] || 'Bank',
 					gosi_deduction: gosiVal,
@@ -350,7 +354,8 @@
 		const foodVal = parseFloat(foodValues[employeeId]) || 0;
 		const travelVal = parseFloat(travelValues[employeeId]) || 0;
 		const gosiVal = parseFloat(gosiValues[employeeId]) || 0;
-		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
+		const foodDed = (foodDeductionActive[employeeId] ?? false) ? foodVal : 0;
+		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal - foodDed;
 	}
 
 	function getModalTotalPreview(): number {
@@ -392,7 +397,8 @@
 			gosiVal = parseFloat(gosiValues[currentEmployeeId]) || 0;
 		}
 		
-		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
+		const foodDed = (foodDeductionActive[currentEmployeeId] ?? false) ? foodVal : 0;
+		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal - foodDed;
 	}
 
 	function getEmploymentStatusText(status: string) {
@@ -573,6 +579,7 @@
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.otherAllowance')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.accommodation')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.foodAllowance')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Food Ded.</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.travel')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.gosiDeduction')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.totalSalary')}</th>
@@ -686,6 +693,13 @@
 									</div>
 								{:else}
 									<span class="text-slate-400">-</span>
+								{/if}
+							</td>
+							<td class="px-4 py-3 text-sm text-center">
+								{#if foodDeductionActive[employee.id]}
+									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">Deducted</span>
+								{:else}
+									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Included</span>
 								{/if}
 							</td>
 							<td class="px-4 py-3 text-sm text-center font-mono">
@@ -882,6 +896,21 @@
 							<option value="Bank">{$t('hr.salary.bank')}</option>
 							<option value="Cash">{$t('hr.salary.cash')}</option>
 						</select>
+					</div>
+					<!-- Food Deduction Toggle -->
+					<div class="flex items-center gap-3 mt-2 p-2 rounded-lg {foodDeductionActive[currentEmployeeId] ? 'bg-red-50 border border-red-200' : 'bg-slate-50 border border-slate-200'}">
+						<button
+							type="button"
+							aria-label="Toggle food allowance deduction"
+							on:click={() => foodDeductionActive[currentEmployeeId] = !(foodDeductionActive[currentEmployeeId] ?? false)}
+							class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none {foodDeductionActive[currentEmployeeId] ? 'bg-red-500' : 'bg-slate-300'}"
+						>
+							<span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform {foodDeductionActive[currentEmployeeId] ? 'translate-x-4' : 'translate-x-1'}"></span>
+						</button>
+						<div>
+							<p class="text-xs font-bold {foodDeductionActive[currentEmployeeId] ? 'text-red-700' : 'text-slate-600'}">Food Allowance Deduction</p>
+							<p class="text-[10px] {foodDeductionActive[currentEmployeeId] ? 'text-red-500' : 'text-slate-400'}">{foodDeductionActive[currentEmployeeId] ? 'Food amount will be deducted from net salary' : 'Food amount is included in net salary'}</p>
+						</div>
 					</div>
 				</div>
 

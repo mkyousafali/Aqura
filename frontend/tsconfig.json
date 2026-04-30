@@ -34,6 +34,6 @@
     "./src/**/*.ts",
     "./src/**/*.js",
     "./src/**/*.svelte"
-  ],
+, "src/lib/components/desktop-interface/master/hr/we need to crat table to save everying need to use josb comens in table ,we need save buttn . wee need lod save data bunn the setting bunn show only when laod from saved data so edit effects directly to the saved data"  ],
   "exclude": ["node_modules"]
 }

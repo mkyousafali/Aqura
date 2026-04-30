@@ -169,14 +169,130 @@
 
     const ACTIVE_EMPLOYMENT_STATUSES = [
         'Job (With Finger)',
-        'Job (No Finger)',
         'Remote Job',
         'Vacation'
     ];
+
+    // Employee Status tab state
+    let employeeStatusData: any[] = [];
+    let employeeStatusLoading = false;
+    let statusSearchTerm = '';
+    let statusSelectedBranch = '';
+    let statusSelectedStatus = '';
+
+    $: uniqueStatusBranches = [
+        ...new Map(
+            employeeStatusData
+                .filter(e => e.current_branch_id)
+                .map(emp => [
+                    emp.current_branch_id,
+                    { id: emp.current_branch_id, name_en: emp.branch_name_en, name_ar: emp.branch_name_ar }
+                ])
+        ).values()
+    ].sort((a, b) => a.name_en.localeCompare(b.name_en));
+
+    const STATUS_ORDER: Record<string, number> = {
+        'Job (With Finger)': 1,
+        'Remote Job': 2,
+        'Vacation': 3,
+        'Resigned': 4,
+        'Terminated': 5,
+        'Run Away': 6,
+    };
+
+    $: filteredStatusData = employeeStatusData.filter(emp => {
+        const matchesSearch = !statusSearchTerm || (
+            String(emp.id || '').toLowerCase().includes(statusSearchTerm.toLowerCase()) ||
+            (emp.name_en || '').toLowerCase().includes(statusSearchTerm.toLowerCase()) ||
+            (emp.name_ar || '').includes(statusSearchTerm)
+        );
+        const matchesBranch = !statusSelectedBranch || String(emp.current_branch_id) === statusSelectedBranch;
+        const matchesStatus = !statusSelectedStatus || emp.employment_status === statusSelectedStatus;
+        return matchesSearch && matchesBranch && matchesStatus;
+    }).sort((a, b) => {
+        const orderA = STATUS_ORDER[a.employment_status] ?? 99;
+        const orderB = STATUS_ORDER[b.employment_status] ?? 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return (a.name_en || '').localeCompare(b.name_en || '');
+    });
+
+    function getEmploymentStatusBadge(status: string): string {
+        switch (status) {
+            case 'Job (With Finger)': return 'bg-green-100 text-green-800';
+            case 'Remote Job': return 'bg-blue-100 text-blue-800';
+            case 'Vacation': return 'bg-yellow-100 text-yellow-800';
+            case 'Resigned': return 'bg-slate-100 text-slate-600';
+            case 'Terminated': return 'bg-red-100 text-red-800';
+            case 'Run Away': return 'bg-orange-100 text-orange-800';
+            default: return 'bg-slate-100 text-slate-600';
+        }
+    }
+
+    // Status change modal state
+    let showStatusModal = false;
+    let statusModalEmpId = '';
+    let statusModalEmpName = '';
+    let statusModalCurrentStatus = '';
+    let statusModalNewStatus = '';
+    let statusModalEffectiveDate = '';
+    let statusModalReason = '';
+    let statusModalSaving = false;
+
+    const ALL_STATUSES = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'];
+    const STATUSES_NEEDING_EFFECTIVE_DATE = ['Vacation', 'Resigned', 'Terminated', 'Run Away'];
+
+    $: statusNeedsEffectiveDate = STATUSES_NEEDING_EFFECTIVE_DATE.includes(statusModalNewStatus);
+
+    function openStatusModal(emp: any) {
+        statusModalEmpId = emp.id;
+        statusModalEmpName = $locale === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar);
+        statusModalCurrentStatus = emp.employment_status || '';
+        statusModalNewStatus = emp.employment_status || '';
+        statusModalEffectiveDate = '';
+        statusModalReason = '';
+        showStatusModal = true;
+    }
+
+    function closeStatusModal() {
+        showStatusModal = false;
+        statusModalSaving = false;
+    }
+
+    async function saveStatusChange() {
+        if (!supabase || !statusModalEmpId || !statusModalNewStatus) return;
+        if (STATUSES_NEEDING_EFFECTIVE_DATE.includes(statusModalNewStatus) && !statusModalEffectiveDate) {
+            alert('Please enter an effective date.');
+            return;
+        }
+        statusModalSaving = true;
+        try {
+            const updateData: any = { employment_status: statusModalNewStatus };
+            if (STATUSES_NEEDING_EFFECTIVE_DATE.includes(statusModalNewStatus)) {
+                updateData.employment_status_effective_date = statusModalEffectiveDate;
+                updateData.employment_status_reason = statusModalReason || null;
+            }
+            const { error } = await supabase
+                .from('hr_employee_master')
+                .update(updateData)
+                .eq('id', statusModalEmpId);
+            if (error) throw error;
+            // Update local data without full reload
+            employeeStatusData = employeeStatusData.map(e =>
+                e.id === statusModalEmpId ? { ...e, employment_status: statusModalNewStatus } : e
+            );
+            closeStatusModal();
+        } catch (err) {
+            console.error('Error updating status:', err);
+            alert('Failed to update status');
+        } finally {
+            statusModalSaving = false;
+        }
+    }
     
     $: tabs = [
         { id: 'Documents Expiry', label: $t('hr.dashboard.documents_expiry') || 'Documents Expiry', icon: '📄', color: 'blue' },
-        { id: 'Performance', label: $t('hr.dashboard.performance') || 'Performance', icon: '📊', color: 'indigo' }
+        { id: 'Performance', label: $t('hr.dashboard.performance') || 'Performance', icon: '📊', color: 'indigo' },
+        { id: 'Employee Status', label: 'Employee Status', icon: '👥', color: 'green' }
     ];
 
     async function initSupabase() {
@@ -346,9 +462,46 @@
         }
     }
 
+    async function loadEmployeeStatusData() {
+        employeeStatusLoading = true;
+        try {
+            await initSupabase();
+            const { data, error } = await supabase
+                .from('hr_employee_master')
+                .select(`
+                    id,
+                    name_en,
+                    name_ar,
+                    id_number,
+                    contract_expiry_date,
+                    sponsorship_status,
+                    work_permit_expiry_date,
+                    employment_status,
+                    whatsapp_number,
+                    email,
+                    current_branch_id,
+                    branches(name_en, name_ar)
+                `)
+                .order('name_en', { ascending: true });
+            if (error) throw error;
+            employeeStatusData = (data || []).map((emp: any) => ({
+                ...emp,
+                branch_name_en: emp.branches?.name_en || '-',
+                branch_name_ar: emp.branches?.name_ar || '-',
+            }));
+        } catch (err) {
+            console.error('Error loading employee status data:', err);
+        } finally {
+            employeeStatusLoading = false;
+        }
+    }
+
     function handleTabChange() {
         if (activeTab === 'Documents Expiry' && documentsExpiryData.length === 0) {
             loadDocumentsExpiryData();
+        }
+        if (activeTab === 'Employee Status' && employeeStatusData.length === 0) {
+            loadEmployeeStatusData();
         }
     }
 
@@ -364,8 +517,8 @@
             {#each tabs as tab}
                 <button 
                     class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
-                    {activeTab === tab.id 
-                        ? (tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]' : 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]')
+                    {activeTab === tab.id
+                        ? (tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]' : tab.color === 'green' ? 'bg-green-600 text-white shadow-lg shadow-green-200 scale-[1.02]' : 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]')
                         : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
                     on:click={async () => {
                         activeTab = tab.id;
@@ -675,10 +828,217 @@
                         </div>
                     </div>
                 </div>
+
+            {:else if activeTab === 'Employee Status'}
+                <!-- Employee Status Tab Content -->
+                <div>
+                    <div class="mb-6 flex items-center gap-4">
+                        <h1 class="text-3xl font-black text-slate-800 tracking-tight relative z-10">👥 Employee Status</h1>
+                        <div class="flex-1 flex gap-3 items-center">
+                            <div class="h-[3px] w-16 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                            <div class="h-[3px] w-16 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="mb-4 flex items-center gap-2 flex-wrap">
+                        <div class="relative flex-1 max-w-md">
+                            <input
+                                type="text"
+                                placeholder="🔍 Search by ID or Name..."
+                                bind:value={statusSearchTerm}
+                                class="w-full px-4 py-2.5 rounded-lg border border-green-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                            />
+                            {#if statusSearchTerm}
+                                <button on:click={() => statusSearchTerm = ''} class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg">✕</button>
+                            {/if}
+                        </div>
+
+                        <select
+                            bind:value={statusSelectedBranch}
+                            class="px-4 py-2.5 rounded-lg border border-green-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all cursor-pointer"
+                        >
+                            <option value="">All Branches</option>
+                            {#each uniqueStatusBranches as branch}
+                                <option value={String(branch.id)}>{$locale === 'ar' ? branch.name_ar : branch.name_en}</option>
+                            {/each}
+                        </select>
+
+                        <select
+                            bind:value={statusSelectedStatus}
+                            class="px-4 py-2.5 rounded-lg border border-green-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all cursor-pointer"
+                        >
+                            <option value="">All Statuses</option>
+                            {#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'] as s}
+                                <option value={s}>{s}</option>
+                            {/each}
+                        </select>
+
+                        {#if statusSelectedBranch || statusSelectedStatus}
+                            <button
+                                on:click={() => { statusSelectedBranch = ''; statusSelectedStatus = ''; }}
+                                class="px-3 py-2.5 rounded-lg border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-sm font-semibold"
+                            >Clear</button>
+                        {/if}
+
+                        <button
+                            on:click={loadEmployeeStatusData}
+                            class="px-3 py-2.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-sm font-semibold"
+                        >↺ Refresh</button>
+
+                        <div class="text-sm text-slate-600 font-semibold ml-auto">
+                            {filteredStatusData.length} of {employeeStatusData.length}
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+                        <div class="overflow-x-auto overflow-y-auto max-h-[60vh]">
+                            <table class="w-full border-collapse">
+                                <thead class="sticky top-0 bg-green-600 text-white shadow-lg z-10">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">Employee ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">{$locale === 'ar' ? 'الفرع' : 'Branch'}</th>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">{$locale === 'ar' ? 'اسم الموظف' : 'Employee Name'}</th>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">ID Number</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">Contract Expiry</th>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">Sponsorship Status</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">Work Permit Expiry</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">Employment Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-r border-green-400">WhatsApp</th>
+                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-green-400">Email</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200">
+                                    {#if employeeStatusLoading}
+                                        <tr>
+                                            <td colspan="10" class="px-4 py-8 text-center">
+                                                <div class="flex items-center justify-center gap-3">
+                                                    <div class="w-8 h-8 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+                                                    <span class="text-slate-600">Loading...</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {:else if filteredStatusData.length === 0}
+                                        <tr>
+                                            <td colspan="10" class="px-4 py-8 text-center text-slate-500">No employees found</td>
+                                        </tr>
+                                    {:else}
+                                        {#each filteredStatusData as emp, i}
+                                            <tr class="hover:bg-green-50/30 transition-colors {i % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                                <td class="px-4 py-3 text-xs font-mono text-slate-600 border-r border-slate-200">{emp.id}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700 border-r border-slate-200">{$locale === 'ar' ? emp.branch_name_ar : emp.branch_name_en}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700 font-semibold border-r border-slate-200">{$locale === 'ar' ? (emp.name_ar || emp.name_en || '-') : (emp.name_en || emp.name_ar || '-')}</td>
+                                                <td class="px-4 py-3 text-sm font-mono text-slate-600 border-r border-slate-200">{emp.id_number || '-'}</td>
+                                                <td class="px-4 py-3 text-xs text-center font-mono border-r border-slate-200">
+                                                    {#if emp.contract_expiry_date}
+                                                        {@const days = calculateDaysRemaining(emp.contract_expiry_date)}
+                                                        <div class="flex flex-col items-center gap-0.5">
+                                                            <span class="text-slate-600">{emp.contract_expiry_date}</span>
+                                                            <span class="{days < 0 ? 'text-red-600 font-bold' : days <= 30 ? 'text-orange-600 font-bold' : days <= 90 ? 'text-yellow-600' : 'text-green-600'}">{days}d</span>
+                                                        </div>
+                                                    {:else}
+                                                        <span class="text-slate-300">—</span>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-center border-r border-slate-200">
+                                                    {#if emp.sponsorship_status}
+                                                        <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">In Sponsorship</span>
+                                                    {:else}
+                                                        <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">Not in Sponsorship</span>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-xs text-center font-mono border-r border-slate-200">
+                                                    {#if emp.work_permit_expiry_date}
+                                                        {@const days = calculateDaysRemaining(emp.work_permit_expiry_date)}
+                                                        <div class="flex flex-col items-center gap-0.5">
+                                                            <span class="text-slate-600">{emp.work_permit_expiry_date}</span>
+                                                            <span class="{days < 0 ? 'text-red-600 font-bold' : days <= 30 ? 'text-orange-600 font-bold' : days <= 90 ? 'text-yellow-600' : 'text-green-600'}">{days}d</span>
+                                                        </div>
+                                                    {:else}
+                                                        <span class="text-slate-300">—</span>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-center border-r border-slate-200 cursor-pointer" on:dblclick={() => openStatusModal(emp)} title="Double-click to change status">
+                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold {getEmploymentStatusBadge(emp.employment_status)}">{emp.employment_status || '-'}</span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-slate-600 border-r border-slate-200">{emp.whatsapp_number || '-'}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-600">{emp.email || '-'}</td>
+                                            </tr>
+                                        {/each}
+                                    {/if}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                            {filteredStatusData.length} employee(s)
+                        </div>
+                    </div>
+                </div>
             {/if}
         </div>
     </div>
 </div>
+
+<!-- Status Change Modal -->
+{#if showStatusModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" on:click={closeStatusModal} role="dialog" aria-modal="true">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" on:click|stopPropagation role="document">
+            <h2 class="text-xl font-bold text-slate-800 mb-1">Change Employment Status</h2>
+            <p class="text-sm text-slate-500 mb-5">{statusModalEmpName}</p>
+
+            <div class="mb-4">
+                <div class="text-xs text-slate-500 mb-1 font-semibold uppercase tracking-wide">Current</div>
+                <span class="inline-block px-3 py-1 rounded-full text-sm font-semibold {getEmploymentStatusBadge(statusModalCurrentStatus)}">{statusModalCurrentStatus || '-'}</span>
+            </div>
+
+            <div class="mb-4">
+                <div class="text-xs text-slate-500 mb-2 font-semibold uppercase tracking-wide">New Status</div>
+                <div class="flex flex-col gap-2">
+                    {#each ALL_STATUSES as s}
+                        <label class="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors {statusModalNewStatus === s ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:bg-slate-50'}">
+                            <input type="radio" bind:group={statusModalNewStatus} value={s} class="accent-green-600" />
+                            <span class="text-sm font-semibold {getEmploymentStatusBadge(s)} px-2 py-0.5 rounded">{s}</span>
+                        </label>
+                    {/each}
+                </div>
+            </div>
+
+            {#if statusNeedsEffectiveDate}
+                <div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div class="text-xs text-amber-700 font-semibold uppercase tracking-wide mb-2">⚠️ Effective Date <span class="text-red-500">*</span></div>
+                    <input
+                        type="date"
+                        bind:value={statusModalEffectiveDate}
+                        class="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                </div>
+                <div class="mb-4">
+                    <div class="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-1">Reason (optional)</div>
+                    <textarea
+                        bind:value={statusModalReason}
+                        rows="2"
+                        placeholder="Enter reason..."
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 resize-none"
+                    ></textarea>
+                </div>
+            {/if}
+
+            <div class="flex gap-3">
+                <button
+                    on:click={closeStatusModal}
+                    disabled={statusModalSaving}
+                    class="flex-1 px-4 py-2 bg-slate-200 text-slate-800 rounded-lg font-semibold hover:bg-slate-300 transition-colors disabled:opacity-50"
+                >Cancel</button>
+                <button
+                    on:click={saveStatusChange}
+                    disabled={statusModalSaving || statusModalNewStatus === statusModalCurrentStatus || (statusNeedsEffectiveDate && !statusModalEffectiveDate)}
+                    class="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+                >{statusModalSaving ? 'Saving...' : 'Save'}</button>
+            </div>
+        </div>
+    </div>
+{/if}
 
 <!-- Date Edit Modal -->
 {#if showDateModal}

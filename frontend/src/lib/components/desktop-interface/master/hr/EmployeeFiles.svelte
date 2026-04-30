@@ -1447,7 +1447,6 @@
 	function getEmploymentStatusText(status: string) {
 		switch (status) {
 			case 'Job (With Finger)': return $t('employeeFiles.inJob');
-			case 'Job (No Finger)': return $t('employeeFiles.jobNoFinger');
 			case 'Remote Job': return $t('employeeFiles.remoteJob');
 			case 'Vacation': return $t('employeeFiles.vacation');
 			case 'Terminated': return $t('employeeFiles.terminated');
@@ -1714,7 +1713,7 @@
 									<div class="employment-status-section">
 										<label class="status-section-label">{$t('employeeFiles.employmentStatus')}</label>
 										<div class="employment-status-rows">
-											{#each ['Job (With Finger)', 'Job (No Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'] as status}
+											{#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'] as status}
 												<div class="status-row">
 													<label class="status-radio-label">
 														<input 

@@ -83,6 +83,7 @@
 	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
 	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';
 	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
+	import CentralPerformance from '$lib/components/desktop-interface/master/reports/CentralPerformance.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
@@ -2991,6 +2992,26 @@ function openApprovalCenter() {
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
 			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// Open Central Performance Dashboard (master admin only)
+	function openCentralPerformance() {
+		collapseAllMenus();
+		const windowId = generateWindowId('central-performance');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.centralPerformance')} #${instanceNumber}`,
+			component: CentralPerformance,
+			componentName: 'CentralPerformance',
+			icon: '📊',
+			size: { width: 1400, height: 850 },
+			position: { x: 80 + Math.random() * 80, y: 60 + Math.random() * 60 },
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
@@ -5973,7 +5994,14 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showControlsReportsSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Reports items will be added here -->
+					{#if $currentUser?.isMasterAdmin}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCentralPerformance}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">{t('nav.centralPerformance')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

@@ -153,7 +153,7 @@
         supabase = mod.supabase;
         const { data } = await supabase
             .from('ai_brand_libraries')
-            .select('id, name, primary_color, accent_color, is_default')
+            .select('id, name, primary_color, accent_color, brand_tone, logo_url, is_default')
             .eq('is_archived', false)
             .order('is_default', { ascending: false });
         brands = data || [];
@@ -171,30 +171,99 @@
             const finalPrompt = bgDescription.trim()
                 ? `Background scene: ${bgDescription.trim()}\n\n${prompt.trim()}`
                 : prompt.trim();
-            const res = await fetch('/api/ai-marketing/generate-video', {
+
+            // ── Step 1: Start Veo 2 operation via edge function ───────────────
+            const startRes = await fetch('https://supabase.urbanaqura.com/functions/v1/ai-generate-video-start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    brandId:         selectedBrandId,
-                    platform:        selectedPlatformId,
+                    platform:          selectedPlatformId,
                     aspectRatio,
                     language,
-                    extraPrompt:     finalPrompt,
-                    characters:      selectedCharacters.map(c => ({ name: c.name, role: c.role, description: c.description })),
+                    extraPrompt:       finalPrompt,
+                    characters:        selectedCharacters.map(c => ({ name: c.name, role: c.role, description: c.description })),
                     durationSeconds,
-                    userId
+                    brandPrimaryColor: selectedBrand?.primary_color ?? '#059669',
+                    brandAccentColor:  selectedBrand?.accent_color  ?? '#f97316',
+                    brandTone:         selectedBrand?.brand_tone     ?? 'professional and warm',
                 })
             });
-            const data = await res.json();
-            if (!data.ok) {
-                errorMessage = `[${data.stage ?? 'error'}] ${data.message}`;
-                if (data.videoPrompt) generatedPrompt = data.videoPrompt;
+            const startData = await startRes.json();
+            if (!startData.ok) {
+                errorMessage = `[${startData.stage ?? 'veo_start'}] ${startData.message}`;
                 return;
             }
-            generatedUrl    = data.signedUrl;
-            generatedPrompt = data.videoPrompt;
-            logoUrl         = data.logoSignedUrl ?? null;
-            history = [{ url: data.signedUrl, prompt: prompt.trim() }, ...history].slice(0, 5);
+
+            const { operationName, videoPrompt } = startData;
+            generatedPrompt = videoPrompt;
+
+            // ── Step 2: Poll until done (max 5 minutes, every 10s) ────────────
+            const pollContext = {
+                operationName,
+                videoPrompt,
+                brandId:         selectedBrandId,
+                platform:        selectedPlatformId,
+                aspectRatio,
+                language,
+                extraPrompt:     finalPrompt,
+                durationSeconds,
+                userId
+            };
+
+            const pollStart = Date.now();
+            const maxWait   = 5 * 60 * 1000; // 5 minutes
+
+            while (Date.now() - pollStart < maxWait) {
+                await new Promise(r => setTimeout(r, 10_000));
+
+                const pollRes = await fetch('https://supabase.urbanaqura.com/functions/v1/ai-poll-video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(pollContext)
+                });
+
+                if (!pollRes.ok) continue; // transient error, retry
+
+                const pollData = await pollRes.json();
+
+                if (!pollData.ok && pollData.done) {
+                    errorMessage = `[${pollData.stage ?? 'veo_poll'}] ${pollData.message}`;
+                    if (pollData.videoPrompt) generatedPrompt = pollData.videoPrompt;
+                    return;
+                }
+
+                if (pollData.done && pollData.storagePath) {
+                    // Sign via Supabase JS client — avoids nginx auth issues with raw paths
+                    const { data: signData } = await supabase.storage
+                        .from('ai-marketing-files')
+                        .createSignedUrl(pollData.storagePath, 3600);
+                    const finalUrl = signData?.signedUrl ?? pollData.signedUrl;
+                    generatedUrl    = finalUrl;
+                    generatedPrompt = pollData.videoPrompt ?? videoPrompt;
+
+                    // Resolve logo via Supabase JS client too
+                    const logoPath = selectedBrand?.logo_url ?? null;
+                    if (logoPath) {
+                        if (logoPath.startsWith('http')) {
+                            logoUrl = logoPath;
+                        } else {
+                            const { data: logoSign } = await supabase.storage
+                                .from('ai-marketing-files')
+                                .createSignedUrl(logoPath, 3600);
+                            logoUrl = logoSign?.signedUrl ?? null;
+                        }
+                    } else {
+                        logoUrl = null;
+                    }
+
+                    history = [{ url: finalUrl, prompt: prompt.trim() }, ...history].slice(0, 5);
+                    return;
+                }
+
+                // done === false → keep polling
+            }
+
+            errorMessage = 'Video generation timed out after 5 minutes';
         } catch (err: any) {
             errorMessage = err?.message ?? String(err);
         } finally {
@@ -203,17 +272,116 @@
         }
     }
 
+    let downloading = false;
+
     async function downloadVideo() {
-        if (!generatedUrl) return;
+        if (!generatedUrl || downloading) return;
+
+        // No logo — just download the raw MP4
+        if (!logoUrl) {
+            try {
+                const res = await fetch(generatedUrl);
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl; a.download = `video-${Date.now()}.mp4`; a.click();
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+            } catch { window.open(generatedUrl, '_blank'); }
+            return;
+        }
+
+        // Has logo — composite via Canvas + MediaRecorder
+        downloading = true;
         try {
-            const res = await fetch(generatedUrl);
-            const blob = await res.blob();
-            const blobUrl = URL.createObjectURL(blob);
+            // Fetch both resources
+            const [videoRes, logoRes] = await Promise.all([
+                fetch(generatedUrl),
+                fetch(logoUrl)
+            ]);
+            const [videoBlob, logoBlob] = await Promise.all([videoRes.blob(), logoRes.blob()]);
+            const videoBlobUrl = URL.createObjectURL(videoBlob);
+            const logoBlobUrl  = URL.createObjectURL(logoBlob);
+
+            // Load logo image
+            const logoImg: HTMLImageElement = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = logoBlobUrl;
+            });
+
+            // Load video metadata
+            const videoEl = document.createElement('video');
+            videoEl.src = videoBlobUrl;
+            videoEl.muted = true;
+            videoEl.playsInline = true;
+            await new Promise<void>(resolve => { videoEl.onloadedmetadata = () => resolve(); });
+
+            const W = videoEl.videoWidth  || 720;
+            const H = videoEl.videoHeight || 1280;
+
+            // Canvas setup
+            const canvas = document.createElement('canvas');
+            canvas.width = W; canvas.height = H;
+            const ctx = canvas.getContext('2d')!;
+
+            // Logo sizing/position — top-right, 13% of width (matches preview)
+            const logoW   = Math.round(W * 0.13);
+            const logoPad = Math.round(W * 0.025);
+            const logoH   = Math.round(logoImg.naturalHeight * (logoW / logoImg.naturalWidth));
+            const logoX   = W - logoW - logoPad;
+            const logoY   = logoPad;
+
+            // Record canvas stream
+            const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+                ? 'video/webm;codecs=vp9' : 'video/webm';
+            const stream   = canvas.captureStream(30);
+            const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+            const chunks: BlobPart[] = [];
+            recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+            recorder.start(100);
+
+            // Draw frames until video ends
+            await new Promise<void>((resolve) => {
+                let rafId: number;
+                function drawFrame() {
+                    ctx.drawImage(videoEl, 0, 0, W, H);
+                    ctx.drawImage(logoImg, logoX, logoY, logoW, logoH);
+                    if (!videoEl.ended && !videoEl.paused) {
+                        rafId = requestAnimationFrame(drawFrame);
+                    } else {
+                        resolve();
+                    }
+                }
+                videoEl.onended = () => { cancelAnimationFrame(rafId); resolve(); };
+                videoEl.play().then(() => requestAnimationFrame(drawFrame));
+            });
+
+            recorder.stop();
+            await new Promise<void>(r => { recorder.onstop = () => r(); });
+
+            // Download composited video
+            const outputBlob = new Blob(chunks, { type: mimeType });
+            const outputUrl  = URL.createObjectURL(outputBlob);
             const a = document.createElement('a');
-            a.href = blobUrl; a.download = `video-${Date.now()}.mp4`; a.click();
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-        } catch {
-            window.open(generatedUrl, '_blank');
+            a.href = outputUrl; a.download = `video-${Date.now()}.webm`; a.click();
+            setTimeout(() => {
+                URL.revokeObjectURL(outputUrl);
+                URL.revokeObjectURL(videoBlobUrl);
+                URL.revokeObjectURL(logoBlobUrl);
+            }, 10000);
+        } catch (err) {
+            // Fallback: download without logo
+            try {
+                const res = await fetch(generatedUrl);
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl; a.download = `video-${Date.now()}.mp4`; a.click();
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+            } catch { window.open(generatedUrl, '_blank'); }
+        } finally {
+            downloading = false;
         }
     }
 </script>
@@ -426,9 +594,9 @@
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="font-black text-slate-700 text-sm uppercase tracking-wide">🎬 {$locale === 'ar' ? 'معاينة الفيديو' : 'Video Preview'}</h3>
                     {#if generatedUrl}
-                        <button on:click={downloadVideo}
-                            class="px-4 py-2 rounded-xl text-xs font-black bg-orange-600 text-white hover:bg-orange-700 transition-colors shadow-sm">
-                            ⬇️ {$locale === 'ar' ? 'تنزيل' : 'Download'}
+                        <button on:click={downloadVideo} disabled={downloading}
+                            class="px-4 py-2 rounded-xl text-xs font-black transition-colors shadow-sm {downloading ? 'bg-slate-400 text-white cursor-wait' : 'bg-orange-600 text-white hover:bg-orange-700'}">
+                            {downloading ? '⏳ ' + ($locale === 'ar' ? 'جاري التحميل...' : 'Processing...') : '⬇️ ' + ($locale === 'ar' ? 'تنزيل' : 'Download')}
                         </button>
                     {/if}
                 </div>
