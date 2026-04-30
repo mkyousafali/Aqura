@@ -562,6 +562,7 @@ const hasOfferPrices = products.some((p: any) => p.priceAfterOffer || p.priceBef
 let accessToken: string;
 let backgroundPrompt: string;
 let backgroundB64: string;
+let dialogueOverlay = '';
 
 try {
 accessToken = await getAccessToken();
@@ -591,11 +592,10 @@ if (productCount === 0) {
     // No characters — send user's prompt DIRECTLY to Imagen without modification
     // Strip dialogue/speech bubble text — Imagen cannot render Arabic reliably
     const { clean: cleanExtra, dialogue: extractedDialogue } = extractDialogue(extraPrompt.trim());
+    dialogueOverlay = extractedDialogue;
     backgroundPrompt = [cleanExtra, colorHint, platformHint, qualityHint, brandHint,
       'IMPORTANT: Do NOT render any text, letters, words, speech bubbles, or written characters anywhere in the image.'
     ].filter(Boolean).join(' ');
-    // Store for SVG compositing below
-    (backgroundPrompt as any).__dialogue = extractedDialogue;
   }
 } else {
   // ── Products present: Gemini writes a background-with-product-zones prompt ──
@@ -700,7 +700,7 @@ let finalBuffer: Buffer;
 
 if (productCount === 0) {
   // Character was generated IN the image by Imagen subject-reference — composite logo + optional speech bubble
-  const dialogueText: string = (backgroundPrompt as any).__dialogue ?? '';
+  const dialogueText: string = dialogueOverlay;
   const logoSignedUrl: string | null = brandInfo?.logo_url
     ? (await supabase.storage.from('ai-marketing-files').createSignedUrl(brandInfo.logo_url, 300)).data?.signedUrl ?? null
     : null;
