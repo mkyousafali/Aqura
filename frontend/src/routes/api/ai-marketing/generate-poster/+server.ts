@@ -232,25 +232,26 @@ function extractDialogue(prompt: string): { clean: string; dialogue: string } {
   let dialogue = '';
   let clean = prompt;
 
-  // Strategy 1: standalone quoted line (most common format — quote on its own line)
-  // Matches a line that is just: "text" or “text” or 'text' etc.
-  const standaloneRe = /^[ \t]*["\u201c\u2018\u00ab‹]([^\n"\u201d\u2019\u00bb\u203a]{1,400})["\u201d\u2019\u00bb\u203a][ \t]*$/m;
+  // Strategy 1: standalone quoted line — catches regular " and ' and Unicode quote variants
+  const standaloneRe = /^[ \t]*["'\u201c\u2018\u00ab]([^\n"'\u201d\u2019\u00bb]{1,400})["'\u201d\u2019\u00bb][ \t]*$/m;
   const m1 = standaloneRe.exec(prompt);
   if (m1 && /[\u0600-\u06FF]/.test(m1[1])) {
     dialogue = m1[1].trim();
     clean = prompt.replace(m1[0], '');
   }
 
-  // Strategy 2: inline after says/speaks/bubble keyword (same line)
+  // Strategy 2: inline after says/speaks keyword on same line
   if (!dialogue) {
-    const inlineRe = /(?:says?|said|speaks?|proclaims?|announces?)[^\n]{0,80}["\u201c\u2018\u00ab]([^\n"\u201d\u2019\u00bb]{1,300})["\u201d\u2019\u00bb]/gi;
-    clean = prompt.replace(inlineRe, (_m, text) => { if (!dialogue) dialogue = text.trim(); return ''; });
+    const inlineRe = /(?:says?|said|speaks?|proclaims?|announces?)[^\n]{0,80}["'\u201c\u2018\u00ab]([^\n"'\u201d\u2019\u00bb]{1,300})["'\u201d\u2019\u00bb]/gi;
+    clean = prompt.replace(inlineRe, (_m: string, text: string) => { if (!dialogue) dialogue = text.trim(); return ''; });
   }
 
-  // Remove speech bubble instruction lines
+  // Remove speech bubble instruction lines and speaking descriptions
   clean = clean
     .replace(/[^\n]*speech\s*bubble[^\n]*/gi, '')
     .replace(/[^\n]*displays?\s+as\s+a[^\n]*/gi, '')
+    .replace(/[^\n]*speaks?\s+in\s+arabic[^\n]*/gi, '')
+    .replace(/[^\n]*smiles?\s+proudly[^\n]*/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -611,8 +612,10 @@ if (productCount === 0) {
     // Strip dialogue/speech bubble text — Imagen cannot render Arabic reliably
     const { clean: cleanExtra, dialogue: extractedDialogue } = extractDialogue(extraPrompt.trim());
     dialogueOverlay = extractedDialogue;
-    backgroundPrompt = [cleanExtra, colorHint, platformHint, qualityHint, brandHint,
-      'IMPORTANT: Do NOT render any text, letters, words, speech bubbles, or written characters anywhere in the image.'
+    // Put no-text instruction FIRST so Imagen prioritizes it
+    backgroundPrompt = [
+      'NO TEXT, NO WORDS, NO LETTERS, NO SPEECH BUBBLES anywhere in the image.',
+      cleanExtra, colorHint, platformHint, qualityHint, brandHint
     ].filter(Boolean).join(' ');
   }
 } else {
