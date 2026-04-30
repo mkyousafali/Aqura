@@ -16,8 +16,8 @@
         { id: 'settings',        label: { ar: 'الإعدادات',       en: 'Settings'        }, icon: '⚙️', color: 'green'  },
         { id: 'brand-libraries', label: { ar: 'الهويات',         en: 'Brand Libraries' }, icon: '🎨', color: 'green'  },
         { id: 'create-image',    label: { ar: 'إنشاء صورة',     en: 'Create Image'    }, icon: '🖼️', color: 'orange' },
-        { id: 'create-vision',   label: { ar: 'إنشاء رؤية',     en: 'Create Vision'   }, icon: '🎬', color: 'orange' },
-        { id: 'library',         label: { ar: 'المكتبة',          en: 'Library'         }, icon: '📚', color: 'green'  },
+        { id: 'create-vision',        label: { ar: 'إنشاء رؤية',       en: 'Create Vision'        }, icon: '🎬', color: 'orange' },
+        { id: 'library',              label: { ar: 'المكتبة',            en: 'Library'              }, icon: '📚', color: 'green'  },
     ];
 
     let activeTab: TabId = 'create-image';
