@@ -699,22 +699,20 @@ return json({
 let finalBuffer: Buffer;
 
 if (productCount === 0) {
-  // Character was generated IN the image by Imagen subject-reference — composite logo + optional speech bubble
+  // Character was generated IN the image by Imagen — composite logo only
+  // (dialogue is returned in response and rendered as HTML overlay in the frontend)
   const dialogueText: string = dialogueOverlay;
+  void dialogueText; // used in API response, not here
   const logoSignedUrl: string | null = brandInfo?.logo_url
     ? (await supabase.storage.from('ai-marketing-files').createSignedUrl(brandInfo.logo_url, 300)).data?.signedUrl ?? null
     : null;
   const logoBuffer = logoSignedUrl ? await fetchImageBuffer(logoSignedUrl) : null;
   const bgBuf = Buffer.from(backgroundB64, 'base64');
 
-  try {
-    const bgMeta = await sharp(bgBuf).metadata();
-    const W = bgMeta.width  ?? 1080;
-    const H = bgMeta.height ?? 1080;
-    const composites: import('sharp').OverlayOptions[] = [];
-
-    // Logo
-    if (logoBuffer) {
+  if (logoBuffer) {
+    try {
+      const bgMeta = await sharp(bgBuf).metadata();
+      const W = bgMeta.width  ?? 1080;
       const logoSize  = Math.round(W * 0.13);
       const logoPad   = Math.round(W * 0.025);
       const bgPadding = Math.round(logoSize * 0.18);
@@ -724,58 +722,17 @@ if (productCount === 0) {
       const logoBgSvg = `<svg width="${bgSize}" height="${bgSize}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${bgSize}" height="${bgSize}" rx="${Math.round(bgSize * 0.16)}" fill="#ffffff"/></svg>`;
       const logoBgPng   = await sharp(Buffer.from(logoBgSvg)).png().toBuffer();
       const logoResized = await sharp(logoBuffer).resize(logoSize, logoSize, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } }).png().toBuffer();
-      composites.push(
-        { input: logoBgPng,   left: Math.max(0, logoLeft - bgPadding), top: Math.max(0, logoTop - bgPadding) },
-        { input: logoResized, left: logoLeft, top: logoTop }
-      );
-    }
-
-    // Speech bubble overlay
-    if (dialogueText) {
-      const bubblePad  = Math.round(W * 0.04);
-      const fontSize   = Math.round(W * 0.042);
-      const lineH      = Math.round(fontSize * 1.45);
-      // Estimate lines (Arabic chars avg ~0.7x width)
-      const maxLineChars = Math.floor((W * 0.78) / (fontSize * 0.65));
-      const words = dialogueText.split(' ');
-      const lines: string[] = [];
-      let cur = '';
-      for (const w of words) {
-        if ((cur + ' ' + w).length > maxLineChars && cur) { lines.push(cur.trim()); cur = w; }
-        else cur += (cur ? ' ' : '') + w;
-      }
-      if (cur) lines.push(cur.trim());
-      const numLines = lines.length;
-      const bubbleH  = numLines * lineH + bubblePad * 2 + 14; // +14 for tail
-      const bubbleW  = Math.round(W * 0.82);
-      const bubbleX  = Math.round((W - bubbleW) / 2);
-      const bubbleY  = Math.round(H * 0.06);
-      const rx       = Math.round(bubbleH * 0.28);
-      // Build SVG speech bubble
-      let textLines = '';
-      for (let i = 0; i < lines.length; i++) {
-        const ty = bubbleY + bubblePad + fontSize + i * lineH;
-        textLines += `<text x="${bubbleX + bubbleW / 2}" y="${ty}" font-family="Arial, Tahoma, sans-serif" font-size="${fontSize}" font-weight="bold" fill="#ffffff" text-anchor="middle">${escSvg(lines[i])}</text>`;
-      }
-      const tailCX = Math.round(W * 0.35);
-      const tailTY = bubbleY + bubbleH;
-      const bubbleSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`
-        + `<rect x="${bubbleX}" y="${bubbleY}" width="${bubbleW}" height="${bubbleH}" rx="${rx}" fill="#1a1a2e" fill-opacity="0.82"/>`
-        + `<polygon points="${tailCX - 12},${tailTY} ${tailCX + 12},${tailTY} ${tailCX},${tailTY + 18}" fill="#1a1a2e" fill-opacity="0.82"/>`
-        + textLines
-        + `</svg>`;
-      composites.push({ input: Buffer.from(bubbleSvg) });
-    }
-
-    if (composites.length > 0) {
       finalBuffer = await sharp(bgBuf)
-        .composite(composites)
+        .composite([
+          { input: logoBgPng,   left: Math.max(0, logoLeft - bgPadding), top: Math.max(0, logoTop - bgPadding) },
+          { input: logoResized, left: logoLeft, top: logoTop }
+        ])
         .flatten({ background: { r: 255, g: 255, b: 255 } })
         .png().toBuffer();
-    } else {
+    } catch {
       finalBuffer = await sharp(bgBuf).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer();
     }
-  } catch {
+  } else {
     finalBuffer = await sharp(bgBuf).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer();
   }
 } else {
@@ -863,10 +820,11 @@ const { data: signed } = await supabase.storage
 .createSignedUrl(storagePath, 3600);
 
 return json({
-ok:          true,
-fileId:      fileRecord?.id ?? null,
-signedUrl:   signed?.signedUrl ?? null,
-imagePrompt: backgroundPrompt,
-storagePath
+ok:              true,
+fileId:          fileRecord?.id ?? null,
+signedUrl:       signed?.signedUrl ?? null,
+imagePrompt:     backgroundPrompt,
+storagePath,
+dialogueOverlay: dialogueOverlay || null
 });
 };

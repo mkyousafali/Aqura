@@ -53,6 +53,7 @@
     let generatedUrl: string | null = null;
     let generatedPrompt: string | null = null;
     let generatedFileId: number | null = null;
+    let generatedDialogue: string = '';
 
     // ── History (last 5 in session) ───────────────────────────────────────
     let history: Array<{ url: string; title: string; fileId: number | null }> = [];
@@ -126,6 +127,7 @@
         errorMessage = '';
         generatedUrl = null;
         generatedPrompt = null;
+        generatedDialogue = '';
 
         try {
             const res = await fetch('/api/ai-marketing/generate-poster', {
@@ -159,6 +161,7 @@
             generatedUrl    = data.signedUrl;
             generatedPrompt = data.imagePrompt;
             generatedFileId = data.fileId;
+            generatedDialogue = data.dialogueOverlay ?? '';
 
             // Add to session history
             const title = headline.trim() ||
@@ -558,6 +561,15 @@
                                     style="transform: translate({imgOffsetX}px, {imgOffsetY}px); transition:{dragging ? 'none' : 'transform 0.15s ease'};"
                                     draggable="false"
                                 />
+                                {#if generatedDialogue}
+                                    <div class="absolute top-[6%] left-[50%] -translate-x-1/2 w-[82%] pointer-events-none z-10">
+                                        <div class="relative bg-black/80 rounded-2xl px-4 py-3 text-white text-center font-bold leading-snug" style="direction:rtl; font-family: 'Tahoma', 'Arial', sans-serif; font-size: clamp(11px, 3.2vw, 18px);">
+                                            {generatedDialogue}
+                                            <!-- Tail -->
+                                            <div class="absolute bottom-[-10px] left-[35%] w-0 h-0" style="border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid rgba(0,0,0,0.8);"></div>
+                                        </div>
+                                    </div>
+                                {/if}
                                 <div class="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/40 text-white text-[9px] font-bold pointer-events-none">
                                     {$locale === 'ar' ? 'اسحب لإعادة التموضع' : 'Drag to reposition'}
                                 </div>
