@@ -702,18 +702,43 @@
 					</button>
 				</div>
 
-				<!-- Managed by list -->
+				<!-- Claimed users card section -->
 				{#if product.managed_by && product.managed_by.length > 0}
-					<div class="managed-by-row">
-						<span class="managed-by-label">👥</span>
-						{#each product.managed_by as manager}
-							<span class="managed-by-tag" class:managed-by-me={manager.employee_id === employeeId}>
-								{managerNames[manager.employee_id] || manager.employee_id}
-							</span>
-						{/each}
+					<div class="claimed-section">
+						<div class="claimed-title">👥 {isRtl ? 'المستخدمون' : 'Claimed By'}</div>
+						<div class="claimed-cards-row">
+							{#each product.managed_by as manager}
+								{@const isCurrentBranch = manager.branch_id === selectedBranchId}
+								{@const isMe = manager.employee_id === employeeId}
+								{@const branchInfo = branches.find(b => b.branch_id === manager.branch_id)}
+								{@const branchFullName = branchInfo?.branch_name || ''}
+								{@const branchParts = branchFullName.split(' - ')}
+								{@const branchName = branchParts[0] || branchFullName}
+								{@const branchLoc = branchParts.slice(1).join(' - ')}
+								<div class="claimed-card" class:claimed-card-current={isCurrentBranch} class:claimed-card-me={isMe}>
+									<div class="claimed-card-header">
+										<span class="claimed-avatar">{isMe ? '🙋' : '👤'}</span>
+										<div class="claimed-badges">
+											{#if isCurrentBranch}
+												<span class="badge-current">{isRtl ? 'الفرع الحالي' : 'Current'}</span>
+											{/if}
+											{#if isMe}
+												<span class="badge-me">{isRtl ? 'أنا' : 'Me'}</span>
+											{/if}
+										</div>
+									</div>
+									<div class="claimed-name">{managerNames[manager.employee_id] || manager.employee_id}</div>
+									<div class="claimed-branch">{branchName}</div>
+									{#if branchLoc}
+										<div class="claimed-location">📍 {branchLoc}</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
 						{#if product.managed_by.some((m) => m.employee_id === employeeId)}
-							<button class="unclaim-inline-btn" on:click={unclaimProduct} disabled={claiming}>
-								{claiming ? '...' : (isRtl ? 'إلغاء' : 'Unclaim')}
+							<button class="unclaim-btn" on:click={unclaimProduct} disabled={claiming}>
+								{#if claiming}⏳{:else}✖{/if}
+								{isRtl ? 'إلغاء المطالبة' : 'Unclaim'}
 							</button>
 						{/if}
 					</div>
@@ -1206,60 +1231,146 @@
 		cursor: not-allowed;
 	}
 
-	.managed-by-row {
+	.claimed-section {
+		margin-top: 0.6rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid #E2E8F0;
+	}
+
+	.claimed-title {
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #94A3B8;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: 0.4rem;
+	}
+
+	.claimed-cards-row {
+		display: flex;
+		gap: 0.5rem;
+		overflow-x: auto;
+		padding-bottom: 0.25rem;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+	}
+
+	.claimed-cards-row::-webkit-scrollbar {
+		display: none;
+	}
+
+	.claimed-card {
+		flex-shrink: 0;
+		min-width: 120px;
+		max-width: 150px;
+		padding: 0.5rem 0.6rem;
+		background: #F8FAFC;
+		border: 1.5px solid #E2E8F0;
+		border-radius: 10px;
+	}
+
+	.claimed-card-current {
+		background: #F0FDF4;
+		border-color: #10B981;
+		box-shadow: 0 0 0 1px #10B98120;
+	}
+
+	.claimed-card-me:not(.claimed-card-current) {
+		background: #EFF6FF;
+		border-color: #93C5FD;
+	}
+
+	.claimed-card-header {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
-		margin-top: 0.3rem;
-		padding: 0.25rem 0.4rem;
-		background: #F8FAFC;
-		border: 1px solid #E2E8F0;
-		border-radius: 5px;
+		gap: 0.3rem;
+		margin-bottom: 0.3rem;
 		flex-wrap: wrap;
 	}
 
-	.managed-by-label {
-		font-size: 0.72rem;
+	.claimed-avatar {
+		font-size: 1rem;
 		line-height: 1;
 	}
 
-	.managed-by-tag {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.15rem 0.45rem;
-		background: #E2E8F0;
-		color: #334155;
-		border-radius: 5px;
-		font-size: 0.68rem;
-		font-weight: 600;
-		border: 1px solid #CBD5E1;
+	.claimed-badges {
+		display: flex;
+		gap: 0.2rem;
+		flex-wrap: wrap;
 	}
 
-	.managed-by-me {
+	.badge-current {
+		padding: 0.1rem 0.3rem;
 		background: #D1FAE5;
 		color: #065F46;
-		border-color: #6EE7B7;
+		border-radius: 4px;
+		font-size: 0.55rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		white-space: nowrap;
 	}
 
-	.unclaim-inline-btn {
-		margin-inline-start: auto;
-		padding: 0.15rem 0.45rem;
+	.badge-me {
+		padding: 0.1rem 0.3rem;
+		background: #DBEAFE;
+		color: #1E40AF;
+		border-radius: 4px;
+		font-size: 0.55rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.claimed-name {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #1E293B;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.claimed-branch {
+		font-size: 0.63rem;
+		color: #475569;
+		margin-top: 0.1rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.claimed-location {
+		font-size: 0.58rem;
+		color: #94A3B8;
+		margin-top: 0.05rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.unclaim-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.3rem;
+		width: 100%;
+		margin-top: 0.45rem;
+		padding: 0.35rem 0.6rem;
 		background: #FEE2E2;
 		color: #991B1B;
 		border: 1px solid #FECACA;
-		border-radius: 5px;
-		font-size: 0.62rem;
+		border-radius: 7px;
+		font-size: 0.68rem;
 		font-weight: 700;
 		cursor: pointer;
-		white-space: nowrap;
-		line-height: 1;
 	}
 
-	.unclaim-inline-btn:active {
+	.unclaim-btn:active {
 		background: #FECACA;
 	}
 
-	.unclaim-inline-btn:disabled {
+	.unclaim-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
