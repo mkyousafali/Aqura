@@ -263,9 +263,10 @@
 
 				syncStatus = { success: true, message: `📦 Batch ${batchNumber}: Fetched ${fetchedProducts.length} products (${totalFetched}/${totalProducts}). Upserting...` };
 
-				// Step 2: Upsert this batch to Supabase
-				for (let i = 0; i < fetchedProducts.length; i += UPSERT_BATCH_SIZE) {
-					const batch = fetchedProducts.slice(i, i + UPSERT_BATCH_SIZE);
+				// Step 2: Upsert this batch to Supabase (strip expiry_dates — managed manually, not from ERP)
+				const productsWithoutExpiry = fetchedProducts.map(({ expiry_dates, ...p }) => p);
+				for (let i = 0; i < productsWithoutExpiry.length; i += UPSERT_BATCH_SIZE) {
+					const batch = productsWithoutExpiry.slice(i, i + UPSERT_BATCH_SIZE);
 
 					const { data: rpcResult, error: rpcError } = await supabase
 						.rpc('upsert_erp_products_with_expiry', {
@@ -281,7 +282,7 @@
 
 					syncStatus = {
 						success: true,
-						message: `⏳ Batch ${batchNumber}: ${i + batch.length}/${fetchedProducts.length} upserted (${totalFetched}/${totalProducts} total, ${newCount} new, ${updatedCount} updated)`
+						message: `⏳ Batch ${batchNumber}: ${i + batch.length}/${productsWithoutExpiry.length} upserted (${totalFetched}/${totalProducts} total, ${newCount} new, ${updatedCount} updated)`
 					};
 				}
 
