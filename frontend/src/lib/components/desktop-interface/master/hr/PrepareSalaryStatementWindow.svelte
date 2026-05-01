@@ -1,12 +1,24 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount, onDestroy } from 'svelte';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
+	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
 
 	export let windowId: string;
+
+	// Notes popup state
+	let showNotesPopup = false;
+	let notesEmployeeId = '';
+	let notesEmployeeName = '';
+
+	function openNotesPopup(row: any) {
+		notesEmployeeId = row.employeeId;
+		notesEmployeeName = row.employeeName || row.employeeId;
+		showNotesPopup = true;
+	}
 
 	interface Employee {
 		id: string;
@@ -2119,8 +2131,21 @@ return n;
 										</svg>
 									</button>
 								</td>
+								<!-- Notes button alongside employee ID -->
 								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
-									{row.employeeId}
+									<div class="flex items-center gap-1">
+										<span>{row.employeeId}</span>
+										<button
+											type="button"
+											class="p-0.5 hover:bg-amber-100 rounded-full transition-colors text-amber-400 hover:text-amber-600 flex-shrink-0"
+											on:click={() => openNotesPopup(row)}
+											title={$t('hr.salaryNotes.openNotes')}
+										>
+											<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+											</svg>
+										</button>
+									</div>
 								</td>
 								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
 									<div class="flex flex-col">
@@ -2779,6 +2804,14 @@ return n;
 	</div>
 {/if}
 <!-- Employee Edit Modal -->
+<!-- Salary Notes Popup -->
+<EmployeeSalaryNotesPopup
+	bind:show={showNotesPopup}
+	employeeId={notesEmployeeId}
+	employeeName={notesEmployeeName}
+	on:close={() => { showNotesPopup = false; }}
+/>
+
 {#if showEmpEditModal && empEditRow}
 	{@const _basicSal = Number(empEdit.basicSalary) || 0}
 	{@const _otherAllow = Number(empEdit.otherAllowance) || 0}
@@ -2813,6 +2846,8 @@ return n;
 	{@const _bankRatio = _totalAllow > 0 ? _bankAllow / _totalAllow : 0}
 	{@const _netBank = _netSal * _bankRatio}
 	{@const _netCash = _netSal - _netBank}
+	{@const _perMinuteRate = _hourlyRate / 60}
+	{@const _perDayRate = 8 * _hourlyRate}
 	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:click|self={() => showEmpEditModal = false} on:keydown={(e) => e.key === 'Escape' && (showEmpEditModal = false)}>
 		<div class="bg-white rounded-2xl shadow-2xl w-full max-w-7xl mx-4 overflow-hidden flex flex-col max-h-[90vh]">
 			<!-- Header -->
@@ -2966,6 +3001,16 @@ return n;
 							<label for="ee-other-ded" class="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.otherDeductionsLabel')}</label>
 							<input id="ee-other-ded" type="number" min="0" bind:value={empEdit.otherDeductions} class="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-sm font-semibold text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-gray-400" />
 						</div>
+					</div>
+
+					<!-- Rate Info Card: Attendance Deduction Calculation Rates -->
+					<div class="bg-teal-50 border border-teal-200 rounded-lg px-3 py-2 mb-2 flex items-center gap-3 flex-wrap">
+						<span class="text-[9px] font-bold text-teal-600 uppercase tracking-widest whitespace-nowrap">{$t('hr.salaryStatement.attendanceDeductionRates')}:</span>
+						<span class="flex items-center gap-1 text-[9px]"><span class="w-1.5 h-1.5 rounded-full bg-purple-400 inline-block"></span><span class="text-purple-600 font-semibold">{$t('hr.salaryStatement.lateDeductionsLabel')}:</span> <span class="font-bold text-purple-800">{_perMinuteRate.toFixed(4)}</span> <span class="text-purple-400">{$t('hr.salaryStatement.perMinute')}</span></span>
+						<span class="flex items-center gap-1 text-[9px]"><span class="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block"></span><span class="text-indigo-600 font-semibold">{$t('hr.salaryStatement.underWorkedDeductionsLabel')}:</span> <span class="font-bold text-indigo-800">{_perMinuteRate.toFixed(4)}</span> <span class="text-indigo-400">{$t('hr.salaryStatement.perMinute')}</span></span>
+						<span class="flex items-center gap-1 text-[9px]"><span class="w-1.5 h-1.5 rounded-full bg-pink-400 inline-block"></span><span class="text-pink-600 font-semibold">{$t('hr.salaryStatement.incompleteDayDeductions')}:</span> <span class="font-bold text-pink-800">{_perDayRate.toFixed(2)}</span> <span class="text-pink-400">{$t('hr.salaryStatement.perDay')}</span></span>
+						<span class="flex items-center gap-1 text-[9px]"><span class="w-1.5 h-1.5 rounded-full bg-sky-400 inline-block"></span><span class="text-sky-600 font-semibold">{$t('hr.salaryStatement.unapprovedLeaveDeductionsLabel')}:</span> <span class="font-bold text-sky-800">{_perDayRate.toFixed(2)}</span> <span class="text-sky-400">{$t('hr.salaryStatement.perDay')}</span></span>
+						<span class="text-[9px] text-teal-400 ml-auto whitespace-nowrap">{_totalSalForRate.toFixed(2)} ÷ 240h = {_hourlyRate.toFixed(4)} {$t('hr.salaryStatement.perHour')}</span>
 					</div>
 
 					<!-- Group 2: Attendance-Based Deductions (auto-computed, overridable) -->

@@ -4,6 +4,7 @@
 	import { currentLocale, _ as t } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import PrepareSalaryStatementWindow from './PrepareSalaryStatementWindow.svelte';
+	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
 
 	let employees: any[] = [];
 	let filteredEmployees: any[] = [];
@@ -52,6 +53,17 @@
 		
 		return matchesSearch && matchesStatus && matchesBranch && matchesNationality;
 	});
+
+	// Notes popup state
+	let showNotesPopup = false;
+	let notesEmployeeId = '';
+	let notesEmployeeName = '';
+
+	function openNotesPopup(employee: any) {
+		notesEmployeeId = employee.id;
+		notesEmployeeName = $currentLocale === 'ar' ? (employee.name_ar || employee.name_en) : (employee.name_en || employee.name_ar);
+		showNotesPopup = true;
+	}
 
 	// Modal state
 	let showModal = false;
@@ -567,6 +579,7 @@
 				<table class="w-full border-collapse">
 					<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
 						<tr>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400 w-10">{$t('hr.salaryNotes.notesColumn')}</th>
 							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.id')}</th>
 							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.name')}</th>
 							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.branch')}</th>
@@ -589,6 +602,18 @@
 				<tbody class="divide-y divide-slate-200">
 					{#each filteredEmployees as employee, index}
 						<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+							<td class="px-2 py-3 text-center w-10">
+								<button
+									type="button"
+									class="p-1.5 rounded-full hover:bg-amber-100 text-amber-500 hover:text-amber-700 transition-colors"
+									title={$t('hr.salaryNotes.openNotes')}
+									on:click={() => openNotesPopup(employee)}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+									</svg>
+								</button>
+							</td>
 							<td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
 							<td class="px-4 py-3 text-sm text-slate-700">
 								<div class="name-cell">
@@ -762,6 +787,14 @@
 	</div>
 {/if}
 </div>
+
+<!-- Salary Notes Popup -->
+<EmployeeSalaryNotesPopup
+	bind:show={showNotesPopup}
+	employeeId={notesEmployeeId}
+	employeeName={notesEmployeeName}
+	on:close={() => { showNotesPopup = false; }}
+/>
 
 <!-- Modal -->
 {#if showModal && currentEmployee}
