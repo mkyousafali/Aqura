@@ -151,6 +151,83 @@ function getMultiShiftWorkingMins(
   return Math.round(totalHours * 60);
 }
 
+/** Returns all multi-shift slots active for an employee on a given date */
+function getMultiShiftsForDate(
+  empId: string,
+  dateStr: string,
+  multiShiftRegular: Map<string, any[]>,
+  multiShiftDateWise: Map<string, any[]>,
+  multiShiftWeekday: Map<string, any[]>
+): any[] {
+  const eid = String(empId);
+  const dayNum = getWeekdayInSaudi(dateStr);
+  const results: any[] = [];
+  for (const ms of multiShiftDateWise.get(eid) || []) {
+    if (dateStr >= ms.date_from && dateStr <= ms.date_to) results.push(ms);
+  }
+  for (const ms of multiShiftWeekday.get(eid) || []) {
+    if (ms.weekday === dayNum) results.push(ms);
+  }
+  for (const ms of multiShiftRegular.get(eid) || []) {
+    results.push(ms);
+  }
+  return results;
+}
+
+/**
+ * For a multi-shift employee, classify a punch against each slot's windows.
+ * Slots are sorted chronologically. A punch that falls after a slot's checkout window
+ * but before the next slot's check-in window is treated as a late checkout for that slot.
+ * Returns the matched slot key (shift_start_time) and punch status, or null if no match.
+ */
+function classifyAgainstMultiShifts(
+  punchTime: string,
+  multiShifts: any[]
+): { multiShiftKey: string; status: string } | null {
+  const punchMinutes = timeToMinutes(punchTime);
+  // Sort slots chronologically by start time
+  const sorted = [...multiShifts].sort((a, b) => timeToMinutes(a.shift_start_time) - timeToMinutes(b.shift_start_time));
+
+  for (let i = 0; i < sorted.length; i++) {
+    const ms = sorted[i];
+    const startMinutes = timeToMinutes(ms.shift_start_time);
+    const endMinutes = timeToMinutes(ms.shift_end_time);
+    const startBuffer = (ms.shift_start_buffer || 0) * 60;
+    const endBuffer = (ms.shift_end_buffer || 0) * 60;
+
+    const checkInStart = startMinutes - startBuffer;
+    const checkInEnd = startMinutes + startBuffer;
+    const checkOutStart = endMinutes - endBuffer;
+    const checkOutEnd = endMinutes + endBuffer;
+
+    // Check-in window
+    if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+      return { multiShiftKey: ms.shift_start_time, status: 'Check In' };
+    }
+
+    // Within the shift period (in-progress or checkout)
+    if (punchMinutes > checkInEnd && punchMinutes <= checkOutEnd) {
+      return {
+        multiShiftKey: ms.shift_start_time,
+        status: punchMinutes >= checkOutStart ? 'Check Out' : 'In Progress',
+      };
+    }
+
+    // After checkout window — if before the NEXT slot's check-in window, it's a late checkout
+    if (punchMinutes > checkOutEnd) {
+      const nextMs = sorted[i + 1];
+      const nextCheckInStart = nextMs
+        ? timeToMinutes(nextMs.shift_start_time) - (nextMs.shift_start_buffer || 0) * 60
+        : Infinity;
+      if (punchMinutes < nextCheckInStart) {
+        return { multiShiftKey: ms.shift_start_time, status: 'Check Out' };
+      }
+      // Punch falls in next slot's zone — continue to next iteration
+    }
+  }
+  return null;
+}
+
 function analyzeEmployeeDays(
   emp: Employee,
   datesInRange: string[],
@@ -205,6 +282,73 @@ function analyzeEmployeeDays(
         status = 'Absent';
       }
     } else {
+      // ---- Get multi-shift slots for this date ----
+      const multiShifts = getMultiShiftsForDate(emp.id, date, multiShiftRegular, multiShiftDateWise, multiShiftWeekday);
+
+      if (multiShifts.length > 0) {
+        // ===== MULTI-SHIFT PATH =====
+        // Transactions were already classified in Step 2 with status + multiShiftKey
+        // Group by multiShiftKey (slot identifier = shift_start_time)
+        const slotTxns = new Map<string, any[]>();
+        for (const txn of allTransactions) {
+          consumedTransactions.add(txn.id);
+          const key = txn.multiShiftKey || '__unslotted__';
+          const list = slotTxns.get(key) || [];
+          list.push(txn);
+          slotTxns.set(key, list);
+        }
+
+        // Analyze each slot independently
+        const slotStatuses: string[] = [];
+        let isFirstSlot = true;
+
+        for (const ms of multiShifts) {
+          const key = ms.shift_start_time;
+          const txnsForSlot = slotTxns.get(key) || [];
+
+          const checkIn = txnsForSlot.find((t: any) => t.status === 'Check In') || null;
+          const checkOut = txnsForSlot.find((t: any) => t.status === 'Check Out' || t.status === 'In Progress') || null;
+
+          if (checkIn && checkOut) {
+            const slotWorked = calculateWorkedMinutesRaw(checkIn.punch_time, checkOut.punch_time);
+            workedMins += slotWorked;
+            const slotExpected = Math.round((ms.working_hours || 0) * 60);
+            if (slotExpected > 0 && slotWorked < slotExpected) underMins += slotExpected - slotWorked;
+            if (isFirstSlot) {
+              lateMins = shift ? calculateLateArrivalMinutes(checkIn.punch_time, shift) : 0;
+              checkInTime = checkIn.punch_time;
+              isFirstSlot = false;
+            }
+            checkOutTime = checkOut.punch_time;
+            slotStatuses.push('Worked');
+          } else if (checkIn) {
+            if (isFirstSlot) {
+              lateMins = shift ? calculateLateArrivalMinutes(checkIn.punch_time, shift) : 0;
+              checkInTime = checkIn.punch_time;
+              isFirstSlot = false;
+            }
+            slotStatuses.push('Check-Out Missing');
+          } else if (checkOut) {
+            checkOutTime = checkOut.punch_time;
+            if (isFirstSlot) isFirstSlot = false;
+            slotStatuses.push('Check-In Missing');
+          } else {
+            // No punches for this slot
+            slotStatuses.push('Check-In Missing');
+          }
+        }
+
+        // Aggregate status across slots
+        if (slotStatuses.every(s => s === 'Worked')) {
+          status = 'Worked';
+        } else if (slotStatuses.some(s => s === 'Check-In Missing')) {
+          status = 'Check-In Missing';
+        } else if (slotStatuses.some(s => s === 'Check-Out Missing')) {
+          status = 'Check-Out Missing';
+        } else {
+          status = 'Worked';
+        }
+      } else {
       // ---- DEDUPLICATION (matching EmployeeAnalysisWindow.svelte createPunchPairs) ----
       const allCheckIns = allTransactions.filter((t: any) => t.status === 'Check In');
       const allCheckOuts = allTransactions.filter((t: any) => t.status === 'Check Out');
@@ -397,12 +541,12 @@ function analyzeEmployeeDays(
       } else {
         // Use working_hours field (matches EmployeeAnalysisWindow.svelte)
         const shiftExpected = shift ? (shift.working_hours || 0) * 60 : 0;
-        const msExpected = getMultiShiftWorkingMins(emp.id, date, multiShiftRegular, multiShiftDateWise, multiShiftWeekday);
-        const expected = Math.round(shiftExpected + msExpected);
+        const expected = Math.round(shiftExpected);
         if (expected > 0 && workedMins < expected) underMins = expected - workedMins;
         status = 'Worked';
       }
-    }
+      } // end of single-shift else block
+    } // end of allTransactions.length > 0
 
     results.push({
       employee_id: emp.id,
@@ -534,9 +678,9 @@ Deno.serve(async (req) => {
       { data: msDateWiseData },
       { data: msWeekdayData },
     ] = await Promise.all([
-      supabase.from('multi_shift_regular').select('employee_id, working_hours').in('employee_id', empIds),
-      supabase.from('multi_shift_date_wise').select('employee_id, date_from, date_to, working_hours').in('employee_id', empIds),
-      supabase.from('multi_shift_weekday').select('employee_id, weekday, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_regular').select('employee_id, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_date_wise').select('employee_id, date_from, date_to, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_weekday').select('employee_id, weekday, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer, working_hours').in('employee_id', empIds),
     ]);
 
     console.log(`📊 [Analyze Attendance] Fetched: ${transactions?.length || 0} transactions, ${shifts?.length || 0} shifts`);
@@ -635,9 +779,18 @@ Deno.serve(async (req) => {
         let shiftDate = calendarDate;
 
         const calendarShift = getApplicableShift(emp.id, calendarDate, employeeShifts, employeeSpecialShiftsDateWise, employeeSpecialShiftsWeekday);
-        const calendarShiftStartMinutes = calendarShift ? timeToMinutes(calendarShift.shift_start_time) : 24 * 60;
-        const calendarShiftStartBuffer = calendarShift ? (calendarShift.shift_start_buffer || 0) * 60 : 0;
-        const calendarCheckInStart = calendarShiftStartMinutes - calendarShiftStartBuffer;
+        const msForCalendarDate = getMultiShiftsForDate(emp.id, calendarDate, multiShiftRegular, multiShiftDateWise, multiShiftWeekday);
+        let calendarCheckInStart: number;
+        if (msForCalendarDate.length > 0) {
+          // Use earliest multi-shift slot's check-in window start
+          calendarCheckInStart = Math.min(...msForCalendarDate.map((ms: any) =>
+            timeToMinutes(ms.shift_start_time) - (ms.shift_start_buffer || 0) * 60
+          ));
+        } else {
+          const calendarShiftStartMinutes = calendarShift ? timeToMinutes(calendarShift.shift_start_time) : 24 * 60;
+          const calendarShiftStartBuffer = calendarShift ? (calendarShift.shift_start_buffer || 0) * 60 : 0;
+          calendarCheckInStart = calendarShiftStartMinutes - calendarShiftStartBuffer;
+        }
 
         // Check if morning punch belongs to previous day's overnight shift
         if (punchMinutes < calendarCheckInStart) {
@@ -696,54 +849,63 @@ Deno.serve(async (req) => {
 
         let status = '';
         let finalShiftDate = t.shiftDate;
+        let multiShiftKey: string | null = null;
 
         if (t.status) {
           // Already classified (carryover checkout)
           status = t.status;
-        } else if (!shift) {
-          status = 'Other';
         } else {
-          const startBufferMinutes = (shift.shift_start_buffer || 0) * 60;
-          const endBufferMinutes = (shift.shift_end_buffer || 0) * 60;
-          const checkInStart = shiftStartMinutes - startBufferMinutes;
-          const checkInEnd = shiftStartMinutes + startBufferMinutes;
-          const checkOutStart = shiftEndMinutes - endBufferMinutes;
-          const checkOutEnd = shiftEndMinutes + endBufferMinutes;
+          // Try multi-shift classification first
+          const multiShifts = getMultiShiftsForDate(emp.id, t.shiftDate, multiShiftRegular, multiShiftDateWise, multiShiftWeekday);
+          if (multiShifts.length > 0) {
+            const match = classifyAgainstMultiShifts(t.punch_time, multiShifts);
+            status = match ? match.status : 'Other';
+            multiShiftKey = match ? match.multiShiftKey : null;
+          } else if (!shift) {
+            status = 'Other';
+          } else {
+            const startBufferMinutes = (shift.shift_start_buffer || 0) * 60;
+            const endBufferMinutes = (shift.shift_end_buffer || 0) * 60;
+            const checkInStart = shiftStartMinutes - startBufferMinutes;
+            const checkInEnd = shiftStartMinutes + startBufferMinutes;
+            const checkOutStart = shiftEndMinutes - endBufferMinutes;
+            const checkOutEnd = shiftEndMinutes + endBufferMinutes;
 
-          if (isOvernightShift) {
-            if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
-              status = 'Check In';
-            } else if (checkOutStart < 0) {
-              const adjustedCheckOutStart = checkOutStart + (24 * 60);
-              if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
+            if (isOvernightShift) {
+              if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+                status = 'Check In';
+              } else if (checkOutStart < 0) {
+                const adjustedCheckOutStart = checkOutStart + (24 * 60);
+                if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
+                  status = 'Check Out';
+                } else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
+                  status = 'Check Out';
+                } else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+                  status = 'In Progress';
+                } else {
+                  status = 'Other';
+                }
+              } else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
                 status = 'Check Out';
-              } else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
+              } else {
+                status = 'Other';
+              }
+            } else {
+              if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+                status = 'Check In';
+              } else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
                 status = 'Check Out';
-              } else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+              } else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
                 status = 'In Progress';
               } else {
                 status = 'Other';
               }
-            } else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-              status = 'Check Out';
-            } else {
-              status = 'Other';
-            }
-          } else {
-            if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
-              status = 'Check In';
-            } else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-              status = 'Check Out';
-            } else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
-              status = 'In Progress';
-            } else {
-              status = 'Other';
             }
           }
         }
 
         const list = txnsByShiftDate.get(finalShiftDate) || [];
-        list.push({ ...t, status, shiftDate: finalShiftDate });
+        list.push({ ...t, status, shiftDate: finalShiftDate, multiShiftKey });
         txnsByShiftDate.set(finalShiftDate, list);
       });
 

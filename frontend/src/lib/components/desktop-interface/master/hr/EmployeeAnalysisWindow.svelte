@@ -103,6 +103,17 @@
 		syncPunchTimeTo12h();
 	}
 
+	// Reactive: group punchPairs by their display date so multi-shift pairs share one date header
+	$: groupedPunchPairs = (() => {
+		const seen = new Map<string, any[]>();
+		for (const pair of punchPairs) {
+			const date = pair.checkInDate || pair.checkOutDate || '';
+			if (!seen.has(date)) seen.set(date, []);
+			seen.get(date)!.push(pair);
+		}
+		return Array.from(seen.entries()).map(([date, pairs]) => ({ date, pairs }));
+	})();
+
 	async function loadEmployeeData() {
 		try {
 			// Load regular shift data
@@ -1757,7 +1768,12 @@
 			// If punch time is before the current day's shift check-in window starts, it might be an early checkout from previous day
 			const calendarShiftStartMinutes = calendarShift ? timeToMinutes(calendarShift.shift_start_time) : 24 * 60;
 			const calendarShiftStartBuffer = calendarShift ? (calendarShift.shift_start_buffer || 0) * 60 : 0;
-			const calendarCheckInStart = calendarShiftStartMinutes - calendarShiftStartBuffer;
+			// For multi-shift employees, use the EARLIEST check-in window start so early-morning punches
+			// don't incorrectly enter the "previous day carryover" path
+			const multiShiftsForCarryoverCheck = getMultiShiftsForDate(calendarDate);
+			const calendarCheckInStart = multiShiftsForCarryoverCheck.length > 0
+				? Math.min(...multiShiftsForCarryoverCheck.map(ms => timeToMinutes(ms.shift_start_time) - (ms.shift_start_buffer || 0) * 60))
+				: calendarShiftStartMinutes - calendarShiftStartBuffer;
 			
 			if (punchMinutes < calendarCheckInStart) {  // Before current day's shift check-in window
 				const prevDate = getPreviousDate(calendarDate);
@@ -1809,6 +1825,47 @@
 				}
 			}
 			
+			// ── MULTI-SHIFT CLASSIFICATION (takes priority over single-shift) ──
+			// When multi-shift records exist for this date, classify the punch against
+			// each slot's check-in/check-out windows.  Tag with multiShiftKey so pairs
+			// are kept per slot rather than merged into one day bucket.
+			const multiShiftsForDate = getMultiShiftsForDate(calendarDate);
+			let multiShiftKey: string | null = null;
+
+			if (multiShiftsForDate.length > 0) {
+				for (const ms of multiShiftsForDate) {
+					const msStartMins = timeToMinutes(ms.shift_start_time);
+					const msEndMins   = timeToMinutes(ms.shift_end_time);
+					const msStartBuf  = (ms.shift_start_buffer || 0) * 60;
+					const msEndBuf    = (ms.shift_end_buffer   || 0) * 60;
+					const msCiStart   = msStartMins - msStartBuf;
+					const msCiEnd     = msStartMins + msStartBuf;
+					const msCoStart   = msEndMins   - msEndBuf;
+					const msCoEnd     = msEndMins   + msEndBuf;
+
+					if (punchMinutes >= msCiStart && punchMinutes <= msCiEnd) {
+						status = 'Check In';
+						shiftDate = calendarDate;
+						multiShiftKey = ms.shift_start_time;
+						break;
+					} else if (punchMinutes >= msCoStart && punchMinutes <= msCoEnd) {
+						status = 'Check Out';
+						shiftDate = calendarDate;
+						multiShiftKey = ms.shift_start_time;
+						break;
+					} else if (punchMinutes > msCiEnd && punchMinutes < msCoStart) {
+						status = 'In Progress';
+						shiftDate = calendarDate;
+						multiShiftKey = ms.shift_start_time;
+						break;
+					}
+				}
+				// If punch matched a multi-shift slot, return early — skip single-shift logic
+				if (multiShiftKey !== null) {
+					return { ...txn, calendarDate, shiftDate, status, multiShiftKey };
+				}
+			}
+
 			// ALWAYS recalculate status based on shift windows and buffers, NOT database status
 			// Detect if shift is overnight (shift_end_time < shift_start_time in minutes)
 			const isOvernightShift = calendarShift && 
@@ -1914,7 +1971,8 @@
 				...txn,
 				calendarDate,
 				shiftDate,
-				status
+				status,
+				multiShiftKey: null   // null = single-shift punch
 			};
 		});
 		
@@ -1937,13 +1995,12 @@
 		// keep all of them so they can be paired together (e.g., two Check Ins can become check-in/check-out)
 		const dedupedTransactions: any[] = [];
 		
-		// First, group by shift date to analyze each day's punches
-		const groupedForDedup: { [shiftDate: string]: any[] } = {};
+		// First, group by shift date (+ multi-shift slot if applicable) to analyze each day's punches
+		const groupedForDedup: { [dedupKey: string]: any[] } = {};
 		filteredTransactions.forEach(txn => {
-			if (!groupedForDedup[txn.shiftDate]) {
-				groupedForDedup[txn.shiftDate] = [];
-			}
-			groupedForDedup[txn.shiftDate].push(txn);
+			const dedupKey = txn.multiShiftKey ? `${txn.shiftDate}||ms:${txn.multiShiftKey}` : txn.shiftDate;
+			if (!groupedForDedup[dedupKey]) groupedForDedup[dedupKey] = [];
+			groupedForDedup[dedupKey].push(txn);
 		});
 		
 		// Process each shift date
@@ -1995,13 +2052,12 @@
 			Object.values(otherMap).forEach(txn => dedupedTransactions.push(txn));
 		});
 		
-		// Group deduplicated transactions by shift date
+		// Group deduplicated transactions by shift date (+ multi-shift slot if applicable)
 		const groupedByShiftDate: { [key: string]: any[] } = {};
 		dedupedTransactions.forEach(txn => {
-			if (!groupedByShiftDate[txn.shiftDate]) {
-				groupedByShiftDate[txn.shiftDate] = [];
-			}
-			groupedByShiftDate[txn.shiftDate].push(txn);
+			const pairKey = txn.multiShiftKey ? `${txn.shiftDate}||ms:${txn.multiShiftKey}` : txn.shiftDate;
+			if (!groupedByShiftDate[pairKey]) groupedByShiftDate[pairKey] = [];
+			groupedByShiftDate[pairKey].push(txn);
 		});
 		
 		console.log('Assigned transactions by shift date:', Object.keys(groupedByShiftDate));
@@ -2012,9 +2068,12 @@
 		// Track consumed transactions to avoid double pairing
 		const consumedTransactions = new Set<string>();
 		
-		// Create pairs for each shift date
-		Object.keys(groupedByShiftDate).sort().forEach(shiftDate => {
-			const shiftTransactions = groupedByShiftDate[shiftDate].filter(t => !consumedTransactions.has(t.id));
+		// Create pairs for each shift date (or per multi-shift slot)
+		Object.keys(groupedByShiftDate).sort().forEach(groupKey => {
+			// Extract actual shiftDate from composite key (e.g. "30-04-2026||ms:03:00" → "30-04-2026")
+			const shiftDate = groupKey.includes('||ms:') ? groupKey.split('||ms:')[0] : groupKey;
+			const msKey: string | null = groupKey.includes('||ms:') ? groupKey.split('||ms:')[1] : null;
+			const shiftTransactions = groupedByShiftDate[groupKey].filter(t => !consumedTransactions.has(t.id));
 			
 			// Get applicable shift for this shift date
 			const applicableShiftForDate = getApplicableShift(shiftDate);
@@ -2124,7 +2183,8 @@
 					checkOutCalendarDate: checkOutCalendarDate,
 					workedTime: checkOutTxn ? calculateWorkedTime(checkInTxn.punch_time, checkOutTxn.punch_time) : null,
 					lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift) : { late: 0, early: 0 },
-					checkOutMissing: !checkOutTxn
+					checkOutMissing: !checkOutTxn,
+					multiShiftKey: msKey
 				};
 				
 				pairs.push(pair);
@@ -2174,7 +2234,8 @@
 						checkOutCalendarDate: checkOutTxn.calendarDate,
 						workedTime: calculateWorkedTime(checkInTxn.punch_time, checkOutTxn.punch_time),
 						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate)),
-						checkOutMissing: false
+						checkOutMissing: false,
+						multiShiftKey: msKey
 					};
 					
 					pairs.push(pair);
@@ -2194,7 +2255,8 @@
 						checkOutCalendarDate: null,
 						workedTime: null,
 						lateEarlyTime: { late: 0, early: 0 },
-						checkOutMissing: true
+						checkOutMissing: true,
+						multiShiftKey: msKey
 					};
 					pairs.push(pair);
 					consumedTransactions.add(lastCheckIn.id);
@@ -2212,7 +2274,8 @@
 						checkOutCalendarDate: checkOutTxn.calendarDate,
 						workedTime: null,
 						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate)),
-						checkInMissing: true
+						checkInMissing: true,
+						multiShiftKey: msKey
 					};
 					
 					pairs.push(pair);
@@ -2231,7 +2294,8 @@
 						checkOutCalendarDate: otherTxn.calendarDate,
 						workedTime: null,
 						lateEarlyTime: calculateLateTime(otherTxn.punch_time, getApplicableShift(shiftDate)),
-						checkInMissing: true
+						checkInMissing: true,
+						multiShiftKey: msKey
 					};
 					
 					pairs.push(pair);
@@ -2350,14 +2414,17 @@
 	{#if punchPairs.length > 0}
 		<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
 			<div class="space-y-4 p-4">
-				{#each punchPairs as pair, idx (pair.checkInTxn?.id || pair.checkOutTxn?.id || pair.checkInDate || pair.checkOutDate)}
-					{#if pair.isEmptyDate}
-						<!-- Empty Date Card (No Transactions) -->
-						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
-						{@const isHoliday = isOfficialHoliday(pair.checkInDate)}
-						{@const holiday = isHoliday ? getOfficialHoliday(pair.checkInDate) : null}
-						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
-						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
+				{#each groupedPunchPairs as group (group.date)}
+					{@const groupDate = group.date}
+					{@const isOfficial = isOfficialDayOff(groupDate)}
+					{@const isHoliday = isOfficialHoliday(groupDate)}
+					{@const holiday = isHoliday ? getOfficialHoliday(groupDate) : null}
+					{@const isSpecific = isSpecificDayOff(groupDate)}
+					{@const dayOff = isSpecific ? getSpecificDayOff(groupDate) : null}
+
+					{#if group.pairs.length === 1 && group.pairs[0].isEmptyDate}
+						<!-- ── Empty Date Card ── -->
+						{@const pair = group.pairs[0]}
 						{@const isApproved = isOfficial || isHoliday || (isSpecific && dayOff?.approval_status === 'approved')}
 						{@const isPending = isSpecific && (!dayOff?.approval_status || dayOff?.approval_status === 'pending')}
 						{@const isRejected = isSpecific && dayOff?.approval_status === 'rejected'}
@@ -2375,7 +2442,7 @@
 								 isPending ? 'bg-amber-500' :
 								 isRejected ? 'bg-rose-600' :
 								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
-								<span>{pair.checkInDate}</span>
+								<span>{groupDate}</span>
 								<div class="flex gap-2">
 									{#if isHoliday}
 										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
@@ -2431,16 +2498,12 @@
 								</div>
 							{/if}
 						</div>
-					{:else if pair.checkInTxn}
-						<!-- Paired Check-In/Check-Out (always show under check-in date) -->
-						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
-						{@const isHoliday = isOfficialHoliday(pair.checkInDate)}
-						{@const holiday = isHoliday ? getOfficialHoliday(pair.checkInDate) : null}
-						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
-						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
+					{:else}
+						<!-- ── Date Card: 1 or more shift pairs ── -->
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
+							<!-- Shared date header (once per date) -->
 							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
-								<span>{pair.checkInDate}</span>
+								<span>{groupDate}</span>
 								<div class="flex gap-2">
 									{#if isHoliday}
 										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
@@ -2468,221 +2531,159 @@
 									{/if}
 								</div>
 							</div>
-							
-							<div class="divide-y divide-slate-200">
-								<!-- Check-In Row -->
-								<div class="px-4 py-3 hover:bg-slate-50">
-									<div class="flex items-center justify-between">
-										<div class="flex items-center gap-3 flex-1">
-											<div>
-												<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkInTxn.punch_time) || '-'}</div>
+
+							<!-- All pairs for this date (each = one shift slot) -->
+							{#each group.pairs as pair, pairIdx (pair.checkInTxn?.id || pair.checkOutTxn?.id || pairIdx)}
+								<!-- Shift label separator for multi-shift days -->
+								{#if group.pairs.length > 1}
+									<div class="px-4 py-1.5 bg-indigo-50 border-y border-indigo-100 flex items-center gap-2">
+										<span class="text-xs font-black text-indigo-600 uppercase tracking-wider">Shift {pairIdx + 1}</span>
+										{#if pair.checkInTxn}
+											<span class="text-xs text-slate-400 font-mono">{formatTime12Hour(pair.checkInTxn.punch_time)}</span>
+										{:else if pair.checkOutTxn}
+											<span class="text-xs text-slate-400 font-mono">{formatTime12Hour(pair.checkOutTxn.punch_time)}</span>
+										{/if}
+									</div>
+								{/if}
+
+								<div class="divide-y divide-slate-200">
+									<!-- Check-In Missing banner -->
+									{#if pair.checkInMissing}
+										<div class="px-4 py-3 bg-yellow-50 border-b border-yellow-100">
+											<div class="flex items-center justify-between">
+												<div class="text-sm font-semibold text-yellow-800">{$t('hr.processFingerprint.no_checkin_recorded')}</div>
+												<div class="flex items-center gap-2">
+													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+														{$t('hr.processFingerprint.checkin_missing')}
+													</span>
+													<button
+														class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition"
+														on:click={() => openAddPunchModal(pair, true)}
+														disabled={savingPunch}
+													>
+														➕ {$t('actions.add') || 'Add'}
+													</button>
+												</div>
 											</div>
 										</div>
-										<div class="flex items-center gap-2">
-											<span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-												{$t('hr.checkIn')}
-											</span>
-											{#if pair.checkInMissing}
-												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													{$t('hr.processFingerprint.checkin_missing')}
-												</span>
-											{/if}										{#if pair.checkInEarlyLateTime?.late > 0}
-											<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-												{$t('hr.processFingerprint.late')} {Math.floor(pair.checkInEarlyLateTime.late / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.late % 60}{$t('common.m')}
-											</span>
-										{/if}
-										{#if pair.checkInEarlyLateTime?.early > 0}
-											<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-												{$t('hr.processFingerprint.early')} {Math.floor(pair.checkInEarlyLateTime.early / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.early % 60}{$t('common.m')}
-											</span>
-										{/if}										</div>
-									</div>
-								</div>
-								
-								<!-- Check-Out Row -->
-								{#if pair.checkOutTxn}
-									<div class="px-4 py-3 hover:bg-slate-50">
-										<div class="flex items-center justify-between mb-2">
-											<div class="flex items-center gap-3 flex-1">
-												<div>
-													<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkOutTxn.punch_time) || '-'}</div>
-													{#if pair.checkOutCalendarDate && pair.checkOutCalendarDate !== pair.checkInDate}
-														<div class="text-xs text-gray-500 mt-1">{$t('hr.processFingerprint.from_label')} {pair.checkOutCalendarDate}</div>
+									{/if}
+
+									<!-- Check-In Row -->
+									{#if pair.checkInTxn}
+										<div class="px-4 py-3 hover:bg-slate-50">
+											<div class="flex items-center justify-between">
+												<div class="flex items-center gap-3 flex-1">
+													<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkInTxn.punch_time) || '-'}</div>
+												</div>
+												<div class="flex items-center gap-2">
+													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+														{$t('hr.checkIn')}
+													</span>
+													{#if pair.checkInEarlyLateTime?.late > 0}
+														<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+															{$t('hr.processFingerprint.late')} {Math.floor(pair.checkInEarlyLateTime.late / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.late % 60}{$t('common.m')}
+														</span>
+													{/if}
+													{#if pair.checkInEarlyLateTime?.early > 0}
+														<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+															{$t('hr.processFingerprint.early')} {Math.floor(pair.checkInEarlyLateTime.early / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.early % 60}{$t('common.m')}
+														</span>
 													{/if}
 												</div>
 											</div>
-											<div class="flex items-center gap-2">
-												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-													{$t('hr.checkOut')}
-												</span>
-												{#if pair.checkOutMissing}
+										</div>
+									{/if}
+
+									<!-- Check-Out Row -->
+									{#if pair.checkOutTxn}
+										<div class="px-4 py-3 hover:bg-slate-50">
+											<div class="flex items-center justify-between mb-2">
+												<div class="flex items-center gap-3 flex-1">
+													<div>
+														<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkOutTxn.punch_time) || '-'}</div>
+														{#if pair.checkOutCalendarDate && pair.checkOutCalendarDate !== groupDate}
+															<div class="text-xs text-gray-500 mt-1">{$t('hr.processFingerprint.from_label')} {pair.checkOutCalendarDate}</div>
+														{/if}
+													</div>
+												</div>
+												<div class="flex items-center gap-2">
+													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+														{$t('hr.checkOut')}
+													</span>
+													{#if pair.lateEarlyTime?.early > 0}
+														<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+															{$t('hr.processFingerprint.early')} {Math.floor(pair.lateEarlyTime.early / 60)}{$t('common.h')} {pair.lateEarlyTime.early % 60}{$t('common.m')}
+														</span>
+													{/if}
+												</div>
+											</div>
+											{#if pair.workedTime}
+												{@const workedMinutes = parseInt(pair.workedTime.split(':')[0]) * 60 + parseInt(pair.workedTime.split(':')[1])}
+												{@const _thisSlot = pair.multiShiftKey ? getMultiShiftsForDate(groupDate).find((ms: any) => ms.shift_start_time === pair.multiShiftKey) : null}
+												{@const assignedShift = getApplicableShift(groupDate)}
+												{@const assignedMinutes = _thisSlot ? Math.round((_thisSlot.working_hours || 0) * 60) : Math.round((assignedShift ? (assignedShift.working_hours || 0) * 60 : 0) + getMultiShiftWorkingHoursForDate(groupDate) * 60)}
+												{@const isWorkedEnough = workedMinutes >= assignedMinutes}
+												{@const underworkedMinutes = assignedMinutes - workedMinutes}
+												{@const underworkedH = Math.floor(underworkedMinutes / 60)}
+												{@const underworkedM = underworkedMinutes % 60}
+												{@const overtimeReg = getOvertimeForDate(groupDate)}
+												<div class="mt-3 flex items-center gap-3 flex-wrap">
+													<span class={`px-4 py-2 rounded-full text-sm font-bold ${isWorkedEnough ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+														{$t('hr.processFingerprint.worked')}: {pair.workedTime} {isWorkedEnough ? '✓' : '✗'}
+													</span>
+													{#if underworkedMinutes > 0}
+														<span class="px-3 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">
+															{$t('hr.processFingerprint.underworked')}: {underworkedH}{$t('common.h')} {underworkedM}{$t('common.m')}
+														</span>
+													{/if}
+													{#if overtimeReg}
+														<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+															⏱️ {$t('hr.processFingerprint.overtime_registered')}: {Math.floor(overtimeReg.overtime_minutes / 60)}{$t('common.h')} {overtimeReg.overtime_minutes % 60}{$t('common.m')}
+														</span>
+													{/if}
+												</div>
+												{#if isOvertimeEligible(pair)}
+													<div class="mt-2 flex items-center gap-2">
+														<button
+															class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition shadow-sm"
+															on:click={() => openOvertimeModal(groupDate, workedMinutes, assignedMinutes)}
+														>
+															⏱️ {$t('hr.processFingerprint.register_overtime')}
+														</button>
+														{#if isOfficialDayOff(groupDate) || isOfficialHoliday(groupDate)}
+															<button
+																class="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-500 text-white hover:bg-teal-600 transition shadow-sm"
+																on:click={() => openAltLeaveModal(groupDate)}
+															>
+																🏖️ {$t('hr.processFingerprint.assign_alt_leave')}
+															</button>
+														{/if}
+													</div>
+												{/if}
+											{/if}
+										</div>
+									{:else if !pair.checkInMissing}
+										<!-- Check-Out Missing -->
+										<div class="px-4 py-3 bg-yellow-50 border-t border-yellow-100">
+											<div class="flex items-center justify-between">
+												<div class="text-sm font-semibold text-yellow-800">{$t('hr.processFingerprint.no_checkout_recorded')}</div>
+												<div class="flex items-center gap-2">
 													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
 														{$t('hr.processFingerprint.checkout_missing')}
 													</span>
-												{/if}
-												{#if pair.lateEarlyTime?.early > 0}
-													<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-														{$t('hr.processFingerprint.early')} {Math.floor(pair.lateEarlyTime.early / 60)}{$t('common.h')} {pair.lateEarlyTime.early % 60}{$t('common.m')}
-													</span>
-												{/if}
-											</div>
-										</div>
-										{#if pair.workedTime}
-											{@const workedMinutes = parseInt(pair.workedTime.split(':')[0]) * 60 + parseInt(pair.workedTime.split(':')[1])}
-											{@const assignedShift = getApplicableShift(pair.checkInDate)}
-											{@const msMinutes = getMultiShiftWorkingHoursForDate(pair.checkInDate) * 60}
-											{@const assignedMinutes = Math.round((assignedShift ? (assignedShift.working_hours || 0) * 60 : 0) + msMinutes)}
-											{@const isWorkedEnough = workedMinutes >= assignedMinutes}
-											{@const underworkedMinutes = assignedMinutes - workedMinutes}
-											{@const underworkedH = Math.floor(underworkedMinutes / 60)}
-											{@const underworkedM = underworkedMinutes % 60}
-											{@const overtimeReg = getOvertimeForDate(pair.checkInDate)}
-											<div class="mt-3 flex items-center gap-3 flex-wrap">
-												<span class={`px-4 py-2 rounded-full text-sm font-bold ${isWorkedEnough ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-													{$t('hr.processFingerprint.worked')}: {pair.workedTime} {isWorkedEnough ? '✓' : '✗'}
-												</span>
-												{#if underworkedMinutes > 0}
-													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">
-														{$t('hr.processFingerprint.underworked')}: {underworkedH}{$t('common.h')} {underworkedM}{$t('common.m')}
-													</span>
-												{/if}
-												{#if overtimeReg}
-													<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-														⏱️ {$t('hr.processFingerprint.overtime_registered')}: {Math.floor(overtimeReg.overtime_minutes / 60)}{$t('common.h')} {overtimeReg.overtime_minutes % 60}{$t('common.m')}
-													</span>
-												{/if}
-											</div>
-											{#if isOvertimeEligible(pair)}
-												<div class="mt-2 flex items-center gap-2">
 													<button
-														class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition shadow-sm"
-														on:click={() => openOvertimeModal(pair.checkInDate, workedMinutes, assignedMinutes)}
+														class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition"
+														on:click={() => openAddPunchModal(pair, false)}
+														disabled={savingPunch}
 													>
-														⏱️ {$t('hr.processFingerprint.register_overtime')}
+														➕ {$t('actions.add') || 'Add'}
 													</button>
-													{#if isOfficialDayOff(pair.checkInDate) || isOfficialHoliday(pair.checkInDate)}
-														<button
-															class="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-500 text-white hover:bg-teal-600 transition shadow-sm"
-															on:click={() => openAltLeaveModal(pair.checkInDate)}
-														>
-															🏖️ {$t('hr.processFingerprint.assign_alt_leave')}
-														</button>
-													{/if}
 												</div>
-											{/if}
-										{/if}
-									</div>
-								{:else if pair.checkInTxn}
-									<!-- Check-Out Missing -->
-									<div class="px-4 py-3 bg-yellow-50 border-t border-yellow-100">
-										<div class="flex items-center justify-between">
-											<div class="flex items-center gap-3">
-												<div class="text-sm font-semibold text-yellow-800">{$t('hr.processFingerprint.no_checkout_recorded')}</div>
 											</div>
-											<div class="flex items-center gap-2">
-												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													{$t('hr.processFingerprint.checkout_missing')}
-												</span>
-												<button
-													class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition"
-													on:click={() => openAddPunchModal(pair, false)}
-													disabled={savingPunch}
-												>
-													➕ {$t('actions.add') || 'Add'}
-												</button>
-											</div>
-										</div>
-									</div>
-								{/if}
-							</div>
-						</div>
-					{:else}
-						<!-- Standalone Check-Out (Carryover from previous day) -->
-						{@const isOfficial = isOfficialDayOff(pair.checkOutDate)}
-						{@const isHoliday = isOfficialHoliday(pair.checkOutDate)}
-						{@const holiday = isHoliday ? getOfficialHoliday(pair.checkOutDate) : null}
-						{@const isSpecific = isSpecificDayOff(pair.checkOutDate)}
-						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkOutDate) : null}
-						<div class="border border-slate-300 rounded-lg overflow-hidden">
-							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
-								<span>{pair.checkOutDate}</span>
-								<div class="flex gap-2">
-									{#if isHoliday}
-										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
-											🏛️ {$locale === 'ar' ? (holiday?.name_ar || holiday?.name_en) : (holiday?.name_en || holiday?.name_ar)}
-										</span>
-									{/if}
-									{#if isOfficial}
-										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
-									{/if}
-									{#if isSpecific}
-										<div class="flex items-center gap-2">
-											<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
-												{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
-												{#if dayOff?.day_off_reasons}
-													: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
-												{/if}
-											</span>
-											{#if dayOff?.document_url}
-												<button 
-													class="px-2 py-1 bg-white text-orange-600 rounded-full text-xs font-bold hover:bg-orange-50 transition"
-													on:click={() => window.open(dayOff.document_url, '_blank')}
-													title="View Document"
-												>
-													📄 {$t('common.view') || 'View'}
-												</button>
-											{/if}
 										</div>
 									{/if}
 								</div>
-							</div>
-							
-							<div class="divide-y divide-slate-200">
-								{#if pair.checkInMissing}
-									<!-- Check-In Missing -->
-									<div class="px-4 py-3 bg-yellow-50 border-b border-yellow-100">
-										<div class="flex items-center justify-between">
-											<div class="flex items-center gap-3">
-												<div class="text-sm font-semibold text-yellow-800">{$t('hr.processFingerprint.no_checkin_recorded')}</div>
-											</div>
-											<div class="flex items-center gap-2">
-												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													{$t('hr.processFingerprint.checkin_missing')}
-												</span>
-												<button
-													class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition"
-													on:click={() => openAddPunchModal(pair, true)}
-													disabled={savingPunch}
-												>
-													➕ {$t('actions.add') || 'Add'}
-												</button>
-											</div>
-										</div>
-									</div>
-								{/if}
-								<div class="px-4 py-3 hover:bg-slate-50">
-									<div class="flex items-center justify-between mb-2">
-										<div class="flex items-center gap-3 flex-1">
-											<div>
-												<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkOutTxn.punch_time) || '-'}</div>
-												{#if pair.checkOutCalendarDate && pair.checkOutCalendarDate !== pair.checkOutDate}
-													<div class="text-xs text-gray-500 mt-1">{$t('hr.processFingerprint.from_label')} {pair.checkOutCalendarDate}</div>
-												{/if}
-											</div>
-										</div>
-										<div class="flex items-center gap-2">
-											<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-												{$t('hr.checkOut')}
-											</span>
-											{#if pair.lateEarlyTime?.early > 0}
-												<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-													{$t('hr.processFingerprint.early')} {Math.floor(pair.lateEarlyTime.early / 60)}{$t('common.h')} {pair.lateEarlyTime.early % 60}{$t('common.m')}
-												</span>
-											{/if}
-										</div>
-									</div>
-								</div>
-							</div>
+							{/each}
 						</div>
 					{/if}
 				{/each}

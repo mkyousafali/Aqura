@@ -2983,55 +2983,43 @@
     let multiShiftSelectedEmployeeId: string | null = null;
     let multiShiftSelectedEmployeeName = '';
     let isMultiShiftSaving = false;
-    let multiShiftFormData: MultiShiftRecord = {
-        employee_id: '',
-        shift_start_time: '09:00',
-        shift_start_buffer: 0,
-        shift_end_time: '17:00',
-        shift_end_buffer: 0,
-        is_shift_overlapping_next_day: false,
-        working_hours: 8,
-        date_from: new Date().toISOString().split('T')[0],
-        date_to: new Date().toISOString().split('T')[0],
-        weekday: 0
-    };
-    let editingMultiShiftId: number | null = null;
+    let multiShiftSlots: Array<{
+        id?: number;
+        shift_start_time: string;
+        shift_start_buffer: number;
+        shift_end_time: string;
+        shift_end_buffer: number;
+        is_shift_overlapping_next_day: boolean;
+        working_hours: number;
+    }> = [];
+    // Common fields shared by all slots in the modal
+    let multiShiftCommonDateFrom: string = new Date().toISOString().split('T')[0];
+    let multiShiftCommonDateTo: string = new Date().toISOString().split('T')[0];
+    let multiShiftCommonWeekday: number = 0;
 
-    // 12-hour format for multi-shift modal
-    let msStartHour12 = '09';
-    let msStartMinute12 = '00';
-    let msStartPeriod12 = 'AM';
-    let msEndHour12 = '05';
-    let msEndMinute12 = '00';
-    let msEndPeriod12 = 'PM';
-
-    function updateMsStartTime24h() {
-        let h = parseInt(msStartHour12);
-        if (msStartPeriod12 === 'PM' && h < 12) h += 12;
-        if (msStartPeriod12 === 'AM' && h === 12) h = 0;
-        multiShiftFormData.shift_start_time = `${String(h).padStart(2, '0')}:${msStartMinute12}`;
+    function emptyMultiShiftSlot() {
+        return { shift_start_time: '09:00', shift_start_buffer: 0, shift_end_time: '17:00', shift_end_buffer: 0, is_shift_overlapping_next_day: false, working_hours: 8 };
     }
 
-    function updateMsEndTime24h() {
-        let h = parseInt(msEndHour12);
-        if (msEndPeriod12 === 'PM' && h < 12) h += 12;
-        if (msEndPeriod12 === 'AM' && h === 12) h = 0;
-        multiShiftFormData.shift_end_time = `${String(h).padStart(2, '0')}:${msEndMinute12}`;
+    function addMultiShiftSlot() {
+        if (multiShiftSlots.length < 4) multiShiftSlots = [...multiShiftSlots, emptyMultiShiftSlot()];
     }
 
-    function syncMsTimeTo12h() {
-        if (multiShiftFormData.shift_start_time) {
-            const [h, m] = multiShiftFormData.shift_start_time.split(':').map(Number);
-            msStartPeriod12 = h >= 12 ? 'PM' : 'AM';
-            msStartHour12 = String(h % 12 || 12).padStart(2, '0');
-            msStartMinute12 = String(m || 0).padStart(2, '0');
-        }
-        if (multiShiftFormData.shift_end_time) {
-            const [h, m] = multiShiftFormData.shift_end_time.split(':').map(Number);
-            msEndPeriod12 = h >= 12 ? 'PM' : 'AM';
-            msEndHour12 = String(h % 12 || 12).padStart(2, '0');
-            msEndMinute12 = String(m || 0).padStart(2, '0');
-        }
+    function removeMultiShiftSlot(index: number) {
+        if (multiShiftSlots.length > 1) multiShiftSlots = multiShiftSlots.filter((_, i) => i !== index);
+    }
+
+    $: multiShiftTotalHours = multiShiftSlots.reduce((sum, s) => sum + (Number(s.working_hours) || 0), 0);
+
+    // Return all existing records for a given employee+context from the in-memory lists
+    function getExistingMultiShiftSlots(empId: string, type: 'regular' | 'date' | 'day', dateFrom?: string | null, dateTo?: string | null, weekday?: number | null): MultiShiftRecord[] {
+        const data = type === 'regular' ? multiShiftRegularData : type === 'date' ? multiShiftDateData : multiShiftWeekdayData;
+        return data.filter(r => {
+            if (String(r.employee_id) !== String(empId)) return false;
+            if (type === 'date') return r.date_from === dateFrom && r.date_to === dateTo;
+            if (type === 'day') return r.weekday === weekday;
+            return true;
+        });
     }
 
     function openMultiShiftEmployeeSelect(type: 'regular' | 'date' | 'day') {
@@ -3046,36 +3034,50 @@
         multiShiftSelectedEmployeeId = emp.id;
         multiShiftSelectedEmployeeName = $locale === 'ar' ? emp.employee_name_ar : emp.employee_name_en;
         showMultiShiftEmployeeSelectModal = false;
-        editingMultiShiftId = null;
-        multiShiftFormData = {
-            employee_id: emp.id,
-            shift_start_time: '09:00',
-            shift_start_buffer: 0,
-            shift_end_time: '17:00',
-            shift_end_buffer: 0,
-            is_shift_overlapping_next_day: false,
-            working_hours: 8,
-            date_from: new Date().toISOString().split('T')[0],
-            date_to: new Date().toISOString().split('T')[0],
-            weekday: 0
-        };
-        syncMsTimeTo12h();
+        multiShiftCommonDateFrom = new Date().toISOString().split('T')[0];
+        multiShiftCommonDateTo = new Date().toISOString().split('T')[0];
+        multiShiftCommonWeekday = 0;
+        // Pre-load any existing records for this employee+type so user can see and extend them
+        const existing = getExistingMultiShiftSlots(emp.id, multiShiftModalType, null, null, null);
+        if (existing.length > 0) {
+            if (multiShiftModalType === 'date' && existing[0]) {
+                multiShiftCommonDateFrom = existing[0].date_from || multiShiftCommonDateFrom;
+                multiShiftCommonDateTo = existing[0].date_to || multiShiftCommonDateTo;
+            }
+            if (multiShiftModalType === 'day' && existing[0]) {
+                multiShiftCommonWeekday = existing[0].weekday ?? 0;
+            }
+            multiShiftSlots = existing.map(r => ({
+                id: r.id, shift_start_time: r.shift_start_time, shift_start_buffer: r.shift_start_buffer,
+                shift_end_time: r.shift_end_time, shift_end_buffer: r.shift_end_buffer,
+                is_shift_overlapping_next_day: r.is_shift_overlapping_next_day, working_hours: r.working_hours
+            }));
+        } else {
+            multiShiftSlots = [emptyMultiShiftSlot()];
+        }
         showMultiShiftModal = true;
     }
 
     function openEditMultiShift(record: MultiShiftRecord, type: 'regular' | 'date' | 'day') {
         multiShiftModalType = type;
-        editingMultiShiftId = record.id || null;
         multiShiftSelectedEmployeeId = record.employee_id;
         multiShiftSelectedEmployeeName = $locale === 'ar' ? (record.employee_name_ar || '') : (record.employee_name_en || '');
-        multiShiftFormData = { ...record };
-        syncMsTimeTo12h();
+        multiShiftCommonDateFrom = record.date_from || new Date().toISOString().split('T')[0];
+        multiShiftCommonDateTo = record.date_to || new Date().toISOString().split('T')[0];
+        multiShiftCommonWeekday = record.weekday ?? 0;
+        // Load ALL sibling records for this employee+context into slots
+        const siblings = getExistingMultiShiftSlots(record.employee_id, type, record.date_from, record.date_to, record.weekday);
+        multiShiftSlots = (siblings.length > 0 ? siblings : [record]).map(r => ({
+            id: r.id, shift_start_time: r.shift_start_time, shift_start_buffer: r.shift_start_buffer,
+            shift_end_time: r.shift_end_time, shift_end_buffer: r.shift_end_buffer,
+            is_shift_overlapping_next_day: r.is_shift_overlapping_next_day, working_hours: r.working_hours
+        }));
         showMultiShiftModal = true;
     }
 
     function closeMultiShiftModal() {
         showMultiShiftModal = false;
-        editingMultiShiftId = null;
+        multiShiftSlots = [];
     }
 
     $: multiShiftFilteredEmployees = (() => {
@@ -3150,16 +3152,19 @@
     }
 
     async function saveMultiShift() {
-        if (!multiShiftFormData.employee_id) {
+        if (!multiShiftSelectedEmployeeId) {
             showErrorNotification($t('hr.shift.multiShift.error_select_employee'));
             return;
         }
-        if (!multiShiftFormData.working_hours || multiShiftFormData.working_hours <= 0) {
-            showErrorNotification($t('hr.shift.multiShift.error_working_hours'));
-            return;
+        // Validate all slots
+        for (let i = 0; i < multiShiftSlots.length; i++) {
+            if (!multiShiftSlots[i].working_hours || multiShiftSlots[i].working_hours <= 0) {
+                showErrorNotification(`Shift ${i + 1}: ${$t('hr.shift.multiShift.error_working_hours')}`);
+                return;
+            }
         }
-        if (multiShiftModalType === 'date' && multiShiftFormData.date_from && multiShiftFormData.date_to) {
-            if (multiShiftFormData.date_from > multiShiftFormData.date_to) {
+        if (multiShiftModalType === 'date' && multiShiftCommonDateFrom && multiShiftCommonDateTo) {
+            if (multiShiftCommonDateFrom > multiShiftCommonDateTo) {
                 showErrorNotification($t('hr.shift.multiShift.error_date_range'));
                 return;
             }
@@ -3173,39 +3178,38 @@
                 : multiShiftModalType === 'date' ? 'multi_shift_date_wise'
                 : 'multi_shift_weekday';
 
-            const payload: any = {
-                employee_id: multiShiftFormData.employee_id,
-                shift_start_time: multiShiftFormData.shift_start_time,
-                shift_start_buffer: multiShiftFormData.shift_start_buffer,
-                shift_end_time: multiShiftFormData.shift_end_time,
-                shift_end_buffer: multiShiftFormData.shift_end_buffer,
-                is_shift_overlapping_next_day: multiShiftFormData.is_shift_overlapping_next_day,
-                working_hours: multiShiftFormData.working_hours
-            };
-
+            // Delete all existing records for this employee+context, then re-insert all slots
+            let deleteQuery = supabase.from(tableName).delete().eq('employee_id', multiShiftSelectedEmployeeId);
             if (multiShiftModalType === 'date') {
-                payload.date_from = multiShiftFormData.date_from;
-                payload.date_to = multiShiftFormData.date_to;
+                deleteQuery = deleteQuery.eq('date_from', multiShiftCommonDateFrom).eq('date_to', multiShiftCommonDateTo);
             }
             if (multiShiftModalType === 'day') {
-                payload.weekday = multiShiftFormData.weekday;
+                deleteQuery = deleteQuery.eq('weekday', multiShiftCommonWeekday);
             }
+            const { error: delErr } = await deleteQuery;
+            if (delErr) throw delErr;
 
-            if (editingMultiShiftId) {
-                const { error: err } = await supabase
-                    .from(tableName)
-                    .update(payload)
-                    .eq('id', editingMultiShiftId);
-                if (err) throw err;
-            } else {
-                const { error: err } = await supabase
-                    .from(tableName)
-                    .insert(payload);
-                if (err) throw err;
-            }
+            // Build payloads for all slots
+            const payloads = multiShiftSlots.map(slot => {
+                const p: any = {
+                    employee_id: multiShiftSelectedEmployeeId,
+                    shift_start_time: slot.shift_start_time,
+                    shift_start_buffer: slot.shift_start_buffer,
+                    shift_end_time: slot.shift_end_time,
+                    shift_end_buffer: slot.shift_end_buffer,
+                    is_shift_overlapping_next_day: slot.is_shift_overlapping_next_day,
+                    working_hours: slot.working_hours
+                };
+                if (multiShiftModalType === 'date') { p.date_from = multiShiftCommonDateFrom; p.date_to = multiShiftCommonDateTo; }
+                if (multiShiftModalType === 'day') { p.weekday = multiShiftCommonWeekday; }
+                return p;
+            });
+
+            const { error: insErr } = await supabase.from(tableName).insert(payloads);
+            if (insErr) throw insErr;
 
             showMultiShiftModal = false;
-            editingMultiShiftId = null;
+            multiShiftSlots = [];
             showSuccessNotification($t('hr.shift.multiShift.success_saved'));
             await loadMultiShiftData();
         } catch (err) {
@@ -6215,7 +6219,7 @@
 <!-- ======================================================================== -->
 {#if showMultiShiftModal}
     <div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-        <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in scale-in duration-300 origin-center">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden animate-in scale-in duration-300 origin-center">
             <!-- Modal Header -->
             <div class="bg-gradient-to-r {multiShiftModalType === 'regular' ? 'from-purple-600 to-purple-500' : multiShiftModalType === 'date' ? 'from-indigo-600 to-indigo-500' : 'from-violet-600 to-violet-500'} px-6 py-4">
                 <h3 class="text-xl font-black text-white">
@@ -6225,27 +6229,17 @@
             </div>
 
             <!-- Modal Body -->
-            <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            <div class="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
                 <!-- Date From / Date To (for date type) -->
                 {#if multiShiftModalType === 'date'}
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label for="ms-date-from" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.date_from')}</label>
-                            <input
-                                id="ms-date-from"
-                                type="date"
-                                bind:value={multiShiftFormData.date_from}
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            />
+                            <input id="ms-date-from" type="date" bind:value={multiShiftCommonDateFrom} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
                         </div>
                         <div>
                             <label for="ms-date-to" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.date_to')}</label>
-                            <input
-                                id="ms-date-to"
-                                type="date"
-                                bind:value={multiShiftFormData.date_to}
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            />
+                            <input id="ms-date-to" type="date" bind:value={multiShiftCommonDateTo} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
                         </div>
                     </div>
                 {/if}
@@ -6254,12 +6248,7 @@
                 {#if multiShiftModalType === 'day'}
                     <div>
                         <label for="ms-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.select_day')}</label>
-                        <select
-                            id="ms-weekday-select"
-                            bind:value={multiShiftFormData.weekday}
-                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                            style="color: #000000 !important; background-color: #ffffff !important;"
-                        >
+                        <select id="ms-weekday-select" bind:value={multiShiftCommonWeekday} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500" style="color: #000000 !important; background-color: #ffffff !important;">
                             {#each weekdayNames as day, index}
                                 <option value={index} style="color: #000000 !important; background-color: #ffffff !important;">{day}</option>
                             {/each}
@@ -6267,146 +6256,70 @@
                     </div>
                 {/if}
 
-                <!-- Start Time -->
-                <div>
-                    <label for="ms-start-time" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.shift_start_time')}</label>
-                    <div class="flex gap-2">
-                        <select
-                            bind:value={msStartHour12}
-                            on:change={updateMsStartTime24h}
-                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                            {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}
-                                <option value={h}>{h}</option>
-                            {/each}
-                        </select>
-                        <select
-                            bind:value={msStartMinute12}
-                            on:change={updateMsStartTime24h}
-                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                            {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}
-                                <option value={m}>{m}</option>
-                            {/each}
-                        </select>
-                        <select
-                            bind:value={msStartPeriod12}
-                            on:change={updateMsStartTime24h}
-                            class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                            <option value="AM">{$t('common.am')}</option>
-                            <option value="PM">{$t('common.pm')}</option>
-                        </select>
+                <!-- Shift Slots (up to 4) -->
+                {#each multiShiftSlots as slot, i}
+                    <div class="border-2 border-purple-200 rounded-xl p-4 space-y-3 bg-purple-50/30">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-black text-purple-700 uppercase tracking-wider">Shift {i + 1}</span>
+                            {#if multiShiftSlots.length > 1}
+                                <button type="button" on:click={() => removeMultiShiftSlot(i)} class="px-2 py-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-600 text-xs font-bold transition">✕ Remove</button>
+                            {/if}
+                        </div>
+                        <!-- Start / End time -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">{$t('hr.shift.multiShift.shift_start_time')}</label>
+                                <input type="time" bind:value={slot.shift_start_time} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"/>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">{$t('hr.shift.multiShift.last_punch_time')}</label>
+                                <input type="time" bind:value={slot.shift_end_time} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"/>
+                            </div>
+                        </div>
+                        <!-- Buffers / Working Hours -->
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">{$t('hr.shift.multiShift.start_buffer_hours')}</label>
+                                <input type="number" bind:value={slot.shift_start_buffer} step="0.5" min="0" max="24" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"/>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">{$t('hr.shift.multiShift.end_buffer_hours')}</label>
+                                <input type="number" bind:value={slot.shift_end_buffer} step="0.5" min="0" max="24" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"/>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">{$t('hr.shift.multiShift.working_hours')} <span class="text-red-500">*</span></label>
+                                <input type="number" bind:value={slot.working_hours} step="0.5" min="0.5" max="24" placeholder={$t('hr.shift.multiShift.working_hours_placeholder')} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm" required/>
+                            </div>
+                        </div>
+                        <!-- Overlapping Next Day -->
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" bind:checked={slot.is_shift_overlapping_next_day} id="ms-overlap-{i}" class="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-2 focus:ring-purple-500 cursor-pointer"/>
+                            <label for="ms-overlap-{i}" class="text-xs font-bold text-slate-700 cursor-pointer">{$t('hr.shift.multiShift.overlapping_next_day')}</label>
+                        </div>
                     </div>
-                </div>
+                {/each}
 
-                <!-- Start Buffer Hours -->
-                <div>
-                    <label for="ms-start-buffer" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.start_buffer_hours')}</label>
-                    <input
-                        id="ms-start-buffer"
-                        type="number"
-                        bind:value={multiShiftFormData.shift_start_buffer}
-                        step="0.5"
-                        min="0"
-                        max="24"
-                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                </div>
-
-                <!-- Last Punch Time (End Time) -->
-                <div>
-                    <label for="ms-end-time" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.last_punch_time')}</label>
-                    <div class="flex gap-2">
-                        <select
-                            bind:value={msEndHour12}
-                            on:change={updateMsEndTime24h}
-                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                            {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}
-                                <option value={h}>{h}</option>
-                            {/each}
-                        </select>
-                        <select
-                            bind:value={msEndMinute12}
-                            on:change={updateMsEndTime24h}
-                            class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                            {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}
-                                <option value={m}>{m}</option>
-                            {/each}
-                        </select>
-                        <select
-                            bind:value={msEndPeriod12}
-                            on:change={updateMsEndTime24h}
-                            class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                            <option value="AM">{$t('common.am')}</option>
-                            <option value="PM">{$t('common.pm')}</option>
-                        </select>
+                <!-- Add Shift Button + Total -->
+                <div class="flex items-center justify-between pt-1">
+                    <button type="button" on:click={addMultiShiftSlot} disabled={multiShiftSlots.length >= 4}
+                        class="px-4 py-2 rounded-lg font-bold text-sm border-2 border-dashed transition
+                        {multiShiftSlots.length >= 4 ? 'border-slate-200 text-slate-400 cursor-not-allowed bg-slate-50' : 'border-purple-400 text-purple-600 hover:bg-purple-50'}">
+                        + Add Shift ({multiShiftSlots.length}/4)
+                    </button>
+                    <div class="text-sm font-black text-purple-800">
+                        Total: <span class="text-lg">{multiShiftTotalHours}h</span>
                     </div>
-                </div>
-
-                <!-- End Buffer Hours -->
-                <div>
-                    <label for="ms-end-buffer" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.multiShift.end_buffer_hours')}</label>
-                    <input
-                        id="ms-end-buffer"
-                        type="number"
-                        bind:value={multiShiftFormData.shift_end_buffer}
-                        step="0.5"
-                        min="0"
-                        max="24"
-                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                </div>
-
-                <!-- Overlapping Next Day -->
-                <div class="flex items-center gap-3 py-2">
-                    <input
-                        type="checkbox"
-                        bind:checked={multiShiftFormData.is_shift_overlapping_next_day}
-                        id="ms-overlapping"
-                        class="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-2 focus:ring-purple-500 cursor-pointer"
-                    />
-                    <label for="ms-overlapping" class="text-sm font-bold text-slate-700 cursor-pointer">
-                        {$t('hr.shift.multiShift.overlapping_next_day')}
-                    </label>
-                </div>
-
-                <!-- Working Hours (Required) -->
-                <div>
-                    <label for="ms-working-hours" class="block text-sm font-bold text-slate-700 mb-2">
-                        {$t('hr.shift.multiShift.working_hours')} <span class="text-red-500">*</span>
-                    </label>
-                    <input
-                        id="ms-working-hours"
-                        type="number"
-                        bind:value={multiShiftFormData.working_hours}
-                        step="0.5"
-                        min="0.5"
-                        max="24"
-                        placeholder={$t('hr.shift.multiShift.working_hours_placeholder')}
-                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        required
-                    />
                 </div>
             </div>
 
             <!-- Modal Footer -->
             <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3 justify-end">
-                <button
-                    class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
-                    on:click={closeMultiShiftModal}
-                    disabled={isMultiShiftSaving}
-                >
+                <button class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition" on:click={closeMultiShiftModal} disabled={isMultiShiftSaving}>
                     {$t('common.cancel')}
                 </button>
                 <button
                     class="px-6 py-2 rounded-lg font-black text-white {multiShiftModalType === 'regular' ? 'bg-purple-600 hover:bg-purple-700' : multiShiftModalType === 'date' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-violet-600 hover:bg-violet-700'} hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                    on:click={saveMultiShift}
-                    disabled={isMultiShiftSaving}
-                >
+                    on:click={saveMultiShift} disabled={isMultiShiftSaving}>
                     {isMultiShiftSaving ? $t('hr.shift.multiShift.saving') : $t('hr.shift.multiShift.save')}
                 </button>
             </div>

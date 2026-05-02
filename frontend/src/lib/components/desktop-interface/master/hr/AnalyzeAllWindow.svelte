@@ -235,13 +235,37 @@
 				else if (status === 'Approved Leave') status = 'Approved Leave (No Deduction)';
 				else if (status === 'Rejected Leave') status = 'Rejected-Not Deducted';
 
-				emp.dayByDay[dateStr] = {
-					workedMins: row.worked_minutes || 0,
-					status,
-					lateMins: row.late_minutes || 0,
-					underMins: row.under_minutes || 0,
-					overtimeMins: row.overtime_minutes || 0
-				};
+				if (!emp.dayByDay[dateStr]) {
+					// First row for this date
+					emp.dayByDay[dateStr] = {
+						workedMins: row.worked_minutes || 0,
+						status,
+						lateMins: row.late_minutes || 0,
+						underMins: row.under_minutes || 0,
+						overtimeMins: row.overtime_minutes || 0
+					};
+				} else {
+					// Multiple rows for same date (multi-shift): accumulate, keep best status
+					const existing = emp.dayByDay[dateStr];
+					existing.workedMins += row.worked_minutes || 0;
+					existing.lateMins += row.late_minutes || 0;
+					existing.underMins += row.under_minutes || 0;
+					existing.overtimeMins += row.overtime_minutes || 0;
+					const statusPriority = (s: string) => {
+						if (s === 'Worked') return 10;
+						if (s === 'Official Holiday' || s === 'Official Day Off') return 8;
+						if (s.includes('Approved Leave')) return 7;
+						if (s === 'Pending Approval') return 6;
+						if (s.includes('Rejected')) return 5;
+						if (s === 'Check-Out Missing') return 3;
+						if (s === 'Check-In Missing') return 2;
+						if (s === 'Absent') return 1;
+						return 4;
+					};
+					if (statusPriority(status) > statusPriority(existing.status)) {
+						existing.status = status;
+					}
+				}
 			}
 
 			// Fill missing dates with 'Absent' default
@@ -263,15 +287,8 @@
 			multiShiftDateWiseAll = msDateRes.data || [];
 			multiShiftWeekdayAll = msWeekRes.data || [];
 
-			// Adjust underworked minutes for employees with multi-shifts
-			for (const [empId, empData] of empMap) {
-				for (const date of datesInRange) {
-					const multiMins = getMultiShiftMinsForEmpDate(empId, date);
-					if (multiMins > 0 && empData.dayByDay[date]) {
-						empData.dayByDay[date].underMins = Math.max(0, (empData.dayByDay[date].underMins || 0) + multiMins);
-					}
-				}
-			}
+			// NOTE: underMins is computed by the edge function per shift slot.
+			// Multi-shift rows are already accumulated above — no additional adjustment needed.
 
 			analysisData = Array.from(empMap.values());
 
@@ -679,7 +696,7 @@
 			case 'Worked': return 'text-emerald-600';
 			case 'Incomplete': return 'text-red-500 font-bold';
 			case 'Unapproved Day Off': return 'text-rose-700 font-bold';
-		case 'Absent': return 'text-gray-700 font-bold';
+			case 'Absent': return 'text-gray-700 font-bold';
 			case 'Official Day Off': return 'text-blue-600';
 			case 'Official Holiday': return 'text-indigo-600 font-semibold';
 			case 'Approved Leave': return 'text-indigo-600';
@@ -689,6 +706,8 @@
 			case 'Rejected-Deducted': return 'text-red-700 font-bold';
 			case 'Rejected-Not Deducted': return 'text-red-500 font-semibold';
 			case 'Rejected Leave': return 'text-red-600 font-bold';
+			case 'Check-In Missing': return 'text-orange-600 font-bold';
+			case 'Check-Out Missing': return 'text-orange-500 font-bold';
 			default: return 'text-slate-400';
 		}
 	}
