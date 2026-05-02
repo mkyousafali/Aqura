@@ -335,9 +335,14 @@
 		if (travelPayMode === 'Bank') bankAllow += travelAllow;
 		if (foodPayMode === 'Bank') bankAllow += distFoodAllow;
 		const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFoodAllow;
-		const bankRatio = distTotal > 0 ? bankAllow / distTotal : 0;
-		const netBank = netSalary * bankRatio;
-		const netCash = netSalary - netBank;
+		// Deductions applied to cash first, then bank (attendance-scaled for Remote Jobs)
+		const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
+		const effGrossBank = bankAllow * scaleFactor;
+		const effGrossCash = (distTotal - bankAllow) * scaleFactor;
+		const nonFoodDeds = totalDeductions - foodDeductionDed;
+		const deductFromCash = Math.min(nonFoodDeds, effGrossCash);
+		const netCash = Math.max(0, effGrossCash - deductFromCash);
+		const netBank = Math.max(0, effGrossBank - (nonFoodDeds - deductFromCash));
 
 		return { gross: grossWorkedSalary, totalDeductions, netSalary, netBank, netCash };
 	}
@@ -2860,8 +2865,13 @@ Mudad Exporter
 										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
 										if (foodPayMode === 'Bank') bankAllowances += distFood;
 										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
-										const bankRatio = distTotal > 0 ? bankAllowances / distTotal : 0;
-										const netBank = Math.max(0, netSalary * bankRatio);
+										// Deductions applied to cash first, then bank
+										const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
+										const effGrossBank = bankAllowances * scaleFactor;
+										const effGrossCash = (distTotal - bankAllowances) * scaleFactor;
+										const nonFoodDeds = grossWorkedSalary - netSalary - foodDeductionDed;
+										const deductFromCash = Math.min(nonFoodDeds, effGrossCash);
+										const netBank = Math.max(0, effGrossBank - (nonFoodDeds - deductFromCash));
 										
 										return netBank.toFixed(2);
 									})()}
@@ -2936,9 +2946,13 @@ Mudad Exporter
 										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
 										if (foodPayMode === 'Bank') bankAllowances += distFood;
 										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
-										const bankRatio = distTotal > 0 ? bankAllowances / distTotal : 0;
-										const netBankPortion = Math.max(0, netSalary * bankRatio);
-										const netCash = Math.max(0, netSalary - netBankPortion);
+										// Deductions applied to cash first, then bank
+										const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
+										const effGrossBank = bankAllowances * scaleFactor;
+										const effGrossCash = (distTotal - bankAllowances) * scaleFactor;
+										const nonFoodDeds = grossWorkedSalary - netSalary - foodDeductionDed;
+										const deductFromCash = Math.min(nonFoodDeds, effGrossCash);
+										const netCash = Math.max(0, effGrossCash - deductFromCash);
 										
 										return netCash.toFixed(2);
 									})()}
@@ -3219,9 +3233,13 @@ Export Filled Excel
 	{@const _distFood = (empEdit.foodDeductionActive ?? false) ? 0 : _food}
 	{@const _bankAllow = (_basicSal * (empEdit.basicPaymentMode === 'Cash' ? 0 : 1)) + (_otherAllow * (empEdit.otherAllowancePaymentMode === 'Cash' ? 0 : 1)) + (_accomm * (empEdit.accommodationPaymentMode === 'Cash' ? 0 : 1)) + (_travel * (empEdit.travelPaymentMode === 'Cash' ? 0 : 1)) + (_distFood * (empEdit.foodPaymentMode === 'Cash' ? 0 : 1))}
 	{@const _distTotal = _basicSal + _otherAllow + _accomm + _travel + _distFood}
-	{@const _bankRatio = _distTotal > 0 ? _bankAllow / _distTotal : 0}
-	{@const _netBank = _netSal * _bankRatio}
-	{@const _netCash = _netSal - _netBank}
+	{@const _scaleFactor = _totalAllow > 0 ? _gross / _totalAllow : 1}
+	{@const _effGrossBank = _bankAllow * _scaleFactor}
+	{@const _effGrossCash = (_distTotal - _bankAllow) * _scaleFactor}
+	{@const _nonFoodDeds = _gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed}
+	{@const _deductFromCash = Math.min(_nonFoodDeds, _effGrossCash)}
+	{@const _netCash = Math.max(0, _effGrossCash - _deductFromCash)}
+	{@const _netBank = Math.max(0, _effGrossBank - (_nonFoodDeds - _deductFromCash))}
 	{@const _perMinuteRate = _hourlyRate / 60}
 	{@const _perDayRate = 8 * _hourlyRate}
 	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:click|self={() => showEmpEditModal = false} on:keydown={(e) => e.key === 'Escape' && (showEmpEditModal = false)}>
