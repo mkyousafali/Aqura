@@ -45,7 +45,8 @@
 			!searchQuery || 
 			emp.name_en?.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			emp.name_ar?.includes(searchQuery) ||
-			emp.id?.toLowerCase().includes(searchQuery.toLowerCase());
+			emp.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			emp.id_number?.toLowerCase().includes(searchQuery.toLowerCase());
 		
 		const matchesStatus = !statusFilter || emp.employment_status === statusFilter;
 		const matchesBranch = !branchFilter || String(emp.current_branch_id) === String(branchFilter);

@@ -226,7 +226,8 @@
 		.filter(row => {
 			const matchesSearch = !searchQuery || 
 				String(row.employeeId).toLowerCase().includes(searchQuery.toLowerCase()) || 
-				row.employeeName.toLowerCase().includes(searchQuery.toLowerCase());
+				row.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(row.idNumber && String(row.idNumber).toLowerCase().includes(searchQuery.toLowerCase()));
 			
 			const matchesBranch = !selectedBranch || String(row.currentBranchId) === String(selectedBranch);
 			
@@ -1000,7 +1001,8 @@
 				const matchesSearch = !searchQuery ||
 					String(e.id).toLowerCase().includes(searchQuery.toLowerCase()) ||
 					e.name_en.toLowerCase().includes(searchQuery.toLowerCase()) ||
-					(e.name_ar && e.name_ar.includes(searchQuery));
+					(e.name_ar && e.name_ar.includes(searchQuery)) ||
+					(e.id_number && String(e.id_number).toLowerCase().includes(searchQuery.toLowerCase()));
 				return matchesBranch && matchesSearch;
 			});
 
