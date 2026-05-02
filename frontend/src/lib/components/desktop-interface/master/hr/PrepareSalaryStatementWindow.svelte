@@ -325,13 +325,17 @@
 		const accommPayMode = accommodationPaymentModes[row.employeeId] || 'Bank';
 		const travelPayMode = travelPaymentModes[row.employeeId] || 'Bank';
 		const foodPayMode = foodPaymentModes[row.employeeId] || 'Bank';
-		let bankAllow = 0, cashAllow = 0;
-		if (basicPayMode === 'Bank') bankAllow += basicSal; else cashAllow += basicSal;
-		if (otherPayMode === 'Bank') bankAllow += otherAllow; else cashAllow += otherAllow;
-		if (accommPayMode === 'Bank') bankAllow += accommAllow; else cashAllow += accommAllow;
-		if (travelPayMode === 'Bank') bankAllow += travelAllow; else cashAllow += travelAllow;
-		if (foodPayMode === 'Bank') bankAllow += foodAllow; else cashAllow += foodAllow;
-		const bankRatio = totalAllowances > 0 ? bankAllow / totalAllowances : 0;
+		const isFoodDed = foodDeductionActives[row.employeeId] ?? false;
+		// When food deduction toggle is ON, food is fully deducted — exclude it from distribution entirely
+		const distFoodAllow = isFoodDed ? 0 : foodAllow;
+		let bankAllow = 0;
+		if (basicPayMode === 'Bank') bankAllow += basicSal;
+		if (otherPayMode === 'Bank') bankAllow += otherAllow;
+		if (accommPayMode === 'Bank') bankAllow += accommAllow;
+		if (travelPayMode === 'Bank') bankAllow += travelAllow;
+		if (foodPayMode === 'Bank') bankAllow += distFoodAllow;
+		const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFoodAllow;
+		const bankRatio = distTotal > 0 ? bankAllow / distTotal : 0;
 		const netBank = netSalary * bankRatio;
 		const netCash = netSalary - netBank;
 
@@ -468,6 +472,289 @@
 	let saveNotice = '';
 	let loadList: any[] = [];
 	let loadListLoading = false;
+
+// ====================================================================
+// MUDAD EXPORTER
+// ====================================================================
+let showMudadModal = false;
+let mudadTemplateFile: File | null = null;
+let mudadProcessing = false;
+let mudadError = '';
+let mudadSuccess = '';
+let mudadFileInputEl: HTMLInputElement;
+
+function normalizeLegalId(value: any): string {
+if (value === null || value === undefined) return '';
+return String(value).trim().replace(/\s+/g, '');
+}
+
+/** Build a map from normalized Legal Id -> mudad values for all current filteredAnalysisData rows */
+function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number }> {
+	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number }>();
+	for (const row of filteredAnalysisData) {
+		const legalId = normalizeLegalId(row.idNumber);
+		if (!legalId) continue;
+		const empId = row.employeeId;
+		const hourlyRate = (
+			(basicSalaries[empId] || 0) +
+			(otherAllowances[empId] || 0) +
+			(accommodationAllowances[empId] || 0) +
+			(travelAllowances[empId] || 0) +
+			(foodAllowances[empId] || 0)
+		) / 240;
+		const shiftHPD = 8;
+		const isRemote = row.employmentStatus === 'Remote Job';
+
+		// Other Allowances — bank-paid only
+		const otherAllow = otherAllowances[empId] || 0;
+		const otherPayMode = (otherAllowancePaymentModes[empId] || 'Bank').toLowerCase();
+		const otherAllowBank = otherPayMode !== 'cash' ? otherAllow : 0;
+
+		const foodAllow = foodAllowances[empId] || 0;
+		const foodDeductionActive = foodDeductionActives[empId] ?? false;
+		const foodPayMode = (foodPaymentModes[empId] || 'Bank').toLowerCase();
+		const foodAllowBank = (!foodDeductionActive && foodPayMode !== 'cash') ? foodAllow : 0;
+
+		const otherAllowancesAmount = otherAllowBank + foodAllowBank;
+
+		// Leave of Absence = incomplete + late + under worked deductions
+		let incompleteDed = 0;
+		const incompOvr = incompleteDayDeductionOverrides[empId];
+		if (incompOvr !== undefined) incompleteDed = isRemote ? 0 : incompOvr;
+		else if (!isRemote && (row.totalIncompleteDays || 0) > 0)
+			incompleteDed = (row.totalIncompleteDays || 0) * shiftHPD * hourlyRate;
+
+		let lateDed = 0;
+		const lateOvr = lateDeductionOverrides[empId];
+		const effLate = isRemote ? 0 : (lateMinutesOverrides[empId] ?? row.totalLateMinutes ?? 0);
+		if (lateOvr !== undefined) lateDed = isRemote ? 0 : lateOvr;
+		else if (effLate > 0) lateDed = (effLate / 60) * hourlyRate;
+
+		let underDed = 0;
+		const underOvr = underWorkedDeductionOverrides[empId];
+		const effUnder = isRemote ? 0 : (underWorkedMinutesOverrides[empId] ?? row.totalUnderWorkedMinutes ?? 0);
+		if (underOvr !== undefined) underDed = isRemote ? 0 : underOvr;
+		else if (effUnder > 0) underDed = (effUnder / 60) * hourlyRate;
+
+		const leaveOfAbsenceAmount = incompleteDed + lateDed + underDed;
+
+		// Other Deductions = POS + advance + loan + penalties + other
+		const otherDeductionsAmount =
+			(posShortageDeductions[empId] || 0) +
+			(empEditOverrides[empId]?.salaryAdvance || 0) +
+			(empEditOverrides[empId]?.loanDeductions || 0) +
+			(empEditOverrides[empId]?.penalties || 0) +
+			(empEditOverrides[empId]?.otherDeductions || 0);
+
+		map.set(legalId, {
+			otherAllowances: otherAllowancesAmount,
+			leaveOfAbsence: leaveOfAbsenceAmount,
+			otherDeductions: otherDeductionsAmount
+		});
+	}
+	return map;
+}
+
+/** Convert Excel column letters to 1-based column number: A=1, Z=26, AA=27 */
+	function mudadColToNum(ref: string): number {
+		const letters = ref.match(/^([A-Z]+)/)?.[1] || '';
+		let n = 0;
+		for (const ch of letters) n = n * 26 + ch.charCodeAt(0) - 64;
+		return n;
+	}
+
+	/** Parse xl/sharedStrings.xml into an array of plain strings */
+	async function parseMudadSharedStrings(zip: any): Promise<string[]> {
+		const file = zip.file('xl/sharedStrings.xml');
+		if (!file) return [];
+		const xml: string = await file.async('string');
+		const parser = new DOMParser();
+		const doc = parser.parseFromString(xml, 'application/xml');
+		const sis = doc.getElementsByTagName('si');
+		const result: string[] = [];
+		for (let i = 0; i < sis.length; i++) {
+			const tEls = sis[i].getElementsByTagName('t');
+			let text = '';
+			for (let j = 0; j < tEls.length; j++) text += tEls[j].textContent || '';
+			result.push(text);
+		}
+		return result;
+	}
+
+	/**
+	 * Replaces <v> content inside specific cells by their cell ref (e.g. "I5").
+	 * Only modifies the targeted cells — all other XML is left byte-for-byte identical.
+	 */
+	function updateMudadCells(xml: string, updates: Map<string, number>): string {
+		let result = xml;
+		for (const [cellRef, newValue] of updates) {
+			// Build patterns that match this exact cell ref attribute
+			// Handles both full <c r="REF" ...>...</c> and self-closing <c r="REF" .../>
+			const rAttr = 'r="' + cellRef + '"';
+			// Find the cell opening tag, inner content and closing tag
+			// We use indexOf for safety instead of complex regexes
+			let pos = 0;
+			while (true) {
+				const cellStart = result.indexOf('<c ', pos);
+				if (cellStart === -1) break;
+				// Find end of opening tag
+				const tagEnd = result.indexOf('>', cellStart);
+				if (tagEnd === -1) break;
+				const openTag = result.substring(cellStart, tagEnd + 1);
+				// Check if this is our target cell
+				if (!openTag.includes(rAttr)) {
+					pos = tagEnd + 1;
+					continue;
+				}
+				if (openTag.endsWith('/>')) {
+					// Self-closing: <c r="REF" s="3"/>  →  <c r="REF" s="3"><v>VALUE</v></c>
+					const cleanOpen = openTag.slice(0, -2)
+						.replace(/ t="[^"]*"/g, '')
+						.replace(/ t='[^']*'/g, '');
+					result = result.substring(0, cellStart) + cleanOpen + '><v>' + newValue + '</v></c>' + result.substring(tagEnd + 1);
+					pos = cellStart + 1;
+				} else {
+					// Full element: find </c>
+					const closeTag = result.indexOf('</c>', tagEnd + 1);
+					if (closeTag === -1) { pos = tagEnd + 1; continue; }
+					const cleanOpen = openTag
+						.replace(/ t="[^"]*"/g, '')
+						.replace(/ t='[^']*'/g, '');
+					result = result.substring(0, cellStart) + cleanOpen + '<v>' + newValue + '</v></c>' + result.substring(closeTag + 4);
+					pos = cellStart + 1;
+				}
+				break; // cell ref is unique per sheet row
+			}
+		}
+		return result;
+	}
+
+	/** Find header row, match Legal Ids, return updated sheet XML and match count */
+	function processMudadSheetXml(
+		xml: string,
+		sharedStrings: string[],
+		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number }>
+	): { result: string; matchCount: number } {
+		const HEADERS = ['Legal Id', 'Other Allowances (Amount)', 'Leave of Absence (Amount)', 'Other Deductions (Amount)'];
+		const parser = new DOMParser();
+		const doc = parser.parseFromString(xml, 'application/xml');
+		const rows = Array.from(doc.getElementsByTagName('row'));
+
+		let headerRowNum = -1;
+		let legalIdCol = 0, otherAllowCol = 0, leaveAbsenceCol = 0, otherDedCol = 0;
+		for (const row of rows) {
+			if (headerRowNum !== -1) break;
+			const colMap: Record<string, number> = {};
+			for (const cell of Array.from(row.getElementsByTagName('c'))) {
+				if (cell.getAttribute('t') !== 's') continue;
+				const vEl = cell.querySelector('v');
+				if (!vEl?.textContent) continue;
+				const idx = parseInt(vEl.textContent);
+				if (isNaN(idx)) continue;
+				const str = sharedStrings[idx]?.trim();
+				if (str) colMap[str] = mudadColToNum(cell.getAttribute('r') || '');
+			}
+			if (HEADERS.every(h => colMap[h])) {
+				headerRowNum    = parseInt(row.getAttribute('r') || '0');
+				legalIdCol      = colMap['Legal Id'];
+				otherAllowCol   = colMap['Other Allowances (Amount)'];
+				leaveAbsenceCol = colMap['Leave of Absence (Amount)'];
+				otherDedCol     = colMap['Other Deductions (Amount)'];
+			}
+		}
+		if (headerRowNum === -1) return { result: xml, matchCount: 0 };
+
+		const updates = new Map<string, number>();
+		for (const row of rows) {
+			const rowNum = parseInt(row.getAttribute('r') || '0');
+			if (rowNum <= headerRowNum) continue;
+			let legalId = '';
+			for (const cell of Array.from(row.getElementsByTagName('c'))) {
+				if (mudadColToNum(cell.getAttribute('r') || '') !== legalIdCol) continue;
+				const vEl = cell.querySelector('v');
+				if (!vEl) break;
+				const rawVal = cell.getAttribute('t') === 's'
+					? sharedStrings[parseInt(vEl.textContent || '0')]
+					: vEl.textContent;
+				legalId = normalizeLegalId(rawVal);
+				break;
+			}
+			if (!legalId) continue;
+			const vals = mudadMap.get(legalId);
+			if (!vals) continue;
+			for (const cell of Array.from(row.getElementsByTagName('c'))) {
+				const ref = cell.getAttribute('r') || '';
+				const col = mudadColToNum(ref);
+				if (col === otherAllowCol)       updates.set(ref, parseFloat(vals.otherAllowances.toFixed(2)));
+				else if (col === leaveAbsenceCol) updates.set(ref, parseFloat(vals.leaveOfAbsence.toFixed(2)));
+				else if (col === otherDedCol)     updates.set(ref, parseFloat(vals.otherDeductions.toFixed(2)));
+			}
+		}
+		if (updates.size === 0) return { result: xml, matchCount: 0 };
+		return { result: updateMudadCells(xml, updates), matchCount: Math.round(updates.size / 3) };
+	}
+
+	function handleMudadTemplateImport(file: File) {
+		mudadError = '';
+		mudadSuccess = '';
+		if (!file) return;
+		if (!file.name.match(/\.xlsx?$/i)) {
+			mudadError = 'Please upload a valid Excel file (.xlsx or .xls).';
+			mudadTemplateFile = null;
+			return;
+		}
+		mudadTemplateFile = file;
+		mudadSuccess = `Template ready: ${file.name}`;
+	}
+
+	async function exportMudadExcel() {
+		if (!mudadTemplateFile) { mudadError = 'Please upload a Mudad template file first.'; return; }
+		if (!filteredAnalysisData.length) { mudadError = 'No salary data loaded. Load a salary statement first.'; return; }
+		mudadProcessing = true; mudadError = ''; mudadSuccess = '';
+		try {
+			// JSZip opens the XLSX as a raw ZIP — ALL parts (tables, drawings, autofilter) are fully preserved
+			const JSZipMod: any = await import('jszip');
+			const JSZip = JSZipMod.default ?? JSZipMod;
+			const arrayBuffer = await mudadTemplateFile!.arrayBuffer();
+			const zip = await JSZip.loadAsync(arrayBuffer);
+
+			const sharedStrings = await parseMudadSharedStrings(zip);
+			const mudadMap = buildMudadRowMap();
+
+			let totalMatched = 0;
+			const sheetPaths = Object.keys((zip as any).files).filter((f: string) =>
+				/^xl\/worksheets\/sheet\d+\.xml$/i.test(f)
+			);
+			for (const sheetPath of sheetPaths) {
+				const xml: string = await (zip as any).file(sheetPath)!.async('string');
+				const { result, matchCount } = processMudadSheetXml(xml, sharedStrings, mudadMap);
+				if (matchCount > 0) { (zip as any).file(sheetPath, result); totalMatched += matchCount; }
+			}
+
+			const blob: Blob = await (zip as any).generateAsync({
+				type: 'blob',
+				mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+				compression: 'DEFLATE',
+				compressionOptions: { level: 6 }
+			});
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			const today = new Date();
+			const stamp = String(today.getFullYear()) + String(today.getMonth() + 1).padStart(2, '0') + String(today.getDate()).padStart(2, '0');
+			a.href = url; a.download = 'Mudad_' + stamp + '.xlsx';
+			document.body.appendChild(a); a.click();
+			setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+			mudadSuccess = totalMatched > 0
+				? 'Done — ' + totalMatched + ' employee(s) matched and exported.'
+				: 'Warning: No employees were matched. Check that Legal Id values in the template match the salary data.';
+		} catch (err: any) {
+			console.error('Mudad export error:', err);
+			mudadError = 'Export failed: ' + (err?.message || 'Unknown error');
+		} finally {
+			mudadProcessing = false;
+		}
+	}
+
 	let loadingStatementId: string | null = null;
 
 	function buildStatementSnapshot() {
@@ -1962,7 +2249,19 @@ return n;
 				Export Excel
 			</button>
 
-			<!-- Column selector button -->
+			
+<button
+on:click={() => { showMudadModal = true; mudadError = ''; mudadSuccess = ''; mudadTemplateFile = null; }}
+disabled={loading || analysisData.length === 0}
+class="px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
+title="Export salary data to Mudad Excel template"
+>
+<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+</svg>
+Mudad Exporter
+</button>
+<!-- Column selector button -->
 			<div class="relative">
 				<button
 					on:click={() => showColumnPanel = !showColumnPanel}
@@ -2547,13 +2846,16 @@ return n;
 										const accommPayMode = accommodationPaymentModes[row.employeeId] || 'Bank';
 										const travelPayMode = travelPaymentModes[row.employeeId] || 'Bank';
 										const foodPayMode = foodPaymentModes[row.employeeId] || 'Bank';
+										const isFoodDedActive = foodDeductionActives[row.employeeId] ?? false;
+										const distFood = isFoodDedActive ? 0 : foodAllow;
 										let bankAllowances = 0;
 										if (basicPayMode === 'Bank') bankAllowances += basicSal;
 										if (otherPayMode === 'Bank') bankAllowances += otherAllow;
 										if (accommPayMode === 'Bank') bankAllowances += accommAllow;
 										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
-										if (foodPayMode === 'Bank') bankAllowances += foodAllow;
-										const bankRatio = totalAllowances > 0 ? bankAllowances / totalAllowances : 0;
+										if (foodPayMode === 'Bank') bankAllowances += distFood;
+										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
+										const bankRatio = distTotal > 0 ? bankAllowances / distTotal : 0;
 										const netBank = Math.max(0, netSalary * bankRatio);
 										
 										return netBank.toFixed(2);
@@ -2620,13 +2922,16 @@ return n;
 										const accommPayMode = accommodationPaymentModes[row.employeeId] || 'Bank';
 										const travelPayMode = travelPaymentModes[row.employeeId] || 'Bank';
 										const foodPayMode = foodPaymentModes[row.employeeId] || 'Bank';
+										const isFoodDedActive = foodDeductionActives[row.employeeId] ?? false;
+										const distFood = isFoodDedActive ? 0 : foodAllow;
 										let bankAllowances = 0;
 										if (basicPayMode === 'Bank') bankAllowances += basicSal;
 										if (otherPayMode === 'Bank') bankAllowances += otherAllow;
 										if (accommPayMode === 'Bank') bankAllowances += accommAllow;
 										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
-										if (foodPayMode === 'Bank') bankAllowances += foodAllow;
-										const bankRatio = totalAllowances > 0 ? bankAllowances / totalAllowances : 0;
+										if (foodPayMode === 'Bank') bankAllowances += distFood;
+										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
+										const bankRatio = distTotal > 0 ? bankAllowances / distTotal : 0;
 										const netBankPortion = Math.max(0, netSalary * bankRatio);
 										const netCash = Math.max(0, netSalary - netBankPortion);
 										
@@ -2702,6 +3007,68 @@ return n;
 	</div>
 </div>
 
+
+<!-- Mudad Exporter Modal -->
+{#if showMudadModal}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" on:click|self={() => (showMudadModal = false)}>
+<div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-orange-400">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-2">
+<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+</svg>
+<h3 class="text-lg font-bold text-slate-900">Mudad Exporter</h3>
+</div>
+<button type="button" class="text-slate-400 hover:text-slate-700 text-xl leading-none" on:click={() => (showMudadModal = false)}>×</button>
+</div>
+<p class="text-sm text-slate-600 mb-4">
+Upload your Mudad Excel template. The system will match employees by <strong>Legal Id</strong> and fill in:
+<strong>Other Allowances (Amount)</strong>, <strong>Leave of Absence (Amount)</strong>, and <strong>Other Deductions (Amount)</strong>.
+</p>
+<div class="mb-4">
+<label for="mudad-template-input" class="block text-xs font-bold text-slate-700 mb-1 uppercase">Import Mudad Template (.xlsx)</label>
+<input
+type="file"
+accept=".xlsx,.xls"
+id="mudad-template-input" bind:this={mudadFileInputEl}
+on:change={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleMudadTemplateImport(f); }}
+class="block w-full text-sm text-slate-700 border border-slate-300 rounded-lg cursor-pointer bg-slate-50 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200"
+/>
+</div>
+{#if mudadError}
+<div class="mb-3 px-3 py-2 bg-red-50 border border-red-300 rounded-lg text-red-700 text-sm font-medium">{mudadError}</div>
+{/if}
+{#if mudadSuccess}
+<div class="mb-3 px-3 py-2 bg-green-50 border border-green-300 rounded-lg text-green-700 text-sm font-medium">{mudadSuccess}</div>
+{/if}
+<div class="flex justify-end gap-2 mt-2">
+<button
+type="button"
+on:click={() => (showMudadModal = false)}
+disabled={mudadProcessing}
+class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"
+>Cancel</button>
+<button
+type="button"
+on:click={exportMudadExcel}
+disabled={mudadProcessing || !mudadTemplateFile}
+class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold shadow"
+>
+{#if mudadProcessing}
+<span class="flex items-center gap-2">
+<span class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+Processing...
+</span>
+{:else}
+Export Filled Excel
+{/if}
+</button>
+</div>
+</div>
+</div>
+{/if}
 <!-- Save Salary Statement Modal -->
 {#if showSaveModal}
 	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" on:click|self={() => (showSaveModal = false)}>
@@ -2844,8 +3211,10 @@ return n;
 	{@const _incompleteDed = Number(empEdit.incompleteDayDeduction) || 0}
 	{@const _foodDed = (empEdit.foodDeductionActive ?? false) ? _food : 0}
 	{@const _netSal = _gross - (_gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed + _foodDed)}
-	{@const _bankAllow = (_basicSal * (empEdit.basicPaymentMode === 'Cash' ? 0 : 1)) + (_otherAllow * (empEdit.otherAllowancePaymentMode === 'Cash' ? 0 : 1)) + (_accomm * (empEdit.accommodationPaymentMode === 'Cash' ? 0 : 1)) + (_travel * (empEdit.travelPaymentMode === 'Cash' ? 0 : 1)) + (_food * (empEdit.foodPaymentMode === 'Cash' ? 0 : 1))}
-	{@const _bankRatio = _totalAllow > 0 ? _bankAllow / _totalAllow : 0}
+	{@const _distFood = (empEdit.foodDeductionActive ?? false) ? 0 : _food}
+	{@const _bankAllow = (_basicSal * (empEdit.basicPaymentMode === 'Cash' ? 0 : 1)) + (_otherAllow * (empEdit.otherAllowancePaymentMode === 'Cash' ? 0 : 1)) + (_accomm * (empEdit.accommodationPaymentMode === 'Cash' ? 0 : 1)) + (_travel * (empEdit.travelPaymentMode === 'Cash' ? 0 : 1)) + (_distFood * (empEdit.foodPaymentMode === 'Cash' ? 0 : 1))}
+	{@const _distTotal = _basicSal + _otherAllow + _accomm + _travel + _distFood}
+	{@const _bankRatio = _distTotal > 0 ? _bankAllow / _distTotal : 0}
 	{@const _netBank = _netSal * _bankRatio}
 	{@const _netCash = _netSal - _netBank}
 	{@const _perMinuteRate = _hourlyRate / 60}
