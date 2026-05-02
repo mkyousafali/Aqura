@@ -2457,7 +2457,12 @@ Mudad Exporter
 									</div>
 								</td>
 								<td class="px-4 py-3 border-r text-center text-sm font-mono text-slate-700 w-[130px] whitespace-nowrap {colVis.idNumber ? '' : 'hidden'}">
-									{row.idNumber || '—'}
+									<!-- svelte-ignore a11y-no-static-element-interactions -->
+									<span
+										on:dblclick={() => { if (row.idNumber) { navigator.clipboard.writeText(String(row.idNumber)); } }}
+										title="Double-click to copy"
+										class="cursor-copy select-all"
+									>{row.idNumber || '—'}</span>
 								</td>
 								<td class="px-4 py-3 border-r text-center w-[160px] {colVis.whatsappNumber ? '' : 'hidden'}">
 									{#if row.whatsappNumber}
