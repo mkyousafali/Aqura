@@ -43,8 +43,11 @@
 	};
 	let savingEdit = false;
 
-	// Checkboxes
+	// Checkboxes — payments
 	let checkedPaymentIds: Set<string> = new Set();
+
+	// Checkboxes — expenses
+	let checkedExpenseIds: Set<string> = new Set();
 
 	// Filtered vendors based on search
 	$: filteredVendors = vendors.filter(v => 
@@ -94,6 +97,7 @@
 	// Clear checkboxes when vendor or filters change
 	$: if (selectedVendorId || paidFilter || selectedBranchId || selectedPaymentMethod) {
 		checkedPaymentIds = new Set();
+		checkedExpenseIds = new Set();
 	}
 
 	// Checked rows derived from all filteredPayments (not just current page)
@@ -102,6 +106,17 @@
 		.filter(p => checkedPaymentIds.has(String(p.id)))
 		.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0);
 	$: allPageChecked = paginatedPayments.length > 0 && paginatedPayments.every(p => checkedPaymentIds.has(String(p.id)));
+
+	// Checked rows for expenses
+	$: checkedExpenseCount = checkedExpenseIds.size;
+	$: checkedExpenseTotal = filteredVendorExpenses
+		.filter(e => checkedExpenseIds.has(String(e.id)))
+		.reduce((sum, e) => sum + (e.amount || 0), 0);
+	$: allExpensesChecked = filteredVendorExpenses.length > 0 && filteredVendorExpenses.every(e => checkedExpenseIds.has(String(e.id)));
+
+	// Combined selection across both tables
+	$: combinedCheckedCount = checkedCount + checkedExpenseCount;
+	$: combinedCheckedTotal = checkedTotal + checkedExpenseTotal;
 
 	function toggleRow(id: string) {
 		if (checkedPaymentIds.has(id)) {
@@ -119,6 +134,24 @@
 			paginatedPayments.forEach(p => checkedPaymentIds.add(String(p.id)));
 		}
 		checkedPaymentIds = checkedPaymentIds;
+	}
+
+	function toggleExpenseRow(id: string) {
+		if (checkedExpenseIds.has(id)) {
+			checkedExpenseIds.delete(id);
+		} else {
+			checkedExpenseIds.add(id);
+		}
+		checkedExpenseIds = checkedExpenseIds;
+	}
+
+	function toggleAllExpenses() {
+		if (allExpensesChecked) {
+			filteredVendorExpenses.forEach(e => checkedExpenseIds.delete(String(e.id)));
+		} else {
+			filteredVendorExpenses.forEach(e => checkedExpenseIds.add(String(e.id)));
+		}
+		checkedExpenseIds = checkedExpenseIds;
 	}
 
 	// Calculate total amount
@@ -866,22 +899,25 @@
 			{:else}
 				<!-- Receiving Payments Table -->
 				{#if filteredPayments.length > 0}
-					<!-- Checked Summary Bar -->
-					{#if checkedCount > 0}
+					<!-- Combined Checked Summary Bar -->
+					{#if combinedCheckedCount > 0}
 						<div class="mb-3 flex items-center gap-4 px-4 py-2.5 rounded-xl bg-blue-600 text-white shadow-lg text-xs font-bold">
 							<span class="flex items-center gap-1.5">
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-								{checkedCount} selected
+								{combinedCheckedCount} selected
+								{#if checkedCount > 0 && checkedExpenseCount > 0}
+									<span class="font-normal opacity-75">({checkedCount} payments + {checkedExpenseCount} expenses)</span>
+								{/if}
 							</span>
 							<span class="flex items-center gap-1">
 								Total:
 								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.7em] opacity-80 inline mx-0.5" />
-								<span class="text-sm font-black">{checkedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								<span class="text-sm font-black">{combinedCheckedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 							</span>
 							<button
 								class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all"
-								on:click={() => { checkedPaymentIds = new Set(); }}
-							>Clear</button>
+								on:click={() => { checkedPaymentIds = new Set(); checkedExpenseIds = new Set(); }}
+							>Clear All</button>
 						</div>
 					{/if}
 					<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden mb-4">
@@ -962,11 +998,33 @@
 
 				<!-- Vendor Expenses Table -->
 				{#if filteredVendorExpenses.length > 0}
+					<!-- Expense-only selection bar (when payments table is hidden/empty) -->
+					{#if checkedExpenseCount > 0 && filteredPayments.length === 0}
+						<div class="mb-3 flex items-center gap-4 px-4 py-2.5 rounded-xl bg-amber-600 text-white shadow-lg text-xs font-bold">
+							<span class="flex items-center gap-1.5">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+								{checkedExpenseCount} expense{checkedExpenseCount !== 1 ? 's' : ''} selected
+							</span>
+							<span class="flex items-center gap-1">
+								Total:
+								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.7em] opacity-80 inline mx-0.5" />
+								<span class="text-sm font-black">{checkedExpenseTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+							</span>
+							<button
+								class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all"
+								on:click={() => { checkedExpenseIds = new Set(); }}
+							>Clear</button>
+						</div>
+					{/if}
 					<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
 						<div class="overflow-x-auto">
 							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-amber-500/30 [&_td]:border-x [&_td]:border-slate-200">
 								<thead class="sticky top-0 bg-amber-600 text-white shadow-lg z-10">
 									<tr>
+										<th class="px-2 py-2.5 text-center text-[11px] font-black uppercase border-b-2 border-amber-400 w-8">
+											<input type="checkbox" checked={allExpensesChecked} on:change={toggleAllExpenses}
+												class="w-3.5 h-3.5 rounded cursor-pointer accent-white" />
+										</th>
 										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Req #</th>
 										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Category</th>
 										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Branch</th>
@@ -980,7 +1038,13 @@
 								</thead>
 								<tbody class="divide-y divide-slate-200">
 									{#each filteredVendorExpenses as expense, index}
-										<tr class="hover:bg-amber-50/30 transition-colors {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<tr class="hover:bg-amber-50/30 transition-colors {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {checkedExpenseIds.has(String(expense.id)) ? '!bg-amber-50/60' : ''}">
+											<td class="px-2 py-2 text-center w-8">
+												<input type="checkbox"
+													checked={checkedExpenseIds.has(String(expense.id))}
+													on:change={() => toggleExpenseRow(String(expense.id))}
+													class="w-3.5 h-3.5 rounded cursor-pointer accent-amber-600" />
+											</td>
 											<td class="px-3 py-2 text-xs">
 												<span class="inline-block px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded text-[10px] font-bold">{expense.requisition_number || `#${expense.id}`}</span>
 											</td>
@@ -1001,8 +1065,11 @@
 								</tbody>
 							</table>
 						</div>
-						<div class="px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 font-semibold">
-							{filteredVendorExpenses.length} expense{filteredVendorExpenses.length !== 1 ? 's' : ''} · Total: <strong class="text-red-600">{totalExpenseAmount.toLocaleString()}</strong>
+						<div class="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 font-semibold">
+							<span>{filteredVendorExpenses.length} expense{filteredVendorExpenses.length !== 1 ? 's' : ''} · Total: <strong class="text-red-600">{totalExpenseAmount.toLocaleString()}</strong></span>
+							{#if checkedExpenseCount > 0}
+								<span class="text-amber-700">{checkedExpenseCount} selected · <strong>{checkedExpenseTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+							{/if}
 						</div>
 					</div>
 				{/if}
