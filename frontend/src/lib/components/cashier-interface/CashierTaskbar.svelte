@@ -148,18 +148,18 @@
 		});
 	}
 
-	function openCouponRedemption() {
+	function openRedemptionWindow() {
 		closeMenu();
-		const windowId = generateWindowId('coupon-redemption');
+		const windowId = generateWindowId('redemption');
 
-		import('$lib/components/cashier-interface/CouponRedemption.svelte').then(({ default: CouponRedemption }) => {
+		import('$lib/components/cashier-interface/RedemptionWindow.svelte').then(({ default: RedemptionWindow }) => {
 			openWindow({
 				id: windowId,
-				title: t('coupon.redeemCoupon') || 'Redeem Coupon',
-				component: CouponRedemption,
+				title: t('coupon.couponRedemption') || 'Redemption',
+				component: RedemptionWindow,
 				props: { user, branch },
-				icon: '🎁',
-				size: { width: 700, height: 600 },
+				icon: '🎟️',
+				size: { width: 800, height: 640 },
 				position: { x: 100, y: 50 },
 				resizable: true,
 				minimizable: true,
@@ -167,30 +167,7 @@
 				closable: true
 			});
 		}).catch(error => {
-			console.error('Failed to load CouponRedemption component:', error);
-		});
-	}
-
-	function openGiftWheelCoupon() {
-		closeMenu();
-		const windowId = generateWindowId('gift-wheel-coupon');
-
-		import('$lib/components/cashier-interface/GiftWheelCoupon.svelte').then(({ default: GiftWheelCoupon }) => {
-			openWindow({
-				id: windowId,
-				title: t('nav.giftWheelCoupon') || 'Gift Wheel Coupon',
-				component: GiftWheelCoupon,
-				props: { user, branch },
-				icon: '🎡',
-				size: { width: 600, height: 550 },
-				position: { x: 100, y: 50 },
-				resizable: true,
-				minimizable: true,
-				maximizable: true,
-				closable: true
-			});
-		}).catch(error => {
-			console.error('Failed to load GiftWheelCoupon component:', error);
+			console.error('Failed to load RedemptionWindow component:', error);
 		});
 	}
 
@@ -272,13 +249,9 @@
 						<span class="menu-item-icon">🛒</span>
 						<span class="menu-item-text">{$_('pos.title') || 'POS'}</span>
 					</button>
-					<button class="menu-item" on:click={openCouponRedemption}>
-						<span class="menu-item-icon">🎁</span>
-						<span class="menu-item-text">{$_('coupon.redeemCoupon') || 'Redeem Coupon'}</span>
-					</button>
-					<button class="menu-item" on:click={openGiftWheelCoupon}>
-						<span class="menu-item-icon">🎡</span>
-						<span class="menu-item-text">{$_('nav.giftWheelCoupon') || 'Gift Wheel Coupon'}</span>
+				<button class="menu-item" on:click={openRedemptionWindow}>
+					<span class="menu-item-icon">🎟️</span>
+					<span class="menu-item-text">{$_('coupon.couponRedemption') || 'Redemption'}</span>
 					</button>
 					<div class="menu-divider"></div>
 
@@ -355,22 +328,13 @@
 				<div class="quick-icon">🛒</div>
 			</button>
 
-			<!-- Gift Wheel Redemption -->
-			<button 
-				class="quick-btn gift-wheel-btn"
-				on:click={openGiftWheelCoupon}
-				title={$_('nav.giftWheelCoupon') || 'Gift Wheel Redemption'}
+			<!-- Redemption -->
+			<button
+				class="quick-btn redemption-btn"
+				on:click={openRedemptionWindow}
+				title={$_('coupon.couponRedemption') || 'Redemption'}
 			>
-				<div class="quick-icon">🎡</div>
-			</button>
-
-			<!-- Redeem Coupon -->
-			<button 
-				class="quick-btn coupon-btn"
-				on:click={openCouponRedemption}
-				title={$_('coupon.redeemCoupon') || 'Redeem Coupon'}
-			>
-				<div class="quick-icon">🎁</div>
+				<div class="quick-icon">🎟️</div>
 			</button>
 
 			<!-- My Tasks -->
