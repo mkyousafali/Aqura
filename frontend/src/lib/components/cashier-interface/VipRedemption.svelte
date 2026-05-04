@@ -302,6 +302,14 @@
 					>
 						{step === 'saving' ? $t('coupon.vipSaving') : '💎 ' + $t('coupon.vipSave')}
 					</button>
+
+					<button
+						class="btn-secondary btn-full"
+						on:click={reset}
+						disabled={step === 'saving'}
+					>
+						🔄 {$t('coupon.vipNewRedemption')}
+					</button>
 				{/if}
 
 				{#if step === 'looking'}

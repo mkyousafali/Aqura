@@ -91,32 +91,39 @@
 					console.log('🔄 Expense changed:', payload.eventType);
 					
 					if (payload.eventType === 'UPDATE') {
-						// Update the expense in the local array
-						const index = expenses.findIndex(e => e.id === payload.new.id);
-						if (index >= 0) {
-							expenses[index] = {
-								...expenses[index],
-								...payload.new
-							};
-							expenses = [...expenses];
+						if (!payload.new.is_paid) {
+							// Expense was unpaid — remove it from all local state
+							expenses = expenses.filter(e => e.id !== payload.new.id);
+							categoryDetails = categoryDetails.filter(e => e.id !== payload.new.id);
+						} else {
+							// Update the expense in the local array
+							const index = expenses.findIndex(e => e.id === payload.new.id);
+							if (index >= 0) {
+								expenses[index] = {
+									...expenses[index],
+									...payload.new
+								};
+								expenses = [...expenses];
+							}
+							
+							// Also update in categoryDetails if present
+							const detailIndex = categoryDetails.findIndex(e => e.id === payload.new.id);
+							if (detailIndex >= 0) {
+								categoryDetails[detailIndex] = {
+									...categoryDetails[detailIndex],
+									...payload.new
+								};
+								categoryDetails = [...categoryDetails];
+							}
 						}
-						
-						// Also update in categoryDetails if present
-						const detailIndex = categoryDetails.findIndex(e => e.id === payload.new.id);
-						if (detailIndex >= 0) {
-							categoryDetails[detailIndex] = {
-								...categoryDetails[detailIndex],
-								...payload.new
-							};
-							categoryDetails = [...categoryDetails];
-						}
-						
 						// Recalculate charts with updated data
 						processChartData();
 					} else if (payload.eventType === 'INSERT') {
-						// Add new expense to the array
-						expenses = [payload.new, ...expenses];
-						processChartData();
+						// Only add paid expenses to local state
+						if (payload.new.is_paid) {
+							expenses = [payload.new, ...expenses];
+							processChartData();
+						}
 					} else if (payload.eventType === 'DELETE') {
 						// Remove expense from the array
 						expenses = expenses.filter(e => e.id !== payload.old.id);
@@ -240,6 +247,7 @@
 						name_ar
 					)
 				`)
+				.eq('is_paid', true)
 				.order('created_at', { ascending: false })
 				.limit(2000);
 

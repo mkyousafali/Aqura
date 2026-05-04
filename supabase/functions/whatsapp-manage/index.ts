@@ -145,7 +145,7 @@ serve(async (req: Request) => {
       // edge runtime kills, network blips, and container restarts over 40+ cycles.
       case "send_broadcast": {
         // Start broadcast in background — do NOT await
-        sendBroadcast(supabase, accessToken, phoneNumberId, params).then(async (result) => {
+        sendBroadcast(supabase, accessToken, phoneNumberId, { ...params, account_id }).then(async (result) => {
           // If timed out, auto-continue by calling ourselves again (SINGLE chain only)
           if (result?.timedOut) {
             console.log(`[Broadcast] ↪ Auto-continue: ${result.sent} sent this round, invoking next batch...`);
@@ -217,7 +217,7 @@ serve(async (req: Request) => {
       // at a safe slow rate (~3/s) to avoid triggering ecosystem filter again.
       // Auto-continues itself if time limit hit.
       case "send_eco_retry": {
-        sendEcoRetry(supabase, accessToken, phoneNumberId, params).then(async (result) => {
+        sendEcoRetry(supabase, accessToken, phoneNumberId, { ...params, account_id }).then(async (result) => {
           if (result?.timedOut) {
             console.log(`[EcoRetry] ↪ Auto-continue: ${result.sent} sent this round, continuing...`);
             await new Promise((r) => setTimeout(r, 5000)); // 5s gap between rounds
@@ -644,7 +644,10 @@ async function insertChatMessages(
   broadcast_id?: string,
   template_id?: string
 ): Promise<number> {
-  if (sentItems.length === 0 || !wa_account_id) return 0;
+  if (sentItems.length === 0 || !wa_account_id) {
+    console.error(`[insertChat] GUARD FAILED: items=${sentItems.length}, wa_account_id=${wa_account_id}`);
+    return 0;
+  }
   try {
     // ─── Lookup template content from DB ───
     let templateBody = "";
@@ -779,8 +782,10 @@ async function insertChatMessages(
       return msg;
     }).filter(m => m.conversation_id); // only insert if we have a conversation
 
+      console.log(`[insertChat] phones=${JSON.stringify(Object.keys(convMap))}, msgInserts=${msgInserts.length}, sentItems=${sentItems.length}`);
       if (msgInserts.length > 0) {
-        await supabase.from("wa_messages").insert(msgInserts);
+        const { error: msgInsertErr } = await supabase.from("wa_messages").insert(msgInserts);
+        if (msgInsertErr) console.error(`[insertChat] wa_messages insert error:`, msgInsertErr.message, msgInsertErr.code);
         console.log(`[Broadcast] Inserted ${msgInserts.length} chat messages (broadcast: ${broadcast_id || 'unknown'})`);
 
         // Update last_message_preview on conversations so chat list shows the message
@@ -959,13 +964,17 @@ async function sendBroadcast(
                 const fileResp = await fetch(mediaObj.link);
                 if (!fileResp.ok) throw new Error(`Download failed: ${fileResp.status}`);
                 const fileBlob = await fileResp.blob();
-                const contentType = fileResp.headers.get('content-type') || 'application/octet-stream';
-                
-                // Upload to WhatsApp via Media API
+                // Strip any params (e.g. "image/png; charset=binary" → "image/png")
+                const rawContentType = fileResp.headers.get('content-type') || 'application/octet-stream';
+                const mimeType = rawContentType.split(';')[0].trim();
+
+                console.log(`[Broadcast] Uploading: mimeType=${mimeType}, blobSize=${fileBlob.size}`);
+
+                // Upload to WhatsApp via Media API — same pattern as uploadMedia() which works
                 const formData = new FormData();
                 formData.append('messaging_product', 'whatsapp');
-                formData.append('type', contentType);
-                formData.append('file', fileBlob, mediaObj.filename || 'file');
+                formData.append('type', mimeType);
+                formData.append('file', fileBlob);
                 
                 const uploadResp = await fetch(
                   `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
@@ -977,6 +986,8 @@ async function sendBroadcast(
                 );
                 const uploadData = await uploadResp.json();
                 if (!uploadResp.ok) {
+                  console.error(`[Broadcast] Upload API full error:`, JSON.stringify(uploadData));
+                  console.error(`[Broadcast] Upload URL: https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`);
                   throw new Error(uploadData.error?.message || `Upload failed: ${uploadResp.status}`);
                 }
                 
