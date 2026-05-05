@@ -70,7 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: true, results, branchCount: 0, branches: [] });
 		}
 
-		// Query each branch in parallel — date-filtered
+		// Query each branch in parallel — date filtering done in JS to avoid SQL Server locale issues
 		await Promise.all(erpConfigs.map(async (config: any) => {
 			if (!config?.tunnel_url) return;
 
@@ -79,12 +79,14 @@ export const POST: RequestHandler = async ({ request }) => {
 			const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
 			const branchName = config.branch_name || `Branch ${config.branch_id}`;
 
+			// Return individual rows with date as yyyy-mm-dd string (CONVERT style 23 is locale-independent).
+			// NO date filter in SQL — we filter in JavaScript below to avoid any SQL Server
+			// DATEFORMAT / column-type ambiguity that caused "0 results" bugs.
 			const sql = `
 				SELECT
 					REPLACE(pc.Mobile, ' ', '') AS phone_number,
-					COUNT(itm.InvTransactionMasterID) AS bill_cnt,
-					ISNULL(SUM(itm.GrandTotal), 0) AS bill_amt,
-					MAX(itm.TransactionDate) AS last_bill_date
+					CONVERT(varchar(10), itm.TransactionDate, 23) AS bill_date,
+					ISNULL(itm.GrandTotal, 0) AS bill_amt
 				FROM PrivilegeCards pc
 				INNER JOIN InvTransactionMaster itm
 					ON itm.BranchID = pc.BranchID
@@ -93,9 +95,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					AND pc.CardHolderName != ''
 					AND pc.Mobile IS NOT NULL
 					AND pc.Mobile != ''
-					AND itm.TransactionDate >= CONVERT(datetime, '${sqlAfter}', 23)
-					AND itm.TransactionDate < DATEADD(day, 1, CONVERT(datetime, '${sqlBefore}', 23))
-				GROUP BY REPLACE(pc.Mobile, ' ', '')
 			`;
 
 			try {
@@ -118,26 +117,40 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				const result = await response.json();
 				if (result.success && result.recordset) {
+					// Aggregate per-phone in JS, applying the date range filter here
+					const phoneTotals = new Map<string, { billCount: number; totalAmount: number; lastBillDate: string | null }>();
+
 					for (const row of result.recordset) {
 						const phone = row.phone_number?.trim();
-						if (phone && phoneSet.has(phone)) {
-							const cnt = row.bill_cnt || 0;
-							const amt = row.bill_amt || 0;
-							const d   = row.last_bill_date || null;
-							results[phone].billCount   += cnt;
-							results[phone].totalAmount += amt;
-							if (d) {
-								const existing = results[phone].lastBillDate;
-								if (!existing || new Date(d) > new Date(existing)) {
-									results[phone].lastBillDate = d;
-								}
-							}
-							results[phone].branches.push({
-								branchId: String(config.branch_id),
-								branchName,
-								billCount: cnt,
-								totalAmount: amt,
-								lastBillDate: d
+						if (!phone || !phoneSet.has(phone)) continue;
+
+						// bill_date is yyyy-mm-dd from CONVERT style 23 — safe for string comparison
+						const billDate: string = (row.bill_date || '').substring(0, 10);
+						if (!billDate || billDate < sqlAfter || billDate > sqlBefore) continue;
+
+						const amt = row.bill_amt || 0;
+						const cur = phoneTotals.get(phone) || { billCount: 0, totalAmount: 0, lastBillDate: null };
+						cur.billCount++;
+						cur.totalAmount += amt;
+						if (!cur.lastBillDate || billDate > cur.lastBillDate) cur.lastBillDate = billDate;
+						phoneTotals.set(phone, cur);
+					}
+
+					// Merge into results
+					for (const [phone, totals] of phoneTotals.entries()) {
+						results[phone].billCount   += totals.billCount;
+						results[phone].totalAmount += totals.totalAmount;
+						const d = totals.lastBillDate;
+						if (d) {
+							const existing = results[phone].lastBillDate;
+							if (!existing || d > existing) results[phone].lastBillDate = d;
+						}
+						results[phone].branches.push({
+							branchId: String(config.branch_id),
+							branchName,
+							billCount: totals.billCount,
+							totalAmount: totals.totalAmount,
+							lastBillDate: totals.lastBillDate
 							});
 						}
 					}
