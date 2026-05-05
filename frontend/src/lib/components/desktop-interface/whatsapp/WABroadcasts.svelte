@@ -77,6 +77,23 @@
     // Eco retry state
     let ecoRetryingBroadcastId: string | null = null;
 
+    // Analytics state
+    interface AnalyticsResult {
+        totalRecipients: number;
+        visitedCount: number;
+        notVisitedCount: number;
+        conversionPct: number;
+        branchCount: number;
+        perPhone: Record<string, { billCount: number; totalAmount: number; lastBillDate: string | null }>;
+    }
+    let analyticsModal = false;
+    let analyticsBroadcast: Broadcast | null = null;
+    let analyticsDateTo = new Date().toISOString().split('T')[0]; // default today
+    let analyticsLoading = false;
+    let analyticsResult: AnalyticsResult | null = null;
+    let analyticsError = '';
+    let analyticsRecipientPhones: string[] = [];
+
     // Stall detection: track sent_count snapshots to detect stuck broadcasts
     let stallSnapshots: Record<string, { count: number; since: number }> = {};
     $: {
@@ -874,6 +891,87 @@
         }
     }
 
+    async function openAnalyticsModal(bc: Broadcast) {
+        analyticsBroadcast = bc;
+        analyticsResult = null;
+        analyticsError = '';
+        analyticsLoading = false;
+        // Default "up to date" to today
+        analyticsDateTo = new Date().toISOString().split('T')[0];
+        analyticsModal = true;
+
+        // Pre-load the recipient phones (we need them for the query)
+        analyticsRecipientPhones = [];
+        try {
+            // Fetch all successfully sent recipients (sent/delivered/read)
+            const { data: rows } = await supabase
+                .from('wa_broadcast_recipients')
+                .select('phone_number')
+                .eq('broadcast_id', bc.id)
+                .in('status', ['sent', 'delivered', 'read']);
+            analyticsRecipientPhones = (rows || []).map((r: any) => r.phone_number);
+        } catch (e) {
+            console.error('Failed to load recipient phones:', e);
+        }
+    }
+
+    async function runBroadcastAnalytics() {
+        if (!analyticsBroadcast) return;
+        const broadcastDate = (analyticsBroadcast.created_at || '').split('T')[0];
+        if (!analyticsDateTo) {
+            analyticsError = 'Please select an end date.';
+            return;
+        }
+        if (analyticsDateTo < broadcastDate) {
+            analyticsError = `End date must be on or after broadcast date (${broadcastDate}).`;
+            return;
+        }
+        analyticsError = '';
+        analyticsLoading = true;
+        analyticsResult = null;
+
+        try {
+            const resp = await fetch('/api/broadcast-analytics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumbers: analyticsRecipientPhones,
+                    afterDate: broadcastDate,
+                    beforeDate: analyticsDateTo
+                })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'Analytics request failed');
+
+            const perPhone = data.results as Record<string, { billCount: number; totalAmount: number; lastBillDate: string | null }>;
+            let visitedCount = 0;
+            for (const phone of analyticsRecipientPhones) {
+                if (perPhone[phone]?.billCount > 0) visitedCount++;
+            }
+            const totalRecipients = analyticsRecipientPhones.length;
+            const notVisitedCount = totalRecipients - visitedCount;
+            const conversionPct = totalRecipients > 0 ? Math.round((visitedCount / totalRecipients) * 100) : 0;
+
+            analyticsResult = {
+                totalRecipients,
+                visitedCount,
+                notVisitedCount,
+                conversionPct,
+                branchCount: data.branchCount || 0,
+                perPhone
+            };
+        } catch (e: any) {
+            analyticsError = e.message || 'Failed to load analytics';
+        } finally {
+            analyticsLoading = false;
+        }
+    }
+
+    function fmtAnalyticsDate(d: string | null) {
+        if (!d) return '—';
+        return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
     function getStatusBadge(status: string) {
         const map: Record<string, { bg: string; text: string; label: string }> = {
             draft: { bg: 'bg-slate-100', text: 'text-slate-600', label: '📝 Draft' },
@@ -1078,6 +1176,16 @@
                                                             {:else}
                                                                 🔁 Retry Failed ({bc.failed_count})
                                                             {/if}
+                                                        </button>
+                                                    {/if}
+
+                                                    {#if bc.status === 'completed' || bc.status === 'sending'}
+                                                        <button
+                                                            class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105 bg-purple-600 text-white hover:bg-purple-700 hover:shadow-lg"
+                                                            on:click|stopPropagation={() => openAnalyticsModal(bc)}
+                                                            title="Campaign Analytics — see how many recipients visited after this broadcast"
+                                                        >
+                                                            📊
                                                         </button>
                                                     {/if}
                                                 </div>
@@ -1574,6 +1682,143 @@
             </div>
         {/if}
     </div>
+
+    <!-- ==================== ANALYTICS MODAL ==================== -->
+    {#if analyticsModal && analyticsBroadcast}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div class="analytics-overlay" on:click|self={() => { analyticsModal = false; }}>
+            <div class="analytics-modal">
+                <!-- Header -->
+                <div class="analytics-header">
+                    <div>
+                        <div class="analytics-title">📊 Campaign Analytics</div>
+                        <div class="analytics-subtitle">{analyticsBroadcast.name}</div>
+                    </div>
+                    <button class="analytics-close" on:click={() => { analyticsModal = false; }}>✕</button>
+                </div>
+
+                <!-- Date selector -->
+                <div class="analytics-body">
+                    <div class="analytics-info-row">
+                        <div class="analytics-info-item">
+                            <span class="analytics-info-label">📅 Broadcast Date</span>
+                            <span class="analytics-info-value">{fmtAnalyticsDate(analyticsBroadcast.created_at)}</span>
+                        </div>
+                        <div class="analytics-info-item">
+                            <span class="analytics-info-label">👥 Reached Recipients</span>
+                            <span class="analytics-info-value">{analyticsRecipientPhones.length === 0 ? '⏳ Loading...' : analyticsRecipientPhones.length.toLocaleString()}</span>
+                        </div>
+                    </div>
+
+                    <div class="analytics-date-row">
+                        <!-- svelte-ignore a11y-label-has-associated-control -->
+                        <label class="analytics-date-label">Measure visits/purchases up to:</label>
+                        <div class="analytics-date-inputs">
+                            <input
+                                type="date"
+                                class="analytics-date-input"
+                                bind:value={analyticsDateTo}
+                                min={analyticsBroadcast.created_at?.split('T')[0] || ''}
+                                max={new Date().toISOString().split('T')[0]}
+                            />
+                            <button
+                                class="analytics-run-btn"
+                                disabled={analyticsLoading || analyticsRecipientPhones.length === 0}
+                                on:click={runBroadcastAnalytics}
+                            >
+                                {analyticsLoading ? '⏳ Analyzing...' : '🔍 Analyze'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {#if analyticsError}
+                        <div class="analytics-error">{analyticsError}</div>
+                    {/if}
+
+                    {#if analyticsLoading}
+                        <div class="analytics-loading">
+                            <div class="spinner"></div>
+                            <p class="mt-4 text-slate-500 text-sm">Querying ERP branches for bill activity...</p>
+                        </div>
+                    {/if}
+
+                    {#if analyticsResult && !analyticsLoading}
+                        <!-- Summary cards -->
+                        <div class="analytics-summary-grid">
+                            <div class="analytics-card analytics-card-total">
+                                <div class="analytics-card-icon">👥</div>
+                                <div class="analytics-card-value">{analyticsResult.totalRecipients.toLocaleString()}</div>
+                                <div class="analytics-card-label">Total Recipients</div>
+                            </div>
+                            <div class="analytics-card analytics-card-visited">
+                                <div class="analytics-card-icon">🛍️</div>
+                                <div class="analytics-card-value">{analyticsResult.visitedCount.toLocaleString()}</div>
+                                <div class="analytics-card-label">Visited &amp; Purchased</div>
+                            </div>
+                            <div class="analytics-card analytics-card-notvisited">
+                                <div class="analytics-card-icon">💤</div>
+                                <div class="analytics-card-value">{analyticsResult.notVisitedCount.toLocaleString()}</div>
+                                <div class="analytics-card-label">No Purchase</div>
+                            </div>
+                            <div class="analytics-card analytics-card-conversion">
+                                <div class="analytics-card-icon">🎯</div>
+                                <div class="analytics-card-value">{analyticsResult.conversionPct}%</div>
+                                <div class="analytics-card-label">Conversion Rate</div>
+                            </div>
+                        </div>
+
+                        <!-- Conversion bar -->
+                        <div class="analytics-bar-wrap">
+                            <div class="analytics-bar-track">
+                                <div
+                                    class="analytics-bar-fill"
+                                    style="width: {analyticsResult.conversionPct}%"
+                                ></div>
+                            </div>
+                            <div class="analytics-bar-labels">
+                                <span class="text-emerald-600 font-bold text-xs">{analyticsResult.visitedCount} purchased</span>
+                                <span class="text-slate-400 text-xs">{analyticsResult.branchCount} branch{analyticsResult.branchCount !== 1 ? 'es' : ''} checked</span>
+                                <span class="text-slate-500 font-bold text-xs">{analyticsResult.notVisitedCount} no purchase</span>
+                            </div>
+                        </div>
+
+                        <!-- Per-customer detail table (visitors only) -->
+                        {#if analyticsResult.visitedCount > 0}
+                            <div class="analytics-detail-section">
+                                <div class="analytics-detail-title">🛍️ Customers Who Purchased</div>
+                                <div class="analytics-detail-table-wrap">
+                                    <table class="analytics-detail-table">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Phone</th>
+                                                <th>Bills in Period</th>
+                                                <th>Total Spent</th>
+                                                <th>Last Visit</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {#each analyticsRecipientPhones.filter(p => analyticsResult && analyticsResult.perPhone[p]?.billCount > 0) as phone, idx}
+                                                {@const row = analyticsResult.perPhone[phone]}
+                                                <tr>
+                                                    <td class="text-slate-400">{idx + 1}</td>
+                                                    <td class="font-mono text-sm">{phone}</td>
+                                                    <td class="text-emerald-600 font-bold">{row.billCount}</td>
+                                                    <td class="text-emerald-700 font-bold">{row.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td class="text-slate-500 text-xs">{fmtAnalyticsDate(row.lastBillDate)}</td>
+                                                </tr>
+                                            {/each}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        {/if}
+                    {/if}
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -2233,4 +2478,205 @@
     .text-purple-600 { color: #9333ea; }
     .text-red-600 { color: #dc2626; }
     .text-amber-600 { color: #d97706; }
+
+    /* ===== Analytics Modal ===== */
+    .analytics-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.55);
+        backdrop-filter: blur(4px);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+    .analytics-modal {
+        background: #fff;
+        border-radius: 20px;
+        width: 100%;
+        max-width: 860px;
+        max-height: 88vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.25);
+        overflow: hidden;
+    }
+    .analytics-header {
+        padding: 20px 24px;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        color: white;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-shrink: 0;
+    }
+    .analytics-title { font-size: 1.1rem; font-weight: 900; }
+    .analytics-subtitle { font-size: 0.8rem; opacity: 0.85; margin-top: 2px; }
+    .analytics-close {
+        background: rgba(255,255,255,0.2);
+        border: none;
+        color: white;
+        width: 32px; height: 32px;
+        border-radius: 50%;
+        font-size: 1rem;
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        transition: background 0.2s;
+        flex-shrink: 0;
+    }
+    .analytics-close:hover { background: rgba(255,255,255,0.35); }
+
+    .analytics-body {
+        padding: 24px;
+        overflow-y: auto;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+    .analytics-info-row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    .analytics-info-item {
+        flex: 1;
+        min-width: 160px;
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 12px 16px;
+    }
+    .analytics-info-label { display: block; font-size: 0.7rem; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+    .analytics-info-value { font-size: 1rem; font-weight: 900; color: #1e293b; }
+
+    .analytics-date-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .analytics-date-label { font-size: 0.8rem; font-weight: 700; color: #475569; white-space: nowrap; }
+    .analytics-date-inputs { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .analytics-date-input {
+        padding: 8px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        color: #1e293b;
+        background: #f8fafc;
+        transition: border-color 0.2s;
+    }
+    .analytics-date-input:focus { outline: none; border-color: #7c3aed; }
+    .analytics-run-btn {
+        padding: 9px 22px;
+        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+        color: white;
+        font-weight: 700;
+        font-size: 0.8rem;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+        white-space: nowrap;
+    }
+    .analytics-run-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(124, 58, 237, 0.4); }
+    .analytics-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .analytics-error {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #dc2626;
+        border-radius: 10px;
+        padding: 10px 16px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .analytics-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px;
+    }
+
+    .analytics-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+    }
+    @media (max-width: 560px) {
+        .analytics-summary-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .analytics-card {
+        border-radius: 14px;
+        padding: 18px 14px;
+        text-align: center;
+        border: 2px solid transparent;
+    }
+    .analytics-card-icon { font-size: 1.5rem; margin-bottom: 6px; }
+    .analytics-card-value { font-size: 1.5rem; font-weight: 900; line-height: 1; margin-bottom: 4px; }
+    .analytics-card-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: #64748b; }
+    .analytics-card-total { background: #f1f5f9; border-color: #cbd5e1; }
+    .analytics-card-total .analytics-card-value { color: #1e293b; }
+    .analytics-card-visited { background: #ecfdf5; border-color: #6ee7b7; }
+    .analytics-card-visited .analytics-card-value { color: #059669; }
+    .analytics-card-notvisited { background: #fff7ed; border-color: #fed7aa; }
+    .analytics-card-notvisited .analytics-card-value { color: #c2410c; }
+    .analytics-card-conversion { background: #ede9fe; border-color: #c4b5fd; }
+    .analytics-card-conversion .analytics-card-value { color: #7c3aed; }
+
+    .analytics-bar-wrap { display: flex; flex-direction: column; gap: 6px; }
+    .analytics-bar-track {
+        height: 12px;
+        background: #f1f5f9;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+    .analytics-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #059669, #10b981);
+        border-radius: 999px;
+        transition: width 0.6s ease;
+    }
+    .analytics-bar-labels {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .analytics-detail-section { display: flex; flex-direction: column; gap: 10px; }
+    .analytics-detail-title { font-size: 0.85rem; font-weight: 800; color: #1e293b; }
+    .analytics-detail-table-wrap {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        overflow: hidden;
+        max-height: 280px;
+        overflow-y: auto;
+    }
+    .analytics-detail-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+    }
+    .analytics-detail-table th {
+        padding: 8px 12px;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #64748b;
+        text-align: left;
+        position: sticky;
+        top: 0;
+    }
+    .analytics-detail-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid #f1f5f9;
+        color: #334155;
+    }
+    .analytics-detail-table tbody tr:hover { background: #f0fdf4; }
+    .analytics-detail-table tbody tr:last-child td { border-bottom: none; }
 </style>
