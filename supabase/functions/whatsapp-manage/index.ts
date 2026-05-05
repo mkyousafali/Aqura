@@ -1432,6 +1432,15 @@ async function sendBroadcast(
   if (timedOut) {
     // ─── Partial completion — outer .then() handler will auto-continue ───
     console.log(`[Broadcast] PARTIAL in ${totalTime}s (${avgRate} msg/s) | sent:${sentCount} (total:${prevSentCount + sentCount}) eco_defer:${ecosystemFailCount} failed:${failedCount} skipped:${skippedCount} | Returning for auto-continue...`);
+
+    // Reset any unprocessed 'claimed' recipients back to 'pending' so the next
+    // auto-continue invocation can pick them up via claim_broadcast_recipients.
+    await supabase
+      .from("wa_broadcast_recipients")
+      .update({ status: "pending" })
+      .eq("broadcast_id", broadcast_id)
+      .eq("status", "claimed");
+
     await supabase
       .from("wa_broadcasts")
       .update({
