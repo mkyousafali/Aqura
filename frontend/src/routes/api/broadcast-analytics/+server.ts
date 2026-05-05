@@ -10,9 +10,10 @@ import { env } from '$env/dynamic/private';
  * [afterDate, beforeDate], queries every ERP branch in parallel for bill
  * activity in that window, then returns per-phone results.
  *
- * Uses the same ERP matching logic as /api/batch-bill-counts:
+ * Uses direct loyalty card matching:
  *   PrivilegeCards.Mobile (spaces stripped) → phone_number
- *   InvTransactionMaster joined by BranchID + CardHolderName
+ *   PrivilegeCards.PrivilegeCardsID = InvTransactionMaster.PrivCardID
+ *   This avoids name-collision inflation (e.g. "محمد" matching 22 different customers)
  */
 
 const BRIDGE_API_SECRET = 'aqura-erp-bridge-2026';
@@ -85,9 +86,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
 			const branchName = config.branch_name || `Branch ${config.branch_id}`;
 
-			// Use a subquery to deduplicate PrivilegeCards by phone+branch — some phones
-			// have multiple loyalty cards; without dedup each transaction matches every card,
-			// inflating counts and amounts.
+			// Join via PrivCardID = PrivilegeCardsID — this is a direct per-customer link
+			// stored on every loyalty card transaction. This eliminates name collision
+			// inflation (where e.g. "محمد" matches 22 different customers).
+			// For phones with multiple cards, we GROUP BY phone and take MIN(PrivilegeCardsID)
+			// so each phone maps to exactly one card and is never double-counted.
 			const sql = `
 				SELECT
 					sub.phone_number,
@@ -96,18 +99,17 @@ export const POST: RequestHandler = async ({ request }) => {
 				FROM (
 					SELECT
 						REPLACE(Mobile, ' ', '') AS phone_number,
-						MIN(LTRIM(RTRIM(CardHolderName))) AS card_name,
+						MIN(PrivilegeCardsID) AS card_id,
 						BranchID
 					FROM PrivilegeCards
 					WHERE BranchID = ${erpBranchId}
-						AND CardHolderName != ''
 						AND Mobile IS NOT NULL
 						AND Mobile != ''
 					GROUP BY REPLACE(Mobile, ' ', ''), BranchID
 				) AS sub
 				INNER JOIN InvTransactionMaster itm
 					ON itm.BranchID = sub.BranchID
-					AND LTRIM(RTRIM(itm.PartyName)) = sub.card_name
+					AND itm.PrivCardID = sub.card_id
 				WHERE itm.BranchID = ${erpBranchId}
 					AND itm.TransactionDate >= '${sqlAfter}'
 					AND itm.TransactionDate <= '${sqlBefore}'
