@@ -732,6 +732,7 @@ async function insertChatMessages(
     }
 
     // Create conversations for phones that don't have one
+    // Use upsert with onConflict to handle race conditions between parallel batches
     const missingPhones = phones.filter(p => !convMap[p]);
     if (missingPhones.length > 0) {
       // Generate preview text (same logic as later update)
@@ -746,16 +747,31 @@ async function insertChatMessages(
         is_bot_handling: true,
         bot_type: "ai",
         last_message_at: new Date().toISOString(),
-        last_message_preview: preview,  // ← SET on initial creation, not just on update
+        last_message_preview: preview,
         unread_count: 0,
       }));
+      // upsert: if (wa_account_id, customer_phone) already exists (race condition), ignore
       const { data: newConvs } = await supabase
         .from("wa_conversations")
-        .insert(inserts)
+        .upsert(inserts, { onConflict: "wa_account_id,customer_phone", ignoreDuplicates: true })
         .select("id, customer_phone");
       if (newConvs) {
         for (const c of newConvs) {
           convMap[c.customer_phone] = c.id;
+        }
+      }
+      // Re-fetch any phones still missing from convMap (upsert with ignoreDuplicates won't return existing rows)
+      const stillMissing = missingPhones.filter(p => !convMap[p]);
+      if (stillMissing.length > 0) {
+        const { data: refetched } = await supabase
+          .from("wa_conversations")
+          .select("id, customer_phone")
+          .eq("wa_account_id", wa_account_id)
+          .in("customer_phone", stillMissing);
+        if (refetched) {
+          for (const c of refetched) {
+            convMap[c.customer_phone] = c.id;
+          }
         }
       }
     }
