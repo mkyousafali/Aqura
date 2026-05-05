@@ -1455,10 +1455,17 @@ async function sendBroadcast(
         completed_at: finalStatus === 'completed' ? new Date().toISOString() : undefined,
         last_activity: finalStatus === 'completed'
           ? `✅ Done — ${totalSent.toLocaleString()} sent${totalFailed > 0 ? `, ${totalFailed} failed` : ''} in ${totalTime}s`
-          : `⚠️ Finished with ${totalPending} still pending`,
+          : `Sending... ${totalSent.toLocaleString()} sent · ${totalPending.toLocaleString()} remaining (continuing...)`,
         last_activity_at: new Date().toISOString(),
       })
       .eq("id", broadcast_id);
+
+    // If still pending (ecosystem-deferred recipients), signal auto-continue immediately
+    // so the chain continues without waiting 3+ minutes for the watchdog.
+    if (finalStatus === 'sending') {
+      console.log(`[Broadcast] ↪ Batch complete but ${totalPending} still pending (eco-deferred). Signaling auto-continue...`);
+      timedOut = true; // reuse timedOut flag so the .then() handler fires auto-continue
+    }
   }
 
   return { sent: sentCount, failed: failedCount, ecosystem_deferred: ecosystemFailCount, skipped: skippedCount, rateLimitHits, total: recipients.length, timedOut, duration: `${totalTime}s`, avg_rate: `${avgRate} msg/s`, cached_media_id: resolvedMediaId };
