@@ -1062,12 +1062,14 @@
                                                         <span class={refreshingBroadcastId === bc.id ? 'animate-spin inline-block' : ''}>🔄</span>
                                                     </button>
                                                     
-                                                    {#if bc.status === 'completed' && bc.failed_count > 0 && !bc.retry_attempted}
+                                                    {#if bc.status === 'completed' && bc.failed_count > 0 && !bc.retry_attempted && (Date.now() - new Date(bc.created_at).getTime()) < 7 * 24 * 60 * 60 * 1000}
                                                         <button
                                                             class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
                                                                 {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
                                                                  'bg-red-500 text-white hover:bg-red-600 hover:shadow-lg'}"
-                                                            on:click|stopPropagation={() => retryFailedRecipients(bc)}
+                                                            on:click|stopPropagation={() => {
+                                                                if (confirm(`Retry ${bc.failed_count} failed messages for "${bc.name}"?`)) retryFailedRecipients(bc);
+                                                            }}
                                                             disabled={retryingBroadcastId === bc.id}
                                                             title="Retry {bc.failed_count} failed messages"
                                                         >
