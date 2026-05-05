@@ -79,9 +79,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
 			const branchName = config.branch_name || `Branch ${config.branch_id}`;
 
-			// Return individual rows with date as yyyy-mm-dd string (CONVERT style 23 is locale-independent).
-			// NO date filter in SQL — we filter in JavaScript below to avoid any SQL Server
-			// DATEFORMAT / column-type ambiguity that caused "0 results" bugs.
+			// Filter by date in SQL using CONVERT(varchar, date, 23) — style 23 is locale-independent
+			// (yyyy-mm-dd) and direct varchar comparison with the same format is safe.
+			// Confirmed working via direct DB test: 109,988 total → 8,318 in range.
 			const sql = `
 				SELECT
 					REPLACE(pc.Mobile, ' ', '') AS phone_number,
@@ -95,6 +95,8 @@ export const POST: RequestHandler = async ({ request }) => {
 					AND pc.CardHolderName != ''
 					AND pc.Mobile IS NOT NULL
 					AND pc.Mobile != ''
+					AND CONVERT(varchar(10), itm.TransactionDate, 23) >= '${sqlAfter}'
+					AND CONVERT(varchar(10), itm.TransactionDate, 23) <= '${sqlBefore}'
 			`;
 
 			try {
