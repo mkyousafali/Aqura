@@ -151,8 +151,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							billCount: totals.billCount,
 							totalAmount: totals.totalAmount,
 							lastBillDate: totals.lastBillDate
-							});
-						}
+						});
 					}
 				}
 			} catch (_) {
