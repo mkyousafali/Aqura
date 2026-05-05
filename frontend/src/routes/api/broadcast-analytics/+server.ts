@@ -46,7 +46,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: configError.message }, { status: 500 });
 		}
 
-		// Format dates for SQL Server — use ISO 8601 (format 23: yyyy-mm-dd) for unambiguous conversion
+		// Format dates for SQL Server — ISO 8601 yyyy-mm-dd
 		const fmtDate = (d: string) => d.split('T')[0];
 		const sqlAfter  = fmtDate(afterDate);
 		const sqlBefore = fmtDate(beforeDate);
@@ -56,6 +56,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (!dateRe.test(sqlAfter) || !dateRe.test(sqlBefore)) {
 			return json({ success: false, error: 'Invalid date format' }, { status: 400 });
 		}
+
+		console.log('[broadcast-analytics] date range:', sqlAfter, '→', sqlBefore, '| phones:', phoneNumbers.length);
 
 		// Initialize results for every phone — with per-branch breakdown
 		interface BranchEntry { branchId: string; branchName: string; billCount: number; totalAmount: number; lastBillDate: string | null; }
@@ -79,9 +81,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
 			const branchName = config.branch_name || `Branch ${config.branch_id}`;
 
-			// Filter by date in SQL using CONVERT(varchar, date, 23) — style 23 is locale-independent
-			// (yyyy-mm-dd) and direct varchar comparison with the same format is safe.
-			// Confirmed working via direct DB test: 109,988 total → 8,318 in range.
+			// Use direct date column comparison — TransactionDate is SQL Server date type,
+			// so ISO string literals compare correctly without CONVERT.
 			const sql = `
 				SELECT
 					REPLACE(pc.Mobile, ' ', '') AS phone_number,
@@ -95,8 +96,8 @@ export const POST: RequestHandler = async ({ request }) => {
 					AND pc.CardHolderName != ''
 					AND pc.Mobile IS NOT NULL
 					AND pc.Mobile != ''
-					AND CONVERT(varchar(10), itm.TransactionDate, 23) >= '${sqlAfter}'
-					AND CONVERT(varchar(10), itm.TransactionDate, 23) <= '${sqlBefore}'
+					AND itm.TransactionDate >= '${sqlAfter}'
+					AND itm.TransactionDate <= '${sqlBefore}'
 			`;
 
 			try {
@@ -119,15 +120,19 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				const result = await response.json();
 				if (result.success && result.recordset) {
-					// Aggregate per-phone in JS, applying the date range filter here
+					console.log(`[broadcast-analytics] branch ${erpBranchId} → ${result.recordset.length} rows | sample bill_date:`, result.recordset[0]?.bill_date, typeof result.recordset[0]?.bill_date);
+					// Aggregate per-phone in JS — SQL already filtered by date, JS filter is safety net
 					const phoneTotals = new Map<string, { billCount: number; totalAmount: number; lastBillDate: string | null }>();
 
 					for (const row of result.recordset) {
 						const phone = row.phone_number?.trim();
 						if (!phone || !phoneSet.has(phone)) continue;
 
-						// bill_date is yyyy-mm-dd from CONVERT style 23 — safe for string comparison
-						const billDate: string = (row.bill_date || '').substring(0, 10);
+						// Normalise bill_date to yyyy-mm-dd string (handle Date objects too)
+						const rawDate = row.bill_date;
+						const billDate: string = rawDate instanceof Date
+							? rawDate.toISOString().substring(0, 10)
+							: String(rawDate || '').substring(0, 10);
 						if (!billDate || billDate < sqlAfter || billDate > sqlBefore) continue;
 
 						const amt = row.bill_amt || 0;
