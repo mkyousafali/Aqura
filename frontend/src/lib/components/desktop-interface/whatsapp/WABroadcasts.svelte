@@ -52,6 +52,7 @@
 
     let supabase: any = null;
     let accountId = '';
+    let accountBranchId = '';
     let broadcasts: Broadcast[] = [];
     let templates: WATemplate[] = [];
     let loading = true;
@@ -278,9 +279,10 @@
 
     async function loadAccount() {
         try {
-            const { data } = await supabase.from('wa_accounts').select('id').eq('is_default', true).single();
+            const { data } = await supabase.from('wa_accounts').select('id, branch_id').eq('is_default', true).single();
             if (data) {
                 accountId = data.id;
+                accountBranchId = data.branch_id || '';
                 await Promise.all([loadBroadcasts(), loadTemplates()]);
                 // Auto-refresh recent broadcasts to get latest status from webhooks
                 autoRefreshRecentBroadcasts();
@@ -964,7 +966,8 @@
                 body: JSON.stringify({
                     phoneNumbers: analyticsRecipientPhones,
                     afterDate: broadcastDate,
-                    beforeDate: analyticsDateTo
+                    beforeDate: analyticsDateTo,
+                    branchId: accountBranchId
                 })
             });
             const data = await resp.json();

@@ -19,7 +19,7 @@ const BRIDGE_API_SECRET = 'aqura-erp-bridge-2026';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const { phoneNumbers, afterDate, beforeDate } = await request.json();
+		const { phoneNumbers, afterDate, beforeDate, branchId } = await request.json();
 
 		if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
 			return json({ success: false, error: 'phoneNumbers array is required' }, { status: 400 });
@@ -35,12 +35,16 @@ export const POST: RequestHandler = async ({ request }) => {
 		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
 		const supabase = createClient(supabaseUrl, supabaseKey);
 
-		// Load active ERP branch connections
-		const { data: erpConfigs, error: configError } = await supabase
+		// Load active ERP branch connections — filter to the broadcast's branch if provided
+		let erpQuery = supabase
 			.from('erp_connections')
 			.select('tunnel_url, erp_branch_id, branch_id, branch_name, branches(id, location_en, location_ar)')
 			.eq('is_active', true)
 			.order('branch_id');
+		if (branchId) {
+			erpQuery = erpQuery.eq('branch_id', branchId);
+		}
+		const { data: erpConfigs, error: configError } = await erpQuery;
 
 		if (configError) {
 			return json({ success: false, error: configError.message }, { status: 500 });
