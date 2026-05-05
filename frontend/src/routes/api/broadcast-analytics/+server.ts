@@ -85,21 +85,30 @@ export const POST: RequestHandler = async ({ request }) => {
 			const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
 			const branchName = config.branch_name || `Branch ${config.branch_id}`;
 
-			// Use direct date column comparison — TransactionDate is SQL Server date type,
-			// so ISO string literals compare correctly without CONVERT.
+			// Use a subquery to deduplicate PrivilegeCards by phone+branch — some phones
+			// have multiple loyalty cards; without dedup each transaction matches every card,
+			// inflating counts and amounts.
 			const sql = `
 				SELECT
-					REPLACE(pc.Mobile, ' ', '') AS phone_number,
+					sub.phone_number,
 					CONVERT(varchar(10), itm.TransactionDate, 23) AS bill_date,
 					ISNULL(itm.GrandTotal, 0) AS bill_amt
-				FROM PrivilegeCards pc
+				FROM (
+					SELECT
+						REPLACE(Mobile, ' ', '') AS phone_number,
+						MIN(LTRIM(RTRIM(CardHolderName))) AS card_name,
+						BranchID
+					FROM PrivilegeCards
+					WHERE BranchID = ${erpBranchId}
+						AND CardHolderName != ''
+						AND Mobile IS NOT NULL
+						AND Mobile != ''
+					GROUP BY REPLACE(Mobile, ' ', ''), BranchID
+				) AS sub
 				INNER JOIN InvTransactionMaster itm
-					ON itm.BranchID = pc.BranchID
-					AND LTRIM(RTRIM(itm.PartyName)) = LTRIM(RTRIM(pc.CardHolderName))
-				WHERE pc.BranchID = ${erpBranchId}
-					AND pc.CardHolderName != ''
-					AND pc.Mobile IS NOT NULL
-					AND pc.Mobile != ''
+					ON itm.BranchID = sub.BranchID
+					AND LTRIM(RTRIM(itm.PartyName)) = sub.card_name
+				WHERE itm.BranchID = ${erpBranchId}
 					AND itm.TransactionDate >= '${sqlAfter}'
 					AND itm.TransactionDate <= '${sqlBefore}'
 			`;
