@@ -800,7 +800,9 @@ async function insertChatMessages(
 
       console.log(`[insertChat] phones=${JSON.stringify(Object.keys(convMap))}, msgInserts=${msgInserts.length}, sentItems=${sentItems.length}`);
       if (msgInserts.length > 0) {
-        const { error: msgInsertErr } = await supabase.from("wa_messages").insert(msgInserts);
+        // Upsert with onConflict so duplicate whatsapp_message_id is silently ignored
+        const { error: msgInsertErr } = await supabase.from("wa_messages")
+          .upsert(msgInserts, { onConflict: "whatsapp_message_id", ignoreDuplicates: true });
         if (msgInsertErr) console.error(`[insertChat] wa_messages insert error:`, msgInsertErr.message, msgInsertErr.code);
         console.log(`[Broadcast] Inserted ${msgInserts.length} chat messages (broadcast: ${broadcast_id || 'unknown'})`);
 
@@ -1291,9 +1293,11 @@ async function sendBroadcast(
       whatsapp_message_id: s.whatsapp_message_id,
       sent_at: s.sent_at,
     })).filter(c => c.phone);
-    // Fire-and-forget — do NOT await. This recovers 1-3s per batch from the timing window.
-    insertChatMessages(supabase, wa_account_id, template_name, chatItems, broadcast_id, template_id)
-      .catch((err: any) => console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message));
+    // Insert sent messages into Live Chat (awaited to prevent race with backfill)
+    if (chatItems.length > 0) {
+      insertChatMessages(supabase, wa_account_id, template_name, chatItems, broadcast_id, template_id)
+        .catch((err: any) => console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message));
+    }
 
     // ─── Update broadcast counts + live activity message ───
     const processed_so_far = Math.min(i + batch.length, filteredRecipients.length);
