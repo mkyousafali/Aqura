@@ -901,20 +901,22 @@ async function sendBroadcast(
     throw new Error("Missing broadcast_id or template_name");
   }
 
-  // Fetch broadcast to get template_id
+  // Fetch broadcast to get template_id and existing counts (for cumulative tracking)
   let template_id: string | undefined = undefined;
+  let prevSentCount = 0; // sent_count already recorded from previous auto-continue rounds
   try {
     const { data: broadcast } = await supabase
       .from("wa_broadcasts")
-      .select("id, template_id")
+      .select("id, template_id, sent_count")
       .eq("id", broadcast_id)
       .limit(1)
       .single();
     if (broadcast) {
       template_id = broadcast.template_id;
+      prevSentCount = broadcast.sent_count || 0;
     }
   } catch (err) {
-    console.warn(`[Broadcast] Failed to fetch template_id from broadcast: ${err?.message}`);
+    console.warn(`[Broadcast] Failed to fetch broadcast info: ${err?.message}`);
   }
 
   // ─── SAFETY: 60s wall-clock limit ───
@@ -1296,11 +1298,11 @@ async function sendBroadcast(
       console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message);
     }
 
-    // ─── Update broadcast counts ───
+    // ─── Update broadcast counts (cumulative across auto-continue rounds) ───
     await supabase
       .from("wa_broadcasts")
       .update({
-        sent_count: sentCount,
+        sent_count: prevSentCount + sentCount,
         failed_count: failedCount + skippedCount,
       })
       .eq("id", broadcast_id);
@@ -1400,12 +1402,12 @@ async function sendBroadcast(
 
   if (timedOut) {
     // ─── Partial completion — outer .then() handler will auto-continue ───
-    console.log(`[Broadcast] PARTIAL in ${totalTime}s (${avgRate} msg/s) | sent:${sentCount} eco_defer:${ecosystemFailCount} failed:${failedCount} skipped:${skippedCount} | Returning for auto-continue...`);
+    console.log(`[Broadcast] PARTIAL in ${totalTime}s (${avgRate} msg/s) | sent:${sentCount} (total:${prevSentCount + sentCount}) eco_defer:${ecosystemFailCount} failed:${failedCount} skipped:${skippedCount} | Returning for auto-continue...`);
     await supabase
       .from("wa_broadcasts")
       .update({
         status: "sending",
-        sent_count: sentCount,
+        sent_count: prevSentCount + sentCount,
         failed_count: failedCount + skippedCount,
       })
       .eq("id", broadcast_id);

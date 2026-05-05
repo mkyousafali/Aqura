@@ -15,6 +15,7 @@
         scheduled_at: string | null;
         completed_at: string | null;
         created_at: string;
+        retry_attempted: boolean;
         // Joined from wa_templates
         wa_templates?: { name: string; language: string } | null;
     }
@@ -238,15 +239,17 @@
                 await Promise.all([loadBroadcasts(), loadTemplates()]);
                 // Auto-refresh recent broadcasts to get latest status from webhooks
                 autoRefreshRecentBroadcasts();
-                // Poll every 15 seconds for active broadcasts
-                autoRefreshInterval = setInterval(() => autoRefreshRecentBroadcasts(), 15000);
+                // Poll every 8 seconds — faster for active broadcasts
+                autoRefreshInterval = setInterval(() => autoRefreshRecentBroadcasts(), 8000);
             }
         } catch {} finally { loading = false; }
     }
 
+    // Track per-broadcast watchdog invocations to prevent duplicate auto-resumes
+    const watchdogInFlight = new Set<string>();
+
     async function autoRefreshRecentBroadcasts() {
         if (!broadcasts.length || refreshingBroadcastId) return;
-        // Refresh any broadcast created in the last hour, or with status 'sending'
         const oneHourAgo = Date.now() - 60 * 60 * 1000;
         const recentActive = broadcasts.filter(bc =>
             bc.status === 'sending' || 
@@ -254,6 +257,65 @@
         );
         for (const bc of recentActive) {
             await refreshBroadcastStatus(bc);
+        }
+
+        // Silent watchdog: if a 'sending' broadcast is stalled (no progress for 3 min),
+        // auto-resume it without any user action
+        for (const bc of broadcasts) {
+            if (bc.status !== 'sending') continue;
+            if (watchdogInFlight.has(bc.id)) continue;
+            if (!isBroadcastStalled(bc.id)) continue;
+
+            // Check if there are actually pending recipients
+            const { count: pendingCount } = await supabase.from('wa_broadcast_recipients')
+                .select('*', { count: 'exact', head: true })
+                .eq('broadcast_id', bc.id)
+                .eq('status', 'pending');
+
+            if (!pendingCount || pendingCount === 0) continue;
+
+            console.log(`[Watchdog] Broadcast ${bc.id} stalled with ${pendingCount} pending. Auto-resuming...`);
+            watchdogInFlight.add(bc.id);
+            // Fire and forget — no await, no alert
+            autoResumeBroadcast(bc).finally(() => watchdogInFlight.delete(bc.id));
+        }
+    }
+
+    async function autoResumeBroadcast(bc: Broadcast) {
+        try {
+            const { data: tmpl } = await supabase.from('wa_templates')
+                .select('*').eq('id', bc.template_id).single();
+            if (!tmpl) return;
+
+            let templateComponents: any[] | undefined = undefined;
+            if (tmpl.header_type && tmpl.header_type !== 'none' && tmpl.header_type !== 'text') {
+                const headerType = tmpl.header_type.toLowerCase();
+                const mediaUrl = tmpl.header_content;
+                if (mediaUrl) {
+                    const mediaParam: any = {};
+                    if (headerType === 'image') { mediaParam.type = 'image'; mediaParam.image = { link: mediaUrl }; }
+                    else if (headerType === 'video') { mediaParam.type = 'video'; mediaParam.video = { link: mediaUrl }; }
+                    else if (headerType === 'document') {
+                        mediaParam.type = 'document';
+                        const fn = mediaUrl.split('/').pop()?.split('?')[0] || 'document.pdf';
+                        mediaParam.document = { link: mediaUrl, filename: decodeURIComponent(fn) };
+                    }
+                    templateComponents = [{ type: 'header', parameters: [mediaParam] }];
+                }
+            }
+
+            await supabase.functions.invoke('whatsapp-manage', {
+                body: {
+                    action: 'send_broadcast',
+                    account_id: accountId,
+                    broadcast_id: bc.id,
+                    template_name: tmpl.name,
+                    language: tmpl.language,
+                    components: templateComponents,
+                }
+            });
+        } catch (e: any) {
+            console.warn(`[Watchdog] Auto-resume failed for ${bc.id}:`, e?.message);
         }
     }
 
@@ -573,29 +635,34 @@
                 .single();
             if (!tmpl) throw new Error('Template not found');
 
-            // Get count of failed + pending recipients
-            const { count: failedPending } = await supabase.from('wa_broadcast_recipients')
+            // Get count of failed recipients
+            const { count: failedCount } = await supabase.from('wa_broadcast_recipients')
                 .select('*', { count: 'exact', head: true })
                 .eq('broadcast_id', bc.id)
-                .in('status', ['failed', 'pending']);
+                .eq('status', 'failed');
 
-            if (!failedPending || failedPending === 0) {
-                alert('No failed or pending recipients to retry');
+            if (!failedCount || failedCount === 0) {
                 retryingBroadcastId = null;
                 return;
             }
 
-            // Reset failed recipients to pending (pending ones already are)
+            // Mark retry as attempted immediately (hides the button)
+            await supabase.from('wa_broadcasts')
+                .update({ retry_attempted: true })
+                .eq('id', bc.id);
+            // Update local state so button disappears right away
+            broadcasts = broadcasts.map(b => b.id === bc.id ? { ...b, retry_attempted: true } : b);
+
+            // Reset failed recipients to pending
             await supabase.from('wa_broadcast_recipients')
                 .update({ status: 'pending', error_details: null })
                 .eq('broadcast_id', bc.id)
                 .eq('status', 'failed');
 
-            // Update broadcast status to sending
-            const { error: updateErr } = await supabase.from('wa_broadcasts')
+            // Update broadcast status back to sending
+            await supabase.from('wa_broadcasts')
                 .update({ status: 'sending' })
                 .eq('id', bc.id);
-            if (updateErr) console.warn('[Retry] Status update failed (non-blocking):', updateErr.message);
 
             // Build template components (header media if needed)
             let templateComponents: any[] | undefined = undefined;
@@ -619,9 +686,9 @@
                 }
             }
 
-            // Call edge function to resend remaining pending recipients
-            console.log(`[Retry Failed SLOW] Retrying ${failedPending} failed recipients for broadcast ${bc.id} at ~2 msg/s`);
-            const { data: result, error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
+            // Call edge function — slow mode to avoid ecosystem blocks
+            console.log(`[Retry Failed] Retrying ${failedCount} failed recipients for broadcast ${bc.id}`);
+            const { error: fnErr } = await supabase.functions.invoke('whatsapp-manage', {
                 body: {
                     action: 'send_broadcast',
                     account_id: accountId,
@@ -629,21 +696,17 @@
                     template_name: tmpl.name,
                     language: tmpl.language,
                     components: templateComponents,
-                    slow_mode: true  // Signal edge function to use slow speed (2 msg/s)
+                    slow_mode: true
                 }
             });
 
             if (fnErr) {
-                console.error('Retry edge function error:', fnErr);
-                alert('Retry started in background (SLOW mode ~2 msg/s to avoid blocks). Check Refresh Status.');
-            } else {
-                alert(`✅ Retry started! Sending ${failedPending} failed recipients SLOWLY (~2 msg/s). Check Refresh Status.`);
+                console.error('[Retry Failed] Edge function error:', fnErr);
             }
 
             await loadBroadcasts();
         } catch (e: any) {
-            console.error('Retry error:', e);
-            alert('Retry failed: ' + e.message);
+            console.error('[Retry Failed] Error:', e);
         } finally {
             retryingBroadcastId = null;
         }
@@ -992,52 +1055,19 @@
                                                         <span class={refreshingBroadcastId === bc.id ? 'animate-spin inline-block' : ''}>🔄</span>
                                                     </button>
                                                     
-                                                    {#if retryAllowed && bc.failed_count && bc.failed_count > 0}
+                                                    {#if bc.status === 'completed' && bc.failed_count > 0 && !bc.retry_attempted}
                                                         <button
                                                             class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
                                                                 {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
                                                                  'bg-red-500 text-white hover:bg-red-600 hover:shadow-lg'}"
                                                             on:click|stopPropagation={() => retryFailedRecipients(bc)}
                                                             disabled={retryingBroadcastId === bc.id}
-                                                            title="Retry {bc.failed_count} messages that failed/errored"
+                                                            title="Retry {bc.failed_count} failed messages"
                                                         >
                                                             {#if retryingBroadcastId === bc.id}
                                                                 ⏳ Retrying...
                                                             {:else}
-                                                                ❌ Retry Failed ({bc.failed_count})
-                                                            {/if}
-                                                        </button>
-                                                    {/if}
-                                                    
-                                                    {#if retryAllowed && (bc.total_recipients - (bc.sent_count || 0) - (bc.delivered_count || 0) - (bc.read_count || 0) - (bc.failed_count || 0)) > 0}
-                                                        <button
-                                                            class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
-                                                                {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
-                                                                 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg'}"
-                                                            on:click|stopPropagation={() => resumePendingRecipients(bc)}
-                                                            disabled={retryingBroadcastId === bc.id}
-                                                            title="Resume sending pending messages never sent"
-                                                        >
-                                                            {#if retryingBroadcastId === bc.id}
-                                                                ⏳ Resuming...
-                                                            {:else}
-                                                                ⏸️ Resume Pending ({bc.total_recipients - (bc.sent_count || 0) - (bc.delivered_count || 0) - (bc.read_count || 0) - (bc.failed_count || 0)})
-                                                            {/if}
-                                                        </button>
-                                                    {/if}
-                                                    {#if retryAllowed && bc.status === 'completed' && bc.failed_count && bc.failed_count > 0}
-                                                        <button
-                                                            class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
-                                                                {ecoRetryingBroadcastId === bc.id ? 'bg-yellow-300 text-yellow-900 cursor-wait' :
-                                                                 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg'}"
-                                                            on:click|stopPropagation={() => retryEcosystemFailed(bc)}
-                                                            disabled={ecoRetryingBroadcastId === bc.id}
-                                                            title="Retry ecosystem-failed messages slowly (~3/s)"
-                                                        >
-                                                            {#if ecoRetryingBroadcastId === bc.id}
-                                                                ⏳ Eco...
-                                                            {:else}
-                                                                🐢 Eco Retry
+                                                                🔁 Retry Failed ({bc.failed_count})
                                                             {/if}
                                                         </button>
                                                     {/if}
