@@ -16,6 +16,7 @@
         completed_at: string | null;
         created_at: string;
         retry_attempted: boolean;
+        last_activity: string | null;
         // Joined from wa_templates
         wa_templates?: { name: string; language: string } | null;
     }
@@ -992,6 +993,12 @@
                                             <td class="px-4 py-3 text-sm text-center font-bold text-slate-500">{index + 1}</td>
                                             <td class="px-4 py-3 text-sm">
                                                 <div class="font-bold text-slate-800">{bc.name}</div>
+                                                {#if bc.last_activity}
+                                                    <div class="text-[10px] mt-0.5 {bc.status === 'sending' ? 'text-orange-500 font-semibold' : bc.status === 'completed' ? 'text-emerald-500' : 'text-slate-400'}"
+                                                        title="{bc.last_activity}">
+                                                        {#if bc.status === 'sending'}<span class="inline-block animate-pulse mr-0.5">⚡</span>{/if}{bc.last_activity}
+                                                    </div>
+                                                {/if}
                                             </td>
                                             <td class="px-4 py-3 text-sm">
                                                 <div class="text-slate-700">{bc.wa_templates?.name || '—'}</div>

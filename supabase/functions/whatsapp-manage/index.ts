@@ -1298,12 +1298,22 @@ async function sendBroadcast(
       console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message);
     }
 
-    // ─── Update broadcast counts (cumulative across auto-continue rounds) ───
+    // ─── Update broadcast counts + live activity message ───
+    const processed_so_far = Math.min(i + batch.length, filteredRecipients.length);
+    const totalSentSoFar = prevSentCount + sentCount;
+    const elapsedSecNow = ((Date.now() - startTime) / 1000).toFixed(0);
+    const rateNow = sentCount > 0 ? (sentCount / ((Date.now() - startTime) / 1000)).toFixed(0) : '0';
+    const remainingNow = filteredRecipients.length - processed_so_far;
+    const etaNow = sentCount > 0 && remainingNow > 0
+      ? Math.ceil(remainingNow / (sentCount / ((Date.now() - startTime) / 1000)))
+      : 0;
+    const activityMsg = `Sending... ${totalSentSoFar.toLocaleString()} sent · ${rateNow} msg/s · ${remainingNow.toLocaleString()} remaining${etaNow > 0 ? ` · ETA ~${etaNow < 60 ? etaNow + 's' : Math.ceil(etaNow/60) + 'm'}` : ''}${failedCount > 0 ? ` · ${failedCount} failed` : ''}`;
     await supabase
       .from("wa_broadcasts")
       .update({
-        sent_count: prevSentCount + sentCount,
+        sent_count: totalSentSoFar,
         failed_count: failedCount + skippedCount,
+        last_activity: activityMsg,
       })
       .eq("id", broadcast_id);
 
@@ -1409,6 +1419,7 @@ async function sendBroadcast(
         status: "sending",
         sent_count: prevSentCount + sentCount,
         failed_count: failedCount + skippedCount,
+        last_activity: `Sending... ${(prevSentCount + sentCount).toLocaleString()} sent so far · continuing next batch...`,
       })
       .eq("id", broadcast_id);
     // NOTE: Auto-continue is handled ONLY in the case handler's .then() callback
@@ -1439,6 +1450,9 @@ async function sendBroadcast(
         delivered_count: sc.delivered || 0,
         read_count: sc.read || 0,
         completed_at: finalStatus === 'completed' ? new Date().toISOString() : undefined,
+        last_activity: finalStatus === 'completed'
+          ? `✅ Done — ${totalSent.toLocaleString()} sent${totalFailed > 0 ? `, ${totalFailed} failed` : ''} in ${totalTime}s`
+          : `⚠️ Finished with ${totalPending} still pending`,
       })
       .eq("id", broadcast_id);
   }
