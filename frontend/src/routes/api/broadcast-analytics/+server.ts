@@ -46,10 +46,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: configError.message }, { status: 500 });
 		}
 
-		// Format dates for SQL Server (YYYY-MM-DD)
+		// Format dates for SQL Server — use ISO 8601 (format 23: yyyy-mm-dd) for unambiguous conversion
 		const fmtDate = (d: string) => d.split('T')[0];
 		const sqlAfter  = fmtDate(afterDate);
 		const sqlBefore = fmtDate(beforeDate);
+
+		// Validate the resulting date strings look sane before inserting into SQL
+		const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+		if (!dateRe.test(sqlAfter) || !dateRe.test(sqlBefore)) {
+			return json({ success: false, error: 'Invalid date format' }, { status: 400 });
+		}
 
 		// Initialize results for every phone — with per-branch breakdown
 		interface BranchEntry { branchId: string; branchName: string; billCount: number; totalAmount: number; lastBillDate: string | null; }
@@ -87,8 +93,8 @@ export const POST: RequestHandler = async ({ request }) => {
 					AND pc.CardHolderName != ''
 					AND pc.Mobile IS NOT NULL
 					AND pc.Mobile != ''
-					AND CONVERT(date, itm.TransactionDate) >= '${sqlAfter}'
-					AND CONVERT(date, itm.TransactionDate) <= '${sqlBefore}'
+					AND itm.TransactionDate >= CONVERT(datetime, '${sqlAfter}', 23)
+					AND itm.TransactionDate < DATEADD(day, 1, CONVERT(datetime, '${sqlBefore}', 23))
 				GROUP BY REPLACE(pc.Mobile, ' ', '')
 			`;
 
