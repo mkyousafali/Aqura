@@ -922,7 +922,7 @@ async function sendBroadcast(
   // ─── SAFETY: 60s wall-clock limit ───
   // The Deno edge-runtime kills workers at ~150s.
   // We stop at 60s to guarantee safe auto-continue self-invocation.
-  const MAX_EXECUTION_MS = 45_000; // Trigger auto-continue even sooner (45s vs 50s) to chain faster
+  const MAX_EXECUTION_MS = 55_000; // 55s window — safe before 150s kill, 22% more msgs per invocation
   const functionStartTime = Date.now();
 
   // If recipients not passed (large broadcast), read them from DB directly
@@ -1291,12 +1291,9 @@ async function sendBroadcast(
       whatsapp_message_id: s.whatsapp_message_id,
       sent_at: s.sent_at,
     })).filter(c => c.phone);
-    try {
-      const inserted = await insertChatMessages(supabase, wa_account_id, template_name, chatItems, broadcast_id, template_id);
-      console.log(`[Broadcast] Inserted ${inserted} chat messages for batch`);
-    } catch (err: any) {
-      console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message);
-    }
+    // Fire-and-forget — do NOT await. This recovers 1-3s per batch from the timing window.
+    insertChatMessages(supabase, wa_account_id, template_name, chatItems, broadcast_id, template_id)
+      .catch((err: any) => console.error(`[Broadcast] FAILED to insert ${chatItems.length} chat messages:`, err?.message));
 
     // ─── Update broadcast counts + live activity message ───
     const processed_so_far = Math.min(i + batch.length, filteredRecipients.length);
@@ -1314,6 +1311,7 @@ async function sendBroadcast(
         sent_count: totalSentSoFar,
         failed_count: failedCount + skippedCount,
         last_activity: activityMsg,
+        last_activity_at: new Date().toISOString(),
       })
       .eq("id", broadcast_id);
 
@@ -1420,6 +1418,7 @@ async function sendBroadcast(
         sent_count: prevSentCount + sentCount,
         failed_count: failedCount + skippedCount,
         last_activity: `Sending... ${(prevSentCount + sentCount).toLocaleString()} sent so far · continuing next batch...`,
+        last_activity_at: new Date().toISOString(),
       })
       .eq("id", broadcast_id);
     // NOTE: Auto-continue is handled ONLY in the case handler's .then() callback
@@ -1453,6 +1452,7 @@ async function sendBroadcast(
         last_activity: finalStatus === 'completed'
           ? `✅ Done — ${totalSent.toLocaleString()} sent${totalFailed > 0 ? `, ${totalFailed} failed` : ''} in ${totalTime}s`
           : `⚠️ Finished with ${totalPending} still pending`,
+        last_activity_at: new Date().toISOString(),
       })
       .eq("id", broadcast_id);
   }
@@ -1493,7 +1493,7 @@ async function sendEcoRetry(
     console.warn(`[EcoRetry] Failed to fetch template_id from broadcast: ${err?.message}`);
   }
 
-  const MAX_EXECUTION_MS = 45_000; // 45s - trigger auto-continue sooner for faster chaining
+  const MAX_EXECUTION_MS = 55_000; // 55s window — safe before 150s kill
   const functionStartTime = Date.now();
   const ECO_CONCURRENCY = 5;      // 5 parallel
   const ECO_DELAY_MS = 1500;      // 1.5s between batches → ~3 msg/s overall
