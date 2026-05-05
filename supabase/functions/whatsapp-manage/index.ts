@@ -927,28 +927,45 @@ async function sendBroadcast(
   const MAX_EXECUTION_MS = 55_000; // 55s window — safe before 150s kill, 22% more msgs per invocation
   const functionStartTime = Date.now();
 
-  // If recipients not passed (large broadcast), read them from DB directly
-  // Paginate in chunks of 5000 to bypass PostgREST default 1000 row limit
+  // If recipients not passed (large broadcast), atomically claim them from DB.
+  // Uses UPDATE ... RETURNING to mark as 'claimed' in a single atomic operation,
+  // preventing concurrent invocations (watchdog + auto-continue) from picking
+  // up the same recipient and sending duplicate messages.
   if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
-    console.log(`[Broadcast] No recipients in request body, reading from DB...`);
+    console.log(`[Broadcast] Atomically claiming pending recipients from DB...`);
     recipients = [];
     const PAGE_SIZE = 5000;
     let page = 0;
     while (true) {
-      const { data: dbRecipients, error: dbErr } = await supabase
-        .from("wa_broadcast_recipients")
-        .select("id, phone_number")
-        .eq("broadcast_id", broadcast_id)
-        .eq("status", "pending")
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-      
-      if (dbErr) throw new Error("Failed to load recipients: " + dbErr.message);
-      const batch = (dbRecipients || []).map((r: any) => ({ id: r.id, phone: r.phone_number }));
-      recipients.push(...batch);
-      if (batch.length < PAGE_SIZE) break; // last page
-      page++;
+      // Atomic: UPDATE status='claimed' WHERE status='pending' RETURNING id, phone_number
+      // Only this invocation will get these rows — concurrent instances get 0 rows.
+      const { data: claimed, error: claimErr } = await supabase.rpc('claim_broadcast_recipients', {
+        p_broadcast_id: broadcast_id,
+        p_limit: PAGE_SIZE,
+      });
+
+      if (claimErr) {
+        // Fallback to plain SELECT if RPC doesn't exist yet
+        console.warn(`[Broadcast] claim_broadcast_recipients RPC failed (${claimErr.message}), falling back to SELECT`);
+        const { data: dbRecipients, error: dbErr } = await supabase
+          .from("wa_broadcast_recipients")
+          .select("id, phone_number")
+          .eq("broadcast_id", broadcast_id)
+          .eq("status", "pending")
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+        if (dbErr) throw new Error("Failed to load recipients: " + dbErr.message);
+        const batch = (dbRecipients || []).map((r: any) => ({ id: r.id, phone: r.phone_number }));
+        recipients.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        page++;
+      } else {
+        const batch = (claimed || []).map((r: any) => ({ id: r.id, phone: r.phone_number }));
+        recipients.push(...batch);
+        if (batch.length < PAGE_SIZE) break; // last page
+        page++;
+      }
     }
-    console.log(`[Broadcast] Loaded ${recipients.length} pending recipients from DB (${page + 1} pages)`);
+    console.log(`[Broadcast] Claimed ${recipients.length} pending recipients from DB`);
   }
 
   console.log(`[Broadcast] Starting: template=${template_name}, lang=${language}, recipients=${recipients?.length}, hasComponents=${!!components}`);
