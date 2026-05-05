@@ -51,15 +51,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		const sqlAfter  = fmtDate(afterDate);
 		const sqlBefore = fmtDate(beforeDate);
 
-		// Initialize results for every phone
+		// Initialize results for every phone — with per-branch breakdown
+		interface BranchEntry { branchId: string; branchName: string; billCount: number; totalAmount: number; lastBillDate: string | null; }
+		interface PhoneResult { billCount: number; totalAmount: number; lastBillDate: string | null; branches: BranchEntry[]; }
 		const phoneSet = new Set(phoneNumbers.map((p: string) => p.trim()));
-		const results: Record<string, { billCount: number; totalAmount: number; lastBillDate: string | null }> = {};
+		const results: Record<string, PhoneResult> = {};
 		for (const p of phoneNumbers) {
-			results[p.trim()] = { billCount: 0, totalAmount: 0, lastBillDate: null };
+			results[p.trim()] = { billCount: 0, totalAmount: 0, lastBillDate: null, branches: [] };
 		}
 
 		if (!erpConfigs || erpConfigs.length === 0) {
-			return json({ success: true, results, branchCount: 0 });
+			return json({ success: true, results, branchCount: 0, branches: [] });
 		}
 
 		// Query each branch in parallel — date-filtered
@@ -68,6 +70,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			const baseUrl = config.tunnel_url.replace(/\/+$/, '');
 			const erpBranchId = config.erp_branch_id || config.branch_id;
+			const branchData = Array.isArray(config.branches) ? config.branches[0] : config.branches;
+			const branchName = config.branch_name || `Branch ${config.branch_id}`;
 
 			const sql = `
 				SELECT
@@ -111,24 +115,42 @@ export const POST: RequestHandler = async ({ request }) => {
 					for (const row of result.recordset) {
 						const phone = row.phone_number?.trim();
 						if (phone && phoneSet.has(phone)) {
-							results[phone].billCount   += (row.bill_cnt || 0);
-							results[phone].totalAmount += (row.bill_amt || 0);
-							const d = row.last_bill_date || null;
+							const cnt = row.bill_cnt || 0;
+							const amt = row.bill_amt || 0;
+							const d   = row.last_bill_date || null;
+							results[phone].billCount   += cnt;
+							results[phone].totalAmount += amt;
 							if (d) {
 								const existing = results[phone].lastBillDate;
 								if (!existing || new Date(d) > new Date(existing)) {
 									results[phone].lastBillDate = d;
 								}
 							}
+							results[phone].branches.push({
+								branchId: String(config.branch_id),
+								branchName,
+								billCount: cnt,
+								totalAmount: amt,
+								lastBillDate: d
+							});
 						}
 					}
 				}
 			} catch (_) {
-				// Branch offline — skip silently, same as batch-bill-counts
+				// Branch offline — skip silently
 			}
 		}));
 
-		return json({ success: true, results, branchCount: erpConfigs.length });
+		// Collect list of unique branches that had any activity (for the filter dropdown)
+		const branchMap = new Map<string, string>();
+		for (const r of Object.values(results)) {
+			for (const b of r.branches) {
+				if (!branchMap.has(b.branchId)) branchMap.set(b.branchId, b.branchName);
+			}
+		}
+		const branches = Array.from(branchMap.entries()).map(([id, name]) => ({ id, name }));
+
+		return json({ success: true, results, branchCount: erpConfigs.length, branches });
 
 	} catch (error: any) {
 		console.error('Broadcast analytics error:', error);

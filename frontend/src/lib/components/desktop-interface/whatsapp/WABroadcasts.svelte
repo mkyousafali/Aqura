@@ -78,13 +78,16 @@
     let ecoRetryingBroadcastId: string | null = null;
 
     // Analytics state
+    interface AnalyticsBranchEntry { branchId: string; branchName: string; billCount: number; totalAmount: number; lastBillDate: string | null; }
+    interface AnalyticsPhoneResult { billCount: number; totalAmount: number; lastBillDate: string | null; branches: AnalyticsBranchEntry[]; }
     interface AnalyticsResult {
         totalRecipients: number;
         visitedCount: number;
         notVisitedCount: number;
         conversionPct: number;
         branchCount: number;
-        perPhone: Record<string, { billCount: number; totalAmount: number; lastBillDate: string | null }>;
+        branches: { id: string; name: string }[];
+        perPhone: Record<string, AnalyticsPhoneResult>;
     }
     let analyticsModal = false;
     let analyticsBroadcast: Broadcast | null = null;
@@ -93,6 +96,7 @@
     let analyticsResult: AnalyticsResult | null = null;
     let analyticsError = '';
     let analyticsRecipientPhones: string[] = [];
+    let analyticsBranchFilter = ''; // '' = all branches
 
     // Stall detection: track sent_count snapshots to detect stuck broadcasts
     let stallSnapshots: Record<string, { count: number; since: number }> = {};
@@ -943,7 +947,7 @@
             const data = await resp.json();
             if (!data.success) throw new Error(data.error || 'Analytics request failed');
 
-            const perPhone = data.results as Record<string, { billCount: number; totalAmount: number; lastBillDate: string | null }>;
+            const perPhone = data.results as Record<string, AnalyticsPhoneResult>;
             let visitedCount = 0;
             for (const phone of analyticsRecipientPhones) {
                 if (perPhone[phone]?.billCount > 0) visitedCount++;
@@ -952,12 +956,14 @@
             const notVisitedCount = totalRecipients - visitedCount;
             const conversionPct = totalRecipients > 0 ? Math.round((visitedCount / totalRecipients) * 100) : 0;
 
+            analyticsBranchFilter = ''; // reset filter on new result
             analyticsResult = {
                 totalRecipients,
                 visitedCount,
                 notVisitedCount,
                 conversionPct,
                 branchCount: data.branchCount || 0,
+                branches: data.branches || [],
                 perPhone
             };
         } catch (e: any) {
@@ -1785,32 +1791,87 @@
 
                         <!-- Per-customer detail table (visitors only) -->
                         {#if analyticsResult.visitedCount > 0}
+                            {@const filteredPhones = analyticsRecipientPhones.filter(p => {
+                                const r = analyticsResult?.perPhone[p];
+                                if (!r || r.billCount === 0) return false;
+                                if (!analyticsBranchFilter) return true;
+                                return r.branches.some(b => b.branchId === analyticsBranchFilter);
+                            })}
                             <div class="analytics-detail-section">
-                                <div class="analytics-detail-title">🛍️ Customers Who Purchased</div>
+                                <div class="analytics-detail-header">
+                                    <div class="analytics-detail-title">🛍️ Customers Who Purchased</div>
+                                    {#if analyticsResult.branches.length > 1}
+                                        <div class="analytics-branch-filter-wrap">
+                                            <span class="analytics-branch-filter-label">Filter by branch:</span>
+                                            <select class="analytics-branch-select" bind:value={analyticsBranchFilter}>
+                                                <option value="">All Branches ({analyticsResult.visitedCount})</option>
+                                                {#each analyticsResult.branches as br}
+                                                    {@const cnt = analyticsRecipientPhones.filter(p => analyticsResult?.perPhone[p]?.branches.some(b => b.branchId === br.id)).length}
+                                                    <option value={br.id}>{br.name} ({cnt})</option>
+                                                {/each}
+                                            </select>
+                                        </div>
+                                    {/if}
+                                </div>
                                 <div class="analytics-detail-table-wrap">
                                     <table class="analytics-detail-table">
                                         <thead>
                                             <tr>
                                                 <th>#</th>
                                                 <th>Phone</th>
-                                                <th>Bills in Period</th>
-                                                <th>Total Spent</th>
+                                                <th>Branch</th>
+                                                <th>Bills</th>
+                                                <th>Total Amount</th>
                                                 <th>Last Visit</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {#each analyticsRecipientPhones.filter(p => analyticsResult && analyticsResult.perPhone[p]?.billCount > 0) as phone, idx}
+                                            {#each filteredPhones as phone, idx}
                                                 {@const row = analyticsResult.perPhone[phone]}
-                                                <tr>
-                                                    <td class="text-slate-400">{idx + 1}</td>
-                                                    <td class="font-mono text-sm">{phone}</td>
-                                                    <td class="text-emerald-600 font-bold">{row.billCount}</td>
-                                                    <td class="text-emerald-700 font-bold">{row.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                    <td class="text-slate-500 text-xs">{fmtAnalyticsDate(row.lastBillDate)}</td>
-                                                </tr>
+                                                {@const shownBranches = analyticsBranchFilter
+                                                    ? row.branches.filter(b => b.branchId === analyticsBranchFilter)
+                                                    : row.branches}
+                                                {#if shownBranches.length > 0}
+                                                    {#each shownBranches as br, bi}
+                                                        <tr class={bi > 0 ? 'analytics-row-continuation' : ''}>
+                                                            <td class="text-slate-400">{bi === 0 ? idx + 1 : ''}</td>
+                                                            <td class="font-mono text-sm">{bi === 0 ? phone : ''}</td>
+                                                            <td>
+                                                                <span class="analytics-branch-badge">{br.branchName}</span>
+                                                            </td>
+                                                            <td class="text-emerald-600 font-bold">{br.billCount}</td>
+                                                            <td class="text-emerald-700 font-bold">{br.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                            <td class="text-slate-500 text-xs">{fmtAnalyticsDate(br.lastBillDate)}</td>
+                                                        </tr>
+                                                    {/each}
+                                                    <!-- Total row if multiple branches -->
+                                                    {#if !analyticsBranchFilter && shownBranches.length > 1}
+                                                        <tr class="analytics-row-total">
+                                                            <td></td>
+                                                            <td></td>
+                                                            <td class="text-slate-500 text-xs font-bold">Total</td>
+                                                            <td class="text-emerald-600 font-bold">{row.billCount}</td>
+                                                            <td class="text-emerald-700 font-bold">{row.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                            <td class="text-slate-500 text-xs">{fmtAnalyticsDate(row.lastBillDate)}</td>
+                                                        </tr>
+                                                    {/if}
+                                                {:else}
+                                                    <tr>
+                                                        <td class="text-slate-400">{idx + 1}</td>
+                                                        <td class="font-mono text-sm">{phone}</td>
+                                                        <td>—</td>
+                                                        <td class="text-emerald-600 font-bold">{row.billCount}</td>
+                                                        <td class="text-emerald-700 font-bold">{row.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                        <td class="text-slate-500 text-xs">{fmtAnalyticsDate(row.lastBillDate)}</td>
+                                                    </tr>
+                                                {/if}
                                             {/each}
                                         </tbody>
                                     </table>
+                                </div>
+                                <div class="analytics-detail-footer">
+                                    Showing {filteredPhones.length} customer{filteredPhones.length !== 1 ? 's' : ''}
+                                    {analyticsBranchFilter ? `at ${analyticsResult.branches.find(b => b.id === analyticsBranchFilter)?.name || ''}` : 'across all branches'}
                                 </div>
                             </div>
                         {/if}
@@ -2647,7 +2708,26 @@
     }
 
     .analytics-detail-section { display: flex; flex-direction: column; gap: 10px; }
+    .analytics-detail-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
     .analytics-detail-title { font-size: 0.85rem; font-weight: 800; color: #1e293b; }
+    .analytics-branch-filter-wrap { display: flex; align-items: center; gap: 8px; }
+    .analytics-branch-filter-label { font-size: 0.7rem; font-weight: 600; color: #64748b; white-space: nowrap; }
+    .analytics-branch-select {
+        padding: 5px 10px;
+        border: 1.5px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        color: #1e293b;
+        background: #f8fafc;
+        cursor: pointer;
+    }
+    .analytics-branch-select:focus { outline: none; border-color: #7c3aed; }
     .analytics-detail-table-wrap {
         border: 1px solid #e2e8f0;
         border-radius: 12px;
@@ -2679,4 +2759,22 @@
     }
     .analytics-detail-table tbody tr:hover { background: #f0fdf4; }
     .analytics-detail-table tbody tr:last-child td { border-bottom: none; }
+    .analytics-row-continuation td { border-top: none; padding-top: 4px; background: #f8fffe; }
+    .analytics-row-total td { background: #f0fdf4; border-top: 2px solid #6ee7b7; font-size: 0.75rem; padding: 6px 12px; }
+    .analytics-branch-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #ede9fe;
+        color: #5b21b6;
+        border-radius: 6px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .analytics-detail-footer {
+        font-size: 0.7rem;
+        color: #64748b;
+        font-weight: 600;
+        padding: 4px 2px;
+    }
 </style>
