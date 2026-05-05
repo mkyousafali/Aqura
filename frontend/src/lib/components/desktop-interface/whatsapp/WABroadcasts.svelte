@@ -98,6 +98,28 @@
     let analyticsError = '';
     let analyticsRecipientPhones: string[] = [];
     let analyticsBranchFilter = ''; // '' = all branches
+    let analyticsAppliedFrom = ''; // the from-date used in the last analysis
+    let analyticsAppliedTo   = ''; // the to-date used in the last analysis
+
+    // Reactive stats — update whenever branch filter or result changes
+    $: analyticsFilteredVisited = !analyticsResult ? 0 : !analyticsBranchFilter
+        ? analyticsResult.visitedCount
+        : analyticsRecipientPhones.filter(p => analyticsResult!.perPhone[p]?.branches.some(b => b.branchId === analyticsBranchFilter)).length;
+
+    $: analyticsFilteredAmount = !analyticsResult ? 0 : !analyticsBranchFilter
+        ? analyticsResult.totalPurchaseAmount
+        : analyticsRecipientPhones.reduce((sum, p) => {
+            const br = analyticsResult!.perPhone[p]?.branches.find(b => b.branchId === analyticsBranchFilter);
+            return sum + (br?.totalAmount || 0);
+          }, 0);
+
+    $: analyticsFilteredNotVisited = analyticsResult
+        ? analyticsResult.totalRecipients - analyticsFilteredVisited
+        : 0;
+
+    $: analyticsFilteredConversion = analyticsResult && analyticsResult.totalRecipients > 0
+        ? Math.round((analyticsFilteredVisited / analyticsResult.totalRecipients) * 100)
+        : 0;
 
     // Stall detection: track sent_count snapshots to detect stuck broadcasts
     let stallSnapshots: Record<string, { count: number; since: number }> = {};
@@ -963,6 +985,8 @@
             const conversionPct = totalRecipients > 0 ? Math.round((visitedCount / totalRecipients) * 100) : 0;
 
             analyticsBranchFilter = ''; // reset filter on new result
+            analyticsAppliedFrom = broadcastDate;
+            analyticsAppliedTo   = analyticsDateTo;
             analyticsResult = {
                 totalRecipients,
                 visitedCount,
@@ -1757,6 +1781,20 @@
                     {/if}
 
                     {#if analyticsResult && !analyticsLoading}
+                        <!-- Period banner -->
+                        <div class="analytics-period-banner">
+                            <span class="analytics-period-icon">📅</span>
+                            <span class="analytics-period-text">
+                                Showing purchases between
+                                <strong>{fmtAnalyticsDate(analyticsAppliedFrom)}</strong>
+                                and
+                                <strong>{fmtAnalyticsDate(analyticsAppliedTo)}</strong>
+                                {#if analyticsBranchFilter}
+                                    &nbsp;·&nbsp; filtered to <strong>{analyticsResult.branches.find(b => b.id === analyticsBranchFilter)?.name || ''}</strong>
+                                {/if}
+                            </span>
+                        </div>
+
                         <!-- Summary cards -->
                         <div class="analytics-summary-grid">
                             <div class="analytics-card analytics-card-total">
@@ -1766,23 +1804,23 @@
                             </div>
                             <div class="analytics-card analytics-card-visited">
                                 <div class="analytics-card-icon">🛍️</div>
-                                <div class="analytics-card-value">{analyticsResult.visitedCount.toLocaleString()}</div>
-                                <div class="analytics-card-label">Purchased</div>
+                                <div class="analytics-card-value">{analyticsFilteredVisited.toLocaleString()}</div>
+                                <div class="analytics-card-label">Purchased{analyticsBranchFilter ? ' (Branch)' : ''}</div>
                             </div>
                             <div class="analytics-card analytics-card-notvisited">
                                 <div class="analytics-card-icon">💤</div>
-                                <div class="analytics-card-value">{analyticsResult.notVisitedCount.toLocaleString()}</div>
-                                <div class="analytics-card-label">No Purchase</div>
+                                <div class="analytics-card-value">{analyticsFilteredNotVisited.toLocaleString()}</div>
+                                <div class="analytics-card-label">No Purchase{analyticsBranchFilter ? ' (Branch)' : ''}</div>
                             </div>
                             <div class="analytics-card analytics-card-conversion">
                                 <div class="analytics-card-icon">🎯</div>
-                                <div class="analytics-card-value">{analyticsResult.conversionPct}%</div>
+                                <div class="analytics-card-value">{analyticsFilteredConversion}%</div>
                                 <div class="analytics-card-label">Conversion Rate</div>
                             </div>
                             <div class="analytics-card analytics-card-revenue">
                                 <div class="analytics-card-icon">💰</div>
-                                <div class="analytics-card-value analytics-card-value-sm">{analyticsResult.totalPurchaseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                <div class="analytics-card-label">Total Revenue</div>
+                                <div class="analytics-card-value analytics-card-value-sm">{analyticsFilteredAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                <div class="analytics-card-label">Total Revenue{analyticsBranchFilter ? ' (Branch)' : ''}</div>
                             </div>
                         </div>
 
@@ -1791,13 +1829,13 @@
                             <div class="analytics-bar-track">
                                 <div
                                     class="analytics-bar-fill"
-                                    style="width: {analyticsResult.conversionPct}%"
+                                    style="width: {analyticsFilteredConversion}%"
                                 ></div>
                             </div>
                             <div class="analytics-bar-labels">
-                                <span class="text-emerald-600 font-bold text-xs">{analyticsResult.visitedCount} purchased</span>
+                                <span class="text-emerald-600 font-bold text-xs">{analyticsFilteredVisited} purchased</span>
                                 <span class="text-slate-400 text-xs">{analyticsResult.branchCount} branch{analyticsResult.branchCount !== 1 ? 'es' : ''} checked</span>
-                                <span class="text-slate-500 font-bold text-xs">{analyticsResult.notVisitedCount} no purchase</span>
+                                <span class="text-slate-500 font-bold text-xs">{analyticsFilteredNotVisited} no purchase</span>
                             </div>
                         </div>
 
@@ -2721,6 +2759,20 @@
         flex-wrap: wrap;
         gap: 4px;
     }
+
+    .analytics-period-banner {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: #eff6ff;
+        border: 1.5px solid #bfdbfe;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        color: #1e40af;
+    }
+    .analytics-period-icon { font-size: 1rem; flex-shrink: 0; }
+    .analytics-period-text { line-height: 1.5; }
 
     .analytics-detail-section { display: flex; flex-direction: column; gap: 10px; }
     .analytics-detail-header {
