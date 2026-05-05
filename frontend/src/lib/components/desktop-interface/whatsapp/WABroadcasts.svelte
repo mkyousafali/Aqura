@@ -85,6 +85,7 @@
         visitedCount: number;
         notVisitedCount: number;
         conversionPct: number;
+        totalPurchaseAmount: number;
         branchCount: number;
         branches: { id: string; name: string }[];
         perPhone: Record<string, AnalyticsPhoneResult>;
@@ -949,8 +950,13 @@
 
             const perPhone = data.results as Record<string, AnalyticsPhoneResult>;
             let visitedCount = 0;
+            let totalPurchaseAmount = 0;
             for (const phone of analyticsRecipientPhones) {
-                if (perPhone[phone]?.billCount > 0) visitedCount++;
+                const r = perPhone[phone];
+                if (r?.billCount > 0) {
+                    visitedCount++;
+                    totalPurchaseAmount += r.totalAmount || 0;
+                }
             }
             const totalRecipients = analyticsRecipientPhones.length;
             const notVisitedCount = totalRecipients - visitedCount;
@@ -962,6 +968,7 @@
                 visitedCount,
                 notVisitedCount,
                 conversionPct,
+                totalPurchaseAmount,
                 branchCount: data.branchCount || 0,
                 branches: data.branches || [],
                 perPhone
@@ -1760,7 +1767,7 @@
                             <div class="analytics-card analytics-card-visited">
                                 <div class="analytics-card-icon">🛍️</div>
                                 <div class="analytics-card-value">{analyticsResult.visitedCount.toLocaleString()}</div>
-                                <div class="analytics-card-label">Visited &amp; Purchased</div>
+                                <div class="analytics-card-label">Purchased</div>
                             </div>
                             <div class="analytics-card analytics-card-notvisited">
                                 <div class="analytics-card-icon">💤</div>
@@ -1771,6 +1778,11 @@
                                 <div class="analytics-card-icon">🎯</div>
                                 <div class="analytics-card-value">{analyticsResult.conversionPct}%</div>
                                 <div class="analytics-card-label">Conversion Rate</div>
+                            </div>
+                            <div class="analytics-card analytics-card-revenue">
+                                <div class="analytics-card-icon">💰</div>
+                                <div class="analytics-card-value analytics-card-value-sm">{analyticsResult.totalPurchaseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                <div class="analytics-card-label">Total Revenue</div>
                             </div>
                         </div>
 
@@ -2663,10 +2675,10 @@
 
     .analytics-summary-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(5, 1fr);
         gap: 14px;
     }
-    @media (max-width: 560px) {
+    @media (max-width: 640px) {
         .analytics-summary-grid { grid-template-columns: repeat(2, 1fr); }
     }
     .analytics-card {
@@ -2677,6 +2689,7 @@
     }
     .analytics-card-icon { font-size: 1.5rem; margin-bottom: 6px; }
     .analytics-card-value { font-size: 1.5rem; font-weight: 900; line-height: 1; margin-bottom: 4px; }
+    .analytics-card-value-sm { font-size: 1rem; }
     .analytics-card-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: #64748b; }
     .analytics-card-total { background: #f1f5f9; border-color: #cbd5e1; }
     .analytics-card-total .analytics-card-value { color: #1e293b; }
@@ -2686,6 +2699,8 @@
     .analytics-card-notvisited .analytics-card-value { color: #c2410c; }
     .analytics-card-conversion { background: #ede9fe; border-color: #c4b5fd; }
     .analytics-card-conversion .analytics-card-value { color: #7c3aed; }
+    .analytics-card-revenue { background: #fefce8; border-color: #fde68a; }
+    .analytics-card-revenue .analytics-card-value { color: #b45309; }
 
     .analytics-bar-wrap { display: flex; flex-direction: column; gap: 6px; }
     .analytics-bar-track {
