@@ -306,12 +306,21 @@
             await refreshBroadcastStatus(bc);
         }
 
-        // Silent watchdog: if a 'sending' broadcast is stalled (no progress for 3 min),
-        // auto-resume it without any user action
+        // Silent watchdog: auto-resume broadcasts that still have pending recipients.
+        // Triggers for:
+        //  - status='sending' that has stalled (no progress for 3 min)
+        //  - status='completed' (within last 24h) that still has pending rows in DB
+        //    (covers the case where the edge function flipped status prematurely)
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
         for (const bc of broadcasts) {
-            if (bc.status !== 'sending') continue;
             if (watchdogInFlight.has(bc.id)) continue;
-            if (!isBroadcastStalled(bc.id)) continue;
+
+            const isSendingStalled = bc.status === 'sending' && isBroadcastStalled(bc.id);
+            const isCompletedWithLeftovers =
+                bc.status === 'completed' &&
+                new Date(bc.created_at).getTime() > oneDayAgo;
+
+            if (!isSendingStalled && !isCompletedWithLeftovers) continue;
 
             // Check if there are actually pending recipients
             const { count: pendingCount } = await supabase.from('wa_broadcast_recipients')
@@ -321,7 +330,16 @@
 
             if (!pendingCount || pendingCount === 0) continue;
 
-            console.log(`[Watchdog] Broadcast ${bc.id} stalled with ${pendingCount} pending. Auto-resuming...`);
+            // For completed broadcasts, flip status back to 'sending' so the edge
+            // function and watchdog treat it as active again.
+            if (bc.status === 'completed') {
+                await supabase.from('wa_broadcasts')
+                    .update({ status: 'sending' })
+                    .eq('id', bc.id);
+                broadcasts = broadcasts.map(b => b.id === bc.id ? { ...b, status: 'sending' } : b);
+            }
+
+            console.log(`[Watchdog] Broadcast ${bc.id} (${bc.status}) has ${pendingCount} pending. Auto-resuming...`);
             watchdogInFlight.add(bc.id);
             // Fire and forget — no await, no alert
             autoResumeBroadcast(bc).finally(() => watchdogInFlight.delete(bc.id));
@@ -1215,6 +1233,26 @@
                                                                 ⏳ Retrying...
                                                             {:else}
                                                                 🔁 Retry Failed ({bc.failed_count})
+                                                            {/if}
+                                                        </button>
+                                                    {/if}
+
+                                                    {#if (bc.status === 'sending' || bc.status === 'completed') && ((bc.total_recipients || 0) - sentTotal - (bc.failed_count || 0)) > 0}
+                                                        <button
+                                                            class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 transform hover:scale-105
+                                                                {retryingBroadcastId === bc.id ? 'bg-amber-400 text-amber-900 cursor-wait' :
+                                                                 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg'}"
+                                                            on:click|stopPropagation={() => {
+                                                                const left = (bc.total_recipients || 0) - sentTotal - (bc.failed_count || 0);
+                                                                if (confirm(`Resume ${left} pending messages for "${bc.name}"?`)) resumePendingRecipients(bc);
+                                                            }}
+                                                            disabled={retryingBroadcastId === bc.id}
+                                                            title="Resume pending (unsent) messages"
+                                                        >
+                                                            {#if retryingBroadcastId === bc.id}
+                                                                ⏳ Resuming...
+                                                            {:else}
+                                                                ⏸️ Resume Pending ({(bc.total_recipients || 0) - sentTotal - (bc.failed_count || 0)})
                                                             {/if}
                                                         </button>
                                                     {/if}
