@@ -295,6 +295,33 @@
     // Track per-broadcast watchdog invocations to prevent duplicate auto-resumes
     const watchdogInFlight = new Set<string>();
 
+    // Reclaim recipients stuck in 'claimed' status (orphaned by an edge function crash).
+    //  - Rows with a whatsapp_message_id were actually sent -> promote to 'sent'
+    //  - Rows without a message id never reached Meta        -> reset to 'pending'
+    // Returns the number of rows reset to pending.
+    async function reclaimStaleClaimed(broadcastId: string): Promise<number> {
+        try {
+            // Promote ghost-sent rows (have a real message id from Meta)
+            await supabase.from('wa_broadcast_recipients')
+                .update({ status: 'sent' })
+                .eq('broadcast_id', broadcastId)
+                .eq('status', 'claimed')
+                .not('whatsapp_message_id', 'is', null);
+
+            // Reset truly orphaned claims back to pending so the sender picks them up
+            const { count } = await supabase.from('wa_broadcast_recipients')
+                .update({ status: 'pending', error_details: null }, { count: 'exact' })
+                .eq('broadcast_id', broadcastId)
+                .eq('status', 'claimed')
+                .is('whatsapp_message_id', null)
+                .select('id', { count: 'exact', head: true });
+            return count || 0;
+        } catch (e: any) {
+            console.warn('[reclaimStaleClaimed] failed:', e?.message);
+            return 0;
+        }
+    }
+
     async function autoRefreshRecentBroadcasts() {
         if (!broadcasts.length || refreshingBroadcastId) return;
         const oneHourAgo = Date.now() - 60 * 60 * 1000;
@@ -321,6 +348,9 @@
                 new Date(bc.created_at).getTime() > oneDayAgo;
 
             if (!isSendingStalled && !isCompletedWithLeftovers) continue;
+
+            // Reclaim any orphaned 'claimed' rows from a previous crashed run
+            await reclaimStaleClaimed(bc.id);
 
             // Check if there are actually pending recipients
             const { count: pendingCount } = await supabase.from('wa_broadcast_recipients')
@@ -724,6 +754,9 @@
                 .eq('broadcast_id', bc.id)
                 .eq('status', 'failed');
 
+            // Self-heal: also reclaim any rows orphaned in 'claimed' status
+            await reclaimStaleClaimed(bc.id);
+
             // Update broadcast status back to sending
             await supabase.from('wa_broadcasts')
                 .update({ status: 'sending' })
@@ -787,6 +820,10 @@
                 .eq('id', bc.template_id)
                 .single();
             if (!tmpl) throw new Error('Template not found');
+
+            // Self-heal: reclaim any rows orphaned in 'claimed' status from a previous run
+            const reclaimed = await reclaimStaleClaimed(bc.id);
+            if (reclaimed > 0) console.log(`[Resume Pending] Reclaimed ${reclaimed} stale 'claimed' rows -> 'pending'`);
 
             // Get count of pending recipients (those never sent)
             const { count: pendingCount } = await supabase.from('wa_broadcast_recipients')
