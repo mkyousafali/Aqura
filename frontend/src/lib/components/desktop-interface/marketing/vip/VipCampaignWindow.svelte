@@ -36,13 +36,21 @@
 	let statsLoading = true;
 	let statsError = '';
 
+	// ── Dashboard filters ──
+	let filterFrom = '';        // YYYY-MM-DD
+	let filterTo = '';          // YYYY-MM-DD
+	let filterBranchId = '';    // '' = all
+	let filterSearch = '';      // mobile or bill #
+	let branches: Array<{ id: string; name_en: string; name_ar: string }> = [];
+	let searchDebounceTimer: any = null;
+
 	// â”€â”€ Realtime â”€â”€
 	let channel: any = null;
 
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
-		await Promise.all([loadSettings(), loadStats()]);
+		await Promise.all([loadSettings(), loadStats(), loadBranches()]);
 		setupRealtime();
 	});
 
@@ -150,7 +158,12 @@
 		statsLoading = true;
 		statsError = '';
 		try {
-			const { data, error } = await supabase.rpc('get_vip_redemption_stats');
+			const { data, error } = await supabase.rpc('get_vip_redemption_stats', {
+				p_from: filterFrom || null,
+				p_to: filterTo || null,
+				p_branch_id: filterBranchId || null,
+				p_search: filterSearch || null
+			});
 			if (error) throw error;
 			stats = data;
 		} catch (err: any) {
@@ -158,6 +171,37 @@
 		} finally {
 			statsLoading = false;
 		}
+	}
+
+	async function loadBranches() {
+		try {
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar')
+				.eq('is_active', true)
+				.order('name_en');
+			if (error) throw error;
+			branches = (data || []).map((b: any) => ({ id: String(b.id), name_en: b.name_en, name_ar: b.name_ar }));
+		} catch (err) {
+			console.warn('Failed to load branches:', err);
+		}
+	}
+
+	function onFilterChange() {
+		loadStats();
+	}
+
+	function onSearchInput() {
+		if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+		searchDebounceTimer = setTimeout(() => loadStats(), 300);
+	}
+
+	function clearFilters() {
+		filterFrom = '';
+		filterTo = '';
+		filterBranchId = '';
+		filterSearch = '';
+		loadStats();
 	}
 
 	function formatDate(iso: string) {
@@ -263,14 +307,47 @@ on:click={() => (activeTab = 'manage')}
 </div>
 
 <!-- Content Area -->
-<div class="flex-1 p-6 overflow-y-auto relative">
+<div class="flex-1 overflow-hidden relative">
 <!-- Decorative blobs -->
 <div class="absolute top-0 right-0 w-[400px] h-[400px] bg-purple-100/20 rounded-full blur-[100px] -mr-48 -mt-48 pointer-events-none"></div>
 <div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-violet-100/20 rounded-full blur-[100px] -ml-48 -mb-48 pointer-events-none"></div>
 
-<div class="relative z-10">
+<div class="relative z-10 h-full">
 
 {#if activeTab === 'dashboard'}
+<div class="h-full flex flex-col p-6 gap-4 min-h-0">
+<!-- Filter Bar (sticky-equivalent: flex-shrink-0) -->
+<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-sm p-4 flex-shrink-0">
+<div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+<div class="md:col-span-2">
+<label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1" for="vip-from">From Date</label>
+<input id="vip-from" type="date" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400" bind:value={filterFrom} on:change={onFilterChange} />
+</div>
+<div class="md:col-span-2">
+<label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1" for="vip-to">To Date</label>
+<input id="vip-to" type="date" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400" bind:value={filterTo} on:change={onFilterChange} />
+</div>
+<div class="md:col-span-3">
+<label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1" for="vip-branch">Branch</label>
+<select id="vip-branch" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400" bind:value={filterBranchId} on:change={onFilterChange}>
+<option value="">All Branches</option>
+{#each branches as br (br.id)}
+<option value={br.id}>{br.name_en}</option>
+{/each}
+</select>
+</div>
+<div class="md:col-span-4">
+<label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1" for="vip-search">Search Mobile / Bill #</label>
+<input id="vip-search" type="text" placeholder="e.g. 9665XXXXXXXX or BILL-12345" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400" bind:value={filterSearch} on:input={onSearchInput} />
+</div>
+<div class="md:col-span-1">
+<button class="w-full px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-all" on:click={clearFilters} title="Clear all filters">
+🗑️ Clear
+</button>
+</div>
+</div>
+</div>
+
 {#if statsLoading}
 <div class="flex items-center justify-center py-16">
 <div class="w-8 h-8 border-4 border-slate-200 border-t-purple-500 rounded-full animate-spin"></div>
@@ -278,8 +355,8 @@ on:click={() => (activeTab = 'manage')}
 {:else if statsError}
 <div class="bg-red-50 border border-red-200 text-red-700 rounded-2xl px-5 py-4 text-sm font-semibold">{statsError}</div>
 {:else}
-<!-- Stats cards -->
-<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+<!-- Stats cards (non-scrolling) -->
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 flex-shrink-0">
 <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-sm p-4 text-center">
 <div class="text-2xl font-black text-slate-800">{stats?.total_redemptions ?? 0}</div>
 <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Total Redemptions</div>
@@ -287,6 +364,14 @@ on:click={() => (activeTab = 'manage')}
 <div class="bg-purple-50/60 backdrop-blur-xl rounded-2xl border border-purple-200 shadow-sm p-4 text-center">
 <div class="text-2xl font-black text-purple-700">{stats?.today_redemptions ?? 0}</div>
 <div class="text-[10px] font-bold text-purple-400 uppercase tracking-wide mt-1">Today's Redemptions</div>
+</div>
+<div class="bg-blue-50/60 backdrop-blur-xl rounded-2xl border border-blue-200 shadow-sm p-4 text-center">
+<div class="text-xl font-black text-blue-700">{formatSAR(stats?.total_bill_amount)}</div>
+<div class="text-[10px] font-bold text-blue-500 uppercase tracking-wide mt-1">Total Bill Amount</div>
+</div>
+<div class="bg-cyan-50/60 backdrop-blur-xl rounded-2xl border border-cyan-200 shadow-sm p-4 text-center">
+<div class="text-xl font-black text-cyan-700">{formatSAR(stats?.today_bill_amount)}</div>
+<div class="text-[10px] font-bold text-cyan-500 uppercase tracking-wide mt-1">Today's Bill Amount</div>
 </div>
 <div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-sm p-4 text-center">
 <div class="text-xl font-black text-slate-800">{formatSAR(stats?.total_discount)}</div>
@@ -298,9 +383,9 @@ on:click={() => (activeTab = 'manage')}
 </div>
 </div>
 
-<!-- Recent table -->
-<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-<div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+<!-- Recent table (only the body scrolls) -->
+<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] flex-1 flex flex-col min-h-0 overflow-hidden">
+<div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
 <h3 class="text-sm font-black text-slate-700 uppercase tracking-wide">👑 Recent VIP Redemptions</h3>
 <button
 class="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-all"
@@ -310,19 +395,19 @@ on:click={loadStats}
 </button>
 </div>
 {#if recentList.length === 0}
-<div class="text-center text-slate-400 py-10 text-sm">No redemptions recorded yet.</div>
+<div class="text-center text-slate-400 py-10 text-sm flex-1">No redemptions recorded yet.</div>
 {:else}
-<div class="overflow-x-auto">
+<div class="flex-1 overflow-auto min-h-0">
 <table class="w-full border-collapse">
-<thead>
+<thead class="sticky top-0 z-10">
 <tr class="bg-purple-600 text-white">
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Date &amp; Time</th>
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Mobile</th>
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Bill #</th>
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Bill Amount</th>
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Discount</th>
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Cashier Name</th>
-<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left">Branch</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Date &amp; Time</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Mobile</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Bill #</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Bill Amount</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Discount</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Cashier Name</th>
+<th class="px-3 py-2.5 text-xs font-black uppercase tracking-wider text-left bg-purple-600">Branch</th>
 </tr>
 </thead>
 <tbody>
@@ -343,12 +428,14 @@ on:click={loadStats}
 </tbody>
 </table>
 </div>
-<p class="text-xs text-slate-400 px-5 py-2">Showing {recentList.length} most recent records</p>
+<p class="text-xs text-slate-400 px-5 py-2 flex-shrink-0 border-t border-slate-100 bg-white/40">Showing {recentList.length} most recent records</p>
 {/if}
 </div>
 {/if}
+</div>
 
 {:else}
+<div class="h-full overflow-y-auto p-6">
 {#if settingsLoading}
 <div class="flex items-center justify-center py-16">
 <div class="w-8 h-8 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin"></div>
@@ -500,6 +587,7 @@ on:click={loadStats}
 </div>
 
 {/if}
+</div>
 {/if}
 
 </div>
