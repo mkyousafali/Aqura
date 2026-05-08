@@ -3,7 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
-	import { setCashierAuth } from '$lib/stores/cashierAuth';
+	import { setCashierAuth, claimWindowsCashierSession } from '$lib/stores/cashierAuth';
+	import { isWindowsApp } from '$lib/utils/cashierDevice';
 	import { t, currentLocale, switchLocale } from '$lib/i18n';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 
@@ -124,7 +125,7 @@
 		}
 	}
 
-	function handleBranchSelect() {
+	async function handleBranchSelect() {
 		if (!selectedBranchId) {
 			error = t('coupon.selectBranch');
 			return;
@@ -136,10 +137,31 @@
 			return;
 		}
 
-		// Dispatch login success event
+		// Windows app only: claim single-device session (kicks any prior PC).
+		// PWA / web users skip this step and remain unrestricted.
+		let sessionToken: string | null = null;
+		if (isWindowsApp() && authenticatedUser?.id) {
+			try {
+				loading = true;
+				sessionToken = await claimWindowsCashierSession(authenticatedUser.id);
+				if (!sessionToken) {
+					error = 'Failed to register this device. Please try again.';
+					return;
+				}
+			} catch (e) {
+				console.error('claimWindowsCashierSession error:', e);
+				error = 'Failed to register this device. Please try again.';
+				return;
+			} finally {
+				loading = false;
+			}
+		}
+
+		// Dispatch login success event (page calls setCashierAuth with token)
 		dispatch('loginSuccess', {
 			user: authenticatedUser,
-			branch: selectedBranch
+			branch: selectedBranch,
+			sessionToken
 		});
 	}
 

@@ -6,8 +6,6 @@
   "scripts": {
     "build": "vite build",
     "build:pwa": "vite build --mode pwa",
-    "build:windows": "npm run build:pwa && npm run package:windows",
-    "package:windows": "electron-builder --windows",
     "dev": "vite dev --host",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -33,8 +31,6 @@
     "@typescript-eslint/eslint-plugin": "^8.46.3",
     "@typescript-eslint/parser": "^8.46.3",
     "autoprefixer": "^10.4.20",
-    "electron": "^32.2.0",
-    "electron-builder": "^25.1.8",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-svelte": "^2.44.1",
@@ -82,27 +78,5 @@
   },
   "optionalDependencies": {
     "@img/sharp-linux-x64": "^0.34.0"
-  },
-  "build": {
-    "appId": "com.aqura.app",
-    "productName": "Aqura Management System",
-    "directories": {
-      "output": "dist-electron"
-    },
-    "files": [
-      "build/**/*",
-      "electron/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "static/icons/icon-512x512.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
   }
 }

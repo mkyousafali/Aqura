@@ -6,7 +6,10 @@
 		initCashierSession, 
 		setCashierAuth, 
 		clearCashierSession,
-		isCashierAuthenticated 
+		isCashierAuthenticated,
+		startCashierSessionGuard,
+		stopCashierSessionGuard,
+		releaseWindowsCashierSession
 	} from '$lib/stores/cashierAuth';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
@@ -15,6 +18,7 @@
 	let isLoggedIn = false;
 	let cashierUser: any = null;
 	let selectedBranch: any = null;
+	let kickedNotice = '';
 
 	// Break Security QR Code
 	let breakQrDataUrl = '';
@@ -48,6 +52,8 @@
 			cashierUser = session.user;
 			selectedBranch = session.branch;
 			isLoggedIn = true;
+			// Restored a Windows session — re-arm the guard
+			startCashierSessionGuard(handleForcedLogout);
 		}
 
 		// Initialize Break Security QR Code
@@ -60,25 +66,45 @@
 
 	onDestroy(() => {
 		if (breakQrInterval) clearInterval(breakQrInterval);
+		stopCashierSessionGuard();
 	});
+
+	function handleForcedLogout() {
+		kickedNotice = 'You have been signed out: this account was just used to log in on another Windows device.';
+		clearCashierSession();
+		isLoggedIn = false;
+		cashierUser = null;
+		selectedBranch = null;
+		currentUser.set(null);
+		isAuthenticated.set(false);
+	}
 
 	function handleLoginSuccess(event: CustomEvent) {
 		cashierUser = event.detail.user;
 		selectedBranch = event.detail.branch;
+		const sessionToken = event.detail.sessionToken ?? null;
 		isLoggedIn = true;
-		
+		kickedNotice = '';
+
 		// Save to cashier auth stores and sessionStorage
-		setCashierAuth(cashierUser, selectedBranch);
+		setCashierAuth(cashierUser, selectedBranch, sessionToken);
+
+		// Start single-device guard (no-op outside the Windows app)
+		startCashierSessionGuard(handleForcedLogout);
 	}
 
-	function handleLogout() {
+	async function handleLogout() {
+		// Best-effort: release the Windows binding so the slot is freed
+		await releaseWindowsCashierSession();
+
+		stopCashierSessionGuard();
 		isLoggedIn = false;
 		cashierUser = null;
 		selectedBranch = null;
-		
+
 		// Clear cashier session
 		clearCashierSession();
-		
+
 		// Also ensure desktop auth is cleared
 		currentUser.set(null);
 		isAuthenticated.set(false);
@@ -91,6 +117,12 @@
 
 <div class="cashier-page">
 	{#if !isLoggedIn}
+		{#if kickedNotice}
+			<div class="kicked-banner">
+				<span>⚠️ {kickedNotice}</span>
+				<button type="button" on:click={() => (kickedNotice = '')} aria-label="Dismiss">✕</button>
+			</div>
+		{/if}
 		<CashierLogin on:loginSuccess={handleLoginSuccess} />
 	{:else}
 		<CashierInterface 
@@ -117,6 +149,31 @@
 	.cashier-page {
 		width: 100%;
 		min-height: 100vh;
+	}
+
+	.kicked-banner {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 200;
+		background: #b91c1c;
+		color: #fff;
+		padding: 10px 16px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		font-size: 14px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+	}
+	.kicked-banner button {
+		background: transparent;
+		border: 1px solid rgba(255, 255, 255, 0.5);
+		color: #fff;
+		padding: 2px 10px;
+		border-radius: 4px;
+		cursor: pointer;
 	}
 
 	.break-qr-fixed {

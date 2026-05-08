@@ -83,12 +83,23 @@ export const supabase = (() => {
     return _supabase;
   }
 
+  // In-memory lock as a fallback for environments where navigator.locks
+  // can deadlock (observed in Electron). Serializes auth operations within
+  // this single page context (we don't use multi-tab session sync anyway).
+  let _authLockChain: Promise<any> = Promise.resolve();
+  const memoryLock = (_name: string, _acquireTimeout: number, fn: () => Promise<any>) => {
+    const next = _authLockChain.then(() => fn(), () => fn());
+    _authLockChain = next.catch(() => {});
+    return next;
+  };
+
   _supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storageKey: "aqura-auth-v2", // Use unique storage key
+      lock: memoryLock,
     },
     global: {
       headers: {
