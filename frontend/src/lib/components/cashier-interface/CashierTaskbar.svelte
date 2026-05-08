@@ -276,14 +276,10 @@
 					</button>
 					<div class="menu-divider"></div>
 
-					<!-- Language & Logout -->
+					<!-- Language -->
 					<button class="menu-item" on:click={toggleLanguage}>
 						<span class="menu-item-icon">🌐</span>
 						<span class="menu-item-text">{$currentLocale === 'ar' ? 'English' : 'العربية'}</span>
-					</button>
-					<button class="menu-item" on:click={handleLogout}>
-						<span class="menu-item-icon">🚪</span>
-						<span class="menu-item-text">{$_('auth.logout') || 'Logout'}</span>
 					</button>
 				</div>
 			{/if}

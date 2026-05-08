@@ -114,6 +114,10 @@
 					</div>
 					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
 					<span class="version-badge">{cashierVersion}</span>
+					<button class="panel-logout-btn" on:click={handleLogout} title={t('auth.logout') || 'Logout'}>
+						<span class="panel-logout-icon">🚪</span>
+						<span class="panel-logout-text">{t('auth.logout') || 'Logout'}</span>
+					</button>
 				</div>
 			</div>
 		</div>
@@ -229,6 +233,42 @@
 		right: 0;
 		height: 4px;
 		background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%);
+	}
+
+	.panel-logout-btn {
+		position: absolute;
+		left: 1rem;
+		bottom: 1rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.5rem 0.9rem;
+		background: rgba(255, 255, 255, 0.15);
+		color: #ffffff;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 9999px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+		transition: background 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
+		z-index: 2;
+	}
+	.panel-logout-btn:hover {
+		background: rgba(239, 68, 68, 0.85);
+		border-color: rgba(255, 255, 255, 0.6);
+		transform: translateY(-1px);
+	}
+	.panel-logout-btn:active {
+		transform: translateY(0);
+	}
+	.panel-logout-icon {
+		font-size: 1rem;
+		line-height: 1;
+	}
+	.panel-logout-text {
+		line-height: 1;
 	}
 
 	.app-logo {
