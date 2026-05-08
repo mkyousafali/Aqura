@@ -256,6 +256,8 @@
 					<div class="menu-divider"></div>
 
 					<!-- Notifications & Tasks -->
+					<!-- TASK BUTTON HIDDEN (kept for future reuse) -->
+					{#if false}
 					<button class="menu-item" on:click={openTasksWindow}>
 						<span class="menu-item-icon">📋</span>
 						<span class="menu-item-text">{$_('nav.tasks') || 'My Tasks'}</span>
@@ -263,6 +265,7 @@
 							<span class="menu-item-badge">{taskCountData.total}</span>
 						{/if}
 					</button>
+					{/if}
 					<button class="menu-item" on:click={openQuickNotifications}>
 						<span class="menu-item-icon">🔔</span>
 						<span class="menu-item-text">{$_('nav.notification') || 'Notifications'}</span>
@@ -334,6 +337,8 @@
 			</button>
 
 			<!-- My Tasks -->
+			<!-- TASK BUTTON HIDDEN (kept for future reuse) -->
+			{#if false}
 			<button 
 				class="quick-btn tasks-btn"
 				on:click={openTasksWindow}
@@ -344,6 +349,7 @@
 					<div class="quick-badge {taskCountData.overdue > 0 ? 'overdue' : ''}">{taskCountData.total > 99 ? '99+' : taskCountData.total}</div>
 				{/if}
 			</button>
+			{/if}
 			
 			<!-- Quick Notifications -->
 			<button 
