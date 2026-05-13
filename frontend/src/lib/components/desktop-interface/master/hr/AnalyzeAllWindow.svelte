@@ -277,6 +277,40 @@
 				}
 			}
 
+			// Defensive overlay: override 'Absent' with approved leave status for any date
+			// where the employee has an approved day_off record. This corrects cases where
+			// an employee's employment status changed during an approved leave period, causing
+			// the Edge Function to exclude them and leave gaps in hr_analysed_attendance_data.
+			// Approved leave always has priority over Absent; no other statuses are affected.
+			const empIdsInMap = Array.from(empMap.keys());
+			if (empIdsInMap.length > 0) {
+				const { data: approvedLeaves } = await supabase
+					.from('day_off')
+					.select('employee_id, day_off_date, is_deductible_on_salary')
+					.in('employee_id', empIdsInMap)
+					.eq('approval_status', 'approved')
+					.gte('day_off_date', startDate)
+					.lte('day_off_date', endDate);
+
+				for (const leave of approvedLeaves || []) {
+					const empId = String(leave.employee_id);
+					const dateStr = typeof leave.day_off_date === 'string'
+						? leave.day_off_date.split('T')[0]
+						: new Date(leave.day_off_date).toISOString().split('T')[0];
+					const emp = empMap.get(empId);
+					if (!emp) continue;
+					const dayEntry = emp.dayByDay[dateStr];
+					if (dayEntry && dayEntry.status === 'Absent') {
+						emp.dayByDay[dateStr] = {
+							...dayEntry,
+							status: leave.is_deductible_on_salary
+								? 'Approved Leave (Deductible)'
+								: 'Approved Leave (No Deduction)'
+						};
+					}
+				}
+			}
+
 			// Load multi-shift data and adjust underworked for multi-shift employees
 			const [msRegRes, msDateRes, msWeekRes] = await Promise.all([
 				supabase.from('multi_shift_regular').select('employee_id, working_hours'),

@@ -636,6 +636,43 @@ Deno.serve(async (req) => {
       nationality_name_en: e.nationalities?.name_en,
     }));
 
+    // ---- Include employees with approved leave whose employment status changed ----
+    // Handles the case where an employee's job status was updated during an active
+    // approved leave period, which would otherwise exclude them from analysis and
+    // cause their approved leave days to appear as Absent in AnalyzeAllWindow.
+    if (!specificEmployeeId) {
+      const { data: leaveEmpData } = await supabase
+        .from('day_off')
+        .select('employee_id')
+        .eq('approval_status', 'approved')
+        .gte('day_off_date', startDate)
+        .lte('day_off_date', endDate);
+
+      if (leaveEmpData && leaveEmpData.length > 0) {
+        const existingIds = new Set(employees.map(e => String(e.id)));
+        const missingIds = [...new Set(
+          leaveEmpData.map((r: any) => String(r.employee_id)).filter((id: string) => !existingIds.has(id))
+        )];
+
+        if (missingIds.length > 0) {
+          const { data: extraData } = await supabase
+            .from('hr_employee_master')
+            .select(`id, name_en, name_ar, current_branch_id, employment_status, nationality_id, nationalities (name_en)`)
+            .in('id', missingIds);
+
+          const extraEmps: Employee[] = (extraData || []).map((e: any) => ({
+            ...e,
+            nationality_name_en: e.nationalities?.name_en,
+          }));
+
+          if (extraEmps.length > 0) {
+            console.log(`📊 [Analyze Attendance] Including ${extraEmps.length} additional employee(s) with approved leave but changed status`);
+            employees.push(...extraEmps);
+          }
+        }
+      }
+    }
+
     if (employees.length === 0) {
       console.log('📊 [Analyze Attendance] No employees found');
       return new Response(JSON.stringify({ success: true, message: 'No employees', analyzed: 0 }), {

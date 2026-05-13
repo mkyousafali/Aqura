@@ -332,6 +332,171 @@
     let rentPartiesLoaded = false;
     let rentPartiesLoading = false;
 
+    // Rent Parties filter state
+    let rentSearchTerm = '';
+    let rentPropertyFilter = '';
+    let rentPaymentPeriodFilter = '';
+    let rentPaymentModeFilter = '';
+
+    $: rentPropertyOptions = [...new Set(rentRecords.map((r: any) => r.property?.name_en || '').filter(Boolean))].sort() as string[];
+    $: rentPaymentPeriodOptions = [...new Set(rentRecords.map((r: any) => r.payment_period || '').filter(Boolean))].sort() as string[];
+    $: rentPaymentModeOptions = [...new Set(rentRecords.map((r: any) => r.payment_mode || '').filter(Boolean))].sort() as string[];
+
+    $: filteredRentParties = rentRecords.filter((r: any) => {
+        if (rentSearchTerm.trim()) {
+            const q = rentSearchTerm.toLowerCase();
+            const matches =
+                (r.party_name_en || '').toLowerCase().includes(q) ||
+                (r.party_name_ar || '').includes(q) ||
+                (r.contact_number || '').toLowerCase().includes(q) ||
+                (r.email || '').toLowerCase().includes(q) ||
+                (r.property?.name_en || '').toLowerCase().includes(q) ||
+                (r.property?.name_ar || '').includes(q) ||
+                (r.space?.space_number || '').toLowerCase().includes(q);
+            if (!matches) return false;
+        }
+        if (rentPropertyFilter && (r.property?.name_en || '') !== rentPropertyFilter) return false;
+        if (rentPaymentPeriodFilter && (r.payment_period || '') !== rentPaymentPeriodFilter) return false;
+        if (rentPaymentModeFilter && (r.payment_mode || '') !== rentPaymentModeFilter) return false;
+        return true;
+    });
+
+    function clearRentFilters() {
+        rentSearchTerm = '';
+        rentPropertyFilter = '';
+        rentPaymentPeriodFilter = '';
+        rentPaymentModeFilter = '';
+    }
+
+    async function exportRentPartiesToExcel(lang: 'en' | 'ar') {
+        const ExcelJS = (await import('exceljs')).default;
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'Aqura';
+        wb.created = new Date();
+
+        const isAr = lang === 'ar';
+        const sheetName = isAr ? 'أطراف الإيجار' : 'Rent Parties';
+        const ws = wb.addWorksheet(sheetName, { views: [{ rightToLeft: isAr }] });
+
+        const cols = isAr
+            ? [
+                { header: '#', key: 'num', width: 5 },
+                { header: 'اسم الطرف', key: 'name', width: 30 },
+                { header: 'رقم الاتصال', key: 'contact', width: 18 },
+                { header: 'البريد الإلكتروني', key: 'email', width: 28 },
+                { header: 'العقار', key: 'property', width: 22 },
+                { header: 'رقم المساحة', key: 'space', width: 14 },
+                { header: 'اسم المحل', key: 'shop', width: 22 },
+                { header: 'تاريخ بداية العقد', key: 'start', width: 16 },
+                { header: 'تاريخ نهاية العقد', key: 'end', width: 16 },
+                { header: 'عقد مفتوح', key: 'open', width: 12 },
+                { header: 'مبلغ الإيجار (عقد)', key: 'amtContract', width: 18 },
+                { header: 'مبلغ الإيجار (خارج العقد)', key: 'amtOutside', width: 22 },
+                { header: 'رسوم المرافق', key: 'utility', width: 15 },
+                { header: 'رسوم الضمان', key: 'security', width: 15 },
+                { header: 'رسوم أخرى', key: 'other', width: 14 },
+                { header: 'إجمالي الإيجار', key: 'total', width: 16 },
+                { header: 'طريقة الدفع', key: 'mode', width: 14 },
+                { header: 'فترة الدفع', key: 'period', width: 16 },
+                { header: 'المتبقي من العقد', key: 'remaining', width: 16 },
+              ]
+            : [
+                { header: '#', key: 'num', width: 5 },
+                { header: 'Party Name', key: 'name', width: 30 },
+                { header: 'Contact Number', key: 'contact', width: 18 },
+                { header: 'Email', key: 'email', width: 28 },
+                { header: 'Property', key: 'property', width: 22 },
+                { header: 'Space Number', key: 'space', width: 14 },
+                { header: 'Shop Name', key: 'shop', width: 22 },
+                { header: 'Contract Start', key: 'start', width: 16 },
+                { header: 'Contract End', key: 'end', width: 16 },
+                { header: 'Open Contract', key: 'open', width: 12 },
+                { header: 'Base Rent Amount', key: 'amtContract', width: 18 },
+                { header: 'Outside Contract', key: 'amtOutside', width: 18 },
+                { header: 'Utility Charges', key: 'utility', width: 15 },
+                { header: 'Security Charges', key: 'security', width: 15 },
+                { header: 'Other Charges', key: 'other', width: 14 },
+                { header: 'Total Rent', key: 'total', width: 14 },
+                { header: 'Payment Mode', key: 'mode', width: 14 },
+                { header: 'Payment Period', key: 'period', width: 16 },
+                { header: 'Remaining Time', key: 'remaining', width: 16 },
+              ];
+
+        ws.columns = cols;
+
+        // Header row styling
+        const headerRow = ws.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEA580C' } };
+        headerRow.alignment = { horizontal: isAr ? 'right' : 'left', vertical: 'middle' };
+        headerRow.height = 22;
+
+        // Data rows — sorted by property name
+        const sortedRentParties = [...filteredRentParties].sort((a: any, b: any) => {
+            const propA = isAr ? (a.property?.name_ar || '') : (a.property?.name_en || '');
+            const propB = isAr ? (b.property?.name_ar || '') : (b.property?.name_en || '');
+            return propA.localeCompare(propB);
+        });
+        sortedRentParties.forEach((r: any, i: number) => {
+            const otherTotal = r.other_charges ? r.other_charges.reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0) : 0;
+            const total = (Number(r.rent_amount_contract) || 0) + (Number(r.rent_amount_outside_contract) || 0) + (Number(r.utility_charges) || 0) + (Number(r.security_charges) || 0) + otherTotal;
+            const row = ws.addRow({
+                num: i + 1,
+                name: isAr ? (r.party_name_ar || '') : (r.party_name_en || ''),
+                contact: r.contact_number || '',
+                email: r.email || '',
+                property: isAr ? (r.property?.name_ar || '') : (r.property?.name_en || ''),
+                space: r.space?.space_number || '',
+                shop: r.shop_name || '',
+                start: fmtDate(r.contract_start_date) || '',
+                end: r.is_open_contract ? (isAr ? 'مفتوح' : 'Open') : (fmtDate(r.contract_end_date) || ''),
+                open: r.is_open_contract ? (isAr ? 'نعم' : 'Yes') : (isAr ? 'لا' : 'No'),
+                amtContract: Number(r.rent_amount_contract) || 0,
+                amtOutside: Number(r.rent_amount_outside_contract) || 0,
+                utility: Number(r.utility_charges) || 0,
+                security: Number(r.security_charges) || 0,
+                other: otherTotal,
+                total,
+                mode: r.payment_mode || '',
+                period: (r.payment_period || '').replace(/_/g, ' '),
+                remaining: getRemainingTime(r.contract_end_date, r.is_open_contract),
+            });
+            row.alignment = { horizontal: isAr ? 'right' : 'left', vertical: 'middle', wrapText: false };
+            if (i % 2 === 0) {
+                row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7ED' } };
+            }
+        });
+
+        // Totals row
+        const totalOther = filteredRentParties.reduce((s: number, r: any) => s + (r.other_charges ? r.other_charges.reduce((oc: number, c: any) => oc + (Number(c.amount) || 0), 0) : 0), 0);
+        const totalsRow = ws.addRow({
+            num: '',
+            name: isAr ? 'الإجمالي' : 'TOTAL',
+            contact: '', email: '', property: '', space: '', shop: '', start: '', end: '', open: '',
+            amtContract: filteredRentParties.reduce((s: number, r: any) => s + (Number(r.rent_amount_contract) || 0), 0),
+            amtOutside: filteredRentParties.reduce((s: number, r: any) => s + (Number(r.rent_amount_outside_contract) || 0), 0),
+            utility: filteredRentParties.reduce((s: number, r: any) => s + (Number(r.utility_charges) || 0), 0),
+            security: filteredRentParties.reduce((s: number, r: any) => s + (Number(r.security_charges) || 0), 0),
+            other: totalOther,
+            total: filteredRentParties.reduce((s: number, r: any) => s + (Number(r.rent_amount_contract) || 0) + (Number(r.rent_amount_outside_contract) || 0) + (Number(r.utility_charges) || 0) + (Number(r.security_charges) || 0) + (r.other_charges ? r.other_charges.reduce((oc: number, c: any) => oc + (Number(c.amount) || 0), 0) : 0), 0),
+            mode: '', period: '', remaining: '',
+        });
+        totalsRow.font = { bold: true, size: 11 };
+        totalsRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFED7AA' } };
+        totalsRow.alignment = { horizontal: isAr ? 'right' : 'left', vertical: 'middle' };
+
+        // Download
+        const buf = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const date = new Date().toISOString().slice(0, 10);
+        a.download = isAr ? `ايجار-${date}.xlsx` : `Rent-Parties-${date}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     // ===== REPORTS TAB STATE =====
     let reportType: 'lease' | 'rent' | null = null;
     let reportLoading = false;
@@ -1780,6 +1945,82 @@
                         <p class="text-slate-600 font-semibold">{$t('finance.leaseAndRent.noRentRecords')}</p>
                     </div>
                 {:else}
+                    <!-- Rent Parties Search & Filter Bar -->
+                    <div class="mb-3 flex flex-wrap items-center gap-2 bg-white/60 backdrop-blur-sm border border-slate-200 rounded-2xl px-4 py-3 shadow-sm">
+                        <!-- Search -->
+                        <div class="relative flex-1 min-w-[180px]">
+                            <span class="absolute inset-y-0 {$locale === 'ar' ? 'right-3' : 'left-3'} flex items-center text-slate-400 text-sm pointer-events-none">🔍</span>
+                            <input
+                                type="text"
+                                bind:value={rentSearchTerm}
+                                placeholder="Search rent parties..."
+                                class="w-full {$locale === 'ar' ? 'pr-8 pl-3' : 'pl-8 pr-3'} py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all"
+                            />
+                        </div>
+                        <!-- Property Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-xs font-bold text-slate-500 whitespace-nowrap">Property</span>
+                            <select
+                                bind:value={rentPropertyFilter}
+                                class="py-1.5 px-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Properties</option>
+                                {#each rentPropertyOptions as opt}
+                                    <option value={opt}>{opt}</option>
+                                {/each}
+                            </select>
+                        </div>
+                        <!-- Payment Period Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-xs font-bold text-slate-500 whitespace-nowrap">Payment Period</span>
+                            <select
+                                bind:value={rentPaymentPeriodFilter}
+                                class="py-1.5 px-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Periods</option>
+                                {#each rentPaymentPeriodOptions as opt}
+                                    <option value={opt}>{opt.replace(/_/g, ' ')}</option>
+                                {/each}
+                            </select>
+                        </div>
+                        <!-- Payment Mode Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-xs font-bold text-slate-500 whitespace-nowrap">Payment Mode</span>
+                            <select
+                                bind:value={rentPaymentModeFilter}
+                                class="py-1.5 px-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Modes</option>
+                                {#each rentPaymentModeOptions as opt}
+                                    <option value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>
+                                {/each}
+                            </select>
+                        </div>
+                        <!-- Clear Filters -->
+                        {#if rentSearchTerm || rentPropertyFilter || rentPaymentPeriodFilter || rentPaymentModeFilter}
+                            <button
+                                on:click={clearRentFilters}
+                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-orange-100 text-orange-700 text-xs font-bold hover:bg-orange-200 transition-all"
+                            >✕ Clear</button>
+                        {/if}
+                        <!-- Export Buttons -->
+                        <div class="flex items-center gap-1.5 ml-auto">
+                            <button
+                                on:click={() => exportRentPartiesToExcel('en')}
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-all shadow-sm"
+                                title="Export current view to Excel (English)"
+                            >📥 Export EN</button>
+                            <button
+                                on:click={() => exportRentPartiesToExcel('ar')}
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all shadow-sm"
+                                title="Export current view to Excel (Arabic)"
+                            >📥 تصدير AR</button>
+                        </div>
+                        <!-- Result Count -->
+                        <span class="text-[11px] text-slate-500 font-semibold whitespace-nowrap">
+                            Showing {filteredRentParties.length} of {rentRecords.length} rent record{rentRecords.length !== 1 ? 's' : ''}
+                        </span>
+                    </div>
                     <!-- Rent Parties Full Details Table -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden flex flex-col">
                         <div class="overflow-x-auto flex-1">
@@ -1801,7 +2042,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
-                                    {#each rentRecords as record, index}
+                                    {#each filteredRentParties as record, index}
                                         <tr class="hover:bg-orange-50/40 transition-colors duration-150 {index % 2 === 0 ? 'bg-slate-50/30' : 'bg-white/30'}">
                                             <td class="px-2 py-2 text-slate-500 font-semibold">{index + 1}</td>
                                             <td class="px-2 py-2 whitespace-nowrap leading-snug">
@@ -1891,8 +2132,23 @@
                                 </tbody>
                             </table>
                         </div>
-                        <div class="px-4 py-2 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('finance.leaseAndRent.showingRecords', { count: rentRecords.length })}
+                        <div class="px-4 py-2 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex flex-wrap items-center gap-x-6 gap-y-1">
+                            <span>Showing {filteredRentParties.length} of {rentRecords.length} rent record{rentRecords.length !== 1 ? 's' : ''}</span>
+                            <span class="text-orange-700 font-bold">
+                                Total Base Rent: {filteredRentParties.reduce((s, r) => s + (Number(r.rent_amount_contract) || 0), 0).toLocaleString()}
+                            </span>
+                            <span class="text-slate-700 font-bold">
+                                Total Outside: {filteredRentParties.reduce((s, r) => s + (Number(r.rent_amount_outside_contract) || 0), 0).toLocaleString()}
+                            </span>
+                            <span class="text-cyan-700 font-bold">
+                                Total Utility: {filteredRentParties.reduce((s, r) => s + (Number(r.utility_charges) || 0), 0).toLocaleString()}
+                            </span>
+                            <span class="text-amber-700 font-bold">
+                                Total Security: {filteredRentParties.reduce((s, r) => s + (Number(r.security_charges) || 0), 0).toLocaleString()}
+                            </span>
+                            <span class="text-orange-900 font-black bg-orange-100 px-2 py-0.5 rounded-lg">
+                                Grand Total: {filteredRentParties.reduce((s, r) => s + (Number(r.rent_amount_contract) || 0) + (Number(r.rent_amount_outside_contract) || 0) + (Number(r.utility_charges) || 0) + (Number(r.security_charges) || 0) + (r.other_charges ? r.other_charges.reduce((oc: number, c: any) => oc + (Number(c.amount) || 0), 0) : 0), 0).toLocaleString()}
+                            </span>
                         </div>
                     </div>
                 {/if}
