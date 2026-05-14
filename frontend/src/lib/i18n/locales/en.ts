@@ -1501,7 +1501,14 @@ export const englishLocale: LocaleData = {
         paymentHistory: "Payment History",
         noPayments: "No payments recorded yet",
         amount: "Amount",
-        save: "Save"
+        save: "Save",
+        action: "Action",
+        reversePayment: "Reverse",
+        reversePaymentTitle: "Reverse Payment",
+        reversePaymentConfirm: "This will delete all payment entries for this period. This cannot be undone.",
+        confirmReverse: "Yes, Reverse",
+        cancelReverse: "Cancel",
+        period: "Period"
       },
       assets: {
         viewAll: "View All",

@@ -325,6 +325,48 @@
         }
     }
 
+    function getRowLastPaidDate(row: any): string {
+        const dates = ['contract', 'outside', 'utility', 'security', 'other']
+            .map(col => {
+                const key = `${row.num}_${col}`;
+                const entries = paymentEntriesMap[key];
+                if (!entries || entries.length === 0) return '';
+                return entries[entries.length - 1].paid_date || '';
+            })
+            .filter(Boolean)
+            .sort();
+        return dates.length > 0 ? fmtDate(dates[dates.length - 1]) : '';
+    }
+
+    // Reverse (delete) payment entries for a row
+    let deletingPaymentRow: any = null;
+    let deletePaymentRowSaving = false;
+
+    function confirmDeletePaymentRow(row: any) {
+        deletingPaymentRow = row;
+    }
+
+    async function deletePaymentRow() {
+        if (!deletingPaymentRow || !selectedPaymentParty || !paymentType || deletePaymentRowSaving) return;
+        deletePaymentRowSaving = true;
+        try {
+            const { error } = await supabase
+                .from('lease_rent_payment_entries')
+                .delete()
+                .eq('party_type', paymentType)
+                .eq('party_id', selectedPaymentParty.id)
+                .eq('period_num', deletingPaymentRow.num);
+            if (!error) {
+                deletingPaymentRow = null;
+                await loadPaymentEntries();
+            } else {
+                console.error('Delete payment entries error:', error);
+            }
+        } finally {
+            deletePaymentRowSaving = false;
+        }
+    }
+
     let leaseRecords: any[] = [];
     let leasePartiesLoaded = false;
     let leasePartiesLoading = false;
@@ -506,6 +548,13 @@
     let reportAllEntries: any[] = [];
     let reportAllChanges: any[] = [];
     let reportGenerated = false;
+    let reportTableSearch = '';
+    $: filteredReportRows = reportTableSearch.trim()
+        ? reportRows.filter(r =>
+            (r.party.party_name_en || '').toLowerCase().includes(reportTableSearch.toLowerCase()) ||
+            (r.party.party_name_ar || '').includes(reportTableSearch)
+          )
+        : reportRows;
 
     // Report popup state
     let showReportPopup = false;
@@ -534,12 +583,14 @@
         if (parties.length === 0) { reportLoading = false; reportGenerated = true; return; }
 
         const today = new Date();
-        const currentMonthKey = today.toISOString().slice(0, 7);
+        const curYear = today.getFullYear();
+        const curMonthNum = today.getMonth() + 1; // 1-12
+        const currentMonthKey = `${curYear}-${String(curMonthNum).padStart(2, '0')}`;
         const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         reportMonths = [currentMonthKey];
-        reportMonthLabels = [`${monthNames[today.getMonth()]} ${today.getFullYear()}`];
+        reportMonthLabels = [`${monthNames[curMonthNum - 1]} ${curYear}`];
         const dateFrom = `${currentMonthKey}-01`;
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+        const lastDay = new Date(curYear, curMonthNum, 0).getDate();
         const dateTo = `${currentMonthKey}-${String(lastDay).padStart(2, '0')}`;
 
         await buildReportRows(type, parties, [currentMonthKey], dateFrom, dateTo);
@@ -650,19 +701,21 @@
         const parties = (reportPopupType === 'lease' ? leaseRecords : rentRecords).filter((p: any) => reportSelectedPartyIds.has(p.id));
         if (parties.length === 0) { reportLoading = false; reportGenerated = true; return; }
 
-        // Generate month columns within date range
-        const fromDate = new Date(reportDateFrom);
-        const toDate = new Date(reportDateTo);
+        // Build month columns using pure string arithmetic to avoid timezone-shift bugs
+        // (new Date(year, month, 1).toISOString() converts local→UTC which shifts the key in UTC+ zones)
+        const fromYM = reportDateFrom.slice(0, 7); // "YYYY-MM"
+        const toYM   = reportDateTo.slice(0, 7);   // "YYYY-MM"
+        let [curY, curM2] = fromYM.split('-').map(Number);
+        const [endY, endM2] = toYM.split('-').map(Number);
         const months: string[] = [];
         const labels: string[] = [];
         const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        let curM = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
-        const endM = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
-        while (curM <= endM) {
-            const key = curM.toISOString().slice(0, 7);
+        while (curY < endY || (curY === endY && curM2 <= endM2)) {
+            const key = `${curY}-${String(curM2).padStart(2, '0')}`;
             months.push(key);
-            labels.push(`${monthNames[curM.getMonth()]} ${curM.getFullYear()}`);
-            curM.setMonth(curM.getMonth() + 1);
+            labels.push(`${monthNames[curM2 - 1]} ${curY}`);
+            curM2++;
+            if (curM2 > 12) { curM2 = 1; curY++; }
         }
         reportMonths = months;
         reportMonthLabels = labels;
@@ -2429,6 +2482,15 @@
 
                 <!-- Report Table (shown after Generate) -->
                 {#if reportGenerated && reportRows.length > 0}
+                    <!-- Search bar -->
+                    <div class="mb-2">
+                        <input
+                            type="text"
+                            bind:value={reportTableSearch}
+                            placeholder="🔍 Search party..."
+                            class="w-full max-w-xs px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 {reportType === 'lease' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'} focus:border-transparent transition-all shadow-sm"
+                        />
+                    </div>
                     <div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden flex flex-col">
                         <div class="overflow-x-auto flex-1">
                             <table class="w-full border-collapse text-xs">
@@ -2444,7 +2506,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
-                                    {#each reportRows as row, index}
+                                    {#each filteredReportRows as row, index}
                                         <tr class="{index % 2 === 0 ? 'bg-slate-50/30' : 'bg-white/30'} hover:bg-cyan-50/40 transition-colors duration-150">
                                             <td class="px-2 py-1.5 sticky left-0 z-10 bg-white/90 backdrop-blur-sm border-r border-slate-200 min-w-[160px]">
                                                 <div class="font-bold text-slate-800 text-[10px] truncate">{row.party.party_name_en || '—'}</div>
@@ -2480,37 +2542,37 @@
                                     <tr class="{reportType === 'lease' ? 'bg-emerald-100/80' : 'bg-orange-100/80'} font-black border-t-2 {reportType === 'lease' ? 'border-emerald-400' : 'border-orange-400'}">
                                         <td class="px-2 py-2 sticky left-0 z-10 {reportType === 'lease' ? 'bg-emerald-100' : 'bg-orange-100'} border-r border-slate-200">{$t('finance.leaseAndRent.reportTotalDue')}</td>
                                         {#each reportMonths as month}
-                                            <td class="px-1 py-2 text-center {reportType === 'lease' ? 'text-emerald-800' : 'text-orange-800'}">{reportRows.reduce((s, r) => s + (r.months[month]?.due || 0), 0).toLocaleString()}</td>
+                                            <td class="px-1 py-2 text-center {reportType === 'lease' ? 'text-emerald-800' : 'text-orange-800'}">{filteredReportRows.reduce((s, r) => s + (r.months[month]?.due || 0), 0).toLocaleString()}</td>
                                         {/each}
-                                        <td class="px-2 py-2 text-center {reportType === 'lease' ? 'text-emerald-900 bg-emerald-200/50' : 'text-orange-900 bg-orange-200/50'}">{reportRows.reduce((s, r) => s + r.totalDue, 0).toLocaleString()}</td>
-                                        <td class="px-2 py-2 text-center text-green-900 bg-green-200/50">{reportRows.reduce((s, r) => s + r.totalPaid, 0).toLocaleString()}</td>
-                                        <td class="px-2 py-2 text-center text-red-900 bg-red-200/50">{reportRows.reduce((s, r) => s + r.totalUnpaid, 0).toLocaleString()}</td>
+                                        <td class="px-2 py-2 text-center {reportType === 'lease' ? 'text-emerald-900 bg-emerald-200/50' : 'text-orange-900 bg-orange-200/50'}">{filteredReportRows.reduce((s, r) => s + r.totalDue, 0).toLocaleString()}</td>
+                                        <td class="px-2 py-2 text-center text-green-900 bg-green-200/50">{filteredReportRows.reduce((s, r) => s + r.totalPaid, 0).toLocaleString()}</td>
+                                        <td class="px-2 py-2 text-center text-red-900 bg-red-200/50">{filteredReportRows.reduce((s, r) => s + r.totalUnpaid, 0).toLocaleString()}</td>
                                     </tr>
                                     <tr class="bg-green-100/80 font-black">
                                         <td class="px-2 py-2 sticky left-0 z-10 bg-green-100 border-r border-slate-200 text-green-800">✅ {$t('finance.leaseAndRent.reportTotalPaid')}</td>
                                         {#each reportMonths as month}
-                                            <td class="px-1 py-2 text-center text-green-800">{reportRows.reduce((s, r) => s + (r.months[month]?.paid || 0), 0).toLocaleString()}</td>
+                                            <td class="px-1 py-2 text-center text-green-800">{filteredReportRows.reduce((s, r) => s + (r.months[month]?.paid || 0), 0).toLocaleString()}</td>
                                         {/each}
                                         <td class="px-2 py-2"></td>
-                                        <td class="px-2 py-2 text-center text-green-900 bg-green-200/50">{reportRows.reduce((s, r) => s + r.totalPaid, 0).toLocaleString()}</td>
+                                        <td class="px-2 py-2 text-center text-green-900 bg-green-200/50">{filteredReportRows.reduce((s, r) => s + r.totalPaid, 0).toLocaleString()}</td>
                                         <td class="px-2 py-2"></td>
                                     </tr>
                                     <tr class="bg-red-100/80 font-black">
                                         <td class="px-2 py-2 sticky left-0 z-10 bg-red-100 border-r border-slate-200 text-red-800">❌ {$t('finance.leaseAndRent.reportTotalUnpaid')}</td>
                                         {#each reportMonths as month}
-                                            {@const due = reportRows.reduce((s, r) => s + (r.months[month]?.due || 0), 0)}
-                                            {@const paid = reportRows.reduce((s, r) => s + (r.months[month]?.paid || 0), 0)}
+                                            {@const due = filteredReportRows.reduce((s, r) => s + (r.months[month]?.due || 0), 0)}
+                                            {@const paid = filteredReportRows.reduce((s, r) => s + (r.months[month]?.paid || 0), 0)}
                                             <td class="px-1 py-2 text-center text-red-800">{(due - paid).toLocaleString()}</td>
                                         {/each}
                                         <td class="px-2 py-2"></td>
                                         <td class="px-2 py-2"></td>
-                                        <td class="px-2 py-2 text-center text-red-900 bg-red-200/50">{reportRows.reduce((s, r) => s + r.totalUnpaid, 0).toLocaleString()}</td>
+                                        <td class="px-2 py-2 text-center text-red-900 bg-red-200/50">{filteredReportRows.reduce((s, r) => s + r.totalUnpaid, 0).toLocaleString()}</td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
                         <div class="px-4 py-2 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('finance.leaseAndRent.showingRecords', { count: reportRows.length })} — {reportMonths.length} {$t('finance.leaseAndRent.period')}s
+                            {$t('finance.leaseAndRent.showingRecords', { count: filteredReportRows.length })}{reportTableSearch.trim() ? ` / ${reportRows.length}` : ''} — {reportMonths.length} {$t('finance.leaseAndRent.period')}s
                         </div>
                     </div>
                 {:else if reportGenerated && reportRows.length === 0}
@@ -3224,6 +3286,7 @@
                                         <th class="px-2 py-2 {$locale === 'ar' ? 'text-right' : 'text-left'} font-black uppercase tracking-wider border-b-2 border-indigo-400 bg-indigo-700">{$t('finance.leaseAndRent.total')}</th>
                                         <th class="px-2 py-2 {$locale === 'ar' ? 'text-right' : 'text-left'} font-black uppercase tracking-wider border-b-2 border-indigo-400">{$t('finance.leaseAndRent.paid')}</th>
                                         <th class="px-2 py-2 {$locale === 'ar' ? 'text-right' : 'text-left'} font-black uppercase tracking-wider border-b-2 border-indigo-400">{$t('finance.leaseAndRent.status')}</th>
+                                        <th class="px-2 py-2 text-center font-black uppercase tracking-wider border-b-2 border-indigo-400">{$t('finance.leaseAndRent.action')}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
@@ -3269,6 +3332,13 @@
                                                     <span class="inline-flex px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">{$t('finance.leaseAndRent.unpaid')}</span>
                                                 {/if}
                                             </td>
+                                            <td class="px-2 py-1.5 text-center">
+                                                {#if getPaidAmount(row) > 0}
+                                                    <button type="button" on:click={() => confirmDeletePaymentRow(row)} class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-800 transition-all" title={$t('finance.leaseAndRent.reversePaymentTitle')}>
+                                                        🗑️ {$t('finance.leaseAndRent.reversePayment')}
+                                                    </button>
+                                                {/if}
+                                            </td>
                                         </tr>
                                     {/each}
                                 </tbody>
@@ -3289,6 +3359,7 @@
                                         <td class="px-2 py-2 text-indigo-900 bg-indigo-200/50 font-black">{paymentSchedule.reduce((s, r) => s + r.total, 0).toLocaleString()}</td>
                                         <td class="px-2 py-2"></td>
                                         <td class="px-2 py-2"></td>
+                                        <td class="px-2 py-2"></td>
                                     </tr>
                                     <tr class="bg-green-100/80 font-bold">
                                         <td class="px-2 py-2" colspan="1"></td>
@@ -3301,6 +3372,7 @@
                                         <td class="px-2 py-2 text-green-900 bg-green-200/50 font-black">{paymentSchedule.reduce((s, r) => s + getPaidAmount(r), 0).toLocaleString()}</td>
                                         <td class="px-2 py-2"></td>
                                         <td class="px-2 py-2"></td>
+                                        <td class="px-2 py-2"></td>
                                     </tr>
                                     <tr class="bg-red-100/80 font-bold">
                                         <td class="px-2 py-2" colspan="1"></td>
@@ -3311,6 +3383,7 @@
                                         <td class="px-2 py-2 text-red-800">{(paymentSchedule.reduce((s, r) => s + r.amtSecurity, 0) - paymentSchedule.reduce((s, r) => s + (Number(r.paidSecurity) || 0), 0)).toLocaleString()}</td>
                                         <td class="px-2 py-2 text-red-800">{(paymentSchedule.reduce((s, r) => s + r.amtOther, 0) - paymentSchedule.reduce((s, r) => s + (Number(r.paidOther) || 0), 0)).toLocaleString()}</td>
                                         <td class="px-2 py-2 text-red-900 bg-red-200/50 font-black">{(paymentSchedule.reduce((s, r) => s + r.total, 0) - paymentSchedule.reduce((s, r) => s + getPaidAmount(r), 0)).toLocaleString()}</td>
+                                        <td class="px-2 py-2"></td>
                                         <td class="px-2 py-2"></td>
                                         <td class="px-2 py-2"></td>
                                     </tr>
@@ -3553,6 +3626,37 @@
                     {#if paymentSaving}⏳ {$t('finance.leaseAndRent.saving')}{:else}💾 {$t('finance.leaseAndRent.save')}{/if}
                 </button>
                 {/if}
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Reverse Payment Confirmation Popup -->
+{#if deletingPaymentRow}
+    <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center" on:click|self={() => { deletingPaymentRow = null; }} on:keydown={(e) => { if (e.key === 'Escape') deletingPaymentRow = null; }}>
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-[420px] max-w-[90vw]">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-xl">⚠️</div>
+                <h4 class="text-base font-black text-slate-800">{$t('finance.leaseAndRent.reversePaymentTitle')}</h4>
+            </div>
+            <div class="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 text-sm text-red-700">
+                {$t('finance.leaseAndRent.reversePaymentConfirm')}
+            </div>
+            <div class="bg-slate-50 rounded-xl px-4 py-2 mb-5 text-xs text-slate-600 space-y-1">
+                <div><span class="font-semibold">{$t('finance.leaseAndRent.period')}:</span> #{deletingPaymentRow.num} ({fmtDate(deletingPaymentRow.from)} → {fmtDate(deletingPaymentRow.to)})</div>
+                <div><span class="font-semibold">{$t('finance.leaseAndRent.paid')}:</span> {getPaidAmount(deletingPaymentRow).toLocaleString()}</div>
+                {#if getRowLastPaidDate(deletingPaymentRow)}
+                    <div><span class="font-semibold">{$t('finance.leaseAndRent.paidDate')}:</span> {getRowLastPaidDate(deletingPaymentRow)}</div>
+                {/if}
+            </div>
+            <div class="flex gap-3 justify-end">
+                <button type="button" on:click={() => { deletingPaymentRow = null; }} class="px-5 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+                    {$t('finance.leaseAndRent.cancelReverse')}
+                </button>
+                <button type="button" on:click={deletePaymentRow} disabled={deletePaymentRowSaving} class="px-5 py-2 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 transition-all flex items-center gap-2">
+                    {#if deletePaymentRowSaving}<span class="animate-spin">⏳</span>{/if}
+                    {$t('finance.leaseAndRent.confirmReverse')}
+                </button>
             </div>
         </div>
     </div>

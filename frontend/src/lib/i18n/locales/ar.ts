@@ -1537,7 +1537,14 @@ export const arabicLocale: LocaleData = {
         paymentHistory: "سجل المدفوعات",
         noPayments: "لا توجد مدفوعات مسجلة بعد",
         amount: "المبلغ",
-        save: "حفظ"
+        save: "حفظ",
+        action: "إجراء",
+        reversePayment: "عكس",
+        reversePaymentTitle: "عكس الدفعة",
+        reversePaymentConfirm: "سيتم حذف جميع مدفوعات هذه الفترة. لا يمكن التراجع عن هذا الإجراء.",
+        confirmReverse: "نعم، عكس",
+        cancelReverse: "إلغاء",
+        period: "الفترة"
       },
       assets: {
         viewAll: "عرض الكل",
