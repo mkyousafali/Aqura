@@ -1635,7 +1635,7 @@
 					{/each}
 				</tbody>
 				<tfoot>
-					<tr class="totals-row">
+					<tr class="totals-row sticky-tfoot-top">
 						<td class="date-cell"><strong>Total</strong></td>
 						{#each detailBranches as branch}
 							{@const colSales = detailDates.reduce((s, d) => s + (detailPivotMap.get(`${d}|${branch.id}`)?.net_amount ?? 0), 0)}
@@ -1647,6 +1647,21 @@
 						{/each}
 						<td class="num-cell total-cell"><strong>{formatCurrency(detailTotalSales)}</strong></td>
 						<td class="num-cell total-cell"><strong>{detailTotalBills.toLocaleString()}</strong></td>
+						<td class="trend-cell total-cell"></td>
+					</tr>
+					<tr class="totals-row sticky-tfoot-bottom">
+						<td class="date-cell"><strong>Avg/Day ({detailDates.length}d)</strong></td>
+						{#each detailBranches as branch}
+							{@const colSales = detailDates.reduce((s, d) => s + (detailPivotMap.get(`${d}|${branch.id}`)?.net_amount ?? 0), 0)}
+							{@const colBills = detailDates.reduce((s, d) => s + (detailPivotMap.get(`${d}|${branch.id}`)?.net_bills  ?? 0), 0)}
+							{@const n = detailDates.length || 1}
+							<td class="num-cell">{formatCurrency(colSales / n)}</td>
+							<td class="num-cell">{Math.round(colBills / n).toLocaleString()}</td>
+							<td class="num-cell avg-cell">{formatCurrency(colBills > 0 ? colSales / colBills : 0)}</td>
+							<td class="trend-cell"></td>
+						{/each}
+						<td class="num-cell total-cell">{formatCurrency(detailAvgPerDay)}</td>
+						<td class="num-cell total-cell">{Math.round(detailTotalBills / (detailDates.length || 1)).toLocaleString()}</td>
 						<td class="trend-cell total-cell"></td>
 					</tr>
 				</tfoot>
@@ -1791,7 +1806,7 @@
 					{/each}
 				</tbody>
 				<tfoot>
-					<tr class="totals-row">
+					<tr class="totals-row sticky-tfoot-top">
 						<td class="date-cell"><strong>Total</strong></td>
 						{#each monthlyBranches as branch}
 							{@const cs = monthlyMonths.reduce((s, m) => s + (monthlyPivotMap.get(`${m}|${branch.id}`)?.net_amount ?? 0), 0)}
@@ -1805,7 +1820,7 @@
 						<td class="num-cell total-cell"><strong>{monthlyTotalBills.toLocaleString()}</strong></td>
 						<td class="trend-cell total-cell"></td>
 					</tr>
-					<tr class="totals-row">
+					<tr class="totals-row sticky-tfoot-bottom">
 						<td class="date-cell"><strong>Avg/Month</strong></td>
 						{#each monthlyBranches as branch}
 							{@const cs = monthlyMonths.reduce((s, m) => s + (monthlyPivotMap.get(`${m}|${branch.id}`)?.net_amount ?? 0), 0)}
@@ -2303,6 +2318,8 @@
 
 	.table-wrapper {
 		overflow-x: auto;
+		overflow-y: auto;
+		max-height: 60vh;
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 2px 8px rgba(0,0,0,0.08);
@@ -2316,6 +2333,9 @@
 	}
 
 	.detail-table thead th {
+		position: sticky;
+		top: 0;
+		z-index: 2;
 		background: #f9fafb;
 		padding: 0.65rem 0.75rem;
 		text-align: left;
@@ -2326,6 +2346,7 @@
 	}
 
 	.detail-table thead th.date-h {
+		z-index: 3;
 		background: #ecfdf5;
 		border-right: 2px solid #10b981;
 		vertical-align: middle;
@@ -2348,8 +2369,9 @@
 		border-left: 2px solid white;
 	}
 
-	/* Sub-column headers */
+	/* Sub-column headers — second row, sits below first row (~38px) */
 	.detail-table thead th.sub-h {
+		top: 38px;
 		background: #f3f4f6;
 		font-weight: 600;
 		font-size: 0.72rem;
@@ -2394,4 +2416,14 @@
 		padding: 0.65rem 0.75rem;
 		color: #111;
 	}
+
+	.detail-table tfoot tr td {
+		position: sticky;
+		z-index: 2;
+		background: #f0fdf4;
+	}
+
+	/* Two-row sticky tfoot: top row sits above bottom row */
+	.detail-table tfoot tr.sticky-tfoot-bottom td { bottom: 0; }
+	.detail-table tfoot tr.sticky-tfoot-top td    { bottom: 43px; }
 </style>
