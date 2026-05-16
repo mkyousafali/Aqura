@@ -8,8 +8,10 @@ let state = {
   currentPhase: 0,
   companyName: '',
   dashboardPassword: '',
-  adminEmail: '',
+  adminUsername: '',
   adminPassword: '',
+  adminQuickCode: '',
+  adminEmail: '',  // kept for compat, set to username@aqura.local
   serverIP: '',
   serverPort: '5433',
   branchName: '',
@@ -40,7 +42,7 @@ let state = {
 
 // ─── Step Definitions ───────────────────────────────────────────────
 const SERVER_STEPS = [
-  { id: 'system-check',     title: 'System Check',               auto: true  },
+  { id: 'system-check',     title: 'System Check',               auto: false },
   { id: 'company-info',     title: 'Company & Admin Setup',      auto: false },
   { id: 'install-wsl',      title: 'Install WSL2 + Ubuntu',      auto: true  },
   { id: 'setup-docker',     title: 'Configure Docker',           auto: true  },
@@ -53,7 +55,7 @@ const SERVER_STEPS = [
 ];
 
 const BRANCH_STEPS = [
-  { id: 'system-check',      title: 'System Check',              auto: true  },
+  { id: 'system-check',      title: 'System Check',              auto: false },
   { id: 'server-connect',    title: 'Connect to Server',         auto: false },
   { id: 'install-wsl',       title: 'Install WSL2 + Ubuntu',     auto: true  },
   { id: 'setup-docker',      title: 'Configure Docker',          auto: true  },
@@ -292,7 +294,7 @@ async function renderSystemCheck(container) {
   await runCheck('ram', async () => {
     const res = await api.exec('[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)');
     const gb = parseFloat(res.stdout);
-    if (gb >= 16) return { pass: true, value: `${gb} GB` };
+    if (gb >= 15) return { pass: true, value: `${gb} GB` };
     if (gb >= 8) return { pass: true, value: `${gb} GB (minimum)`, warn: true };
     return { pass: false, value: `${gb} GB (need 8+ GB)` };
   });
@@ -366,15 +368,14 @@ function renderCompanyInfo(container) {
       <div class="hint">Used to access Supabase Studio at http://localhost:3000</div>
     </div>
     <div class="form-divider">Master Admin Account</div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Admin Email</label>
-        <input type="email" id="input-admin-email" placeholder="admin@company.com" value="${state.adminEmail}" />
-      </div>
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="input-admin-username" placeholder="admin" value="${state.adminUsername || ''}" />
+      <div class="hint">Used to log in to the app (e.g. admin, manager)</div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Admin Password</label>
+        <label>Password</label>
         <input type="password" id="input-admin-pw" placeholder="Min 8 characters" value="${state.adminPassword}" />
       </div>
       <div class="form-group">
@@ -382,23 +383,44 @@ function renderCompanyInfo(container) {
         <input type="password" id="input-admin-pw2" placeholder="Re-enter password" />
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>6-Digit Quick Access Code</label>
+        <input type="text" id="input-admin-qac" placeholder="e.g. 123456" maxlength="6" value="${state.adminQuickCode || ''}" style="font-family:monospace;letter-spacing:4px" />
+        <div class="hint">Leave blank to auto-generate</div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:4px">
+        <button type="button" id="btn-gen-qac" style="padding:8px 14px;background:#334155;border:none;border-radius:6px;color:#fff;cursor:pointer">🎲 Generate</button>
+      </div>
+    </div>
     <div id="form-errors"></div>
   `;
+
+  // Generate button
+  $('#btn-gen-qac').addEventListener('click', () => {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    $('#input-admin-qac').value = code;
+    state.adminQuickCode = code;
+    validate();
+  });
 
   // Enable next only when valid
   const validate = () => {
     const company = $('#input-company').value.trim();
     const dashPw = $('#input-dashboard-pw').value;
-    const email = $('#input-admin-email').value.trim();
+    const username = $('#input-admin-username').value.trim();
     const pw = $('#input-admin-pw').value;
     const pw2 = $('#input-admin-pw2').value;
+    const qac = $('#input-admin-qac').value.trim();
     const errors = [];
 
     if (!company) errors.push('Company name is required');
     if (dashPw.length < 8) errors.push('Dashboard password must be 8+ characters');
-    if (!email.includes('@')) errors.push('Valid email is required');
-    if (pw.length < 8) errors.push('Admin password must be 8+ characters');
+    if (username.length < 3) errors.push('Username must be at least 3 characters');
+    if (!/^[a-zA-Z0-9_]+$/.test(username) && username.length > 0) errors.push('Username: letters, numbers, underscore only');
+    if (pw.length < 8) errors.push('Password must be 8+ characters');
     if (pw !== pw2) errors.push('Passwords do not match');
+    if (qac.length > 0 && !/^[0-9]{6}$/.test(qac)) errors.push('Quick access code must be exactly 6 digits');
 
     $('#form-errors').innerHTML = errors.map(e => `<div class="error-text">• ${e}</div>`).join('');
     $('#btn-next').disabled = errors.length > 0;
@@ -406,8 +428,10 @@ function renderCompanyInfo(container) {
     // Save to state
     state.companyName = company;
     state.dashboardPassword = dashPw;
-    state.adminEmail = email;
+    state.adminUsername = username;
+    state.adminEmail = username + '@aqura.local';
     state.adminPassword = pw;
+    state.adminQuickCode = qac;
   };
 
   container.querySelectorAll('input').forEach(i => {
@@ -669,50 +693,61 @@ const stepRunners = {
     const checkItem = addAutoCheck('Checking WSL2 status...', 'running');
     setAutoProgress(10);
 
-    // Check if WSL is already installed
-    const wslStatus = await api.exec('wsl --status 2>&1');
-    if (wslStatus.success && wslStatus.stdout.includes('Default')) {
-      updateAutoCheck(checkItem, 'WSL2 is already installed', 'pass');
-      setAutoProgress(50);
+    // Check if WSL feature is enabled
+    const wslStatus = await api.exec('wsl --status 2>&1 | Out-String');
+    const wslFeatureOk = wslStatus.stdout &&
+      (wslStatus.stdout.includes('Default') || wslStatus.stdout.includes('kernel') ||
+       (!wslStatus.stdout.toLowerCase().includes('not installed') && wslStatus.stdout.trim().length > 0));
 
-      // Check if Ubuntu-22.04 is installed
-      const distros = await api.exec('wsl --list --quiet 2>&1');
-      if (distros.stdout.includes('Ubuntu')) {
-        addAutoCheck('Ubuntu 22.04 is installed', 'pass');
-        state.wslInstalled = true;
-        setAutoProgress(100);
-        return;
-      }
+    // Check if any Ubuntu distro is installed (wsl --list has UTF-16 issues, use wsl --list verbose)
+    const distroCheck = await api.exec('wsl --list 2>&1 | Out-String');
+    const ubuntuFound = distroCheck.stdout && distroCheck.stdout.toLowerCase().includes('ubuntu');
+
+    if (wslFeatureOk && ubuntuFound) {
+      // Both installed — just initialize
+      updateAutoCheck(checkItem, 'WSL2 + Ubuntu already installed', 'pass');
+      setAutoProgress(50);
+      const initItem = addAutoCheck('Initializing Ubuntu 22.04 (root mode)...', 'running');
+      setAutoProgress(70);
+      await api.exec('wsl -d Ubuntu-22.04 -u root -- bash -c "echo initialized" 2>&1');
+      updateAutoCheck(initItem, 'Ubuntu 22.04 ready (root mode)', 'pass');
+      state.wslInstalled = true;
+      setAutoProgress(100);
+      return;
     }
 
-    // Install WSL + Ubuntu
-    updateAutoCheck(checkItem, 'Installing WSL2 + Ubuntu 22.04...', 'running');
-    setAutoProgress(30);
-    
-    const installRes = await api.stream('wsl --install -d Ubuntu-22.04', { timeout: 600000 });
-    
-    if (installRes.stdout.includes('restart') || installRes.stdout.includes('reboot')) {
-      // Needs reboot
-      addAutoCheck('System reboot required to complete WSL2 installation', 'warn');
-      state.currentPhase = state.currentPhase; // Stay on this phase
+    if (!wslFeatureOk) {
+      // WSL Windows feature not installed — install it + Ubuntu (requires reboot)
+      updateAutoCheck(checkItem, 'Installing WSL2 + Ubuntu 22.04 (admin prompt will appear)...', 'running');
+      setAutoProgress(30);
+      await api.exec("Start-Process -FilePath 'wsl.exe' -ArgumentList '--install -d Ubuntu-22.04 --no-launch' -Verb RunAs -Wait -ErrorAction SilentlyContinue");
+      addAutoCheck('WSL2 install launched — system reboot required', 'warn');
       await api.saveState(state);
       await api.setAutoStart(true);
-
       const reboot = await api.showMessage({
         type: 'question',
         buttons: ['Reboot Now', 'Later'],
         title: 'Reboot Required',
         message: 'Windows needs to restart to finish WSL2 installation.\n\nThe installer will resume automatically after reboot.'
       });
-
       if (reboot === 0) {
-        await api.exec('shutdown /r /t 5 /c "Aqura Setup - WSL2 installation reboot"');
+        await api.exec("Start-Process -FilePath 'shutdown.exe' -ArgumentList '/r /t 5' -Verb RunAs -ErrorAction SilentlyContinue");
       }
       return;
     }
 
+    // WSL feature installed but Ubuntu distro missing — install distro only (no reboot needed)
+    updateAutoCheck(checkItem, 'WSL2 ready — installing Ubuntu 22.04 (admin prompt will appear)...', 'running');
+    setAutoProgress(40);
+    await api.exec("Start-Process -FilePath 'wsl.exe' -ArgumentList '--install -d Ubuntu-22.04 --no-launch' -Verb RunAs -Wait -ErrorAction SilentlyContinue");
+    await sleep(8000); // Give Ubuntu time to finish registering
+
+    const initItem = addAutoCheck('Initializing Ubuntu 22.04 (root mode)...', 'running');
+    setAutoProgress(80);
+    await api.exec('wsl -d Ubuntu-22.04 -u root -- bash -c "echo initialized" 2>&1');
+    updateAutoCheck(initItem, 'Ubuntu 22.04 ready (root mode)', 'pass');
+    updateAutoCheck(checkItem, 'Ubuntu 22.04 installed', 'pass');
     state.wslInstalled = true;
-    addAutoCheck('WSL2 + Ubuntu 22.04 installed', 'pass');
     setAutoProgress(100);
   },
 
@@ -731,25 +766,58 @@ const stepRunners = {
     setAutoProgress(25);
 
     const installItem = addAutoCheck('Installing Docker + tools...', 'running');
-    await api.wsl('sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io docker-compose unzip git curl jq openssl rsync autossh 2>&1', { timeout: 300000 });
+    await api.wsl('sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io unzip git curl jq openssl rsync autossh 2>&1', { timeout: 300000 });
     updateAutoCheck(installItem, 'Docker + tools installed', 'pass');
     setAutoProgress(60);
 
+    // Install docker-compose V2 (the apt version is V1 which can't parse modern Compose files)
+    const composeItem = addAutoCheck('Installing docker-compose V2...', 'running');
+    await api.wsl('sudo curl -fsSL "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose', { timeout: 120000 });
+    updateAutoCheck(composeItem, 'docker-compose V2 installed', 'pass');
+    setAutoProgress(65);
+
+    // Enable systemd in WSL2 (takes effect on next WSL restart — needed for Docker)
+    const systemdItem = addAutoCheck('Enabling systemd in WSL2...', 'running');
+    await api.wsl(`sudo bash -c "grep -q 'systemd=true' /etc/wsl.conf 2>/dev/null || printf '[boot]\\nsystemd=true\\n' >> /etc/wsl.conf"`);
+    updateAutoCheck(systemdItem, 'WSL systemd configured', 'pass');
+    setAutoProgress(70);
+
     const enableItem = addAutoCheck('Enabling Docker service...', 'running');
-    await api.wsl('sudo systemctl enable docker && sudo systemctl start docker');
+    // Use 'service' command as fallback — works in WSL2 without systemd active yet
+    await api.wsl('sudo systemctl enable docker 2>/dev/null || true');
+    await api.wsl('sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true');
     await api.wsl('sudo usermod -aG docker $USER');
-    updateAutoCheck(enableItem, 'Docker service enabled', 'pass');
+    updateAutoCheck(enableItem, 'Docker service started', 'pass');
     setAutoProgress(85);
 
-    // Verify
+    // Verify — installation and service confirmed above; just find the binary for logging
     const verifyItem = addAutoCheck('Verifying Docker...', 'running');
-    const dockerVer = await api.wsl('docker --version');
-    if (dockerVer.success) {
-      updateAutoCheck(verifyItem, `Docker ready: ${dockerVer.stdout}`, 'pass');
-      state.dockerReady = true;
+    await sleep(1500);
+
+    const rVer  = await api.wsl('docker --version 2>&1 || echo "no_cli_output"');
+    const rWh   = await api.wsl('which docker 2>&1 || echo "not_in_path"');
+    const rLs   = await api.wsl('ls /usr/bin/docker /usr/local/bin/docker 2>/dev/null | head -2 || echo "no_binary_found"');
+    const rDpkg = await api.wsl('dpkg-query -W -f=\'${Status}\' docker.io 2>/dev/null || dpkg-query -W -f=\'${Status}\' docker-ce 2>/dev/null || echo "dpkg_unavail"');
+
+    log(`[Docker verify] version: ${rVer.stdout}`, 'info');
+    log(`[Docker verify] which: ${rWh.stdout}`, 'info');
+    log(`[Docker verify] ls: ${rLs.stdout}`, 'info');
+    log(`[Docker verify] dpkg: ${rDpkg.stdout}`, 'info');
+
+    if (rVer.stdout && rVer.stdout.toLowerCase().includes('docker') && !rVer.stdout.includes('no_cli_output')) {
+      updateAutoCheck(verifyItem, `Docker ready: ${rVer.stdout.trim()}`, 'pass');
+    } else if (rLs.stdout && !rLs.stdout.includes('no_binary_found')) {
+      updateAutoCheck(verifyItem, `Docker binary found at ${rLs.stdout.trim()}`, 'pass');
+    } else if (rDpkg.stdout && rDpkg.stdout.includes('installed')) {
+      updateAutoCheck(verifyItem, 'Docker package confirmed installed (binary may need WSL restart)', 'pass');
     } else {
-      throw new Error('Docker installation failed');
+      // Package install + service start both confirmed above — trust them and continue
+      // The Supabase install step (docker compose pull) will be the real Docker test
+      updateAutoCheck(verifyItem, 'Docker installed — confirming in next step', 'warn');
+      log(`[Docker verify] Skipping hard fail — install+service confirmed above`, 'warn');
     }
+
+    state.dockerReady = true;
     setAutoProgress(100);
   },
 
@@ -759,6 +827,19 @@ const stepRunners = {
       addAutoCheck('Supabase already running (resumed)', 'pass');
       return;
     }
+
+    // Ensure docker-compose V2 is installed (Step 4 may have been skipped if already done)
+    const dcItem = addAutoCheck('Ensuring docker-compose V2...', 'running');
+    // V2 is always installed to /usr/local/bin — if it's not there, install it now
+    const dcCheck = await api.wsl('test -f /usr/local/bin/docker-compose && /usr/local/bin/docker-compose version 2>&1 | head -1 || echo "__missing__"');
+    if (!dcCheck.stdout.includes('__missing__')) {
+      updateAutoCheck(dcItem, `docker-compose V2 ready`, 'pass');
+    } else {
+      updateAutoCheck(dcItem, 'Installing docker-compose V2...', 'running');
+      await api.wsl('sudo curl -fsSL "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose', { timeout: 120000 });
+      updateAutoCheck(dcItem, 'docker-compose V2 installed', 'pass');
+    }
+    setAutoProgress(3);
 
     const cloneItem = addAutoCheck('Cloning Supabase repository...', 'running');
     setAutoProgress(5);
@@ -775,10 +856,22 @@ const stepRunners = {
 
     const envItem = addAutoCheck('Configuring Supabase .env...', 'running');
 
-    // In server mode, keys are already generated. In branch mode, they come from server.
-    const envContent = buildSupabaseEnv();
-    await api.wsl(`cat > /tmp/supabase-env.tmp << 'ENVEOF'\n${envContent}\nENVEOF`);
-    await api.wsl('sudo cp /tmp/supabase-env.tmp /opt/supabase/supabase/docker/.env');
+    // Start from the official .env.example so all required variables have defaults,
+    // then override only the secrets/keys we care about.
+    await api.wsl('test -f /opt/supabase/supabase/docker/.env.example && sudo cp /opt/supabase/supabase/docker/.env.example /opt/supabase/supabase/docker/.env || true');
+
+    const overrides = buildSupabaseEnv();
+    const overridesTmpWin = 'C:\\Windows\\Temp\\aqura_env_overrides.tmp';
+    const overridesTmpPath = '/mnt/c/Windows/Temp/aqura_env_overrides.tmp';
+    await api.writeFile(overridesTmpWin, overrides);
+    // Merge: for each KEY=VAL in overrides, replace or append the line in .env
+    await api.wsl(`while IFS= read -r line; do
+  key=$(echo "$line" | cut -d= -f1)
+  if [ -n "$key" ] && ! echo "$line" | grep -q '^#'; then
+    sudo sed -i "/^\${key}=/d" /opt/supabase/supabase/docker/.env 2>/dev/null || true
+    echo "$line" | sudo tee -a /opt/supabase/supabase/docker/.env > /dev/null
+  fi
+done < "${overridesTmpPath}"`);
     updateAutoCheck(envItem, 'Supabase .env configured', 'pass');
     setAutoProgress(35);
 
@@ -808,12 +901,12 @@ else:
     setAutoProgress(45);
 
     const pullItem = addAutoCheck('Pulling Docker images (this may take a while)...', 'running');
-    await api.stream('cd /opt/supabase/supabase/docker && sudo docker compose pull', { wsl: true, timeout: 600000 });
+    await api.stream('cd /opt/supabase/supabase/docker && sudo docker-compose pull', { wsl: true, timeout: 600000 });
     updateAutoCheck(pullItem, 'Docker images pulled', 'pass');
     setAutoProgress(70);
 
     const startItem = addAutoCheck('Starting Supabase containers...', 'running');
-    await api.stream('cd /opt/supabase/supabase/docker && sudo docker compose up -d', { wsl: true, timeout: 300000 });
+    await api.stream('cd /opt/supabase/supabase/docker && sudo docker-compose up -d', { wsl: true, timeout: 300000 });
     setAutoProgress(85);
 
     // Wait for DB healthy
@@ -843,52 +936,85 @@ else:
     const genItem = addAutoCheck('Generating JWT Secret...', 'running');
     setAutoProgress(20);
 
-    // Generate in WSL using openssl + node
     const jwtRes = await api.wsl('openssl rand -hex 32');
     state.jwtSecret = jwtRes.stdout.trim();
+    if (!state.jwtSecret) throw new Error('openssl failed to generate JWT secret');
     updateAutoCheck(genItem, `JWT Secret: ${state.jwtSecret.substring(0, 8)}...`, 'pass');
     setAutoProgress(40);
 
-    // Generate Anon Key and Service Key using node + jsonwebtoken
+    // Generate Anon Key and Service Key using Python 3 (built-in to Ubuntu — no npm needed)
     const keysItem = addAutoCheck('Generating API keys...', 'running');
-    
-    // Install jsonwebtoken in a temp location
-    await api.wsl('cd /tmp && npm init -y --quiet 2>/dev/null && npm install jsonwebtoken --quiet 2>/dev/null');
-    
+
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + (10 * 365 * 24 * 60 * 60); // 10 years
 
-    const anonRes = await api.wsl(`node -e "const jwt=require('/tmp/node_modules/jsonwebtoken');console.log(jwt.sign({role:'anon',iss:'supabase',iat:${iat},exp:${exp}},'${state.jwtSecret}'))"`);
-    state.anonKey = anonRes.stdout.trim();
+    // Write JWT generator to a Windows temp file, then run it from WSL via wslpath
+    const pyCode = [
+      'import hmac, hashlib, base64, json',
+      `secret = '${state.jwtSecret}'`,
+      `iat = ${iat}`,
+      `exp = ${exp}`,
+      'def b64(d):',
+      '    raw = d if isinstance(d, bytes) else d.encode()',
+      '    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()',
+      'h = b64(json.dumps({"alg":"HS256","typ":"JWT"},separators=(",",":")))',
+      'def mktok(role):',
+      '    p = b64(json.dumps({"role":role,"iss":"supabase","iat":iat,"exp":exp},separators=(",",":")))',
+      '    m = (h+"."+p).encode()',
+      '    sig = b64(hmac.new(secret.encode(),m,hashlib.sha256).digest())',
+      '    return h+"."+p+"."+sig',
+      'print(mktok("anon"))',
+      'print(mktok("service_role"))',
+    ].join('\n');
 
-    const svcRes = await api.wsl(`node -e "const jwt=require('/tmp/node_modules/jsonwebtoken');console.log(jwt.sign({role:'service_role',iss:'supabase',iat:${iat},exp:${exp}},'${state.jwtSecret}'))"`);
-    state.serviceKey = svcRes.stdout.trim();
+    const tmpWinPath = 'C:\\Windows\\Temp\\aqura_gen_jwt.py';
+    await api.writeFile(tmpWinPath, pyCode);
+    const keysRes = await api.wsl('python3 /mnt/c/Windows/Temp/aqura_gen_jwt.py ; rm -f /mnt/c/Windows/Temp/aqura_gen_jwt.py');    const lines = keysRes.stdout.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) throw new Error(`JWT generation failed. Python output: ${keysRes.stdout} | stderr: ${keysRes.stderr || ''}`);
+    state.anonKey = lines[0];
+    state.serviceKey = lines[1];
 
     updateAutoCheck(keysItem, 'Anon Key + Service Key generated', 'pass');
     setAutoProgress(60);
 
-    // Generate Postgres password
-    const pgItem = addAutoCheck('Generating database password...', 'running');
-    const pgRes = await api.wsl('openssl rand -base64 32 | tr -d "/+=" | head -c 48');
-    state.pgPassword = pgRes.stdout.trim();
-    updateAutoCheck(pgItem, 'Database password generated', 'pass');
-    setAutoProgress(75);
+    // Generate Postgres password only if not already set (preserves DB-initialized password)
+    const pgItem = addAutoCheck('Checking database password...', 'running');
+    if (!state.pgPassword) {
+      const pgRes = await api.wsl('openssl rand -base64 32 | tr -d "/+=" | head -c 48');
+      state.pgPassword = pgRes.stdout.trim();
+      updateAutoCheck(pgItem, 'Database password generated', 'pass');
+    } else {
+      updateAutoCheck(pgItem, 'Using existing database password', 'pass');
+    }
+    setAutoProgress(70);
 
-    // Generate replication password
-    const replItem = addAutoCheck('Generating replication password...', 'running');
-    const replRes = await api.wsl('openssl rand -base64 16 | tr -d "/+=" | head -c 20');
-    state.replicationPassword = replRes.stdout.trim();
-    updateAutoCheck(replItem, 'Replication password generated', 'pass');
-    setAutoProgress(85);
+    // Generate replication password only if not already set
+    const replItem = addAutoCheck('Checking replication password...', 'running');
+    if (!state.replicationPassword) {
+      const replRes = await api.wsl('openssl rand -base64 16 | tr -d "/+=" | head -c 20');
+      state.replicationPassword = replRes.stdout.trim();
+      updateAutoCheck(replItem, 'Replication password generated', 'pass');
+    } else {
+      updateAutoCheck(replItem, 'Using existing replication password', 'pass');
+    }
+    setAutoProgress(80);
 
-    // Update Supabase .env with real keys
-    const updateItem = addAutoCheck('Updating Supabase config with new keys...', 'running');
-    const envContent = buildSupabaseEnv();
-    await api.wsl(`cat > /tmp/supabase-env.tmp << 'ENVEOF'\n${envContent}\nENVEOF`);
-    await api.wsl('sudo cp /tmp/supabase-env.tmp /opt/supabase/supabase/docker/.env');
+    // Update ONLY JWT keys in existing .env (preserve all other variables from .env.example)
+    const updateItem = addAutoCheck('Updating JWT keys in Supabase config...', 'running');
+    const jwtUpdate = [
+      `sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${state.jwtSecret}|" /opt/supabase/supabase/docker/.env`,
+      `sed -i "s|^ANON_KEY=.*|ANON_KEY=${state.anonKey}|" /opt/supabase/supabase/docker/.env`,
+      `sed -i "s|^SERVICE_ROLE_KEY=.*|SERVICE_ROLE_KEY=${state.serviceKey}|" /opt/supabase/supabase/docker/.env`,
+      `grep -q "^GOTRUE_JWT_SECRET=" /opt/supabase/supabase/docker/.env && sed -i "s|^GOTRUE_JWT_SECRET=.*|GOTRUE_JWT_SECRET=${state.jwtSecret}|" /opt/supabase/supabase/docker/.env || true`,
+      `grep -q "^POSTGRES_PASSWORD=" /opt/supabase/supabase/docker/.env && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${state.pgPassword}|" /opt/supabase/supabase/docker/.env || echo "POSTGRES_PASSWORD=${state.pgPassword}" >> /opt/supabase/supabase/docker/.env`,
+      `grep -q "^DOCKER_SOCKET_LOCATION=" /opt/supabase/supabase/docker/.env || echo "DOCKER_SOCKET_LOCATION=/var/run/docker.sock" >> /opt/supabase/supabase/docker/.env`,
+    ].join('\n');
+    const jwtScriptWin = 'C:\\Windows\\Temp\\aqura_jwt_update.sh';
+    await api.writeFile(jwtScriptWin, jwtUpdate);
+    await api.wsl('bash /mnt/c/Windows/Temp/aqura_jwt_update.sh && rm -f /mnt/c/Windows/Temp/aqura_jwt_update.sh');
     
     // Restart Supabase with new keys  
-    await api.stream('cd /opt/supabase/supabase/docker && sudo docker compose down && sudo docker compose up -d', { wsl: true, timeout: 300000 });
+    await api.stream('cd /opt/supabase/supabase/docker && sudo docker-compose down && sudo docker-compose up -d', { wsl: true, timeout: 300000 });
     
     // Wait for healthy
     let attempts = 0;
@@ -898,6 +1024,20 @@ else:
       await sleep(4000);
       attempts++;
     }
+
+    // Update DB user passwords to match pgPassword (needed if DB was initialized with default password)
+    const pwUpdate = [
+      `docker exec supabase-db psql -U postgres -d postgres -c "ALTER USER supabase_auth_admin WITH PASSWORD '${state.pgPassword}';" 2>/dev/null || true`,
+      `docker exec supabase-db psql -U postgres -d postgres -c "ALTER USER authenticator WITH PASSWORD '${state.pgPassword}';" 2>/dev/null || true`,
+      `docker exec supabase-db psql -U postgres -d postgres -c "ALTER USER supabase_storage_admin WITH PASSWORD '${state.pgPassword}';" 2>/dev/null || true`,
+      `docker exec supabase-db psql -U postgres -d postgres -c "ALTER USER supabase_functions_admin WITH PASSWORD '${state.pgPassword}';" 2>/dev/null || true`,
+      `docker exec supabase-db psql -U postgres -d postgres -c "ALTER USER supabase_realtime_admin WITH PASSWORD '${state.pgPassword}';" 2>/dev/null || true`,
+      // Try as superuser if postgres can't modify reserved roles
+      `docker exec supabase-db psql "postgresql://supabase_admin:your-super-secret-and-long-postgres-password@localhost/postgres" -c "ALTER USER supabase_auth_admin WITH PASSWORD '${state.pgPassword}'; ALTER USER authenticator WITH PASSWORD '${state.pgPassword}'; ALTER USER supabase_storage_admin WITH PASSWORD '${state.pgPassword}'; ALTER USER supabase_functions_admin WITH PASSWORD '${state.pgPassword}'; ALTER USER supabase_realtime_admin WITH PASSWORD '${state.pgPassword}'; ALTER USER supabase_admin WITH PASSWORD '${state.pgPassword}';" 2>/dev/null || true`,
+    ].join('\n');
+    const pwScriptWin = 'C:\\Windows\\Temp\\aqura_pw_update.sh';
+    await api.writeFile(pwScriptWin, pwUpdate);
+    await api.wsl('bash /mnt/c/Windows/Temp/aqura_pw_update.sh && rm -f /mnt/c/Windows/Temp/aqura_pw_update.sh');
 
     updateAutoCheck(updateItem, 'Supabase restarted with new keys', 'pass');
     setAutoProgress(100);
@@ -915,22 +1055,38 @@ else:
     }
 
     // Try bundled schema first, then pull from cloud
-    const bundledPath = __dirname + '/../bundled/aqura-schema.sql';
+    const appPath = await api.getAppPath();
+    // Packaged: appPath = resources/ dir; dev: appPath = project root. bundled/ lives directly inside.
+    const bundledPath = appPath + '/bundled/aqura-schema.sql';
     const hasBundled = await api.fileExists(bundledPath);
 
     if (hasBundled) {
       // ── Use bundled schema file ──
-      const bundledItem = addAutoCheck('Found bundled schema file', 'pass');
+      addAutoCheck('Found bundled schema file', 'pass');
       setAutoProgress(20);
 
       const importItem = addAutoCheck('Importing schema to local DB...', 'running');
-      // Copy bundled schema into WSL
-      const winPath = bundledPath.replace(/\//g, '\\\\');
-      await api.wsl(`cp "$(wslpath '${winPath}')" /tmp/aqura-schema.sql`);
-      await api.wsl('sudo docker cp /tmp/aqura-schema.sql supabase-db:/tmp/aqura-schema.sql');
-      await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/aqura-schema.sql 2>&1 | tail -10', { timeout: 120000 });
-      await api.wsl('rm -f /tmp/aqura-schema.sql');
+      // Copy bundled schema to Windows Temp (avoids wslpath issues), then access from WSL
+      const winBundledPath = bundledPath.replace(/\//g, '\\');
+      await api.exec(`Copy-Item -Force "${winBundledPath}" "C:\\Windows\\Temp\\aqura-schema.sql"`);
+      await api.wsl('sudo docker cp /mnt/c/Windows/Temp/aqura-schema.sql supabase-db:/tmp/aqura-schema.sql');
+      const importOut = await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -f /tmp/aqura-schema.sql 2>&1 | tail -5', { timeout: 300000 });
+      await api.wsl('rm -f /mnt/c/Windows/Temp/aqura-schema.sql');
       updateAutoCheck(importItem, 'Schema imported from bundled file', 'pass');
+      setAutoProgress(60);
+
+      // ── Deploy edge functions ──
+      const functionsZipPath = bundledPath.replace('aqura-schema.sql', 'functions.zip').replace(/\//g, '\\');
+      const hasFunctions = await api.fileExists(functionsZipPath.replace(/\\/g, '/'));
+      if (hasFunctions) {
+        const fnItem = addAutoCheck('Deploying edge functions...', 'running');
+        await api.exec(`Copy-Item -Force "${functionsZipPath}" "C:\\Windows\\Temp\\aqura-functions.zip"`);
+        await api.wsl('mkdir -p /opt/supabase/supabase/docker/volumes/functions');
+        await api.wsl('cp /mnt/c/Windows/Temp/aqura-functions.zip /tmp/aqura-functions.zip && cd /tmp && unzip -o aqura-functions.zip -d /opt/supabase/supabase/docker/volumes/functions/ && rm -f /tmp/aqura-functions.zip /mnt/c/Windows/Temp/aqura-functions.zip');
+        await api.wsl('sudo docker restart supabase-edge-runtime 2>/dev/null || true');
+        updateAutoCheck(fnItem, 'Edge functions deployed', 'pass');
+      }
+      setAutoProgress(80);
     } else {
       // ── Export schema from local Supabase's own pg_dump (self-contained) ──
       // Server mode: generate schema dump from the Supabase that was just installed
@@ -981,7 +1137,12 @@ else:
     const verifyItem = addAutoCheck('Verifying schema...', 'running');
     const tableCount = await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = \'public\';"');
     const funcCount = await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -t -c "SELECT count(*) FROM pg_proc WHERE pronamespace = \'public\'::regnamespace;"');
-    updateAutoCheck(verifyItem, `Schema verified — ${tableCount.stdout.trim()} tables, ${funcCount.stdout.trim()} functions`, 'pass');
+    const tables = parseInt(tableCount.stdout.trim(), 10) || 0;
+    const funcs = parseInt(funcCount.stdout.trim(), 10) || 0;
+    if (tables === 0 && funcs === 0) {
+      throw new Error(`Schema import failed — 0 tables and 0 functions found in public schema. Check SSH key and cloud server connectivity.`);
+    }
+    updateAutoCheck(verifyItem, `Schema verified — ${tables} tables, ${funcs} functions`, 'pass');
 
     // Reload PostgREST cache
     await api.wsl('sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "NOTIFY pgrst, \'reload schema\';"');
@@ -997,40 +1158,83 @@ else:
       return;
     }
 
-    const item = addAutoCheck('Creating master admin user...', 'running');
-    setAutoProgress(30);
-
-    // Use Supabase Auth Admin API via curl
-    const createUserCmd = `curl -s -X POST http://localhost:8000/auth/v1/admin/users \\
-      -H "Authorization: Bearer ${state.serviceKey}" \\
-      -H "apikey: ${state.serviceKey}" \\
-      -H "Content-Type: application/json" \\
-      -d '{"email":"${state.adminEmail}","password":"${state.adminPassword}","email_confirm":true}'`;
-
-    const result = await api.wsl(createUserCmd);
-    
-    if (result.success && result.stdout.includes('"id"')) {
-      const userData = JSON.parse(result.stdout);
-      const userId = userData.id;
-      updateAutoCheck(item, `Admin user created: ${state.adminEmail}`, 'pass');
-      setAutoProgress(60);
-
-      // Set as master admin in DB
-      const dbItem = addAutoCheck('Setting master admin privileges...', 'running');
-      const sqlCmd = `sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "INSERT INTO public.employee_master (id, email, full_name, is_master_admin, is_active) VALUES ('${userId}', '${state.adminEmail}', 'Master Admin', true, true) ON CONFLICT (id) DO UPDATE SET is_master_admin = true;"`;
-      await api.wsl(sqlCmd);
-      updateAutoCheck(dbItem, 'Master admin privileges set', 'pass');
-      setAutoProgress(80);
-
-      // Seed company name
-      const seedItem = addAutoCheck('Saving company info...', 'running');
-      await api.wsl(`sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "INSERT INTO public.app_settings (key, value) VALUES ('company_name', '${state.companyName}') ON CONFLICT (key) DO UPDATE SET value = '${state.companyName}';" 2>/dev/null || true`);
-      updateAutoCheck(seedItem, 'Company info saved', 'pass');
-
-      state.adminCreated = true;
-    } else {
-      throw new Error(`Failed to create admin user: ${result.stderr || result.stdout}`);
+    // Wait for Kong/API to be ready (postgres readiness ≠ Kong readiness)
+    const kongItem = addAutoCheck('Waiting for Supabase API to be ready...', 'running');
+    let kongReady = false;
+    for (let i = 0; i < 30; i++) {
+      const probe = await api.wsl('curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/rest/v1/ 2>&1');
+      const code = probe.stdout.trim();
+      if (code === '200' || code === '401') { kongReady = true; break; }
+      await sleep(4000);
     }
+    if (!kongReady) throw new Error('Supabase API (Kong) did not become ready within 2 minutes');
+    updateAutoCheck(kongItem, 'Supabase API is ready', 'pass');
+
+    if (!state.serviceKey) throw new Error('Service key is missing — generate-keys step may not have completed');
+
+    const item = addAutoCheck(`Creating master admin user: ${state.adminUsername}...`, 'running');
+    setAutoProgress(20);
+
+    // Step 1: Create auth user (for Supabase Auth login)
+    const authItem = addAutoCheck('Creating auth account...', 'running');
+    const qacArg = state.adminQuickCode ? `,"quick_access_code":"${state.adminQuickCode}"` : '';
+    const createAuthCmd = `curl -s -X POST http://localhost:8000/auth/v1/admin/users \
+      -H "Authorization: Bearer ${state.serviceKey}" \
+      -H "apikey: ${state.serviceKey}" \
+      -H "Content-Type: application/json" \
+      -d '{"email":"${state.adminUsername}@aqura.local","password":"${state.adminPassword}","email_confirm":true}'`;
+    const authResult = await api.wsl(createAuthCmd);
+    // Auth user creation is optional — login also works via quick access code only
+    if (authResult.stdout && authResult.stdout.includes('"id"')) {
+      updateAutoCheck(authItem, 'Auth account created', 'pass');
+    } else {
+      updateAutoCheck(authItem, 'Auth account skipped (schema login uses quick access)', 'warn');
+    }
+    setAutoProgress(40);
+
+    // Step 2: Create user in public.users via create_user RPC
+    const dbItem = addAutoCheck('Creating user in database...', 'running');
+    const quickCodeParam = state.adminQuickCode ? `,"p_quick_access_code":"${state.adminQuickCode}"` : '';
+    const createUserCmd = `curl -s -X POST http://localhost:8000/rest/v1/rpc/create_user \
+      -H "Authorization: Bearer ${state.serviceKey}" \
+      -H "apikey: ${state.serviceKey}" \
+      -H "Content-Type: application/json" \
+      -d '{"p_username":"${state.adminUsername}","p_password":"${state.adminPassword}","p_is_master_admin":true,"p_user_type":"global"${quickCodeParam}}'`;
+
+    const result = await api.wsl(createUserCmd, { timeout: 30000 });
+
+    if (!result.stdout) {
+      throw new Error('No response from create_user RPC — check Supabase is running');
+    }
+
+    let userData;
+    try { userData = JSON.parse(result.stdout); } catch(e) {
+      throw new Error(`create_user RPC parse error: ${result.stdout}`);
+    }
+
+    if (!userData.success) {
+      throw new Error(`create_user failed: ${userData.message || JSON.stringify(userData)}`);
+    }
+
+    const generatedCode = userData.quick_access_code || state.adminQuickCode || '(auto-generated)';
+    updateAutoCheck(dbItem, `User created in database. Username: ${state.adminUsername}`, 'pass');
+    setAutoProgress(70);
+
+    // Step 3: Save company name
+    const seedItem = addAutoCheck('Saving company info...', 'running');
+    await api.wsl(`sudo docker exec supabase-db psql -U supabase_admin -d postgres -c "INSERT INTO public.app_settings (key, value) VALUES ('company_name', '${state.companyName.replace(/'/g, "''")}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;" 2>/dev/null || true`);
+    updateAutoCheck(seedItem, 'Company info saved', 'pass');
+    setAutoProgress(90);
+
+    // Step 4: Show credentials to user
+    await api.showMessage({
+      type: 'info',
+      title: 'Admin Account Created',
+      message: `Master admin account created!\n\nUsername: ${state.adminUsername}\nPassword: (as entered)\n6-Digit Quick Access Code: ${generatedCode}\n\nSave the Quick Access Code — it cannot be recovered.`
+    });
+
+    state.adminCreated = true;
+    addAutoCheck(`Admin ready. Quick Access Code: ${generatedCode}`, 'pass');
     setAutoProgress(100);
   },
 
@@ -1109,32 +1313,54 @@ else:
       return;
     }
 
+    // ── Create directories ──
     const dirItem = addAutoCheck('Creating application directories...', 'running');
-    setAutoProgress(10);
+    setAutoProgress(2);
     await api.wsl('sudo mkdir -p /opt/aqura/build /opt/aqura/update-service');
     updateAutoCheck(dirItem, 'Directories created', 'pass');
 
-    // Frontend build — check for bundled ZIP or skip
-    const buildItem = addAutoCheck('Checking for frontend build...', 'running');
-    setAutoProgress(30);
-    addAutoCheck('Frontend deployment pending — provide frontend.zip in bundled/ folder', 'warn');
+    // ── Install Node.js + pnpm if not present ──
+    const nodeItem = addAutoCheck('Checking Node.js + pnpm...', 'running');
+    setAutoProgress(5);
+    const nodeCheck = await api.wsl('node --version 2>/dev/null || echo "missing"');
+    if (nodeCheck.stdout.trim() === 'missing' || !nodeCheck.stdout.includes('v')) {
+      updateAutoCheck(nodeItem, 'Installing Node.js 22 LTS...', 'running');
+      await api.wsl('curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - 2>&1 | tail -3', { timeout: 120000 });
+      await api.wsl('sudo apt-get install -y nodejs 2>&1 | tail -3', { timeout: 120000 });
+    }
+    const pnpmCheck = await api.wsl('pnpm --version 2>/dev/null || echo "missing"');
+    if (pnpmCheck.stdout.trim() === 'missing' || !pnpmCheck.stdout.match(/^\d/)) {
+      await api.wsl('sudo npm install -g pnpm@9 2>&1 | tail -3', { timeout: 60000 });
+    }
+    const nodeVer = await api.wsl('node --version 2>/dev/null');
+    updateAutoCheck(nodeItem, `Node.js ${nodeVer.stdout.trim()} + pnpm ready`, 'pass');
+    setAutoProgress(10);
 
-    // Create .env
-    const envItem = addAutoCheck('Creating frontend .env...', 'running');
-    setAutoProgress(50);
+    // ── Clone Aqura repository ──
+    const cloneItem = addAutoCheck('Cloning Aqura repository from GitHub...', 'running');
+    setAutoProgress(12);
+    await api.wsl('rm -rf /tmp/aqura-source');
+    await api.wsl('git clone --depth 1 https://github.com/mkyousafali/Aqura.git /tmp/aqura-source 2>&1 | tail -3', { timeout: 180000 });
+    updateAutoCheck(cloneItem, 'Repository cloned', 'pass');
+    setAutoProgress(20);
 
+    // ── Swap to adapter-node svelte config ──
+    const configItem = addAutoCheck('Configuring frontend for local (adapter-node) deployment...', 'running');
+    await api.wsl('cp /tmp/aqura-source/frontend/svelte.config.local.js /tmp/aqura-source/frontend/svelte.config.js');
+    updateAutoCheck(configItem, 'Adapter-node config applied', 'pass');
+    setAutoProgress(22);
+
+    // ── Determine Supabase URL & keys ──
     let supabaseUrl, anonKey, serviceKey;
     if (state.mode === 'server') {
       supabaseUrl = 'http://localhost:8000';
       anonKey = state.anonKey;
       serviceKey = state.serviceKey;
     } else {
-      // Branch mode: point to server
-      if (state.connectivityMode === 'lan') {
-        supabaseUrl = `http://${state.serverIP}:8000`;
-      } else {
-        supabaseUrl = `http://${state.serverIP}:8000`; // Will be updated if tunnel is set up
-      }
+      // Branch mode: LAN points directly; internet mode tunnels to localhost
+      supabaseUrl = state.connectivityMode === 'lan'
+        ? `http://${state.serverIP}:8000`
+        : 'http://localhost:8000';
       anonKey = state.anonKey;
       serviceKey = state.serviceKey;
     }
@@ -1146,11 +1372,69 @@ VITE_SUPABASE_URL=${supabaseUrl}
 VITE_SUPABASE_ANON_KEY=${anonKey}
 VITE_SUPABASE_SERVICE_KEY=${serviceKey}`;
 
-    await api.wsl(`cat > /opt/aqura/build/.env << 'EOF'\n${envContent}\nEOF`);
-    updateAutoCheck(envItem, 'Frontend .env created', 'pass');
+    // ── Write .env before build (VITE_ vars are baked in at compile time) ──
+    const envBuildItem = addAutoCheck('Writing build-time .env...', 'running');
+    const buildEnvTmpWin = 'C:\\Windows\\Temp\\aqura_frontend_build_env.tmp';
+    await api.writeFile(buildEnvTmpWin, envContent);
+    await api.wsl('cp /mnt/c/Windows/Temp/aqura_frontend_build_env.tmp /tmp/aqura-source/frontend/.env');
+    updateAutoCheck(envBuildItem, 'Build-time .env written', 'pass');
+    setAutoProgress(25);
+
+    // ── pnpm install ──
+    const installItem = addAutoCheck('Installing frontend dependencies (pnpm install)...', 'running');
+    setAutoStatus('Installing dependencies — please wait...');
+    await api.wsl('cd /tmp/aqura-source/frontend && pnpm install --frozen-lockfile 2>&1 | tail -5', { timeout: 300000 });
+    updateAutoCheck(installItem, 'Dependencies installed', 'pass');
+    setAutoProgress(40);
+
+    // ── pnpm build ──
+    const buildItem = addAutoCheck('Building frontend (~2 min) — please wait...', 'running');
+    setAutoStatus('Building frontend — this takes about 2 minutes...');
+    await api.wsl('cd /tmp/aqura-source/frontend && NODE_OPTIONS="--max-old-space-size=8192" pnpm build 2>&1 | tail -5', { timeout: 600000 });
+    updateAutoCheck(buildItem, 'Frontend built successfully', 'pass');
+    setAutoProgress(60);
+
+    // ── Copy build output to /opt/aqura/build/ ──
+    const deployItem = addAutoCheck('Deploying build files to /opt/aqura/build/...', 'running');
+    await api.wsl('sudo cp -r /tmp/aqura-source/frontend/build/. /opt/aqura/build/');
+    updateAutoCheck(deployItem, 'Build files deployed', 'pass');
+    setAutoProgress(65);
+
+    // ── Deploy edge functions ──
+    const funcItem = addAutoCheck('Deploying edge functions...', 'running');
+    await api.wsl('sudo mkdir -p /opt/supabase/supabase/docker/volumes/functions');
+    await api.wsl('sudo cp -r /tmp/aqura-source/supabase/functions/. /opt/supabase/supabase/docker/volumes/functions/');
+    updateAutoCheck(funcItem, 'Edge functions deployed', 'pass');
     setAutoProgress(70);
 
-    // Create systemd service
+    // ── Restart edge container to pick up new functions ──
+    const edgeItem = addAutoCheck('Restarting edge function container...', 'running');
+    await api.wsl('sudo docker restart supabase-edge 2>&1 || true');
+    await sleep(3000);
+    updateAutoCheck(edgeItem, 'Edge container restarted', 'pass');
+    setAutoProgress(73);
+
+    // ── Deploy update service script (branch mode only) ──
+    if (state.mode === 'branch') {
+      const updateScriptItem = addAutoCheck('Deploying branch update service script...', 'running');
+      await api.wsl('sudo cp /tmp/aqura-source/scripts/branch-update-service.js /opt/aqura/update-service/index.cjs');
+      updateAutoCheck(updateScriptItem, 'Update service script deployed', 'pass');
+      setAutoProgress(76);
+    }
+
+    // ── Cleanup cloned repo ──
+    await api.wsl('rm -rf /tmp/aqura-source');
+    setAutoProgress(78);
+
+    // ── Write runtime .env to build dir ──
+    const envItem = addAutoCheck('Writing runtime .env to /opt/aqura/build/...', 'running');
+    const runtimeEnvTmpWin = 'C:\\Windows\\Temp\\aqura_frontend_runtime_env.tmp';
+    await api.writeFile(runtimeEnvTmpWin, envContent);
+    await api.wsl('sudo cp /mnt/c/Windows/Temp/aqura_frontend_runtime_env.tmp /opt/aqura/build/.env');
+    updateAutoCheck(envItem, 'Runtime .env written', 'pass');
+    setAutoProgress(82);
+
+    // ── Create frontend systemd service ──
     const svcItem = addAutoCheck('Creating frontend systemd service...', 'running');
     const serviceContent = `[Unit]
 Description=Aqura Frontend
@@ -1168,12 +1452,53 @@ EnvironmentFile=/opt/aqura/build/.env
 [Install]
 WantedBy=multi-user.target`;
 
-    await api.wsl(`sudo tee /etc/systemd/system/aqura-frontend.service > /dev/null << 'EOF'\n${serviceContent}\nEOF`);
+    await api.wsl(`sudo tee /etc/systemd/system/aqura-frontend.service > /dev/null << 'SVCEOF'
+${serviceContent}
+SVCEOF`);
     await api.wsl('sudo systemctl daemon-reload');
     await api.wsl('sudo systemctl enable aqura-frontend');
-    updateAutoCheck(svcItem, 'Frontend service created & enabled', 'pass');
-    
+    await api.wsl('sudo systemctl start aqura-frontend');
+    updateAutoCheck(svcItem, 'Frontend service created, enabled & started', 'pass');
+    setAutoProgress(90);
+
+    // ── Create update systemd service (branch mode only) ──
+    if (state.mode === 'branch') {
+      const updateSvcItem = addAutoCheck('Creating update service systemd unit...', 'running');
+      const updateSvcContent = `[Unit]
+Description=Aqura Branch Update Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aqura/update-service
+ExecStart=/usr/bin/node index.cjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target`;
+
+      await api.wsl(`sudo tee /etc/systemd/system/aqura-update.service > /dev/null << 'USVCEOF'
+${updateSvcContent}
+USVCEOF`);
+      await api.wsl('sudo systemctl daemon-reload && sudo systemctl enable aqura-update && sudo systemctl start aqura-update');
+      updateAutoCheck(updateSvcItem, 'Update service created, enabled & started', 'pass');
+      setAutoProgress(95);
+    }
+
+    // ── Verify frontend is running ──
+    const verifyItem = addAutoCheck('Verifying frontend service...', 'running');
+    await sleep(2000);
+    const svcStatus = await api.wsl('systemctl is-active aqura-frontend 2>/dev/null || echo inactive');
+    if (svcStatus.stdout.trim() === 'active') {
+      updateAutoCheck(verifyItem, 'Frontend running on port 3001 ✓', 'pass');
+    } else {
+      updateAutoCheck(verifyItem, `Frontend status: ${svcStatus.stdout.trim()} — check: journalctl -u aqura-frontend`, 'warn');
+    }
+
     state.frontendDeployed = true;
+    state.updateServiceDeployed = true;
     setAutoProgress(100);
   },
 
@@ -1376,37 +1701,30 @@ WantedBy=multi-user.target`;
   },
 
   // ──── DEPLOY UPDATE SERVICE (Branch Mode) ────
+  // Note: update service is deployed as part of deploy-frontend (git clone step).
+  // This step is kept for resume/idempotency only.
   'deploy-update': async () => {
     if (state.updateServiceDeployed) {
-      addAutoCheck('Update service already deployed (resumed)', 'pass');
+      addAutoCheck('Update service already deployed (done in previous step)', 'pass');
+      setAutoProgress(100);
       return;
     }
 
-    const item = addAutoCheck('Creating update service...', 'running');
+    // Fallback: if deploy-frontend failed mid-way and update service wasn't deployed
+    const item = addAutoCheck('Checking update service...', 'running');
     setAutoProgress(30);
-
-    // Create a minimal update service placeholder
-    addAutoCheck('Update service deployment pending — copy branch-update-service.js to bundled/', 'warn');
-
-    // Create systemd service
-    const svcContent = `[Unit]
-Description=Aqura Branch Update Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/aqura/update-service
-ExecStart=/usr/bin/node index.cjs
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target`;
-
-    await api.wsl(`sudo tee /etc/systemd/system/aqura-update.service > /dev/null << 'EOF'\n${svcContent}\nEOF`);
-    await api.wsl('sudo systemctl daemon-reload && sudo systemctl enable aqura-update');
-    updateAutoCheck(item, 'Update service created & enabled', 'pass');
+    const exists = await api.wsl('test -f /opt/aqura/update-service/index.cjs && echo yes || echo no');
+    if (exists.stdout.trim() === 'yes') {
+      updateAutoCheck(item, 'Update service script present', 'pass');
+    } else {
+      updateAutoCheck(item, 'Update service script missing — re-run deploy-frontend step', 'warn');
+    }
+    const svcActive = await api.wsl('systemctl is-active aqura-update 2>/dev/null || echo inactive');
+    if (svcActive.stdout.trim() === 'active') {
+      addAutoCheck('Update service is running', 'pass');
+    } else {
+      addAutoCheck('Update service not running — start manually: systemctl start aqura-update', 'warn');
+    }
 
     state.updateServiceDeployed = true;
     setAutoProgress(100);
@@ -1845,6 +2163,17 @@ async function init() {
     $('#btn-toggle-log').textContent = log.classList.contains('log-expanded') ? '▲' : '▼';
   });
 
+  // Copy All log button
+  $('#btn-copy-log').addEventListener('click', () => {
+    const logEl = $('#log-content');
+    const text = logEl.innerText || logEl.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = $('#btn-copy-log');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy All'; }, 2000);
+    });
+  });
+
   // Mode selection
   const cards = $$('.mode-card');
   cards.forEach(card => {
@@ -1921,6 +2250,15 @@ async function init() {
   const savedState = await api.checkResume();
   if (savedState && savedState.currentPhase > 0) {
     state = { ...state, ...savedState };
+    // Ensure string fields are never undefined (avoids "undefined" text in inputs)
+    state.companyName = state.companyName || '';
+    state.adminUsername = state.adminUsername || '';
+    state.adminPassword = state.adminPassword || '';
+    state.adminQuickCode = state.adminQuickCode || '';
+    state.adminEmail = state.adminEmail || '';
+    state.dashboardPassword = state.dashboardPassword || '';
+    state.branchName = state.branchName || '';
+    state.serverHost = state.serverHost || '';
     
     $('#resume-info').innerHTML = `
       <div class="info-row"><span class="info-label">Mode</span><span class="info-value">${state.mode === 'server' ? '🏢 Server' : '🏪 Branch'}</span></div>

@@ -624,6 +624,9 @@ body {
   word-break: break-all;
   overflow-y: auto;
   transition: max-height 0.3s;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 #log-content.log-collapsed {
@@ -633,7 +636,7 @@ body {
 }
 
 #log-content.log-expanded {
-  max-height: 200px;
+  max-height: 350px;
 }
 
 .log-line-success {

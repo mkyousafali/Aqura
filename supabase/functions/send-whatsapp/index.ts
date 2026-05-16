@@ -44,7 +44,14 @@ serve(async (req: Request) => {
 
     if (action !== "send_access_code") {
       return new Response(
-        JSON.stringify({ error: "Invalid action" }),
+        JSON.stringify({ error: "Invalid action. Supported: send_access_code" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!phone_number || !access_code) {
+      return new Response(
+        JSON.stringify({ error: "Missing phone_number or access_code" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -54,14 +61,6 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({ error: "WhatsApp API not configured on server" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ─── SEND ACCESS CODE ───────────────────────────
-    if (!phone_number || !access_code) {
-      return new Response(
-        JSON.stringify({ error: "Missing phone_number or access_code" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

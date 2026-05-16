@@ -34,5 +34,6 @@ contextBridge.exposeInMainWorld('api', {
   showMessage: (options) => ipcRenderer.invoke('dialog:message', options),
 
   // System info
-  getNetworkIPs: () => ipcRenderer.invoke('system:get-ip')
+  getNetworkIPs: () => ipcRenderer.invoke('system:get-ip'),
+  getAppPath: () => ipcRenderer.invoke('app:get-app-path')
 });

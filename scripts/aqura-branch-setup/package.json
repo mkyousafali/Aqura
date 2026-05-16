@@ -23,7 +23,7 @@
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico",
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": true,
@@ -39,7 +39,7 @@
       "assets/**/*",
       "node_modules/**/*"
     ],
-    "extraFiles": [
+    "extraResources": [
       {
         "from": "bundled",
         "to": "bundled",

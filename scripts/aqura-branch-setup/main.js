@@ -141,8 +141,9 @@ ipcMain.handle('shell:exec', async (_, command, options = {}) => {
 ipcMain.handle('shell:wsl', async (_, command, options = {}) => {
   return new Promise((resolve) => {
     const timeout = options.timeout || 120000;
-    exec(`wsl -d Ubuntu-22.04 -- bash -c "${command.replace(/"/g, '\\"')}"`,
-      { timeout, maxBuffer: 10 * 1024 * 1024 },
+    const wslExe = 'C:\\Windows\\System32\\wsl.exe';
+    exec(`"${wslExe}" -d Ubuntu-22.04 -u root -- bash -c "${command.replace(/"/g, '\\"')}"`,
+      { timeout, maxBuffer: 10 * 1024 * 1024, env: { ...process.env } },
       (error, stdout, stderr) => {
         resolve({
           success: !error,
@@ -162,8 +163,8 @@ ipcMain.handle('shell:stream', async (_, command, options = {}) => {
     let cmd, args;
 
     if (isWsl) {
-      cmd = 'wsl';
-      args = ['-d', 'Ubuntu-22.04', '--', 'bash', '-c', command];
+      cmd = 'C:\\Windows\\System32\\wsl.exe';
+      args = ['-d', 'Ubuntu-22.04', '-u', 'root', '--', 'bash', '-c', command];
     } else {
       cmd = 'powershell';
       args = ['-NoProfile', '-NonInteractive', '-Command', command];
@@ -239,6 +240,11 @@ ipcMain.handle('fs:read', (_, filePath) => {
 
 ipcMain.handle('fs:exists', (_, filePath) => {
   return fs.existsSync(filePath);
+});
+
+ipcMain.handle('app:get-app-path', () => {
+  // In packaged app use resourcesPath (where extraResources land); fall back to __dirname in dev
+  return (app.isPackaged && process.resourcesPath) ? process.resourcesPath : __dirname;
 });
 
 // Dialog

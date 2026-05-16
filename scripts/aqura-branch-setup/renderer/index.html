@@ -99,7 +99,10 @@
       <div id="log-panel">
         <div class="log-header">
           <span>📋 Log</span>
-          <button class="btn-icon" id="btn-toggle-log" title="Toggle log">▼</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-icon" id="btn-copy-log" title="Copy all log text" style="font-size:11px;padding:2px 8px">Copy All</button>
+            <button class="btn-icon" id="btn-toggle-log" title="Toggle log">▼</button>
+          </div>
         </div>
         <div id="log-content" class="log-collapsed"></div>
       </div>
