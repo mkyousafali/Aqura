@@ -3,7 +3,7 @@
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
 // SERVICE WORKER VERSION - Increment to force updates
-const SW_VERSION = '2.4.0'; // Updated: Fixed SW bypass to not re-fetch Supabase requests (was corrupting binary uploads)
+const SW_VERSION = '2.5.0'; // Updated: Network-first for HTML navigation so users always get latest version
 console.log(`[ServiceWorker] Version ${SW_VERSION} initializing`);
 
 // Import workbox from CDN for service worker
@@ -247,11 +247,12 @@ self.addEventListener('activate', (event) => {
 				await self.clients.claim();
 				console.log('[ServiceWorker] Clients claimed successfully');
 				
-				// Notify clients that service worker is ready
-				const clients = await self.clients.matchAll();
+				// Notify clients that service worker is ready / updated
+				const clients = await self.clients.matchAll({ includeUncontrolled: true });
 				clients.forEach(client => {
 					client.postMessage({
 						type: 'SW_ACTIVATED',
+						version: SW_VERSION,
 						timestamp: Date.now()
 					});
 				});
@@ -304,7 +305,32 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 
-	// Handle static assets with cache-first strategy
+	// For HTML navigation requests — always network-first so users get the latest version on every load
+	if (request.mode === 'navigate') {
+		event.respondWith(
+			fetch(request)
+				.then((response) => {
+					// Cache the fresh HTML for offline fallback
+					if (response.ok) {
+						const clone = response.clone();
+						caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+					}
+					return response;
+				})
+				.catch(() => {
+					// Network failed — serve cached HTML or offline page
+					return caches.match(request)
+						.then(cached => cached || caches.match('/offline.html'))
+						.then(cached => cached || new Response(
+							'<html><body><h1>Offline</h1><p>You are offline. Please check your connection.</p></body></html>',
+							{ headers: { 'Content-Type': 'text/html' } }
+						));
+				})
+			);
+		return;
+	}
+
+	// Handle static assets (JS, CSS, images) with cache-first strategy
 	event.respondWith(
 		caches.match(request)
 			.then((cachedResponse) => {
@@ -313,21 +339,7 @@ self.addEventListener('fetch', (event) => {
 				}
 				return fetch(request);
 			})
-			.catch(() => {
-				// Return offline page for navigation requests
-				if (request.mode === 'navigate') {
-					return caches.match('/offline.html').then((cachedOffline) => {
-						if (cachedOffline) {
-							return cachedOffline;
-						}
-						// Fallback if offline.html isn't cached
-						return new Response(
-							'<html><body><h1>Offline</h1><p>You are offline. Please check your connection.</p></body></html>',
-							{ headers: { 'Content-Type': 'text/html' } }
-						);
-					});
-				}
-			})
+			.catch(() => null)
 	);
 });
 

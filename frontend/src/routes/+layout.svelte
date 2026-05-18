@@ -482,6 +482,14 @@
 				navigator.serviceWorker.addEventListener('message', (event) => {
 					if (event.data && event.data.type === 'CLEAR_STORAGE_EXCEPT_AUTH') {
 						clearStorageExceptAuth();
+					} else if (event.data && event.data.type === 'SW_ACTIVATED') {
+						// Auto-reload on public stateless routes so users always get the latest version
+						const path = window.location.pathname;
+						const isPublicRoute = path.startsWith('/surprise-box') || path.startsWith('/gift-wheel');
+						if (isPublicRoute) {
+							console.log('[SW] New version activated — reloading public route for latest version');
+							window.location.reload();
+						}
 					} else if (event.data && event.data.type === 'GET_STORAGE_VALUE') {
 						// Handle storage value requests from service worker
 						const key = event.data.key;
