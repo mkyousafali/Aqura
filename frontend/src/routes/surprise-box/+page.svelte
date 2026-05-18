@@ -734,6 +734,7 @@
 
 	.sb-page {
 		min-height: 100dvh;
+		width: 100%;
 		background: linear-gradient(160deg, #2D0052 0%, #4A0E8F 50%, #1E0033 100%);
 		color: #fff;
 		display: flex;
@@ -742,6 +743,7 @@
 		padding: 0 1rem 3rem;
 		position: relative;
 		z-index: 2;
+		box-sizing: border-box;
 	}
 
 	/* ── Header ─────────────────────────────────────────────────────────────── */

@@ -1208,9 +1208,11 @@
 		min-height: 100dvh; /* Use dynamic viewport height for mobile */
 		width: 100%;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		justify-content: center;
-		overflow: auto; /* Allow scrolling in simple layout */
+		justify-content: safe center;
+		overflow-x: hidden;
+		overflow-y: auto; /* Allow scrolling in simple layout */
 		-webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 	}
 
