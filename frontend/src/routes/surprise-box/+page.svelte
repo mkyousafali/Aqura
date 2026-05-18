@@ -17,6 +17,7 @@
 	let step: Step = 'loading';
 	let errorReason = '';
 	let statusInfo: any = null;
+	let validationMinimum: number | null = null;
 
 	// ── Bill ──────────────────────────────────────────────────────────────────
 	let billNumber = '';
@@ -274,6 +275,7 @@
 			if (error) throw error;
 			if (!data.valid) {
 				errorReason = data.reason || 'unknown';
+				if (data.minimum != null) validationMinimum = data.minimum;
 				step = 'capture';
 				return;
 			}
@@ -385,6 +387,7 @@
 		spinResult = null;
 		showManualFields = false;
 		errorReason = '';
+		validationMinimum = null;
 		winLottieInit = false;
 	}
 
@@ -404,7 +407,7 @@
 	$: validationError = (() => {
 		if (!errorReason) return '';
 		const msgs: Record<string, { en: string; ar: string }> = {
-			below_minimum:    { en: `Minimum bill amount is ${statusInfo?.minimum_bill_amount} SAR.`, ar: `الحد الأدنى للفاتورة ${statusInfo?.minimum_bill_amount} ريال.` },
+			below_minimum:    { en: `Minimum bill amount is ${validationMinimum ?? statusInfo?.minimum_bill_amount} SAR.`, ar: `الحد الأدنى للفاتورة ${validationMinimum ?? statusInfo?.minimum_bill_amount} ريال.` },
 			already_played:   { en: 'This bill has already been played.', ar: 'هذه الفاتورة استُخدمت مسبقاً.' },
 			wrong_bill_date:  { en: "Bill must be from today's date only.", ar: 'يجب أن تكون الفاتورة من تاريخ اليوم فقط.' },
 			connection_error: { en: 'Connection error. Please try again.', ar: 'خطأ في الاتصال. حاول مجدداً.' }
@@ -550,7 +553,7 @@
 				</p>
 			{/if}
 
-			{#if errorReason === 'already_played'}
+			{#if errorReason}
 				<button class="sb-btn sb-btn--primary" on:click={reset}>
 					{$locale === 'ar' ? '← جرّب بفاتورة جديدة' : 'Try with New Bill →'}
 				</button>

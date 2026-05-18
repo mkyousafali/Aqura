@@ -190,7 +190,7 @@
 			</div>
 
 			<div class="sbr-redeem-section">
-				<p class="sbr-redeem-label">{$locale === 'ar' ? 'بيانات الفاتورة الحالية (اختياري)' : 'Current Bill Details (optional)'}</p>
+				<p class="sbr-redeem-label">{$locale === 'ar' ? 'بيانات الفاتورة الحالية (مطلوب)' : 'Current Bill Details (required)'}</p>
 				<div class="sbr-row2">
 					<div class="sbr-field">
 						<label class="sbr-label">{$locale === 'ar' ? 'رقم الفاتورة' : 'Bill Number'}</label>
@@ -204,7 +204,7 @@
 			</div>
 
 			<div class="sbr-actions">
-				<button class="sbr-btn sbr-btn--success" on:click={redeemVoucher}>
+				<button class="sbr-btn sbr-btn--success" disabled={!redeemBillNumber.trim() || !redeemAmount || redeemAmount <= 0} on:click={redeemVoucher}>
 					✅ {$locale === 'ar' ? 'تأكيد الاستبدال' : 'Confirm Redemption'}
 				</button>
 				<button class="sbr-btn sbr-btn--ghost" on:click={reset}>
