@@ -135,17 +135,10 @@ export const englishLocale: LocaleData = {
       manageProducts: "Manage Products",
       reportsAndStats: "Reports & Stats",
       giftWheel: "Gift Wheel",
-      aiMarketing: "AI Marketing",
       vipCampaign: "VIP Campaign",
-      aiMarketingDashboard: "Dashboard",
-      aiMarketingSettings: "Settings",
-      aiMarketingBrandLibraries: "Brand Libraries",
-      aiMarketingCreateVideo: "Create Video",
-      aiMarketingCreatePoster: "Create Poster",
-      aiMarketingBrandingVideos: "Branding Videos",
-      aiMarketingBrandingPosters: "Branding Posters",
-      aiMarketingLibrary: "Library",
       giftWheelCoupon: "Gift Wheel Coupon",
+      surpriseBox: "Surprise Box",
+      surpriseBoxRedemption: "Surprise Box Redemption",
       approvalCenter: "Approval Center",
       categoryManager: "Category Manager",
       assetManager: "Asset Manager",
@@ -4586,6 +4579,124 @@ export const englishLocale: LocaleData = {
             import: "Import",
             importing: "Importing..."
           }
+        }
+      }
+    },
+    surpriseBox: {
+      manager: {
+        tabs: {
+          settings: "Settings",
+          rewards: "Rewards",
+          dashboard: "Dashboard",
+          logs: "Logs",
+          redemptions: "Redemptions"
+        },
+        settings: {
+          campaignStatus: "Campaign Status",
+          campaignActive: "Campaign Active",
+          campaignDisabled: "Campaign is currently disabled — customers cannot play.",
+          schedule: "Schedule (optional)",
+          scheduleHint: "Leave blank for no schedule restriction.",
+          startDate: "Start Date",
+          startTime: "Start Time",
+          endDate: "End Date",
+          endTime: "End Time",
+          limits: "Limits & Rules",
+          dailyLimit: "Daily Play Limit",
+          minimumAmount: "Minimum Bill Amount (SAR)",
+          boxCount: "Number of Boxes (1–12)",
+          enforceBillDate: "Enforce Bill Date",
+          enforceBillDateHint: "Bill must be from today",
+          terms: "Terms & Conditions",
+          termsEn: "Terms (English)",
+          termsAr: "Terms (Arabic)",
+          save: "Save Settings",
+          saving: "Saving…"
+        },
+        rewards: {
+          title: "Reward Prizes",
+          addReward: "Add Reward",
+          noRewards: "No rewards configured yet.",
+          columns: {
+            labelEn: "Label (EN)",
+            labelAr: "Label (AR)",
+            value: "Value",
+            weight: "Weight",
+            max: "Max",
+            issued: "Issued",
+            expiry: "Expiry",
+            noWin: "No Win",
+            active: "Active",
+            actions: "Actions"
+          }
+        },
+        dashboard: {
+          apply: "Apply",
+          to: "to",
+          totalPlays: "Total Plays",
+          winners: "Winners",
+          rejected: "Rejected",
+          voucherValue: "Voucher Value Issued",
+          redeemed: "Redeemed",
+          redemptionRate: "Redemption Rate",
+          noData: "No data for selected range."
+        },
+        logs: {
+          title: "Play Logs",
+          refresh: "Refresh",
+          loadMore: "Load More",
+          noLogs: "No play logs found.",
+          download: "⬇ Voucher",
+          columns: {
+            date: "Date",
+            bill: "Bill #",
+            amount: "Amount",
+            billDate: "Bill Date",
+            reward: "Reward",
+            voucherCode: "Voucher Code",
+            winner: "Winner",
+            rejected: "Rejected",
+            reason: "Reason",
+            manual: "Manual",
+            download: "Download"
+          }
+        },
+        redemptions: {
+          title: "Voucher Redemptions",
+          refresh: "Refresh",
+          loadMore: "Load More",
+          noRedemptions: "No redemptions found.",
+          columns: {
+            code: "Code",
+            label: "Label",
+            value: "Value",
+            status: "Status",
+            issued: "Issued",
+            expires: "Expires",
+            bill: "Bill #",
+            redeemedAt: "Redeemed At",
+            redeemedBill: "Redeemed Bill",
+            amount: "Amount"
+          }
+        },
+        modal: {
+          editReward: "✏️ Edit Reward",
+          addReward: "➕ Add Reward",
+          noWin: "No-Win Reward",
+          labelEn: "Label (English) *",
+          labelAr: "Label (Arabic) *",
+          voucherValue: "Voucher Value (SAR)",
+          weight: "Weight (higher = more likely)",
+          maxCount: "Max Count (blank = ∞)",
+          expiryDays: "Expiry Days (after issue)",
+          active: "Active",
+          save: "💾 Save",
+          saving: "Saving…",
+          cancel: "Cancel"
+        },
+        common: {
+          yes: "Yes",
+          no: "No"
         }
       }
     },

@@ -531,6 +531,7 @@
 				// (gift wheel, customer interface, cashier, privacy, login-test, popout windows, etc.)
 				const isStandalonePublicRoute =
 					currentPath.startsWith('/gift-wheel') ||
+					currentPath.startsWith('/surprise-box') ||
 					currentPath.startsWith('/customer-interface') ||
 					currentPath.startsWith('/login/customer') ||
 					currentPath.startsWith('/cashier-interface') ||
@@ -763,7 +764,8 @@
 			const isPrivacyRoute = $page.url.pathname.startsWith('/privacy');
 			const isLoginTestRoute = $page.url.pathname.startsWith('/logintest');
 			const isGiftWheelRoute = $page.url.pathname.startsWith('/gift-wheel');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isPopoutMode) {
+			const isSurpriseBoxRoute = $page.url.pathname.startsWith('/surprise-box');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -1049,6 +1051,7 @@
 	$: isPrivacyPage = $page.url.pathname.startsWith('/privacy');
 	$: isLoginTestPage = $page.url.pathname.startsWith('/logintest');
 	$: isGiftWheelPage = $page.url.pathname.startsWith('/gift-wheel');
+	$: isSurpriseBoxPage = $page.url.pathname.startsWith('/surprise-box');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
@@ -1081,7 +1084,7 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isGiftWheelPage || isLoginPage}
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isGiftWheelPage || isSurpriseBoxPage || isLoginPage}
 	<!-- Mobile, cashier, customer, login, and login test routes get no desktop layout - completely independent -->
 	<slot />
 {:else}

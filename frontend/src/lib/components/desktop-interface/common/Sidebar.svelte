@@ -95,7 +95,7 @@
 	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
 	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
 	import GiftWheelManager from '$lib/components/desktop-interface/marketing/gift-wheel/GiftWheelManager.svelte';
-	import AIMarketing from '$lib/components/desktop-interface/marketing/ai-marketing/AIMarketing.svelte';
+	import SurpriseBoxManager from '$lib/components/desktop-interface/marketing/surprise-box/SurpriseBoxManager.svelte';
 	import VipCampaignWindow from '$lib/components/desktop-interface/marketing/vip/VipCampaignWindow.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
@@ -264,7 +264,6 @@
 		'COUPON_DASHBOARD_PROMO': 'nav.couponDashboard', 'CAMPAIGN_MANAGER': 'nav.manageCampaigns',
 		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
 		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
-		'AI_MARKETING': 'nav.aiMarketing',
 		'VIP_CAMPAIGN': 'nav.vipCampaign',
 		'APPROVAL_CENTER': 'nav.approvalCenter', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
 		'BANK_RECONCILIATION': 'nav.bankReconciliation', 'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
@@ -2031,7 +2030,7 @@ function openApprovalCenter() {
 			'PRODUCT_MANAGER_PROMO': openProductManagerPromo,
 			'COUPON_REPORTS': openCouponReports,
 			'GIFT_WHEEL_MANAGER': openGiftWheelManager,
-			'AI_MARKETING': openAIMarketing,
+			'SURPRISE_BOX_MANAGER': openSurpriseBoxManager,
 			'VIP_CAMPAIGN': openVipCampaign,
 			'APPROVAL_CENTER': openApprovalCenter,
 			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
@@ -3474,25 +3473,6 @@ function openApprovalCenter() {
 		showPromoSubmenu = false;
 	}
 
-	function openAIMarketing() {
-		const windowId = generateWindowId('ai-marketing');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		openWindow({
-			id: windowId,
-			title: `AI Marketing #${instanceNumber}`,
-			component: AIMarketing,
-			componentName: 'AIMarketing',
-			icon: '🤖',
-			size: { width: 1400, height: 900 },
-			position: { x: 60 + (Math.random() * 100), y: 60 + (Math.random() * 100) },
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showPromoSubmenu = false;
-	}
-
 	function openViewOfferManager() {
 		const windowId = generateWindowId('view-offer-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -3580,6 +3560,25 @@ function openApprovalCenter() {
 			icon: '🎡',
 			size: { width: 1200, height: 700 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
+	function openSurpriseBoxManager() {
+		const windowId = generateWindowId('surprise-box-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Surprise Box #${instanceNumber}`,
+			component: SurpriseBoxManager,
+			componentName: 'SurpriseBoxManager',
+			icon: '🎁',
+			size: { width: 1200, height: 720 },
+			position: { x: 60 + (Math.random() * 100), y: 60 + (Math.random() * 100) },
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
@@ -4474,15 +4473,15 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
-				{#if isButtonAllowed('AI_MARKETING')}
+				{#if isButtonAllowed('SURPRISE_BOX_MANAGER')}
 					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openAIMarketing}>
-							<span class="menu-icon">🤖</span>
-							<span class="menu-text">{t('nav.aiMarketing')}</span>
+						<button class="submenu-item" on:click={openSurpriseBoxManager}>
+							<span class="menu-icon">🎁</span>
+							<span class="menu-text">{t('nav.surpriseBox')}</span>
 						</button>
 					</div>
 				{/if}
-				{#if isButtonAllowed('VIP_CAMPAIGN')}
+					{#if isButtonAllowed('VIP_CAMPAIGN')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openVipCampaign}>
 							<span class="menu-icon">👑</span>

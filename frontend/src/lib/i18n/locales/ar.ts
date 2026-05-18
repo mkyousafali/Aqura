@@ -137,17 +137,10 @@ export const arabicLocale: LocaleData = {
       manageProducts: "إدارة المنتجات",
       reportsAndStats: "التقارير والإحصائيات",
       giftWheel: "عجلة الهدايا",
-      aiMarketing: "التسويق بالذكاء الاصطناعي",
       vipCampaign: "حملة VIP",
-      aiMarketingDashboard: "لوحة التحكم",
-      aiMarketingSettings: "الإعدادات",
-      aiMarketingBrandLibraries: "مكتبات العلامات التجارية",
-      aiMarketingCreateVideo: "إنشاء فيديو",
-      aiMarketingCreatePoster: "إنشاء ملصق",
-      aiMarketingBrandingVideos: "فيديوهات العلامة",
-      aiMarketingBrandingPosters: "ملصقات العلامة",
-      aiMarketingLibrary: "المكتبة",
       giftWheelCoupon: "كوبون عجلة الهدايا",
+      surpriseBox: "صندوق المفاجآت",
+      surpriseBoxRedemption: "استبدال صندوق المفاجآت",
       approvalCenter: "مركز الموافقات",
       categoryManager: "مدير الفئات",
       assetManager: "مدير الأصول",
@@ -4623,6 +4616,124 @@ export const arabicLocale: LocaleData = {
             import: "استيراد",
             importing: "جاري الاستيراد..."
           }
+        }
+      }
+    },
+    surpriseBox: {
+      manager: {
+        tabs: {
+          settings: "الإعدادات",
+          rewards: "الجوائز",
+          dashboard: "لوحة التحكم",
+          logs: "السجلات",
+          redemptions: "الاسترداد"
+        },
+        settings: {
+          campaignStatus: "حالة الحملة",
+          campaignActive: "تفعيل الحملة",
+          campaignDisabled: "الحملة معطلة حالياً — لا يمكن للعملاء المشاركة.",
+          schedule: "الجدول الزمني (اختياري)",
+          scheduleHint: "اتركه فارغاً لعدم تقييد الوقت.",
+          startDate: "تاريخ البداية",
+          startTime: "وقت البداية",
+          endDate: "تاريخ النهاية",
+          endTime: "وقت النهاية",
+          limits: "الحدود والقواعد",
+          dailyLimit: "الحد اليومي للمشاركة",
+          minimumAmount: "الحد الأدنى لقيمة الفاتورة (ر.س)",
+          boxCount: "عدد الصناديق (1–12)",
+          enforceBillDate: "التحقق من تاريخ الفاتورة",
+          enforceBillDateHint: "يجب أن تكون الفاتورة من اليوم",
+          terms: "الشروط والأحكام",
+          termsEn: "الشروط (إنجليزي)",
+          termsAr: "الشروط (عربي)",
+          save: "حفظ الإعدادات",
+          saving: "جاري الحفظ…"
+        },
+        rewards: {
+          title: "جوائز المكافآت",
+          addReward: "إضافة جائزة",
+          noRewards: "لا توجد جوائز مضافة.",
+          columns: {
+            labelEn: "الاسم (EN)",
+            labelAr: "الاسم (AR)",
+            value: "القيمة",
+            weight: "الوزن",
+            max: "الحد الأقصى",
+            issued: "الصادرة",
+            expiry: "الانتهاء",
+            noWin: "خسارة",
+            active: "مفعّل",
+            actions: "إجراءات"
+          }
+        },
+        dashboard: {
+          apply: "تطبيق",
+          to: "إلى",
+          totalPlays: "إجمالي المشاركات",
+          winners: "الفائزون",
+          rejected: "المرفوضة",
+          voucherValue: "قيمة القسائم الصادرة",
+          redeemed: "المستردة",
+          redemptionRate: "نسبة الاسترداد",
+          noData: "لا توجد بيانات للنطاق المحدد."
+        },
+        logs: {
+          title: "سجلات المشاركات",
+          refresh: "تحديث",
+          loadMore: "تحميل المزيد",
+          noLogs: "لا توجد سجلات.",
+          download: "⬇ قسيمة",
+          columns: {
+            date: "التاريخ",
+            bill: "رقم الفاتورة",
+            amount: "المبلغ",
+            billDate: "تاريخ الفاتورة",
+            reward: "الجائزة",
+            voucherCode: "رمز القسيمة",
+            winner: "فائز",
+            rejected: "مرفوض",
+            reason: "السبب",
+            manual: "يدوي",
+            download: "تنزيل"
+          }
+        },
+        redemptions: {
+          title: "استرداد القسائم",
+          refresh: "تحديث",
+          loadMore: "تحميل المزيد",
+          noRedemptions: "لا توجد عمليات استرداد.",
+          columns: {
+            code: "الرمز",
+            label: "الاسم",
+            value: "القيمة",
+            status: "الحالة",
+            issued: "تاريخ الإصدار",
+            expires: "تاريخ الانتهاء",
+            bill: "رقم الفاتورة",
+            redeemedAt: "تاريخ الاسترداد",
+            redeemedBill: "فاتورة الاسترداد",
+            amount: "المبلغ"
+          }
+        },
+        modal: {
+          editReward: "✏️ تعديل الجائزة",
+          addReward: "➕ إضافة جائزة",
+          noWin: "جائزة خسارة",
+          labelEn: "الاسم (إنجليزي) *",
+          labelAr: "الاسم (عربي) *",
+          voucherValue: "قيمة القسيمة (ر.س)",
+          weight: "الوزن (أعلى = أكثر احتمالاً)",
+          maxCount: "الحد الأقصى (فارغ = ∞)",
+          expiryDays: "أيام الانتهاء (بعد الإصدار)",
+          active: "مفعّل",
+          save: "💾 حفظ",
+          saving: "جاري الحفظ…",
+          cancel: "إلغاء"
+        },
+        common: {
+          yes: "نعم",
+          no: "لا"
         }
       }
     },

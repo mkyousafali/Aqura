@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import GiftWheelCoupon from '$lib/components/cashier-interface/GiftWheelCoupon.svelte';
+	import SurpriseBoxRedemption from '$lib/components/cashier-interface/SurpriseBoxRedemption.svelte';
 	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
 	import VipRedemption from '$lib/components/cashier-interface/VipRedemption.svelte';
 	import { _ as t } from '$lib/i18n';
@@ -8,7 +9,7 @@
 	export let user: any;
 	export let branch: any;
 
-	type Tab = 'gift-wheel' | 'coupon' | 'vip';
+	type Tab = 'gift-wheel' | 'surprise-box' | 'coupon' | 'vip';
 	let activeTab: Tab = 'gift-wheel';
 
 	// ── VIP campaign state (managed here so realtime is always active) ──
@@ -76,6 +77,14 @@
 			{$t('coupon.giftWheelRedemptionTab')}
 		</button>
 		<button
+			class="tab-btn tab-btn--purple"
+			class:active={activeTab === 'surprise-box'}
+			on:click={() => (activeTab = 'surprise-box')}
+		>
+			<span class="tab-icon">🎁</span>
+			{$t('nav.surpriseBoxRedemption') || 'Surprise Box'}
+		</button>
+		<button
 			class="tab-btn tab-btn--green"
 			class:active={activeTab === 'coupon'}
 			on:click={() => (activeTab = 'coupon')}
@@ -98,6 +107,8 @@
 	<div class="tab-content">
 		{#if activeTab === 'gift-wheel'}
 			<GiftWheelCoupon {branch} />
+		{:else if activeTab === 'surprise-box'}
+			<SurpriseBoxRedemption {branch} {user} />
 		{:else if activeTab === 'coupon'}
 			<CouponRedemption {user} {branch} />
 		{:else}
@@ -195,6 +206,25 @@
 		border-color: #7e22ce;
 		color: #ffffff;
 		box-shadow: 0 4px 18px rgba(147, 51, 234, 0.4);
+	}
+
+	/* Surprise Box — indigo/violet */
+	.tab-btn--purple {
+		background: #f5f3ff;
+		border-color: #c4b5fd;
+		color: #4f46e5;
+	}
+	.tab-btn--purple:hover {
+		background: #ede9fe;
+		border-color: #818cf8;
+		box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+		transform: translateY(-1px);
+	}
+	.tab-btn--purple.active {
+		background: #4f46e5;
+		border-color: #3730a3;
+		color: #ffffff;
+		box-shadow: 0 4px 18px rgba(79, 70, 229, 0.4);
 	}
 
 	.tab-icon {

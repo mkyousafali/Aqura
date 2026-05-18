@@ -12,6 +12,7 @@
 	let branches: any[] = [];
 	let isWhatsAppBrowser = false;
 	let giftWheelActive = false;
+	let surpriseBoxActive = false;
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -71,6 +72,12 @@
 		try {
 			const { data: gwData } = await supabase.rpc('gift_wheel_check_status');
 			giftWheelActive = !!(gwData?.active);
+		} catch {}
+
+		// Check surprise box status
+		try {
+			const { data: sbData } = await supabase.rpc('surprise_box_check_status');
+			surpriseBoxActive = !!(sbData?.active);
 		} catch {}
 
 		// Load branches
@@ -229,6 +236,12 @@
 					<a class="btn-gift-wheel" href="/gift-wheel">
 						🎡
 						{isRTL ? 'عجلة الهدايا' : 'Gift Wheel'}
+					</a>
+					{/if}
+					{#if surpriseBoxActive}
+					<a class="btn-surprise-box" href="/surprise-box">
+						🎁
+						{isRTL ? 'صندوق المفاجآت' : 'Surprise Box'}
 					</a>
 					{/if}
 				</div>
@@ -757,6 +770,29 @@
 	}
 	.btn-gift-wheel:active { transform: translateY(0); }
 
+	.btn-surprise-box {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		padding: 14px 28px;
+		border-radius: 50px;
+		font-weight: 700;
+		font-size: 16px;
+		cursor: pointer;
+		transition: all 0.3s;
+		text-decoration: none;
+		border: none;
+		background: linear-gradient(135deg, #7c3aed, #4f46e5);
+		color: white;
+		box-shadow: 0 4px 16px rgba(124,58,237,0.35);
+	}
+	.btn-surprise-box:hover {
+		background: linear-gradient(135deg, #6d28d9, #3730a3);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 24px rgba(124,58,237,0.5);
+	}
+	.btn-surprise-box:active { transform: translateY(0); }
+
 	/* Coming Soon Mask */
 	.mask-notice {
 		position: absolute;
@@ -1129,7 +1165,7 @@
 		.hero-logo-img { width: 140px; height: 140px; }
 
 		.hero-buttons { flex-direction: column; align-items: stretch; }
-		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel {
+		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel, .btn-surprise-box {
 			justify-content: center;
 			padding: 14px 20px;
 			font-size: 15px;
@@ -1156,7 +1192,7 @@
 		.hero-text h1 { font-size: 1.45rem; }
 		.hero-sub { font-size: 0.82rem; }
 		.hero-logo-img { width: 110px; height: 110px; }
-		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel { font-size: 14px; padding: 12px 16px; }
+		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel, .btn-surprise-box { font-size: 14px; padding: 12px 16px; }
 		.feature-card h3 { font-size: 0.95rem; }
 		.offers-banner h2 { font-size: 1.15rem; }
 		.section-title { font-size: 1.3rem; }
