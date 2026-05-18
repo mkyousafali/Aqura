@@ -17,12 +17,14 @@
 	let voucherInfo: any = null;
 	let errorMessage = '';
 	let successInfo: any = null;
-
+	// ── Poster ─────────────────────────────────────────────────────────────────────
+	let posterUrl = '';
 	let rtChannel: any = null;
 
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
+		await loadPosterSettings();
 		setupRealtime();
 	});
 
@@ -37,7 +39,21 @@
 				// If currently showing a valid voucher, re-validate it
 				if (redeemStep === 'valid' && voucherCode) validateCode();
 			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'surprise_box_settings' }, () => {
+				loadPosterSettings();
+			})
 			.subscribe();
+	}
+
+	async function loadPosterSettings() {
+		try {
+			const { data } = await supabase.from('surprise_box_settings').select('instruction_poster_path').limit(1).single();
+			if (data?.instruction_poster_path) {
+				posterUrl = supabase.storage.from('offer-pdfs').getPublicUrl(data.instruction_poster_path).data.publicUrl;
+			} else {
+				posterUrl = '';
+			}
+		} catch { /* ignore */ }
 	}
 
 	async function validateCode() {
@@ -114,125 +130,139 @@
 
 <div class="sbr" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 
-	<!-- Input -->
-	{#if redeemStep === 'input' || redeemStep === 'error'}
-		<div class="sbr-card">
-			<div class="sbr-icon">🎁</div>
-			<h2 class="sbr-title">
-				{$locale === 'ar' ? 'استبدال قسيمة صندوق المفاجآت' : 'Surprise Box Voucher Redemption'}
-			</h2>
-
-			<div class="sbr-field">
-				<label class="sbr-label">
-					{$locale === 'ar' ? 'رمز القسيمة' : 'Voucher Code'}
-				</label>
-				<input
-					class="sbr-input sbr-input--code"
-					type="text"
-					bind:value={voucherCode}
-					placeholder="e.g. A1B2C3D4E5F6"
-					on:keydown={handleKeydown}
-					autocomplete="off"
-					autocapitalize="characters"
-				/>
+	{#if redeemStep === 'done'}
+		<!-- Done: centered -->
+		<div class="sbr-done-wrap">
+			<div class="sbr-card sbr-card--success">
+				<div class="sbr-done-icon">🎉</div>
+				<h2 class="sbr-done-title">{$locale === 'ar' ? 'تم الاستبدال بنجاح!' : 'Redeemed Successfully!'}</h2>
+				<div class="sbr-done-value">{successInfo?.voucher_value} SAR</div>
+				<div class="sbr-done-label">
+					{$locale === 'ar' ? (successInfo?.label_ar || successInfo?.label_en) : (successInfo?.label_en || successInfo?.label_ar)}
+				</div>
+				<p class="sbr-done-code">{voucherCode.toUpperCase()}</p>
+				<button class="sbr-btn sbr-btn--primary" on:click={reset}>
+					{$locale === 'ar' ? 'قسيمة جديدة' : 'New Redemption'}
+				</button>
 			</div>
+		</div>
 
-			{#if errorMessage}
-				<div class="sbr-error">{errorMessage}</div>
+	{:else}
+		<!-- Split layout: poster left, form right -->
+		<div class="sbr-split" class:sbr-split--no-poster={!posterUrl}>
+
+			{#if posterUrl}
+			<div class="sbr-poster-col">
+				<img src={posterUrl} alt="Surprise Box Instructions" class="sbr-poster-img" />
+			</div>
 			{/if}
 
-			<button
-				class="sbr-btn sbr-btn--primary"
-				disabled={!voucherCode.trim()}
-				on:click={validateCode}
-			>
-				{$locale === 'ar' ? '🔍 تحقق من الرمز' : '🔍 Validate Code'}
-			</button>
-		</div>
+			<div class="sbr-form-col">
 
-	<!-- Validating -->
-	{:else if redeemStep === 'validating'}
-		<div class="sbr-center">
-			<div class="sbr-spinner"></div>
-			<p class="sbr-loading">{$locale === 'ar' ? 'جار التحقق…' : 'Validating…'}</p>
-		</div>
-
-	<!-- Valid — show details and confirm redemption -->
-	{:else if redeemStep === 'valid'}
-		<div class="sbr-card">
-			<div class="sbr-valid-banner">
-				✅ {$locale === 'ar' ? 'قسيمة صحيحة!' : 'Valid Voucher!'}
-			</div>
-
-			<div class="sbr-voucher-details">
-				<div class="sbr-detail-row">
-					<span class="sbr-detail-label">{$locale === 'ar' ? 'الرمز' : 'Code'}</span>
-					<code class="sbr-detail-value">{voucherCode.toUpperCase()}</code>
-				</div>
-				<div class="sbr-detail-row sbr-detail-row--highlight">
-					<span class="sbr-detail-label">{$locale === 'ar' ? 'قيمة القسيمة' : 'Voucher Value'}</span>
-					<span class="sbr-detail-value sbr-value--big">{voucherInfo.voucher_value} SAR</span>
-				</div>
-				<div class="sbr-detail-row">
-					<span class="sbr-detail-label">{$locale === 'ar' ? 'الجائزة' : 'Reward'}</span>
-					<span class="sbr-detail-value">
-						{$locale === 'ar' ? (voucherInfo.label_ar || voucherInfo.label_en) : (voucherInfo.label_en || voucherInfo.label_ar)}
-					</span>
-				</div>
-				<div class="sbr-detail-row">
-					<span class="sbr-detail-label">{$locale === 'ar' ? 'رقم الفاتورة الأصلية' : 'Original Bill #'}</span>
-					<span class="sbr-detail-value">{voucherInfo.bill_number || '—'}</span>
-				</div>
-				<div class="sbr-detail-row">
-					<span class="sbr-detail-label">{$locale === 'ar' ? 'تاريخ الانتهاء' : 'Expires'}</span>
-					<span class="sbr-detail-value">{voucherInfo.expires_at}</span>
-				</div>
-			</div>
-
-			<div class="sbr-redeem-section">
-				<p class="sbr-redeem-label">{$locale === 'ar' ? 'بيانات الفاتورة الحالية (مطلوب)' : 'Current Bill Details (required)'}</p>
-				<div class="sbr-row2">
-					<div class="sbr-field">
-						<label class="sbr-label">{$locale === 'ar' ? 'رقم الفاتورة' : 'Bill Number'}</label>
-						<input class="sbr-input" type="text" bind:value={redeemBillNumber} placeholder="e.g. 00123" />
+				{#if redeemStep === 'validating'}
+					<div class="sbr-center">
+						<div class="sbr-spinner"></div>
+						<p class="sbr-loading">{$locale === 'ar' ? 'جار التحقق…' : 'Validating…'}</p>
 					</div>
-					<div class="sbr-field">
-						<label class="sbr-label">{$locale === 'ar' ? 'مبلغ الفاتورة (ريال)' : 'Bill Amount (SAR)'}</label>
-						<input class="sbr-input" type="number" min="0" step="0.01" bind:value={redeemAmount} />
+
+				{:else if redeemStep === 'redeeming'}
+					<div class="sbr-center">
+						<div class="sbr-spinner"></div>
+						<p class="sbr-loading">{$locale === 'ar' ? 'جار الاستبدال…' : 'Processing redemption…'}</p>
 					</div>
-				</div>
-			</div>
 
-			<div class="sbr-actions">
-				<button class="sbr-btn sbr-btn--success" disabled={!redeemBillNumber.trim() || !redeemAmount || redeemAmount <= 0} on:click={redeemVoucher}>
-					✅ {$locale === 'ar' ? 'تأكيد الاستبدال' : 'Confirm Redemption'}
-				</button>
-				<button class="sbr-btn sbr-btn--ghost" on:click={reset}>
-					{$locale === 'ar' ? 'إلغاء' : 'Cancel'}
-				</button>
-			</div>
-		</div>
+				{:else if redeemStep === 'input' || redeemStep === 'error'}
+					<div class="sbr-card">
+						<div class="sbr-icon">🎁</div>
+						<h2 class="sbr-title">
+							{$locale === 'ar' ? 'استبدال قسيمة صندوق المفاجآت' : 'Surprise Box Voucher Redemption'}
+						</h2>
 
-	<!-- Redeeming -->
-	{:else if redeemStep === 'redeeming'}
-		<div class="sbr-center">
-			<div class="sbr-spinner"></div>
-			<p class="sbr-loading">{$locale === 'ar' ? 'جار الاستبدال…' : 'Processing redemption…'}</p>
-		</div>
+						<div class="sbr-field">
+							<label class="sbr-label">
+								{$locale === 'ar' ? 'رمز القسيمة' : 'Voucher Code'}
+							</label>
+							<input
+								class="sbr-input sbr-input--code"
+								type="text"
+								bind:value={voucherCode}
+								placeholder="e.g. A1B2C3D4E5F6"
+								on:keydown={handleKeydown}
+								autocomplete="off"
+								autocapitalize="characters"
+							/>
+						</div>
 
-	<!-- Done -->
-	{:else if redeemStep === 'done'}
-		<div class="sbr-card sbr-card--success">
-			<div class="sbr-done-icon">🎉</div>
-			<h2 class="sbr-done-title">{$locale === 'ar' ? 'تم الاستبدال بنجاح!' : 'Redeemed Successfully!'}</h2>
-			<div class="sbr-done-value">{successInfo?.voucher_value} SAR</div>
-			<div class="sbr-done-label">
-				{$locale === 'ar' ? (successInfo?.label_ar || successInfo?.label_en) : (successInfo?.label_en || successInfo?.label_ar)}
+						{#if errorMessage}
+							<div class="sbr-error">{errorMessage}</div>
+						{/if}
+
+						<button
+							class="sbr-btn sbr-btn--primary"
+							disabled={!voucherCode.trim()}
+							on:click={validateCode}
+						>
+							{$locale === 'ar' ? '🔍 تحقق من الرمز' : '🔍 Validate Code'}
+						</button>
+					</div>
+
+				{:else if redeemStep === 'valid'}
+					<div class="sbr-card">
+						<div class="sbr-valid-banner">
+							✅ {$locale === 'ar' ? 'قسيمة صحيحة!' : 'Valid Voucher!'}
+						</div>
+
+						<div class="sbr-voucher-details">
+							<div class="sbr-detail-row">
+								<span class="sbr-detail-label">{$locale === 'ar' ? 'الرمز' : 'Code'}</span>
+								<code class="sbr-detail-value">{voucherCode.toUpperCase()}</code>
+							</div>
+							<div class="sbr-detail-row sbr-detail-row--highlight">
+								<span class="sbr-detail-label">{$locale === 'ar' ? 'قيمة القسيمة' : 'Voucher Value'}</span>
+								<span class="sbr-detail-value sbr-value--big">{voucherInfo.voucher_value} SAR</span>
+							</div>
+							<div class="sbr-detail-row">
+								<span class="sbr-detail-label">{$locale === 'ar' ? 'الجائزة' : 'Reward'}</span>
+								<span class="sbr-detail-value">
+									{$locale === 'ar' ? (voucherInfo.label_ar || voucherInfo.label_en) : (voucherInfo.label_en || voucherInfo.label_ar)}
+								</span>
+							</div>
+							<div class="sbr-detail-row">
+								<span class="sbr-detail-label">{$locale === 'ar' ? 'رقم الفاتورة الأصلية' : 'Original Bill #'}</span>
+								<span class="sbr-detail-value">{voucherInfo.bill_number || '—'}</span>
+							</div>
+							<div class="sbr-detail-row">
+								<span class="sbr-detail-label">{$locale === 'ar' ? 'تاريخ الانتهاء' : 'Expires'}</span>
+								<span class="sbr-detail-value">{voucherInfo.expires_at}</span>
+							</div>
+						</div>
+
+						<div class="sbr-redeem-section">
+							<p class="sbr-redeem-label">{$locale === 'ar' ? 'بيانات الفاتورة الحالية (مطلوب)' : 'Current Bill Details (required)'}</p>
+							<div class="sbr-row2">
+								<div class="sbr-field">
+									<label class="sbr-label">{$locale === 'ar' ? 'رقم الفاتورة' : 'Bill Number'}</label>
+									<input class="sbr-input" type="text" bind:value={redeemBillNumber} placeholder="e.g. 00123" />
+								</div>
+								<div class="sbr-field">
+									<label class="sbr-label">{$locale === 'ar' ? 'مبلغ الفاتورة (ريال)' : 'Bill Amount (SAR)'}</label>
+									<input class="sbr-input" type="number" min="0" step="0.01" bind:value={redeemAmount} />
+								</div>
+							</div>
+						</div>
+
+						<div class="sbr-actions">
+							<button class="sbr-btn sbr-btn--success" disabled={!redeemBillNumber.trim() || !redeemAmount || redeemAmount <= 0} on:click={redeemVoucher}>
+								✅ {$locale === 'ar' ? 'تأكيد الاستبدال' : 'Confirm Redemption'}
+							</button>
+							<button class="sbr-btn sbr-btn--ghost" on:click={reset}>
+								{$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+							</button>
+						</div>
+					</div>
+				{/if}
+
 			</div>
-			<p class="sbr-done-code">{voucherCode.toUpperCase()}</p>
-			<button class="sbr-btn sbr-btn--primary" on:click={reset}>
-				{$locale === 'ar' ? 'قسيمة جديدة' : 'New Redemption'}
-			</button>
 		</div>
 	{/if}
 </div>
@@ -242,20 +272,70 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
+		max-height: 100%;
 		background: #f8fafc;
-		padding: 1.5rem;
+		padding: 1rem 1.25rem;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+
+	/* ── Split layout ────────────────────────────────────────────────────────── */
+	.sbr-split {
+		display: grid;
+		grid-template-columns: 3fr 2fr;
+		gap: 1rem;
+		align-items: stretch;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.sbr-split--no-poster {
+		grid-template-columns: 1fr;
 		align-items: center;
+		justify-items: center;
+	}
+
+	.sbr-poster-col {
+		display: flex;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.sbr-poster-img {
+		width: 100%;
+		height: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: 12px;
+		border: 1px solid #e2e8f0;
+		background: #ffffff;
+		box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+	}
+
+	.sbr-form-col {
+		display: flex;
+		flex-direction: column;
 		justify-content: center;
+		gap: 0.75rem;
+		min-height: 0;
 		overflow-y: auto;
 	}
 
+	/* ── Done wrapper ────────────────────────────────────────────────────────── */
+	.sbr-done-wrap {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: 1;
+		min-height: 0;
+	}
+
+	/* ── Card ─────────────────────────────────────────────────────────────────── */
 	.sbr-card {
 		background: #ffffff;
 		border: 1px solid #e2e8f0;
 		border-radius: 16px;
 		padding: 2rem;
 		width: 100%;
-		max-width: 480px;
 		display: flex;
 		flex-direction: column;
 		gap: 1.25rem;
@@ -266,6 +346,7 @@
 		background: linear-gradient(135deg, #f0fdf4, #dcfce7);
 		align-items: center;
 		text-align: center;
+		max-width: 420px;
 	}
 
 	.sbr-icon { font-size: 2.5rem; text-align: center; }

@@ -371,6 +371,7 @@ BEGIN
         'total_rejected',    COUNT(*) FILTER (WHERE rejected = true),
         'total_voucher_value', COALESCE(SUM(v.voucher_value) FILTER (WHERE p.is_winner = true), 0),
         'total_redeemed',    COUNT(*) FILTER (WHERE v.status = 'redeemed'),
+        'total_redeemed_value', COALESCE(SUM(v.voucher_value) FILTER (WHERE v.status = 'redeemed'), 0),
         'redemption_rate',   ROUND(
             CASE WHEN COUNT(*) FILTER (WHERE p.is_winner = true) > 0
                  THEN COUNT(*) FILTER (WHERE v.status = 'redeemed')::numeric

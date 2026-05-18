@@ -53,6 +53,12 @@
 
 	let termsEn = DEFAULT_TERMS_EN, termsAr = DEFAULT_TERMS_AR;
 
+	// ── Poster ────────────────────────────────────────────────────────────────
+	let posterPath = '';
+	let posterUploading = false;
+	let posterError = '';
+	let posterSuccess = '';
+
 	// ── Rewards ───────────────────────────────────────────────────────────────
 	let rewards: any[] = [];
 	let rewardsLoading = false;
@@ -126,6 +132,7 @@
 				boxCount = data.box_count;
 				termsEn = data.terms_en || DEFAULT_TERMS_EN;
 				termsAr = data.terms_ar || DEFAULT_TERMS_AR;
+				posterPath = data.instruction_poster_path || '';
 				if (data.start_datetime) {
 					const dt = new Date(data.start_datetime);
 					startDate = dt.toISOString().split('T')[0];
@@ -169,6 +176,52 @@
 			await loadSettings();
 		} catch(e: any) { settingsError = e?.message || 'Failed to save'; }
 		finally { settingsSaving = false; }
+	}
+
+	// ── POSTER ────────────────────────────────────────────────────────────────
+	async function uploadPoster(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		if (file.size > 5 * 1024 * 1024) { posterError = 'File too large (max 5MB)'; return; }
+		posterUploading = true;
+		posterError = '';
+		posterSuccess = '';
+		try {
+			const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+			const path = `surprise-box/instruction-poster.${ext}`;
+			const { error: upErr } = await supabase.storage.from('offer-pdfs').upload(path, file, { upsert: true });
+			if (upErr) throw upErr;
+			if (settings?.id) {
+				const { error: dbErr } = await supabase.from('surprise_box_settings').update({ instruction_poster_path: path }).eq('id', settings.id);
+				if (dbErr) throw dbErr;
+			}
+			await loadSettings();
+			posterSuccess = 'Poster uploaded successfully!';
+			setTimeout(() => posterSuccess = '', 4000);
+		} catch (err: any) {
+			posterError = err?.message || 'Upload failed';
+		} finally {
+			posterUploading = false;
+			(e.target as HTMLInputElement).value = '';
+		}
+	}
+
+	async function removePoster() {
+		if (!posterPath || posterUploading) return;
+		posterUploading = true;
+		posterError = '';
+		try {
+			await supabase.storage.from('offer-pdfs').remove([posterPath]);
+			if (settings?.id) {
+				await supabase.from('surprise_box_settings').update({ instruction_poster_path: null }).eq('id', settings.id);
+			}
+			await loadSettings();
+		} catch (err: any) {
+			posterError = err?.message || 'Failed to remove poster';
+		} finally {
+			posterUploading = false;
+		}
 	}
 
 	// ── REWARDS ───────────────────────────────────────────────────────────────
@@ -461,6 +514,35 @@
 					</div>
 				</div>
 
+				<!-- Instruction Poster -->
+				<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] p-5 mb-4">
+					<h3 class="text-sm font-black text-slate-700 uppercase tracking-wide mb-1">🖼️ Instruction Poster</h3>
+					<p class="text-xs text-slate-400 mb-3">Displayed to cashiers in the Surprise Box Redemption section.</p>
+
+					{#if posterPath && supabase}
+						{@const posterPreviewUrl = supabase.storage.from('offer-pdfs').getPublicUrl(posterPath).data.publicUrl}
+						<div class="relative mb-3">
+							<img src={posterPreviewUrl} alt="Instruction Poster" class="w-full max-h-56 object-contain rounded-xl border border-slate-200 bg-slate-50" />
+							<button
+								class="absolute top-2 right-2 w-7 h-7 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs shadow-md transition-all disabled:opacity-50"
+								disabled={posterUploading}
+								on:click={removePoster}
+							>✕</button>
+						</div>
+					{/if}
+
+					<label class="flex items-center gap-3 cursor-pointer">
+						<span class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-700 shadow-md transition-all {posterUploading ? 'opacity-50 cursor-not-allowed' : ''}">
+							{#if posterUploading}⏳ Uploading…{:else if posterPath}🔄 Replace Poster{:else}📤 Upload Poster{/if}
+						</span>
+						<span class="text-xs text-slate-400">JPG, PNG, WEBP — max 5MB</span>
+						<input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" disabled={posterUploading} on:change={uploadPoster} />
+					</label>
+
+					{#if posterError}<p class="mt-2 text-xs font-bold text-red-500">{posterError}</p>{/if}
+					{#if posterSuccess}<p class="mt-2 text-xs font-bold text-emerald-600">{posterSuccess}</p>{/if}
+				</div>
+
 				<!-- Save -->
 				<div class="flex items-center justify-end gap-3 mb-4">
 					{#if settingsError}
@@ -584,6 +666,10 @@
 					<div class="bg-violet-50/60 backdrop-blur-xl rounded-2xl border border-violet-200 shadow-sm p-4 text-center">
 						<div class="text-2xl font-black text-violet-600">{dashboardStats.total_redeemed ?? 0}</div>
 						<div class="text-[10px] font-bold text-violet-500 uppercase tracking-wide mt-1">{$t('surpriseBox.manager.dashboard.redeemed')}</div>
+					</div>
+					<div class="bg-teal-50/60 backdrop-blur-xl rounded-2xl border border-teal-200 shadow-sm p-4 text-center">
+						<div class="text-2xl font-black text-teal-600">{dashboardStats.total_redeemed_value ?? 0} SAR</div>
+						<div class="text-[10px] font-bold text-teal-500 uppercase tracking-wide mt-1">Redeemed Value</div>
 					</div>
 					<div class="bg-white/60 backdrop-blur-xl rounded-2xl border border-white shadow-sm p-4 text-center">
 						<div class="text-2xl font-black text-slate-800">{dashboardStats.redemption_rate ?? 0}%</div>
