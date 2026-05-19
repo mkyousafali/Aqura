@@ -44,17 +44,20 @@
 						// Always fetch from branches table to get the language-specific name
 						const { data: branchData, error: branchError } = await supabase
 							.from('branches')
-							.select('name_en, name_ar')
+							.select('name_en, name_ar, location_en, location_ar')
 							.eq('id', erpData.branch_id)
 							.maybeSingle();
 
 						if (branchData) {
-							// Select the name based on current locale
+							// Select the name and location based on current locale
 							let branchName = locale === 'ar' ? branchData.name_ar : branchData.name_en;
+							const branchLocation = locale === 'ar' ? branchData.location_ar : branchData.location_en;
 							if (branchName) {
 								// Sanitize the branch name to remove offensive content
 								branchName = sanitizeText(branchName);
-								cardDataResult.branch_name = branchName;
+								cardDataResult.branch_name = branchLocation
+									? `${branchName} - ${branchLocation}`
+									: branchName;
 							}
 						}
 					}
@@ -130,6 +133,14 @@
 </svelte:head>
 
 <div class="loyalty-details-page">
+	<!-- Ambient floating background shapes -->
+	<div class="ambient-bg" aria-hidden="true">
+		<div class="ambient-shape shape-1"></div>
+		<div class="ambient-shape shape-2"></div>
+		<div class="ambient-shape shape-3"></div>
+		<div class="ambient-shape shape-4"></div>
+	</div>
+
 	<div class="loyalty-header">
 		<button type="button" class="back-btn" on:click={goBack} title="Back">
 			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -176,7 +187,7 @@
 						<div class="card-title">
 							<h2>{$_('customer.login.branchDetails') || 'Branch Details'}</h2>
 							{#if cardData.branch_name}
-								<p class="branch-title">{cardData.branch_name}</p>
+							<p class="branch-title" title={cardData.branch_name}>{cardData.branch_name}</p>
 							{/if}
 						</div>
 					</div>
@@ -222,6 +233,20 @@
 </div>
 
 <style>
+	/* ── Brand Variables ──────────────────────────────────────────────────── */
+	:root {
+		--brand-green: #10b981;
+		--brand-green-light: #34d399;
+		--brand-orange: #f97316;
+		--brand-orange-light: #fb923c;
+		--brand-pink: #ec4899;
+		--brand-pink-light: #f472b6;
+		--brand-lavender: #8b5cf6;
+		--brand-lavender-light: #a78bfa;
+		--bg-offwhite: #f1f5f9;
+	}
+
+	/* ── RTL Support ──────────────────────────────────────────────────────── */
 	:global(html[dir='rtl']) .loyalty-header,
 	:global(html[dir='rtl']) .card-header,
 	:global(html[dir='rtl']) .stats-grid {
@@ -229,28 +254,75 @@
 		text-align: right;
 	}
 
+	/* ── Page Root ────────────────────────────────────────────────────────── */
 	.loyalty-details-page {
+		position: relative;
 		min-height: 100vh;
-		background: linear-gradient(135deg, #FFF8F0 0%, #FFFBF5 50%, #FFFFFF 100%);
+		background: var(--bg-offwhite);
 		padding: 1rem;
-		padding-top: 2rem;
+		padding-top: 1.5rem;
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 1.25rem;
+		overflow-x: hidden;
 	}
 
+	/* ── Ambient Floating Background ──────────────────────────────────────── */
+	.ambient-bg {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 0;
+		overflow: hidden;
+	}
+
+	.ambient-shape {
+		position: absolute;
+		filter: blur(80px);
+		opacity: 0.35;
+		border-radius: 50%;
+	}
+
+	.shape-1 { width: 350px; height: 350px; background: var(--brand-orange-light); top: -100px; right: -50px; animation: drift 20s ease-in-out infinite alternate; }
+	.shape-2 { width: 300px; height: 300px; background: var(--brand-pink-light); top: 30%; left: -100px; animation: drift 25s ease-in-out infinite alternate-reverse; }
+	.shape-3 { width: 400px; height: 400px; background: var(--brand-lavender-light); bottom: -100px; right: 10%; animation: drift 22s ease-in-out infinite alternate; }
+	.shape-4 { width: 300px; height: 300px; background: var(--brand-green-light); top: 55%; right: -50px; animation: drift 18s ease-in-out infinite alternate-reverse; }
+
+	@keyframes drift {
+		0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
+		100% { transform: translate(50px, 40px) scale(1.1) rotate(15deg); }
+	}
+
+	/* ── Header Bar ───────────────────────────────────────────────────────── */
 	.loyalty-header {
+		position: relative;
+		z-index: 10;
 		display: flex;
 		align-items: center;
 		gap: 1rem;
-		background: white;
-		padding: 1.5rem;
-		border-radius: 16px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-		position: relative;
-		z-index: 10;
+		background: rgba(255, 255, 255, 0.75);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		padding: 1.25rem 1.5rem;
+		border-radius: 24px;
+		border: 1px solid rgba(255, 255, 255, 0.85);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+		max-width: 600px;
+		margin: 0 auto;
+		width: 100%;
+		box-sizing: border-box;
 	}
 
+	.loyalty-header h1 {
+		flex: 1;
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 800;
+		color: #1e293b;
+		text-align: center;
+	}
+
+	/* ── Back Button ──────────────────────────────────────────────────────── */
 	.back-btn {
 		display: flex;
 		align-items: center;
@@ -259,267 +331,174 @@
 		height: 40px;
 		min-width: 40px;
 		padding: 0;
-		background: #F3F4F6;
-		border: 1px solid #E5E7EB;
+		background: rgba(241, 245, 249, 0.9);
+		border: 1px solid rgba(226, 232, 240, 0.8);
 		color: #374151;
-		border-radius: 10px;
+		border-radius: 12px;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		pointer-events: auto;
-		z-index: 10;
 		flex-shrink: 0;
 		touch-action: manipulation;
 	}
 
-	.back-btn:hover {
-		background: #E5E7EB;
-		border-color: #D1D5DB;
-		transform: translateY(-1px);
-	}
+	.back-btn:hover { background: #e2e8f0; transform: translateY(-1px); }
+	.back-btn:active { transform: translateY(0); background: #cbd5e1; }
 
-	.back-btn:active {
-		transform: translateY(0);
-		background: #D1D5DB;
-	}
-
+	/* ── Language Button ──────────────────────────────────────────────────── */
 	.language-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0.625rem 1.25rem;
-		background: linear-gradient(135deg, #FF8C00 0%, #FFB347 100%);
+		padding: 0.5rem 1.125rem;
+		background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-orange-light) 100%);
 		border: none;
 		color: white;
-		border-radius: 24px;
+		border-radius: 20px;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		pointer-events: auto;
-		z-index: 10;
 		flex-shrink: 0;
-		font-size: 0.875rem;
-		font-weight: 600;
+		font-size: 0.85rem;
+		font-weight: 700;
 		min-height: 40px;
 		touch-action: manipulation;
-		box-shadow: 0 2px 4px rgba(255, 140, 0, 0.3);
+		box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
 	}
 
-	.language-btn:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(255, 140, 0, 0.4);
-	}
+	.language-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(249, 115, 22, 0.4); }
+	.language-btn:active { transform: translateY(0); }
 
-	.language-btn:active {
-		transform: translateY(0);
-	}
-
-	.loyalty-header h1 {
-		flex: 1;
-		margin: 0;
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #1F2937;
-		text-align: center;
-	}
-
+	/* ── Card Container ───────────────────────────────────────────────────── */
 	.card-container {
+		position: relative;
+		z-index: 10;
 		max-width: 600px;
 		margin: 0 auto;
 		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
 		animation: fadeIn 0.4s ease-out;
-		padding: 0 0.5rem;
 		box-sizing: border-box;
-		overflow-x: hidden;
 	}
 
 	@keyframes fadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+		from { opacity: 0; transform: translateY(12px); }
+		to   { opacity: 1; transform: translateY(0); }
 	}
 
+	/* ── Loyalty Card ─────────────────────────────────────────────────────── */
 	.loyalty-card {
-		background: white;
-		border-radius: 18px;
+		background: rgba(255, 255, 255, 0.78);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+		border-radius: 24px;
 		overflow: hidden;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-		color: #1F2937;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.07);
+		border: 1px solid rgba(255, 255, 255, 0.85);
 		display: flex;
 		flex-direction: column;
-		border: 1px solid #E5E7EB;
 	}
 
+	/* ── Card Header ──────────────────────────────────────────────────────── */
 	.card-header {
-		padding: 1.75rem;
+		padding: 1.5rem;
 		display: flex;
 		align-items: center;
 		gap: 1.25rem;
-		background: linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%);
-		border-bottom: 1px solid #E5E7EB;
+		background: linear-gradient(135deg, rgba(249, 250, 251, 0.9) 0%, rgba(241, 245, 249, 0.9) 100%);
+		border-bottom: 1px solid rgba(226, 232, 240, 0.7);
 	}
 
-	.card-logo {
-		width: 80px;
-		height: 60px;
-		background: linear-gradient(135deg, #FF8C00 0%, #FFB347 100%);
-		border-radius: 12px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		color: white;
-		box-shadow: 0 2px 8px rgba(255, 140, 0, 0.2);
-	}
-
-	.card-logo svg {
-		stroke: white;
-		width: 40px;
-		height: 40px;
-	}
-
-	.card-icons {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		flex-shrink: 0;
-	}
+	.card-icons { display: flex; align-items: center; gap: 1rem; flex-shrink: 0; }
 
 	.app-logo {
-		width: 64px;
-		height: 48px;
-		background: linear-gradient(135deg, #FFFFFF 0%, #F9FAFB 100%);
-		border-radius: 14px;
+		width: 72px;
+		height: 56px;
+		background: white;
+		border-radius: 16px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
 		padding: 8px;
-		border: 2px solid #FF8C00;
-		box-shadow: 0 4px 16px rgba(255, 140, 0, 0.15);
+		box-shadow: 0 8px 24px rgba(16, 185, 129, 0.18);
+		border: 2px solid rgba(16, 185, 129, 0.15);
 		transition: all 0.3s ease;
 	}
 
-	.app-logo:hover {
-		transform: translateY(-3px);
-		box-shadow: 0 8px 24px rgba(255, 140, 0, 0.25);
-	}
+	.app-logo:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(16, 185, 129, 0.28); }
 
-	.app-logo img {
-		width: 100%;
-		height: 100%;
-		object-fit: contain;
-	}
+	.app-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+	.card-title { flex: 1; }
 
 	.card-title h2 {
 		margin: 0;
-		font-size: 1.125rem;
+		font-size: 1.1rem;
 		font-weight: 700;
-		color: #1F2937;
+		color: #1e293b;
 	}
 
-	.card-title {
-		flex: 1;
-	}
-
-	.card-status {
-		margin: 0.25rem 0 0 0;
-		font-size: 0.8125rem;
-		color: #6B7280;
+	.branch-title {
+		margin: 0.35rem 0 0;
+		font-size: 0.875rem;
+		color: #475569;
 		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		line-height: 1.4;
 	}
 
-	.card-status.active {
-		color: #10B981;
-	}
-
-	.multi-location-badge {
-		margin: 0.5rem 0 0 0;
-		font-size: 0.75rem;
-		color: #FF8C00;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		padding: 0.375rem 0.75rem;
-		background: rgba(255, 140, 0, 0.1);
-		border-radius: 6px;
-		display: inline-block;
-		width: fit-content;
-	}
-
+	/* ── Card Body ────────────────────────────────────────────────────────── */
 	.card-body {
-		padding: 2rem;
+		padding: 1.75rem;
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
 		flex: 1;
 	}
 
-	/* Card Number Section */
+	/* ── Card Number ──────────────────────────────────────────────────────── */
 	.card-number-section {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
 	}
 
+	.label {
+		font-size: 0.75rem;
+		color: #64748b;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
 	.card-number {
-		font-size: 1.25rem;
-		font-weight: 600;
+		font-size: 1.2rem;
+		font-weight: 700;
 		letter-spacing: 0.15em;
-		color: #1F2937;
+		color: #1e293b;
 	}
 
-	/* Branch Section */
-	.branch-section {
-		padding: 0.75rem;
-		background: #F9FAFB;
-		border-radius: 8px;
-		text-align: center;
-		border: 1px solid #E5E7EB;
-	}
-
-	.branch-name {
-		font-size: 0.9375rem;
-		font-weight: 600;
-		color: #4B5563;
-	}
-
-	/* Balance Section - Main Focus */
+	/* ── Balance Section ──────────────────────────────────────────────────── */
 	.balance-section {
-		background: linear-gradient(135deg, #FFF9F0 0%, #FFFAF5 100%);
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, rgba(52, 211, 153, 0.04) 100%);
 		padding: 2rem;
-		border-radius: 16px;
-		border: 2px solid #FFE5CC;
+		border-radius: 20px;
+		border: 2px solid rgba(16, 185, 129, 0.15);
 		text-align: center;
 		animation: slideDown 0.5s ease-out 0.1s backwards;
 	}
 
 	@keyframes slideDown {
-		from {
-			opacity: 0;
-			transform: translateY(-10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+		from { opacity: 0; transform: translateY(-10px); }
+		to   { opacity: 1; transform: translateY(0); }
 	}
 
-	.balance-content {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
+	.balance-content { display: flex; flex-direction: column; gap: 0.75rem; }
 
 	.balance-label {
-		font-size: 0.875rem;
-		color: #6B7280;
-		font-weight: 500;
+		font-size: 0.8rem;
+		color: #64748b;
+		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 	}
@@ -527,7 +506,7 @@
 	.balance-amount {
 		font-size: 3rem;
 		font-weight: 800;
-		background: linear-gradient(135deg, #FF8C00 0%, #FFB347 100%);
+		background: linear-gradient(135deg, var(--brand-green) 0%, var(--brand-green-light) 100%);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
@@ -535,385 +514,169 @@
 	}
 
 	.points-label {
-		font-size: 0.9375rem;
-		color: #FF8C00;
-		font-weight: 600;
+		font-size: 0.9rem;
+		color: var(--brand-green);
+		font-weight: 700;
 	}
 
-	/* Stats Grid - 3 Column */
+	/* ── Stats Grid ───────────────────────────────────────────────────────── */
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: 1rem;
+		gap: 0.875rem;
 	}
 
 	.stat-card {
-		background: #F9FAFB;
-		padding: 1.25rem;
-		border-radius: 12px;
-		border: 1px solid #E5E7EB;
+		background: rgba(255, 255, 255, 0.8);
+		padding: 1.25rem 0.875rem;
+		border-radius: 16px;
+		border: 1px solid rgba(226, 232, 240, 0.8);
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.625rem;
 		text-align: center;
 		transition: all 0.2s ease;
 		animation: slideUp 0.5s ease-out backwards;
 		animation-delay: var(--delay, 0.2s);
 	}
 
+	.stat-card:nth-child(1) { --delay: 0.15s; }
+	.stat-card:nth-child(2) { --delay: 0.2s; }
+	.stat-card:nth-child(3) { --delay: 0.25s; }
+
 	@keyframes slideUp {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	.stat-card:nth-child(1) {
-		--delay: 0.15s;
-	}
-
-	.stat-card:nth-child(2) {
-		--delay: 0.2s;
-	}
-
-	.stat-card:nth-child(3) {
-		--delay: 0.25s;
+		from { opacity: 0; transform: translateY(10px); }
+		to   { opacity: 1; transform: translateY(0); }
 	}
 
 	.stat-card:hover {
-		border-color: #FF8C00;
-		box-shadow: 0 2px 8px rgba(255, 140, 0, 0.1);
+		border-color: var(--brand-orange-light);
+		box-shadow: 0 4px 16px rgba(249, 115, 22, 0.1);
 		transform: translateY(-2px);
 	}
 
 	.stat-label {
-		font-size: 0.75rem;
-		color: #6B7280;
-		font-weight: 500;
+		font-size: 0.68rem;
+		color: #64748b;
+		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.4px;
 	}
 
 	.stat-value {
 		font-size: 1.5rem;
-		font-weight: 700;
-		color: #FF8C00;
+		font-weight: 800;
+		background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-orange-light) 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
 	}
 
 	.stat-value-small {
-		font-size: 0.8125rem;
-		color: #1F2937;
+		font-size: 0.78rem;
+		color: #1e293b;
 		font-weight: 600;
 	}
 
-	/* Activity Section */
-	.activity-section {
-		padding: 1.25rem;
-		background: #F9FAFB;
-		border-radius: 12px;
-		border: 1px solid #E5E7EB;
-	}
-
-	.activity-label {
-		display: block;
-		font-size: 0.875rem;
-		color: #6B7280;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.4px;
-		margin-bottom: 0.75rem;
-	}
-
-	.activity-empty {
-		margin: 0;
-		font-size: 0.875rem;
-		color: #9CA3AF;
-		text-align: center;
-		padding: 1rem;
-		opacity: 0.7;
-	}
-
-	/* Card Footer */
+	/* ── Card Footer ──────────────────────────────────────────────────────── */
 	.card-footer {
-		padding: 1.5rem;
+		padding: 1.25rem 1.75rem;
 		text-align: center;
-		background: #F9FAFB;
-		border-top: 1px solid #E5E7EB;
-		font-size: 0.875rem;
-		color: #6B7280;
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, rgba(52, 211, 153, 0.02) 100%);
+		border-top: 1px solid rgba(226, 232, 240, 0.6);
+		font-size: 0.85rem;
+		color: #64748b;
 	}
 
-	.card-footer p {
-		margin: 0;
-		font-weight: 500;
-		line-height: 1.5;
-	}
+	.card-footer p { margin: 0; font-weight: 500; line-height: 1.5; }
 
-	/* Loading State */
+	/* ── Loading State ────────────────────────────────────────────────────── */
 	.loading {
+		position: relative;
+		z-index: 10;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		min-height: 400px;
-		color: #6B7280;
-		font-size: 1.125rem;
+		color: #64748b;
+		font-size: 1.1rem;
 	}
 
-	/* Mobile Responsive */
+	/* ── Mobile Responsive ────────────────────────────────────────────────── */
 	@media (max-width: 768px) {
 		.loyalty-details-page {
-			padding: 0 !important;
-			padding-top: 0.5rem !important;
-			gap: 0.75rem;
-			margin: 0 !important;
-			width: 100% !important;
-			overflow-x: hidden;
-		}
-
-		.card-container {
-			max-width: 100% !important;
-			margin: 0 !important;
-			padding: 0 !important;
-			width: 100% !important;
-			overflow-x: hidden;
-		}
-
-		.loyalty-card {
-			border-radius: 0;
-			margin: 0;
-			width: 100%;
+			padding: 0.75rem;
+			padding-top: 1rem;
+			gap: 1rem;
 		}
 
 		.loyalty-header {
-			padding: 1rem;
-			gap: 0.75rem;
-			flex-wrap: wrap;
-			margin: 0 !important;
-			border-radius: 0;
-			width: 100%;
+			border-radius: 18px;
+			padding: 1rem 1.25rem;
 		}
 
-		.loyalty-header h1 {
-			font-size: 1.25rem;
-			flex: 1 1 auto;
-		}
+		.card-container { gap: 0.875rem; }
 
-		.card-icons {
-			gap: 0.5rem;
-		}
+		.loyalty-card { border-radius: 20px; }
 
-		.app-logo {
-			width: 120px;
-			height: 90px;
-			background: linear-gradient(135deg, #FFFFFF 0%, #F9FAFB 100%);
-			border: 2px solid #FF8C00;
-			border-radius: 16px;
-			box-shadow: 0 8px 24px rgba(255, 140, 0, 0.2);
-			padding: 10px;
-			transition: all 0.3s ease;
-		}
+		.app-logo { width: 60px; height: 48px; }
 
-		.app-logo:hover {
-			transform: translateY(-5px);
-			box-shadow: 0 12px 32px rgba(255, 140, 0, 0.3);
-		}
+		.card-header { padding: 1.25rem; }
 
-		.card-logo {
-			width: 48px;
-			height: 36px;
-		}
+		.card-body { padding: 1.5rem; gap: 1.25rem; }
 
-		.card-logo svg {
-			width: 28px;
-			height: 28px;
-		}
+		.balance-amount { font-size: 2.5rem; }
 
-		.card-header {
-			padding: 1.25rem;
-			gap: 1rem;
-			flex-wrap: wrap;
-		}
+		.stats-grid { gap: 0.625rem; }
 
-		.card-body {
-			padding: 1.5rem;
-			gap: 1.25rem;
-		}
+		.stat-card { padding: 1rem 0.625rem; border-radius: 14px; }
 
-		.balance-amount {
-			font-size: 2.25rem;
-		}
+		.stat-label { font-size: 0.63rem; }
 
-		.stats-grid {
-			grid-template-columns: repeat(3, 1fr);
-			gap: 0.75rem;
-		}
+		.stat-value { font-size: 1.25rem; }
 
-		.stat-card {
-			padding: 0.875rem;
-		}
+		.stat-value-small { font-size: 0.72rem; }
 
-		.stat-label {
-			font-size: 0.65rem;
-		}
+		.card-footer { padding: 1rem 1.5rem; }
 
-		.stat-value {
-			font-size: 1.125rem;
-		}
+		.card-number { font-size: 1.1rem; }
 
-		.stat-value-small {
-			font-size: 0.75rem;
-		}
-
-		.card-footer {
-			padding: 1.25rem;
-			font-size: 0.8125rem;
-		}
-
-		.card-number {
-			font-size: 1.125rem;
-		}
-
-		.branch-title {
-			font-size: 0.9375rem;
-		}
+		.branch-title { font-size: 0.8rem; }
 	}
 
-	/* Extra small devices - 480px and below */
 	@media (max-width: 480px) {
-		.loyalty-details-page {
-			padding: 0.5rem;
-			padding-top: 0.75rem;
-			gap: 0.75rem;
-		}
+		.loyalty-details-page { padding: 0.5rem; padding-top: 0.75rem; }
 
 		.loyalty-header {
-			flex-direction: column;
-			padding: 0.75rem;
-			gap: 0.5rem;
+			border-radius: 14px;
+			padding: 0.875rem 1rem;
+			flex-wrap: wrap;
 		}
 
-		.loyalty-header h1 {
-			font-size: 1rem;
-			text-align: center;
-		}
+		.loyalty-header h1 { font-size: 1.05rem; }
 
-		.back-btn,
-		.language-btn {
-			min-width: 36px;
-			height: 36px;
-			padding: 0;
-		}
+		.back-btn, .language-btn { min-height: 36px; height: 36px; }
 
-		.language-btn {
-			font-size: 0.75rem;
-			padding: 0.5rem 1rem;
-		}
+		.language-btn { font-size: 0.75rem; padding: 0.4rem 0.875rem; }
 
-		.card-icons {
-			gap: 0.25rem;
-		}
+		.balance-amount { font-size: 2rem; }
 
-		.app-logo {
-			width: 120px;
-			height: 90px;
-			background: linear-gradient(135deg, #FFFFFF 0%, #F9FAFB 100%);
-			border: 2px solid #FF8C00;
-			border-radius: 16px;
-			box-shadow: 0 8px 24px rgba(255, 140, 0, 0.2);
-			padding: 10px;
-		}
+		.balance-section { padding: 1.5rem 1rem; border-radius: 16px; }
 
-		.card-logo {
-			width: 40px;
-			height: 30px;
-		}
+		.stats-grid { grid-template-columns: 1fr; gap: 0.5rem; }
 
-		.card-logo svg {
-			width: 24px;
-			height: 24px;
-		}
+		.stat-card { flex-direction: row; justify-content: space-between; align-items: center; text-align: left; padding: 0.875rem 1rem; }
 
-		.card-header {
-			padding: 1rem;
-			flex-direction: column;
-		}
+		.stat-value { font-size: 1.25rem; }
 
-		.card-body {
-			padding: 1rem;
-			gap: 1rem;
-		}
-
-		.balance-section {
-			padding: 1.5rem 1rem;
-			border-radius: 12px;
-		}
-
-		.balance-amount {
-			font-size: 1.75rem;
-		}
-
-		.balance-label {
-			font-size: 0.75rem;
-		}
-
-		.points-label {
-			font-size: 0.875rem;
-		}
-
-		.stats-grid {
-			grid-template-columns: 1fr;
-			gap: 0.5rem;
-		}
-
-		.stat-card {
-			padding: 0.75rem;
-			border-radius: 10px;
-		}
-
-		.stat-label {
-			font-size: 0.625rem;
-		}
-
-		.stat-value {
-			font-size: 1rem;
-		}
-
-		.stat-value-small {
-			font-size: 0.625rem;
-		}
-
-		.card-footer {
-			padding: 1rem;
-			font-size: 0.75rem;
-		}
-
-		.card-number-section {
-			gap: 0.375rem;
-		}
-
-		.card-number {
-			font-size: 0.875rem;
-		}
-
-		.label {
-			font-size: 0.75rem;
-		}
-
-		.card-title h2 {
-			font-size: 1rem;
-		}
+		.card-number { font-size: 0.95rem; }
 	}
 
 	/* Touch Feedback */
 	@media (hover: none) {
 		.back-btn:active,
 		.language-btn:active,
-		.stat-card:active {
-			opacity: 0.8;
-		}
+		.stat-card:active { opacity: 0.8; }
 	}
 </style>
+
