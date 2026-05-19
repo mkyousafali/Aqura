@@ -26,6 +26,9 @@
 	// Hide nav buttons when ?minimal=true (direct access code entry)
 	let hideNavButtons = false;
 
+	// Keep track of the current internal view
+	let currentViewMode: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
+
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
 	let maskTimer: any = null;
@@ -83,10 +86,11 @@
 			} catch {}
 		}, 3000);
 
-		// Check for ?view= parameter in URL (e.g., ?view=loyalty from Points button)
+		// Check for ?view= parameter in URL (e.g., ?view=loyalty or ?view=register)
 		const viewParam = $page.url.searchParams.get('view');
-		if (viewParam === 'loyalty') {
-			initialViewParam = 'loyalty';
+		if (viewParam === 'loyalty' || viewParam === 'register' || viewParam === 'forgot') {
+			initialViewParam = viewParam;
+			currentViewMode = viewParam;
 		}
 
 		// Check for ?minimal=true (hide Follow Us/Offers/Loyalty buttons, show only access code)
@@ -131,6 +135,13 @@
 </svelte:head>
 
 <div class="login-page" class:mounted>
+	<div class="ambient-bg">
+		<div class="ambient-shape shape-1"></div>
+		<div class="ambient-shape shape-2"></div>
+		<div class="ambient-shape shape-3"></div>
+		<div class="ambient-shape shape-4"></div>
+	</div>
+
 	{#if showContent}
 		<div class="login-content">
 			<div class="customer-login-card">
@@ -156,7 +167,13 @@
 
 				{#if hideNavButtons}
 					<div class="back-row">
-						<button class="back-to-login" on:click={() => goto('/login')}>
+						<button class="back-to-login" on:click={() => {
+							if (currentViewMode !== 'login') {
+								currentViewMode = 'login';
+							} else {
+								goto('/login');
+							}
+						}}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
 							{$currentLocale === 'ar' ? 'العودة' : 'Back'}
 						</button>
@@ -166,7 +183,7 @@
 					<div class="auth-section">
 					<div class="customer-login-wrapper">
 
-						<CustomerLogin initialView={initialViewParam} {hideNavButtons} showMask={showMask} autoLoginCode={autoLoginCode} on:success={handleCustomerSuccess} />
+						<CustomerLogin initialView={initialViewParam} bind:currentView={currentViewMode} {hideNavButtons} showMask={false} autoLoginCode={autoLoginCode} on:success={handleCustomerSuccess} />
 					</div>
 				</div>
 			</div>
@@ -230,7 +247,7 @@
 		justify-content: center;
 		padding: 1rem;
 		padding-top: 2rem;
-		background: linear-gradient(135deg, #FF8C00 0%, #22C55E 50%, #FFFFFF 100%);
+		background: #FAFAFA;
 		position: relative;
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -240,18 +257,40 @@
 		box-sizing: border-box;
 	}
 
-	.login-page::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: 
-			radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
-			radial-gradient(circle at 75% 75%, rgba(255, 255, 255, 0.08) 0%, transparent 50%),
-			url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23FFFFFF' fill-opacity='0.04'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+	:root {
+		--brand-green: #10b981;
+		--brand-green-light: #34d399;
+		--brand-orange: #f97316;
+		--brand-orange-light: #fb923c;
+		--brand-pink: #ec4899;
+		--brand-pink-light: #f472b6;
+		--brand-lavender: #8b5cf6;
+		--brand-lavender-light: #a78bfa;
+	}
+
+	.ambient-bg {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
 		z-index: 0;
+		overflow: hidden;
+	}
+
+	.ambient-shape {
+		position: absolute;
+		filter: blur(80px);
+		opacity: 0.4;
+		border-radius: 50%;
+	}
+
+	.shape-1 { width: 350px; height: 350px; background: var(--brand-orange-light); top: -100px; right: -50px; animation: drift 20s ease-in-out infinite alternate; }
+	.shape-2 { width: 300px; height: 300px; background: var(--brand-pink-light); top: 30%; left: -100px; animation: drift 25s ease-in-out infinite alternate-reverse; }
+	.shape-3 { width: 400px; height: 400px; background: var(--brand-lavender-light); bottom: -100px; right: 10%; animation: drift 22s ease-in-out infinite alternate; }
+	.shape-4 { width: 300px; height: 300px; background: var(--brand-green-light); top: 50%; right: -50px; animation: drift 18s ease-in-out infinite alternate-reverse; }
+
+	@keyframes drift {
+		0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+		100% { transform: translate(50px, 40px) scale(1.1) rotate(15deg); }
 	}
 
 	.login-page.mounted {
@@ -271,11 +310,11 @@
 	}
 
 	.customer-login-card {
-		background: rgba(255, 255, 255, 0.95);
-		backdrop-filter: blur(20px);
-		border-radius: 20px;
-		box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2);
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: rgba(255, 255, 255, 0.6);
+		backdrop-filter: blur(25px);
+		border-radius: 24px;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.8);
 		overflow: hidden;
 		animation: slideInUp 0.8s ease-out;
 	}
@@ -293,9 +332,9 @@
 
 	.logo-section {
 		text-align: center;
-		padding: 2.5rem 2rem;
-		background: linear-gradient(135deg, #FF8C00 0%, #22C55E 100%);
-		color: white;
+		padding: 2.5rem 2rem 1rem;
+		background: transparent;
+		color: #1e293b;
 		position: relative;
 		display: flex;
 		flex-direction: column;
@@ -303,28 +342,16 @@
 		gap: 1rem;
 	}
 
-	.logo-section::after {
-		content: '';
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		height: 4px;
-		background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%);
-	}
-
 	.logo {
 		width: 160px;
 		height: 100px;
-		background: white;
-		border: 5px solid #F59E0B;
+		background: transparent;
+		border: none;
 		border-radius: 16px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 
-			0 0 20px rgba(245, 158, 11, 0.6),
-			0 0 40px rgba(245, 158, 11, 0.4);
+		box-shadow: none;
 	}
 
 	.logo-image {
@@ -332,6 +359,7 @@
 		height: 70px;
 		border-radius: 12px;
 		object-fit: contain;
+		filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
 	}
 
 	.language-toggle-main {
@@ -339,9 +367,9 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.5rem 1rem;
-		background: rgba(255, 255, 255, 0.15);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		color: white;
+		background: rgba(255, 255, 255, 0.5);
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		color: #334155;
 		border-radius: 8px;
 		cursor: pointer;
 		font-size: 0.875rem;

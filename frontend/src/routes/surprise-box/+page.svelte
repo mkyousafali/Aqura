@@ -3,13 +3,23 @@
 	import { _, locale, switchLocale } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { isAuthenticated as persistentAuthState, currentUser } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 
-	$: showBackToInterface = $persistentAuthState && !!$currentUser;
+	$: showBackToInterface = true;
 	function goBackToInterface() {
-		const route = interfacePreferenceService.getAppropriateRoute($currentUser?.id);
-		goto(route || '/');
+		const referrerQuery = $page.url.searchParams.get('referrer');
+		if ($persistentAuthState && !!$currentUser && referrerQuery !== 'login') {
+			const route = interfacePreferenceService.getAppropriateRoute($currentUser?.id);
+			goto(route || '/customer-interface');
+		} else {
+			if (referrerQuery === 'login') {
+				goto('/login');
+			} else {
+				goto('/customer-interface');
+			}
+		}
 	}
 
 	// ── State ─────────────────────────────────────────────────────────────────
@@ -78,6 +88,7 @@
 	];
 
 	onMount(async () => {
+		document.body.style.backgroundColor = '#1E0033';
 		if ($locale !== 'ar') switchLocale('ar');
 
 		// Fetch logo from app_icons
@@ -112,6 +123,7 @@
 	});
 
 	onDestroy(() => {
+		document.body.style.backgroundColor = '';
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
 	});
 
@@ -728,7 +740,6 @@
 <style>
 	:global(body) {
 		margin: 0;
-		background: #1E0033;
 		font-family: 'Segoe UI', Arial, sans-serif;
 	}
 

@@ -1,5 +1,5 @@
-<script lang="ts">
-  import { onMount } from "svelte";
+﻿<script lang="ts">
+  import { onMount, tick } from "svelte";
   import { goto } from "$app/navigation";
   import { userStore, userActions } from '$lib/stores/user.js';
   import { supabase } from '$lib/utils/supabase';
@@ -7,9 +7,24 @@
   import OfferDetailModal from '$lib/components/customer-interface/shopping/OfferDetailModal.svelte';
   import LocationPicker from '$lib/components/desktop-interface/admin-customer-app/LocationPicker.svelte';
   import { iconUrlMap } from '$lib/stores/iconStore';
+  import { orderMaskEnabled } from '$lib/stores/orderMask';
 
   let currentLanguage = 'ar';
   let videoContainer;
+  let isMuted = true; // start muted — customer can tap to unmute
+
+  function toggleMute() {
+    isMuted = !isMuted;
+    if (videoContainer) {
+      videoContainer.querySelectorAll('video').forEach((v) => {
+        v.muted = isMuted;
+        // If unmuting, ensure video is playing
+        if (!isMuted && v.paused) {
+          v.play().catch(() => { v.muted = true; isMuted = true; });
+        }
+      });
+    }
+  }
 
   // Location setup state
   let showLocationSetupModal = false;
@@ -36,6 +51,46 @@
   let touchStartY = 0;
   let touchStartX = 0;
   let isTouchMoving = false;
+
+  // Quick-access feature flags
+  let surpriseBoxActive = false;
+  let giftWheelActive = false;
+
+  // Navigate to loyalty balance with customer's own phone pre-filled
+  function goLoyaltyBalance(event: MouseEvent) {
+    event.preventDefault();
+    try {
+      const sessionRaw = localStorage.getItem('customer_session');
+      if (sessionRaw) {
+        const session = JSON.parse(sessionRaw);
+        let phone: string = session.whatsapp_number || session.phone || '';
+        // Normalize to 10-digit Saudi format: 05XXXXXXXX
+        phone = phone.replace(/\D/g, '');
+        if (phone.startsWith('966')) phone = '0' + phone.slice(3);
+        if (phone.length === 10 && phone.startsWith('05')) {
+          goto(`/loyalty/details?cardNumber=${encodeURIComponent(phone)}`);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Error reading session for loyalty:', e);
+    }
+    // Fallback: open the manual entry page
+    goto('/login/customer?view=loyalty');
+  }
+
+  async function loadFeatureStatus() {
+    try {
+      const [sbResult, gwResult] = await Promise.all([
+        supabase.rpc('surprise_box_check_status'),
+        supabase.rpc('gift_wheel_check_status')
+      ]);
+      surpriseBoxActive = !sbResult.error && sbResult.data?.active === true;
+      giftWheelActive = !gwResult.error && gwResult.data?.active === true;
+    } catch (e) {
+      console.error('Error loading feature status:', e);
+    }
+  }
 
   // Convert English numbers to Arabic numerals
   function toArabicNumerals(num: number | string): string {
@@ -493,6 +548,9 @@
     // Check if customer has at least one saved location
     await checkCustomerLocation();
 
+    // Load feature availability flags (non-blocking)
+    loadFeatureStatus();
+
     // Load media from database
     await loadMediaItems();
     
@@ -511,6 +569,9 @@
     
     // Start media rotation
     startMediaRotation();
+    // Wait for DOM to render media items, then trigger initial video play
+    await tick();
+    updateMediaDisplay();
 
     // Load video visibility preference
     const videoHiddenPref = localStorage.getItem('videoHidden');
@@ -631,10 +692,13 @@
         if (video) {
           video.style.display = 'block';
           video.src = currentMedia.src;
+          video.muted = isMuted;
           video.load();
-          video.play().catch(e => {
-            console.log('Video autoplay prevented:', e);
-            videoError = false;
+          // Try to play with audio; if blocked by browser policy, fall back to muted
+          video.play().catch(() => {
+            video.muted = true;
+            isMuted = true;
+            video.play().catch(() => {});
           });
         }
       } else if (currentMedia.type === 'image') {
@@ -766,7 +830,7 @@
 
   function logout() {
     userActions.logout();
-    goto("/customer-interface/login");
+    goto("/login");
   }
 </script>
 
@@ -787,6 +851,7 @@
       <div class="ambient-shape shape-1"></div>
       <div class="ambient-shape shape-2"></div>
       <div class="ambient-shape shape-3"></div>
+      <div class="ambient-shape shape-4"></div>
     </div>
 
     <!-- Hero Header with Logo -->
@@ -800,13 +865,57 @@
 
     <!-- Shop Now CTA -->
     <div class="cta-section">
-      <button class="cta-btn" on:click={goStartShopping} type="button">
-        <span class="cta-icon">🛒</span>
-        <span>{texts.shopNow}</span>
-        <svg class="cta-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
+      {#if $orderMaskEnabled}
+        <div class="cta-btn cta-btn--locked" aria-disabled="true">
+          <span class="cta-icon">🔒</span>
+          <span>{currentLanguage === 'ar' ? 'نظام الطلبات غير متاح حالياً' : 'Ordering currently unavailable'}</span>
+        </div>
+      {:else}
+        <button class="cta-btn" on:click={goStartShopping} type="button">
+          <span class="cta-icon">🛒</span>
+          <span>{texts.shopNow}</span>
+          <svg class="cta-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      {/if}
+    </div>
+
+    <!-- Quick Access Buttons -->
+    {#if surpriseBoxActive || giftWheelActive}
+    <div class="quick-access-section">
+      <div class="quick-access-grid">
+        {#if surpriseBoxActive}
+        <a href="/surprise-box" class="qa-btn qa-surprise">
+          <span class="qa-icon">🎁</span>
+          <span class="qa-label">{currentLanguage === 'ar' ? 'صندوق المفاجآت' : 'Surprise Box'}</span>
+        </a>
+        {/if}
+        {#if giftWheelActive}
+        <a href="/gift-wheel" class="qa-btn qa-wheel">
+          <span class="qa-icon">🎡</span>
+          <span class="qa-label">{currentLanguage === 'ar' ? 'عجلة الجوائز' : 'Gift Wheel'}</span>
+        </a>
+        {/if}
+      </div>
+    </div>
+    {/if}
+
+    <div class="quick-access-section">
+      <div class="quick-access-grid">
+        <button class="qa-btn qa-loyalty" on:click={goLoyaltyBalance} type="button">
+          <span class="qa-icon">💳</span>
+          <span class="qa-label">{currentLanguage === 'ar' ? 'رصيد النقاط' : 'Loyalty Balance'}</span>
+        </button>
+        <a href="/follow-us" class="qa-btn qa-follow">
+          <span class="qa-icon">📱</span>
+          <span class="qa-label">{currentLanguage === 'ar' ? 'تابعنا' : 'Follow Us'}</span>
+        </a>
+        <a href="/offers" class="qa-btn qa-offers">
+          <span class="qa-icon">🏷️</span>
+          <span class="qa-label">{currentLanguage === 'ar' ? 'العروض' : 'Offers'}</span>
+        </a>
+      </div>
     </div>
 
     <!-- LED Screen Media Section -->
@@ -817,7 +926,17 @@
             <button class="hide-btn" on:click={hideVideo} type="button">
               <span>✕</span>
             </button>
+            <button class="mute-btn" on:click={toggleMute} type="button" title={isMuted ? 'Unmute' : 'Mute'}>
+              <span>{isMuted ? '🔇' : '🔊'}</span>
+            </button>
+            {#if isMuted && mediaItems[currentMediaIndex]?.type === 'video'}
+              <button class="unmute-overlay" on:click={toggleMute} type="button">
+                <span class="unmute-icon">🔇</span>
+                <span class="unmute-label">{currentLanguage === 'ar' ? 'اضغط لتشغيل الصوت' : 'Tap to enable sound'}</span>
+              </button>
+            {/if}
             <div class="screen-glow"></div>
+            <div class="video-content-ratio">
             <div class="video-content" bind:this={videoContainer} on:click={handleMediaClick} on:touchend={handleMediaTouchEnd}>
               <div class="led-dots"></div>
               {#each mediaItems as media, index}
@@ -826,7 +945,7 @@
                     style="display: {index === currentMediaIndex ? 'block' : 'none'};"
                     src={media.src}
                     playsinline
-                    muted
+                    muted={isMuted}
                     loop
                     preload="auto"
                     class="media-video"
@@ -1180,6 +1299,7 @@
                 </div>
               {/if}
             </div>
+            </div>
           </div>
         </div>
       </section>
@@ -1415,11 +1535,15 @@
 
   /* ===== Brand Palette ===== */
   :root {
-    --green: #16a34a;
-    --green-dark: #15803d;
-    --green-light: #22c55e;
-    --orange: #f59e0b;
-    --orange-dark: #d97706;
+    --brand-green: #10b981;
+    --brand-green-light: #34d399;
+    --brand-orange: #f97316;
+    --brand-orange-light: #fb923c;
+    --brand-pink: #ec4899;
+    --brand-pink-light: #f472b6;
+    --brand-lavender: #8b5cf6;
+    --brand-lavender-light: #a78bfa;
+    --bg-offwhite: #f1f5f9;
   }
 
   /* ===== Loading ===== */
@@ -1430,14 +1554,14 @@
     justify-content: center;
     min-height: 100vh;
     gap: 1rem;
-    background: #f0fdf4;
+    background: var(--bg-offwhite);
   }
 
   .spinner {
     width: 36px;
     height: 36px;
     border: 3px solid #e5e7eb;
-    border-top-color: var(--green);
+    border-top-color: var(--brand-orange);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
   }
@@ -1452,11 +1576,11 @@
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    background: #f8fafc;
+    background: var(--bg-offwhite);
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-bottom: 2rem;
+    padding-bottom: 3rem;
   }
 
   /* ===== Ambient Background ===== */
@@ -1470,44 +1594,51 @@
 
   .ambient-shape {
     position: absolute;
+    filter: blur(80px);
+    opacity: 0.4;
     border-radius: 50%;
-    opacity: 0.18;
-    filter: blur(60px);
   }
 
-  .shape-1 { width: 260px; height: 260px; background: #4ade80; top: -80px; right: -40px; animation: drift 20s ease-in-out infinite alternate; }
-  .shape-2 { width: 220px; height: 220px; background: #fbbf24; bottom: 10%; left: -60px; animation: drift 25s ease-in-out infinite alternate-reverse; }
-  .shape-3 { width: 200px; height: 200px; background: #86efac; top: 40%; right: 20%; animation: drift 18s ease-in-out infinite alternate; }
+  .shape-1 { width: 350px; height: 350px; background: var(--brand-orange-light); top: -100px; right: -50px; animation: drift 20s ease-in-out infinite alternate; }
+  .shape-2 { width: 300px; height: 300px; background: var(--brand-pink-light); top: 30%; left: -100px; animation: drift 25s ease-in-out infinite alternate-reverse; }
+  .shape-3 { width: 400px; height: 400px; background: var(--brand-lavender-light); bottom: -100px; right: 10%; animation: drift 22s ease-in-out infinite alternate; }
+  .shape-4 { width: 300px; height: 300px; background: var(--brand-green-light); top: 50%; right: -50px; animation: drift 18s ease-in-out infinite alternate-reverse; }
 
   @keyframes drift {
-    0% { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(30px, 20px) scale(1.08); }
+    0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+    100% { transform: translate(50px, 40px) scale(1.1) rotate(15deg); }
   }
 
   /* ===== Hero Header ===== */
   .hero-header {
     position: relative;
     z-index: 10;
-    width: 100%;
+    width: calc(100% - 2rem);
+    max-width: 500px;
+    margin: 1.5rem auto 1rem;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 1.75rem 1.5rem 1.25rem;
-    background: linear-gradient(170deg, var(--green) 0%, var(--green-dark) 100%);
-    border-radius: 0 0 32px 32px;
-    box-shadow: 0 8px 32px rgba(22, 163, 74, 0.3);
+    padding: 2rem 1.5rem;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 32px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.05);
   }
 
   .logo-container {
-    width: 64px;
-    height: 64px;
+    width: 72px;
+    height: 72px;
     background: white;
-    border-radius: 18px;
+    border-radius: 20px;
+    padding: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-    margin-bottom: 0.6rem;
+    box-shadow: 0 10px 25px rgba(16, 185, 129, 0.2);
+    margin-bottom: 1rem;
     animation: logoEntry 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
@@ -1517,24 +1648,24 @@
   }
 
   .hero-logo {
-    width: 46px;
-    height: 46px;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
   }
 
   .hero-title {
     margin: 0;
-    font-size: 1.35rem;
+    font-size: 1.5rem;
     font-weight: 800;
-    color: white;
+    color: #1e293b;
     text-align: center;
     line-height: 1.3;
   }
 
   .hero-subtitle {
-    margin: 0.3rem 0 0;
-    font-size: 0.82rem;
-    color: rgba(255, 255, 255, 0.85);
+    margin: 0.4rem 0 0;
+    font-size: 0.9rem;
+    color: #475569;
     font-weight: 500;
     text-align: center;
   }
@@ -1544,8 +1675,9 @@
     position: relative;
     z-index: 10;
     width: 100%;
-    max-width: 420px;
-    padding: 1rem 1rem 0;
+    max-width: 460px;
+    padding: 0 1rem;
+    margin-bottom: 1rem;
   }
 
   .cta-btn {
@@ -1554,22 +1686,35 @@
     align-items: center;
     justify-content: center;
     gap: 0.6rem;
-    padding: 0.9rem 1.5rem;
-    background: linear-gradient(135deg, var(--green) 0%, var(--green-light) 100%);
+    padding: 1rem 1.5rem;
+    background: linear-gradient(135deg, var(--brand-green) 0%, var(--brand-green-light) 100%);
     color: white;
     border: none;
-    border-radius: 14px;
-    font-size: 1.05rem;
+    border-radius: 20px;
+    font-size: 1.1rem;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.3s ease;
-    box-shadow: 0 6px 20px rgba(22, 163, 74, 0.30);
-    touch-action: manipulation;
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-tap-highlight-color: transparent;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
     position: relative;
     overflow: hidden;
+  }
+
+  .cta-btn--locked {
+    background: linear-gradient(135deg, rgba(241, 245, 249, 0.8), rgba(226, 232, 240, 0.9));
+    color: #475569;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.03);
+    cursor: not-allowed;
+    border-radius: 20px;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    font-weight: 700;
+    font-size: 1rem;
   }
 
   .cta-btn::before {
@@ -1579,7 +1724,7 @@
     left: -100%;
     width: 100%;
     height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
     animation: shimmer 3s infinite;
   }
 
@@ -1589,14 +1734,84 @@
   }
 
   .cta-btn:active { transform: scale(0.97); }
-  .cta-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(22, 163, 74, 0.40); }
+  .cta-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(16, 185, 129, 0.4); }
 
   .cta-icon { font-size: 1.3rem; }
 
   .cta-arrow {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
+  }
+
+  /* ===== Quick Access Buttons ===== */
+  .quick-access-section {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 460px;
+    padding: 0 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .quick-access-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+
+  .qa-btn {
+    flex: 1 1 calc(33.333% - 0.75rem);
+    min-width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem 0.5rem;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 20px;
+    text-decoration: none;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.04);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .qa-btn:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 0.95);
+  }
+
+  .qa-btn:active { transform: scale(0.95); }
+
+  .qa-icon { 
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    font-size: 1.5rem; 
+    line-height: 1; 
+  }
+
+  .qa-surprise .qa-icon { background: linear-gradient(135deg, var(--brand-pink-light), var(--brand-pink)); color: white; box-shadow: 0 6px 15px rgba(236, 72, 153, 0.3); }
+  .qa-wheel .qa-icon { background: linear-gradient(135deg, var(--brand-lavender-light), var(--brand-lavender)); color: white; box-shadow: 0 6px 15px rgba(139, 92, 246, 0.3); }
+  .qa-loyalty .qa-icon { background: linear-gradient(135deg, var(--brand-green-light), var(--brand-green)); color: white; box-shadow: 0 6px 15px rgba(16, 185, 129, 0.3); }
+  .qa-follow .qa-icon { background: linear-gradient(135deg, #60a5fa, #3b82f6); color: white; box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3); }
+  .qa-offers .qa-icon { background: linear-gradient(135deg, var(--brand-orange-light), var(--brand-orange)); color: white; box-shadow: 0 6px 15px rgba(249, 115, 22, 0.3); }
+
+  .qa-label {
+    text-align: center;
+    line-height: 1.2;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #334155;
   }
 
   /* ===== Show Ads Toggle ===== */
@@ -1604,7 +1819,7 @@
     position: relative;
     z-index: 10;
     width: 100%;
-    max-width: 420px;
+    max-width: 460px;
     padding: 1rem 1rem 0;
     text-align: center;
   }
@@ -1613,15 +1828,17 @@
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.6rem 1.25rem;
-    background: white;
-    color: #6b7280;
-    border: 1.5px solid #e5e7eb;
-    border-radius: 10px;
-    font-size: 0.85rem;
-    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    color: #475569;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 16px;
+    font-size: 0.95rem;
+    font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.04);
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
@@ -1629,43 +1846,55 @@
   }
 
   .show-ads-btn:active { transform: scale(0.96); }
-  .show-ads-btn:hover { border-color: var(--green); color: var(--green); }
+  .show-ads-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 25px rgba(0,0,0,0.08); color: var(--brand-orange); }
 
   .show-ads-icon { font-size: 1rem; }
 
-  /* ===== Advertisement LED Screen ===== */
+  /* ===== Advertisement Media Section ===== */
   .advertisement-section {
     position: relative;
     z-index: 10;
     width: 100%;
-    max-width: 420px;
+    max-width: 460px;
     padding: 1rem 1rem 0;
   }
 
   .led-screen-container {
     position: relative;
     width: 100%;
-    max-width: 280px;
+    max-width: 320px;
     margin: 0 auto;
   }
 
   .led-frame {
     position: relative;
-    background: #111;
-    padding: 6px;
-    border-radius: 18px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
-    border: 1.5px solid #333;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 8px;
+    border-radius: 32px;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+  }
+
+  .video-content-ratio {
+    position: relative;
+    width: 100%;
+    padding-bottom: 177.78%; /* 16/9 * 100% — reliable 9:16 portrait ratio */
+    border-radius: 24px;
+    overflow: hidden;
+    background: #f8fafc;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
   }
 
   .video-content {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
-    height: 400px;
-    aspect-ratio: 9/16;
-    border-radius: 14px;
+    height: 100%;
+    border-radius: 24px;
     overflow: hidden;
-    background: #000;
     isolation: isolate;
   }
 
@@ -1674,12 +1903,12 @@
     height: 100%;
     object-fit: cover;
     cursor: pointer;
-    transition: transform 0.3s ease;
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
     position: absolute;
     top: 0;
     left: 0;
     z-index: 1;
-    border-radius: 12px;
+    border-radius: 24px;
   }
 
   /* Product Card in LED Screen (from offers) */
@@ -2289,23 +2518,69 @@
 
   .hide-btn:active { transform: scale(0.9); }
 
+  .mute-btn {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+  }
+
+  .mute-btn:active { transform: scale(0.9); }
+
+  .unmute-overlay {
+    position: absolute;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.75);
+    color: white;
+    border: 1.5px solid rgba(255,255,255,0.25);
+    border-radius: 24px;
+    padding: 0.45rem 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    z-index: 101;
+    backdrop-filter: blur(8px);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    transition: background 0.2s;
+  }
+  .unmute-overlay:active { background: rgba(0,0,0,0.9); transform: translateX(-50%) scale(0.97); }
+  .unmute-icon { font-size: 1rem; }
+  .unmute-label { font-weight: 500; }
+
   .screen-glow {
     position: absolute;
-    top: -4px;
-    left: -4px;
-    right: -4px;
-    bottom: -4px;
-    background: linear-gradient(45deg, var(--green), var(--orange), var(--green));
-    border-radius: 20px;
-    opacity: 0.15;
-    filter: blur(8px);
+    top: -6px;
+    left: -6px;
+    right: -6px;
+    bottom: -6px;
+    background: linear-gradient(45deg, var(--brand-green-light), var(--brand-pink-light), var(--brand-lavender-light));
+    border-radius: 36px;
+    opacity: 0.4;
+    filter: blur(12px);
     z-index: -1;
-    animation: screenGlow 4s ease-in-out infinite;
+    animation: screenGlow 6s ease-in-out infinite alternate;
   }
 
   @keyframes screenGlow {
-    0%, 100% { opacity: 0.15; }
-    50% { opacity: 0.3; }
+    0% { opacity: 0.3; transform: scale(0.98); }
+    100% { opacity: 0.6; transform: scale(1.02); }
   }
 
   .led-dots {
@@ -2315,38 +2590,71 @@
     background-size: 8px 8px;
     pointer-events: none;
     z-index: 3;
+    mix-blend-mode: overlay;
   }
 
   /* ===== Mobile Optimizations ===== */
   @media (max-width: 480px) {
+    .ambient-shape { filter: blur(50px); }
+    .shape-1 { width: 250px; height: 250px; }
+    .shape-2 { width: 200px; height: 200px; }
+    .shape-3 { width: 280px; height: 280px; }
+    .shape-4 { width: 200px; height: 200px; }
+
     .hero-header {
-      padding: 1.25rem 1rem 1rem;
-      border-radius: 0 0 24px 24px;
+      padding: 1.5rem 1rem 1.25rem;
+      border-radius: 28px;
+      margin: 1rem auto 0.75rem;
     }
 
-    .logo-container { width: 56px; height: 56px; border-radius: 16px; }
-    .hero-logo { width: 40px; height: 40px; }
-    .hero-title { font-size: 1.15rem; }
-    .hero-subtitle { font-size: 0.78rem; }
+    .logo-container { width: 64px; height: 64px; border-radius: 18px; padding: 8px; margin-bottom: 0.75rem; }
+    .hero-logo { width: 100%; height: 100%; }
+    .hero-title { font-size: 1.25rem; }
+    .hero-subtitle { font-size: 0.85rem; }
 
-    .cta-section { padding: 0.75rem 0.75rem 0; }
-    .cta-btn { padding: 0.8rem 1.25rem; font-size: 0.95rem; }
+    .cta-btn { padding: 0.9rem 1.25rem; font-size: 1rem; border-radius: 18px; }
+    .cta-btn--locked { padding: 0.9rem 1.25rem; font-size: 0.95rem; border-radius: 18px; }
 
-    .advertisement-section { padding: 0.75rem 0.75rem 0; }
-    .led-screen-container { max-width: 250px; }
-    .video-content { height: 380px; }
-    .led-frame { padding: 5px; }
+    .qa-btn {
+      flex: 1 1 calc(50% - 0.75rem);
+      padding: 0.8rem 0.5rem;
+      border-radius: 18px;
+    }
+    .qa-icon { width: 42px; height: 42px; border-radius: 14px; font-size: 1.3rem; }
 
-    .hide-btn { width: 28px; height: 28px; font-size: 0.75rem; }
+    .led-frame { padding: 6px; border-radius: 28px; }
+    .video-content { border-radius: 22px; } /* no fixed height — let padding-bottom ratio drive it */
+    .led-screen-container { max-width: min(280px, 85vw); }
+
+    .hide-btn, .mute-btn { width: 30px; height: 30px; font-size: 0.9rem; }
   }
 
   /* ===== Tablet+ ===== */
   @media (min-width: 768px) {
-    .home-container { max-width: 600px; margin: 0 auto; }
+    .home-container {
+      max-width: 720px;
+      margin: 0 auto;
+      background: transparent;
+    }
+
+    body {
+      background: var(--bg-offwhite);
+    }
+
+    .ambient-shape { filter: blur(100px); }
+    .shape-1 { width: 450px; height: 450px; }
+    .shape-2 { width: 400px; height: 400px; }
+    .shape-3 { width: 500px; height: 500px; }
+    .shape-4 { width: 400px; height: 400px; }
 
     .hero-header {
-      border-radius: 0 0 40px 40px;
-      padding: 2rem 2rem 1.5rem;
+      border-radius: 40px;
+      padding: 2.5rem 2rem 2rem;
+      margin-top: 2rem;
     }
+
+    .qa-btn { padding: 1.25rem 0.5rem; }
+    .qa-icon { width: 56px; height: 56px; border-radius: 20px; font-size: 1.75rem; }
+    .qa-label { font-size: 0.9rem; }
   }
 </style>

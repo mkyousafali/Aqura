@@ -1,17 +1,19 @@
 <script>
   import '../../app.css';
   import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import TopBar from '$lib/components/customer-interface/common/TopBar.svelte';
   import BottomCartBar from '$lib/components/customer-interface/cart/BottomCartBar.svelte';
-  import { isCustomerPushSupported, subscribeCustomerToPush, wasCustomerPushSubscribed } from '$lib/utils/customerPushNotifications';
+  import { isCustomerPushSupported, subscribeCustomerToPush } from '$lib/utils/customerPushNotifications';
+  import { orderMaskEnabled } from '$lib/stores/orderMask';
+  import { supabase } from '$lib/utils/supabase';
 
   // Show top bar on all customer pages except auth pages
   $: showTopBar = !$page.url.pathname.includes('/auth/') && 
                   !$page.url.pathname.includes('/login') &&
                   !$page.url.pathname.includes('/register');
   
-  // Hide cart bar on cart, checkout, profile, and home pages
+  // Hide cart bar on cart, checkout, profile, home pages, AND when ordering is blocked
   $: showCartBar = !$page.url.pathname.includes('/auth/') && 
                    !$page.url.pathname.includes('/login') &&
                    !$page.url.pathname.includes('/register') &&
@@ -19,21 +21,36 @@
                    !$page.url.pathname.includes('/checkout') &&
                    !$page.url.pathname.includes('/profile') &&
                    $page.url.pathname !== '/customer-interface' &&
-                   $page.url.pathname !== '/customer-interface/';
+                   $page.url.pathname !== '/customer-interface/' &&
+                   !$orderMaskEnabled;
 
   // Check if we're on the home page
   $: isHomePage = $page.url.pathname === '/customer-interface' || $page.url.pathname === '/customer-interface/';
 
-  // Auto-subscribe to push notifications if customer is logged in
+  let maskPollInterval = null;
+
+  async function loadOrderMask() {
+    try {
+      const { data } = await supabase
+        .from('delivery_service_settings')
+        .select('customer_login_mask_enabled')
+        .single();
+      if (data) orderMaskEnabled.set(data.customer_login_mask_enabled);
+    } catch {}
+  }
+
   onMount(() => {
+    // Load initial mask state
+    loadOrderMask();
+    // Poll every 3 seconds for live updates
+    maskPollInterval = setInterval(loadOrderMask, 3000);
+
     if (isCustomerPushSupported()) {
-      // Check if customer is logged in
       try {
         const session = localStorage.getItem('customer_session');
         if (session) {
           const parsed = JSON.parse(session);
           if (parsed?.customer_id && parsed?.registration_status === 'approved') {
-            // Small delay to not block initial page load
             setTimeout(() => {
               subscribeCustomerToPush().catch(e => {
                 console.log('📬 [CustomerPush] Auto-subscribe skipped:', e.message || e);
@@ -43,6 +60,10 @@
         }
       } catch {}
     }
+
+    return () => {
+      if (maskPollInterval) clearInterval(maskPollInterval);
+    };
   });
 </script>
 

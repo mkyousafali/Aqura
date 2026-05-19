@@ -6,6 +6,7 @@
   import { t } from '$lib/i18n';
   import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
   import { supabase } from '$lib/utils/supabase';
+  import { orderMaskEnabled } from '$lib/stores/orderMask';
 
   async function handleUpdateClick() {
     const fn = $triggerUpdate;
@@ -225,6 +226,7 @@
       </button>
 
       <!-- Cart -->
+      {#if !$orderMaskEnabled}
       <button class="action-btn cart-btn" on:click={goToCart} on:touchend|preventDefault={goToCart}>
         <div class="icon-container">
           <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
@@ -235,6 +237,7 @@
           {/if}
         </div>
       </button>
+      {/if}
 
       <!-- Notifications -->
       <button class="action-btn" on:click={goToNotifications} on:touchend|preventDefault={goToNotifications}>

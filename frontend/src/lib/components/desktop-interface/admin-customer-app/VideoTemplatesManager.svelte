@@ -21,6 +21,24 @@
 	let uploading = false;
 	let currentSlot = null;
 	let showPreview = false;
+
+	// Saudi Arabia is UTC+3. The datetime-local input has no timezone, so we must
+	// manually convert between Saudi time and UTC when reading/writing expiry dates.
+	const SAUDI_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3
+
+	function toSaudiDatetimeLocal(utcString: string): string {
+		// Convert a UTC timestamp from DB into Saudi local time for the input
+		const utc = new Date(utcString);
+		const saudi = new Date(utc.getTime() + SAUDI_OFFSET_MS);
+		return saudi.toISOString().slice(0, 16);
+	}
+
+	function fromSaudiDatetimeLocal(saudiLocal: string): string {
+		// The input value is Saudi time — subtract 3h to get UTC for storage
+		const parsed = new Date(saudiLocal); // JS parses datetime-local as UTC
+		const utc = new Date(parsed.getTime() - SAUDI_OFFSET_MS);
+		return utc.toISOString();
+	}
 	let previewUrl = '';
 	let previewTitle = '';
 
@@ -46,7 +64,7 @@
 						videoSlots[index] = {
 							...videoSlots[index],
 							...item,
-							expiry_date: item.expiry_date ? new Date(item.expiry_date).toISOString().slice(0, 16) : ''
+							expiry_date: item.expiry_date ? toSaudiDatetimeLocal(item.expiry_date) : ''
 						};
 					}
 				});
@@ -185,7 +203,7 @@
 				duration: slot.duration,
 				is_active: slot.is_active || false, // Include active status
 				is_infinite: slot.is_infinite,
-				expiry_date: slot.is_infinite ? null : slot.expiry_date,
+				expiry_date: slot.is_infinite ? null : fromSaudiDatetimeLocal(slot.expiry_date),
 				uploaded_by: userId
 			};
 
@@ -213,7 +231,7 @@
 				videoSlots[slotIndex] = {
 					...slot,
 					...result.data,
-					expiry_date: result.data.expiry_date ? new Date(result.data.expiry_date).toISOString().slice(0, 16) : ''
+					expiry_date: result.data.expiry_date ? toSaudiDatetimeLocal(result.data.expiry_date) : ''
 				};
 				videoSlots = [...videoSlots];
 				alert('Video saved successfully!');
@@ -282,6 +300,47 @@
 		previewUrl = '';
 	}
 
+	async function removeVideo(slotNumber) {
+		if (!confirm('Remove the current video from this slot? This will also deactivate the slot.')) return;
+		const slotIndex = slotNumber - 1;
+		const slot = videoSlots[slotIndex];
+
+		slot.loading = true;
+		videoSlots = [...videoSlots];
+
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+
+			if (slot.id) {
+				// Update DB: clear video fields and deactivate
+				const { error } = await supabase
+					.from('customer_app_media')
+					.update({
+						file_url: '',
+						file_size: 0,
+						duration: 0,
+						is_active: false
+					})
+					.eq('id', slot.id);
+
+				if (error) throw error;
+			}
+
+			// Update local state
+			videoSlots[slotIndex].file_url = '';
+			videoSlots[slotIndex].file_size = 0;
+			videoSlots[slotIndex].duration = 0;
+			videoSlots[slotIndex].is_active = false;
+			videoSlots = [...videoSlots];
+		} catch (error) {
+			console.error('Error removing video:', error);
+			alert('Failed to remove video: ' + error.message);
+		} finally {
+			videoSlots[slotIndex].loading = false;
+			videoSlots = [...videoSlots];
+		}
+	}
+
 	function formatFileSize(bytes) {
 		if (bytes === 0) return '0 Bytes';
 		const k = 1024;
@@ -335,8 +394,9 @@
 									</div>
 									<button class="preview-btn" on:click={() => previewVideo(slot)}>
 										Preview
-									</button>
-								</div>
+									</button>								<button class="remove-video-btn" on:click={() => removeVideo(slot.slot_number)}>
+									🗑️ Remove Video
+								</button>								</div>
 							{:else}
 								<label class="upload-zone">
 									<input 
@@ -645,6 +705,23 @@
 
 	.preview-btn:hover {
 		background: #2563eb;
+	}
+
+	.remove-video-btn {
+		width: 100%;
+		padding: 0.5rem;
+		margin-top: 6px;
+		background: #ef4444;
+		color: white;
+		border: none;
+		cursor: pointer;
+		font-weight: 500;
+		border-radius: 4px;
+		transition: background 0.2s ease;
+	}
+
+	.remove-video-btn:hover {
+		background: #dc2626;
 	}
 
 	.form-group {

@@ -773,7 +773,8 @@
 			const isLoginTestRoute = $page.url.pathname.startsWith('/logintest');
 			const isGiftWheelRoute = $page.url.pathname.startsWith('/gift-wheel');
 			const isSurpriseBoxRoute = $page.url.pathname.startsWith('/surprise-box');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isPopoutMode) {
+			const isLoyaltyRoute = $page.url.pathname.startsWith('/loyalty');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -812,7 +813,8 @@
 					const isPrivacyRouteTimeout = $page.url.pathname.startsWith('/privacy');
 					const isLoginTestRouteTimeout = $page.url.pathname.startsWith('/logintest');
 					const isGiftWheelRouteTimeout = $page.url.pathname.startsWith('/gift-wheel');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isGiftWheelRouteTimeout && !isPopoutMode) {
+					const isLoyaltyRouteTimeout = $page.url.pathname.startsWith('/loyalty');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}

@@ -4,15 +4,25 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { isAuthenticated as persistentAuthState, currentUser } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 
 	// Back-to-interface button: only visible if the visitor is a logged-in app user
 	// (e.g. opened the gift-wheel link from inside the installed PWA).
-	$: showBackToInterface = $persistentAuthState && !!$currentUser;
+	$: showBackToInterface = true;
 	function goBackToInterface() {
-		const route = interfacePreferenceService.getAppropriateRoute($currentUser?.id);
-		goto(route || '/');
+		const referrerQuery = $page.url.searchParams.get('referrer');
+		if ($persistentAuthState && !!$currentUser && referrerQuery !== 'login') {
+			const route = interfacePreferenceService.getAppropriateRoute($currentUser?.id);
+			goto(route || '/customer-interface');
+		} else {
+			if (referrerQuery === 'login') {
+				goto('/login');
+			} else {
+				goto('/customer-interface');
+			}
+		}
 	}
 
 	// State
@@ -95,6 +105,8 @@
 	];
 
 	onMount(async () => {
+		document.body.style.background = 'linear-gradient(160deg, #ffffff 0%, #f0faf2 40%, #fff8f0 100%)';
+		
 		// Default to Arabic
 		if ($locale !== 'ar') {
 			switchLocale('ar');
@@ -120,6 +132,7 @@
 	});
 
 	onDestroy(() => {
+		document.body.style.background = '';
 		if (realtimeChannel) {
 			supabase.removeChannel(realtimeChannel);
 		}
@@ -1656,7 +1669,6 @@ ${fullText.substring(0, 900)}` }] }],
 		margin: 0;
 		padding: 0;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-		background: linear-gradient(160deg, #ffffff 0%, #f0faf2 40%, #fff8f0 100%);
 		min-height: auto;
 		overflow-y: auto;
 	}

@@ -1,5 +1,5 @@
-<script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+﻿<script lang="ts">
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
@@ -17,10 +17,22 @@
 	export let hideNavButtons: boolean = false;
 
 	// Component states
-	let currentView: 'login' | 'register' | 'forgot' | 'loyalty' = initialView;
+	export let currentView: 'login' | 'register' | 'forgot' | 'loyalty' = initialView;
 	let isLoading = false;
 	let errorMessage = '';
 	let successMessage = '';
+
+
+
+
+    onMount(() => {
+            // Auto-focus the first digit box so mobile keyboard pops up immediately
+            setTimeout(() => {
+                    const firstInput = document.getElementById('customer-digit-0') as HTMLInputElement | null;
+                    firstInput?.focus();
+            }, 400);
+    });
+
 
 	// Customer login form
 	let customerAccessCode = '';
@@ -785,15 +797,49 @@
 					{/if}
 				</button>
 
-				<div class="form-footer">
-					<p>{$_('customer.login.forgotCredentials')}</p>
-					<button type="button" class="register-link" on:click={() => currentView = 'forgot'} disabled={isLoading || blockAccessCodeInput}>
-						{$_('customer.login.requestNewAccess')}
+				<div class="form-footer-modern">
+					<button type="button" class="btn-footer-card" on:click={() => currentView = 'forgot'} disabled={isLoading || blockAccessCodeInput}>
+						<div class="icon-wrapper bg-blue">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 2v6h-6"></path>
+								<path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+								<path d="M3 22v-6h6"></path>
+								<path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+							</svg>
+						</div>
+						<div class="card-text">
+							<span class="title">{$_('customer.login.requestNewAccess')}</span>
+							<span class="desc">{$_('customer.login.forgotCredentials')}</span>
+						</div>
 					</button>
-					<p>{$_('customer.login.needNewAccount')}</p>
-					<button type="button" class="register-link" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
-						{$_('customer.login.registerTitle')}
+
+					<button type="button" class="btn-footer-card highlight" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
+						<div class="icon-wrapper bg-green">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+								<circle cx="8.5" cy="7" r="4"></circle>
+								<line x1="20" y1="8" x2="20" y2="14"></line>
+								<line x1="23" y1="11" x2="17" y2="11"></line>
+							</svg>
+						</div>
+						<div class="card-text">
+							<span class="title">{$_('customer.login.registerTitle')}</span>
+							<span class="desc">{$_('customer.login.needNewAccount')}</span>
+						</div>
 					</button>
+
+					<a class="btn-footer-card" href="/privacy" target="_blank">
+						<div class="icon-wrapper bg-gray">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+								<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+							</svg>
+						</div>
+						<div class="card-text">
+							<span class="title">{$_('customer.login.privacyPolicy')}</span>
+							<span class="desc">{$_('customer.login.agreeToPrivacy')}</span>
+						</div>
+					</a>
 				</div>
 			</div>
 		</form>
@@ -1421,6 +1467,104 @@
 		color: #64748B;
 		font-size: 0.875rem;
 		margin-bottom: 0.75rem;
+	}
+
+	.form-footer-modern {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 1px dashed #E2E8F0;
+	}
+
+	.btn-footer-card {
+		display: flex;
+		align-items: center;
+		padding: 14px 16px;
+		background: #F8FAFC;
+		border: 1px solid #E2E8F0;
+		border-radius: 12px;
+		text-align: left;
+		cursor: pointer;
+		text-decoration: none;
+		transition: all 0.2s ease;
+		color: inherit;
+		box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+	}
+
+	:global([dir="rtl"]) .btn-footer-card {
+		text-align: right;
+	}
+
+	.btn-footer-card:hover:not(:disabled) {
+		background: #F1F5F9;
+		border-color: #CBD5E1;
+		transform: translateY(-1px);
+	}
+
+	.btn-footer-card:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.btn-footer-card.highlight {
+		background: linear-gradient(to right, #F0FDF4, #ECFDF5);
+		border-color: #10B981;
+	}
+
+	.btn-footer-card.highlight:hover:not(:disabled) {
+		background: linear-gradient(to right, #ECFDF5, #D1FAE5);
+		border-color: #059669;
+	}
+
+	.btn-footer-card .icon-wrapper {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border-radius: 10px;
+		margin-right: 14px;
+		flex-shrink: 0;
+	}
+
+	:global([dir="rtl"]) .btn-footer-card .icon-wrapper {
+		margin-right: 0;
+		margin-left: 14px;
+	}
+
+	.icon-wrapper.bg-blue {
+		background: #EFF6FF;
+		color: #3B82F6;
+	}
+
+	.icon-wrapper.bg-green {
+		background: #DCFCE7;
+		color: #10B981;
+	}
+
+	.icon-wrapper.bg-gray {
+		background: #F1F5F9;
+		color: #64748B;
+	}
+
+	.btn-footer-card .card-text {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+	}
+
+	.btn-footer-card .title {
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: #1E293B;
+		margin-bottom: 2px;
+	}
+
+	.btn-footer-card .desc {
+		font-size: 0.8rem;
+		color: #64748B;
 	}
 
 	.register-link {

@@ -142,11 +142,11 @@
 	}
 
 	function goBack() {
-		const referrer = $page.url.searchParams.get('referrer');
-		if (referrer === 'login') {
+		const referrerQuery = $page.url.searchParams.get('referrer');
+		if (referrerQuery === 'login') {
 			goto('/login');
 		} else {
-			goto('/');
+			goto('/customer-interface');
 		}
 	}
 
@@ -166,22 +166,21 @@
 </svelte:head>
 
 <div class="follow-us-page">
-	<header class="follow-us-header">
-		<button class="back-btn" onclick={goBack} title="Back">
-			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M19 12H5M12 19l-7-7 7-7"/>
-			</svg>
-		</button>
-		<button 
-			class="lang-btn" 
-			onclick={toggleLanguage}
-			title="Toggle Language"
-		>
-			{$currentLocale === 'en' ? 'العربية' : 'English'}
-		</button>
+	<header class="follow-us-header" class:rtl={$currentLocale === 'ar'} dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+		<div class="top-bar">
+			<span class="top-bar-text">{$currentLocale === 'ar' ? 'مرحباً بكم في ايربن ماركت' : 'Welcome To Urban market'}</span>
+			<button class="lang-btn" onclick={toggleLanguage} disabled={isLoading}>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="10"/>
+					<line x1="2" y1="12" x2="22" y2="12"/>
+					<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+				</svg>
+				{$currentLocale === 'ar' ? 'English' : 'العربية'}
+			</button>
+		</div>
 	</header>
 
-	<main class="follow-us-content">
+	<main class="follow-us-content" class:rtl={$currentLocale === 'ar'} dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 		{#if isLoading}
 			<div class="loading">
 				<div class="spinner"></div>
@@ -189,20 +188,34 @@
 				<p class="thank-you-message">{$currentLocale === 'ar' ? 'شكراً على صبرك' : 'Thank you for patience'}</p>
 			</div>
 		{:else if dataLoaded}
-			<div class="logo-wrapper">
-				<div class="logo-container">
-					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="app-logo" />
-				</div>
-			</div>
+			<!-- Ahl Urban Header Style -->
+			<section class="member-login-section">
+				<div class="member-login-card fade-in">
+					<div class="member-login-text" style="text-align: center;">
+						<h2 class="alternating-text" style="font-size: 2.2rem; margin-bottom: 8px;">
+							{#if $currentLocale === 'ar'}
+								<span style="color: #13A538">أ</span><span style="color: #f08300">ه</span><span style="color: #13A538">ل</span>&nbsp;<span style="color: #f08300">ا</span><span style="color: #13A538">ي</span><span style="color: #f08300">ر</span><span style="color: #13A538">ب</span><span style="color: #f08300">ن</span>
+							{:else}
+								<span style="color: #13A538">A</span><span style="color: #f08300">h</span><span style="color: #13A538">l</span>&nbsp;<span style="color: #f08300">U</span><span style="color: #13A538">r</span><span style="color: #f08300">b</span><span style="color: #13A538">a</span><span style="color: #f08300">n</span>
+							{/if}
+						</h2>
+						<p style="color: #13A538; font-weight: 500; margin-bottom: 1.5rem;">
+							{#if $currentLocale === 'ar'}
+								دعنا نبقى على تواصل! تابعنا على المنصات التالية
+							{:else}
+								Let's stay connected! Follow us on the following platforms
+							{/if}
+						</p>
+					</div>
 
-			<div class="branch-label-container">
-				<label for="branch-select">{$currentLocale === 'ar' ? 'اختر الفرع:' : 'Select Branch:'}</label>
-			</div>
+					<div class="branch-label-container" style="text-align: center; margin-bottom: 0.5rem;">
+						<label for="branch-select" style="font-weight: 600; color: #374151;">{$currentLocale === 'ar' ? 'اختر الفرع:' : 'Select Branch:'}</label>
+					</div>
 
 			{#if socialLinksData.length > 0}
 				<div class="branch-selector" class:rtl={$currentLocale === 'ar'}>
-					<select id="branch-select" value={selectedBranch} onchange={handleBranchChange}>
-						<option value="">-- Choose Branch --</option>
+					<select id="branch-select" value={selectedBranch} onchange={handleBranchChange} class="styled-select">
+						<option value="">{$currentLocale === 'ar' ? '-- اختر الفرع --' : '-- Choose Branch --'}</option>
 						{#each socialLinksData as data (data.branch_id)}
 							<option value={data.branch_id.toString()}>
 								{getBranchName(data.branch_id)}
@@ -217,7 +230,7 @@
 							{@const url = socialLinks[platform.key]}
 							{#if url}
 								<button 
-									class="social-card"
+									class="social-card-modern"
 									onclick={() => openLink(url, platform.key)}
 									title={getPlatformLabel(platform.key)}
 								>
@@ -239,20 +252,40 @@
 						</div>
 					{/if}
 				</div>
+				<div class="back-action-container" style="margin-top: 2rem; display: flex; justify-content: center;">
+					<button class="btn-member-login-lg" onclick={goBack} style="max-width: 300px; width: 100%; justify-content: center;">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M19 12H5M12 19l-7-7 7-7"/>
+						</svg>
+						{$currentLocale === 'ar' ? 'العودة' : 'Go Back'}
+					</button>
+				</div>
 			{:else}
-				<div class="no-branches">
-					<p>{$currentLocale === 'ar' ? 'لا توجد فروع متاحة' : 'No branches available'}</p>
+				<div class="no-branches" style="text-align: center; padding: 2rem;">
+					<p style="color: #64748B;">{$currentLocale === 'ar' ? 'لا توجد فروع متاحة' : 'No branches available'}</p>
+					
+					<div class="back-action-container" style="margin-top: 2rem; display: flex; justify-content: center;">
+						<button class="btn-member-login-lg" onclick={goBack} style="max-width: 300px; width: 100%; justify-content: center;">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M19 12H5M12 19l-7-7 7-7"/>
+							</svg>
+							{$currentLocale === 'ar' ? 'العودة' : 'Go Back'}
+						</button>
+					</div>
 				</div>
 			{/if}
+				</div> <!-- end member-login-card -->
+			</section> <!-- end member-login-section -->
 		{/if}
 	</main>
 </div>
 
 <style>
+	/* Use the same main styles as the home page for coherence */
 	.follow-us-page {
 		width: 100%;
 		min-height: 100vh;
-		background: #FFFFFF;
+		background: #E8F5E9; /* match login page background tint */
 		display: flex;
 		flex-direction: column;
 	}
@@ -261,69 +294,180 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 1rem;
-		background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+		padding: 0;
+		background: #13A538;
 		color: white;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-		gap: 1rem;
 		position: fixed;
 		top: 0;
 		left: 0;
 		right: 0;
 		z-index: 20;
 	}
+	
+	.top-bar {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 12px 24px;
+	}
 
-	.back-btn,
+	.top-bar-text {
+		color: white;
+		font-weight: 500;
+		font-size: 0.95rem;
+	}
+
 	.lang-btn {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		min-width: 40px;
-		height: 40px;
-		padding: 0 0.75rem;
-		background: rgba(255, 255, 255, 0.2);
-		border: 1px solid rgba(255, 255, 255, 0.3);
+		gap: 6px;
+		background: rgba(255,255,255,0.2);
+		border: 1px solid rgba(255,255,255,0.3);
 		color: white;
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 0.875rem;
+		padding: 6px 12px;
+		border-radius: 20px;
+		font-size: 0.85rem;
 		font-weight: 500;
-		transition: all 0.3s ease;
-		-webkit-tap-highlight-color: transparent;
-		pointer-events: auto;
-		z-index: 21;
+		cursor: pointer;
+		transition: all 0.2s;
 	}
 
-	.back-btn:hover,
 	.lang-btn:hover {
-		background: rgba(255, 255, 255, 0.3);
-		border-color: rgba(255, 255, 255, 0.5);
-	}
-
-	.back-btn:active,
-	.lang-btn:active {
-		background: rgba(255, 255, 255, 0.25);
-		transform: scale(0.95);
+		background: rgba(255,255,255,0.3);
 	}
 
 	.follow-us-content {
 		flex: 1;
 		padding: 1.5rem;
+		padding-top: 5rem; /* space for sticky header */
 		overflow-y: auto;
 		max-width: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 	}
 
-	@media (max-width: 768px) {
-		.follow-us-content {
-			padding: 1rem;
-		}
+	.member-login-section {
+		display: flex;
+		justify-content: center;
+		width: 100%;
+		padding: 24px;
+		max-width: 800px;
 	}
 
-	@media (max-width: 480px) {
-		.follow-us-content {
-			padding: 0.75rem;
-		}
+	.member-login-card {
+		background: transparent;
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border-radius: 24px;
+		border: none;
+		padding: 20px 0;
+		box-shadow: none;
+		position: relative;
+		overflow: hidden;
+		width: 100%;
+		opacity: 0;
+		animation: fadeIn 0.4s ease forwards;
 	}
+
+	.member-login-text {
+		padding-bottom: 1.5rem;
+		margin-bottom: 2rem;
+		border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+	}
+
+	.branch-selector {
+		margin: 0 auto 24px;
+		width: 100%;
+		max-width: 100%;
+	}
+	
+	.styled-select {
+		width: 100%;
+		padding: 12px 16px;
+		border-radius: 12px;
+		border: 2px solid #E2E8F0;
+		background-color: #F8FAFC;
+		font-size: 1rem;
+		font-weight: 500;
+		color: #1E293B;
+		cursor: pointer;
+		outline: none;
+		transition: all 0.2s ease;
+		appearance: none; /* helps unified styles across browsers */
+	}
+	
+	.styled-select:focus {
+		border-color: #13A538;
+		background-color: #fff;
+		box-shadow: 0 0 0 3px rgba(19, 165, 56, 0.1);
+	}
+
+	.social-grid {
+		display: flex; flex-direction: column;
+		
+		gap: 16px;
+		width: 100%;
+		max-width: 600px;
+		margin: 0 auto;
+	}
+	
+	.social-card-modern {
+		display: flex;
+		flex-direction: row; justify-content: flex-start;
+		align-items: center;
+		
+		gap: 12px;
+		background: #1e293b;
+		border: 1px solid #334155;
+		border-radius: 16px;
+		padding: 20px 16px;
+		cursor: pointer;
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		text-align: center;
+		box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+	}
+	
+	.social-card-modern .social-label {
+		color: #f8fafc;
+	}
+
+	.social-card-modern .icon-image {
+		border-radius: 12px;
+		box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+	}
+	
+	.social-card-modern:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 8px 16px rgba(19, 165, 56, 0.2);
+		border-color: #13A538;
+		background: #0f172a;
+	}
+
+	.btn-member-login-lg {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+		background: linear-gradient(135deg, #13A538, #108C30);
+		color: white;
+		border: none;
+		padding: 16px 36px;
+		border-radius: 14px;
+		font-size: 18px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.3s;
+		box-shadow: 0 6px 20px rgba(19,165,56,0.3);
+		text-decoration: none;
+	}
+	.btn-member-login-lg:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 25px rgba(19,165,56,0.4);
+	}
+
+	/* Keep original loading classes below */
 
 	.loading {
 		display: flex;

@@ -273,11 +273,11 @@
 	}
 
 	function goBack() {
-		const referrer = $page.url.searchParams.get('referrer');
-		if (referrer === 'login') {
+		const referrerQuery = $page.url.searchParams.get('referrer');
+		if (referrerQuery === 'login') {
 			goto('/login');
 		} else {
-			goto('/');
+			goto('/customer-interface');
 		}
 	}
 
@@ -318,804 +318,471 @@
 </script>
 
 <svelte:head>
-	<title>Latest Offers - Aqura</title>
-	<meta name="description" content="View the latest offers from Aqura" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Latest Offers - Urban Market</title>
+<meta name="description" content="View the latest offers from Urban Market" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
 </svelte:head>
 
-<div class="offers-page">
-	<header class="offers-header">
-		<button class="back-btn" onclick={goBack} title="Back">
-			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M19 12H5M12 19l-7-7 7-7"/>
-			</svg>
-		</button>
-		<button 
-			class="lang-btn" 
-			onclick={toggleLanguage}
-			title="Toggle Language"
-		>
-			{$currentLocale === 'en' ? 'العربية' : 'English'}
-		</button>
-	</header>
+<div class="page-wrapper" class:rtl={$currentLocale === 'ar'} dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+<header class="header">
+<button class="back-btn" onclick={goBack} aria-label="Go Back">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+{#if $currentLocale === 'ar'}
+<path d="M5 12h14M12 5l7 7-7 7"/>
+{:else}
+<path d="M19 12H5M12 19l-7-7 7-7"/>
+{/if}
+</svg>
+</button>
 
-	<main class="offers-content">
-		{#if state.isLoading}
-			<div class="loading">
-				<div class="spinner"></div>
-				<p>{$currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
-				<p class="thank-you-message">{$currentLocale === 'ar' ? 'شكراً على صبرك' : 'Thank you for patience'}</p>
-			</div>
-		{:else if state.dataLoaded}
-			<div class="logo-wrapper">
-				<div class="logo-container">
-					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="app-logo" />
-				</div>
-			</div>
+<button class="lang-toggle" onclick={toggleLanguage}>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="12" cy="12" r="10"/>
+<line x1="2" y1="12" x2="22" y2="12"/>
+<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+</svg>
+<span>{$currentLocale === 'ar' ? 'English' : 'العربية'}</span>
+</button>
+</header>
 
-			<div class="offers-grid">
-				{#if getFilteredOffers().length === 0}
-					<div class="no-offers">
-						<p>{$currentLocale === 'ar' ? 'لا توجد عروض متاحة' : 'No offers available'}</p>
-					</div>
-				{:else}
-					{#each getFilteredOffers() as offer (offer.id)}
-							<div class="offer-card">
-								<div class="offer-header">
-									<h3 class="offer-name">{offer.offer_name}</h3>
-									<div class="branch-info">
-										<span class="branch-name">{$currentLocale === 'ar' ? offer.branch_name_ar : offer.branch_name_en}</span>
-										<span class="branch-location">{$currentLocale === 'ar' ? offer.branch_location_ar : offer.branch_location_en}</span>
-									</div>
-									<div class="offer-details">
-										<div class="detail-item">
-											<span class="label">{getRemainingDays(offer.end_date, offer.end_time)}</span>
-										</div>
-									</div>
-								</div>
-								{#if offer.thumbnail_url}
-									<div class="thumbnail-container">
-										<img 
-											src={offer.thumbnail_url} 
-											alt={offer.offer_name}
-											class="offer-thumbnail"
-										/>
-									</div>
-								{/if}
-								{#if offer.file_url}
-									<div class="file-container">
-										<button 
-											class="view-offer-btn"
-											onclick={() => openOfferFile(offer.file_url, offer.id)}
-											disabled={state.downloadingOfferId === offer.id}
-										>
-											{#if state.downloadingOfferId === offer.id}
-												<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner-icon">
-													<circle cx="12" cy="12" r="10"></circle>
-													<path d="M12 6v6l4 2"></path>
-												</svg>
-											<span>{state.downloadProgress}%</span>
-											{:else}
-												<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-													<circle cx="12" cy="12" r="3"></circle>
-												</svg>
-												<span>{$currentLocale === 'ar' ? 'اعرض المجلة' : 'View Magazine'}</span>
-											{/if}
-										</button>
-										{#if state.downloadingOfferId === offer.id}
-											<p class="loading-message">{$currentLocale === 'ar' ? 'شكراً على صبرك' : 'Thank you for patience'}</p>
-										{/if}
-									</div>
-								{:else}
-									<div class="no-file-container">
-										<p>{$currentLocale === 'ar' ? 'بدون ملف' : 'No file available'}</p>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					{/if}
-				</div>
-		{/if}
-	</main>
+<main class="main-content">
+<div class="profile-section">
+<div class="avatar-container">
+<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market Logo" class="profile-avatar" />
+</div>
+
+<h1 class="brand-title">
+{#if $currentLocale === 'ar'}
+<span class="text-green">أ</span><span class="text-orange">ه</span><span class="text-green">ل</span>&nbsp;<span class="text-orange">ا</span><span class="text-green">ي</span><span class="text-orange">ر</span><span class="text-green">ب</span><span class="text-orange">ن</span>
+{:else}
+<span class="text-green">A</span><span class="text-orange">h</span><span class="text-green">l</span>&nbsp;<span class="text-orange">U</span><span class="text-green">r</span><span class="text-orange">b</span><span class="text-green">a</span><span class="text-orange">n</span>
+{/if}
+</h1>
+
+<p class="brand-subtitle">
+{$currentLocale === 'ar' ? 'أحدث العروض الحصرية لك' : 'Latest Exclusive Offers For You'}
+</p>
+</div>
+
+{#if state.isLoading}
+<div class="loader">
+<div class="spinner"></div>
+<p>{$currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
+</div>
+{:else if state.dataLoaded}
+<div class="links-container fade-in">
+<div class="branch-label-container" style="text-align: center; margin-bottom: 0.5rem;">
+<label for="branch-select" style="font-weight: 600; color: #374151;">{$currentLocale === 'ar' ? 'اختر الفرع:' : 'Select Branch:'}</label>
+</div>
+                
+{#if state.branches.length > 0}
+<div class="branch-selector">
+<select id="branch-select" class="styled-select" bind:value={state.selectedBranchId} onchange={handleBranchChange}>
+<option value="">{$currentLocale === 'ar' ? '-- كل الفروع --' : '-- All Branches --'}</option>
+{#each state.branches as branch}
+<option value={branch.id.toString()}>
+{$currentLocale === 'ar' ? branch.name_ar + ' - ' + branch.location_ar : branch.name_en + ' - ' + branch.location_en}
+</option>
+{/each}
+</select>
+</div>
+{/if}
+
+<div class="offers-grid">
+{#if getFilteredOffers().length === 0}
+<div class="empty-state">
+<p>{$currentLocale === 'ar' ? 'لا توجد عروض متاحة في الوقت الحالي' : 'No offers available at the moment'}</p>
+</div>
+{:else}
+{#each getFilteredOffers() as offer (offer.id)}
+<div class="offer-card-modern">
+<div class="offer-info">
+<h3 class="offer-title">{offer.offer_name}</h3>
+
+<div class="offer-meta">
+<p class="branch-name">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+<circle cx="12" cy="10" r="3"></circle>
+</svg>
+{$currentLocale === 'ar' ? offer.branch_name_ar + ' - ' + offer.branch_location_ar : offer.branch_name_en + ' - ' + offer.branch_location_en}
+</p>
+<span class="expiry-badge">
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<circle cx="12" cy="12" r="10"></circle>
+<polyline points="12 6 12 12 16 14"></polyline>
+</svg>
+{getRemainingDays(offer.end_date, offer.end_time).replace('⏳ ', '')}
+</span>
+</div>
+</div>
+
+{#if offer.thumbnail_url}
+<div class="thumbnail-wrapper">
+<img src={offer.thumbnail_url} alt={offer.offer_name} class="offer-thumb-image" />
+</div>
+{/if}
+
+{#if offer.file_url}
+<button 
+class="btn-view-offer"
+onclick={() => openOfferFile(offer.file_url, offer.id)}
+disabled={state.downloadingOfferId === offer.id}
+>
+{#if state.downloadingOfferId === offer.id}
+<div class="spinner-small"></div>
+<span>{state.downloadProgress}%</span>
+{:else}
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+<polyline points="14 2 14 8 20 8"></polyline>
+<line x1="16" y1="13" x2="8" y2="13"></line>
+<line x1="16" y1="17" x2="8" y2="17"></line>
+<polyline points="10 9 9 9 8 9"></polyline>
+</svg>
+<span>{$currentLocale === 'ar' ? 'عرض المجلة' : 'View Magazine'}</span>
+{/if}
+</button>
+{/if}
+</div>
+{/each}
+{/if}
+</div>
+</div>
+{/if}
+</main>
 </div>
 
 <style>
-	.offers-page {
-		width: 100%;
-		min-height: 100vh;
-		background: #FFFFFF;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.offers-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-		background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
-		color: white;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-		gap: 1rem;
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		z-index: 20;
-	}
-
-	.back-btn,
-	.lang-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 40px;
-		height: 40px;
-		padding: 0 0.75rem;
-		background: rgba(255, 255, 255, 0.2);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		color: white;
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 0.875rem;
-		font-weight: 500;
-		transition: all 0.3s ease;
-		-webkit-tap-highlight-color: transparent;
-		pointer-events: auto;
-		z-index: 21;
-	}
-
-	.back-btn:hover,
-	.lang-btn:hover {
-		background: rgba(255, 255, 255, 0.3);
-		border-color: rgba(255, 255, 255, 0.5);
-	}
-
-	.back-btn:active,
-	.lang-btn:active {
-		background: rgba(255, 255, 255, 0.25);
-		transform: scale(0.95);
-	}
-
-	.offers-content {
-		flex: 1;
-		padding: 1.5rem;
-		overflow-y: auto;
-		max-width: 100%;
-	}
-
-	@media (max-width: 768px) {
-		.offers-content {
-			padding: 1rem;
-		}
-	}
-
-	@media (max-width: 480px) {
-		.offers-content {
-			padding: 0.75rem;
-		}
-	}
-
-	.logo-wrapper {
-		display: flex;
-		justify-content: center;
-		margin-bottom: 2rem;
-		margin-top: 90px;
-		padding: 1.5rem 0;
-		background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(249, 115, 22, 0.05) 100%);
-		border-radius: 16px;
-		border: 2px solid rgba(16, 185, 129, 0.15);
-		animation: fadeInUp 0.8s ease-out;
-		position: relative;
-		overflow: hidden;
-	}
-
-	.logo-wrapper::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 2px;
-		background: linear-gradient(90deg, transparent, #10B981, #F97316, transparent);
-		animation: shimmer 3s ease-in-out infinite;
-	}
-
-	@keyframes fadeInUp {
-		from {
-			opacity: 0;
-			transform: translateY(-30px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@keyframes shimmer {
-		0%, 100% {
-			opacity: 0.3;
-		}
-		50% {
-			opacity: 1;
-		}
-	}
-
-	.logo-container {
-		display: flex;
-		justify-content: center;
-		position: relative;
-		z-index: 1;
-	}
-
-	.app-logo {
-		max-width: 120px;
-		height: auto;
-		filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
-		animation: slideDown 0.6s ease-out, pulse 3s ease-in-out infinite;
-		transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-	}
-
-	.app-logo:hover {
-		transform: scale(1.1);
-	}
-
-	@keyframes slideDown {
-		from {
-			opacity: 0;
-			transform: translateY(-20px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@keyframes pulse {
-		0%, 100% {
-			filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
-		}
-		50% {
-			filter: drop-shadow(0 8px 16px rgba(16, 185, 129, 0.3));
-		}
-	}
-
-	.branch-selector-container {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-bottom: 2rem;
-		position: relative;
-		z-index: 5;
-	}
-
-	.branch-selector-container label {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.branch-select {
-		padding: 0.75rem;
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		font-size: 1rem;
-		background: white;
-		color: #111827;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		width: 100%;
-		pointer-events: auto;
-		appearance: auto;
-		-webkit-appearance: auto;
-		-moz-appearance: auto;
-		position: relative;
-		z-index: 6;
-	}
-
-	.branch-select:hover {
-		border-color: #8B5CF6;
-		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-	}
-
-	.branch-select:focus {
-		outline: none;
-		border-color: #8B5CF6;
-		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-	}
-
-	.loading {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		min-height: 300px;
-		gap: 1rem;
-	}
-
-	.thank-you-message {
-		font-size: 1rem;
-		color: #374151;
-		font-weight: 600;
-		margin-top: 1rem;
-		animation: fadeIn 1s ease-in 0.5s both;
-	}
-
-	@keyframes fadeIn {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-
-	.spinner {
-		width: 48px;
-		height: 48px;
-		border: 4px solid rgba(139, 92, 246, 0.1);
-		border-top-color: #8B5CF6;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.offers-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.offers-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-		gap: 1.5rem;
-		position: relative;
-		z-index: 1;
-	}
-
-	@media (max-width: 768px) {
-		.offers-grid {
-			grid-template-columns: 1fr;
-			gap: 1rem;
-		}
-	}
-
-	@media (max-width: 480px) {
-		.offers-grid {
-			grid-template-columns: 1fr;
-			gap: 0.75rem;
-		}
-	}
-
-	.offer-card {
-		display: flex;
-		flex-direction: column;
-		background: linear-gradient(135deg, #FFFFFF 0%, #F0FDF4 100%);
-		border: 2px solid #10B981;
-		border-radius: 16px;
-		overflow: hidden;
-		transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-		box-shadow: 0 8px 16px rgba(16, 185, 129, 0.15), 0 2px 4px rgba(0, 0, 0, 0.05);
-		position: relative;
-		z-index: 1;
-		animation: slideUp 0.6s ease-out;
-	}
-
-	.thumbnail-container {
-		width: 100%;
-		height: auto;
-		max-height: none;
-		overflow: hidden;
-		background: #f0f0f0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.offer-thumbnail {
-		width: 100%;
-		height: auto;
-		display: block;
-		max-width: 100%;
-	}
-
-	@keyframes slideUp {
-		from {
-			opacity: 0;
-			transform: translateY(20px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	.offer-card::before {
-		content: '';
-		position: absolute;
-		top: -2px;
-		left: 50%;
-		transform: translateX(-50%);
-		width: 60px;
-		height: 20px;
-		background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
-		border-radius: 0 0 10px 10px;
-		z-index: 10;
-		box-shadow: 0 4px 6px rgba(249, 115, 22, 0.2);
-	}
-
-	.offer-card:hover {
-		border-color: #F97316;
-		box-shadow: 0 16px 32px rgba(249, 115, 22, 0.25), 0 4px 8px rgba(0, 0, 0, 0.1);
-		transform: translateY(-8px);
-	}
-
-	.offer-card:hover::before {
-		animation: ribbon 0.8s ease-in-out infinite;
-	}
-
-	@keyframes ribbon {
-		0%, 100% {
-			transform: translateX(-50%) scaleY(1);
-		}
-		50% {
-			transform: translateX(-50%) scaleY(1.1);
-		}
-	}
-
-	.offer-header {
-		padding: 1.5rem 1.25rem 1.25rem 1.25rem;
-		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
-		color: white;
-		border-bottom: none;
-		position: relative;
-	}
-
-	@media (max-width: 480px) {
-		.offer-header {
-			padding: 1.25rem 1rem 1rem 1rem;
-		}
-	}
-
-	.offer-header::after {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 3px;
-		background: linear-gradient(90deg, #F97316 0%, #FB923C 50%, #F97316 100%);
-	}
-
-	.offer-name {
-		margin: 0 0 0.5rem 0;
-		font-size: 1.2rem;
-		font-weight: 700;
-		word-break: break-word;
-		color: #FFFFFF !important;
-		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-	}
-
-	@media (max-width: 480px) {
-		.offer-name {
-			font-size: 1.05rem;
-		}
-	}
-
-	.branch-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		margin-bottom: 0.75rem;
-		padding-bottom: 0.75rem;
-		border-bottom: 2px solid rgba(255, 255, 255, 0.3);
-		animation: fadeIn 0.8s ease-out;
-	}
-
-	@keyframes fadeIn {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-
-	.branch-name {
-		font-size: 0.95rem;
-		font-weight: 600;
-		color: #FFFFFF;
-		letter-spacing: 0.3px;
-	}
-
-	.branch-location {
-		font-size: 0.8rem;
-		color: rgba(255, 255, 255, 0.85);
-		opacity: 0.95;
-	}
-
-	.offer-details {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		font-size: 0.9rem;
-	}
-
-	.detail-item {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.detail-item .label {
-		font-weight: 500;
-		opacity: 0.95;
-		color: #E5E7EB;
-	}
-
-	.detail-item .value {
-		opacity: 0.9;
-		font-size: 0.85rem;
-		color: #F3F4F6;
-	}
-
-	.file-container {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 2rem 1rem;
-		min-height: 200px;
-		background: linear-gradient(135deg, #ECFDF5 0%, #F0FDF4 100%);
-		gap: 1rem;
-	}
-
-	@media (max-width: 480px) {
-		.file-container {
-			padding: 1.5rem 1rem;
-			min-height: 150px;
-		}
-	}
-
-	.view-offer-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.875rem 1.75rem;
-		background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
-		color: white;
-		border: none;
-		border-radius: 10px;
-		font-size: 1rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-		box-shadow: 0 6px 20px rgba(249, 115, 22, 0.4), 0 2px 4px rgba(0, 0, 0, 0.1);
-		position: relative;
-		z-index: 2;
-		pointer-events: auto;
-		letter-spacing: 0.5px;
-	}
-
-	@media (max-width: 480px) {
-		.view-offer-btn {
-			padding: 0.75rem 1.25rem;
-			font-size: 0.9rem;
-			gap: 0.5rem;
-		}
-	}
-
-	.view-offer-btn:hover {
-		transform: translateY(-4px) scale(1.05);
-		box-shadow: 0 10px 28px rgba(249, 115, 22, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15);
-	}
-
-	.view-offer-btn:active {
-		transform: translateY(-2px) scale(0.98);
-		box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
-	}
-
-	.loading-message {
-		font-size: 0.95rem;
-		color: #374151;
-		font-weight: 600;
-		margin: 0;
-		animation: fadeIn 0.6s ease-in 0.3s both;
-	}
-
-	.view-offer-btn:disabled {
-		opacity: 0.8;
-		cursor: not-allowed;
-	}
-
-	.view-offer-btn svg {
-		width: 20px;
-		height: 20px;
-	}
-
-	.view-offer-btn .spinner-icon {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.no-file-container {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 400px;
-		background: #F9FAFB;
-		color: #9CA3AF;
-		text-align: center;
-		padding: 2rem;
-	}
-
-	.offer-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-		background: white;
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		transition: all 0.3s ease;
-	}
-
-	.offer-item:hover {
-		border-color: #8B5CF6;
-		box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1);
-	}
-
-	.offer-name {
-		font-size: 1rem;
-		font-weight: 600;
-		color: #111827;
-		flex: 1;
-	}
-
-	.view-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		white-space: nowrap;
-	}
-
-	.view-btn:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
-	}
-
-	.view-btn:active {
-		transform: translateY(0);
-	}
-
-	.no-file {
-		font-size: 0.875rem;
-		color: #9CA3AF;
-		font-weight: 500;
-	}
-
-	.no-offers {
-		text-align: center;
-		padding: 2rem;
-		color: #6B7280;
-	}
-
-	/* Mobile Responsive */
-	@media (max-width: 768px) {
-		.offers-header {
-			padding: 0.875rem;
-			gap: 0.75rem;
-		}
-
-		.offers-header h1 {
-			font-size: 1.25rem;
-		}
-
-		.back-btn {
-			width: 36px;
-			height: 36px;
-			font-size: 0.75rem;
-		}
-
-		.lang-btn {
-			width: auto;
-			min-width: 70px;
-			height: 36px;
-			font-size: 0.75rem;
-			padding: 0 0.75rem;
-		}
-
-		.offers-content {
-			padding: 1rem;
-		}
-
-		.offer-item {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 0.75rem;
-		}
-
-		.view-btn {
-			width: 100%;
-			justify-content: center;
-		}
-	}
-
-	@media (max-width: 480px) {
-		.offers-header {
-			padding: 0.75rem;
-		}
-
-		.offers-header h1 {
-			font-size: 1.125rem;
-		}
-
-		.lang-btn {
-			width: auto;
-			min-width: 65px;
-		}
-
-		.offers-content {
-			padding: 0.75rem;
-		}
-	}
-
-	/* Dark mode support - DISABLED to match desktop light theme on all devices */
-	/* @media (prefers-color-scheme: dark) {
-		.offers-page {
-			background: #1F2937;
-			color: #F3F4F6;
-		}
-
-		.branch-select {
-			background: #374151;
-			color: #F3F4F6;
-			border-color: #4B5563;
-		}
-
-		.offer-item {
-			background: #374151;
-			border-color: #4B5563;
-		}
-
-		.offer-name {
-			color: #F3F4F6;
-		}
-	} */
-
-	/* RTL Support */
-	:global([dir="rtl"]) .offers-header {
-		flex-direction: row-reverse;
-	}
-
-	:global([dir="rtl"]) .offers-header h1 {
-		text-align: center;
-	}
-
-	:global([dir="rtl"]) .offer-item {
-		flex-direction: row-reverse;
-	}
+:global(body) {
+margin: 0;
+padding: 0;
+background-color: #E8F5E9;
+}
+
+* {
+box-sizing: border-box;
+font-family: 'Plus Jakarta Sans', 'Tajawal', sans-serif;
+}
+
+.text-green { color: #13A538; }
+.text-orange { color: #F08300; }
+
+.page-wrapper {
+width: 100%;
+min-height: 100vh;
+background: #E8F5E9;
+display: flex;
+flex-direction: column;
+align-items: center;
+padding-bottom: 3rem;
+}
+
+.header {
+width: 100%;
+max-width: 600px;
+display: flex;
+justify-content: space-between;
+align-items: center;
+padding: 1.25rem 1.5rem;
+z-index: 10;
+}
+
+.back-btn {
+width: 44px;
+height: 44px;
+border-radius: 14px;
+background: white;
+border: 1px solid #e2e8f0;
+display: flex;
+align-items: center;
+justify-content: center;
+color: #0f172a;
+cursor: pointer;
+transition: all 0.2s;
+box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.back-btn:active, .back-btn:hover {
+background: #f1f5f9;
+transform: translateY(2px);
+}
+
+.lang-toggle {
+display: flex;
+align-items: center;
+gap: 8px;
+background: white;
+border: 1px solid #e2e8f0;
+padding: 10px 16px;
+border-radius: 20px;
+color: #0f172a;
+font-weight: 600;
+font-size: 0.9rem;
+cursor: pointer;
+box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+transition: all 0.2s;
+}
+
+.lang-toggle:active, .lang-toggle:hover {
+background: #f1f5f9;
+transform: translateY(2px);
+}
+
+.main-content {
+width: 100%;
+max-width: 600px;
+padding: 0 1.5rem;
+display: flex;
+flex-direction: column;
+align-items: center;
+}
+
+.profile-section {
+display: flex;
+flex-direction: column;
+align-items: center;
+margin-top: 1rem;
+margin-bottom: 2.5rem;
+text-align: center;
+}
+
+.avatar-container {
+width: 110px;
+height: 110px;
+border-radius: 50%;
+background: white;
+padding: 6px;
+box-shadow: 0 10px 25px -5px rgba(19, 165, 56, 0.2);
+margin-bottom: 1.25rem;
+position: relative;
+}
+
+.avatar-container::after {
+content: '';
+position: absolute;
+inset: -4px;
+border-radius: 50%;
+background: linear-gradient(135deg, #13A538, #F08300);
+z-index: -1;
+}
+
+.profile-avatar {
+width: 100%;
+height: 100%;
+object-fit: contain;
+border-radius: 50%;
+background: white;
+}
+
+.brand-title {
+font-weight: 800;
+font-size: 2.2rem;
+margin: 0 0 0.5rem 0;
+letter-spacing: -0.5px;
+}
+
+.brand-subtitle {
+color: #13A538;
+font-size: 1.05rem;
+font-weight: 600;
+margin: 0;
+}
+
+.links-container {
+width: 100%;
+display: flex;
+flex-direction: column;
+gap: 1.5rem;
+}
+
+.fade-in {
+animation: fadeIn 0.5s ease-out forwards;
+}
+
+@keyframes fadeIn {
+from { opacity: 0; transform: translateY(10px); }
+to { opacity: 1; transform: translateY(0); }
+}
+
+.branch-selector {
+margin: 0 auto 16px;
+width: 100%;
+}
+
+.styled-select {
+width: 100%;
+padding: 12px 16px;
+border-radius: 12px;
+border: 2px solid #13A538;
+background-color: transparent;
+font-size: 1rem;
+font-weight: 600;
+color: #13A538;
+cursor: pointer;
+outline: none;
+transition: all 0.2s ease;
+appearance: none;
+text-align: center;
+}
+
+.styled-select:focus {
+border-color: #F08300;
+box-shadow: 0 0 0 3px rgba(240, 131, 0, 0.1);
+}
+
+.offers-grid {
+display: flex;
+flex-direction: column;
+gap: 20px;
+width: 100%;
+}
+
+.offer-card-modern {
+background: rgba(255, 255, 255, 0.9);
+backdrop-filter: blur(10px);
+border: 1px solid rgba(19, 165, 56, 0.2);
+border-radius: 20px;
+padding: 24px;
+display: flex;
+flex-direction: column;
+gap: 16px;
+transition: all 0.3s ease;
+box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+}
+
+.offer-card-modern:hover {
+transform: translateY(-4px);
+box-shadow: 0 12px 30px rgba(19, 165, 56, 0.12);
+border-color: #13A538;
+}
+
+.offer-info {
+display: flex;
+flex-direction: column;
+gap: 8px;
+}
+
+.offer-title {
+margin: 0;
+font-size: 1.25rem;
+font-weight: 800;
+color: #0f172a;
+line-height: 1.3;
+}
+
+.offer-meta {
+display: flex;
+flex-direction: column;
+gap: 6px;
+}
+
+.branch-name {
+margin: 0;
+font-size: 0.9rem;
+color: #64748b;
+display: flex;
+align-items: center;
+gap: 6px;
+}
+
+.expiry-badge {
+display: inline-flex;
+align-items: center;
+gap: 6px;
+background: rgba(240, 131, 0, 0.1);
+color: #d97706;
+padding: 4px 10px;
+border-radius: 20px;
+font-size: 0.8rem;
+font-weight: 700;
+width: fit-content;
+}
+
+.thumbnail-wrapper {
+width: 100%;
+border-radius: 12px;
+overflow: hidden;
+background: #f1f5f9;
+}
+
+.offer-thumb-image {
+width: 100%;
+height: auto;
+display: block;
+object-fit: cover;
+max-height: 250px;
+}
+
+.btn-view-offer {
+display: flex;
+align-items: center;
+justify-content: center;
+gap: 10px;
+background: linear-gradient(135deg, #13A538, #0ea5e9);
+color: white;
+border: none;
+padding: 14px 24px;
+border-radius: 14px;
+font-size: 1rem;
+font-weight: 700;
+cursor: pointer;
+transition: all 0.3s;
+box-shadow: 0 4px 12px rgba(19, 165, 56, 0.2);
+}
+
+.btn-view-offer:hover:not(:disabled) {
+transform: translateY(-2px);
+box-shadow: 0 6px 18px rgba(19, 165, 56, 0.3);
+}
+
+.btn-view-offer:active:not(:disabled) {
+transform: translateY(0);
+}
+
+.btn-view-offer:disabled {
+opacity: 0.7;
+cursor: not-allowed;
+}
+
+.spinner-small {
+width: 20px;
+height: 20px;
+border: 3px solid rgba(255,255,255,0.3);
+border-top-color: white;
+border-radius: 50%;
+animation: spin 1s linear infinite;
+}
+
+.loader {
+display: flex;
+flex-direction: column;
+align-items: center;
+margin-top: 3rem;
+}
+
+.spinner {
+width: 40px;
+height: 40px;
+border: 4px solid rgba(19, 165, 56, 0.2);
+border-top-color: #13A538;
+border-radius: 50%;
+animation: spin 1s linear infinite;
+margin-bottom: 1rem;
+}
+
+@keyframes spin {
+to { transform: rotate(360deg); }
+}
+
+.empty-state {
+text-align: center;
+padding: 3rem 1rem;
+color: #64748b;
+font-weight: 500;
+background: rgba(255, 255, 255, 0.7);
+border-radius: 16px;
+border: 1px dashed rgba(0,0,0,0.05);
+}
 </style>

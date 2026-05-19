@@ -174,6 +174,114 @@
 	<div class="login-page-inner" class:rtl={isRTL} dir={isRTL ? 'rtl' : 'ltr'}>
 
 	{#if showContent}
+	<!-- Member Login Section -->
+	<section class="member-login-section">
+		<div class="member-login-card" class:fade-in={showContent}>
+			<div class="member-login-text">
+				<div class="member-card-logo">
+					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" />
+				</div>
+				<h2 class="alternating-text" style="font-size: 2.2rem; margin-bottom: 8px;">
+					{#if isRTL}
+						<span style="color: #13A538">أ</span><span style="color: #f08300">ه</span><span style="color: #13A538">ل</span>&nbsp;<span style="color: #f08300">ا</span><span style="color: #13A538">ي</span><span style="color: #f08300">ر</span><span style="color: #13A538">ب</span><span style="color: #f08300">ن</span>
+					{:else}
+						<span style="color: #13A538">A</span><span style="color: #f08300">h</span><span style="color: #13A538">l</span>&nbsp;<span style="color: #f08300">U</span><span style="color: #13A538">r</span><span style="color: #f08300">b</span><span style="color: #13A538">a</span><span style="color: #f08300">n</span>
+					{/if}
+				</h2>
+				<p>
+					{#if isRTL}
+						<span style="color: #13A538">أنت</span> <span style="color: #f08300">من</span> <span style="color: #13A538">أهلنا…</span> <span style="color: #f08300">ولك</span> <span style="color: #13A538">امتيازاتك.</span>
+					{:else}
+						<span style="color: #13A538">You're</span> <span style="color: #f08300">Part</span> <span style="color: #13A538">of</span> <span style="color: #f08300">Our</span> <span style="color: #13A538">Family…</span> <span style="color: #f08300">And</span> <span style="color: #13A538">You</span> <span style="color: #f08300">Deserve</span> <span style="color: #13A538">Exclusive</span> <span style="color: #f08300">Benefits.</span>
+					{/if}
+				</p>
+				<div class="member-login-actions" style="flex-direction: column; width: 100%;">
+					<a class="btn-member-register-lg" href="/login/customer?minimal=true&view=register" style="width: 100%; justify-content: center; box-sizing: border-box;">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+							<circle cx="8.5" cy="7" r="4"/>
+							<line x1="20" y1="8" x2="20" y2="14"/>
+							<line x1="23" y1="11" x2="17" y2="11"/>
+						</svg>
+						{isRTL ? 'انضم إلينا' : 'Join Us'}
+					</a>
+					<div class="login-tagline" style="display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px;">
+						<span style="font-size: 0.95rem; font-weight: 500;">
+							{isRTL ? 'عضو بالفعل؟' : 'Already a member?'}
+						</span>
+						<a class="btn-member-login-lg" href="/login/customer?minimal=true" style="width: 100%; justify-content: center; box-sizing: border-box; margin-bottom: 24px;">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+								<circle cx="12" cy="7" r="4"/>
+							</svg>
+							{isRTL ? 'سجل الدخول الآن' : 'Login now'}
+						</a>
+					</div>
+				</div>
+				<ul class="member-benefits">
+					<li>
+						<span class="benefit-icon">💰</span>
+						<span>{isRTL ? 'احصل على نقاط مع كل عملية شراء' : 'Get points for each purchase'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">🚀</span>
+						<span>{isRTL ? 'استرداد أسرع للمكافآت' : 'Faster redemption'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">✨</span>
+						<span>{isRTL ? 'عرض نقاط برنامج الولاء' : 'View loyalty program points'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">🏷️</span>
+						<span>{isRTL ? 'الوصول إلى عروض حصرية' : 'Access exclusive offers'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">⏳</span>
+						<span>{isRTL ? 'الحصول على وصول مبكر للعروض' : 'Get early access to offers'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">💎</span>
+						<span>{isRTL ? 'الوصول إلى المزايا الممتازة' : 'Get access to premium benefits'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">⚡</span>
+						<span>{isRTL ? 'الحصول على خدمات سريعة' : 'Get fast services'}</span>
+					</li>
+					<li>
+						<span class="benefit-icon">📣</span>
+						<span>{isRTL ? 'المشاركة في حملات الأعضاء فقط' : 'Participate in member-only campaigns'}</span>
+					</li>
+				</ul>
+			</div>
+			
+			<div class="member-login-graphics">
+				<div class="ml-bubbles">
+					<div class="ml-bubble ml-bubble-orange"></div>
+					<div class="ml-bubble ml-bubble-pink"></div>
+					<div class="ml-bubble ml-bubble-green"></div>
+					<div class="ml-bubble ml-bubble-lavender"></div>
+				</div>
+				<div class="ml-avatar-glass">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+						<circle cx="12" cy="7" r="4"/>
+					</svg>
+				</div>
+			</div>
+
+			<!-- Coming Soon Mask (over member section) -->
+			{#if showMask}
+				<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+				<div class="mask-notice" on:click={handleMaskClick}>
+					<div class="mask-badge">
+						<span class="mask-icon">🚀</span>
+						<span class="mask-text">{isRTL ? 'قريباً - تسجيل دخول العملاء' : 'Coming Soon — Customer Login'}</span>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</section>
+
 	<!-- Hero Section -->
 	<section class="hero">
 		<div class="hero-content">
@@ -212,18 +320,6 @@
 						</svg>
 						{isRTL ? 'العروض' : 'Offers'}
 					</a>
-					<a class="btn-points" href="/login/customer?view=loyalty">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-						</svg>
-						{isRTL ? 'النقاط' : 'Points'}
-					</a>
-					<a class="btn-customer" href="/login/customer?minimal=true">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
-						</svg>
-						{isRTL ? 'اطلب الآن' : 'Order Now'}
-					</a>
 					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 					<button class="btn-locate" on:click={scrollToLocations}>
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -233,29 +329,18 @@
 						{isRTL ? 'مواقعنا' : 'Locate Us'}
 					</button>
 					{#if giftWheelActive}
-					<a class="btn-gift-wheel" href="/gift-wheel">
+					<a class="btn-gift-wheel" href="/gift-wheel?referrer=login">
 						🎡
 						{isRTL ? 'عجلة الهدايا' : 'Gift Wheel'}
 					</a>
 					{/if}
 					{#if surpriseBoxActive}
-					<a class="btn-surprise-box" href="/surprise-box">
+					<a class="btn-surprise-box" href="/surprise-box?referrer=login">
 						🎁
 						{isRTL ? 'صندوق المفاجآت' : 'Surprise Box'}
 					</a>
 					{/if}
 				</div>
-
-				<!-- Coming Soon Mask (over customer login) -->
-				{#if showMask}
-					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-					<div class="mask-notice" on:click={handleMaskClick}>
-						<div class="mask-badge">
-							<span class="mask-icon">🚀</span>
-							<span class="mask-text">{isRTL ? 'قريباً - تسجيل دخول العملاء' : 'Coming Soon â€” Customer Login'}</span>
-						</div>
-					</div>
-				{/if}
 			</div>
 
 			<div class="hero-image" class:fade-in={showContent}>
@@ -701,29 +786,6 @@
 	}
 	.btn-customer:active { transform: translateY(0); }
 
-	.btn-points {
-		display: inline-flex;
-		align-items: center;
-		gap: 10px;
-		background: #f08300;
-		color: white;
-		border: none;
-		padding: 14px 32px;
-		border-radius: 12px;
-		font-size: 16px;
-		font-weight: 700;
-		cursor: pointer;
-		transition: all 0.3s;
-		box-shadow: 0 4px 16px rgba(245,158,11,0.3);
-		font-family: inherit;
-		text-decoration: none;
-	}
-	.btn-points:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 6px 24px rgba(245,158,11,0.4);
-	}
-	.btn-points:active { transform: translateY(0); }
-
 	.btn-locate {
 		display: inline-flex;
 		align-items: center;
@@ -792,6 +854,217 @@
 		box-shadow: 0 6px 24px rgba(124,58,237,0.5);
 	}
 	.btn-surprise-box:active { transform: translateY(0); }
+
+	/* ═══════════════════ MEMBER LOGIN SECTION ═══════════════════ */
+	.member-login-section {
+		padding: 0 24px;
+		margin-top: 40px; /* spacing below header */
+		margin-bottom: 40px;
+		position: relative;
+		z-index: 10;
+	}
+	.member-login-card {
+		position: relative;
+		overflow: hidden;
+		max-width: 1200px;
+		margin: 0 auto;
+		background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.7));
+		border: 1px solid rgba(255,255,255,0.8);
+		border-radius: 24px;
+		padding: 40px;
+		display: grid;
+		grid-template-columns: 3fr 2fr;
+		gap: 32px;
+		align-items: center;
+		box-shadow: 0 10px 40px rgba(0,0,0,0.06);
+		backdrop-filter: blur(12px);
+	}
+	.member-card-logo {
+		display: flex;
+		justify-content: center;
+		margin-bottom: 16px;
+	}
+	.member-card-logo img {
+		height: 72px;
+		width: auto;
+		object-fit: contain;
+	}
+	.member-login-text h2 {
+		font-size: 2.2rem;
+		font-weight: 800;
+		color: #1e293b;
+		margin: 0 0 12px;
+	}
+	.member-login-text p {
+		font-size: 1.05rem;
+		color: #475569;
+		margin: 0 0 24px;
+		line-height: 1.6;
+		max-width: 500px;
+	}
+	.member-benefits {
+		list-style: none;
+		padding: 0;
+		margin: 0 0 32px;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 16px;
+	}
+	.member-benefits li {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: #334155;
+		background: white;
+		padding: 12px 16px;
+		border-radius: 12px;
+		box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+	}
+	.benefit-icon {
+		font-size: 1.2rem;
+	}
+	.member-login-actions {
+		display: flex;
+		gap: 16px;
+		flex-wrap: wrap;
+	}
+	.btn-member-login-lg {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+		background: linear-gradient(135deg, #13A538, #108C30);
+		color: white;
+		border: none;
+		padding: 16px 36px;
+		border-radius: 14px;
+		font-size: 18px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.3s;
+		box-shadow: 0 6px 20px rgba(19,165,56,0.3);
+		text-decoration: none;
+	}
+	.btn-member-login-lg:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 24px rgba(19,165,56,0.4);
+	}
+	.btn-member-register-lg {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+		background: white;
+		color: #13A538;
+		border: 2px solid #13A538;
+		padding: 14px 34px; /* Slightly less padding to account for border */
+		border-radius: 14px;
+		font-size: 18px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.3s;
+		text-decoration: none;
+	}
+	.btn-member-register-lg:hover {
+		background: #f0fdf4;
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(19,165,56,0.15);
+	}
+	/* Decorative Graphics */
+	.member-login-graphics {
+		position: absolute;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		width: 40%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+	}
+	[dir="rtl"] .member-login-graphics {
+		right: auto;
+		left: 0;
+	}
+	.ml-avatar-glass {
+		width: 100px;
+		height: 100px;
+		background: rgba(255,255,255,0.6);
+		border-radius: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+		backdrop-filter: blur(12px);
+		z-index: 10;
+		border: 1px solid rgba(255,255,255,0.8);
+		transform: rotate(-10deg);
+		color: #f08300;
+	}
+	.ml-avatar-glass svg {
+		width: 48px;
+		height: 48px;
+	}
+	.ml-bubbles {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		overflow: hidden;
+	}
+	.ml-bubble {
+		position: absolute;
+		border-radius: 50%;
+		filter: blur(40px);
+		opacity: 0.3;
+	}
+	.ml-bubble-orange {
+		width: 250px;
+		height: 250px;
+		background: #f97316;
+		top: -50px;
+		right: -50px;
+	}
+	.ml-bubble-pink {
+		width: 200px;
+		height: 200px;
+		background: #ec4899;
+		bottom: -50px;
+		right: 150px;
+	}
+	.ml-bubble-green {
+		width: 150px;
+		height: 150px;
+		background: #22c55e;
+		bottom: 50px;
+		right: 50px;
+	}
+	.ml-bubble-lavender {
+		width: 200px;
+		height: 200px;
+		background: #c084fc;
+		top: 50px;
+		right: 100px;
+	}
+	[dir="rtl"] .ml-bubble-orange { right: auto; left: -50px; }
+	[dir="rtl"] .ml-bubble-pink { right: auto; left: 150px; }
+	[dir="rtl"] .ml-bubble-green { right: auto; left: 50px; }
+	[dir="rtl"] .ml-bubble-lavender { right: auto; left: 100px; }
+
+	@media (max-width: 900px) {
+		.member-login-card {
+			grid-template-columns: 1fr;
+			padding: 30px 20px;
+		}
+		.member-login-graphics {
+			display: none;
+		}
+		.member-login-text h2 {
+			font-size: 1.8rem;
+		}
+		.member-benefits {
+			grid-template-columns: 1fr;
+		}
+	}
 
 	/* Coming Soon Mask */
 	.mask-notice {
@@ -1165,7 +1438,7 @@
 		.hero-logo-img { width: 140px; height: 140px; }
 
 		.hero-buttons { flex-direction: column; align-items: stretch; }
-		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel, .btn-surprise-box {
+		.btn-primary, .btn-outline, .btn-customer, .btn-locate, .btn-gift-wheel, .btn-surprise-box {
 			justify-content: center;
 			padding: 14px 20px;
 			font-size: 15px;
@@ -1192,7 +1465,7 @@
 		.hero-text h1 { font-size: 1.45rem; }
 		.hero-sub { font-size: 0.82rem; }
 		.hero-logo-img { width: 110px; height: 110px; }
-		.btn-primary, .btn-outline, .btn-customer, .btn-points, .btn-locate, .btn-gift-wheel, .btn-surprise-box { font-size: 14px; padding: 12px 16px; }
+		.btn-primary, .btn-outline, .btn-customer, .btn-locate, .btn-gift-wheel, .btn-surprise-box { font-size: 14px; padding: 12px 16px; }
 		.feature-card h3 { font-size: 0.95rem; }
 		.offers-banner h2 { font-size: 1.15rem; }
 		.section-title { font-size: 1.3rem; }

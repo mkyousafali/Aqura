@@ -114,6 +114,14 @@
 		
 		return formattedDate;
 	}
+	function goBack() {
+		const referrerQuery = $page.url.searchParams.get('referrer');
+		if (referrerQuery === 'login') {
+			goto('/login');
+		} else {
+			goto('/customer-interface');
+		}
+	}
 </script>
 
 <svelte:head>
@@ -123,7 +131,7 @@
 
 <div class="loyalty-details-page">
 	<div class="loyalty-header">
-		<button type="button" class="back-btn" on:click={() => goto('/login/customer')} title="Back">
+		<button type="button" class="back-btn" on:click={goBack} title="Back">
 			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M19 12H5M12 19l-7-7 7-7"/>
 			</svg>

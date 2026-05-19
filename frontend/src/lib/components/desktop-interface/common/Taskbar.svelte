@@ -810,17 +810,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</button>
 		{/if}
 
-		<!-- Gift Wheel Coupon -->
-		{#if buttonPermissionsLoaded && isButtonAllowed('GIFT_WHEEL_MANAGER')}
-		<button 
-			class="quick-btn gift-wheel-btn"
-			on:click={openGiftWheelCoupon}
-			title="Gift Wheel Coupon"
-		>
-			<div class="quick-icon">🎡</div>
-		</button>
-		{/if}
-
 		<!-- My Daily Checklist -->
 		{#if buttonPermissionsLoaded && isButtonAllowed('MY_DAILY_CHECKLIST')}
 		<button 

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  
+  import { orderMaskEnabled } from '$lib/stores/orderMask';
+	
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import LocationMapDisplay from '$lib/components/desktop-interface/admin-customer-app/LocationMapDisplay.svelte';
@@ -162,7 +163,7 @@
           unsubscribe();
           // Provide a gentle redirect after short delay so user can read message
           setTimeout(() => {
-            if (!customerRecord) goto('/login/customer');
+            if (!customerRecord) goto('/login');
           }, 1500);
         }
       }, MAX_WAIT_MS);
@@ -429,7 +430,7 @@
     try {
       localStorage.clear();
       console.log('🔄 [Profile] Navigating to customer login page...');
-      goto('/login/customer');
+      goto('/login');
     } catch (error) {
       console.error('❌ [Profile] Logout error:', error);
     }
@@ -646,6 +647,7 @@
   </div>
 
   <!-- Orders Section -->
+  {#if !$orderMaskEnabled}
   <div class="profile-card">
     <div class="section">
       <h2>{texts.orders}</h2>
@@ -661,8 +663,10 @@
       </div>
     </div>
   </div>
+  {/if}
 
   <!-- Support -->
+  {#if !$orderMaskEnabled}
   <div class="profile-card">
     <div class="section">
       <h2>{texts.support}</h2>
@@ -678,6 +682,7 @@
       </div>
     </div>
   </div>
+  {/if}
 
   <!-- Logout -->
   <div class="logout-section">
