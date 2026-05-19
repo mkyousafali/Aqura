@@ -51,6 +51,7 @@
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
 	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
+	import CustomerAppManager from '$lib/components/desktop-interface/admin-customer-app/CustomerAppManager.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
 	import SocialLinkManager from '$lib/components/desktop-interface/admin-customer-app/SocialLinkManager.svelte';
@@ -510,6 +511,28 @@
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type: string): string {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	}
+
+	function openCustomerApp() {
+		collapseAllMenus();
+		const windowId = generateWindowId('customer-app');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.customerApp') || 'Customer App'} #${instanceNumber}`,
+			component: CustomerAppManager,
+			componentName: 'CustomerAppManager',
+			icon: '👥',
+			size: { width: 1100, height: 700 },
+			position: {
+				x: 130 + (Math.random() * 100),
+				y: 90 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	function openBranches() {
@@ -5837,7 +5860,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showControlsDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Dashboard items will be added here -->
+					{#if isButtonAllowed('CUSTOMER_APP')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCustomerApp}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">{t('nav.customerApp') || 'Customer App'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
