@@ -52,6 +52,8 @@
 	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import CustomerAppManager from '$lib/components/desktop-interface/admin-customer-app/CustomerAppManager.svelte';
+	import LoyaltyDashboard from '$lib/components/desktop-interface/master/loyalty/LoyaltyDashboard.svelte';
+	import ManageTiers from '$lib/components/desktop-interface/master/loyalty/ManageTiers.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
 	import SocialLinkManager from '$lib/components/desktop-interface/admin-customer-app/SocialLinkManager.svelte';
@@ -226,6 +228,11 @@
 	let showWhatsAppManageSubmenu = false;
 	let showWhatsAppOperationsSubmenu = false;
 	let showWhatsAppReportsSubmenu = false;
+	let showLoyaltySubmenu = false;
+	let showLoyaltyDashboardSubmenu = false;
+	let showLoyaltyManageSubmenu = false;
+	let showLoyaltyOperationsSubmenu = false;
+	let showLoyaltyReportsSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -511,6 +518,50 @@
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type: string): string {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	}
+
+	function openManageTiers() {
+		collapseAllMenus();
+		const windowId = generateWindowId('manage-tiers');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Manage Tiers #${instanceNumber}`,
+			component: ManageTiers,
+			componentName: 'ManageTiers',
+			icon: '🏅',
+			size: { width: 1200, height: 680 },
+			position: {
+				x: 130 + (Math.random() * 100),
+				y: 90 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openLoyaltyDashboard() {
+		collapseAllMenus();
+		const windowId = generateWindowId('loyalty-dashboard');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.loyaltyProgram') || 'Loyalty Program'} #${instanceNumber}`,
+			component: LoyaltyDashboard,
+			componentName: 'LoyaltyDashboard',
+			icon: '🏆',
+			size: { width: 1100, height: 700 },
+			position: {
+				x: 130 + (Math.random() * 100),
+				y: 90 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	function openCustomerApp() {
@@ -2239,6 +2290,10 @@ function openApprovalCenter() {
 		showWhatsAppManageSubmenu = false;
 		showWhatsAppOperationsSubmenu = false;
 		showWhatsAppReportsSubmenu = false;
+		showLoyaltyDashboardSubmenu = false;
+		showLoyaltyManageSubmenu = false;
+		showLoyaltyOperationsSubmenu = false;
+		showLoyaltyReportsSubmenu = false;
 	}
 
 	function collapseAllMenus() {
@@ -2253,6 +2308,7 @@ function openApprovalCenter() {
 		showUserSubmenu = false;
 		showStockSubmenu = false;
 		showWhatsAppSubmenu = false;
+		showLoyaltySubmenu = false;
 	}
 
 	// ===== WhatsApp Manager Open Functions =====
@@ -5823,6 +5879,145 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
+	<!-- ============ 🏆 LOYALTY PROGRAM SECTION ============ -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showLoyaltySubmenu = !showLoyaltySubmenu}
+		>
+			<span class="section-icon">🏆</span>
+			<span class="section-text">{t('nav.loyaltyProgram') || 'Loyalty Program'}</span>
+			<span class="arrow" class:expanded={showLoyaltySubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Loyalty Program Submenu - Inline below Loyalty Program button -->
+	{#if showLoyaltySubmenu}
+		<div class="submenu-inline loyalty-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showLoyaltyDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showLoyaltyDashboardSubmenu = true;
+						}
+					}}
+					title={t('nav.dashboard')}
+				>
+					
+					<span class="menu-text">{t('nav.dashboard')}</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showLoyaltyDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openLoyaltyDashboard}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">{t('nav.loyaltyProgram') || 'Loyalty Program'}</span>
+						</button>
+					</div>
+					{#if isButtonAllowed('CUSTOMER_APP')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCustomerApp}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">{t('nav.customerApp') || 'Customer App'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showLoyaltyManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showLoyaltyManageSubmenu = true;
+						}
+					}}
+					title={t('nav.manage')}
+				>
+					
+					<span class="menu-text">{t('nav.manage')}</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showLoyaltyManageSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openManageTiers}>
+							<span class="menu-icon">🏅</span>
+							<span class="menu-text">Manage Tiers</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showLoyaltyOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showLoyaltyOperationsSubmenu = true;
+						}
+					}}
+					title={t('nav.operations')}
+				>
+					
+					<span class="menu-text">{t('nav.operations')}</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showLoyaltyOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Operations items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showLoyaltyReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showLoyaltyReportsSubmenu = true;
+						}
+					}}
+					title={t('nav.reports')}
+				>
+					
+					<span class="menu-text">{t('nav.reports')}</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showLoyaltyReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Controls Section -->
 	<div class="menu-section">
 		<button 
@@ -5838,39 +6033,6 @@ function openApprovalCenter() {
 	<!-- Controls Submenu - Inline below Controls button -->
 	{#if showControlsSubmenu}
 		<div class="submenu-inline controls-submenu">
-			<!-- Dashboard Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showControlsDashboardSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showControlsDashboardSubmenu = true;
-						}
-					}}
-					title={t('nav.dashboard')}
-				>
-					
-					<span class="menu-text">{t('nav.dashboard')}</span>
-				</button>
-			</div>
-
-			<!-- Dashboard Subsection Items -->
-			{#if showControlsDashboardSubmenu}
-				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('CUSTOMER_APP')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCustomerApp}>
-								<span class="menu-icon">👥</span>
-								<span class="menu-text">{t('nav.customerApp') || 'Customer App'}</span>
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
-
 			<!-- Manage Subsection -->
 			<div class="submenu-item-container">
 				<button 

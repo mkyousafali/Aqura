@@ -25,6 +25,7 @@
 	const pageSize = 50;
 	let totalCount = 0;
 	let hasMore = true;
+	let pointsMap: Map<string, number> = new Map();
 
 	// Summary counts
 	let totalCustomers = 0;
@@ -43,10 +44,25 @@
 		{ value: 'suspended',      label: 'Suspended' },
 	];
 
+
+	// ─── Points Loading ──────────────────────────────────────────────────────────
+	async function loadPoints() {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data } = await supabase.rpc('get_all_customer_total_points');
+			const map = new Map<string, number>();
+			(data ?? []).forEach((row: { customer_id: string; total_points: number }) => {
+				map.set(row.customer_id, Number(row.total_points));
+			});
+			pointsMap = map;
+		} catch { /* non-critical */ }
+	}
+
 	// ─── Lifecycle ───────────────────────────────────────────────────────────────
 	onMount(async () => {
 		await resetAndLoad();
 		await loadSummary();
+		await loadPoints();
 	});
 
 	onDestroy(() => {
@@ -217,7 +233,7 @@
 					{/each}
 				</select>
 
-				<button class="cam-btn-refresh" on:click={() => { currentPage = 1; loadCustomers(); loadSummary(); }} title="Refresh">
+				<button class="cam-btn-refresh" on:click={() => { resetAndLoad(); loadSummary(); loadPoints(); }} title="Refresh">
 					🔄
 				</button>
 			</div>
@@ -253,6 +269,7 @@
 								<th>Contact Number</th>
 								<th>Status</th>
 								<th>Approved Date</th>
+							<th>Total Points</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -273,6 +290,7 @@
 											—
 										{/if}
 									</td>
+								<td class="cam-td-points">{(pointsMap.get(customer.id) ?? 0).toFixed(2)}</td>
 								</tr>
 							{/each}
 						</tbody>

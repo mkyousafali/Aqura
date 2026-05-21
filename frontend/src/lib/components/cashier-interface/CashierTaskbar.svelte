@@ -171,6 +171,29 @@
 		});
 	}
 
+	function openLoyaltyRedemption() {
+		closeMenu();
+		const windowId = generateWindowId('loyalty-redemption');
+
+		import('$lib/components/cashier-interface/LoyaltyRedemption.svelte').then(({ default: LoyaltyRedemption }) => {
+			openWindow({
+				id: windowId,
+				title: t('coupon.loyaltyProgramName'),
+				component: LoyaltyRedemption,
+				props: { user, branch },
+				icon: '⭐',
+				size: { width: 900, height: 640 },
+				position: { x: 120, y: 60 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}).catch(error => {
+			console.error('Failed to load LoyaltyRedemption component:', error);
+		});
+	}
+
 	function openReportIncident() {
 		closeMenu();
 		const windowId = generateWindowId('report-incident');
@@ -253,6 +276,10 @@
 					<span class="menu-item-icon">🎟️</span>
 					<span class="menu-item-text">{$_('coupon.couponRedemption') || 'Redemption'}</span>
 					</button>
+					<button class="menu-item" on:click={openLoyaltyRedemption}>
+						<span class="menu-item-icon">⭐</span>
+						<span class="menu-item-text">{$_('coupon.loyaltyProgramName')}</span>
+					</button>
 					<div class="menu-divider"></div>
 
 					<!-- Notifications & Tasks -->
@@ -334,6 +361,15 @@
 				title={$_('coupon.couponRedemption') || 'Redemption'}
 			>
 				<div class="quick-icon">🎟️</div>
+			</button>
+
+			<!-- Loyalty Program -->
+			<button
+				class="quick-btn loyalty-btn"
+				on:click={openLoyaltyRedemption}
+				title={$_('coupon.loyaltyProgramName')}
+			>
+				<div class="quick-icon">⭐</div>
 			</button>
 
 			<!-- My Tasks -->

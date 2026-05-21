@@ -12,7 +12,7 @@ const WHATSAPP_PHONE_ID = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || "";
 const GRAPH_API_VERSION = "v22.0";
 
 interface SendWhatsAppRequest {
-  action: "send_access_code";
+  action: "send_access_code" | "send_loyalty_otp";
   phone_number: string; // E.164 format e.g. +966567334726
   access_code: string;
   customer_name?: string;
@@ -42,9 +42,9 @@ serve(async (req: Request) => {
     const body: SendWhatsAppRequest = await req.json();
     const { action, phone_number, access_code, customer_name } = body;
 
-    if (action !== "send_access_code") {
+    if (action !== "send_access_code" && action !== "send_loyalty_otp") {
       return new Response(
-        JSON.stringify({ error: "Invalid action. Supported: send_access_code" }),
+        JSON.stringify({ error: "Invalid action. Supported: send_access_code, send_loyalty_otp" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -109,6 +109,73 @@ serve(async (req: Request) => {
         ],
       },
     });
+
+    // Loyalty OTP — uses Authentication template "loyalty_redemption_otp" (Copy code, Arabic)
+    if (action === "send_loyalty_otp") {
+      const loyaltyPayload = {
+        messaging_product: "whatsapp",
+        to: formattedPhone,
+        type: "template",
+        template: {
+          name: "loyalty_redemption_otp",
+          language: { code: "ar" },
+          components: [
+            {
+              type: "body",
+              parameters: [{ type: "text", text: access_code }],
+            },
+            {
+              type: "button",
+              sub_type: "url",
+              index: "0",
+              parameters: [{ type: "text", text: access_code }],
+            },
+          ],
+        },
+      };
+
+      console.log(`Sending loyalty OTP to ${formattedPhone}`);
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      const waResponse = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/${WHATSAPP_PHONE_ID}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(loyaltyPayload),
+        }
+      );
+
+      const waResult = await waResponse.json();
+      const loyaltyMessageId = waResult.messages?.[0]?.id || null;
+
+      if (!waResponse.ok) {
+        console.error("WhatsApp loyalty OTP error:", JSON.stringify(waResult));
+      } else {
+        console.log("Loyalty OTP sent:", JSON.stringify(waResult));
+        try {
+          await supabase.from("whatsapp_message_log").insert({
+            phone_number: cleanPhone,
+            message_type: "loyalty_otp",
+            template_name: "loyalty_redemption_otp",
+            template_language: "ar",
+            whatsapp_message_id: loyaltyMessageId,
+            status: "sent",
+            customer_name: customer_name || null,
+          });
+        } catch (logError) {
+          console.error("Failed to log loyalty OTP message:", logError);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, message_id: loyaltyMessageId, phone: cleanPhone }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Send in BOTH English and Arabic (bilingual)
     const languages = ["en", "ar"];
