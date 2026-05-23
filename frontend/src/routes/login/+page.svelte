@@ -4,6 +4,7 @@
 	import { switchLocale, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import AnnouncementBar from '$lib/components/common/AnnouncementBar.svelte';
 
 	let mounted = false;
 	let showContent = false;
@@ -26,6 +27,8 @@
 			maskClicks = 0;
 		}
 	}
+
+	let showBenefits = false;
 
 	$: isRTL = $currentLocale === 'ar';
 
@@ -167,7 +170,7 @@
 			{$currentLocale === 'ar' ? 'English' : 'العربية'}
 		</button>
 	</div>
-
+	<AnnouncementBar />
 	</header><!-- .sticky-header -->
 
 	<!-- Inner wrapper handles RTL text direction -->
@@ -218,6 +221,19 @@
 						</a>
 					</div>
 				</div>
+				<div class="benefits-row">
+					<button class="benefits-toggle-btn" on:click={() => showBenefits = !showBenefits}>
+						<span>{isRTL ? (showBenefits ? 'إخفاء المزايا ▲' : 'عرض المزايا ▼') : (showBenefits ? 'Hide Benefits ▲' : 'See Benefits ▼')}</span>
+					</button>
+					<a class="benefits-toggle-btn offers-inline-btn" href="/offers?referrer=login">
+						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+							<line x1="7" y1="7" x2="7.01" y2="7"/>
+						</svg>
+						{isRTL ? 'العروض' : 'Offers'}
+					</a>
+				</div>
+				{#if showBenefits}
 				<ul class="member-benefits">
 					<li>
 						<span class="benefit-icon">💰</span>
@@ -252,6 +268,7 @@
 						<span>{isRTL ? 'المشاركة في حملات الأعضاء فقط' : 'Participate in member-only campaigns'}</span>
 					</li>
 				</ul>
+				{/if}
 			</div>
 			
 			<div class="member-login-graphics">
@@ -313,13 +330,7 @@
 						</svg>
 						{isRTL ? 'تابعنا' : 'Follow Us'}
 					</a>
-					<a class="btn-outline" href="/offers?referrer=login">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-							<line x1="7" y1="7" x2="7.01" y2="7"/>
-						</svg>
-						{isRTL ? 'العروض' : 'Offers'}
-					</a>
+
 					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 					<button class="btn-locate" on:click={scrollToLocations}>
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -901,6 +912,44 @@
 		margin: 0 0 24px;
 		line-height: 1.6;
 		max-width: 500px;
+	}
+	.benefits-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+		margin-bottom: 4px;
+	}
+	.benefits-toggle-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: transparent;
+		border: 1.5px solid #13A538;
+		color: #13A538;
+		font-size: 0.85rem;
+		font-weight: 600;
+		padding: 7px 20px;
+		border-radius: 20px;
+		cursor: pointer;
+		margin-bottom: 16px;
+		transition: background 0.18s, color 0.18s;
+	}
+	.benefits-toggle-btn:hover {
+		background: #13A538;
+		color: #fff;
+	}
+	.offers-inline-btn {
+		border-color: #f08300;
+		color: #f08300;
+		text-decoration: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+	.offers-inline-btn:hover {
+		background: #f08300 !important;
+		color: #fff !important;
 	}
 	.member-benefits {
 		list-style: none;
