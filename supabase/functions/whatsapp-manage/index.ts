@@ -921,11 +921,9 @@ async function sendBroadcast(
     console.warn(`[Broadcast] Failed to fetch broadcast info: ${err?.message}`);
   }
 
-  // ─── SAFETY: 60s wall-clock limit ───
-  // The Deno edge-runtime kills workers at ~150s.
-  // We stop at 60s to guarantee safe auto-continue self-invocation.
-  const MAX_EXECUTION_MS = 55_000; // 55s window — safe before 150s kill, 22% more msgs per invocation
-  const functionStartTime = Date.now();
+  // ─── SAFETY: wall-clock limit (starts AFTER upload, so upload time doesn't eat into send budget) ───
+  const MAX_EXECUTION_MS = 55_000; // 55s send window
+  let functionStartTime = Date.now(); // Will be reset after the upload phase
 
   // If recipients not passed (large broadcast), atomically claim them from DB.
   // Uses UPDATE ... RETURNING to mark as 'claimed' in a single atomic operation,
@@ -975,10 +973,24 @@ async function sendBroadcast(
   // Instead of passing a URL link for each message (which forces Meta to download
   // the file thousands of times from our server, causing "Media upload error"),
   // we upload the media ONCE to WhatsApp's servers and use the returned media_id.
-  // ─── Pre-upload media to WhatsApp (with caching across invocations) ───
-  // Upload once on first invocation, then pass cached_media_id to auto-continues.
+  // The media_id is cached in wa_broadcasts.cached_media_id so retries skip re-upload.
   let processedComponents = components;
   let resolvedMediaId = cached_media_id || null;
+
+  // Check DB for cached media_id (covers Resume Pending which doesn't pass cached_media_id)
+  if (!resolvedMediaId && broadcast_id) {
+    try {
+      const { data: bcRow } = await supabase
+        .from('wa_broadcasts')
+        .select('cached_media_id')
+        .eq('id', broadcast_id)
+        .single();
+      if (bcRow?.cached_media_id) {
+        resolvedMediaId = bcRow.cached_media_id;
+        console.log(`[Broadcast] Loaded cached media_id from DB: ${resolvedMediaId}`);
+      }
+    } catch (_) {}
+  }
 
   if (components && Array.isArray(components)) {
     processedComponents = JSON.parse(JSON.stringify(components)); // deep clone
@@ -988,7 +1000,7 @@ async function sendBroadcast(
           const mediaType = param.type; // 'image', 'video', 'document'
           const mediaObj = param[mediaType];
           if (mediaObj && mediaObj.link && !mediaObj.id) {
-            // If we already have a cached media_id from a previous invocation, reuse it
+            // If we already have a cached media_id from DB or previous invocation, reuse it
             if (resolvedMediaId) {
               console.log(`[Broadcast] Using cached media_id=${resolvedMediaId} (skipping re-upload)`);
               delete mediaObj.link;
@@ -997,8 +1009,8 @@ async function sendBroadcast(
               try {
                 console.log(`[Broadcast] Pre-uploading ${mediaType} to WhatsApp: ${mediaObj.link}`);
                 
-                // Download the file from our storage
-                const fileResp = await fetch(mediaObj.link);
+                // Download the file from our storage (15s timeout)
+                const fileResp = await fetch(mediaObj.link, { signal: AbortSignal.timeout(15000) });
                 if (!fileResp.ok) throw new Error(`Download failed: ${fileResp.status}`);
                 const fileBlob = await fileResp.blob();
                 // Strip any params (e.g. "image/png; charset=binary" → "image/png")
@@ -1007,7 +1019,7 @@ async function sendBroadcast(
 
                 console.log(`[Broadcast] Uploading: mimeType=${mimeType}, blobSize=${fileBlob.size}`);
 
-                // Upload to WhatsApp via Media API — same pattern as uploadMedia() which works
+                // Upload to WhatsApp via Media API — 45s timeout prevents infinite hang
                 const formData = new FormData();
                 formData.append('messaging_product', 'whatsapp');
                 formData.append('type', mimeType);
@@ -1019,17 +1031,25 @@ async function sendBroadcast(
                     method: 'POST',
                     headers: { Authorization: `Bearer ${accessToken}` },
                     body: formData,
+                    signal: AbortSignal.timeout(90000), // 90s — handles slow China→US connection
                   }
                 );
                 const uploadData = await uploadResp.json();
                 if (!uploadResp.ok) {
                   console.error(`[Broadcast] Upload API full error:`, JSON.stringify(uploadData));
-                  console.error(`[Broadcast] Upload URL: https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`);
                   throw new Error(uploadData.error?.message || `Upload failed: ${uploadResp.status}`);
                 }
                 
                 resolvedMediaId = uploadData.id;
                 console.log(`[Broadcast] Media uploaded to WhatsApp, id=${resolvedMediaId}`);
+
+                // Save to DB so future invocations (auto-continue, Resume Pending, retry) skip re-upload
+                try {
+                  await supabase.from('wa_broadcasts')
+                    .update({ cached_media_id: resolvedMediaId })
+                    .eq('id', broadcast_id);
+                  console.log(`[Broadcast] Cached media_id saved to DB`);
+                } catch (_) {}
                 
                 // Replace link with id — WhatsApp serves the file from their CDN now
                 delete mediaObj.link;
@@ -1045,6 +1065,9 @@ async function sendBroadcast(
     }
     console.log(`[Broadcast] Processed components:`, JSON.stringify(processedComponents));
   }
+
+  // Reset the send-loop timer NOW — after upload phase — so upload time doesn't eat into send budget
+  functionStartTime = Date.now();
 
   // ─── Filter out unsubscribed customers (is_deleted = true) ───
   const allPhones = recipients.map((r: any) => (r.phone || "").replace(/^\+/, "").replace(/\D/g, "")).filter(Boolean);
@@ -1591,7 +1614,7 @@ async function sendEcoRetry(
               mediaObj.id = resolvedMediaId;
             } else {
               try {
-                const fileResp = await fetch(mediaObj.link);
+                const fileResp = await fetch(mediaObj.link, { signal: AbortSignal.timeout(15000) });
                 if (!fileResp.ok) throw new Error(`Download failed: ${fileResp.status}`);
                 const fileBlob = await fileResp.blob();
                 const contentType = fileResp.headers.get('content-type') || 'application/octet-stream';
@@ -1601,7 +1624,7 @@ async function sendEcoRetry(
                 formData.append('file', fileBlob, mediaObj.filename || 'file');
                 const uploadResp = await fetch(
                   `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
-                  { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: formData }
+                  { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: formData, signal: AbortSignal.timeout(45000) }
                 );
                 const uploadData = await uploadResp.json();
                 if (!uploadResp.ok) throw new Error(uploadData.error?.message || `Upload failed`);
