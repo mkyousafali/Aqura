@@ -308,14 +308,23 @@
                 .eq('status', 'claimed')
                 .not('whatsapp_message_id', 'is', null);
 
-            // Reset truly orphaned claims back to pending so the sender picks them up
-            const { count } = await supabase.from('wa_broadcast_recipients')
-                .update({ status: 'pending', error_details: null }, { count: 'exact' })
+            // Count truly orphaned claimed rows (no message id = never actually sent)
+            const { count: orphanedCount } = await supabase.from('wa_broadcast_recipients')
+                .select('id', { count: 'exact', head: true })
                 .eq('broadcast_id', broadcastId)
                 .eq('status', 'claimed')
-                .is('whatsapp_message_id', null)
-                .select('id', { count: 'exact', head: true });
-            return count || 0;
+                .is('whatsapp_message_id', null);
+
+            if (orphanedCount && orphanedCount > 0) {
+                // Reset orphaned claimed → pending so edge function can pick them up
+                await supabase.from('wa_broadcast_recipients')
+                    .update({ status: 'pending', error_details: null })
+                    .eq('broadcast_id', broadcastId)
+                    .eq('status', 'claimed')
+                    .is('whatsapp_message_id', null);
+            }
+
+            return orphanedCount || 0;
         } catch (e: any) {
             console.warn('[reclaimStaleClaimed] failed:', e?.message);
             return 0;
