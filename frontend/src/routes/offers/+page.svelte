@@ -140,17 +140,45 @@
 			state.downloadingOfferId = offerId;
 			state.downloadProgress = 0;
 
-			// Detect WhatsApp browser and handle differently — force download
+			// Detect WhatsApp browser and handle differently — fetch as blob then force download
 			if (isWhatsAppBrowser()) {
-				const a = document.createElement('a');
-				a.href = fileUrl;
-				a.download = `offer_${offerId}.pdf`;
-				a.style.display = 'none';
-				document.body.appendChild(a);
-				a.click();
-				document.body.removeChild(a);
-				state.downloadingOfferId = null;
-				state.downloadProgress = 0;
+				fetch(fileUrl)
+					.then(response => {
+						const contentLength = response.headers.get('content-length');
+						const total = parseInt(contentLength || '0', 10);
+						if (!response.body) throw new Error('No response body');
+						const reader = response.body.getReader();
+						const chunks: Uint8Array[] = [];
+						let loaded = 0;
+						return reader.read().then(function processChunk(result): Promise<Blob> {
+							if (result.done) {
+								return Promise.resolve(new Blob(chunks, { type: 'application/pdf' }));
+							}
+							chunks.push(result.value);
+							loaded += result.value.length;
+							if (total > 0) state.downloadProgress = Math.round((loaded / total) * 100);
+							return reader.read().then(processChunk);
+						});
+					})
+					.then(blob => {
+						const blobUrl = URL.createObjectURL(blob);
+						const a = document.createElement('a');
+						a.href = blobUrl;
+						a.download = `offer_${offerId}.pdf`;
+						a.style.display = 'none';
+						document.body.appendChild(a);
+						a.click();
+						document.body.removeChild(a);
+						setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+					})
+					.catch(() => {
+						// Fallback: navigate directly (lets device handle open/download)
+						window.location.href = fileUrl;
+					})
+					.finally(() => {
+						state.downloadingOfferId = null;
+						state.downloadProgress = 0;
+					});
 				return;
 			}
 			
