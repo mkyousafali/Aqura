@@ -9,6 +9,7 @@
 		registration_status: string;
 		created_at: string;
 		updated_at: string;
+		final_loyalty_point_balance: number;
 	}
 
 	// ─── State ───────────────────────────────────────────────────────────────────
@@ -164,6 +165,45 @@
 		clearTimeout(searchDebounce);
 		searchDebounce = setTimeout(resetAndLoad, 350);
 	}
+
+	// ─── Sync Points ─────────────────────────────────────────────────────────────
+	let syncingPoints = false;
+	let showSyncSummary = false;
+	interface SyncResult {
+		success: boolean;
+		status: 'success' | 'partial_success' | 'failed';
+		total_scanned: number;
+		total_matched: number;
+		total_updated: number;
+		total_skipped: number;
+		total_points_synced: number;
+		error_count: number;
+		errors: { customer_id: string; mobile: string; error: string }[];
+	}
+	let syncResult: SyncResult | null = null;
+	let syncError = '';
+
+	async function syncPoints() {
+		if (syncingPoints) return;
+		syncingPoints = true;
+		syncError = '';
+		syncResult = null;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error: rpcError } = await supabase.rpc('sync_privilege_cards_opening_balance');
+			if (rpcError) throw rpcError;
+			syncResult = data as SyncResult;
+			showSyncSummary = true;
+			// Refresh customer data after sync
+			await resetAndLoad();
+			await loadPoints();
+		} catch (e: any) {
+			syncError = e?.message || 'Sync failed';
+			showSyncSummary = true;
+		} finally {
+			syncingPoints = false;
+		}
+	}
 </script>
 
 <!-- ─── Root ─────────────────────────────────────────────────────────────────── -->
@@ -236,6 +276,21 @@
 				<button class="cam-btn-refresh" on:click={() => { resetAndLoad(); loadSummary(); loadPoints(); }} title="Refresh">
 					🔄
 				</button>
+
+				<button
+					class="cam-btn-sync"
+					class:cam-btn-sync--loading={syncingPoints}
+					on:click={syncPoints}
+					disabled={syncingPoints}
+					title="Sync opening points from privilege cards"
+				>
+					{#if syncingPoints}
+						<span class="cam-sync-spinner"></span>
+						Syncing…
+					{:else}
+						⚡ Sync Points
+					{/if}
+				</button>
 			</div>
 
 			<!-- Table area -->
@@ -290,7 +345,7 @@
 											—
 										{/if}
 									</td>
-								<td class="cam-td-points">{(pointsMap.get(customer.id) ?? 0).toFixed(2)}</td>
+													<td class="cam-td-points">{Number(customer.final_loyalty_point_balance ?? 0).toFixed(2)}</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -322,6 +377,82 @@
 		</div>
 	{/if}
 
+	<!-- ── Sync Points Summary Modal ─────────────────────────────────────────── -->
+	{#if showSyncSummary}
+		<div class="cam-modal-overlay" on:click|self={() => showSyncSummary = false}>
+			<div class="cam-modal">
+				{#if syncError}
+					<!-- Error state -->
+					<div class="cam-modal__header cam-modal__header--error">
+						<span class="cam-modal__icon">❌</span>
+						<h2>Sync Failed</h2>
+					</div>
+					<div class="cam-modal__body">
+						<div class="cam-modal__error-msg">{syncError}</div>
+					</div>
+				{:else if syncResult}
+					<!-- Result state -->
+					<div class="cam-modal__header" class:cam-modal__header--success={syncResult.status === 'success'} class:cam-modal__header--partial={syncResult.status === 'partial_success'} class:cam-modal__header--error={syncResult.status === 'failed'}>
+						<span class="cam-modal__icon">
+							{#if syncResult.status === 'success'}✅{:else if syncResult.status === 'partial_success'}⚠️{:else}❌{/if}
+						</span>
+						<h2>
+							{#if syncResult.status === 'success'}Sync Complete{:else if syncResult.status === 'partial_success'}Partial Success{:else}Sync Failed{/if}
+						</h2>
+					</div>
+					<div class="cam-modal__body">
+						<div class="cam-modal__stats">
+							<div class="cam-stat">
+								<span class="cam-stat__value">{syncResult.total_scanned}</span>
+								<span class="cam-stat__label">Cards Scanned</span>
+							</div>
+							<div class="cam-stat">
+								<span class="cam-stat__value cam-stat__value--matched">{syncResult.total_matched}</span>
+								<span class="cam-stat__label">Customers Matched</span>
+							</div>
+							<div class="cam-stat">
+								<span class="cam-stat__value cam-stat__value--updated">{syncResult.total_updated}</span>
+								<span class="cam-stat__label">Customers Updated</span>
+							</div>
+							<div class="cam-stat">
+								<span class="cam-stat__value cam-stat__value--skipped">{syncResult.total_skipped}</span>
+								<span class="cam-stat__label">Skipped (No Match)</span>
+							</div>
+							<div class="cam-stat cam-stat--full">
+								<span class="cam-stat__value cam-stat__value--points">{syncResult.total_points_synced.toFixed(2)}</span>
+								<span class="cam-stat__label">Total Opening Points Synced</span>
+							</div>
+							{#if syncResult.error_count > 0}
+								<div class="cam-stat cam-stat--full">
+									<span class="cam-stat__value cam-stat__value--error">{syncResult.error_count}</span>
+									<span class="cam-stat__label">Errors</span>
+								</div>
+							{/if}
+						</div>
+
+						{#if syncResult.errors && syncResult.errors.length > 0}
+							<div class="cam-modal__errors">
+								<h4>Error Details</h4>
+								{#each syncResult.errors as err}
+									<div class="cam-modal__error-row">
+										<span class="cam-err-mobile">{err.mobile}</span>
+										<span class="cam-err-msg">{err.error}</span>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="cam-modal__footer">
+					<button class="cam-btn-close-modal" on:click={() => showSyncSummary = false}>
+						Close
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 </div>
 
 <style>
@@ -330,6 +461,7 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
+		position: relative;
 		background: linear-gradient(135deg, #f0f4ff 0%, #fafbff 100%);
 		font-family: 'Plus Jakarta Sans', 'Tajawal', sans-serif;
 		color: #1e293b;
@@ -499,6 +631,195 @@
 		border-color: #6366f1;
 		background: #f5f3ff;
 	}
+
+	/* ── Sync Points Button ─────────────────────────────────────────────────────── */
+	.cam-btn-sync {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 9px 16px;
+		border: 1.5px solid #10b981;
+		border-radius: 10px;
+		background: #ecfdf5;
+		color: #065f46;
+		font-size: 0.88rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.cam-btn-sync:hover:not(:disabled) {
+		background: #10b981;
+		color: white;
+		border-color: #10b981;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+	}
+
+	.cam-btn-sync:disabled,
+	.cam-btn-sync--loading {
+		opacity: 0.75;
+		cursor: not-allowed;
+	}
+
+	.cam-sync-spinner {
+		display: inline-block;
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(6, 95, 70, 0.3);
+		border-top-color: #065f46;
+		border-radius: 50%;
+		animation: cam-spin 0.7s linear infinite;
+	}
+
+	/* ── Sync Modal ─────────────────────────────────────────────────────────────── */
+	.cam-modal-overlay {
+		position: absolute;
+		inset: 0;
+		background: rgba(15, 23, 42, 0.55);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+	}
+
+	.cam-modal {
+		background: white;
+		border-radius: 20px;
+		width: 520px;
+		max-width: 92%;
+		box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+		overflow: hidden;
+		animation: cam-modal-in 0.25s ease;
+	}
+
+	@keyframes cam-modal-in {
+		from { transform: scale(0.92); opacity: 0; }
+		to   { transform: scale(1);    opacity: 1; }
+	}
+
+	.cam-modal__header {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 20px 24px;
+		color: white;
+	}
+
+	.cam-modal__header--success  { background: linear-gradient(135deg, #10b981, #059669); }
+	.cam-modal__header--partial  { background: linear-gradient(135deg, #f59e0b, #d97706); }
+	.cam-modal__header--error    { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+	.cam-modal__icon { font-size: 1.6rem; }
+
+	.cam-modal__header h2 {
+		margin: 0;
+		font-size: 1.2rem;
+		font-weight: 800;
+	}
+
+	.cam-modal__body {
+		padding: 24px;
+	}
+
+	.cam-modal__stats {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 12px;
+		margin-bottom: 16px;
+	}
+
+	.cam-stat {
+		background: #f8fafc;
+		border-radius: 12px;
+		padding: 14px;
+		text-align: center;
+		border: 1px solid #e2e8f0;
+	}
+
+	.cam-stat--full { grid-column: 1 / -1; }
+
+	.cam-stat__value {
+		display: block;
+		font-size: 1.8rem;
+		font-weight: 800;
+		color: #4f46e5;
+		line-height: 1;
+		margin-bottom: 4px;
+	}
+
+	.cam-stat__value--matched  { color: #4f46e5; }
+	.cam-stat__value--updated  { color: #10b981; }
+	.cam-stat__value--skipped  { color: #f59e0b; }
+	.cam-stat__value--points   { color: #0ea5e9; }
+	.cam-stat__value--error    { color: #ef4444; }
+
+	.cam-stat__label {
+		font-size: 0.72rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #64748b;
+	}
+
+	.cam-modal__errors {
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		border-radius: 10px;
+		padding: 12px;
+		max-height: 140px;
+		overflow-y: auto;
+	}
+
+	.cam-modal__errors h4 {
+		margin: 0 0 8px;
+		font-size: 0.82rem;
+		color: #dc2626;
+	}
+
+	.cam-modal__error-row {
+		display: flex;
+		gap: 10px;
+		font-size: 0.8rem;
+		padding: 4px 0;
+		border-bottom: 1px solid rgba(220, 38, 38, 0.1);
+	}
+
+	.cam-modal__error-row:last-child { border-bottom: none; }
+
+	.cam-err-mobile { font-weight: 700; color: #dc2626; min-width: 120px; }
+	.cam-err-msg    { color: #7f1d1d; }
+
+	.cam-modal__error-msg {
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		border-radius: 10px;
+		padding: 14px;
+		color: #dc2626;
+		font-size: 0.9rem;
+	}
+
+	.cam-modal__footer {
+		padding: 16px 24px;
+		border-top: 1px solid #f1f5f9;
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	.cam-btn-close-modal {
+		padding: 10px 28px;
+		background: #4f46e5;
+		color: white;
+		border: none;
+		border-radius: 10px;
+		font-size: 0.9rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.2s ease;
+	}
+
+	.cam-btn-close-modal:hover { background: #4338ca; }
 
 	/* ── Table ─────────────────────────────────────────────────────────────────── */
 	.cam-table-wrap {

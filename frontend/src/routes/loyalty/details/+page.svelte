@@ -6,73 +6,135 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let cardNumber = $page.url.searchParams.get('cardNumber') || '';
-	let cardDataArray: any[] = [];
 	let locale = 'en';
 
+	interface CustomerData {
+		card_number: string;
+		final_loyalty_point_balance: number;
+		loyalty_total_purchases: number;
+		updated_at: string;
+		name: string;
+		tier_name: string;
+		tier_name_ar: string;
+		tier_color: string;
+		min_redeem_points: number;
+		tier_purchase_from: number;
+		tier_purchase_to: number | null;
+		next_tier_name: string;
+		next_tier_name_ar: string;
+		next_tier_color: string;
+		next_tier_purchase_from: number | null;
+	}
+	let customerData: CustomerData | null = null;
+	let loadError = '';
+	let loading = true;
+
 	async function loadCardData() {
+		loading = true;
+		loadError = '';
+		customerData = null;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			
-			// Fetch all branches for this card
-			const { data: branchDataArray, error: cardError } = await supabase
+
+			// Get mobile from privilege_cards_branch using card_number
+			const { data: cardRow, error: cardError } = await supabase
 				.from('privilege_cards_branch')
-				.select('*')
-				.eq('card_number', cardNumber);
+				.select('mobile, card_number')
+				.eq('card_number', cardNumber)
+				.not('mobile', 'is', null)
+				.limit(1)
+				.maybeSingle();
 
-			if (cardError) {
-				console.error('Error loading card data:', cardError);
+			if (cardError) throw cardError;
+			if (!cardRow || !cardRow.mobile) {
+				loadError = 'Card not found';
 				return;
 			}
 
-			if (!branchDataArray || branchDataArray.length === 0) {
-				console.error('No card data found');
-				return;
-			}
+			// Look up customer by mobile
+			const { data: customer, error: custError } = await supabase
+				.from('customers')
+				.select('name, final_loyalty_point_balance, loyalty_total_purchases, updated_at, loyalty_tier_id, loyalty_tier_name, loyalty_tier_name_ar')
+				.eq('whatsapp_number', cardRow.mobile)
+				.eq('is_deleted', false)
+				.maybeSingle();
 
-			// Process each branch to get branch names
-			const processedData = await Promise.all(branchDataArray.map(async (cardDataResult) => {
-				if (cardDataResult && cardDataResult.branch_id) {
-					// The privilege_cards_branch.branch_id is actually the erp_branch_id
-					// So we need to find the erp_connections record with this erp_branch_id
-					const { data: erpData, error: erpError } = await supabase
-						.from('erp_connections')
-						.select('branch_id')
-						.eq('erp_branch_id', cardDataResult.branch_id)
-						.maybeSingle();
+			if (custError) throw custError;
 
-					if (erpData && erpData.branch_id) {
-						// Always fetch from branches table to get the language-specific name
-						const { data: branchData, error: branchError } = await supabase
-							.from('branches')
-							.select('name_en, name_ar, location_en, location_ar')
-							.eq('id', erpData.branch_id)
-							.maybeSingle();
-
-						if (branchData) {
-							// Select the name and location based on current locale
-							let branchName = locale === 'ar' ? branchData.name_ar : branchData.name_en;
-							const branchLocation = locale === 'ar' ? branchData.location_ar : branchData.location_en;
-							if (branchName) {
-								// Sanitize the branch name to remove offensive content
-								branchName = sanitizeText(branchName);
-								cardDataResult.branch_name = branchLocation
-									? `${branchName} - ${branchLocation}`
-									: branchName;
-							}
-						}
-					}
+			// Fetch current tier details
+			let tierColor = '#94a3b8';
+			let minRedeemPoints = 5;
+			let tierPurchaseFrom = 0;
+			let tierPurchaseTo: number | null = null;
+			let tierSortOrder = 1;
+			if (customer?.loyalty_tier_id) {
+				const { data: tier } = await supabase
+					.from('loyalty_tiers')
+					.select('color, min_redeem_points, total_purchase_from, total_purchase_to, sort_order')
+					.eq('id', customer.loyalty_tier_id)
+					.maybeSingle();
+				if (tier) {
+					tierColor = tier.color ?? tierColor;
+					minRedeemPoints = tier.min_redeem_points ?? minRedeemPoints;
+					tierPurchaseFrom = Number(tier.total_purchase_from ?? 0);
+					tierPurchaseTo = tier.total_purchase_to ? Number(tier.total_purchase_to) : null;
+					tierSortOrder = tier.sort_order ?? 1;
 				}
-				return cardDataResult;
-			}));
+			}
 
-			console.log('📦 Final card data:', processedData);
-			cardDataArray = processedData;
-		} catch (error) {
-			console.error('Error:', error);
+			// Fetch next tier
+			let nextTierName = '';
+			let nextTierNameAr = '';
+			let nextTierColor = '#e2e8f0';
+			let nextTierPurchaseFrom: number | null = null;
+			const { data: nextTier } = await supabase
+				.from('loyalty_tiers')
+				.select('name, name_ar, color, total_purchase_from')
+				.eq('is_active', true)
+				.eq('sort_order', tierSortOrder + 1)
+				.maybeSingle();
+			if (nextTier) {
+				nextTierName = nextTier.name ?? '';
+				nextTierNameAr = nextTier.name_ar ?? '';
+				nextTierColor = nextTier.color ?? nextTierColor;
+				nextTierPurchaseFrom = nextTier.total_purchase_from ? Number(nextTier.total_purchase_from) : null;
+			}
+
+			customerData = {
+				card_number: cardRow.card_number,
+				final_loyalty_point_balance: customer?.final_loyalty_point_balance ?? 0,
+				loyalty_total_purchases: Number(customer?.loyalty_total_purchases ?? 0),
+				updated_at: customer?.updated_at ?? '',
+				name: customer?.name ?? '',
+				tier_name: customer?.loyalty_tier_name ?? '',
+				tier_name_ar: customer?.loyalty_tier_name_ar ?? '',
+				tier_color: tierColor,
+				min_redeem_points: minRedeemPoints,
+				tier_purchase_from: tierPurchaseFrom,
+				tier_purchase_to: tierPurchaseTo,
+				next_tier_name: nextTierName,
+				next_tier_name_ar: nextTierNameAr,
+				next_tier_color: nextTierColor,
+				next_tier_purchase_from: nextTierPurchaseFrom,
+			};
+		} catch (error: any) {
+			loadError = error?.message || 'Failed to load card data';
+		} finally {
+			loading = false;
 		}
 	}
 
-	$: if (cardNumber && locale) {
+	function getTierGradient(color: string): string {
+		// Create a rich gradient from the tier color
+		return `linear-gradient(135deg, ${color}ee 0%, ${color}99 50%, ${color}cc 100%)`;
+	}
+
+	function lightenColor(hex: string): string {
+		// Return a slightly transparent version for shine effect
+		return hex + '33';
+	}
+
+	$: if (cardNumber) {
 		loadCardData();
 	}
 
@@ -158,76 +220,120 @@
 		</button>
 	</div>
 
-	{#if cardDataArray && cardDataArray.length > 0}
+	{#if loading}
+		<div class="loading">
+			<p>{$_('common.loading') || 'Loading...'}</p>
+		</div>
+	{:else if loadError}
+		<div class="loading">
+			<p>⚠️ {loadError}</p>
+		</div>
+	{:else if customerData}
 		<div class="card-container">
-			<!-- Card Header (Shared) -->
-			<div class="loyalty-card">
-				<div class="card-header">
-					<div class="card-title"></div>
-					<div class="card-icons">
-						<div class="app-logo">
-							<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" />
+
+			<!-- ── Physical Membership Card ─────────────────────────────── -->
+			<div
+				class="membership-card"
+				style="background: {getTierGradient(customerData.tier_color)};"
+			>
+				<!-- Shine overlay -->
+				<div class="mc-shine"></div>
+				<!-- Decorative circles -->
+				<div class="mc-circle mc-circle--1" style="background: {lightenColor(customerData.tier_color)};"></div>
+				<div class="mc-circle mc-circle--2" style="background: {lightenColor(customerData.tier_color)};"></div>
+
+				<div class="mc-top">
+					<div class="mc-logo">
+						<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura" />
+					</div>
+					{#if customerData.tier_name}
+						<div class="mc-tier-badge">
+							{locale === 'ar' && customerData.tier_name_ar ? customerData.tier_name_ar : customerData.tier_name}
 						</div>
+					{/if}
+				</div>
+
+				<div class="mc-middle">
+					<div class="mc-chip">
+						<div class="mc-chip-lines">
+							<div></div><div></div><div></div>
+						</div>
+					</div>
+					<div class="mc-points">
+						<span class="mc-points-label">{$_('customer.login.availableBalance') || 'Points Balance'}</span>
+						<span class="mc-points-value">{convertToLocaleNumbers(Number(customerData.final_loyalty_point_balance) % 1 === 0 ? Number(customerData.final_loyalty_point_balance).toFixed(0) : Number(customerData.final_loyalty_point_balance).toFixed(2))}</span>
+						<span class="mc-points-unit">{$_('customer.login.points') || 'pts'}</span>
 					</div>
 				</div>
 
-				<div class="card-body">
-					<!-- Card Number (Show Once) -->
-					<div class="card-number-section">
-						<span class="label">{$_('customer.login.cardNumber') || 'Card Number'}</span>
-						<span class="card-number font-mono">{convertToLocaleNumbers(maskCardNumber(cardDataArray[0].card_number))}</span>
+				<div class="mc-bottom">
+					<div class="mc-bottom-left">
+						<div class="mc-card-number">{convertToLocaleNumbers(maskCardNumber(customerData.card_number))}</div>
+						{#if customerData.name}
+							<div class="mc-holder">{customerData.name}</div>
+						{/if}
+					</div>
+					<div class="mc-bottom-right">
+						<span class="mc-updated-label">{$_('customer.login.lastSyncAt') || 'Last Updated'}</span>
+						<span class="mc-updated-value">{customerData.updated_at ? formatDateWithTime(customerData.updated_at) : 'N/A'}</span>
 					</div>
 				</div>
 			</div>
 
-			<!-- Branch Details (One Card per Branch) -->
-			{#each cardDataArray as cardData (cardData.id)}
-				<div class="loyalty-card">
-					<div class="card-header">
-						<div class="card-title">
-							<h2>{$_('customer.login.branchDetails') || 'Branch Details'}</h2>
-							{#if cardData.branch_name}
-							<p class="branch-title" title={cardData.branch_name}>{cardData.branch_name}</p>
-							{/if}
-						</div>
+			<!-- ── Redemption Pipeline ───────────────────────────────────── -->
+			{#if customerData}
+				{@const pts = Number(customerData.final_loyalty_point_balance)}
+				{@const minRedeem = customerData.min_redeem_points}
+				{@const canRedeem = pts >= minRedeem}
+				{@const redeemPct = Math.min(100, (pts / minRedeem) * 100)}
+				{@const purchases = customerData.loyalty_total_purchases}
+				{@const tierFrom = customerData.tier_purchase_from}
+				{@const tierTo = customerData.tier_purchase_to}
+				{@const tierPct = tierTo ? Math.min(100, ((purchases - tierFrom) / (tierTo - tierFrom)) * 100) : 100}
+
+				<!-- Card 1: Points Redemption -->
+				<div class="rd-card rd-card--redemption">
+					<div class="rd-card-header">
+						<span class="rd-card-title">{$_('customer.login.availableBalance') || 'Points Balance'}</span>
+						<span class="rd-badge" class:rd-badge--green={canRedeem} class:rd-badge--red={!canRedeem}>
+							{canRedeem ? ($_('customer.login.rdCanRedeem') || 'Ready') : ($_('customer.login.rdNeed') || 'Need') + ` ${(minRedeem - pts).toFixed(2)} ${$_('customer.login.rdMorePts') || 'more pts'}`}
+						</span>
 					</div>
-
-					<div class="card-body">
-						<!-- Main Balance Focus -->
-						<div class="balance-section">
-							<div class="balance-content">
-								<span class="balance-label">{$_('customer.login.availableBalance') || 'Available Balance'}</span>
-								<span class="balance-amount">{convertToLocaleNumbers(String(cardData.card_balance || 0))}</span>
-								<span class="points-label">{$_('customer.login.points') || 'Points'}</span>
-							</div>
-						</div>
-
-						<!-- Mini Stat Cards Grid -->
-						<div class="stats-grid">
-							<div class="stat-card">
-								<span class="stat-label">{$_('customer.login.totalRedemptions') || 'Total Redemptions'}</span>
-								<span class="stat-value">{convertToLocaleNumbers(String(cardData.total_redemptions || 0))}</span>
-							</div>
-							<div class="stat-card">
-								<span class="stat-label">{$_('customer.login.redemptionCount') || 'Redemption Count'}</span>
-								<span class="stat-value">{convertToLocaleNumbers(String(cardData.redemption_count || 0))}</span>
-							</div>
-							<div class="stat-card">
-								<span class="stat-label">{$_('customer.login.lastSyncAt') || 'Last Updated'}</span>
-								<span class="stat-value-small">{cardData.last_sync_at ? formatDateWithTime(cardData.last_sync_at) : 'N/A'}</span>
-							</div>
-						</div>
+					<div class="rd-track">
+						<div class="rd-fill" style="width: {redeemPct}%;"></div>
+						<div class="rd-marker" style="left: {redeemPct}%;"></div>
 					</div>
-
-					<div class="card-footer">
-						<p>{$_('customer.login.loyaltyCardFooter') || 'Thank you for being a valued member'}</p>
+					<div class="rd-label-row">
+						<span class="rd-val">{pts % 1 === 0 ? pts.toFixed(0) : pts.toFixed(2)} {$_('customer.login.points') || 'pts'}</span>
+						<span class="rd-val rd-val--dim">{$_('customer.login.rdPtsMin') || 'min'}: {minRedeem}</span>
 					</div>
 				</div>
-			{/each}
-		</div>
-	{:else}
-		<div class="loading">
-			<p>{$_('common.loading') || 'Loading...'}</p>
+
+				<!-- Card 2: Tier Progress -->
+				{#if customerData.next_tier_name}
+					<div class="rd-card rd-card--tier">
+						<div class="rd-card-header">
+							<span class="rd-card-title">{$_('customer.login.rdTierProgress') || 'Tier Progress'}</span>
+							<span class="rd-tier-label">
+								{locale === 'ar' && customerData.tier_name_ar ? customerData.tier_name_ar : customerData.tier_name}
+								→
+								{locale === 'ar' && customerData.next_tier_name_ar ? customerData.next_tier_name_ar : customerData.next_tier_name}
+							</span>
+						</div>
+						<div class="rd-track rd-track--tier">
+							<div class="rd-fill rd-fill--tier" style="width: {tierPct}%;"></div>
+							<div class="rd-marker rd-marker--tier" style="left: {tierPct}%;"></div>
+							<div class="rd-beacon"></div>
+						</div>
+						<div class="rd-label-row">
+							<span class="rd-val">{tierPct.toFixed(1)}%</span>
+							<span class="rd-val rd-val--dim">{(100 - tierPct).toFixed(1)}% {$_('customer.login.rdToGo') || 'to go'}</span>
+						</div>
+					</div>
+				{/if}
+
+			{/if}
+
 		</div>
 	{/if}
 </div>
@@ -589,6 +695,323 @@
 	}
 
 	.card-footer p { margin: 0; font-weight: 500; line-height: 1.5; }
+
+	/* ── Physical Membership Card ─────────────────────────────────────────── */
+	.membership-card {
+		position: relative;
+		z-index: 10;
+		max-width: 600px;
+		margin: 0 auto;
+		width: 100%;
+		aspect-ratio: 1.586 / 1;
+		border-radius: 24px;
+		padding: 1.5rem;
+		box-sizing: border-box;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		overflow: hidden;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25), 0 8px 20px rgba(0, 0, 0, 0.15);
+		animation: fadeIn 0.5s ease-out;
+	}
+
+	/* Shine streak */
+	.mc-shine {
+		position: absolute;
+		top: -40%;
+		left: -30%;
+		width: 80%;
+		height: 180%;
+		background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.18) 50%, transparent 60%);
+		transform: rotate(15deg);
+		pointer-events: none;
+	}
+
+	/* Decorative circles */
+	.mc-circle {
+		position: absolute;
+		border-radius: 50%;
+		pointer-events: none;
+	}
+	.mc-circle--1 {
+		width: 220px;
+		height: 220px;
+		bottom: -80px;
+		right: -60px;
+	}
+	.mc-circle--2 {
+		width: 140px;
+		height: 140px;
+		top: -50px;
+		left: 40%;
+	}
+
+	.mc-top {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		position: relative;
+		z-index: 2;
+	}
+
+	.mc-logo {
+		width: 64px;
+		height: 44px;
+		background: rgba(255,255,255,0.2);
+		backdrop-filter: blur(8px);
+		border-radius: 12px;
+		padding: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid rgba(255,255,255,0.35);
+	}
+	.mc-logo img { width: 100%; height: 100%; object-fit: contain; filter: brightness(0) invert(1); }
+
+	.mc-tier-badge {
+		background: rgba(255,255,255,0.25);
+		backdrop-filter: blur(8px);
+		border: 1px solid rgba(255,255,255,0.4);
+		color: white;
+		font-size: 0.78rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		padding: 5px 14px;
+		border-radius: 20px;
+	}
+
+	/* Chip */
+	/* Middle row: chip + points */
+	.mc-middle {
+		position: relative;
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.mc-chip {
+		width: 48px;
+		height: 36px;
+		background: linear-gradient(135deg, #fde68a, #fbbf24, #f59e0b);
+		border-radius: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+		flex-shrink: 0;
+	}
+	.mc-chip-lines {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		width: 70%;
+	}
+	.mc-chip-lines div {
+		height: 2px;
+		background: rgba(146, 86, 0, 0.4);
+		border-radius: 2px;
+	}
+
+	/* Points inside card */
+	.mc-points {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+	}
+	.mc-points-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: rgba(255,255,255,0.75);
+	}
+	.mc-points-value {
+		font-size: 1.8rem;
+		font-weight: 800;
+		color: white;
+		line-height: 1.1;
+		text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+	}
+	.mc-points-unit {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: rgba(255,255,255,0.7);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+
+	/* Bottom row: number+name left, last-updated right */
+	.mc-bottom {
+		position: relative;
+		z-index: 2;
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+	}
+	.mc-bottom-left { display: flex; flex-direction: column; gap: 4px; }
+	.mc-bottom-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+
+	.mc-updated-label {
+		font-size: 0.62rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: rgba(255,255,255,0.65);
+	}
+	.mc-updated-value {
+		font-size: 0.72rem;
+		font-weight: 600;
+		color: rgba(255,255,255,0.9);
+	}
+
+	.mc-card-number {
+		font-size: 1.15rem;
+		font-weight: 700;
+		letter-spacing: 0.18em;
+		color: white;
+		text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+		font-family: 'Courier New', monospace;
+		margin-bottom: 6px;
+	}
+	.mc-holder {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: rgba(255,255,255,0.85);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	/* ── Redemption Pipeline Cards ────────────────────────────────────────── */
+	.rd-card {
+		max-width: 600px;
+		margin: 0.75rem auto 0;
+		width: 100%;
+		border-radius: 18px;
+		padding: 1rem 1.25rem 1.1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+		box-sizing: border-box;
+		color: white;
+		box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+	}
+
+	/* Card 1 — orange → pink */
+	.rd-card--redemption {
+		background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+	}
+
+	/* Card 2 — lavender → indigo */
+	.rd-card--tier {
+		background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+	}
+
+	.rd-card-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		/* inherits RTL/LTR from parent — title on reading-start, badge on reading-end */
+	}
+	.rd-card-title {
+		font-size: 0.72rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		color: rgba(255,255,255,0.75);
+	}
+	.rd-badge {
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 3px 10px;
+		border-radius: 20px;
+		border: 1px solid rgba(255,255,255,0.4);
+		background: rgba(255,255,255,0.15);
+		backdrop-filter: blur(4px);
+		white-space: nowrap;
+	}
+	.rd-badge--green { background: rgba(34,197,94,0.3); border-color: #22c55e; }
+	.rd-badge--red   { background: rgba(248,113,113,0.25); border-color: #f87171; }
+
+	.rd-tier-label {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: rgba(255,255,255,0.9);
+		letter-spacing: 0.03em;
+	}
+
+	/* Track */
+	.rd-track {
+		position: relative;
+		height: 10px;
+		background: rgba(255,255,255,0.2);
+		border-radius: 99px;
+		overflow: visible;
+		direction: ltr; /* force LTR so fill always goes left → right */
+	}
+	.rd-track--tier { background: rgba(255,255,255,0.2); }
+
+	.rd-fill {
+		height: 100%;
+		border-radius: 99px;
+		background: white;
+		position: relative;
+		transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+	.rd-fill::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 99px;
+		background: linear-gradient(180deg, rgba(255,255,255,0.5) 0%, transparent 100%);
+	}
+	.rd-fill--tier { background: rgba(255,255,255,0.9); }
+
+	/* Marker dot */
+	.rd-marker {
+		position: absolute;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		width: 16px;
+		height: 16px;
+		background: white;
+		border-radius: 50%;
+		border: 3px solid rgba(255,255,255,0.5);
+		box-shadow: 0 0 0 3px rgba(255,255,255,0.2);
+		z-index: 2;
+	}
+	.rd-marker--tier { border-color: rgba(255,255,255,0.6); }
+
+	/* Beacon at far right */
+	.rd-beacon {
+		position: absolute;
+		top: 50%;
+		right: 0;
+		transform: translate(50%, -50%);
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: rgba(255,255,255,0.5);
+		border: 2px solid white;
+	}
+
+	.rd-label-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		direction: ltr; /* keep values aligned with the bar (start = left) */
+	}
+	.rd-val {
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: white;
+	}
+	.rd-val--dim {
+		color: rgba(255,255,255,0.7);
+		font-weight: 600;
+	}
 
 	/* ── Loading State ────────────────────────────────────────────────────── */
 	.loading {
