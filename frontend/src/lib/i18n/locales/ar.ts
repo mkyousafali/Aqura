@@ -3413,7 +3413,7 @@ export const arabicLocale: LocaleData = {
         rdTierProgress: "تقدم المستوى",
         goToHome: "الذهاب للرئيسية",
         multipleLocations: "البطاقة مسجلة في عدة مواقع",
-        forgotCredentials: "نسيت اسم المستخدم أو رمز الوصول؟",
+        forgotCredentials: "نسيت رمز الوصول؟",
         requestNewAccess: "طلب استرداد الحساب",
         needNewAccess: "تحتاج لاسترداد حسابك؟",
         backToLogin: "العودة لتسجيل الدخول",

@@ -364,6 +364,8 @@
 	.loyalty-details-page {
 		position: relative;
 		min-height: 100vh;
+		width: 100%;
+		box-sizing: border-box;
 		background: var(--bg-offwhite);
 		padding: 1rem;
 		padding-top: 1.5rem;

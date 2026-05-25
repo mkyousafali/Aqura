@@ -199,26 +199,29 @@
 					{/if}
 				</p>
 				<div class="member-login-actions" style="flex-direction: column; width: 100%;">
-					<a class="btn-member-register-lg" href="/login/customer?minimal=true&view=register" style="width: 100%; justify-content: center; box-sizing: border-box;">
+					<a class="btn-member-login-lg" href="/login/customer?minimal=true" style="width: 100%; justify-content: center; box-sizing: border-box; margin-bottom: 16px;">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-							<circle cx="8.5" cy="7" r="4"/>
-							<line x1="20" y1="8" x2="20" y2="14"/>
-							<line x1="23" y1="11" x2="17" y2="11"/>
+							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+							<circle cx="12" cy="7" r="4"/>
 						</svg>
-						{isRTL ? 'انضم إلينا' : 'Join Us'}
+						{isRTL ? 'ابدأ الآن' : 'Get Started'}
 					</a>
-					<div class="login-tagline" style="display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px;">
-						<span style="font-size: 0.95rem; font-weight: 500;">
-							{isRTL ? 'عضو بالفعل؟' : 'Already a member?'}
-						</span>
-						<a class="btn-member-login-lg" href="/login/customer?minimal=true" style="width: 100%; justify-content: center; box-sizing: border-box; margin-bottom: 24px;">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-								<circle cx="12" cy="7" r="4"/>
-							</svg>
-							{isRTL ? 'سجل الدخول الآن' : 'Login now'}
-						</a>
+					<div class="how-to-section">
+						<div class="how-to-item">
+							<div class="how-to-icon">🆕</div>
+							<div class="how-to-text">
+								<strong>{isRTL ? 'عضو جديد؟' : 'New member?'}</strong>
+								<span>{isRTL ? 'اضغط "ابدأ الآن" ← أدخل اسمك ← أدخل رقم واتساب ← اقبل سياسة الخصوصية ← اضغط إرسال ← استلم رمز الوصول على واتساب' : 'Tap "Get Started" → Enter your name → Enter your WhatsApp number → Accept privacy policy → Press submit → Receive access code on WhatsApp'}</span>
+							</div>
+						</div>
+						<div class="how-to-divider"></div>
+						<div class="how-to-item">
+							<div class="how-to-icon">✅</div>
+							<div class="how-to-text">
+								<strong>{isRTL ? 'عضو حالي؟' : 'Already a member?'}</strong>
+								<span>{isRTL ? 'اضغط "ابدأ الآن" وأدخل رمز الوصول المرسل إلى واتساب' : 'Tap "Get Started" and enter the access code sent to your WhatsApp'}</span>
+							</div>
+						</div>
 					</div>
 				</div>
 				<div class="benefits-row">
@@ -978,6 +981,44 @@
 		display: flex;
 		gap: 16px;
 		flex-wrap: wrap;
+	}
+	.how-to-section {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-bottom: 16px;
+	}
+	.how-to-item {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 12px 14px;
+		border-radius: 12px;
+		background: rgba(19, 165, 56, 0.08);
+		border: 1px solid rgba(19, 165, 56, 0.2);
+	}
+	.how-to-icon {
+		font-size: 22px;
+		flex-shrink: 0;
+		margin-top: 2px;
+	}
+	.how-to-text {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+	.how-to-text strong {
+		font-size: 13px;
+		font-weight: 700;
+		color: #0f4c1e;
+	}
+	.how-to-text span {
+		font-size: 12px;
+		color: #1e293b;
+		line-height: 1.4;
+	}
+	.how-to-divider {
+		display: none;
 	}
 	.btn-member-login-lg {
 		display: inline-flex;

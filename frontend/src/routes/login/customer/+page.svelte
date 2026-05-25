@@ -145,40 +145,55 @@
 	{#if showContent}
 		<div class="login-content">
 			<div class="customer-login-card">
+				<button 
+					class="language-toggle-main" 
+					on:click={() => {
+						switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+					}}
+					title={$_('nav.languageToggle')}
+				>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<path d="M8 12h8"/>
+						<path d="M12 8v8"/>
+					</svg>
+					{$currentLocale === 'ar' ? 'English' : 'العربية'}
+				</button>
 				<div class="logo-section">
 					<div class="logo">
 						<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
 					</div>
-					<button 
-						class="language-toggle-main" 
-						on:click={() => {
-							switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
-						}}
-						title={$_('nav.languageToggle')}
-					>
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<circle cx="12" cy="12" r="10"/>
-							<path d="M8 12h8"/>
-							<path d="M12 8v8"/>
-						</svg>
-						{$currentLocale === 'ar' ? 'English' : 'العربية'}
-					</button>
+				</div>
+
+				<div class="ahl-urban-branding">
+					<h2 class="ahl-urban-title alternating-text">
+						{#if $currentLocale === 'ar'}
+							<span style="color: #13A538">أ</span><span style="color: #f08300">ه</span><span style="color: #13A538">ل</span>&nbsp;<span style="color: #f08300">ا</span><span style="color: #13A538">ي</span><span style="color: #f08300">ر</span><span style="color: #13A538">ب</span><span style="color: #f08300">ن</span>
+						{:else}
+							<span style="color: #13A538">A</span><span style="color: #f08300">h</span><span style="color: #13A538">l</span>&nbsp;<span style="color: #f08300">U</span><span style="color: #13A538">r</span><span style="color: #f08300">b</span><span style="color: #13A538">a</span><span style="color: #f08300">n</span>
+						{/if}
+					</h2>
+					<p class="ahl-urban-tagline">
+						{#if $currentLocale === 'ar'}
+							<span style="color: #13A538">أنت</span> <span style="color: #f08300">من</span> <span style="color: #13A538">أهلنا…</span> <span style="color: #f08300">ولك</span> <span style="color: #13A538">امتيازاتك.</span>
+						{:else}
+							<span style="color: #13A538">You're</span> <span style="color: #f08300">Part</span> <span style="color: #13A538">of</span> <span style="color: #f08300">Our</span> <span style="color: #13A538">Family…</span> <span style="color: #f08300">And</span> <span style="color: #13A538">You</span> <span style="color: #f08300">Deserve</span> <span style="color: #13A538">Exclusive</span> <span style="color: #f08300">Benefits.</span>
+						{/if}
+					</p>
 				</div>
 
 				{#if hideNavButtons}
-					<div class="back-row">
-						<button class="back-to-login" on:click={() => {
-							if (currentViewMode !== 'login') {
-								currentViewMode = 'login';
-							} else {
-								goto('/login');
-							}
-						}}>
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-							{$currentLocale === 'ar' ? 'العودة' : 'Back'}
-						</button>
-					</div>
-					{/if}
+					<button class="back-to-login" on:click={() => {
+						if (currentViewMode !== 'login') {
+							currentViewMode = 'login';
+						} else {
+							goto('/login');
+						}
+					}}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+						{$currentLocale === 'ar' ? 'العودة' : 'Back'}
+					</button>
+				{/if}
 
 					<div class="auth-section">
 					<div class="customer-login-wrapper">
@@ -214,12 +229,11 @@
 		font-size: 16px !important;
 	}
 
-	.back-row {
-		display: flex;
-		justify-content: flex-start;
-		padding: 8px 4px 0;
-	}
 	.back-to-login {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		z-index: 2;
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
@@ -317,6 +331,7 @@
 		border: 1px solid rgba(255, 255, 255, 0.8);
 		overflow: hidden;
 		animation: slideInUp 0.8s ease-out;
+		position: relative;
 	}
 
 	@keyframes slideInUp {
@@ -330,39 +345,11 @@
 		}
 	}
 
-	.logo-section {
-		text-align: center;
-		padding: 2.5rem 2rem 1rem;
-		background: transparent;
-		color: #1e293b;
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1rem;
-	}
-
-	.logo {
-		width: 160px;
-		height: 100px;
-		background: transparent;
-		border: none;
-		border-radius: 16px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: none;
-	}
-
-	.logo-image {
-		width: 120px;
-		height: 70px;
-		border-radius: 12px;
-		object-fit: contain;
-		filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
-	}
-
 	.language-toggle-main {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		z-index: 2;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -378,13 +365,68 @@
 		white-space: nowrap;
 	}
 
+	.logo-section {
+		text-align: center;
+		padding: 0.75rem 2rem 0;
+		background: transparent;
+		color: #1e293b;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0;
+	}
+
+	.ahl-urban-branding {
+		text-align: center;
+		padding: 0 2rem 0;
+		margin-top: -0.5rem;
+	}
+
+	.ahl-urban-title {
+		font-size: 2.2rem;
+		font-weight: 700;
+		margin: 0 0 0.1rem;
+		letter-spacing: -0.01em;
+	}
+
+	.ahl-urban-tagline {
+		font-size: 0.88rem;
+		font-weight: 500;
+		margin: 0;
+		line-height: 1.3;
+	}
+
+	.logo {
+		width: 90px;
+		height: 90px;
+		min-width: 90px;
+		min-height: 90px;
+		background: #ffffff;
+		border: 3px solid rgba(19, 165, 56, 0.2);
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 0 0 6px rgba(19, 165, 56, 0.08);
+		overflow: hidden;
+		aspect-ratio: 1 / 1;
+	}
+
+	.logo-image {
+		width: 70px;
+		height: 70px;
+		border-radius: 0;
+		object-fit: contain;
+		filter: none;
+	}
+
 	.language-toggle-main:hover {
 		background: rgba(255, 255, 255, 0.25);
 		border-color: rgba(255, 255, 255, 0.4);
 	}
 
 	.auth-section {
-		padding: 2rem;
+		padding: 0.75rem 2rem 1.5rem;
 	}
 
 	.auth-section :global(.customer-login-container) {

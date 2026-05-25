@@ -52,6 +52,44 @@
 	let forgotWhatsappValid = true;
 	let retryAfterSeconds = 0;
 
+	// Access code popup (shown after registration)
+	let showAccessCodePopup = false;
+	let popupAccessCode = '';
+	let popupWhatsappSent = false;
+	let popupCountdown = 20;
+	let popupCountdownMax = 20;
+	let popupCopied = false;
+	let popupTimer: ReturnType<typeof setInterval> | null = null;
+
+	function startPopupCountdown() {
+		popupCountdown = 20;
+		popupCountdownMax = 20;
+		if (popupTimer) clearInterval(popupTimer);
+		popupTimer = setInterval(() => {
+			popupCountdown -= 1;
+			if (popupCountdown <= 0) {
+				closePopup();
+			}
+		}, 1000);
+	}
+
+	function closePopup() {
+		showAccessCodePopup = false;
+		popupAccessCode = '';
+		popupCopied = false;
+		if (popupTimer) { clearInterval(popupTimer); popupTimer = null; }
+	}
+
+	async function copyCode() {
+		try {
+			await navigator.clipboard.writeText(popupAccessCode);
+			popupCopied = true;
+			setTimeout(() => { popupCopied = false; }, 2000);
+		} catch (e) {
+			// fallback: select text
+		}
+	}
+
 	// Temporary block access code - set to true to show white mask
 	let manualUnlock = false;
 	$: blockAccessCodeInput = showMask && !manualUnlock;
@@ -240,6 +278,7 @@
 				console.log('✅ [CustomerRegistration] Registration successful, sending access code via WhatsApp');
 				
 				// Send access code via WhatsApp
+				let waSent = false;
 				try {
 					const waResponse = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
 						method: 'POST',
@@ -256,7 +295,8 @@
 						})
 					});
 					const waResult = await waResponse.json();
-					if (waResult.success) {
+					waSent = !!waResult.success;
+					if (waSent) {
 						console.log('✅ [CustomerRegistration] Access code sent via WhatsApp');
 					} else {
 						console.warn('⚠️ [CustomerRegistration] WhatsApp send failed:', waResult.error);
@@ -264,18 +304,20 @@
 				} catch (waError) {
 					console.warn('⚠️ [CustomerRegistration] WhatsApp send error:', waError);
 				}
-				
-				successMessage = 'Registration successful! Your access code has been sent to your WhatsApp.';
+
+				// Show one-time access code popup
+				popupAccessCode = data.access_code;
+				popupWhatsappSent = waSent;
+				showAccessCodePopup = true;
+				startPopupCountdown();
 				
 				// Clear form
 				customerName = '';
 				whatsappNumber = '';
+				privacyAccepted = false;
 				
-				// Switch back to login view after delay
-				setTimeout(() => {
-					currentView = 'login';
-					successMessage = '';
-				}, 5000);
+				// Switch to login view
+				currentView = 'login';
 			} else {
 				errorMessage = data?.message || data?.error || 'Registration failed. Please try again.';
 			}
@@ -316,6 +358,7 @@
 
 			if (data.success) {
 				// Send access code via WhatsApp
+				let waSent = false;
 				try {
 					const waResponse = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
 						method: 'POST',
@@ -332,7 +375,8 @@
 						})
 					});
 					const waResult = await waResponse.json();
-					if (waResult.success) {
+					waSent = !!waResult.success;
+					if (waSent) {
 						console.log('✅ [ForgotCode] Access code resent via WhatsApp');
 					} else {
 						console.warn('⚠️ [ForgotCode] WhatsApp send failed:', waResult.error);
@@ -340,13 +384,20 @@
 				} catch (waError) {
 					console.warn('⚠️ [ForgotCode] WhatsApp send error:', waError);
 				}
-				
-				successMessage = 'Your access code has been sent to your WhatsApp!';
-				// Switch back to login view after successful request
-				setTimeout(() => {
-					currentView = 'login';
-					successMessage = '';
-				}, 5000);
+
+				// Show one-time access code popup (5 sec for recovery)
+				popupAccessCode = data.access_code;
+				popupWhatsappSent = waSent;
+				showAccessCodePopup = true;
+				popupCountdown = 5;
+				popupCountdownMax = 5;
+				if (popupTimer) clearInterval(popupTimer);
+				popupTimer = setInterval(() => {
+					popupCountdown -= 1;
+					if (popupCountdown <= 0) closePopup();
+				}, 1000);
+
+				currentView = 'login';
 			} else {
 				errorMessage = data.message || data.error;
 			}
@@ -677,7 +728,72 @@
 	whatsappNumber = value;
 	input.value = value;
 }
-</script><div class="customer-login-container">	{#if currentView === 'login'}
+</script>
+
+{#if showAccessCodePopup}
+<div class="code-popup-overlay" on:click|self={closePopup}>
+	<div class="code-popup-card" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+		<!-- Countdown ring -->
+		<div class="popup-countdown-ring">
+			<svg viewBox="0 0 44 44" class="countdown-svg">
+				<circle cx="22" cy="22" r="18" class="countdown-track"/>
+				<circle cx="22" cy="22" r="18" class="countdown-progress" style="stroke-dashoffset: {113 - (113 * popupCountdown / popupCountdownMax)};"/>
+			</svg>
+			<span class="countdown-number">{popupCountdown}</span>
+		</div>
+
+		<!-- Congratulations header -->
+		<div class="popup-congrats">
+			<span class="popup-congrats-emoji">🎉</span>
+			<h2 class="popup-congrats-title">{$currentLocale === 'ar' ? 'مبروك! تم التسجيل بنجاح' : 'Congratulations! Registration Successful'}</h2>
+		</div>
+
+		<!-- Access code display -->
+		<div class="popup-code-block">
+			<p class="popup-code-label">{$currentLocale === 'ar' ? 'رمز الوصول الخاص بك' : 'Your Access Code'}</p>
+			<div class="popup-code-digits">
+				{#each popupAccessCode.split('') as digit}
+					<span class="popup-digit">{digit}</span>
+				{/each}
+			</div>
+			<button class="popup-copy-btn" on:click={copyCode}>
+				{#if popupCopied}
+					✅ {$currentLocale === 'ar' ? 'تم النسخ' : 'Copied!'}
+				{:else}
+					📋 {$currentLocale === 'ar' ? 'نسخ الرمز' : 'Copy Code'}
+				{/if}
+			</button>
+		</div>
+
+		<!-- Don't share warning -->
+		<div class="popup-warning">
+			🔒 <strong>{$currentLocale === 'ar' ? 'لا تشارك هذا الرمز مع أي شخص' : 'Do not share this code with anyone'}</strong>
+		</div>
+
+		<!-- WhatsApp status -->
+		{#if popupWhatsappSent}
+			<div class="popup-whatsapp-sent">
+				<span>✅</span>
+				<span>{$currentLocale === 'ar' ? 'تم إرسال الرمز إلى واتساب الخاص بك — أنت الآن عضو كامل في برنامج أهل ايربن وتستمتع بجميع المزايا الحصرية!' : 'Code sent to your WhatsApp — you are now a full Ahl Urban member and enjoy all exclusive benefits!'}</span>
+			</div>
+		{:else}
+			<div class="popup-no-whatsapp">
+				<span>ℹ️</span>
+				<div>
+					<p>{$currentLocale === 'ar' ? 'لم يتم إرسال الرمز عبر واتساب.' : 'Code could not be sent via WhatsApp.'}</p>
+					<p>{$currentLocale === 'ar' ? 'لا تزال مسجلاً لدينا ويمكنك الوصول إلى المزايا الأساسية — لكن المزايا الحصرية والعروض الخاصة متاحة فقط للأعضاء المتصلين عبر واتساب. احتفظ بهذا الرمز لتسجيل الدخول الآن.' : 'You are still registered and can access basic benefits — but exclusive offers and special rewards are available only to WhatsApp-connected members. Save this code to sign in now.'}</p>
+				</div>
+			</div>
+		{/if}
+
+		<button class="popup-close-btn" on:click={closePopup}>
+			{$currentLocale === 'ar' ? 'إغلاق' : 'Close'} ({popupCountdown})
+		</button>
+	</div>
+</div>
+{/if}
+
+<div class="customer-login-container">	{#if currentView === 'login'}
 		<!-- Customer Login Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
 
@@ -739,9 +855,33 @@
 					</div>
 				{/if}
 				
+				<div class="register-prompt-section">
+					<div class="register-prompt-divider">
+						<span>{$currentLocale === 'ar' ? 'تريد الانضمام لبرنامج أهل ايربن؟' : 'Looking to join Ahl Urban loyalty program?'}</span>
+					</div>
+					<button type="button" class="register-prompt-btn" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+							<circle cx="8.5" cy="7" r="4"></circle>
+							<line x1="20" y1="8" x2="20" y2="14"></line>
+							<line x1="23" y1="11" x2="17" y2="11"></line>
+						</svg>
+						{$currentLocale === 'ar' ? 'سجّل الآن' : 'Register Now'}
+					</button>
+				</div>
+
 				<div class="form-fields">
 					<div class="field-group">
-						<label for="customer-access-code">{$_('customer.login.accessCode')}</label>
+						<div class="already-member-divider">
+							<span>{$currentLocale === 'ar' ? 'عضو بالفعل؟' : 'Already a member?'}</span>
+						</div>
+						<p class="access-code-instruction">
+							{#if $currentLocale === 'ar'}
+								أدخل الرمز المُرسل إليك على واتساب
+							{:else}
+								Enter the code sent to your WhatsApp
+							{/if}
+						</p>
 						<div class="customer-access-digits">
 							{#each customerDigits as digit, index}
 								<input 
@@ -810,21 +950,6 @@
 						<div class="card-text">
 							<span class="title">{$_('customer.login.requestNewAccess')}</span>
 							<span class="desc">{$_('customer.login.forgotCredentials')}</span>
-						</div>
-					</button>
-
-					<button type="button" class="btn-footer-card highlight" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
-						<div class="icon-wrapper bg-green">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-								<circle cx="8.5" cy="7" r="4"></circle>
-								<line x1="20" y1="8" x2="20" y2="14"></line>
-								<line x1="23" y1="11" x2="17" y2="11"></line>
-							</svg>
-						</div>
-						<div class="card-text">
-							<span class="title">{$_('customer.login.registerTitle')}</span>
-							<span class="desc">{$_('customer.login.needNewAccount')}</span>
 						</div>
 					</button>
 
@@ -1180,11 +1305,51 @@
 	}
 
 	.form-fields {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.75rem;
 	}
 
 	.field-group {
-		margin-bottom: 1.25rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.already-member-divider {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		margin-bottom: 0.25rem;
+	}
+
+	.already-member-divider::before,
+	.already-member-divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: #6ee7b7;
+	}
+
+	.already-member-divider span {
+		font-size: 0.82rem;
+		color: #059669;
+		white-space: nowrap;
+		font-weight: 600;
+		background: #ecfdf5;
+		border: 1px solid #6ee7b7;
+		border-radius: 20px;
+		padding: 0.3rem 0.75rem;
+	}
+
+	.access-code-instruction {
+		font-size: 0.85rem;
+		color: #059669;
+		font-weight: 600;
+		margin: 0 0 0.5rem;
+		text-align: center;
+		line-height: 1.4;
+		background: #ecfdf5;
+		border: 1px solid #6ee7b7;
+		border-radius: 8px;
+		padding: 0.4rem 0.75rem;
 	}
 
 	.field-group label {
@@ -1396,6 +1561,75 @@
 	}
 
 	.customer-submit-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	.register-prompt-section {
+		margin-top: 0.1rem;
+		margin-bottom: 0.25rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.register-prompt-divider {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+	}
+
+	.register-prompt-divider::before,
+	.register-prompt-divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: #6ee7b7;
+	}
+
+	.register-prompt-divider span {
+		font-size: 0.82rem;
+		color: #059669;
+		white-space: nowrap;
+		font-weight: 600;
+		background: #ecfdf5;
+		border: 1px solid #6ee7b7;
+		border-radius: 20px;
+		padding: 0.3rem 0.75rem;
+	}
+
+	.register-prompt-btn {
+		width: 100%;
+		padding: 0.85rem 1.5rem;
+		background: linear-gradient(135deg, #059669 0%, #10B981 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+	}
+
+	.register-prompt-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #047857 0%, #059669 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+	}
+
+	.register-prompt-btn:disabled {
 		background: #9CA3AF;
 		cursor: not-allowed;
 		transform: none;
@@ -2084,5 +2318,188 @@
 		background-clip: text;
 	}
 
+	/* ── Access Code Popup ─────────────────────────────────────────── */
+	.code-popup-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.65);
+		backdrop-filter: blur(6px);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+	}
+	.code-popup-card {
+		background: #ffffff;
+		border-radius: 24px;
+		padding: 2rem 1.75rem 1.5rem;
+		max-width: 380px;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		position: relative;
+		box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+		animation: popupIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+	}
+	@keyframes popupIn {
+		from { transform: scale(0.85); opacity: 0; }
+		to   { transform: scale(1);    opacity: 1; }
+	}
+	.popup-countdown-ring {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		width: 44px;
+		height: 44px;
+	}
+	[dir="rtl"] .popup-countdown-ring {
+		right: auto;
+		left: 1rem;
+	}
+	.countdown-svg {
+		width: 44px;
+		height: 44px;
+		transform: rotate(-90deg);
+	}
+	.countdown-track {
+		fill: none;
+		stroke: #e2e8f0;
+		stroke-width: 3;
+	}
+	.countdown-progress {
+		fill: none;
+		stroke: #13A538;
+		stroke-width: 3;
+		stroke-dasharray: 113;
+		transition: stroke-dashoffset 1s linear;
+		stroke-linecap: round;
+	}
+	.countdown-number {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 13px;
+		font-weight: 700;
+		color: #13A538;
+	}
+	.popup-congrats {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		text-align: center;
+	}
+	.popup-congrats-emoji {
+		font-size: 2.5rem;
+		line-height: 1;
+	}
+	.popup-congrats-title {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #0f4c1e;
+		margin: 0;
+	}
+	.popup-code-block {
+		background: #f0fdf4;
+		border: 2px solid #13A538;
+		border-radius: 16px;
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.popup-code-label {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #166534;
+		margin: 0;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.popup-code-digits {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.popup-digit {
+		width: 38px;
+		height: 46px;
+		background: #ffffff;
+		border: 2px solid #13A538;
+		border-radius: 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.4rem;
+		font-weight: 800;
+		color: #0f4c1e;
+		box-shadow: 0 2px 6px rgba(19,165,56,0.15);
+	}
+	.popup-copy-btn {
+		background: linear-gradient(135deg, #13A538, #108C30);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		padding: 0.5rem 1.25rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: opacity 0.2s;
+	}
+	.popup-copy-btn:hover { opacity: 0.88; }
+	.popup-warning {
+		background: #fff7ed;
+		border: 1px solid #f08300;
+		border-radius: 10px;
+		padding: 0.6rem 0.9rem;
+		font-size: 0.78rem;
+		color: #92400e;
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+	.popup-whatsapp-sent {
+		background: #f0fdf4;
+		border: 1px solid #86efac;
+		border-radius: 10px;
+		padding: 0.65rem 0.9rem;
+		font-size: 0.78rem;
+		color: #166534;
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		line-height: 1.4;
+	}
+	.popup-no-whatsapp {
+		background: #eff6ff;
+		border: 1px solid #93c5fd;
+		border-radius: 10px;
+		padding: 0.65rem 0.9rem;
+		font-size: 0.78rem;
+		color: #1e3a5f;
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		line-height: 1.4;
+	}
+	.popup-no-whatsapp p { margin: 0 0 0.3rem; }
+	.popup-no-whatsapp p:last-child { margin: 0; }
+	.popup-close-btn {
+		background: #f1f5f9;
+		color: #475569;
+		border: 1px solid #e2e8f0;
+		border-radius: 10px;
+		padding: 0.6rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		width: 100%;
+		transition: background 0.2s;
+	}
+	.popup-close-btn:hover { background: #e2e8f0; }
 
 </style>

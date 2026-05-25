@@ -3395,7 +3395,7 @@ export const englishLocale: LocaleData = {
         rdTierProgress: "Tier Progress",
         goToHome: "Go to Home",
         multipleLocations: "Card registered in multiple locations",
-        forgotCredentials: "Forgot your username or access code?",
+        forgotCredentials: "Forgot your access code?",
         requestNewAccess: "Request Account Recovery",
         backToLogin: "Back to Login",
         
