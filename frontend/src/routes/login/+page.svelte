@@ -125,6 +125,11 @@
 		if (el) el.scrollIntoView({ behavior: 'smooth' });
 	}
 
+	function scrollToLoyalty() {
+		const el = document.getElementById('loyalty-section');
+		if (el) el.scrollIntoView({ behavior: 'smooth' });
+	}
+
 	function goTeam() {
 		const isMobile = window.innerWidth <= 768;
 		if (isMobile) {
@@ -177,13 +182,84 @@
 	<div class="login-page-inner" class:rtl={isRTL} dir={isRTL ? 'rtl' : 'ltr'}>
 
 	{#if showContent}
+	<!-- Hero Section -->
+	<section class="hero">
+		<div class="hero-content">
+			<div class="hero-text" class:fade-in={showContent}>
+				<h1>
+					{#if isRTL}
+						<span class="hero-dark">احتياجاتك اليومية</span><br/>
+						<span class="hero-highlight">كلها في مكان واحد</span>
+					{:else}
+						<span class="hero-dark">Your Everyday</span><br/>
+						<span class="hero-dark">Essentials,</span><br/>
+						<span class="hero-highlight">All In One Place</span>
+					{/if}
+				</h1>
+				<p class="hero-sub">
+					{isRTL 
+						? 'اكتشف المنتجات عالية الجودة والطازجه كل يوم كذالك العروض التي لاتقاوم في سوبر ماركت الحي الخاص بك قم بزيارتنا اليوم لكل مايحتاجه منزلك'
+						: 'Discover Fresh Produce, Quality Groceries, And Unbeatable Deals At Your Urban Supermarket. Visit Us Today For Everything Your Home Needs.'}
+				</p>
+
+				<!-- Action Buttons -->
+				<div class="hero-buttons">
+					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+					<button class="btn-loyalty" on:click={scrollToLoyalty}>
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+						</svg>
+						{isRTL ? 'برنامج الولاء' : 'Loyalty Program'}
+					</button>
+
+					<a class="btn-primary" href="/follow-us?referrer=login">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+							<circle cx="9" cy="7" r="4"/>
+							<line x1="19" y1="8" x2="19" y2="14"/>
+							<line x1="22" y1="11" x2="16" y2="11"/>
+						</svg>
+						{isRTL ? 'تابعنا' : 'Follow Us'}
+					</a>
+
+					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+					<button class="btn-locate" on:click={scrollToLocations}>
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+							<circle cx="12" cy="10" r="3"/>
+						</svg>
+						{isRTL ? 'مواقعنا' : 'Locate Us'}
+					</button>
+					{#if giftWheelActive}
+					<a class="btn-gift-wheel" href="/gift-wheel?referrer=login">
+						🎡
+						{isRTL ? 'عجلة الهدايا' : 'Gift Wheel'}
+					</a>
+					{/if}
+					{#if surpriseBoxActive}
+					<a class="btn-surprise-box" href="/surprise-box?referrer=login">
+						🎁
+						{isRTL ? 'صندوق المفاجآت' : 'Surprise Box'}
+					</a>
+					{/if}
+				</div>
+			</div>
+
+			<div class="hero-image" class:fade-in={showContent}>
+				<img src="/icons/logo.png" alt="Urban Market" class="hero-logo-img" />
+				<div class="hero-decorative">
+					<div class="deco-circle deco-1"></div>
+					<div class="deco-circle deco-2"></div>
+					<div class="deco-circle deco-3"></div>
+				</div>
+			</div>
+		</div>
+	</section>
+
 	<!-- Member Login Section -->
-	<section class="member-login-section">
+	<section class="member-login-section" id="loyalty-section">
 		<div class="member-login-card" class:fade-in={showContent}>
 			<div class="member-login-text">
-				<div class="member-card-logo">
-					<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" />
-				</div>
 				<h2 class="alternating-text" style="font-size: 2.2rem; margin-bottom: 8px;">
 					{#if isRTL}
 						<span style="color: #13A538">أ</span><span style="color: #f08300">ه</span><span style="color: #13A538">ل</span>&nbsp;<span style="color: #f08300">ا</span><span style="color: #13A538">ي</span><span style="color: #f08300">ر</span><span style="color: #13A538">ب</span><span style="color: #f08300">ن</span>
@@ -299,72 +375,6 @@
 					</div>
 				</div>
 			{/if}
-		</div>
-	</section>
-
-	<!-- Hero Section -->
-	<section class="hero">
-		<div class="hero-content">
-			<div class="hero-text" class:fade-in={showContent}>
-				<h1>
-					{#if isRTL}
-						<span class="hero-dark">احتياجاتك اليومية</span><br/>
-						<span class="hero-highlight">كلها في مكان واحد</span>
-					{:else}
-						<span class="hero-dark">Your Everyday</span><br/>
-						<span class="hero-dark">Essentials,</span><br/>
-						<span class="hero-highlight">All In One Place</span>
-					{/if}
-				</h1>
-				<p class="hero-sub">
-					{isRTL 
-						? 'اكتشف المنتجات عالية الجودة والطازجه كل يوم كذالك العروض التي لاتقاوم في سوبر ماركت الحي الخاص بك قم بزيارتنا اليوم لكل مايحتاجه منزلك'
-						: 'Discover Fresh Produce, Quality Groceries, And Unbeatable Deals At Your Urban Supermarket. Visit Us Today For Everything Your Home Needs.'}
-				</p>
-
-				<!-- Action Buttons -->
-				<div class="hero-buttons">
-					<a class="btn-primary" href="/follow-us?referrer=login">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-							<circle cx="9" cy="7" r="4"/>
-							<line x1="19" y1="8" x2="19" y2="14"/>
-							<line x1="22" y1="11" x2="16" y2="11"/>
-						</svg>
-						{isRTL ? 'تابعنا' : 'Follow Us'}
-					</a>
-
-					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-					<button class="btn-locate" on:click={scrollToLocations}>
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-							<circle cx="12" cy="10" r="3"/>
-						</svg>
-						{isRTL ? 'مواقعنا' : 'Locate Us'}
-					</button>
-					{#if giftWheelActive}
-					<a class="btn-gift-wheel" href="/gift-wheel?referrer=login">
-						🎡
-						{isRTL ? 'عجلة الهدايا' : 'Gift Wheel'}
-					</a>
-					{/if}
-					{#if surpriseBoxActive}
-					<a class="btn-surprise-box" href="/surprise-box?referrer=login">
-						🎁
-						{isRTL ? 'صندوق المفاجآت' : 'Surprise Box'}
-					</a>
-					{/if}
-				</div>
-			</div>
-
-			<div class="hero-image" class:fade-in={showContent}>
-				<img src="/icons/logo.png" alt="Urban Market" class="hero-logo-img" />
-				<div class="hero-decorative">
-					<div class="deco-circle deco-1"></div>
-					<div class="deco-circle deco-2"></div>
-					<div class="deco-circle deco-3"></div>
-				</div>
-			</div>
 		</div>
 	</section>
 
@@ -822,6 +832,28 @@
 		box-shadow: 0 6px 24px rgba(19,165,56,0.3);
 	}
 	.btn-locate:active { transform: translateY(0); }
+
+	.btn-loyalty {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		padding: 14px 28px;
+		border-radius: 50px;
+		font-weight: 700;
+		font-size: 16px;
+		cursor: pointer;
+		transition: all 0.3s;
+		border: 2px solid #f08300;
+		background: transparent;
+		color: #f08300;
+	}
+	.btn-loyalty:hover {
+		background: #f08300;
+		color: white;
+		transform: translateY(-2px);
+		box-shadow: 0 6px 24px rgba(240,131,0,0.3);
+	}
+	.btn-loyalty:active { transform: translateY(0); }
 
 	.btn-gift-wheel {
 		display: inline-flex;
@@ -1443,17 +1475,19 @@
 	.footer-links a {
 		display: inline-block;
 		padding: 10px 28px;
-		background: #1e293b;
-		color: #fff;
+		background: #f1f5f9;
+		color: #1e293b;
 		text-decoration: none;
 		font-size: 0.85rem;
 		font-weight: 600;
 		letter-spacing: 0.3px;
 		border-radius: 8px;
-		transition: background 0.2s, transform 0.15s;
+		border: 1.5px solid #cbd5e1;
+		transition: background 0.2s, transform 0.15s, border-color 0.2s;
 	}
 	.footer-links a:hover {
-		background: #334155;
+		background: #e2e8f0;
+		border-color: #94a3b8;
 		transform: translateY(-1px);
 	}
 	.footer-email {
