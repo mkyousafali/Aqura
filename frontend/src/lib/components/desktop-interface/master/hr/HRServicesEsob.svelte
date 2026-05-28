@@ -48,6 +48,8 @@
 		join_date: string | null;
 		employment_status: string | null;
 		employment_status_effective_date: string | null;
+		position_title_en: string | null;
+		position_title_ar: string | null;
 	}
 
 	interface SalaryRow {
@@ -370,7 +372,7 @@
 	async function loadEmployeesAndSalaries() {
 		const { data: employeeData, error: employeeError } = await supabase
 			.from('hr_employee_master')
-			.select('id, name_en, name_ar, id_number, join_date, employment_status, employment_status_effective_date, nationalities(name_en, name_ar)')
+			.select('id, name_en, name_ar, id_number, join_date, employment_status, employment_status_effective_date, nationalities(name_en, name_ar), hr_positions!current_position_id(position_title_en, position_title_ar)')
 			.order('id', { ascending: true })
 			.limit(2000);
 		if (employeeError) throw employeeError;
@@ -384,7 +386,9 @@
 			nationality_name_ar: row.nationalities?.name_ar ?? null,
 			join_date: row.join_date,
 			employment_status: row.employment_status,
-			employment_status_effective_date: row.employment_status_effective_date
+			employment_status_effective_date: row.employment_status_effective_date,
+			position_title_en: row.hr_positions?.position_title_en ?? null,
+			position_title_ar: row.hr_positions?.position_title_ar ?? null
 		}));
 
 		const employeeIds = employees.map((row) => row.id);
@@ -907,6 +911,410 @@
 		printWindow.document.close();
 	}
 
+	async function printExperienceCertificate() {
+		const employee = selectedEmployee;
+		if (!employee) {
+			alert($t('hr.servicesWindow.esobSelectEmployeeError'));
+			return;
+		}
+		if (!draft.serviceStartDate || !draft.serviceEndDate) {
+			alert($t('hr.servicesWindow.esobSelectDatesError'));
+			return;
+		}
+
+		const pl = draft.printLanguage;
+		const isBilingual = pl === 'bilingual';
+		const isAr = pl === 'ar';
+
+		// Fetch logo
+		let logoTag = '';
+		let logoUrl = '';
+		try {
+			const { data: iconData } = await supabase
+				.from('app_icons')
+				.select('storage_path')
+				.eq('icon_key', 'logo')
+				.eq('is_active', true)
+				.single();
+			if (iconData?.storage_path) {
+				const { data: urlData } = supabase.storage.from('app-icons').getPublicUrl(iconData.storage_path);
+				if (urlData?.publicUrl) {
+					logoUrl = urlData.publicUrl;
+					logoTag = `<img src="${logoUrl}" class="cert-logo" alt="logo" />`;
+				}
+			}
+		} catch { /* logo optional */ }
+
+		// Fetch passport number if available
+		let passportNumber: string | null = null;
+		// (passport lookup disabled — table not available)
+
+		const pad = (n: number) => String(n).padStart(2, '0');
+		const now = new Date();
+		const issuedDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+
+		// Format date nicely
+		const fmtDate = (d: string, lang: 'en' | 'ar') => {
+			if (!d) return '-';
+			const dt = new Date(d);
+			if (isNaN(dt.getTime())) return d;
+			return dt.toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+		};
+
+		// Service duration text
+		const sp = calculateServicePeriod(draft.serviceStartDate, draft.serviceEndDate);
+		const durationEn = [
+			sp.years > 0 ? `${sp.years} year${sp.years !== 1 ? 's' : ''}` : '',
+			sp.months > 0 ? `${sp.months} month${sp.months !== 1 ? 's' : ''}` : '',
+			sp.days > 0 ? `${sp.days} day${sp.days !== 1 ? 's' : ''}` : ''
+		].filter(Boolean).join(', ') || '—';
+		const durationAr = [
+			sp.years > 0 ? `${sp.years} سنة` : '',
+			sp.months > 0 ? `${sp.months} شهر` : '',
+			sp.days > 0 ? `${sp.days} يوم` : ''
+		].filter(Boolean).join(' و ') || '—';
+
+		const nameEn = employee.name_en ?? employee.id;
+		const nameAr = employee.name_ar ?? employee.id;
+		const posEn = employee.position_title_en ?? '___________________________';
+		const posAr = employee.position_title_ar ?? '___________________________';
+		const idNum = employee.id_number ?? '—';
+		const idLineEn = `ID: ${idNum}${passportNumber ? ` &nbsp;|&nbsp; Passport: ${passportNumber}` : ''}`;
+		const idLineAr = `رقم الهوية: ${idNum}${passportNumber ? ` &nbsp;|&nbsp; جواز السفر: ${passportNumber}` : ''}`;
+		const startEn = fmtDate(draft.serviceStartDate, 'en');
+		const startAr = fmtDate(draft.serviceStartDate, 'ar');
+		const endEn = fmtDate(draft.serviceEndDate, 'en');
+		const endAr = fmtDate(draft.serviceEndDate, 'ar');
+
+		const certEn = `
+			<div class="cert-body-lang" lang="en" dir="ltr">
+				<p class="cert-to">To Whom It May Concern,</p>
+				<p class="cert-para">
+					This is to certify that <strong>${nameEn}</strong> (${idLineEn}) has been employed
+					with our organization in the position of <strong>${posEn}</strong>.
+				</p>
+				<p class="cert-para">
+					The period of employment was from <strong>${startEn}</strong> to <strong>${endEn}</strong>,
+					with a total service duration of <strong>${durationEn}</strong>.
+				</p>
+				<p class="cert-para">
+					During the course of employment, ${nameEn} performed ${employee.name_en ? 'their' : 'their'} duties
+					with dedication and professionalism.
+				</p>
+				<p class="cert-para">
+					This certificate is issued upon request for whatever purpose it may serve.
+				</p>
+			</div>`;
+
+		const certAr = `
+			<div class="cert-body-lang" lang="ar" dir="rtl">
+				<p class="cert-to">إلى من يهمه الأمر،</p>
+				<p class="cert-para">
+					يُشهد بأن <strong>${nameAr}</strong> (${idLineAr}) قد عمل/عملت لدى منشأتنا
+					بمسمى وظيفي <strong>${posAr}</strong>.
+				</p>
+				<p class="cert-para">
+					وذلك خلال الفترة من <strong>${startAr}</strong> إلى <strong>${endAr}</strong>،
+					بإجمالي مدة خدمة <strong>${durationAr}</strong>.
+				</p>
+				<p class="cert-para">
+					وقد أدّى/أدّت عمله/عملها خلال فترة خدمته/خدمتها بمستوى عالٍ من الكفاءة والالتزام.
+				</p>
+				<p class="cert-para">
+					أُصدرت هذه الشهادة بناءً على طلبه/طلبها لاستخدامها فيما يراه/تراه مناسباً.
+				</p>
+			</div>`;
+
+		const titleText = isBilingual
+			? 'Experience Certificate &nbsp;|&nbsp; شهادة خبرة'
+			: isAr ? 'شهادة خبرة' : 'Experience Certificate';
+
+		const bodyContent = isBilingual
+			? `<div class="cert-bilingual">${certEn}${certAr}</div>`
+			: isAr
+				? certAr.replace('class="cert-body-lang"', 'class="cert-body-lang cert-body-single"')
+				: certEn.replace('class="cert-body-lang"', 'class="cert-body-lang cert-body-single"');
+
+		const html = `<!doctype html>
+<html lang="${isAr && !isBilingual ? 'ar' : 'en'}" dir="${isAr && !isBilingual ? 'rtl' : 'ltr'}">
+<head>
+	<meta charset="utf-8" />
+	<title>Experience Certificate</title>
+	<style>
+		@page { size: A4 landscape; margin: 0; }
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			font-family: 'Segoe UI', Arial, sans-serif;
+			background: #fff;
+			color: #1a202c;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		.cert-page {
+			width: 297mm;
+			height: 210mm;
+			padding: 12mm 16mm;
+			position: relative;
+			display: flex;
+			flex-direction: column;
+		}
+		/* Outer border */
+		.cert-page::before {
+			content: '';
+			position: absolute;
+			inset: 6mm;
+			border: 2.5px solid #b8953a;
+			pointer-events: none;
+		}
+		/* Inner border */
+		.cert-page::after {
+			content: '';
+			position: absolute;
+			inset: 8mm;
+			border: 1px solid #b8953a;
+			pointer-events: none;
+		}
+		/* ── Watermarks ── */
+		.cert-watermarks {
+			position: absolute;
+			inset: 0;
+			pointer-events: none;
+			z-index: 0;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+			overflow: hidden;
+		}
+		.cert-watermarks img {
+			width: 36mm;
+			opacity: 0.06;
+			object-fit: contain;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		/* ── Corner ornaments ── */
+		.cert-corner {
+			position: absolute;
+			width: 14mm;
+			height: 14mm;
+			pointer-events: none;
+			z-index: 1;
+		}
+		.cert-corner svg { width: 100%; height: 100%; }
+		.cert-corner.tl { top: 9mm;  left: 9mm;  }
+		.cert-corner.tr { top: 9mm;  right: 9mm; transform: scaleX(-1); }
+		.cert-corner.bl { bottom: 9mm; left: 9mm;  transform: scaleY(-1); }
+		.cert-corner.br { bottom: 9mm; right: 9mm; transform: scale(-1); }
+		/* ── Background subtle radial glow ── */
+		.cert-bg-glow {
+			position: absolute;
+			inset: 0;
+			background: radial-gradient(ellipse 60% 50% at 50% 50%, rgba(184,149,58,0.04) 0%, transparent 70%);
+			pointer-events: none;
+			z-index: 0;
+		}
+		/* ensure content sits above bg layers */
+		.cert-header, .cert-bilingual, .cert-body-lang, .cert-footer, .cert-disclaimer { position: relative; z-index: 1; }
+		/* ── Header ── */
+		.cert-header {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			flex-direction: column;
+			padding-top: 4mm;
+			gap: 3mm;
+		}
+		.cert-logo { height: 18mm; max-width: 60mm; object-fit: contain; }
+		.cert-divider {
+			width: 100%;
+			height: 2px;
+			background: linear-gradient(to right, transparent, #b8953a 20%, #b8953a 80%, transparent);
+			margin: 3mm 0 2mm;
+		}
+		.cert-title {
+			font-size: 22pt;
+			font-weight: 700;
+			font-style: italic;
+			letter-spacing: 2px;
+			color: #7c5c1e;
+			text-align: center;
+			text-transform: uppercase;
+		}
+		/* ── Body ── */
+		.cert-bilingual {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 8mm;
+			flex: 1;
+		}
+		.cert-body-lang {
+			flex: 1;
+			padding: 2mm 6mm;
+			width: 100%;
+			text-align: left;
+			direction: ltr;
+		}
+		.cert-body-lang[dir="rtl"] {
+			text-align: right;
+			direction: rtl;
+		}
+		/* Single-language: center everything */
+		.cert-body-single {
+			max-width: 180mm;
+			margin: 0 auto;
+			text-align: center !important;
+		}
+		.cert-body-single .cert-to,
+		.cert-body-single .cert-para {
+			text-align: center !important;
+		}
+		.cert-to {
+			font-size: 10pt;
+			color: #555;
+			margin-bottom: 3mm;
+			font-style: italic;
+		}
+		.cert-para {
+			font-size: 10.5pt;
+			font-style: italic;
+			line-height: 1.7;
+			margin-bottom: 2.5mm;
+			color: #1a202c;
+			text-align: inherit;
+		}
+		/* ── Footer ── */
+		.cert-footer {
+			display: grid;
+			grid-template-columns: 1fr 1fr 1fr;
+			gap: 4mm;
+			margin-top: auto;
+			padding-top: 4mm;
+		}
+		.cert-sign-box {
+			border-top: 1.5px solid #b8953a;
+			padding-top: 2mm;
+			min-height: 18mm;
+		}
+		.cert-sign-label {
+			font-size: 8.5pt;
+			font-weight: 600;
+			color: #7c5c1e;
+			margin-bottom: 1mm;
+		}
+		.cert-sign-label-ar {
+			font-size: 8.5pt;
+			color: #555;
+			direction: rtl;
+		}
+		.cert-stamp-box {
+			border: 1.5px dashed #b8953a;
+			border-radius: 50%;
+			width: 28mm;
+			height: 28mm;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin: 0 auto;
+			font-size: 7.5pt;
+			color: #b8953a;
+			text-align: center;
+			line-height: 1.3;
+		}
+		.cert-issued {
+			text-align: center;
+			font-size: 8pt;
+			color: #777;
+			margin-top: 2mm;
+		}
+		.cert-disclaimer {
+			text-align: center;
+			font-size: 7.5pt;
+			color: #888;
+			font-style: italic;
+			border-top: 1px solid #e2c97e;
+			padding-top: 2mm;
+			margin-top: 2mm;
+		}
+	</style>
+</head>
+<body>
+<div class="cert-page">
+	<!-- Background layers -->
+	<div class="cert-bg-glow"></div>
+	${logoUrl ? (() => {
+		const spots = [
+			{top:'8%',   left:'5%'},
+			{top:'8%',   left:'36%'},
+			{top:'8%',   left:'67%'},
+			{top:'40%',  left:'20%'},
+			{top:'40%',  left:'52%'},
+			{top:'40%',  left:'83%'},
+			{top:'68%',  left:'5%'},
+			{top:'68%',  left:'36%'},
+			{top:'68%',  left:'67%'},
+		];
+		return `<div class="cert-watermarks" aria-hidden="true">${spots.map(p =>
+			`<img src="${logoUrl}" style="position:absolute;top:${p.top};left:${p.left};transform:rotate(-30deg);" alt="" />`
+		).join('')}</div>`;
+	})() : ''}
+	<!-- Corner ornaments -->
+	${['tl','tr','bl','br'].map(pos => `
+	<div class="cert-corner ${pos}">
+		<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+			<path d="M2 2 L2 16" stroke="#b8953a" stroke-width="2" stroke-linecap="round"/>
+			<path d="M2 2 L16 2" stroke="#b8953a" stroke-width="2" stroke-linecap="round"/>
+			<path d="M5 5 L5 13" stroke="#d4aa50" stroke-width="0.8" stroke-linecap="round"/>
+			<path d="M5 5 L13 5" stroke="#d4aa50" stroke-width="0.8" stroke-linecap="round"/>
+			<circle cx="2" cy="2" r="1.5" fill="#b8953a"/>
+		</svg>
+	</div>`).join('')}
+	<div class="cert-header">
+		${logoTag}
+		<div class="cert-divider"></div>
+		<div class="cert-title">${titleText}</div>
+		<div class="cert-divider"></div>
+	</div>
+
+	${bodyContent}
+
+	<div class="cert-footer">
+		<div class="cert-sign-box">
+			<div class="cert-sign-label">Authorized Signature</div>
+			<div class="cert-sign-label-ar">توقيع المفوّض</div>
+		</div>
+		<div style="text-align:center;">
+			<div class="cert-stamp-box"></div>
+			<div class="cert-issued">Issued: ${issuedDate}</div>
+		</div>
+		<div class="cert-sign-box" style="text-align:end;">
+			<div class="cert-sign-label">HR Manager / مدير الموارد البشرية</div>
+			<div class="cert-sign-label-ar">Date / التاريخ: _______________</div>
+		</div>
+	</div>
+	<div class="cert-disclaimer">
+		This certificate is issued electronically and requires the official stamp and authorized signature to be considered valid.
+		&nbsp;&nbsp;|&nbsp;&nbsp;
+		هذه الشهادة صادرة إلكترونياً وتستلزم ختم الشركة الرسمي وتوقيع المفوّض لاعتبارها سارية المفعول.
+	</div>
+</div>
+<script>
+	window.onload = () => {
+		const imgs = Array.from(document.images);
+		if (imgs.length === 0) { window.print(); return; }
+		let remaining = imgs.length;
+		const done = () => { if (--remaining === 0) window.print(); };
+		imgs.forEach(img => { if (img.complete) done(); else { img.onload = done; img.onerror = done; } });
+	};
+<\/script>
+</body>
+</html>`;
+
+		const pw = window.open('', '_blank', 'width=1200,height=850');
+		if (!pw) return;
+		pw.document.open();
+		pw.document.write(html);
+		pw.document.close();
+	}
+
 	function resetBaseForm() {
 		baseEditId = null;
 		baseRuleNameEn = '';
@@ -1036,6 +1444,7 @@
 				<button class="btn primary" on:click={calculateDraft}>{$t('hr.servicesWindow.esobCalculate')}</button>
 				<button class="btn primary" on:click={saveRecord} disabled={isSaving}>{isSaving ? $t('common.saving') : $t('hr.servicesWindow.esobSave')}</button>
 				<button class="btn" on:click={printDraft}>{$t('hr.servicesWindow.esobPrint')}</button>
+				<button class="btn" on:click={printExperienceCertificate}>📜 {$t('hr.servicesWindow.esobPrintCert')}</button>
 			{/if}
 		</div>
 	</div>
