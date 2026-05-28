@@ -178,6 +178,7 @@ export const arabicLocale: LocaleData = {
       reportingMap: "خريطة التقارير",
       assignPositions: "تعيين المناصب",
       linkID: "ربط المعرف",
+      services: "الخدمات",
       employeeFiles: "ملفات الموظفين",
       fingerprintTransactions: "عمليات البصمة",
       processFingerprint: "معالجة البصمة",
@@ -2312,6 +2313,9 @@ export const arabicLocale: LocaleData = {
       exportInfo: "اختر نطاق التاريخ وفلتر الفرع الاختياري، ثم انقر فوق تصدير لتنزيل ملف Excel مع الأعمدة التالية:",
       exportData: "تصدير البيانات",
       exporting: "جاري التصدير...",
+      // HR Services
+      servicesSubtitle: "حدد خدمة لعرض التفاصيل",
+      selectServicePrompt: "حدد بطاقة خدمة للبدء",
       // HR Master Dashboard
       masterTitle: "لوحة مراقبة إدارة الموارد البشرية",
       masterSubtitle: "نظام إدارة الموارد البشرية الشامل",
@@ -3172,6 +3176,7 @@ export const arabicLocale: LocaleData = {
     common: {
       alert: "تنبيه",
       requiredFields: "حقول مطلوبة",
+      comingSoon: "قريباً",
       invalidSelection: "اختيار غير صالح",
       invalidDateRange: "نطاق تاريخ غير صالح",
       saveError: "خطأ في الحفظ",

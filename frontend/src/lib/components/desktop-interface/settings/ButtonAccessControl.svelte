@@ -33,6 +33,34 @@
 	let showOnlyEnabled = false;
 	let showOnlyDisabled = false;
 
+	const sectionOrder = [
+		'Delivery',
+		'Vendor',
+		'Media',
+		'Promo',
+		'Finance',
+		'Hr',
+		'Stock',
+		'Tasks',
+		'Outreach',
+		'Users',
+		'Loyalty',
+		'Controls',
+		'WhatsApp'
+	];
+
+	const subsectionOrder = ['Dashboard', 'Manage', 'Operations', 'Reports'];
+
+	function sectionRank(section: string): number {
+		const i = sectionOrder.indexOf(section);
+		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+	}
+
+	function subsectionRank(subsection: string): number {
+		const i = subsectionOrder.indexOf(subsection);
+		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+	}
+
 	// Filtered buttons (reactive)
 	$: filteredButtons = allButtons.filter(btn => {
 		if (buttonSearchQuery) {
@@ -50,6 +78,31 @@
 		}
 		return true;
 	});
+
+	$: groupedFilteredRows = (() => {
+		const rows: Array<any> = [];
+		let lastSection = '';
+		let lastSubsection = '';
+		let idx = 0;
+
+		for (const btn of filteredButtons) {
+			if (btn.section !== lastSection) {
+				rows.push({ type: 'section', section: btn.section, key: `section-${btn.section}` });
+				lastSection = btn.section;
+				lastSubsection = '';
+			}
+
+			if (btn.subsection !== lastSubsection) {
+				rows.push({ type: 'subsection', subsection: btn.subsection, key: `subsection-${btn.section}-${btn.subsection}` });
+				lastSubsection = btn.subsection;
+			}
+
+			idx += 1;
+			rows.push({ type: 'button', button: btn, idx, key: `button-${btn.code}` });
+		}
+
+		return rows;
+	})();
 
 	$: enabledCount = allButtons.filter(btn => {
 		const state = pendingChanges.has(btn.code) ? pendingChanges.get(btn.code) : permissionMap.get(btn.code);
@@ -199,11 +252,21 @@
 				section: mainMap.get(btn.main_section_id) || 'Unknown',
 				subsection: subMap.get(btn.subsection_id) || 'Unknown'
 			})).sort((a: any, b: any) => {
+				const sr = sectionRank(a.section) - sectionRank(b.section);
+				if (sr !== 0) return sr;
 				const sc = a.section.localeCompare(b.section);
-				return sc !== 0 ? sc : a.name.localeCompare(b.name);
+				if (sc !== 0) return sc;
+				const subr = subsectionRank(a.subsection) - subsectionRank(b.subsection);
+				if (subr !== 0) return subr;
+				const subc = a.subsection.localeCompare(b.subsection);
+				if (subc !== 0) return subc;
+				return a.name.localeCompare(b.name);
 			});
 
-			availableSections = [...new Set(allButtons.map((b: any) => b.section))].sort();
+			availableSections = [...new Set(allButtons.map((b: any) => b.section))].sort((a: string, b: string) => {
+				const sr = sectionRank(a) - sectionRank(b);
+				return sr !== 0 ? sr : a.localeCompare(b);
+			});
 
 			buttonCodeToIdMap.clear();
 			btnRes.data.forEach((btn: any) => { buttonCodeToIdMap.set(btn.button_code, btn.id); });
@@ -497,29 +560,40 @@
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-slate-100">
-								{#each filteredButtons as button, idx (button.code)}
-									{@const enabled = getButtonState(button.code)}
-									{@const changed = isChanged(button.code)}
-									<tr class="transition-colors duration-150 {changed ? 'bg-amber-50/60' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-sky-50/40">
-										<td class="px-4 py-2.5 text-xs text-slate-400 font-semibold">{idx + 1}</td>
-										<td class="px-4 py-2.5 text-sm text-slate-800 font-medium">
-											{button.name}
-											{#if changed}
-												<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 ml-1 align-middle" title="Unsaved change"></span>
-											{/if}
-										</td>
-										<td class="px-4 py-2.5 text-xs text-slate-500">{button.section}</td>
-										<td class="px-4 py-2.5 text-xs text-slate-500">{button.subsection}</td>
-										<td class="px-4 py-2.5 text-center">
-											<button
-												class="relative w-11 h-6 rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 {enabled ? 'bg-emerald-500 focus:ring-emerald-400' : 'bg-slate-300 focus:ring-slate-400'}"
-												on:click={() => toggleButton(button.code)}
-												title={enabled ? 'Click to disable' : 'Click to enable'}
-											>
-												<span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 {enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
-											</button>
-										</td>
-									</tr>
+								{#each groupedFilteredRows as row (row.key)}
+									{#if row.type === 'section'}
+										<tr class="bg-sky-50/70 border-y border-sky-100">
+											<td class="px-4 py-2 text-[11px] text-sky-700 font-black uppercase tracking-wide" colspan="5">{row.section}</td>
+										</tr>
+									{:else if row.type === 'subsection'}
+										<tr class="bg-slate-50/70">
+											<td class="px-4 py-1.5 text-[11px] text-slate-500 font-bold uppercase tracking-wide" colspan="5">{row.subsection}</td>
+										</tr>
+									{:else}
+										{@const button = row.button}
+										{@const enabled = getButtonState(button.code)}
+										{@const changed = isChanged(button.code)}
+										<tr class="transition-colors duration-150 {changed ? 'bg-amber-50/60' : row.idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-sky-50/40">
+											<td class="px-4 py-2.5 text-xs text-slate-400 font-semibold">{row.idx}</td>
+											<td class="px-4 py-2.5 text-sm text-slate-800 font-medium">
+												{button.name}
+												{#if changed}
+													<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 ml-1 align-middle" title="Unsaved change"></span>
+												{/if}
+											</td>
+											<td class="px-4 py-2.5 text-xs text-slate-500">{button.section}</td>
+											<td class="px-4 py-2.5 text-xs text-slate-500">{button.subsection}</td>
+											<td class="px-4 py-2.5 text-center">
+												<button
+													class="relative w-11 h-6 rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 {enabled ? 'bg-emerald-500 focus:ring-emerald-400' : 'bg-slate-300 focus:ring-slate-400'}"
+													on:click={() => toggleButton(button.code)}
+													title={enabled ? 'Click to disable' : 'Click to enable'}
+												>
+													<span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 {enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+												</button>
+											</td>
+										</tr>
+									{/if}
 								{/each}
 							</tbody>
 						</table>

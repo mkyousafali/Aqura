@@ -18,29 +18,48 @@ interface SectionStructure {
 	totalButtons: number;
 }
 
+function prettyButtonName(code: string): string {
+	const specialNames: Record<string, string> = {
+		E_R_P_CONNECTIONS: 'ERP Connections',
+		API_KEYS_MANAGER: 'API Keys Manager',
+		HR_SERVICES: 'HR Services',
+		WA_AI_BOT: 'WhatsApp AI Bot',
+		WA_AUTO_REPLY: 'WhatsApp Auto Reply',
+		WA_LIVE_CHAT: 'WhatsApp Live Chat',
+		WA_BROADCASTS: 'WhatsApp Broadcasts',
+		WA_TEMPLATES: 'WhatsApp Templates',
+		WA_CONTACTS: 'WhatsApp Contacts',
+		WA_SETTINGS: 'WhatsApp Settings',
+		WA_CATALOG: 'WhatsApp Catalog',
+		WA_ACCOUNTS: 'WhatsApp Accounts',
+		WA_DASHBOARD: 'WhatsApp Dashboard'
+	};
+	if (specialNames[code]) return specialNames[code];
+
+	return code
+		.toLowerCase()
+		.split('_')
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(' ');
+}
+
 export const GET: RequestHandler = async () => {
 	try {
-		// Read the Sidebar.svelte component
 		const sidebarPath = resolve('src/lib/components/desktop-interface/common/Sidebar.svelte');
 		const sidebarCode = readFileSync(sidebarPath, 'utf-8');
 
-		// Extract all button codes from isButtonAllowed() calls
 		const buttonCodeRegex = /isButtonAllowed\(['"]([A-Z_]+)['"]\)/g;
-		const allButtonCodes = new Set<string>();
-
-		let match;
+		const detectedButtonCodes = new Set<string>();
+		let match: RegExpExecArray | null;
 		while ((match = buttonCodeRegex.exec(sidebarCode)) !== null) {
-			allButtonCodes.add(match[1]);
+			detectedButtonCodes.add(match[1]);
 		}
 
-		// Extract button names from onclick handlers and menu-text spans
-		const sections: Record<string, SectionStructure> = {};
-
-		// Define the structure based on sidebar analysis
-		const structure = {
+		// Hardcoded canonical sidebar structure (kept explicit by request)
+		const structure: Record<string, Record<string, string[]>> = {
 			DELIVERY: {
 				DASHBOARD: [],
-				MANAGE: ['CUSTOMER_MASTER', 'AD_MANAGER', 'PRODUCTS_MANAGER', 'DELIVERY_SETTINGS'],
+				MANAGE: ['CUSTOMER_MASTER', 'AD_MANAGER', 'PRODUCTS_MANAGER', 'DELIVERY_MANAGE_PRODUCTS', 'DELIVERY_SETTINGS'],
 				OPERATIONS: ['ORDERS_MANAGER', 'OFFER_MANAGEMENT'],
 				REPORTS: []
 			},
@@ -52,13 +71,31 @@ export const GET: RequestHandler = async () => {
 			},
 			MEDIA: {
 				DASHBOARD: ['FLYER_MASTER', 'PRODUCTS_DASHBOARD'],
-				MANAGE: ['PRODUCT_MASTER', 'VARIATION_MANAGER', 'OFFER_MANAGER', 'FLYER_TEMPLATES', 'FLYER_SETTINGS', 'NORMAL_PAPER_MANAGER', 'ONE_DAY_OFFER_MANAGER', 'SOCIAL_LINK_MANAGER', 'SHELF_PAPER_TEMPLATE_DESIGNER'],
-				OPERATIONS: ['OFFER_PRODUCT_EDITOR', 'CREATE_NEW_OFFER', 'PRICING_MANAGER', 'ERP_ENTRY_MANAGER', 'GENERATE_FLYERS', 'SHELF_PAPER_MANAGER', 'NEAR_EXPIRY_MANAGER'],
+				MANAGE: [
+					'PRODUCT_MASTER',
+					'VARIATION_MANAGER',
+					'OFFER_MANAGER',
+					'FLYER_TEMPLATES',
+					'FLYER_SETTINGS',
+					'NORMAL_PAPER_MANAGER',
+					'ONE_DAY_OFFER_MANAGER',
+					'SOCIAL_LINK_MANAGER',
+					'SHELF_PAPER_TEMPLATE_DESIGNER'
+				],
+				OPERATIONS: [
+					'OFFER_PRODUCT_EDITOR',
+					'CREATE_NEW_OFFER',
+					'PRICING_MANAGER',
+					'ERP_ENTRY_MANAGER',
+					'GENERATE_FLYERS',
+					'SHELF_PAPER_MANAGER',
+					'NEAR_EXPIRY_MANAGER'
+				],
 				REPORTS: []
 			},
 			PROMO: {
 				DASHBOARD: ['COUPON_DASHBOARD_PROMO'],
-				MANAGE: ['CAMPAIGN_MANAGER'],
+				MANAGE: ['CAMPAIGN_MANAGER', 'GIFT_WHEEL_MANAGER', 'SURPRISE_BOX_MANAGER', 'VIP_CAMPAIGN'],
 				OPERATIONS: ['VIEW_OFFER_MANAGER', 'CUSTOMER_IMPORTER', 'PRODUCT_MANAGER_PROMO'],
 				REPORTS: ['COUPON_REPORTS']
 			},
@@ -69,10 +106,10 @@ export const GET: RequestHandler = async () => {
 				REPORTS: ['EXPENSE_TRACKER', 'SALES_REPORT', 'MONTHLY_BREAKDOWN', 'OVERDUES_REPORT', 'VENDOR_PAYMENTS', 'POS_REPORT']
 			},
 			HR: {
-				DASHBOARD: ['EMPLOYEE_DASHBOARD'],
-				MANAGE: ['UPLOAD_EMPLOYEES', 'CREATE_DEPARTMENT', 'CREATE_LEVEL', 'CREATE_POSITION', 'REPORTING_MAP', 'ASSIGN_POSITIONS', 'CONTACT_MANAGEMENT', 'DOCUMENT_MANAGEMENT', 'SALARY_WAGE_MANAGEMENT', 'WARNING_MASTER', 'LINK_ID'],
-				OPERATIONS: ['EMPLOYEE_FILES', 'FINGERPRINT_TRANSACTIONS', 'PROCESS_FINGERPRINT', 'SALARY_AND_WAGE', 'SHIFT_AND_DAY_OFF', 'LEAVES_AND_VACATIONS', 'DISCIPLINE', 'INCIDENT_MANAGER', 'REPORT_INCIDENT', 'DAILY_CHECKLIST_MANAGER', 'LEAVE_REQUEST', 'BREAK_REGISTER', 'SECURITY_CODE'],
-				REPORTS: ['BIOMETRIC_DATA', 'EXPORT_BIOMETRIC_DATA']
+				DASHBOARD: ['SECURITY_CODE', 'EMPLOYEE_DASHBOARD'],
+				MANAGE: ['CREATE_DEPARTMENT', 'CREATE_LEVEL', 'CREATE_POSITION', 'REPORTING_MAP', 'ASSIGN_POSITIONS', 'LINK_ID', 'HR_SERVICES'],
+				OPERATIONS: ['EMPLOYEE_FILES', 'PROCESS_FINGERPRINT', 'SALARY_AND_WAGE', 'SHIFT_AND_DAY_OFF', 'DISCIPLINE', 'INCIDENT_MANAGER', 'REPORT_INCIDENT', 'DAILY_CHECKLIST_MANAGER', 'BREAK_REGISTER'],
+				REPORTS: ['FINGERPRINT_TRANSACTIONS', 'EXPORT_BIOMETRIC_DATA']
 			},
 			STOCK: {
 				DASHBOARD: [],
@@ -88,8 +125,8 @@ export const GET: RequestHandler = async () => {
 			},
 			NOTIFICATIONS: {
 				DASHBOARD: ['COMMUNICATION_CENTER'],
-				MANAGE: ['CREATE_NOTIFICATION'],
-				OPERATIONS: [],
+				MANAGE: [],
+				OPERATIONS: ['CREATE_NOTIFICATION'],
 				REPORTS: []
 			},
 			USERS: {
@@ -98,206 +135,70 @@ export const GET: RequestHandler = async () => {
 				OPERATIONS: [],
 				REPORTS: []
 			},
-			CONTROLS: {
-				DASHBOARD: [],
-				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE', 'ERP_PRODUCT_MANAGER', 'STORAGE_MANAGER', 'API_KEYS_MANAGER'],
+			LOYALTY: {
+				DASHBOARD: ['LOYALTY_DASHBOARD', 'CUSTOMER_APP'],
+				MANAGE: ['MANAGE_TIERS'],
 				OPERATIONS: [],
 				REPORTS: []
 			},
+			CONTROLS: {
+				DASHBOARD: [],
+				MANAGE: ['BRANCHES', 'SETTINGS', 'E_R_P_CONNECTIONS', 'CLEAR_TABLES', 'BUTTON_ACCESS_CONTROL', 'BUTTON_GENERATOR', 'THEME_MANAGER', 'AI_CHAT_GUIDE', 'ERP_PRODUCT_MANAGER', 'STORAGE_MANAGER', 'ICON_MANAGER', 'API_KEYS_MANAGER'],
+				OPERATIONS: ['PUSH_NOTIFICATION_SETTINGS', 'LOCAL_UPDATE'],
+				REPORTS: ['CENTRAL_PERFORMANCE']
+			},
 			WHATSAPP: {
 				DASHBOARD: ['WA_DASHBOARD'],
-				MANAGE: ['WA_ACCOUNTS', 'WA_TEMPLATES', 'WA_CONTACTS', 'WA_SETTINGS', 'WA_CATALOG'],
+				MANAGE: ['WA_ACCOUNTS', 'WA_TEMPLATES', 'WA_CONTACTS', 'WA_CATALOG', 'WA_SETTINGS'],
 				OPERATIONS: ['WA_LIVE_CHAT', 'WA_BROADCASTS', 'WA_AUTO_REPLY', 'WA_AI_BOT'],
 				REPORTS: []
 			}
 		};
 
-		// Map button codes to friendly names
-		const buttonNames: Record<string, string> = {
-			CUSTOMER_MASTER: 'Customer Master',
-			AD_MANAGER: 'Ad Manager',
-			PRODUCTS_MANAGER: 'Products Manager',
-			DELIVERY_SETTINGS: 'Delivery Settings',
-			ORDERS_MANAGER: 'Orders Manager',
-			OFFER_MANAGEMENT: 'Offer Management',
-			RECEIVING: 'Receiving',
-			UPLOAD_VENDOR: 'Upload Vendor',
-			CREATE_VENDOR: 'Create Vendor',
-			MANAGE_VENDOR: 'Manage Vendor',
-			DEFAULT_POSITIONS: 'Default Positions',
-			START_RECEIVING: 'Start Receiving',
-			RECEIVING_RECORDS: 'Receiving Records',
-			VENDOR_RECORDS: 'Vendor Records',
-			PRODUCT_MASTER: 'Product Master',
-			VARIATION_MANAGER: 'Variation Manager',
-			OFFER_MANAGER: 'Offer Manager',
-			FLYER_TEMPLATES: 'Flyer Templates',
-			SETTINGS: 'Settings',
-			OFFER_PRODUCT_EDITOR: 'Offer Product Editor',
-			CREATE_NEW_OFFER: 'Create New Offer',
-			PRICING_MANAGER: 'Pricing Manager',
-			ERP_ENTRY_MANAGER: 'ERP Entry Manager',
-			GENERATE_FLYERS: 'Generate Flyers',
-			SHELF_PAPER_MANAGER: 'Shelf Paper Manager',
-			SHELF_PAPER_TEMPLATE_DESIGNER: 'Shelf Paper Template Designer',
-			COUPON_DASHBOARD_PROMO: 'Coupon Dashboard',
-			CAMPAIGN_MANAGER: 'Manage Campaigns',
-			VIEW_OFFER_MANAGER: 'View Offer Manager',
-			CUSTOMER_IMPORTER: 'Import Customers',
-			PRODUCT_MANAGER_PROMO: 'Manage Products',
-			COUPON_REPORTS: 'Reports & Stats',
-			CATEGORY_MANAGER: 'Category Manager',
-			ASSET_MANAGER: 'Asset Manager',
-			LEASE_AND_RENT: 'Lease and Rent',
-			PURCHASE_VOUCHER_MANAGER: 'Purchase Voucher Manager',
-			BANK_RECONCILIATION: 'Bank Reconciliation',
-			MANAGE_RECONCILIATIONS: 'Manage Reconciliations',
-			MANUAL_SCHEDULING: 'Manual Scheduling',
-			DAY_BUDGET_PLANNER: 'Day Budget Planner',
-			MONTHLY_MANAGER: 'Monthly Manager',
-			EXPENSE_MANAGER: 'Expense Manager',
-			PAID_MANAGER: 'Paid Manager',
-			DENOMINATION: 'Denomination',
-			PETTY_CASH: 'Petty Cash',
-			EXPENSE_TRACKER: 'Expense Tracker',
-			SALES_REPORT: 'Sales Report',
-			MONTHLY_BREAKDOWN: 'Monthly Breakdown',
-			OVERDUES_REPORT: 'Overdues Report',
-			VENDOR_PAYMENTS: 'Vendor Payments',
-			POS_REPORT: 'POS Report',
-			UPLOAD_EMPLOYEES: 'Upload Employees',
-			CREATE_DEPARTMENT: 'Create Department',
-			CREATE_LEVEL: 'Create Level',
-			CREATE_POSITION: 'Create Position',
-			REPORTING_MAP: 'Reporting Map',
-			ASSIGN_POSITIONS: 'Assign Positions',
-			CONTACT_MANAGEMENT: 'Contact Management',
-			DOCUMENT_MANAGEMENT: 'Document Management',
-			SALARY_WAGE_MANAGEMENT: 'Salary & Wage Management',
-			WARNING_MASTER: 'Warning Master',
-			CONTACT_MANAGEMENT: 'Contact Management',
-			DOCUMENT_MANAGEMENT: 'Document Management',
-			EMPLOYEE_FILES: 'Employee Files',
-			FINGERPRINT_TRANSACTIONS: 'Fingerprint Transactions',
-			PROCESS_FINGERPRINT: 'Process Fingerprint',
-			SALARY_AND_WAGE: 'Salary and Wage',
-			SHIFT_AND_DAY_OFF: 'Shift and Day Off',
-			LEAVES_AND_VACATIONS: 'Leaves and Vacations',
-			LEAVE_REQUEST: 'Leave Request',
-			DISCIPLINE: 'Discipline',
-			INCIDENT_MANAGER: 'Incident Manager',
-			REPORT_INCIDENT: 'Report Incident',
-			LEAVE_REQUEST: 'Leave Request',
-			BREAK_REGISTER: 'Break Register',
-			SECURITY_CODE: 'Security Code',
-			EMPLOYEE_DASHBOARD: 'Employee Dashboard',
-			BIOMETRIC_DATA: 'Biometric Data',
-			EXPORT_BIOMETRIC_DATA: 'Export Biometric Data',
-			TASK_MASTER: 'Task Master',
-			CREATE_TASK: 'Create Task Template',
-			VIEW_TASKS: 'View Task Templates',
-			ASSIGN_TASKS: 'Assign Tasks',
-			VIEW_MY_TASKS: 'View My Tasks',
-			VIEW_MY_ASSIGNMENTS: 'View My Assignments',
-			TASK_STATUS: 'Task Status',
-			BRANCH_PERFORMANCE: 'Branch Performance',
-			COMMUNICATION_CENTER: 'Communication Center',
-			USER_MANAGEMENT: 'Users',
-			CREATE_USER: 'Create User',
-			MANAGE_ADMIN_USERS: 'Manage Admin Users',
-			MANAGE_MASTER_ADMIN: 'Manage Master Admin',
-			INTERFACE_ACCESS_MANAGER: 'Interface Access',
-			APPROVAL_PERMISSIONS: 'Approval Permissions',
-			BRANCH_MASTER: 'Branch Master',
-			SOUND_SETTINGS: 'Sound Settings',
-			ERP_CONNECTIONS: 'ERP Connections',
-			FLYER_MASTER: 'Flyer Master',
-			PRODUCTS_DASHBOARD: 'Products',
-			FLYER_SETTINGS: 'Settings',
-			NORMAL_PAPER_MANAGER: 'Normal Paper Manager',
-			ONE_DAY_OFFER_MANAGER: 'One Day Offer Manager',
-			SOCIAL_LINK_MANAGER: 'Social Link Manager',
-			NEAR_EXPIRY_MANAGER: 'Near Expiry Manager',
-			DAILY_CHECKLIST_MANAGER: 'Daily Checklist Manager',
-			MY_DAILY_CHECKLIST: 'My Daily Checklist',
-			STOCK_PRODUCT_REQUEST: 'Product Request',
-			STOCK_PO_REQUESTS: 'PO Requests',
-			STOCK_STOCK_REQUESTS: 'Stock Requests',
-			STOCK_BT_REQUESTS: 'BT Requests',
-			STOCK_NEAR_EXPIRY_REQUESTS: 'Near Expiry Reports',
-			STOCK_CUSTOMER_PRODUCT_REQUESTS: 'Customer Requests',
-			STOCK_ERP_PRODUCTS: 'ERP Products',
-			STOCK_OFFER_COST_MANAGER: 'Offer Cost Manager',
-			STOCK_PRODUCT_CLAIM_MANAGER: 'Product Claim Manager',
-			STOCK_EXPIRY_CONTROL: 'Expiry Control',
-			WA_DASHBOARD: 'WhatsApp Dashboard',
-			WA_LIVE_CHAT: 'WhatsApp Live Chat',
-			WA_BROADCASTS: 'WhatsApp Broadcasts',
-			WA_TEMPLATES: 'WhatsApp Templates',
-			WA_CONTACTS: 'WhatsApp Contacts',
-			WA_AUTO_REPLY: 'WhatsApp Auto-Reply Bot',
-			WA_AI_BOT: 'WhatsApp AI Bot',
-			WA_ACCOUNTS: 'WhatsApp Accounts',
-			WA_SETTINGS: 'WhatsApp Settings',
-			WA_CATALOG: 'WhatsApp Catalog',
-			CREATE_NOTIFICATION: 'Create Notification',
-			API_KEYS_MANAGER: 'API Keys Manager'
-		};
+		const sections: SectionStructure[] = [];
+		const hardcodedCodes = new Set<string>();
 
-		// Actual button code mappings (for Controls section)
-		const controlsButtonNames: Record<string, string> = {
-			BRANCHES: 'Branch Master',
-			SETTINGS: 'Sound Settings',
-			E_R_P_CONNECTIONS: 'ERP Connections',
-			CLEAR_TABLES: 'Clear Tables',
-			BUTTON_ACCESS_CONTROL: 'Button Access Control',
-			BUTTON_GENERATOR: 'Button Generator',
-			THEME_MANAGER: 'Theme Manager',
-			AI_CHAT_GUIDE: 'AI Chat Guide',
-			ERP_PRODUCT_MANAGER: 'ERP Product Manager',
-			STORAGE_MANAGER: 'Storage Manager'
-		};
+		for (const [sectionCode, subsectionMap] of Object.entries(structure)) {
+			const sectionName = sectionCode === 'WHATSAPP'
+				? 'WhatsApp'
+				: sectionCode === 'NOTIFICATIONS'
+					? 'Outreach'
+					: sectionCode.charAt(0) + sectionCode.slice(1).toLowerCase();
+			const subsectionNames = ['DASHBOARD', 'MANAGE', 'OPERATIONS', 'REPORTS'];
+			const subsections = subsectionNames.map((subCode) => {
+				const codes = subsectionMap[subCode] || [];
+				codes.forEach((code) => hardcodedCodes.add(code));
+				const buttons = codes.map((code) => ({
+					code,
+					name: prettyButtonName(code)
+				}));
 
-		// Merge both mappings
-		const allButtonNames = { ...buttonNames, ...controlsButtonNames };
-
-		// Build sections with detected buttons
-		Object.entries(structure).forEach(([sectionCode, subsections]) => {
-			const sectionName = sectionCode.charAt(0) + sectionCode.slice(1).toLowerCase();
-			const sectionData: SectionStructure = {
-				name: sectionName,
-				subsections: [],
-				totalButtons: 0
-			};
-
-			Object.entries(subsections).forEach(([subsectionCode, buttonCodes]) => {
-				const subsectionName = subsectionCode.charAt(0) + subsectionCode.slice(1).toLowerCase();
-				const buttons = buttonCodes
-					.map(code => ({
-						code: code,
-						name: allButtonNames[code] || code.replace(/_/g, ' ').toLowerCase()
-					}));
-
-				sectionData.subsections.push({
-					name: subsectionName,
-					buttons: buttons,
+				return {
+					name: subCode.charAt(0) + subCode.slice(1).toLowerCase(),
+					buttons,
 					buttonCount: buttons.length
-				});
-
-				sectionData.totalButtons += buttons.length;
+				};
 			});
 
-			sections[sectionName] = sectionData;
-		});
+			sections.push({
+				name: sectionName,
+				subsections,
+				totalButtons: subsections.reduce((sum, sub) => sum + sub.buttonCount, 0)
+			});
+		}
 
-		const result = Object.values(sections);
+		const missingFromHardcoded = Array.from(detectedButtonCodes).filter((code) => !hardcodedCodes.has(code)).sort();
+		const extraInHardcoded = Array.from(hardcodedCodes).filter((code) => !detectedButtonCodes.has(code)).sort();
 
 		return json({
 			success: true,
-			sections: result,
-			totalSections: result.length,
-			totalButtons: result.reduce((sum, s) => sum + s.totalButtons, 0),
-			detectedButtonCodes: Array.from(allButtonCodes).sort()
+			sections,
+			totalSections: sections.length,
+			totalButtons: sections.reduce((sum, section) => sum + section.totalButtons, 0),
+			detectedButtonCodes: Array.from(detectedButtonCodes).sort(),
+			hardcodedButtonCodes: Array.from(hardcodedCodes).sort(),
+			missingFromHardcoded,
+			extraInHardcoded
 		});
 	} catch (error) {
 		console.error('Error parsing sidebar:', error);

@@ -187,6 +187,7 @@ export const englishLocale: LocaleData = {
       dailyChecklistManager: "Daily Checklist Manager",
       leaveRequest: "Leave Request",
       exportBiometricData: "Export Biometric Data",
+      services: "Services",
       createTaskTemplate: "Create Task Template",
       viewTaskTemplates: "View Task Templates",
       assignTasks: "Assign Tasks",
@@ -2188,6 +2189,9 @@ export const englishLocale: LocaleData = {
       exportInfo: "Select date range and optional branch filter, then click export to download Excel file with the following columns:",
       exportData: "Export Data",
       exporting: "Exporting...",
+      // HR Services
+      servicesSubtitle: "Select a service to view details",
+      selectServicePrompt: "Select a service card above to get started",
       // HR Master Dashboard
       masterTitle: "HR Master Dashboard",
       masterSubtitle: "Complete Human Resources Management System",
@@ -3153,6 +3157,7 @@ export const englishLocale: LocaleData = {
     common: {
       alert: "Alert",
       requiredFields: "Required Fields",
+      comingSoon: "Coming soon",
       invalidSelection: "Invalid Selection",
       invalidDateRange: "Invalid Date Range",
       saveError: "Save Error",

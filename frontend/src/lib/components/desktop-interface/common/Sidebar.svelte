@@ -132,6 +132,7 @@
 	import EmployeeDashboard from '$lib/components/desktop-interface/master/hr/EmployeeDashboard.svelte';
 	import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
 	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
+	import HRServices from '$lib/components/desktop-interface/master/hr/HRServices.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -256,6 +257,7 @@
 	const buttonCodeTranslationMap: Record<string, string> = {
 		'CUSTOMER_MASTER': 'admin.customerMaster', 'AD_MANAGER': 'admin.adManager',
 		'PRODUCTS_MANAGER': 'admin.productsManager', 'DELIVERY_SETTINGS': 'admin.deliverySettings',
+		'DELIVERY_MANAGE_PRODUCTS': 'nav.manageProducts',
 		'ORDERS_MANAGER': 'admin.ordersManager', 'OFFER_MANAGEMENT': 'admin.offerManagement',
 		'RECEIVING': 'nav.receiving', 'UPLOAD_VENDOR': 'admin.uploadVendor',
 		'CREATE_VENDOR': 'admin.createVendor', 'MANAGE_VENDOR': 'admin.manageVendor',
@@ -312,9 +314,13 @@
 		'IMPORT_CUSTOMERS': 'nav.importCustomers', 'MANAGE_PRODUCTS': 'nav.manageProducts',
 		'OVER_DUES': 'nav.overdues', 'USER_PERMISSIONS': 'nav.userPermissions',
 		'USERS': 'nav.users', 'CREATE_USER_ROLES': 'nav.createUserRoles',
+		'LOYALTY_DASHBOARD': 'nav.loyaltyProgram', 'CUSTOMER_APP': 'nav.customerApp',
+		'MANAGE_TIERS': 'nav.manage',
+		'HR_SERVICES': 'nav.services',
 		'ASSIGN_ROLES': 'nav.assignRoles', 'ERP_CONNECTIONS': 'nav.erpConnections',
 		'INTERFACE_ACCESS': 'nav.interfaceAccess', 'CREATE_TASK_TEMPLATE': 'nav.createTaskTemplate',
 		'VIEW_TASK_TEMPLATES': 'nav.viewTaskTemplates',
+		'CENTRAL_PERFORMANCE': 'nav.centralPerformance',
 		'STOCK_PRODUCT_REQUEST': 'nav.productRequest',
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
@@ -955,6 +961,30 @@
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openHRServices() {
+		collapseAllMenus();
+		const windowId = generateWindowId('hr-services');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Services #${instanceNumber}`,
+			component: HRServices,
+			componentName: "HRServices",
+			icon: '🛠️',
+			size: { width: 900, height: 600 },
+			position: { 
+				x: 130 + (Math.random() * 100),
+				y: 90 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -3943,7 +3973,7 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('PRODUCTS_MANAGER')}
+					{#if isButtonAllowed('DELIVERY_MANAGE_PRODUCTS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openManageProductsWindow}>
 								<span class="menu-icon">📦</span>
@@ -5052,6 +5082,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					{#if isButtonAllowed('HR_SERVICES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openHRServices}>
+								<span class="menu-icon">🛠️</span>
+								<span class="menu-text">{t('nav.services')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -5916,12 +5954,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showLoyaltyDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openLoyaltyDashboard}>
-							<span class="menu-icon">📊</span>
-							<span class="menu-text">{t('nav.loyaltyProgram') || 'Loyalty Program'}</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('LOYALTY_DASHBOARD')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLoyaltyDashboard}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">{t('nav.loyaltyProgram') || 'Loyalty Program'}</span>
+							</button>
+						</div>
+					{/if}
 					{#if isButtonAllowed('CUSTOMER_APP')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCustomerApp}>
@@ -5955,12 +5995,14 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showLoyaltyManageSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openManageTiers}>
-							<span class="menu-icon">🏅</span>
-							<span class="menu-text">Manage Tiers</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('MANAGE_TIERS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManageTiers}>
+								<span class="menu-icon">🏅</span>
+								<span class="menu-text">Manage Tiers</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -6033,6 +6075,32 @@ function openApprovalCenter() {
 	<!-- Controls Submenu - Inline below Controls button -->
 	{#if showControlsSubmenu}
 		<div class="submenu-inline controls-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showControlsDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showControlsDashboardSubmenu = true;
+						}
+					}}
+					title={t('nav.dashboard')}
+				>
+					
+					<span class="menu-text">{t('nav.dashboard')}</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showControlsDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
 			<!-- Manage Subsection -->
 			<div class="submenu-item-container">
 				<button 
@@ -6215,7 +6283,7 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showControlsReportsSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.isMasterAdmin}
+					{#if isButtonAllowed('CENTRAL_PERFORMANCE') || $currentUser?.isMasterAdmin}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCentralPerformance}>
 								<span class="menu-icon">📊</span>
@@ -6382,6 +6450,29 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showWhatsAppReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showWhatsAppReportsSubmenu = true;
+						}
+					}}
+					title={t('nav.reports')}
+				>
+					<span class="menu-text">{t('nav.reports')}</span>
+				</button>
+			</div>
+			{#if showWhatsAppReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
 				</div>
 			{/if}
 		</div>
