@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, locale } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 
@@ -7,7 +7,7 @@
 
 	interface Service {
 		key: ServiceKey;
-		label: string;
+		labelKey: string;
 		icon: string;
 		accent: string;
 		bg: string;
@@ -17,7 +17,7 @@
 	const services: Service[] = [
 		{
 			key: 'settlementRules',
-			label: 'Settlement Rules',
+			labelKey: 'hr.servicesWindow.serviceSettlementRules',
 			icon: '📋',
 			accent: '#f97316',
 			bg: 'rgba(249,115,22,0.08)',
@@ -25,7 +25,7 @@
 		},
 		{
 			key: 'travelTickets',
-			label: 'Travel Ticket Management',
+			labelKey: 'hr.servicesWindow.serviceTravelTickets',
 			icon: '✈️',
 			accent: '#22c55e',
 			bg: 'rgba(34,197,94,0.08)',
@@ -33,7 +33,7 @@
 		},
 		{
 			key: 'leaveSalary',
-			label: 'Annual Leave Management',
+			labelKey: 'hr.servicesWindow.serviceAnnualLeave',
 			icon: '💰',
 			accent: '#a78bfa',
 			bg: 'rgba(167,139,250,0.08)',
@@ -41,7 +41,7 @@
 		},
 		{
 			key: 'esob',
-			label: 'ESOB',
+			labelKey: 'hr.servicesWindow.serviceEsob',
 			icon: '🏅',
 			accent: '#f472b6',
 			bg: 'rgba(244,114,182,0.08)',
@@ -49,7 +49,7 @@
 		},
 		{
 			key: 'qualificationManagement',
-			label: 'Applicability Management',
+			labelKey: 'hr.servicesWindow.serviceApplicability',
 			icon: '✅',
 			accent: '#0ea5e9',
 			bg: 'rgba(14,165,233,0.08)',
@@ -154,6 +154,40 @@
 		is_infinite: boolean;
 	}
 
+	interface QualificationUsageRpcRow {
+		employee_id: string;
+		ticket_issued_count: number | null;
+		leave_approved_days: number | null;
+	}
+
+	interface TicketIssuanceRow {
+		id: number;
+		employee_id: string;
+		issuance_date: string;
+		ticket_count: number;
+		ticket_amount: number;
+		is_paid: boolean;
+		created_at: string;
+	}
+
+	interface LeaveApprovalRow {
+		id: number;
+		employee_id: string;
+		leave_date: string;
+		is_paid: boolean;
+		created_at: string;
+	}
+
+	interface IssuedTicketTableRow extends TicketIssuanceRow {
+		employee_name_en: string | null;
+		employee_name_ar: string | null;
+	}
+
+	interface IssuedLeaveTableRow extends LeaveApprovalRow {
+		employee_name_en: string | null;
+		employee_name_ar: string | null;
+	}
+
 	let settlementRules: SettlementRule[] = [];
 	let applicabilityEmployees: EmployeeMasterRow[] = [];
 	let applicabilityAssignments: EmployeeApplicabilityAssignment[] = [];
@@ -177,10 +211,43 @@
 	let schedulePeriods: RulePeriodDraft[] = [];
 	let scheduleEmployee: EmployeeMasterRow | null = null;
 	let schedulePreviewRows: Array<{ effective_from: string; effective_to: string | null }> = [];
+	let ticketUsageByEmployee: Record<string, number> = {};
+	let leaveUsageByEmployee: Record<string, number> = {};
+
+	let showTicketManageModal = false;
+	let manageTicketEmployeeId: string | null = null;
+	let manageTicketRecords: TicketIssuanceRow[] = [];
+	let ticketIssueCount: number | '' = 1;
+	let ticketIssueDate = formatDateYmd(new Date());
+	let ticketIssueAmount: number | '' = '';
+	let ticketIssuePaid = false;
+
+	let showLeaveManageModal = false;
+	let manageLeaveEmployeeId: string | null = null;
+	let manageLeaveRecords: LeaveApprovalRow[] = [];
+	let leaveApprovedDaysInput: number | '' = 1;
+	let leaveSingleDate = formatDateYmd(new Date());
+	let leaveStartDate = formatDateYmd(new Date());
+	let leaveEndDate = formatDateYmd(new Date());
+	let leaveDefaultPaid = false;
 
 	let isLoadingRules = false;
 	let rulesError = '';
 	let isSavingRule = false;
+	let isLoadingTicketIssued = false;
+	let isLoadingLeaveIssued = false;
+	let ticketIssuedTableRows: IssuedTicketTableRow[] = [];
+	let leaveIssuedTableRows: IssuedLeaveTableRow[] = [];
+	let filteredTicketIssuedRows: IssuedTicketTableRow[] = [];
+	let filteredLeaveIssuedRows: IssuedLeaveTableRow[] = [];
+	let ticketIssuedSearch = '';
+	let ticketIssuedPaymentFilter: 'all' | 'paid' | 'not_paid' = 'all';
+	let ticketIssuedDateFrom = '';
+	let ticketIssuedDateTo = '';
+	let leaveIssuedSearch = '';
+	let leaveIssuedPaymentFilter: 'all' | 'paid' | 'not_paid' = 'all';
+	let leaveIssuedDateFrom = '';
+	let leaveIssuedDateTo = '';
 	let activeRuleForm: SettlementRuleType | null = null;
 	let formRuleNameEn = '';
 	let formRuleNameAr = '';
@@ -194,6 +261,28 @@
 
 	$: scheduleEmployee = scheduleEmployeeId ? applicabilityEmployees.find((row) => row.id === scheduleEmployeeId) ?? null : null;
 	$: schedulePreviewRows = getPeriodPreviewRows(scheduleEmployee?.join_date ?? null, schedulePeriods);
+	$: filteredTicketIssuedRows = ticketIssuedTableRows.filter((row) => {
+		const query = ticketIssuedSearch.trim().toLowerCase();
+		const text = `${row.employee_id} ${row.employee_name_en ?? ''} ${row.employee_name_ar ?? ''} ${row.issuance_date}`.toLowerCase();
+		const matchesSearch = query === '' || text.includes(query);
+		const matchesPayment = ticketIssuedPaymentFilter === 'all'
+			|| (ticketIssuedPaymentFilter === 'paid' && row.is_paid)
+			|| (ticketIssuedPaymentFilter === 'not_paid' && !row.is_paid);
+		const matchesFrom = ticketIssuedDateFrom === '' || row.issuance_date >= ticketIssuedDateFrom;
+		const matchesTo = ticketIssuedDateTo === '' || row.issuance_date <= ticketIssuedDateTo;
+		return matchesSearch && matchesPayment && matchesFrom && matchesTo;
+	});
+	$: filteredLeaveIssuedRows = leaveIssuedTableRows.filter((row) => {
+		const query = leaveIssuedSearch.trim().toLowerCase();
+		const text = `${row.employee_id} ${row.employee_name_en ?? ''} ${row.employee_name_ar ?? ''} ${row.leave_date}`.toLowerCase();
+		const matchesSearch = query === '' || text.includes(query);
+		const matchesPayment = leaveIssuedPaymentFilter === 'all'
+			|| (leaveIssuedPaymentFilter === 'paid' && row.is_paid)
+			|| (leaveIssuedPaymentFilter === 'not_paid' && !row.is_paid);
+		const matchesFrom = leaveIssuedDateFrom === '' || row.leave_date >= leaveIssuedDateFrom;
+		const matchesTo = leaveIssuedDateTo === '' || row.leave_date <= leaveIssuedDateTo;
+		return matchesSearch && matchesPayment && matchesFrom && matchesTo;
+	});
 
 	async function loadSettlementRules() {
 		isLoadingRules = true;
@@ -215,6 +304,115 @@
 		} finally {
 			isLoadingRules = false;
 		}
+	}
+
+	function handleServiceSelect(serviceKey: ServiceKey) {
+		selected = selected === serviceKey ? null : serviceKey;
+		activeRuleForm = null;
+		closeRuleScheduleModal();
+
+		if (selected === 'travelTickets') {
+			void loadIssuedTicketsTable();
+		}
+		if (selected === 'leaveSalary') {
+			void loadIssuedLeaveTable();
+		}
+	}
+
+	async function loadIssuedTicketsTable() {
+		isLoadingTicketIssued = true;
+		rulesError = '';
+		try {
+			const { data, error } = await supabase
+				.from('hr_employee_ticket_issuances')
+				.select('id, employee_id, issuance_date, ticket_count, ticket_amount, is_paid, created_at')
+				.order('issuance_date', { ascending: false })
+				.order('id', { ascending: false })
+				.limit(500);
+			if (error) throw error;
+
+			const rows = (data ?? []) as TicketIssuanceRow[];
+			const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id).filter(Boolean)));
+			let employeeNameMap: Record<string, { name_en: string | null; name_ar: string | null }> = {};
+
+			if (employeeIds.length > 0) {
+				const { data: empData, error: empError } = await supabase
+					.from('hr_employee_master')
+					.select('id, name_en, name_ar')
+					.in('id', employeeIds);
+				if (empError) throw empError;
+
+				employeeNameMap = ((empData ?? []) as Array<{ id: string; name_en: string | null; name_ar: string | null }>).reduce((acc, row) => {
+					acc[row.id] = { name_en: row.name_en, name_ar: row.name_ar };
+					return acc;
+				}, {} as Record<string, { name_en: string | null; name_ar: string | null }>);
+			}
+
+			ticketIssuedTableRows = rows.map((row) => ({
+				...row,
+				employee_name_en: employeeNameMap[row.employee_id]?.name_en ?? null,
+				employee_name_ar: employeeNameMap[row.employee_id]?.name_ar ?? null
+			}));
+		} catch (error) {
+			rulesError = error instanceof Error ? error.message : 'Failed to load issued tickets';
+		} finally {
+			isLoadingTicketIssued = false;
+		}
+	}
+
+	async function loadIssuedLeaveTable() {
+		isLoadingLeaveIssued = true;
+		rulesError = '';
+		try {
+			const { data, error } = await supabase
+				.from('hr_employee_leave_approvals')
+				.select('id, employee_id, leave_date, is_paid, created_at')
+				.order('leave_date', { ascending: false })
+				.order('id', { ascending: false })
+				.limit(1000);
+			if (error) throw error;
+
+			const rows = (data ?? []) as LeaveApprovalRow[];
+			const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id).filter(Boolean)));
+			let employeeNameMap: Record<string, { name_en: string | null; name_ar: string | null }> = {};
+
+			if (employeeIds.length > 0) {
+				const { data: empData, error: empError } = await supabase
+					.from('hr_employee_master')
+					.select('id, name_en, name_ar')
+					.in('id', employeeIds);
+				if (empError) throw empError;
+
+				employeeNameMap = ((empData ?? []) as Array<{ id: string; name_en: string | null; name_ar: string | null }>).reduce((acc, row) => {
+					acc[row.id] = { name_en: row.name_en, name_ar: row.name_ar };
+					return acc;
+				}, {} as Record<string, { name_en: string | null; name_ar: string | null }>);
+			}
+
+			leaveIssuedTableRows = rows.map((row) => ({
+				...row,
+				employee_name_en: employeeNameMap[row.employee_id]?.name_en ?? null,
+				employee_name_ar: employeeNameMap[row.employee_id]?.name_ar ?? null
+			}));
+		} catch (error) {
+			rulesError = error instanceof Error ? error.message : 'Failed to load approved leave days';
+		} finally {
+			isLoadingLeaveIssued = false;
+		}
+	}
+
+	function resetTicketIssuedFilters() {
+		ticketIssuedSearch = '';
+		ticketIssuedPaymentFilter = 'all';
+		ticketIssuedDateFrom = '';
+		ticketIssuedDateTo = '';
+	}
+
+	function resetLeaveIssuedFilters() {
+		leaveIssuedSearch = '';
+		leaveIssuedPaymentFilter = 'all';
+		leaveIssuedDateFrom = '';
+		leaveIssuedDateTo = '';
 	}
 
 	function mapStatusFilter(value: 'all' | 'enabled' | 'disabled') {
@@ -292,10 +490,14 @@
 			if (reset) {
 				applicabilityEmployees = employees;
 				applicabilityAssignments = assignments;
+				ticketUsageByEmployee = {};
+				leaveUsageByEmployee = {};
 			} else {
 				applicabilityEmployees = [...applicabilityEmployees, ...employees];
 				applicabilityAssignments = [...applicabilityAssignments, ...assignments];
 			}
+
+			await loadQualificationUsageForEmployees(employees.map((row) => row.id));
 
 			const fetchedCount = rows.length;
 			applicabilityTotalCount = fetchedCount > 0 ? Number(rows[0].total_count ?? 0) : (reset ? 0 : applicabilityTotalCount);
@@ -307,6 +509,27 @@
 			isLoadingApplicability = false;
 			isLoadingMoreApplicability = false;
 		}
+	}
+
+	async function loadQualificationUsageForEmployees(employeeIds: string[]) {
+		if (employeeIds.length === 0) return;
+
+		const { data, error } = await supabase.rpc('get_hr_employee_qualification_usage', {
+			p_employee_ids: employeeIds
+		});
+
+		if (error) throw error;
+
+		const rows = (data ?? []) as QualificationUsageRpcRow[];
+		const nextTicketUsage = { ...ticketUsageByEmployee };
+		const nextLeaveUsage = { ...leaveUsageByEmployee };
+		for (const row of rows) {
+			nextTicketUsage[row.employee_id] = Number(row.ticket_issued_count ?? 0);
+			nextLeaveUsage[row.employee_id] = Number(row.leave_approved_days ?? 0);
+		}
+
+		ticketUsageByEmployee = nextTicketUsage;
+		leaveUsageByEmployee = nextLeaveUsage;
 	}
 
 	function applyApplicabilityFilters() {
@@ -499,9 +722,37 @@
 		return applicabilityAssignments.find((row) => row.employee_id === employeeId) ?? null;
 	}
 
+	function localizedText(en: string | null | undefined, ar: string | null | undefined, fallback = '—') {
+		const isArabic = $locale === 'ar';
+		const primary = (isArabic ? ar : en) ?? '';
+		const secondary = (isArabic ? en : ar) ?? '';
+		const value = primary.trim() || secondary.trim();
+		return value || fallback;
+	}
+
+	function localizedDir() {
+		return $locale === 'ar' ? 'rtl' : 'ltr';
+	}
+
+	function getTicketRemaining(employeeId: string, qualified: number | null | undefined) {
+		const total = Number(qualified ?? 0);
+		const used = Number(ticketUsageByEmployee[employeeId] ?? 0);
+		return Math.max(0, total - used);
+	}
+
+	function getLeaveRemaining(employeeId: string, qualified: number | null | undefined) {
+		const total = Number(qualified ?? 0);
+		const used = Number(leaveUsageByEmployee[employeeId] ?? 0);
+		return Math.max(0, total - used);
+	}
+
 	function formatCycleLabel(rule: SettlementRule) {
 		const cycleValue = rule.qualification_cycle_value ?? rule.qualification_cycle_years ?? 1;
 		const cycleUnit = rule.qualification_cycle_unit ?? 'year';
+		if ($locale === 'ar') {
+			const unitLabel = cycleUnit === 'month' ? 'شهر' : 'سنة';
+			return `كل ${cycleValue} ${unitLabel}`;
+		}
 		const unitLabel = cycleUnit === 'month' ? (cycleValue === 1 ? 'month' : 'months') : (cycleValue === 1 ? 'year' : 'years');
 		return `Every ${cycleValue} ${unitLabel}`;
 	}
@@ -511,7 +762,7 @@
 		const start = new Date(joinDate);
 		const end = new Date();
 		if (Number.isNaN(start.getTime())) return '—';
-		if (start > end) return '0 days';
+		if (start > end) return $locale === 'ar' ? '0 يوم' : '0 days';
 
 		let years = end.getFullYear() - start.getFullYear();
 		let months = end.getMonth() - start.getMonth();
@@ -529,10 +780,21 @@
 		}
 
 		const parts: string[] = [];
-		if (years > 0) parts.push(`${years} year${years !== 1 ? 's' : ''}`);
-		if (months > 0) parts.push(`${months} month${months !== 1 ? 's' : ''}`);
-		parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+		if ($locale === 'ar') {
+			if (years > 0) parts.push(`${years} سنة`);
+			if (months > 0) parts.push(`${months} شهر`);
+			parts.push(`${days} يوم`);
+		} else {
+			if (years > 0) parts.push(`${years} year${years !== 1 ? 's' : ''}`);
+			if (months > 0) parts.push(`${months} month${months !== 1 ? 's' : ''}`);
+			parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+		}
 		return parts.join(', ');
+	}
+
+	function hasMissingJoinDate(joinDate: string | null) {
+		if (!joinDate) return true;
+		return Number.isNaN(new Date(joinDate).getTime());
 	}
 
 	async function disableRuleForEmployee(employeeId: string, ruleType: SettlementRuleType) {
@@ -598,6 +860,226 @@
 			rulesError = error instanceof Error ? error.message : 'Failed to delete settlement rule';
 		}
 	}
+
+	function getManageEmployee(employeeId: string | null) {
+		if (!employeeId) return null;
+		return applicabilityEmployees.find((row) => row.id === employeeId) ?? null;
+	}
+
+	function getManageAssignment(employeeId: string | null) {
+		if (!employeeId) return null;
+		return getAssignmentForEmployee(employeeId);
+	}
+
+	async function openTicketManageModal(employeeId: string) {
+		showTicketManageModal = true;
+		manageTicketEmployeeId = employeeId;
+		ticketIssueCount = 1;
+		ticketIssueDate = formatDateYmd(new Date());
+		ticketIssueAmount = '';
+		ticketIssuePaid = false;
+		await loadTicketManageRecords(employeeId);
+	}
+
+	function closeTicketManageModal() {
+		showTicketManageModal = false;
+		manageTicketEmployeeId = null;
+		manageTicketRecords = [];
+	}
+
+	async function loadTicketManageRecords(employeeId: string) {
+		const { data, error } = await supabase
+			.from('hr_employee_ticket_issuances')
+			.select('id, employee_id, issuance_date, ticket_count, ticket_amount, is_paid, created_at')
+			.eq('employee_id', employeeId)
+			.order('issuance_date', { ascending: false })
+			.order('id', { ascending: false });
+
+		if (error) throw error;
+		manageTicketRecords = (data ?? []) as TicketIssuanceRow[];
+	}
+
+	async function saveTicketIssue() {
+		if (!manageTicketEmployeeId) return;
+		const count = Number(ticketIssueCount) || 0;
+		const amount = Number(ticketIssueAmount) || 0;
+
+		if (count <= 0) {
+			applicabilityError = 'Issued ticket count must be greater than zero.';
+			return;
+		}
+
+		if (!ticketIssueDate) {
+			applicabilityError = 'Issue date is required.';
+			return;
+		}
+
+		if (amount < 0) {
+			applicabilityError = 'Ticket amount cannot be negative.';
+			return;
+		}
+
+		isSavingApplicability = true;
+		applicabilityError = '';
+
+		try {
+			const { error } = await supabase.from('hr_employee_ticket_issuances').insert({
+				employee_id: manageTicketEmployeeId,
+				issuance_date: ticketIssueDate,
+				ticket_count: count,
+				ticket_amount: amount,
+				is_paid: ticketIssuePaid
+			});
+			if (error) throw error;
+
+			await loadTicketManageRecords(manageTicketEmployeeId);
+			await loadQualificationUsageForEmployees([manageTicketEmployeeId]);
+			ticketIssueCount = 1;
+			ticketIssueAmount = '';
+			ticketIssuePaid = false;
+		} catch (error) {
+			applicabilityError = error instanceof Error ? error.message : 'Failed to save ticket issuance';
+		} finally {
+			isSavingApplicability = false;
+		}
+	}
+
+	async function toggleTicketPayment(record: TicketIssuanceRow) {
+		isSavingApplicability = true;
+		applicabilityError = '';
+		try {
+			const { error } = await supabase
+				.from('hr_employee_ticket_issuances')
+				.update({ is_paid: !record.is_paid })
+				.eq('id', record.id);
+			if (error) throw error;
+
+			if (manageTicketEmployeeId) {
+				await loadTicketManageRecords(manageTicketEmployeeId);
+			}
+		} catch (error) {
+			applicabilityError = error instanceof Error ? error.message : 'Failed to update ticket payment status';
+		} finally {
+			isSavingApplicability = false;
+		}
+	}
+
+	async function openLeaveManageModal(employeeId: string) {
+		showLeaveManageModal = true;
+		manageLeaveEmployeeId = employeeId;
+		leaveApprovedDaysInput = 1;
+		leaveSingleDate = formatDateYmd(new Date());
+		leaveStartDate = formatDateYmd(new Date());
+		leaveEndDate = formatDateYmd(new Date());
+		leaveDefaultPaid = false;
+		await loadLeaveManageRecords(employeeId);
+	}
+
+	function closeLeaveManageModal() {
+		showLeaveManageModal = false;
+		manageLeaveEmployeeId = null;
+		manageLeaveRecords = [];
+	}
+
+	async function loadLeaveManageRecords(employeeId: string) {
+		const { data, error } = await supabase
+			.from('hr_employee_leave_approvals')
+			.select('id, employee_id, leave_date, is_paid, created_at')
+			.eq('employee_id', employeeId)
+			.order('leave_date', { ascending: false })
+			.order('id', { ascending: false });
+
+		if (error) throw error;
+		manageLeaveRecords = (data ?? []) as LeaveApprovalRow[];
+	}
+
+	function buildLeaveDates(days: number): string[] {
+		if (days <= 1) {
+			return leaveSingleDate ? [leaveSingleDate] : [];
+		}
+
+		if (!leaveStartDate || !leaveEndDate) return [];
+		const start = new Date(leaveStartDate);
+		const end = new Date(leaveEndDate);
+		if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+
+		const dates: string[] = [];
+		const cursor = new Date(start);
+		while (cursor <= end) {
+			dates.push(formatDateYmd(cursor));
+			cursor.setDate(cursor.getDate() + 1);
+		}
+		return dates;
+	}
+
+	async function saveLeaveApprovalDays() {
+		if (!manageLeaveEmployeeId) return;
+		const days = Number(leaveApprovedDaysInput) || 0;
+
+		if (days <= 0) {
+			applicabilityError = 'Approved leave days must be greater than zero.';
+			return;
+		}
+
+		const dates = buildLeaveDates(days);
+		if (dates.length === 0) {
+			applicabilityError = days <= 1 ? 'Leave date is required.' : 'Valid start/end date range is required.';
+			return;
+		}
+
+		if (dates.length !== days) {
+			applicabilityError = `Date selection includes ${dates.length} day(s), but approved days is ${days}.`;
+			return;
+		}
+
+		isSavingApplicability = true;
+		applicabilityError = '';
+
+		try {
+			const payload = dates.map((leaveDate) => ({
+				employee_id: manageLeaveEmployeeId,
+				leave_date: leaveDate,
+				is_paid: leaveDefaultPaid
+			}));
+
+			const { error } = await supabase
+				.from('hr_employee_leave_approvals')
+				.upsert(payload, { onConflict: 'employee_id,leave_date' });
+			if (error) throw error;
+
+			await loadLeaveManageRecords(manageLeaveEmployeeId);
+			await loadQualificationUsageForEmployees([manageLeaveEmployeeId]);
+			leaveApprovedDaysInput = 1;
+			leaveSingleDate = formatDateYmd(new Date());
+			leaveStartDate = formatDateYmd(new Date());
+			leaveEndDate = formatDateYmd(new Date());
+			leaveDefaultPaid = false;
+		} catch (error) {
+			applicabilityError = error instanceof Error ? error.message : 'Failed to save leave approval days';
+		} finally {
+			isSavingApplicability = false;
+		}
+	}
+
+	async function toggleLeavePayment(record: LeaveApprovalRow) {
+		isSavingApplicability = true;
+		applicabilityError = '';
+		try {
+			const { error } = await supabase
+				.from('hr_employee_leave_approvals')
+				.update({ is_paid: !record.is_paid })
+				.eq('id', record.id);
+			if (error) throw error;
+
+			if (manageLeaveEmployeeId) {
+				await loadLeaveManageRecords(manageLeaveEmployeeId);
+			}
+		} catch (error) {
+			applicabilityError = error instanceof Error ? error.message : 'Failed to update leave payment status';
+		} finally {
+			isSavingApplicability = false;
+		}
+	}
 </script>
 
 <div class="services-window">
@@ -608,10 +1090,10 @@
 				class="service-card"
 				class:active={selected === svc.key}
 				style="--accent:{svc.accent};--bg:{svc.bg};--glow:{svc.glow}"
-				on:click={() => { selected = selected === svc.key ? null : svc.key; activeRuleForm = null; closeRuleScheduleModal(); }}
+				on:click={() => handleServiceSelect(svc.key)}
 			>
 				<span class="card-icon">{svc.icon}</span>
-				<span class="card-label">{svc.label}</span>
+				<span class="card-label">{$t(svc.labelKey)}</span>
 				<span class="card-indicator"></span>
 			</button>
 		{/each}
@@ -628,41 +1110,41 @@
 				<div class="rule-form-card" class:ticket-form={activeRuleForm === 'ticket'} class:leave-form={activeRuleForm === 'leave_salary'}>
 					<div class="rule-form-header">
 						<div>
-							<div class="rule-form-kicker">{activeRuleForm === 'ticket' ? 'Ticket Rules' : 'Leave Salary Rules'}</div>
-							<h3>{activeRuleForm === 'ticket' ? 'Add Travel Ticket Management Rule' : 'Add Annual Leave Management Rule'}</h3>
+							<div class="rule-form-kicker">{activeRuleForm === 'ticket' ? $t('hr.servicesWindow.ticketRules') : $t('hr.servicesWindow.leaveSalaryRules')}</div>
+							<h3>{activeRuleForm === 'ticket' ? $t('hr.servicesWindow.addTravelTicketRule') : $t('hr.servicesWindow.addAnnualLeaveRule')}</h3>
 						</div>
 						<button class="btn-close-form" on:click={closeRuleForm}>✕</button>
 					</div>
 
 					<div class="form-fields">
 						<div class="field-group">
-							<label class="field-label" for="f-name-en">Rule Name (EN)</label>
-							<input id="f-name-en" class="field-input" type="text" placeholder={activeRuleForm === 'ticket' ? 'Travel Tickets Rule' : 'Annual Leave Management Rule'} bind:value={formRuleNameEn} />
+							<label class="field-label" for="f-name-en">{$t('hr.servicesWindow.ruleNameEn')}</label>
+							<input id="f-name-en" class="field-input" type="text" placeholder={activeRuleForm === 'ticket' ? $t('hr.servicesWindow.serviceTravelTickets') : $t('hr.servicesWindow.serviceAnnualLeave')} bind:value={formRuleNameEn} />
 						</div>
 						<div class="field-group">
-							<label class="field-label" for="f-name-ar">Rule Name (AR)</label>
+							<label class="field-label" for="f-name-ar">{$t('hr.servicesWindow.ruleNameAr')}</label>
 							<input id="f-name-ar" class="field-input" type="text" dir="rtl" placeholder={activeRuleForm === 'ticket' ? 'قاعدة تذاكر السفر' : 'إدارة الإجازة السنوية'} bind:value={formRuleNameAr} />
 						</div>
 						<div class="field-group">
-							<label class="field-label" for="f-cycle">Qualification Cycle (years)</label>
+							<label class="field-label" for="f-cycle">{$t('hr.servicesWindow.qualificationCycleYears')}</label>
 							<input id="f-cycle" class="field-input field-number" type="number" min="1" max="99" bind:value={formCycleYears} />
 						</div>
 						{#if activeRuleForm === 'ticket'}
 							<div class="field-group">
-								<label class="field-label" for="f-tickets">Number of Tickets</label>
+								<label class="field-label" for="f-tickets">{$t('hr.servicesWindow.numberOfTickets')}</label>
 								<input id="f-tickets" class="field-input field-number" type="number" min="1" max="99" bind:value={formTicketCount} />
 							</div>
 						{:else}
 							<div class="field-group">
-								<label class="field-label" for="f-days">Entitled Days</label>
+								<label class="field-label" for="f-days">{$t('hr.servicesWindow.entitledDays')}</label>
 								<input id="f-days" class="field-input field-number" type="number" min="1" max="365" bind:value={formEntitledDays} />
 							</div>
 						{/if}
 					</div>
 
 					<div class="form-footer">
-						<button class="btn-cancel" on:click={closeRuleForm}>Cancel</button>
-						<button class="btn-save" on:click={saveRule} disabled={isSavingRule}>{isSavingRule ? 'Saving...' : 'Save Rule'}</button>
+						<button class="btn-cancel" on:click={closeRuleForm}>{$t('common.cancel')}</button>
+						<button class="btn-save" on:click={saveRule} disabled={isSavingRule}>{isSavingRule ? $t('common.saving') : $t('hr.servicesWindow.saveRule')}</button>
 					</div>
 				</div>
 			{/if}
@@ -671,23 +1153,23 @@
 				<section class="settlement-section ticket-section">
 					<div class="section-header">
 						<div>
-							<div class="section-kicker">Settlement Rules</div>
-							<h3>Travel Ticket Management Rules</h3>
+							<div class="section-kicker">{$t('hr.servicesWindow.serviceSettlementRules')}</div>
+							<h3>{$t('hr.servicesWindow.travelTicketManagementRules')}</h3>
 						</div>
-						<button class="section-add-btn ticket" on:click={() => openRuleForm('ticket')}>+ Add New</button>
+						<button class="section-add-btn ticket" on:click={() => openRuleForm('ticket')}>{$t('hr.servicesWindow.addNew')}</button>
 					</div>
 
 					{#if isLoadingRules}
-						<div class="settlement-empty">Loading travel ticket management rules...</div>
+						<div class="settlement-empty">{$t('hr.servicesWindow.loadingTravelTicketRules')}</div>
 					{:else if getRulesByType('ticket').length === 0}
-						<div class="settlement-empty">No travel ticket management rules yet.</div>
+						<div class="settlement-empty">{$t('hr.servicesWindow.noTravelTicketRules')}</div>
 					{:else}
 						<table class="settlement-table">
 							<thead>
 								<tr>
-									<th>Rule Name (EN / AR)</th>
-									<th>Cycle</th>
-									<th>Tickets</th>
+									<th>{$t('hr.servicesWindow.ruleName')}</th>
+									<th>{$t('hr.servicesWindow.cycle')}</th>
+									<th>{$t('hr.servicesWindow.tickets')}</th>
 									<th></th>
 								</tr>
 							</thead>
@@ -695,13 +1177,10 @@
 								{#each getRulesByType('ticket') as rule}
 									<tr>
 										<td class="td-name">
-											<div class="name-stack">
-												<span class="name-en">{rule.rule_name_en}</span>
-												<span class="name-ar">{rule.rule_name_ar}</span>
-											</div>
+											<div class="name-en" dir={localizedDir()}>{localizedText(rule.rule_name_en, rule.rule_name_ar)}</div>
 										</td>
 										<td>{formatCycleLabel(rule)}</td>
-										<td>{rule.ticket_count} ticket{rule.ticket_count !== 1 ? 's' : ''}</td>
+										<td>{rule.ticket_count}</td>
 										<td class="table-actions">
 											<button class="btn-delete" on:click={() => deleteRule(rule.id)} title="Delete">🗑️</button>
 										</td>
@@ -715,23 +1194,23 @@
 				<section class="settlement-section leave-section">
 					<div class="section-header">
 						<div>
-							<div class="section-kicker">Settlement Rules</div>
-							<h3>Annual Leave Management Rules</h3>
+							<div class="section-kicker">{$t('hr.servicesWindow.serviceSettlementRules')}</div>
+							<h3>{$t('hr.servicesWindow.annualLeaveManagementRules')}</h3>
 						</div>
-						<button class="section-add-btn leave" on:click={() => openRuleForm('leave_salary')}>+ Add New</button>
+						<button class="section-add-btn leave" on:click={() => openRuleForm('leave_salary')}>{$t('hr.servicesWindow.addNew')}</button>
 					</div>
 
 					{#if isLoadingRules}
-						<div class="settlement-empty">Loading annual leave management rules...</div>
+						<div class="settlement-empty">{$t('hr.servicesWindow.loadingAnnualLeaveRules')}</div>
 					{:else if getRulesByType('leave_salary').length === 0}
-						<div class="settlement-empty">No annual leave management rules yet.</div>
+						<div class="settlement-empty">{$t('hr.servicesWindow.noAnnualLeaveRules')}</div>
 					{:else}
 						<table class="settlement-table">
 							<thead>
 								<tr>
-									<th>Rule Name (EN / AR)</th>
-									<th>Cycle</th>
-									<th>Days</th>
+									<th>{$t('hr.servicesWindow.ruleName')}</th>
+									<th>{$t('hr.servicesWindow.cycle')}</th>
+									<th>{$t('hr.servicesWindow.days')}</th>
 									<th></th>
 								</tr>
 							</thead>
@@ -739,13 +1218,10 @@
 								{#each getRulesByType('leave_salary') as rule}
 									<tr>
 										<td class="td-name">
-											<div class="name-stack">
-												<span class="name-en">{rule.rule_name_en}</span>
-												<span class="name-ar">{rule.rule_name_ar}</span>
-											</div>
+											<div class="name-en" dir={localizedDir()}>{localizedText(rule.rule_name_en, rule.rule_name_ar)}</div>
 										</td>
 										<td>{formatCycleLabel(rule)}</td>
-										<td>{rule.entitled_days} day{rule.entitled_days !== 1 ? 's' : ''}</td>
+										<td>{rule.entitled_days}</td>
 										<td class="table-actions">
 											<button class="btn-delete" on:click={() => deleteRule(rule.id)} title="Delete">🗑️</button>
 										</td>
@@ -762,8 +1238,8 @@
 		<div class="applicability-panel">
 			<div class="applicability-header">
 				<div>
-					<div class="section-kicker">HR Services</div>
-					<h3>Applicability Management</h3>
+					<div class="section-kicker">{$t('hr.servicesWindow.hrServices')}</div>
+					<h3>{$t('hr.servicesWindow.applicabilityManagement')}</h3>
 				</div>
 				<div class="result-count">{applicabilityEmployees.length} / {applicabilityTotalCount}</div>
 			</div>
@@ -772,31 +1248,31 @@
 				<input
 					class="filter-input"
 					type="text"
-					placeholder="Search by employee id, English name, or Arabic name"
+					placeholder={$t('hr.servicesWindow.searchEmployeePlaceholder')}
 					bind:value={searchName}
 					on:keydown={(event) => {
 						if (event.key === 'Enter') applyApplicabilityFilters();
 					}}
 				/>
 				<select class="filter-select" bind:value={selectedNationalityId}>
-					<option value="">All Nationalities</option>
+					<option value="">{$t('hr.servicesWindow.allNationalities')}</option>
 					{#each nationalityOptions as nationality}
-						<option value={nationality.id}>{nationality.name_en || nationality.id}{nationality.name_ar ? ` / ${nationality.name_ar}` : ''}</option>
+						<option value={nationality.id}>{localizedText(nationality.name_en, nationality.name_ar, nationality.id)}</option>
 					{/each}
 				</select>
 				<select class="filter-select" bind:value={ticketStatusFilter}>
-					<option value="all">Ticket: All</option>
-					<option value="enabled">Ticket: Enabled</option>
-					<option value="disabled">Ticket: Disabled</option>
+					<option value="all">{$t('hr.servicesWindow.ticketAll')}</option>
+					<option value="enabled">{$t('hr.servicesWindow.ticketEnabled')}</option>
+					<option value="disabled">{$t('hr.servicesWindow.ticketDisabled')}</option>
 				</select>
 				<select class="filter-select" bind:value={leaveStatusFilter}>
-					<option value="all">Leave: All</option>
-					<option value="enabled">Leave: Enabled</option>
-					<option value="disabled">Leave: Disabled</option>
+					<option value="all">{$t('hr.servicesWindow.leaveAll')}</option>
+					<option value="enabled">{$t('hr.servicesWindow.leaveEnabled')}</option>
+					<option value="disabled">{$t('hr.servicesWindow.leaveDisabled')}</option>
 				</select>
 				<div class="filter-actions">
-					<button class="btn-apply-filter" on:click={applyApplicabilityFilters}>Apply</button>
-					<button class="btn-clear-filter" on:click={clearApplicabilityFilters}>Reset</button>
+					<button class="btn-apply-filter" on:click={applyApplicabilityFilters}>{$t('hr.servicesWindow.apply')}</button>
+					<button class="btn-clear-filter" on:click={clearApplicabilityFilters}>{$t('hr.servicesWindow.reset')}</button>
 				</div>
 			</div>
 
@@ -805,98 +1281,120 @@
 			{/if}
 
 			{#if isLoadingApplicability}
-				<div class="applicability-empty">Loading eligible employees...</div>
+				<div class="applicability-empty">{$t('hr.servicesWindow.loadingEligibleEmployees')}</div>
 			{:else if applicabilityEmployees.length === 0}
-				<div class="applicability-empty">No eligible employees matched your filters.</div>
+				<div class="applicability-empty">{$t('hr.servicesWindow.noEligibleEmployees')}</div>
 			{:else}
 				<div class="applicability-table-wrap" bind:this={applicabilityTableWrapEl} on:scroll={handleApplicabilityScroll}>
 					<table class="applicability-table">
 						<thead>
 							<tr>
-								<th>S/N</th>
-								<th>Employee ID</th>
-								<th>Employee Name</th>
-								<th>Nationality</th>
-								<th>Sponsorship Status</th>
-								<th>Joining Duration</th>
-								<th>Ticket Rule</th>
-								<th>Qualified Number of Tickets</th>
-								<th>Annual Leave Rule</th>
-								<th>Qualified Number of Annual Leave Days</th>
+								<th>{$t('hr.servicesWindow.sn')}</th>
+								<th>{$t('hr.servicesWindow.employeeId')}</th>
+								<th>{$t('hr.servicesWindow.employeeName')}</th>
+								<th>{$t('hr.servicesWindow.nationality')}</th>
+								<th>{$t('hr.servicesWindow.sponsorshipStatus')}</th>
+								<th>{$t('hr.servicesWindow.joiningDuration')}</th>
+								<th>{$t('hr.servicesWindow.ticketRule')}</th>
+								<th>{$t('hr.servicesWindow.qualifiedTickets')}</th>
+								<th>{$t('hr.servicesWindow.annualLeaveRule')}</th>
+								<th>{$t('hr.servicesWindow.qualifiedLeaveDays')}</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each applicabilityEmployees as employee, index}
 								{@const assignment = getAssignmentForEmployee(employee.id)}
-								<tr>
+								{@const ticketRemaining = getTicketRemaining(employee.id, assignment?.qualified_ticket_count)}
+								{@const leaveRemaining = getLeaveRemaining(employee.id, assignment?.qualified_leave_days)}
+								<tr class:missing-join-date={hasMissingJoinDate(employee.join_date)}>
 									<td class="mono-cell">{index + 1}</td>
 									<td class="mono-cell">{employee.id}</td>
 									<td class="td-name">
-										<div class="name-stack">
-											<span class="name-en">{employee.name_en || '—'}</span>
-											<span class="name-ar">{employee.name_ar || '—'}</span>
-										</div>
+										<span class="name-en" dir={localizedDir()}>{localizedText(employee.name_en, employee.name_ar)}</span>
 									</td>
 									<td class="td-name">
-										<div class="name-stack">
-											<span class="name-en">{employee.nationality_name_en || '—'}</span>
-											<span class="name-ar">{employee.nationality_name_ar || '—'}</span>
-										</div>
+										<span class="name-en" dir={localizedDir()}>{localizedText(employee.nationality_name_en, employee.nationality_name_ar)}</span>
 									</td>
-									<td>{employee.sponsorship_status === true ? 'Yes' : 'No'}</td>
+									<td>{employee.sponsorship_status === true ? $t('hr.servicesWindow.yes') : $t('hr.servicesWindow.no')}</td>
 									<td>{formatJoiningDuration(employee.join_date)}</td>
 									<td>
 										<div class="toggle-cell">
-											<button
-												class="toggle-btn"
-												class:enabled={assignment?.ticket_rule_enabled}
-												on:click={() => openRuleScheduleModal(employee.id, 'ticket')}
-											>
-												{assignment?.ticket_rule_enabled ? 'Manage Rules' : 'Enable Rules'}
-											</button>
-											{#if assignment?.ticket_rule_enabled}
-												<button class="btn-inline-disable" on:click={() => disableRuleForEmployee(employee.id, 'ticket')}>Disable</button>
-											{/if}
+											<div class="toggle-actions-inline">
+												<button
+													class="toggle-btn"
+													class:enabled={assignment?.ticket_rule_enabled}
+													on:click={() => openRuleScheduleModal(employee.id, 'ticket')}
+												>
+													{assignment?.ticket_rule_enabled ? $t('hr.servicesWindow.manageRules') : $t('hr.servicesWindow.enableRules')}
+												</button>
+												{#if assignment?.ticket_rule_enabled}
+													<button class="btn-inline-disable" on:click={() => disableRuleForEmployee(employee.id, 'ticket')}>{$t('hr.servicesWindow.disable')}</button>
+												{/if}
+											</div>
 											{#if assignment?.ticket_rule_enabled}
 												<div class="applied-rule">
-													<div>{assignment?.ticket_rule_name_en || '—'}</div>
-													<div class="rule-ar">{assignment?.ticket_rule_name_ar || '—'}</div>
-													<div class="rule-meta">Periods: {assignment?.ticket_periods_count ?? 0}</div>
+													<div dir={localizedDir()}>{localizedText(assignment?.ticket_rule_name_en, assignment?.ticket_rule_name_ar)}</div>
+													<div class="rule-meta">{$t('hr.servicesWindow.periods')}: {assignment?.ticket_periods_count ?? 0}</div>
 												</div>
 											{/if}
 										</div>
 									</td>
-									<td>{assignment?.ticket_rule_enabled ? (assignment?.qualified_ticket_count ?? 0) : '—'}</td>
+									<td>
+										{#if assignment?.ticket_rule_enabled}
+											<div class="qualified-manage-cell">
+												<div class="qualified-number">{ticketRemaining}</div>
+												<div class="qualified-meta">{$t('hr.servicesWindow.qualified')}: {assignment?.qualified_ticket_count ?? 0} | {$t('hr.servicesWindow.issued')}: {ticketUsageByEmployee[employee.id] ?? 0}</div>
+												{#if (assignment?.qualified_ticket_count ?? 0) > 0 || (ticketUsageByEmployee[employee.id] ?? 0) > 0}
+													<button class="btn-manage-qualified" on:click={() => openTicketManageModal(employee.id)}>{$t('hr.servicesWindow.manage')}</button>
+												{/if}
+											</div>
+										{:else}
+											—
+										{/if}
+									</td>
 									<td>
 										<div class="toggle-cell">
-											<button
-												class="toggle-btn leave-toggle"
-												class:enabled={assignment?.leave_salary_rule_enabled}
-												on:click={() => openRuleScheduleModal(employee.id, 'leave_salary')}
-											>
-												{assignment?.leave_salary_rule_enabled ? 'Manage Rules' : 'Enable Rules'}
-											</button>
-											{#if assignment?.leave_salary_rule_enabled}
-												<button class="btn-inline-disable" on:click={() => disableRuleForEmployee(employee.id, 'leave_salary')}>Disable</button>
-											{/if}
+											<div class="toggle-actions-inline">
+												<button
+													class="toggle-btn leave-toggle"
+													class:enabled={assignment?.leave_salary_rule_enabled}
+													on:click={() => openRuleScheduleModal(employee.id, 'leave_salary')}
+												>
+													{assignment?.leave_salary_rule_enabled ? $t('hr.servicesWindow.manageRules') : $t('hr.servicesWindow.enableRules')}
+												</button>
+												{#if assignment?.leave_salary_rule_enabled}
+													<button class="btn-inline-disable" on:click={() => disableRuleForEmployee(employee.id, 'leave_salary')}>{$t('hr.servicesWindow.disable')}</button>
+												{/if}
+											</div>
 											{#if assignment?.leave_salary_rule_enabled}
 												<div class="applied-rule">
-													<div>{assignment?.leave_rule_name_en || '—'}</div>
-													<div class="rule-ar">{assignment?.leave_rule_name_ar || '—'}</div>
-													<div class="rule-meta">Periods: {assignment?.leave_periods_count ?? 0}</div>
+													<div dir={localizedDir()}>{localizedText(assignment?.leave_rule_name_en, assignment?.leave_rule_name_ar)}</div>
+													<div class="rule-meta">{$t('hr.servicesWindow.periods')}: {assignment?.leave_periods_count ?? 0}</div>
 												</div>
 											{/if}
 										</div>
 									</td>
-									<td>{assignment?.leave_salary_rule_enabled ? (assignment?.qualified_leave_days ?? 0) : '—'}</td>
+									<td>
+										{#if assignment?.leave_salary_rule_enabled}
+											<div class="qualified-manage-cell">
+												<div class="qualified-number">{leaveRemaining}</div>
+												<div class="qualified-meta">{$t('hr.servicesWindow.qualified')}: {assignment?.qualified_leave_days ?? 0} | {$t('hr.servicesWindow.approved')}: {leaveUsageByEmployee[employee.id] ?? 0}</div>
+												{#if (assignment?.qualified_leave_days ?? 0) > 0 || (leaveUsageByEmployee[employee.id] ?? 0) > 0}
+													<button class="btn-manage-qualified" on:click={() => openLeaveManageModal(employee.id)}>{$t('hr.servicesWindow.manage')}</button>
+												{/if}
+											</div>
+										{:else}
+											—
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 					{#if isLoadingMoreApplicability}
-						<div class="applicability-loading-more">Loading more...</div>
+						<div class="applicability-loading-more">{$t('hr.servicesWindow.loadingMore')}</div>
 					{:else if hasMoreApplicability}
-						<div class="applicability-loading-more">Scroll to load more</div>
+						<div class="applicability-loading-more">{$t('hr.servicesWindow.scrollToLoadMore')}</div>
 					{/if}
 				</div>
 			{/if}
@@ -907,7 +1405,7 @@
 				class="picker-backdrop"
 				role="button"
 				tabindex="0"
-				aria-label="Close rule schedule"
+				aria-label={$t('hr.servicesWindow.close')}
 				on:click={closeRuleScheduleModal}
 				on:keydown={(event) => {
 					if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
@@ -916,20 +1414,20 @@
 				}}
 			>
 				<div class="picker-modal" role="dialog" aria-modal="true" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
-					<h4>{scheduleRuleType === 'ticket' ? 'Travel Ticket' : 'Annual Leave'} Rule Periods</h4>
+					<h4>{scheduleRuleType === 'ticket' ? $t('hr.servicesWindow.travelTicketRulePeriods') : $t('hr.servicesWindow.annualLeaveRulePeriods')}</h4>
 					<div class="picker-list">
 						{#if scheduleEmployee}
 							<div class="picker-employee-meta">
-								<div><strong>Employee:</strong> {scheduleEmployee.name_en || scheduleEmployee.id}</div>
-								<div><strong>Joining Date:</strong> {scheduleEmployee.join_date || 'N/A'}</div>
+								<div><strong>{$t('hr.servicesWindow.employee')}:</strong> <span dir={localizedDir()}>{localizedText(scheduleEmployee.name_en, scheduleEmployee.name_ar, scheduleEmployee.id)}</span></div>
+								<div><strong>{$t('hr.servicesWindow.joiningDate')}:</strong> {scheduleEmployee.join_date || 'N/A'}</div>
 							</div>
 						{/if}
 						{#each schedulePeriods as period, index}
 							<div class="schedule-row">
 								<div class="schedule-row-top">
-									<div class="schedule-seq">Rule #{index + 1}</div>
+									<div class="schedule-seq">{$t('hr.servicesWindow.ruleName')} #{index + 1}</div>
 									{#if schedulePeriods.length > 1}
-										<button class="btn-remove-period" on:click={() => removeSchedulePeriod(index)}>Remove</button>
+										<button class="btn-remove-period" on:click={() => removeSchedulePeriod(index)}>{$t('hr.servicesWindow.remove')}</button>
 									{/if}
 								</div>
 								<div class="schedule-grid">
@@ -938,9 +1436,9 @@
 										value={period.rule_id ?? ''}
 										on:change={(event) => updateSchedulePeriod(index, { rule_id: Number((event.currentTarget as HTMLSelectElement).value) || null })}
 									>
-										<option value="">Select Rule</option>
+										<option value="">{$t('hr.servicesWindow.selectRule')}</option>
 										{#each getRulesByType(scheduleRuleType) as rule}
-											<option value={rule.id}>{rule.rule_name_en} / {rule.rule_name_ar}</option>
+											<option value={rule.id}>{localizedText(rule.rule_name_en, rule.rule_name_ar)}</option>
 										{/each}
 									</select>
 
@@ -950,11 +1448,11 @@
 											checked={period.is_infinite}
 											on:change={(event) => updateSchedulePeriod(index, { is_infinite: (event.currentTarget as HTMLInputElement).checked })}
 										/>
-										<span>Infinite period</span>
+										<span>{$t('hr.servicesWindow.infinitePeriod')}</span>
 									</label>
 
 									<label class="schedule-number-field">
-										<span>Years</span>
+										<span>{$t('hr.servicesWindow.years')}</span>
 										<input
 											class="field-input field-number"
 											type="number"
@@ -966,7 +1464,7 @@
 										/>
 									</label>
 									<label class="schedule-number-field">
-										<span>Months</span>
+										<span>{$t('hr.servicesWindow.months')}</span>
 										<input
 											class="field-input field-number"
 											type="number"
@@ -980,35 +1478,316 @@
 									</label>
 								</div>
 								<div class="schedule-preview">
-									From: {schedulePreviewRows[index]?.effective_from || '—'}
+									{$t('hr.servicesWindow.from')}: {schedulePreviewRows[index]?.effective_from || '—'}
 									{#if schedulePreviewRows[index]?.effective_to}
-										| To: {schedulePreviewRows[index]?.effective_to}
+										| {$t('hr.servicesWindow.to')}: {schedulePreviewRows[index]?.effective_to}
 									{:else}
-										| To: Infinite
+										| {$t('hr.servicesWindow.to')}: {$t('hr.servicesWindow.infinitePeriod')}
 									{/if}
 								</div>
 							</div>
 						{/each}
 						<button class="btn-add-period" on:click={addSchedulePeriod} disabled={schedulePeriods[schedulePeriods.length - 1]?.is_infinite}>
-							+ Add Next Rule Period
+							{$t('hr.servicesWindow.addNextRulePeriod')}
 						</button>
 					</div>
 					<div class="picker-footer">
-						<button class="btn-cancel" on:click={closeRuleScheduleModal}>Cancel</button>
+						<button class="btn-cancel" on:click={closeRuleScheduleModal}>{$t('common.cancel')}</button>
 						<button class="btn-save" disabled={isSavingApplicability} on:click={saveRuleSchedule}>
-							{isSavingApplicability ? 'Saving...' : 'Save Period Rules'}
+							{isSavingApplicability ? $t('common.saving') : $t('hr.servicesWindow.savePeriodRules')}
 						</button>
 					</div>
 				</div>
 			</div>
 		{/if}
 
+		{#if showTicketManageModal}
+			<div class="picker-backdrop" role="button" tabindex="0" aria-label={$t('hr.servicesWindow.close')} on:click={closeTicketManageModal} on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
+					closeTicketManageModal();
+				}
+			}}>
+				<div class="picker-modal" role="dialog" aria-modal="true" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+					<h4>{$t('hr.servicesWindow.manageQualifiedTickets')}</h4>
+					<div class="picker-list">
+						<div class="picker-employee-meta">
+							<div><strong>{$t('hr.servicesWindow.employee')}:</strong> <span dir={localizedDir()}>{localizedText(getManageEmployee(manageTicketEmployeeId)?.name_en, getManageEmployee(manageTicketEmployeeId)?.name_ar, getManageEmployee(manageTicketEmployeeId)?.id || 'N/A')}</span></div>
+							<div><strong>{$t('hr.servicesWindow.remainingTickets')}:</strong> {manageTicketEmployeeId ? getTicketRemaining(manageTicketEmployeeId, getManageAssignment(manageTicketEmployeeId)?.qualified_ticket_count) : 0}</div>
+						</div>
+
+						<div class="schedule-row">
+							<div class="schedule-seq">{$t('hr.servicesWindow.addTicketIssuance')}</div>
+							<div class="manage-form-grid">
+								<label class="field-group">
+									<span class="field-label">{$t('hr.servicesWindow.numberOfTickets')}</span>
+									<input class="field-input field-number" type="number" min="1" bind:value={ticketIssueCount} />
+								</label>
+								<label class="field-group">
+									<span class="field-label">{$t('hr.servicesWindow.issueDate')}</span>
+									<input class="field-input" type="date" bind:value={ticketIssueDate} />
+								</label>
+								<label class="field-group">
+									<span class="field-label">{$t('hr.servicesWindow.ticketAmount')}</span>
+									<input class="field-input field-number" type="number" min="0" step="0.01" bind:value={ticketIssueAmount} />
+								</label>
+								<label class="schedule-inline-field">
+									<input type="checkbox" bind:checked={ticketIssuePaid} />
+									<span>{$t('hr.servicesWindow.markedAsPaid')}</span>
+								</label>
+							</div>
+							<button class="btn-save-inline" disabled={isSavingApplicability} on:click={saveTicketIssue}>{isSavingApplicability ? $t('common.saving') : $t('hr.servicesWindow.saveIssuance')}</button>
+						</div>
+
+						<div class="manage-list-card">
+							<div class="schedule-seq">{$t('hr.servicesWindow.issuedTickets')}</div>
+							{#if manageTicketRecords.length === 0}
+								<div class="manage-empty">{$t('hr.servicesWindow.noTicketIssuanceRecords')}</div>
+							{:else}
+								<table class="manage-table">
+									<thead>
+										<tr>
+											<th>{$t('hr.servicesWindow.date')}</th>
+											<th>{$t('hr.servicesWindow.count')}</th>
+											<th>{$t('hr.servicesWindow.amount')}</th>
+											<th>{$t('hr.servicesWindow.payment')}</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each manageTicketRecords as rec}
+											<tr>
+												<td>{rec.issuance_date}</td>
+												<td>{rec.ticket_count}</td>
+												<td>{Number(rec.ticket_amount ?? 0).toFixed(2)}</td>
+												<td><button class="btn-payment-toggle" on:click={() => toggleTicketPayment(rec)}>{rec.is_paid ? $t('hr.servicesWindow.paid') : $t('hr.servicesWindow.notPaid')}</button></td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{/if}
+						</div>
+					</div>
+					<div class="picker-footer">
+						<button class="btn-cancel" on:click={closeTicketManageModal}>{$t('hr.servicesWindow.close')}</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if showLeaveManageModal}
+			<div class="picker-backdrop" role="button" tabindex="0" aria-label={$t('hr.servicesWindow.close')} on:click={closeLeaveManageModal} on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
+					closeLeaveManageModal();
+				}
+			}}>
+				<div class="picker-modal" role="dialog" aria-modal="true" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+					<h4>{$t('hr.servicesWindow.manageQualifiedLeaveDays')}</h4>
+					<div class="picker-list">
+						<div class="picker-employee-meta">
+							<div><strong>{$t('hr.servicesWindow.employee')}:</strong> <span dir={localizedDir()}>{localizedText(getManageEmployee(manageLeaveEmployeeId)?.name_en, getManageEmployee(manageLeaveEmployeeId)?.name_ar, getManageEmployee(manageLeaveEmployeeId)?.id || 'N/A')}</span></div>
+							<div><strong>{$t('hr.servicesWindow.remainingLeaveDays')}:</strong> {manageLeaveEmployeeId ? getLeaveRemaining(manageLeaveEmployeeId, getManageAssignment(manageLeaveEmployeeId)?.qualified_leave_days) : 0}</div>
+						</div>
+
+						<div class="schedule-row">
+							<div class="schedule-seq">{$t('hr.servicesWindow.addLeaveApproval')}</div>
+							<div class="manage-form-grid">
+								<label class="field-group">
+									<span class="field-label">{$t('hr.servicesWindow.approvedDays')}</span>
+									<input class="field-input field-number" type="number" min="1" bind:value={leaveApprovedDaysInput} />
+								</label>
+
+								{#if Number(leaveApprovedDaysInput) <= 1}
+									<label class="field-group">
+										<span class="field-label">{$t('hr.servicesWindow.leaveDate')}</span>
+										<input class="field-input" type="date" bind:value={leaveSingleDate} />
+									</label>
+								{:else}
+									<label class="field-group">
+										<span class="field-label">{$t('hr.servicesWindow.startDate')}</span>
+										<input class="field-input" type="date" bind:value={leaveStartDate} />
+									</label>
+									<label class="field-group">
+										<span class="field-label">{$t('hr.servicesWindow.endDate')}</span>
+										<input class="field-input" type="date" bind:value={leaveEndDate} />
+									</label>
+								{/if}
+
+								<label class="schedule-inline-field">
+									<input type="checkbox" bind:checked={leaveDefaultPaid} />
+									<span>{$t('hr.servicesWindow.defaultPaymentStatusPaid')}</span>
+								</label>
+							</div>
+							<button class="btn-save-inline" disabled={isSavingApplicability} on:click={saveLeaveApprovalDays}>{isSavingApplicability ? $t('common.saving') : $t('hr.servicesWindow.saveLeaveDays')}</button>
+						</div>
+
+						<div class="manage-list-card">
+							<div class="schedule-seq">{$t('hr.servicesWindow.approvedLeaveDates')}</div>
+							{#if manageLeaveRecords.length === 0}
+								<div class="manage-empty">{$t('hr.servicesWindow.noLeaveApprovalRecords')}</div>
+							{:else}
+								<table class="manage-table">
+									<thead>
+										<tr>
+											<th>{$t('hr.servicesWindow.date')}</th>
+											<th>{$t('hr.servicesWindow.payment')}</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each manageLeaveRecords as rec}
+											<tr>
+												<td>{rec.leave_date}</td>
+												<td><button class="btn-payment-toggle" on:click={() => toggleLeavePayment(rec)}>{rec.is_paid ? $t('hr.servicesWindow.paid') : $t('hr.servicesWindow.notPaid')}</button></td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{/if}
+						</div>
+					</div>
+					<div class="picker-footer">
+						<button class="btn-cancel" on:click={closeLeaveManageModal}>{$t('hr.servicesWindow.close')}</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+	{:else if selected === 'travelTickets'}
+		<div class="applicability-panel">
+			<div class="applicability-header">
+				<div>
+					<div class="section-kicker">{$t('hr.servicesWindow.hrServices')}</div>
+					<h3>{$t('hr.servicesWindow.travelTicketManagement')}</h3>
+				</div>
+				<button class="btn-apply-filter" on:click={loadIssuedTicketsTable} disabled={isLoadingTicketIssued}>{isLoadingTicketIssued ? $t('hr.servicesWindow.refreshing') : $t('hr.servicesWindow.refresh')}</button>
+			</div>
+
+			<div class="applicability-filters">
+				<input class="filter-input" type="text" placeholder={$t('hr.servicesWindow.searchByEmployeePlaceholder')} bind:value={ticketIssuedSearch} />
+				<select class="filter-select" bind:value={ticketIssuedPaymentFilter}>
+					<option value="all">{$t('hr.servicesWindow.paymentAll')}</option>
+					<option value="paid">{$t('hr.servicesWindow.paymentPaid')}</option>
+					<option value="not_paid">{$t('hr.servicesWindow.paymentNotPaid')}</option>
+				</select>
+				<input class="filter-input" type="date" bind:value={ticketIssuedDateFrom} />
+				<input class="filter-input" type="date" bind:value={ticketIssuedDateTo} />
+				<div class="filter-actions">
+					<button class="btn-clear-filter" on:click={resetTicketIssuedFilters}>{$t('hr.servicesWindow.reset')}</button>
+				</div>
+			</div>
+
+			{#if rulesError}
+				<div class="rules-error">{rulesError}</div>
+			{/if}
+
+			{#if isLoadingTicketIssued}
+				<div class="applicability-empty">{$t('hr.servicesWindow.loadingIssuedTickets')}</div>
+			{:else if ticketIssuedTableRows.length === 0}
+				<div class="applicability-empty">{$t('hr.servicesWindow.noIssuedTickets')}</div>
+			{:else if filteredTicketIssuedRows.length === 0}
+				<div class="applicability-empty">{$t('hr.servicesWindow.noIssuedTicketsMatchFilters')}</div>
+			{:else}
+				<div class="issued-table-wrap">
+					<table class="issued-table">
+						<thead>
+							<tr>
+								<th>{$t('hr.servicesWindow.sn')}</th>
+								<th>{$t('hr.servicesWindow.employeeId')}</th>
+								<th>{$t('hr.servicesWindow.employeeName')}</th>
+								<th>{$t('hr.servicesWindow.issueDate')}</th>
+								<th>{$t('hr.servicesWindow.tickets')}</th>
+								<th>{$t('hr.servicesWindow.amount')}</th>
+								<th>{$t('hr.servicesWindow.payment')}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each filteredTicketIssuedRows as row, index}
+								<tr>
+									<td class="mono-cell">{index + 1}</td>
+									<td class="mono-cell">{row.employee_id}</td>
+									<td class="td-name">
+										<span class="name-en" dir={localizedDir()}>{localizedText(row.employee_name_en, row.employee_name_ar)}</span>
+									</td>
+									<td>{row.issuance_date}</td>
+									<td>{row.ticket_count}</td>
+									<td>{Number(row.ticket_amount ?? 0).toFixed(2)}</td>
+									<td>{row.is_paid ? $t('hr.servicesWindow.paid') : $t('hr.servicesWindow.notPaid')}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+
+	{:else if selected === 'leaveSalary'}
+		<div class="applicability-panel">
+			<div class="applicability-header">
+				<div>
+					<div class="section-kicker">{$t('hr.servicesWindow.hrServices')}</div>
+					<h3>{$t('hr.servicesWindow.annualLeaveManagement')}</h3>
+				</div>
+				<button class="btn-apply-filter" on:click={loadIssuedLeaveTable} disabled={isLoadingLeaveIssued}>{isLoadingLeaveIssued ? $t('hr.servicesWindow.refreshing') : $t('hr.servicesWindow.refresh')}</button>
+			</div>
+
+			<div class="applicability-filters">
+				<input class="filter-input" type="text" placeholder={$t('hr.servicesWindow.searchByEmployeePlaceholder')} bind:value={leaveIssuedSearch} />
+				<select class="filter-select" bind:value={leaveIssuedPaymentFilter}>
+					<option value="all">{$t('hr.servicesWindow.paymentAll')}</option>
+					<option value="paid">{$t('hr.servicesWindow.paymentPaid')}</option>
+					<option value="not_paid">{$t('hr.servicesWindow.paymentNotPaid')}</option>
+				</select>
+				<input class="filter-input" type="date" bind:value={leaveIssuedDateFrom} />
+				<input class="filter-input" type="date" bind:value={leaveIssuedDateTo} />
+				<div class="filter-actions">
+					<button class="btn-clear-filter" on:click={resetLeaveIssuedFilters}>{$t('hr.servicesWindow.reset')}</button>
+				</div>
+			</div>
+
+			{#if rulesError}
+				<div class="rules-error">{rulesError}</div>
+			{/if}
+
+			{#if isLoadingLeaveIssued}
+				<div class="applicability-empty">{$t('hr.servicesWindow.loadingApprovedLeaveDays')}</div>
+			{:else if leaveIssuedTableRows.length === 0}
+				<div class="applicability-empty">{$t('hr.servicesWindow.noApprovedLeaveDays')}</div>
+			{:else if filteredLeaveIssuedRows.length === 0}
+				<div class="applicability-empty">{$t('hr.servicesWindow.noApprovedLeaveMatchFilters')}</div>
+			{:else}
+				<div class="issued-table-wrap">
+					<table class="issued-table">
+						<thead>
+							<tr>
+								<th>{$t('hr.servicesWindow.sn')}</th>
+								<th>{$t('hr.servicesWindow.employeeId')}</th>
+								<th>{$t('hr.servicesWindow.employeeName')}</th>
+								<th>{$t('hr.servicesWindow.leaveDate')}</th>
+								<th>{$t('hr.servicesWindow.payment')}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each filteredLeaveIssuedRows as row, index}
+								<tr>
+									<td class="mono-cell">{index + 1}</td>
+									<td class="mono-cell">{row.employee_id}</td>
+									<td class="td-name">
+										<span class="name-en" dir={localizedDir()}>{localizedText(row.employee_name_en, row.employee_name_ar)}</span>
+									</td>
+									<td>{row.leave_date}</td>
+									<td>{row.is_paid ? $t('hr.servicesWindow.paid') : $t('hr.servicesWindow.notPaid')}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+
 	{:else if selected}
 		{@const svc = services.find(s => s.key === selected)}
 		<div class="content-area" style="--accent:{svc?.accent};--bg:{svc?.bg};--glow:{svc?.glow}">
 			<div class="content-inner">
 				<div class="content-icon">{svc?.icon}</div>
-				<h2 class="content-title">{svc?.label}</h2>
+				<h2 class="content-title">{svc ? $t(svc.labelKey) : ''}</h2>
 				<p class="coming-soon">{$t('common.comingSoon')}</p>
 				<div class="coming-soon-decoration">
 					<span class="dot"></span>
@@ -1349,13 +2128,7 @@
 	}
 	.settlement-table tr:hover td { background: rgba(249,115,22,0.03); }
 	.table-actions { text-align: right; width: 48px; }
-	.name-stack {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
 	.name-en { font-weight: 700; color: #1e293b; }
-	.name-ar { font-size: 0.78rem; color: #64748b; direction: rtl; }
 	.btn-delete {
 		background: none;
 		border: none;
@@ -1513,6 +2286,20 @@
 	.applicability-table tr:hover td {
 		background: rgba(219,234,254,0.72) !important;
 	}
+	.applicability-table tr.missing-join-date td {
+		background: #b91c1c !important;
+		color: #ffffff !important;
+	}
+	.applicability-table tr.missing-join-date:hover td {
+		background: #991b1b !important;
+		color: #ffffff !important;
+	}
+	.applicability-table tr.missing-join-date td .name-en,
+	.applicability-table tr.missing-join-date td .rule-meta,
+	.applicability-table tr.missing-join-date td .qualified-meta,
+	.applicability-table tr.missing-join-date td .qualified-number {
+		color: #ffffff !important;
+	}
 	.applicability-table-wrap::-webkit-scrollbar {
 		height: 10px;
 		width: 10px;
@@ -1533,6 +2320,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+	.toggle-actions-inline {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
 	}
 	.toggle-btn {
 		align-self: flex-start;
@@ -1575,9 +2368,29 @@
 		font-size: 0.68rem;
 		color: #64748b;
 	}
-	.rule-ar {
-		direction: rtl;
+	.qualified-manage-cell {
+		display: grid;
+		gap: 4px;
+	}
+	.qualified-number {
+		font-weight: 800;
+		color: #0f172a;
+		font-size: 0.9rem;
+	}
+	.qualified-meta {
+		font-size: 0.68rem;
 		color: #64748b;
+	}
+	.btn-manage-qualified {
+		justify-self: flex-start;
+		padding: 4px 10px;
+		border-radius: 999px;
+		border: 1px solid rgba(14, 165, 233, 0.3);
+		background: rgba(224, 242, 254, 0.8);
+		color: #0369a1;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
 	}
 
 	@media (max-width: 1200px) {
@@ -1700,6 +2513,115 @@
 		font-size: 0.74rem;
 		color: #475569;
 	}
+	.manage-form-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 8px;
+		align-items: end;
+	}
+	.btn-save-inline {
+		margin-top: 8px;
+		align-self: flex-start;
+		padding: 7px 12px;
+		border-radius: 10px;
+		border: 1px solid rgba(14,165,233,0.35);
+		background: rgba(14,165,233,0.12);
+		color: #075985;
+		font-size: 0.76rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.btn-save-inline:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+	.manage-list-card {
+		padding: 10px;
+		border-radius: 12px;
+		border: 1px solid rgba(148,163,184,0.16);
+		background: rgba(255,255,255,0.88);
+		display: grid;
+		gap: 8px;
+	}
+	.manage-empty {
+		font-size: 0.76rem;
+		color: #64748b;
+	}
+	.manage-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.76rem;
+	}
+	.manage-table th,
+	.manage-table td {
+		padding: 7px 8px;
+		border-bottom: 1px solid rgba(148,163,184,0.16);
+		text-align: left;
+	}
+	.manage-table th {
+		font-size: 0.66rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #64748b;
+	}
+	.btn-payment-toggle {
+		padding: 4px 10px;
+		border-radius: 999px;
+		border: 1px solid rgba(100,116,139,0.3);
+		background: rgba(241,245,249,0.8);
+		color: #334155;
+		font-size: 0.68rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.issued-table-wrap {
+		overflow: auto;
+		border-radius: 14px;
+		border: 1px solid rgba(148,163,184,0.14);
+		background: rgba(255,255,255,0.9);
+	}
+	.issued-table {
+		width: 100%;
+		min-width: 980px;
+		border-collapse: collapse;
+		font-size: 0.84rem;
+	}
+	.issued-table th {
+		position: sticky;
+		top: 0;
+		background: rgba(224, 242, 254, 0.92);
+		padding: 10px 12px;
+		text-align: left;
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: #64748b;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		border-bottom: 1px solid rgba(148,163,184,0.18);
+		border-right: 1px solid rgba(148,163,184,0.28);
+		z-index: 1;
+	}
+	.issued-table th:last-child,
+	.issued-table td:last-child {
+		border-right: none;
+	}
+	.issued-table td {
+		padding: 11px 12px;
+		border-bottom: 1px solid rgba(148,163,184,0.1);
+		border-right: 1px solid rgba(148,163,184,0.22);
+		vertical-align: middle;
+		color: #1e293b;
+	}
+	.issued-table tbody tr:nth-child(odd) td {
+		background: rgba(240,249,255,0.55);
+	}
+	.issued-table tbody tr:nth-child(even) td {
+		background: rgba(236,253,245,0.5);
+	}
+	.issued-table tr:hover td {
+		background: rgba(219,234,254,0.75) !important;
+	}
 	.btn-add-period {
 		justify-self: flex-start;
 		padding: 7px 12px;
@@ -1728,6 +2650,9 @@
 			width: calc(100vw - 20px);
 			max-height: 86vh;
 		}
+		.manage-form-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 		.schedule-grid {
 			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		}
@@ -1737,6 +2662,9 @@
 	}
 
 	@media (max-width: 620px) {
+		.manage-form-grid {
+			grid-template-columns: 1fr;
+		}
 		.schedule-grid {
 			grid-template-columns: 1fr;
 		}
