@@ -2,6 +2,8 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import * as HRServicesEsobModule from './HRServicesEsob.svelte';
+	const HRServicesEsob: any = (HRServicesEsobModule as any).default ?? HRServicesEsobModule;
 
 	type ServiceKey = 'settlementRules' | 'travelTickets' | 'leaveSalary' | 'esob' | 'qualificationManagement';
 
@@ -1780,6 +1782,11 @@
 					</table>
 				</div>
 			{/if}
+		</div>
+
+	{:else if selected === 'esob'}
+		<div class="applicability-panel">
+			<HRServicesEsob />
 		</div>
 
 	{:else if selected}
