@@ -2,12 +2,10 @@
 	import { onMount } from 'svelte';
 	import type { DotLottie as DotLottieType } from '@lottiefiles/dotlottie-web';
 	import { currentLocale } from '$lib/i18n';
-	import ChatWindow from './ChatWindow.svelte';
 
 	let showBubble = false;
 	let bubbleText = '';
 	let hidden = false;
-	let showChat = false;
 	let canvasEl: HTMLCanvasElement;
 	let dotLottie: DotLottieType | null = null;
 	let messageIndex = 0;
@@ -15,7 +13,6 @@
 	let intervalTimer: ReturnType<typeof setInterval> | null = null;
 
 	const greetingsEn = [
-		'Click to chat with me 💬',
 		'Assalamu Alaikum 🤲',
 		'Subhanallah ✨',
 		'Alhamdulillah 🌟',
@@ -39,7 +36,6 @@
 	];
 
 	const greetingsAr = [
-		'اضغط للدردشة معي 💬',
 		'السلام عليكم 🤲',
 		'سبحان الله ✨',
 		'الحمد لله 🌟',
@@ -105,10 +101,6 @@
 		};
 	});
 
-	function handleClick() {
-		showChat = true;
-	}
-
 	function handleHide() {
 		hidden = true;
 		setTimeout(() => (hidden = false), 30000);
@@ -126,17 +118,12 @@
 
 		<button
 			class="character-btn"
-			on:click={handleClick}
 			on:dblclick={handleHide}
-			title="Click to chat • Double-click to hide"
+			title="Double-click to hide"
 		>
 		<canvas bind:this={canvasEl} width="80" height="80" class="character-canvas"></canvas>
 		</button>
 	</div>
-{/if}
-
-{#if showChat}
-	<ChatWindow on:close={() => (showChat = false)} />
 {/if}
 
 <style>

@@ -4,6 +4,7 @@
 	import { t, switchLocale, currentLocale } from '$lib/i18n';
 	import WindowManager from '$lib/components/common/WindowManager.svelte';
 	import CashierTaskbar from '$lib/components/cashier-interface/CashierTaskbar.svelte';
+	import DancingCharacter from '$lib/components/desktop-interface/common/DancingCharacter.svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
@@ -24,7 +25,7 @@
 	let currentTime = '';
 	
 	// Cashier interface version
-	let cashierVersion = 'AQ2';
+	let cashierVersion = 'AQ3';
 
 	function updateTime() {
 		const locale = $currentLocale === 'ar' ? 'ar-SA' : 'en-US';
@@ -126,6 +127,11 @@
 		<WindowManager />
 	</main>
 
+	<!-- Dancing Character -->
+	<div class="cashier-dancing-character">
+		<DancingCharacter />
+	</div>
+
 	<!-- Cashier Taskbar -->
 	<CashierTaskbar 
 		{user} 
@@ -142,6 +148,14 @@
 		position: relative;
 		display: flex;
 		flex-direction: column;
+	}
+
+	.cashier-dancing-character {
+		position: fixed;
+		bottom: 56px;
+		left: 16px;
+		z-index: 100;
+		pointer-events: auto;
 	}
 
 	/* Main Area */

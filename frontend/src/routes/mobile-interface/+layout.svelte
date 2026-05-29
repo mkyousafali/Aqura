@@ -75,7 +75,7 @@
 	let newOrdersCount = 0;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ2';
+	let mobileVersion = 'AQ3';
 
 	// FAB QR Scanner State
 	let fabScanning = false;
@@ -688,7 +688,6 @@
 		if (path === '/mobile-interface/fingerprint-analysis' || path === '/mobile-interface/fingerprint-analysis/') return getTranslation('mobile.fingerprintAnalysis');
 		if (path === '/mobile-interface/purchase-voucher' || path === '/mobile-interface/purchase-voucher/') return getTranslation('mobile.purchaseVoucher.title');
 		if (path === '/mobile-interface/my-checklist' || path === '/mobile-interface/my-checklist/') return getTranslation('hr.dailyChecklist.myDailyChecklist');
-		if (path === '/mobile-interface/ai-chat' || path === '/mobile-interface/ai-chat/') return getTranslation('mobile.bottomNav.aiChat');
 		if (path === '/mobile-interface/product-request' || path === '/mobile-interface/product-request/') return getTranslation('mobile.productRequest');
 		if (path === '/mobile-interface/near-expiry' || path === '/mobile-interface/near-expiry/') return getTranslation('mobile.nearExpiry');
 		if (path === '/mobile-interface/expiry-manager' || path === '/mobile-interface/expiry-manager/') return locale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager';
@@ -1220,13 +1219,6 @@
 								<span>{getTranslation('mobile.incidentManager')}</span>
 							</a>
 						{/if}
-						<!-- Communication (Call & Message) -->
-						<a href="/mobile-interface/communication" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/communication')}>
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
-							</svg>
-							<span>{$currentLocale === 'ar' ? 'اتصال ورسائل' : 'Call & Message'}</span>
-						</a>
 						{#if hasLiveChatPermission}
 							<!-- Loyalty Program Support -->
 							<a href="/mobile-interface/support" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/support')}>
@@ -1362,15 +1354,15 @@
 				{/if}
 			</div>
 
-			<!-- AI Chat Button -->
-			<a href="/mobile-interface/ai-chat" class="nav-item ai-chat-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/ai-chat')} on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
-				<div class="nav-icon ai-chat-icon">
+
+			<!-- Call & Message Button -->
+			<a href="/mobile-interface/communication" class="nav-item communication-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/communication')} on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
+				<div class="nav-icon">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-						<path d="M8 10h.01M12 10h.01M16 10h.01"/>
+						<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
 					</svg>
 				</div>
-				<span class="nav-label">{$currentLocale === 'ar' ? 'ذكاء' : 'AI'}</span>
+				<span class="nav-label">{$currentLocale === 'ar' ? 'اتصال' : 'Call'}</span>
 			</a>
 		</nav>
 
@@ -2205,6 +2197,33 @@
 		cursor: pointer;
 		position: relative;
 		color: #6366F1;
+	}
+
+	.nav-item.communication-btn {
+		border: none;
+		background: none;
+		cursor: pointer;
+		position: relative;
+		color: #22c55e;
+	}
+
+	.nav-item.communication-btn:hover {
+		color: #22c55e;
+		background: rgba(34, 197, 94, 0.05);
+	}
+
+	.nav-item.communication-btn.active {
+		color: #22c55e;
+	}
+
+	.nav-item.communication-btn.active .nav-icon {
+		background: rgba(34, 197, 94, 0.1);
+		color: #22c55e;
+	}
+
+	.nav-item.communication-btn .nav-label {
+		font-weight: 600;
+		color: #22c55e;
 	}
 
 	.nav-item.ai-chat-btn:hover {
