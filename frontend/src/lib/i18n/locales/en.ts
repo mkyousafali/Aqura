@@ -4697,7 +4697,7 @@ export const englishLocale: LocaleData = {
       redeemGiftDesc: "Enter an issued coupon code to redeem",
       redeemBillNumber: "Bill Number (Redeemed On)",
       enterBillNumber: "Enter bill number",
-      discountGiven: "Discount Amount Given (SAR)",
+      discountAmountGiven: "Discount Amount Given (SAR)",
       enterDiscountAmount: "Enter discount amount",
       redeemNow: "Redeem Coupon",
       redeeming: "Redeeming...",

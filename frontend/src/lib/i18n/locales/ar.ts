@@ -4734,7 +4734,7 @@ export const arabicLocale: LocaleData = {
       redeemGiftDesc: "أدخل رمز الكوبون المُصدر للاسترداد",
       redeemBillNumber: "رقم الفاتورة (المسترد عليها)",
       enterBillNumber: "أدخل رقم الفاتورة",
-      discountGiven: "مبلغ الخصم الممنوح (ر.س)",
+      discountAmountGiven: "مبلغ الخصم الممنوح (ر.س)",
       enterDiscountAmount: "أدخل مبلغ الخصم",
       redeemNow: "استرداد الكوبون",
       redeeming: "جاري الاسترداد...",

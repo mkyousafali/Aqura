@@ -75,7 +75,7 @@
 	let newOrdersCount = 0;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ3';
+	let mobileVersion = 'AQ4';
 
 	// FAB QR Scanner State
 	let fabScanning = false;
