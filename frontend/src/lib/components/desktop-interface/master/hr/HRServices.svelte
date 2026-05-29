@@ -160,6 +160,7 @@
 		employee_id: string;
 		ticket_issued_count: number | null;
 		leave_approved_days: number | null;
+		leave_paid_days: number | null;
 	}
 
 	interface TicketIssuanceRow {
@@ -178,6 +179,16 @@
 		leave_date: string;
 		is_paid: boolean;
 		created_at: string;
+	}
+
+	// day_off records shown in the Manage popup
+	interface DayOffLeaveRow {
+		id: string;
+		employee_id: string;
+		day_off_date: string;
+		is_paid: boolean;
+		is_manual_hr_entry: boolean;
+		approval_status: string | null;
 	}
 
 	interface IssuedTicketTableRow extends TicketIssuanceRow {
@@ -214,7 +225,8 @@
 	let scheduleEmployee: EmployeeMasterRow | null = null;
 	let schedulePreviewRows: Array<{ effective_from: string; effective_to: string | null }> = [];
 	let ticketUsageByEmployee: Record<string, number> = {};
-	let leaveUsageByEmployee: Record<string, number> = {};
+	let leaveUsageByEmployee: Record<string, number> = {};  // approved (from day_off DRS052)
+	let leavePaidByEmployee: Record<string, number> = {};   // paid subset (is_paid = true)
 
 	let showTicketManageModal = false;
 	let manageTicketEmployeeId: string | null = null;
@@ -226,12 +238,15 @@
 
 	let showLeaveManageModal = false;
 	let manageLeaveEmployeeId: string | null = null;
-	let manageLeaveRecords: LeaveApprovalRow[] = [];
-	let leaveApprovedDaysInput: number | '' = 1;
+	let manageLeaveRecords: DayOffLeaveRow[] = [];
+	let leaveManageLoading = false;
+	let leaveManageSaving = false;
+	let leaveEntryMode: 'single' | 'range' = 'single';
 	let leaveSingleDate = formatDateYmd(new Date());
-	let leaveStartDate = formatDateYmd(new Date());
-	let leaveEndDate = formatDateYmd(new Date());
+	let leaveRangeStart = formatDateYmd(new Date());
+	let leaveRangeEnd = formatDateYmd(new Date());
 	let leaveDefaultPaid = false;
+	let leaveConflictDates: string[] = [];
 
 	let isLoadingRules = false;
 	let rulesError = '';
@@ -350,7 +365,7 @@
 				}, {} as Record<string, { name_en: string | null; name_ar: string | null }>);
 			}
 
-			ticketIssuedTableRows = rows.map((row) => ({
+			ticketIssuedTableRows = rows.filter(r => r.employee_id !== 'EMP51').map((row) => ({
 				...row,
 				employee_name_en: employeeNameMap[row.employee_id]?.name_en ?? null,
 				employee_name_ar: employeeNameMap[row.employee_id]?.name_ar ?? null
@@ -391,7 +406,7 @@
 				}, {} as Record<string, { name_en: string | null; name_ar: string | null }>);
 			}
 
-			leaveIssuedTableRows = rows.map((row) => ({
+			leaveIssuedTableRows = rows.filter(r => r.employee_id !== 'EMP51').map((row) => ({
 				...row,
 				employee_name_en: employeeNameMap[row.employee_id]?.name_en ?? null,
 				employee_name_ar: employeeNameMap[row.employee_id]?.name_ar ?? null
@@ -459,7 +474,7 @@
 
 			if (error) throw error;
 
-			const rows = (data ?? []) as ApplicabilityRpcRow[];
+			const rows = ((data ?? []) as ApplicabilityRpcRow[]).filter(r => r.employee_id !== 'EMP51');
 			const employees = rows.map((row) => ({
 				id: row.employee_id,
 				name_en: row.employee_name_en,
@@ -525,13 +540,16 @@
 		const rows = (data ?? []) as QualificationUsageRpcRow[];
 		const nextTicketUsage = { ...ticketUsageByEmployee };
 		const nextLeaveUsage = { ...leaveUsageByEmployee };
+		const nextLeavePaid = { ...leavePaidByEmployee };
 		for (const row of rows) {
 			nextTicketUsage[row.employee_id] = Number(row.ticket_issued_count ?? 0);
 			nextLeaveUsage[row.employee_id] = Number(row.leave_approved_days ?? 0);
+			nextLeavePaid[row.employee_id] = Number(row.leave_paid_days ?? 0);
 		}
 
 		ticketUsageByEmployee = nextTicketUsage;
 		leaveUsageByEmployee = nextLeaveUsage;
+		leavePaidByEmployee = nextLeavePaid;
 	}
 
 	function applyApplicabilityFilters() {
@@ -744,8 +762,8 @@
 
 	function getLeaveRemaining(employeeId: string, qualified: number | null | undefined) {
 		const total = Number(qualified ?? 0);
-		const used = Number(leaveUsageByEmployee[employeeId] ?? 0);
-		return Math.max(0, total - used);
+		const paid = Number(leavePaidByEmployee[employeeId] ?? 0);
+		return Math.max(0, total - paid);
 	}
 
 	function formatCycleLabel(rule: SettlementRule) {
@@ -969,10 +987,7 @@
 	async function openLeaveManageModal(employeeId: string) {
 		showLeaveManageModal = true;
 		manageLeaveEmployeeId = employeeId;
-		leaveApprovedDaysInput = 1;
 		leaveSingleDate = formatDateYmd(new Date());
-		leaveStartDate = formatDateYmd(new Date());
-		leaveEndDate = formatDateYmd(new Date());
 		leaveDefaultPaid = false;
 		await loadLeaveManageRecords(employeeId);
 	}
@@ -984,102 +999,123 @@
 	}
 
 	async function loadLeaveManageRecords(employeeId: string) {
-		const { data, error } = await supabase
-			.from('hr_employee_leave_approvals')
-			.select('id, employee_id, leave_date, is_paid, created_at')
-			.eq('employee_id', employeeId)
-			.order('leave_date', { ascending: false })
-			.order('id', { ascending: false });
-
-		if (error) throw error;
-		manageLeaveRecords = (data ?? []) as LeaveApprovalRow[];
-	}
-
-	function buildLeaveDates(days: number): string[] {
-		if (days <= 1) {
-			return leaveSingleDate ? [leaveSingleDate] : [];
+		leaveManageLoading = true;
+		try {
+			const { data, error } = await supabase
+				.from('day_off')
+				.select('id, employee_id, day_off_date, is_paid, is_manual_hr_entry, approval_status')
+				.eq('employee_id', employeeId)
+				.eq('day_off_reason_id', 'DRS052')
+				.eq('approval_status', 'approved')
+				.order('day_off_date', { ascending: false });
+			if (error) throw error;
+			manageLeaveRecords = (data ?? []) as DayOffLeaveRow[];
+		} finally {
+			leaveManageLoading = false;
 		}
-
-		if (!leaveStartDate || !leaveEndDate) return [];
-		const start = new Date(leaveStartDate);
-		const end = new Date(leaveEndDate);
-		if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
-
-		const dates: string[] = [];
-		const cursor = new Date(start);
-		while (cursor <= end) {
-			dates.push(formatDateYmd(cursor));
-			cursor.setDate(cursor.getDate() + 1);
-		}
-		return dates;
 	}
 
 	async function saveLeaveApprovalDays() {
 		if (!manageLeaveEmployeeId) return;
-		const days = Number(leaveApprovedDaysInput) || 0;
-
-		if (days <= 0) {
-			applicabilityError = 'Approved leave days must be greater than zero.';
-			return;
-		}
-
-		const dates = buildLeaveDates(days);
-		if (dates.length === 0) {
-			applicabilityError = days <= 1 ? 'Leave date is required.' : 'Valid start/end date range is required.';
-			return;
-		}
-
-		if (dates.length !== days) {
-			applicabilityError = `Date selection includes ${dates.length} day(s), but approved days is ${days}.`;
-			return;
-		}
-
-		isSavingApplicability = true;
 		applicabilityError = '';
+		leaveConflictDates = [];
 
+		// Build list of dates
+		let datesToAdd: string[] = [];
+		if (leaveEntryMode === 'single') {
+			if (!leaveSingleDate) {
+				applicabilityError = 'Leave date is required.';
+				return;
+			}
+			datesToAdd = [leaveSingleDate];
+		} else {
+			if (!leaveRangeStart || !leaveRangeEnd) {
+				applicabilityError = 'Start and end dates are required.';
+				return;
+			}
+			const start = new Date(leaveRangeStart);
+			const end = new Date(leaveRangeEnd);
+			if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+				applicabilityError = 'End date must be on or after start date.';
+				return;
+			}
+			const cursor = new Date(start);
+			while (cursor <= end) {
+				datesToAdd.push(formatDateYmd(cursor));
+				cursor.setDate(cursor.getDate() + 1);
+			}
+			if (datesToAdd.length > 90) {
+				applicabilityError = 'Date range cannot exceed 90 days.';
+				return;
+			}
+		}
+
+		leaveManageSaving = true;
 		try {
-			const payload = dates.map((leaveDate) => ({
+			// Conflict check — any existing record for this employee on these dates
+			const { data: existing, error: checkErr } = await supabase
+				.from('day_off')
+				.select('day_off_date')
+				.eq('employee_id', manageLeaveEmployeeId)
+				.in('day_off_date', datesToAdd);
+
+			if (checkErr) throw checkErr;
+
+			if (existing && existing.length > 0) {
+				leaveConflictDates = existing.map((r: any) => r.day_off_date as string).sort();
+				applicabilityError = `Conflict: ${leaveConflictDates.length} date(s) already exist for this employee: ${leaveConflictDates.join(', ')}`;
+				return;
+			}
+
+			// Insert one record per date
+			const payload = datesToAdd.map((date) => ({
+				id: `${manageLeaveEmployeeId}_${date}_HR`,
 				employee_id: manageLeaveEmployeeId,
-				leave_date: leaveDate,
-				is_paid: leaveDefaultPaid
+				day_off_date: date,
+				day_off_reason_id: 'DRS052',
+				approval_status: 'approved',
+				is_paid: leaveDefaultPaid,
+				is_manual_hr_entry: true
 			}));
 
 			const { error } = await supabase
-				.from('hr_employee_leave_approvals')
-				.upsert(payload, { onConflict: 'employee_id,leave_date' });
+				.from('day_off')
+				.insert(payload);
 			if (error) throw error;
 
 			await loadLeaveManageRecords(manageLeaveEmployeeId);
 			await loadQualificationUsageForEmployees([manageLeaveEmployeeId]);
-			leaveApprovedDaysInput = 1;
+			// Reset form
 			leaveSingleDate = formatDateYmd(new Date());
-			leaveStartDate = formatDateYmd(new Date());
-			leaveEndDate = formatDateYmd(new Date());
+			leaveRangeStart = formatDateYmd(new Date());
+			leaveRangeEnd = formatDateYmd(new Date());
 			leaveDefaultPaid = false;
+			leaveConflictDates = [];
 		} catch (error) {
-			applicabilityError = error instanceof Error ? error.message : 'Failed to save leave approval days';
+			applicabilityError = error instanceof Error ? error.message : 'Failed to save leave date.';
 		} finally {
-			isSavingApplicability = false;
+			leaveManageSaving = false;
 		}
 	}
 
-	async function toggleLeavePayment(record: LeaveApprovalRow) {
-		isSavingApplicability = true;
+	async function toggleLeavePayment(record: DayOffLeaveRow) {
+		leaveManageSaving = true;
 		applicabilityError = '';
 		try {
 			const { error } = await supabase
-				.from('hr_employee_leave_approvals')
+				.from('day_off')
 				.update({ is_paid: !record.is_paid })
 				.eq('id', record.id);
 			if (error) throw error;
 
 			if (manageLeaveEmployeeId) {
 				await loadLeaveManageRecords(manageLeaveEmployeeId);
+				await loadQualificationUsageForEmployees([manageLeaveEmployeeId]);
 			}
 		} catch (error) {
-			applicabilityError = error instanceof Error ? error.message : 'Failed to update leave payment status';
+			applicabilityError = error instanceof Error ? error.message : 'Failed to update paid status.';
 		} finally {
-			isSavingApplicability = false;
+			leaveManageSaving = false;
 		}
 	}
 </script>
@@ -1378,12 +1414,19 @@
 									</td>
 									<td>
 										{#if assignment?.leave_salary_rule_enabled}
+											{@const leaveRemaining = getLeaveRemaining(employee.id, assignment?.qualified_leave_days)}
+											{@const leaveApproved = leaveUsageByEmployee[employee.id] ?? 0}
+											{@const leavePaid = leavePaidByEmployee[employee.id] ?? 0}
 											<div class="qualified-manage-cell">
 												<div class="qualified-number">{leaveRemaining}</div>
-												<div class="qualified-meta">{$t('hr.servicesWindow.qualified')}: {assignment?.qualified_leave_days ?? 0} | {$t('hr.servicesWindow.approved')}: {leaveUsageByEmployee[employee.id] ?? 0}</div>
-												{#if (assignment?.qualified_leave_days ?? 0) > 0 || (leaveUsageByEmployee[employee.id] ?? 0) > 0}
-													<button class="btn-manage-qualified" on:click={() => openLeaveManageModal(employee.id)}>{$t('hr.servicesWindow.manage')}</button>
-												{/if}
+												<div class="qualified-meta">
+													{$t('hr.servicesWindow.qualified')}: {assignment?.qualified_leave_days ?? 0}
+													&nbsp;|&nbsp;
+													{$t('hr.servicesWindow.leaveApprovedCount')}: {leaveApproved}
+													&nbsp;|&nbsp;
+													{$t('hr.servicesWindow.leavePaidCount')}: {leavePaid}
+												</div>
+												<button class="btn-manage-qualified" on:click={() => openLeaveManageModal(employee.id)}>{$t('hr.servicesWindow.manage')}</button>
 											</div>
 										{:else}
 											—
@@ -1576,68 +1619,149 @@
 		{/if}
 
 		{#if showLeaveManageModal}
+			{@const mgmtEmp = getManageEmployee(manageLeaveEmployeeId)}
+			{@const mgmtAssign = getManageAssignment(manageLeaveEmployeeId)}
+			{@const mgmtRemaining = manageLeaveEmployeeId ? getLeaveRemaining(manageLeaveEmployeeId, mgmtAssign?.qualified_leave_days) : 0}
+			{@const mgmtApproved = leaveUsageByEmployee[manageLeaveEmployeeId ?? ''] ?? 0}
+			{@const mgmtPaid = leavePaidByEmployee[manageLeaveEmployeeId ?? ''] ?? 0}
 			<div class="picker-backdrop" role="button" tabindex="0" aria-label={$t('hr.servicesWindow.close')} on:click={closeLeaveManageModal} on:keydown={(event) => {
-				if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
-					closeLeaveManageModal();
-				}
+				if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') closeLeaveManageModal();
 			}}>
-				<div class="picker-modal" role="dialog" aria-modal="true" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
-					<h4>{$t('hr.servicesWindow.manageQualifiedLeaveDays')}</h4>
-					<div class="picker-list">
-						<div class="picker-employee-meta">
-							<div><strong>{$t('hr.servicesWindow.employee')}:</strong> <span dir={localizedDir()}>{localizedText(getManageEmployee(manageLeaveEmployeeId)?.name_en, getManageEmployee(manageLeaveEmployeeId)?.name_ar, getManageEmployee(manageLeaveEmployeeId)?.id || 'N/A')}</span></div>
-							<div><strong>{$t('hr.servicesWindow.remainingLeaveDays')}:</strong> {manageLeaveEmployeeId ? getLeaveRemaining(manageLeaveEmployeeId, getManageAssignment(manageLeaveEmployeeId)?.qualified_leave_days) : 0}</div>
+				<div class="picker-modal leave-manage-modal" role="dialog" aria-modal="true" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+					<div class="leave-modal-header">
+						<div>
+							<h4>{$t('hr.servicesWindow.manageQualifiedLeaveDays')}</h4>
+							<div class="picker-employee-meta" style="margin-top:4px;">
+								<span dir={localizedDir()} style="font-weight:600;">{localizedText(mgmtEmp?.name_en, mgmtEmp?.name_ar, mgmtEmp?.id ?? 'N/A')}</span>
+								&nbsp;&mdash;&nbsp;{mgmtEmp?.id ?? ''}
+							</div>
 						</div>
+						<div class="leave-balance-pills">
+							<div class="balance-pill pill-qualified">
+								<span class="pill-label">{$t('hr.servicesWindow.qualified')}</span>
+								<span class="pill-value">{mgmtAssign?.qualified_leave_days ?? 0}</span>
+							</div>
+							<div class="balance-pill pill-approved">
+								<span class="pill-label">{$t('hr.servicesWindow.leaveApprovedCount')}</span>
+								<span class="pill-value">{mgmtApproved}</span>
+							</div>
+							<div class="balance-pill pill-paid">
+								<span class="pill-label">{$t('hr.servicesWindow.leavePaidCount')}</span>
+								<span class="pill-value">{mgmtPaid}</span>
+							</div>
+							<div class="balance-pill pill-remaining">
+								<span class="pill-label">{$t('hr.servicesWindow.remainingLeaveDays')}</span>
+								<span class="pill-value">{mgmtRemaining}</span>
+							</div>
+						</div>
+					</div>
 
+					<div class="picker-list">
+						<!-- Manual entry form -->
 						<div class="schedule-row">
-							<div class="schedule-seq">{$t('hr.servicesWindow.addLeaveApproval')}</div>
-							<div class="manage-form-grid">
-								<label class="field-group">
-									<span class="field-label">{$t('hr.servicesWindow.approvedDays')}</span>
-									<input class="field-input field-number" type="number" min="1" bind:value={leaveApprovedDaysInput} />
-								</label>
+							<div class="schedule-seq">{$t('hr.servicesWindow.addManualLeaveDate')}</div>
 
-								{#if Number(leaveApprovedDaysInput) <= 1}
+							<!-- Mode toggle -->
+							<div class="leave-mode-toggle">
+								<button
+									class="mode-btn"
+									class:active={leaveEntryMode === 'single'}
+									on:click={() => { leaveEntryMode = 'single'; applicabilityError = ''; leaveConflictDates = []; }}
+								>{$t('hr.servicesWindow.leaveModeSingle')}</button>
+								<button
+									class="mode-btn"
+									class:active={leaveEntryMode === 'range'}
+									on:click={() => { leaveEntryMode = 'range'; applicabilityError = ''; leaveConflictDates = []; }}
+								>{$t('hr.servicesWindow.leaveModeRange')}</button>
+							</div>
+
+							<div class="manage-form-grid">
+								{#if leaveEntryMode === 'single'}
 									<label class="field-group">
 										<span class="field-label">{$t('hr.servicesWindow.leaveDate')}</span>
 										<input class="field-input" type="date" bind:value={leaveSingleDate} />
 									</label>
 								{:else}
 									<label class="field-group">
-										<span class="field-label">{$t('hr.servicesWindow.startDate')}</span>
-										<input class="field-input" type="date" bind:value={leaveStartDate} />
+										<span class="field-label">{$t('hr.servicesWindow.leaveDateFrom')}</span>
+										<input class="field-input" type="date" bind:value={leaveRangeStart} />
 									</label>
 									<label class="field-group">
-										<span class="field-label">{$t('hr.servicesWindow.endDate')}</span>
-										<input class="field-input" type="date" bind:value={leaveEndDate} />
+										<span class="field-label">{$t('hr.servicesWindow.leaveDateTo')}</span>
+										<input class="field-input" type="date" bind:value={leaveRangeEnd} />
 									</label>
+									{#if leaveRangeStart && leaveRangeEnd && leaveRangeEnd >= leaveRangeStart}
+										{@const rangeMs = new Date(leaveRangeEnd).getTime() - new Date(leaveRangeStart).getTime()}
+										{@const rangeCount = Math.floor(rangeMs / 86400000) + 1}
+										<div class="range-preview">
+											{rangeCount} {$t('hr.servicesWindow.leaveDaysWillBeAdded')}
+										</div>
+									{/if}
 								{/if}
-
 								<label class="schedule-inline-field">
 									<input type="checkbox" bind:checked={leaveDefaultPaid} />
-									<span>{$t('hr.servicesWindow.defaultPaymentStatusPaid')}</span>
+									<span>{$t('hr.servicesWindow.markAsPaid')}</span>
 								</label>
 							</div>
-							<button class="btn-save-inline" disabled={isSavingApplicability} on:click={saveLeaveApprovalDays}>{isSavingApplicability ? $t('common.saving') : $t('hr.servicesWindow.saveLeaveDays')}</button>
+
+							{#if applicabilityError}
+								<div class="rules-error leave-conflict-error">
+									{applicabilityError}
+									{#if leaveConflictDates.length > 0}
+										<ul class="conflict-date-list">
+											{#each leaveConflictDates as cd}
+												<li>{cd}</li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+							{/if}
+
+							<button class="btn-save-inline" disabled={leaveManageSaving} on:click={saveLeaveApprovalDays}>
+								{leaveManageSaving ? $t('common.saving') : $t('hr.servicesWindow.addLeaveDate')}
+							</button>
 						</div>
 
+						<!-- Leave records table -->
 						<div class="manage-list-card">
 							<div class="schedule-seq">{$t('hr.servicesWindow.approvedLeaveDates')}</div>
-							{#if manageLeaveRecords.length === 0}
+							{#if leaveManageLoading}
+								<div class="manage-empty">{$t('hr.servicesWindow.loadingLeaveRecords')}</div>
+							{:else if manageLeaveRecords.length === 0}
 								<div class="manage-empty">{$t('hr.servicesWindow.noLeaveApprovalRecords')}</div>
 							{:else}
-								<table class="manage-table">
+								<table class="manage-table leave-table">
 									<thead>
 										<tr>
+											<th>#</th>
 											<th>{$t('hr.servicesWindow.date')}</th>
-											<th>{$t('hr.servicesWindow.payment')}</th>
+											<th>{$t('hr.servicesWindow.leaveSource')}</th>
+											<th>{$t('hr.servicesWindow.leavePaidStatus')}</th>
 										</tr>
 									</thead>
 									<tbody>
-										{#each manageLeaveRecords as rec}
-											<tr>
-												<td>{rec.leave_date}</td>
-												<td><button class="btn-payment-toggle" on:click={() => toggleLeavePayment(rec)}>{rec.is_paid ? $t('hr.servicesWindow.paid') : $t('hr.servicesWindow.notPaid')}</button></td>
+										{#each manageLeaveRecords as rec, idx}
+											<tr class:paid-row={rec.is_paid}>
+												<td class="mono-cell">{idx + 1}</td>
+												<td class="mono-cell">{rec.day_off_date}</td>
+												<td>
+													{#if rec.is_manual_hr_entry}
+														<span class="source-badge badge-manual">{$t('hr.servicesWindow.leaveSourceManual')}</span>
+													{:else}
+														<span class="source-badge badge-approved">{$t('hr.servicesWindow.leaveSourceApproved')}</span>
+													{/if}
+												</td>
+												<td>
+													<label class="paid-checkbox-label">
+														<input
+															type="checkbox"
+															checked={rec.is_paid}
+															disabled={leaveManageSaving}
+															on:change={() => toggleLeavePayment(rec)}
+														/>
+														<span>{rec.is_paid ? $t('hr.servicesWindow.paid') : $t('hr.servicesWindow.notPaid')}</span>
+													</label>
+												</td>
 											</tr>
 										{/each}
 									</tbody>
@@ -1645,6 +1769,7 @@
 							{/if}
 						</div>
 					</div>
+
 					<div class="picker-footer">
 						<button class="btn-cancel" on:click={closeLeaveManageModal}>{$t('hr.servicesWindow.close')}</button>
 					</div>
@@ -2430,6 +2555,107 @@
 		border-radius: 18px;
 		box-shadow: 0 24px 40px rgba(15,23,42,0.25);
 		overflow: hidden;
+	}
+	/* Wider leave manage modal */
+	.leave-manage-modal {
+		width: min(1100px, calc(100vw - 32px));
+	}
+	/* Leave modal header: title + balance pills */
+	.leave-modal-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 14px 18px;
+		border-bottom: 1px solid rgba(148,163,184,0.14);
+		flex-wrap: wrap;
+	}
+	.leave-modal-header h4 { margin: 0; font-size: 1rem; }
+	.leave-balance-pills {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.balance-pill {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 6px 14px;
+		border-radius: 12px;
+		min-width: 72px;
+		font-size: 0.7rem;
+	}
+	.balance-pill .pill-label { opacity: 0.7; font-weight: 500; }
+	.balance-pill .pill-value { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+	.pill-qualified  { background: rgba(14,165,233,0.12);  color: #0369a1; }
+	.pill-approved   { background: rgba(168,85,247,0.12);  color: #7e22ce; }
+	.pill-paid       { background: rgba(34,197,94,0.12);   color: #15803d; }
+	.pill-remaining  { background: rgba(234,179,8,0.14);   color: #92400e; }
+	/* Leave table */
+	.leave-table th, .leave-table td { padding: 8px 12px; }
+	.paid-row { background: rgba(34,197,94,0.06); }
+	.source-badge {
+		display: inline-block;
+		padding: 2px 8px;
+		border-radius: 999px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+	.badge-approved { background: rgba(14,165,233,0.14); color: #0369a1; }
+	.badge-manual   { background: rgba(234,179,8,0.16);  color: #92400e; }
+	.paid-checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+		font-size: 0.82rem;
+	}
+	.paid-checkbox-label input { cursor: pointer; width: 15px; height: 15px; }
+	/* Mode toggle */
+	.leave-mode-toggle {
+		display: flex;
+		gap: 0;
+		margin-bottom: 10px;
+		border: 1px solid rgba(148,163,184,0.2);
+		border-radius: 8px;
+		overflow: hidden;
+		width: fit-content;
+	}
+	.mode-btn {
+		padding: 5px 16px;
+		font-size: 0.8rem;
+		font-weight: 500;
+		background: transparent;
+		border: none;
+		color: #94a3b8;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+	.mode-btn.active {
+		background: rgba(14,165,233,0.15);
+		color: #0ea5e9;
+		font-weight: 600;
+	}
+	/* Range preview */
+	.range-preview {
+		font-size: 0.78rem;
+		color: #0ea5e9;
+		background: rgba(14,165,233,0.08);
+		padding: 4px 10px;
+		border-radius: 6px;
+		align-self: center;
+	}
+	/* Conflict error */
+	.leave-conflict-error {
+		margin: 8px 0 4px;
+		font-size: 0.82rem;
+	}
+	.conflict-date-list {
+		margin: 6px 0 0 16px;
+		padding: 0;
+		font-family: monospace;
+		font-size: 0.8rem;
+		list-style: disc;
 	}
 	.picker-modal h4 {
 		margin: 0;

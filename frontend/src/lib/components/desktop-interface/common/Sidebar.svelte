@@ -112,11 +112,7 @@
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
-	import CreateDepartment from '$lib/components/desktop-interface/master/hr/CreateDepartment.svelte';
-	import CreateLevel from '$lib/components/desktop-interface/master/hr/CreateLevel.svelte';
-	import CreatePosition from '$lib/components/desktop-interface/master/hr/CreatePosition.svelte';
-	import ReportingMap from '$lib/components/desktop-interface/master/hr/ReportingMap.svelte';
-	import AssignPositions from '$lib/components/desktop-interface/master/hr/AssignPositions.svelte';
+	import EmployeeMaster from '$lib/components/desktop-interface/master/hr/EmployeeMaster.svelte';
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
 	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
 	import FingerprintTransactions from '$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte';
@@ -130,6 +126,7 @@
 	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 	import SecurityCodeWindow from '$lib/components/desktop-interface/master/hr/SecurityCodeWindow.svelte';
 	import EmployeeDashboard from '$lib/components/desktop-interface/master/hr/EmployeeDashboard.svelte';
+	// NOTE: EmployeeDashboard merged into EmployeeMaster tabs
 	import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
 	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
 	import HRServices from '$lib/components/desktop-interface/master/hr/HRServices.svelte';
@@ -283,13 +280,12 @@
 		'EXPENSE_TRACKER': 'reports.expenseTracker', 'SALES_REPORT': 'reports.salesReport',
 		'MONTHLY_BREAKDOWN': 'nav.monthlyBreakdown', 'OVERDUES_REPORT': 'nav.overdues',
 		'VENDOR_PAYMENTS': 'reports.vendorPayments', 'POS_REPORT': 'nav.pos',
-		'CREATE_DEPARTMENT': 'nav.createDepartment', 'CREATE_LEVEL': 'nav.createLevel',
-		'CREATE_POSITION': 'nav.createPosition', 'REPORTING_MAP': 'nav.reportingMap',
+		'EMPLOYEE_MASTER': 'nav.employeeMaster',
 		'ASSIGN_POSITIONS': 'nav.assignPositions', 'LINK_ID': 'nav.linkID',
 		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
 		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
 		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
-		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'SECURITY_CODE': 'nav.securityCode', 'EMPLOYEE_DASHBOARD': 'nav.employeeDashboard', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
+		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'SECURITY_CODE': 'nav.securityCode', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
 		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
 		'CREATE_TASK': 'nav.createTaskTemplate', 'VIEW_TASKS': 'nav.viewTaskTemplates',
 		'ASSIGN_TASKS': 'nav.assignTasks', 'VIEW_MY_TASKS': 'nav.viewMyTasks',
@@ -826,117 +822,21 @@
 		showTasksOperationsSubmenu = false;
 	}
 
-	function openCreateDepartment() {
+	function openEmployeeMaster() {
 		collapseAllMenus();
-		const windowId = generateWindowId('create-department');
+		const windowId = generateWindowId('employee-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Create Department #${instanceNumber}`,
-			component: CreateDepartment,
-			componentName: "CreateDepartment",
-			icon: '🏢',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
 
-	function openCreateLevel() {
-		collapseAllMenus();
-		const windowId = generateWindowId('create-level');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
 		openWindow({
 			id: windowId,
-			title: `Create Level #${instanceNumber}`,
-			component: CreateLevel,
-			componentName: "CreateLevel",
-			icon: '📊',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openCreatePosition() {
-		collapseAllMenus();
-		const windowId = generateWindowId('create-position');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Create Position #${instanceNumber}`,
-			component: CreatePosition,
-			componentName: "CreatePosition",
-			icon: '💼',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openReportingMap() {
-		collapseAllMenus();
-		const windowId = generateWindowId('reporting-map');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Reporting Map #${instanceNumber}`,
-			component: ReportingMap,
-			componentName: "ReportingMap",
-			icon: '📈',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openAssignPositions() {
-		collapseAllMenus();
-		const windowId = generateWindowId('assign-positions');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Assign Positions #${instanceNumber}`,
-			component: AssignPositions,
-			componentName: "AssignPositions",
-			icon: '🎯',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
+			title: `${t('nav.employeeMaster')} #${instanceNumber}`,
+			component: EmployeeMaster,
+			componentName: 'EmployeeMaster',
+			icon: '👥',
+			size: { width: 1300, height: 760 },
+			position: {
+				x: 130 + (Math.random() * 100),
+				y: 90 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -957,7 +857,7 @@
 			component: LinkID,
 			componentName: "LinkID",
 			icon: '🔗',
-			size: { width: 1000, height: 700 },
+			size: { width: 1400, height: 760 },
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
@@ -1270,30 +1170,6 @@
 			componentName: "SecurityCodeWindow",
 			icon: '🔒',
 			size: { width: 900, height: 600 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openEmployeeDashboard() {
-		collapseAllMenus();
-		const windowId = generateWindowId('employee-dashboard');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `${t('nav.employeeDashboard')} #${instanceNumber}`,
-			component: EmployeeDashboard,
-			componentName: "EmployeeDashboard",
-			icon: '📊',
-			size: { width: 1200, height: 750 },
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
@@ -2153,11 +2029,7 @@ function openApprovalCenter() {
 			'OVERDUES_REPORT': openOverduesReport,
 			'VENDOR_PAYMENTS': openVendorPendingPayments,
 			'POS_REPORT': openPOSReport,
-			'CREATE_DEPARTMENT': openCreateDepartment,
-			'CREATE_LEVEL': openCreateLevel,
-			'CREATE_POSITION': openCreatePosition,
-			'REPORTING_MAP': openReportingMap,
-			'ASSIGN_POSITIONS': openAssignPositions,
+			'EMPLOYEE_MASTER': openEmployeeMaster,
 			'LINK_ID': openLinkID,
 			'EMPLOYEE_FILES': openEmployeeFiles,
 			'PROCESS_FINGERPRINT': openProcessFingerprint,
@@ -2169,7 +2041,6 @@ function openApprovalCenter() {
 			'DAILY_CHECKLIST_MANAGER': openDailyChecklistManager,
 			'BREAK_REGISTER': openBreakRegister,
 			'SECURITY_CODE': openSecurityCodeWindow,
-			'EMPLOYEE_DASHBOARD': openEmployeeDashboard,
 			'FINGERPRINT_TRANSACTIONS': openFingerprintTransactions,
 			'EXPORT_BIOMETRIC_DATA': openExportBiometricData,
 			'TASK_MASTER': openTaskMaster,
@@ -5001,14 +4872,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('EMPLOYEE_DASHBOARD')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openEmployeeDashboard}>
-								<span class="menu-icon">📊</span>
-								<span class="menu-text">{t('nav.employeeDashboard')}</span>
-							</button>
-						</div>
-					{/if}
 				</div>
 			{/if}
 
@@ -5034,43 +4897,11 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showHRManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('CREATE_DEPARTMENT')}
+					{#if isButtonAllowed('EMPLOYEE_MASTER')}
 						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCreateDepartment}>
-								<span class="menu-icon">🏢</span>
-								<span class="menu-text">{t('nav.createDepartment')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('CREATE_LEVEL')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCreateLevel}>
-								<span class="menu-icon">📊</span>
-								<span class="menu-text">{t('nav.createLevel')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('CREATE_POSITION')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCreatePosition}>
-								<span class="menu-icon">💼</span>
-								<span class="menu-text">{t('nav.createPosition')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('REPORTING_MAP')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openReportingMap}>
-								<span class="menu-icon">📈</span>
-								<span class="menu-text">{t('nav.reportingMap')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('ASSIGN_POSITIONS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openAssignPositions}>
-								<span class="menu-icon">🎯</span>
-								<span class="menu-text">{t('nav.assignPositions')}</span>
+							<button class="submenu-item" on:click={openEmployeeMaster}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">{t('nav.employeeMaster')}</span>
 							</button>
 						</div>
 					{/if}

@@ -75,6 +75,10 @@
 
 	function handleResizeMouseDown(event: MouseEvent, direction: string) {
 		if (!window.resizable || window.state === 'maximized') return;
+		// Auto-restore minimized window when user tries to resize
+		if (window.state === 'minimized') {
+			windowManager.restoreWindow(window.id);
+		}
 		
 		isResizing = true;
 		resizeDirection = direction;
@@ -597,7 +601,10 @@
 		display: block;
 	}
 
-	.window.minimized .resize-handle {
+	/* Allow resize handles to show even when minimized so user can drag to restore */
+	.window.minimized .resize-handle.resize-n,
+	.window.minimized .resize-handle.resize-nw,
+	.window.minimized .resize-handle.resize-ne {
 		display: none !important;
 	}
 

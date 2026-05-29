@@ -222,6 +222,21 @@ class WindowManager {
   }
 
   /**
+   * Restore a minimized window to normal state
+   */
+  public restoreWindow(windowId: string): void {
+    this.windows.update((windows) => {
+      const window = windows.get(windowId);
+      if (!window || window.state !== 'minimized') return windows;
+      const newWindows = new Map(windows);
+      const updatedWindow = { ...window, state: 'normal' as const, isActive: true, zIndex: this.nextZIndex++ };
+      newWindows.set(windowId, updatedWindow);
+      this.activeWindowId.set(windowId);
+      return newWindows;
+    });
+  }
+
+  /**
    * Minimize a window
    */
   public minimizeWindow(windowId: string): void {
