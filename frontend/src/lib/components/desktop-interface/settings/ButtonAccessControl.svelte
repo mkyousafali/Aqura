@@ -32,6 +32,29 @@
 	let pendingChanges: Map<string, boolean> = new Map(); // code → new state
 	let showOnlyEnabled = false;
 	let showOnlyDisabled = false;
+	let tableContainer: HTMLElement;
+
+	const sectionIcons: Record<string, string> = {
+		'Delivery': '🚚',
+		'Vendor': '🏪',
+		'Media': '📸',
+		'Promo': '🎁',
+		'Finance': '💰',
+		'HR': '👥',
+		'Tasks': '✅',
+		'Outreach': '📢',
+		'User': '👤',
+		'Controls': '🎛️',
+		'Stock': '📦',
+		'Whatsapp': '💬',
+		'Loyalty': '⭐'
+	};
+
+	function scrollToSection(section: string) {
+		if (!tableContainer) return;
+		const el = tableContainer.querySelector<HTMLElement>(`[data-section="${section}"]`);
+		if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
 
 	const sectionOrder = [
 		'Delivery',
@@ -39,14 +62,14 @@
 		'Media',
 		'Promo',
 		'Finance',
-		'Hr',
-		'Stock',
+		'HR',
 		'Tasks',
 		'Outreach',
-		'Users',
-		'Loyalty',
+		'User',
 		'Controls',
-		'WhatsApp'
+		'Stock',
+		'Whatsapp',
+		'Loyalty'
 	];
 
 	const subsectionOrder = ['Dashboard', 'Manage', 'Operations', 'Reports'];
@@ -530,8 +553,27 @@
 					</div>
 				</div>
 
+				<!-- Section Quick-Jump Nav -->
+				{#if availableSections.length > 0 && !buttonsLoading}
+					<div class="flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 bg-slate-50 overflow-x-auto" style="flex-wrap: nowrap; scrollbar-width: thin;">
+						<span class="text-[10px] font-black uppercase tracking-wider text-slate-400 shrink-0 mr-1">Jump:</span>
+						{#each availableSections as sec}
+							<button
+								class="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all hover:scale-105 active:scale-95"
+								style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd;"
+								on:click={() => scrollToSection(sec)}
+								on:mouseenter={(e) => { (e.currentTarget as HTMLElement).style.background = '#0369a1'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
+								on:mouseleave={(e) => { (e.currentTarget as HTMLElement).style.background = '#e0f2fe'; (e.currentTarget as HTMLElement).style.color = '#0369a1'; }}
+							>
+								<span>{sectionIcons[sec] ?? '📋'}</span>
+								<span>{sec}</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+
 				<!-- Buttons Table -->
-				<div class="flex-1 overflow-y-auto">
+				<div class="flex-1 overflow-y-auto" bind:this={tableContainer}>
 					{#if buttonsLoading}
 						<div class="flex items-center justify-center h-full">
 							<div class="text-center">
@@ -562,8 +604,8 @@
 							<tbody class="divide-y divide-slate-100">
 								{#each groupedFilteredRows as row (row.key)}
 									{#if row.type === 'section'}
-										<tr class="bg-sky-50/70 border-y border-sky-100">
-											<td class="px-4 py-2 text-[11px] text-sky-700 font-black uppercase tracking-wide" colspan="5">{row.section}</td>
+										<tr class="bg-sky-50/70 border-y border-sky-100" data-section={row.section}>
+											<td class="px-4 py-2 text-[11px] text-sky-700 font-black uppercase tracking-wide" colspan="5">{sectionIcons[row.section] ?? '📋'} {row.section}</td>
 										</tr>
 									{:else if row.type === 'subsection'}
 										<tr class="bg-slate-50/70">
