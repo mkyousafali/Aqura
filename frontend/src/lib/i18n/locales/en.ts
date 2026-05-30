@@ -109,6 +109,7 @@ export const englishLocale: LocaleData = {
       manage: "Manage",
       operations: "Operations",
       localBranchUpdate: "Local Branch Update",
+      helperApps: "Helper Apps",
       receiving: "Receiving",
       receivingRecords: "Receiving Records",
       flyerMaster: "Flyer Master",

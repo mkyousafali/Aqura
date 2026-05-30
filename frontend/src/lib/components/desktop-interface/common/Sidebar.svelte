@@ -106,6 +106,7 @@
 	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
+	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
@@ -1772,6 +1773,29 @@ function openApprovalCenter() {
 			position: { 
 				x: 150 + (Math.random() * 100), 
 				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllSubsections();
+	}
+
+	function openHelperApps() {
+		const windowId = generateWindowId('helper-apps');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${t('nav.helperApps') || 'Helper Apps'} #${instanceNumber}`,
+			component: HelperApps,
+			componentName: 'HelperApps',
+			icon: '🧩',
+			size: { width: 1100, height: 680 },
+			position: {
+				x: 130 + (Math.random() * 100),
+				y: 80 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -6086,6 +6110,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openLocalUpdate}>
 								<span class="menu-icon">🚀</span>
 								<span class="menu-text">{t('nav.localBranchUpdate')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('HELPER_APPS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openHelperApps}>
+								<span class="menu-icon">🧩</span>
+								<span class="menu-text">{t('nav.helperApps') || 'Helper Apps'}</span>
 							</button>
 						</div>
 					{/if}
