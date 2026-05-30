@@ -62,7 +62,7 @@
 
 	// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	function formatSize(bytes: number | null): string {
-		if (bytes == null) return 'â€”';
+		if (bytes == null) return '—';
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1_048_576) return `${(bytes / 1024).toFixed(1)} KB`;
 		if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
@@ -80,7 +80,7 @@
 	}
 
 	function getFileExt(mimeOrName: string | null): string {
-		if (!mimeOrName) return 'â€”';
+		if (!mimeOrName) return '—';
 		// Try to derive a short label from mime type
 		const parts = mimeOrName.split('/');
 		return parts[parts.length - 1].toUpperCase().slice(0, 8);
@@ -240,15 +240,15 @@
 	<!-- â”€â”€ Header â”€â”€ -->
 	<div class="ha-header">
 		<div class="ha-title">
-			<span class="ha-icon">ðŸ§©</span>
+			<span class="ha-icon">🧩</span>
 			<h2>{$t('nav.helperApps') || 'Helper Apps'}</h2>
 		</div>
 		<div class="ha-header-actions">
 			<button class="ha-btn-refresh" on:click={loadApps} title="Refresh" disabled={loading}>
-				<span class:spin={loading}>â†»</span>
+				<span class:spin={loading}>↻</span>
 			</button>
 			<button class="ha-btn-add" on:click={toggleAddForm}>
-				{showAddForm ? 'âœ• Cancel' : '+ Add App'}
+				{showAddForm ? '✕ Cancel' : '+ Add App'}
 			</button>
 		</div>
 	</div>
@@ -256,14 +256,14 @@
 	<!-- â”€â”€ Global notices â”€â”€ -->
 	{#if globalSuccess}
 		<div class="ha-notice success">
-			<span>âœ… {globalSuccess}</span>
-			<button on:click={() => (globalSuccess = '')} aria-label="Dismiss">âœ•</button>
+			<span>✅ {globalSuccess}</span>
+			<button on:click={() => (globalSuccess = '')} aria-label="Dismiss">✕</button>
 		</div>
 	{/if}
 	{#if globalError}
 		<div class="ha-notice error">
-			<span>âš ï¸ {globalError}</span>
-			<button on:click={() => (globalError = '')} aria-label="Dismiss">âœ•</button>
+			<span>⚠️ {globalError}</span>
+			<button on:click={() => (globalError = '')} aria-label="Dismiss">✕</button>
 		</div>
 	{/if}
 
@@ -302,8 +302,8 @@
 
 			{#if newFile}
 				<div class="ha-file-preview">
-					ðŸ“„ <strong>{newFile.name}</strong>
-					<span class="ha-file-meta">â€” {formatSize(newFile.size)}</span>
+				📄 <strong>{newFile.name}</strong>
+				<span class="ha-file-meta">— {formatSize(newFile.size)}</span>
 					{#if newFile.type}
 						<span class="ha-file-type">{newFile.type}</span>
 					{/if}
@@ -313,9 +313,9 @@
 			<div class="ha-form-actions">
 				<button class="ha-btn-upload" on:click={addApp} disabled={uploading}>
 					{#if uploading}
-						<span class="ha-spinner small"></span> Uploadingâ€¦
+						<span class="ha-spinner small"></span> Uploading…
 					{:else}
-						â¬† Upload
+						⬆ Upload
 					{/if}
 				</button>
 				<button class="ha-btn-cancel" on:click={cancelAdd} disabled={uploading}>
@@ -330,11 +330,11 @@
 		{#if loading}
 			<div class="ha-center-state">
 				<span class="ha-spinner large"></span>
-				<span>Loading helper appsâ€¦</span>
+				<span>Loading helper apps…</span>
 			</div>
 		{:else if apps.length === 0}
 			<div class="ha-center-state">
-				<span class="ha-empty-icon">ðŸ—‚ï¸</span>
+				<span class="ha-empty-icon">🗂️</span>
 				<p>No helper apps yet.</p>
 				<p class="ha-empty-sub">Click <strong>+ Add App</strong> to upload the first one.</p>
 			</div>
@@ -395,7 +395,7 @@
 											{#if updateUploading}
 												<span class="ha-spinner small"></span>
 											{:else}
-												âœ“ Save
+												✓ Save
 											{/if}
 										</button>
 										<button
@@ -403,7 +403,7 @@
 											on:click={cancelUpdate}
 											disabled={updateUploading}
 										>
-											âœ•
+											✕
 										</button>
 									</div>
 								{:else}
@@ -416,7 +416,7 @@
 										{#if downloadingId === app.id}
 											<span class="ha-spinner small"></span>
 										{:else}
-											â¬‡ Download
+											⬇ Download
 										{/if}
 									</button>
 									<button
@@ -424,7 +424,7 @@
 										on:click={() => startUpdate(app)}
 										title="Replace with a new file"
 									>
-										ðŸ”„ Update
+										🔄 Update
 									</button>
 								{/if}
 							</td>
