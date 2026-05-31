@@ -494,8 +494,8 @@ return String(value).trim().replace(/\s+/g, '');
 }
 
 /** Build a map from normalized Legal Id -> mudad values for all current filteredAnalysisData rows */
-function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number }> {
-	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number }>();
+function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number }> {
+	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number }>();
 	for (const row of filteredAnalysisData) {
 		const legalId = normalizeLegalId(row.idNumber);
 		if (!legalId) continue;
@@ -520,7 +520,11 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		const foodPayMode = (foodPaymentModes[empId] || 'Bank').toLowerCase();
 		const foodAllowBank = (!foodDeductionActive && foodPayMode !== 'cash') ? foodAllow : 0;
 
-		const otherAllowancesAmount = otherAllowBank + foodAllowBank;
+		const travelAllow = travelAllowances[empId] || 0;
+		const travelPayMode = (travelPaymentModes[empId] || 'Bank').toLowerCase();
+		const travelAllowBank = travelPayMode !== 'cash' ? travelAllow : 0;
+
+		const otherAllowancesAmount = otherAllowBank + foodAllowBank + travelAllowBank;
 
 		// Leave of Absence = incomplete + late + under worked deductions
 		let incompleteDed = 0;
@@ -554,7 +558,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		map.set(legalId, {
 			otherAllowances: otherAllowancesAmount,
 			leaveOfAbsence: leaveOfAbsenceAmount,
-			otherDeductions: otherDeductionsAmount
+			otherDeductions: otherDeductionsAmount,
+			netBank: parseFloat((computeRowSalary(row).netBank).toFixed(2))
 		});
 	}
 	return map;
@@ -566,6 +571,13 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		let n = 0;
 		for (const ch of letters) n = n * 26 + ch.charCodeAt(0) - 64;
 		return n;
+	}
+
+	/** Convert 1-based column number to Excel column letters: 1=A, 26=Z, 27=AA */
+	function mudadNumToCol(n: number): string {
+		let s = '';
+		while (n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); }
+		return s;
 	}
 
 	/** Parse xl/sharedStrings.xml into an array of plain strings */
@@ -634,12 +646,120 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		return result;
 	}
 
+	/** Add a solid yellow fill to xl/styles.xml and return the new cellXf style index */
+	function addYellowFillToStyles(stylesXml: string): { xml: string; styleIdx: number } {
+		const yellowFill = '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>';
+		// Current count = 0-based index of the new fill
+		const fillsCountMatch = stylesXml.match(/fills[^>]*\scount="(\d+)"/);
+		const newFillIdx = fillsCountMatch ? parseInt(fillsCountMatch[1]) : 2;
+		// Current count = 0-based index of the new xf
+		const cellXfsCountMatch = stylesXml.match(/cellXfs[^>]*\scount="(\d+)"/);
+		const newStyleIdx = cellXfsCountMatch ? parseInt(cellXfsCountMatch[1]) : 1;
+		let xml = stylesXml;
+		xml = xml.replace('</fills>', yellowFill + '</fills>');
+		xml = xml.replace(/(<fills[^>]*\scount=")(\d+)(")/, (_m, p1, p2, p3) => p1 + (parseInt(p2) + 1) + p3);
+		const newXf = `<xf numFmtId="0" fontId="0" fillId="${newFillIdx}" borderId="0" xfId="0"/>`;
+		xml = xml.replace('</cellXfs>', newXf + '</cellXfs>');
+		xml = xml.replace(/(<cellXfs[^>]*\scount=")(\d+)(")/, (_m, p1, p2, p3) => p1 + (parseInt(p2) + 1) + p3);
+		return { xml, styleIdx: newStyleIdx };
+	}
+
+	/** Apply s="styleIdx" to each cell in cellRefs (yellow background for unmatched rows) */
+	function applyYellowToCells(xml: string, cellRefs: string[], styleIdx: number): string {
+		let result = xml;
+		for (const cellRef of cellRefs) {
+			const rAttr = 'r="' + cellRef + '"';
+			let pos = 0;
+			while (true) {
+				const cellStart = result.indexOf('<c ', pos);
+				if (cellStart === -1) break;
+				const tagEnd = result.indexOf('>', cellStart);
+				if (tagEnd === -1) break;
+				const openTag = result.substring(cellStart, tagEnd + 1);
+				if (!openTag.includes(rAttr)) { pos = tagEnd + 1; continue; }
+				let newTag: string;
+				if (/\ss="[^"]*"/.test(openTag)) {
+					newTag = openTag.replace(/\ss="[^"]*"/, ` s="${styleIdx}"`);
+				} else {
+					newTag = '<c s="' + styleIdx + '" ' + openTag.slice(3);
+				}
+				result = result.substring(0, cellStart) + newTag + result.substring(tagEnd + 1);
+				break;
+			}
+		}
+		return result;
+	}
+
+	/** Insert XML for new cells before the closing </row> tag of the given row number */
+	function insertCellsIntoRow(xml: string, rowNum: number, newCells: string): string {
+		let pos = 0;
+		while (true) {
+			const rowStart = xml.indexOf('<row ', pos);
+			if (rowStart === -1) break;
+			const tagEnd = xml.indexOf('>', rowStart);
+			if (tagEnd === -1) break;
+			const openTag = xml.substring(rowStart, tagEnd + 1);
+			const rMatch = openTag.match(/\br="(\d+)"/);
+			if (!rMatch || parseInt(rMatch[1]) !== rowNum) { pos = tagEnd + 1; continue; }
+			const rowClose = xml.indexOf('</row>', tagEnd);
+			if (rowClose === -1) break;
+			return xml.substring(0, rowClose) + newCells + xml.substring(rowClose);
+		}
+		return xml;
+	}
+
+	function makeFmCell(ref: string, formula: string): string {
+		return `<c r="${ref}"><f>${formula}</f><v>0</v></c>`;
+	}
+	function makeValCell(ref: string, value: number): string {
+		return `<c r="${ref}"><v>${value}</v></c>`;
+	}
+	function makeHdrCell(ref: string, text: string): string {
+		return `<c r="${ref}" t="inlineStr"><is><t>${text}</t></is></c>`;
+	}
+
+	/** Add red/yellow/green dxf entries to xl/styles.xml for the Q-column conditional formatting */
+	function addComputedColsStyles(stylesXml: string): { xml: string; dxfRedIdx: number; dxfYellowIdx: number; dxfGreenIdx: number } {
+		const dxfRed    = '<dxf><fill><patternFill><bgColor rgb="FFFF0000"/></patternFill></fill></dxf>';
+		const dxfYellow = '<dxf><fill><patternFill><bgColor rgb="FFFFFF00"/></patternFill></fill></dxf>';
+		const dxfGreen  = '<dxf><fill><patternFill><bgColor rgb="FF00B050"/></patternFill></fill></dxf>';
+		const newDxfs = dxfRed + dxfYellow + dxfGreen;
+		let xml = stylesXml;
+		let dxfStartIdx = 0;
+
+		// Check for self-closing <dxfs.../> first (e.g. <dxfs count="0"/>) — these have no </dxfs> tag
+		const selfClosingMatch = xml.match(/<dxfs([^>]*?)\/>/);
+		if (selfClosingMatch) {
+			const countMatch = selfClosingMatch[1].match(/count="(\d+)"/);
+			dxfStartIdx = countMatch ? parseInt(countMatch[1]) : 0;
+			xml = xml.replace(selfClosingMatch[0], `<dxfs count="${dxfStartIdx + 3}">${newDxfs}</dxfs>`);
+		} else if (xml.includes('</dxfs>')) {
+			// Regular <dxfs ...>...</dxfs>
+			const openMatch = xml.match(/<dxfs([^>]*?)>/);
+			const countMatch = openMatch?.[1].match(/count="(\d+)"/);
+			dxfStartIdx = countMatch ? parseInt(countMatch[1]) : 0;
+			xml = xml.replace('</dxfs>', newDxfs + '</dxfs>');
+			xml = xml.replace(/(<dxfs[^>]*count=")(\d+)(")/, (_m, p1, _p2, p3) => p1 + (dxfStartIdx + 3) + p3);
+		} else {
+			// No <dxfs> element at all — insert after </cellStyles> or </cellXfs>
+			const insertAfter = xml.includes('</cellStyles>') ? '</cellStyles>' : '</cellXfs>';
+			xml = xml.replace(insertAfter, insertAfter + `<dxfs count="3">${newDxfs}</dxfs>`);
+		}
+
+		return { xml, dxfRedIdx: dxfStartIdx, dxfYellowIdx: dxfStartIdx + 1, dxfGreenIdx: dxfStartIdx + 2 };
+	}
+
 	/** Find header row, match Legal Ids, return updated sheet XML and match count */
+	/** Find header row, match Legal Ids, fill values + add computed columns M–Q */
 	function processMudadSheetXml(
 		xml: string,
 		sharedStrings: string[],
-		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number }>
-	): { result: string; matchCount: number } {
+		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number }>,
+		yellowStyleIdx?: number,
+		dxfRedIdx?: number,
+		dxfYellowIdx?: number,
+		dxfGreenIdx?: number
+	): { result: string; matchCount: number; changed: boolean } {
 		const HEADERS = ['Legal Id', 'Other Allowances (Amount)', 'Leave of Absence (Amount)', 'Other Deductions (Amount)'];
 		const parser = new DOMParser();
 		const doc = parser.parseFromString(xml, 'application/xml');
@@ -667,12 +787,17 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				otherDedCol     = colMap['Other Deductions (Amount)'];
 			}
 		}
-		if (headerRowNum === -1) return { result: xml, matchCount: 0 };
+		if (headerRowNum === -1) return { result: xml, matchCount: 0, changed: false };
 
 		const updates = new Map<string, number>();
+		const unmatchedCellRefs: string[] = [];
+		const matchedRows: Array<{ rowNum: number; netBank: number }> = [];
+		let lastDataRowNum = headerRowNum;
+
 		for (const row of rows) {
 			const rowNum = parseInt(row.getAttribute('r') || '0');
 			if (rowNum <= headerRowNum) continue;
+			lastDataRowNum = Math.max(lastDataRowNum, rowNum);
 			let legalId = '';
 			for (const cell of Array.from(row.getElementsByTagName('c'))) {
 				if (mudadColToNum(cell.getAttribute('r') || '') !== legalIdCol) continue;
@@ -686,7 +811,17 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			}
 			if (!legalId) continue;
 			const vals = mudadMap.get(legalId);
-			if (!vals) continue;
+			if (!vals) {
+				// Legal ID exists in template but not in salary statement — collect for yellow highlight
+				if (yellowStyleIdx !== undefined) {
+					for (const cell of Array.from(row.getElementsByTagName('c'))) {
+						const ref = cell.getAttribute('r');
+						if (ref) unmatchedCellRefs.push(ref);
+					}
+				}
+				continue;
+			}
+			matchedRows.push({ rowNum, netBank: vals.netBank });
 			for (const cell of Array.from(row.getElementsByTagName('c'))) {
 				const ref = cell.getAttribute('r') || '';
 				const col = mudadColToNum(ref);
@@ -695,8 +830,61 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				else if (col === otherDedCol)     updates.set(ref, parseFloat(vals.otherDeductions.toFixed(2)));
 			}
 		}
-		if (updates.size === 0) return { result: xml, matchCount: 0 };
-		return { result: updateMudadCells(xml, updates), matchCount: Math.round(updates.size / 3) };
+
+		const hasUpdates = updates.size > 0;
+		const hasUnmatched = unmatchedCellRefs.length > 0;
+		const hasMatched = matchedRows.length > 0;
+		if (!hasUpdates && !hasUnmatched && !hasMatched) return { result: xml, matchCount: 0, changed: false };
+
+		let result = xml;
+		if (hasUpdates) result = updateMudadCells(result, updates);
+		if (hasUnmatched && yellowStyleIdx !== undefined) result = applyYellowToCells(result, unmatchedCellRefs, yellowStyleIdx);
+
+		// ── Computed columns M–Q ──────────────────────────────────────────────
+		if (hasMatched) {
+			// Column headers in the header row
+			result = insertCellsIntoRow(result, headerRowNum,
+				makeHdrCell(`M${headerRowNum}`, 'Populated GOSI') +
+				makeHdrCell(`N${headerRowNum}`, 'Net Ded') +
+				makeHdrCell(`O${headerRowNum}`, 'Net Total') +
+				makeHdrCell(`P${headerRowNum}`, 'Net Bank') +
+				makeHdrCell(`Q${headerRowNum}`, 'Difference')
+			);
+			// Formula + value cells for each matched data row
+			for (const { rowNum: r, netBank } of matchedRows) {
+				result = insertCellsIntoRow(result, r,
+					makeFmCell(`M${r}`, `F${r}*J${r}%`) +
+					makeFmCell(`N${r}`, `K${r}+L${r}+M${r}`) +
+					makeFmCell(`O${r}`, `F${r}+G${r}+H${r}+I${r}-N${r}`) +
+					makeValCell(`P${r}`, parseFloat(netBank.toFixed(2))) +
+					makeFmCell(`Q${r}`, `O${r}-P${r}`)
+				);
+			}
+			// Conditional formatting for Q: red=negative, yellow=positive, green=zero
+			if (dxfRedIdx !== undefined && dxfYellowIdx !== undefined && dxfGreenIdx !== undefined && lastDataRowNum > headerRowNum) {
+				const sqref = `Q${headerRowNum + 1}:Q${lastDataRowNum}`;
+				const cfXml =
+					`<conditionalFormatting sqref="${sqref}">` +
+					`<cfRule type="cellIs" dxfId="${dxfRedIdx}" priority="1" operator="lessThan"><formula>0</formula></cfRule>` +
+					`<cfRule type="cellIs" dxfId="${dxfYellowIdx}" priority="2" operator="greaterThan"><formula>0</formula></cfRule>` +
+					`<cfRule type="cellIs" dxfId="${dxfGreenIdx}" priority="3" operator="equal"><formula>0</formula></cfRule>` +
+					`</conditionalFormatting>`;
+				// CF must appear before <pageMargins>/<pageSetup> in OOXML schema.
+				// Insert after the last element that should precede it: </mergeCells> → </autoFilter> → </sheetData>
+				const insertAfterCandidates = ['</mergeCells>', '</autoFilter>', '</sheetData>'];
+				let inserted = false;
+				for (const tag of insertAfterCandidates) {
+					if (result.includes(tag)) {
+						result = result.replace(tag, tag + cfXml);
+						inserted = true;
+						break;
+					}
+				}
+				if (!inserted) result = result.replace('</worksheet>', cfXml + '</worksheet>');
+			}
+		}
+
+		return { result, matchCount: Math.round(updates.size / 3), changed: true };
 	}
 
 	function handleMudadTemplateImport(file: File) {
@@ -726,14 +914,27 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			const sharedStrings = await parseMudadSharedStrings(zip);
 			const mudadMap = buildMudadRowMap();
 
+			// Inject styles: yellow fill for unmatched rows + red/yellow/green dxfs for Q column CF
+			let yellowStyleIdx: number | undefined;
+			let dxfRedIdx: number | undefined, dxfYellowIdx: number | undefined, dxfGreenIdx: number | undefined;
+			const stylesFile = (zip as any).file('xl/styles.xml');
+			if (stylesFile) {
+				let stylesXml: string = await stylesFile.async('string');
+				const { xml: afterYellow, styleIdx } = addYellowFillToStyles(stylesXml);
+				stylesXml = afterYellow; yellowStyleIdx = styleIdx;
+				const { xml: afterCf, dxfRedIdx: ri, dxfYellowIdx: yi, dxfGreenIdx: gi } = addComputedColsStyles(stylesXml);
+				stylesXml = afterCf; dxfRedIdx = ri; dxfYellowIdx = yi; dxfGreenIdx = gi;
+				(zip as any).file('xl/styles.xml', stylesXml);
+			}
+
 			let totalMatched = 0;
 			const sheetPaths = Object.keys((zip as any).files).filter((f: string) =>
 				/^xl\/worksheets\/sheet\d+\.xml$/i.test(f)
 			);
 			for (const sheetPath of sheetPaths) {
 				const xml: string = await (zip as any).file(sheetPath)!.async('string');
-				const { result, matchCount } = processMudadSheetXml(xml, sharedStrings, mudadMap);
-				if (matchCount > 0) { (zip as any).file(sheetPath, result); totalMatched += matchCount; }
+				const { result, matchCount, changed } = processMudadSheetXml(xml, sharedStrings, mudadMap, yellowStyleIdx, dxfRedIdx, dxfYellowIdx, dxfGreenIdx);
+				if (changed) { (zip as any).file(sheetPath, result); totalMatched += matchCount; }
 			}
 
 			const blob: Blob = await (zip as any).generateAsync({
