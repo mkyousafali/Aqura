@@ -494,8 +494,8 @@ return String(value).trim().replace(/\s+/g, '');
 }
 
 /** Build a map from normalized Legal Id -> mudad values for all current filteredAnalysisData rows */
-function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number }> {
-	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number }>();
+function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number; travelAllowBank: number }> {
+	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number; travelAllowBank: number }>();
 	for (const row of filteredAnalysisData) {
 		const legalId = normalizeLegalId(row.idNumber);
 		if (!legalId) continue;
@@ -524,7 +524,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		const travelPayMode = (travelPaymentModes[empId] || 'Bank').toLowerCase();
 		const travelAllowBank = travelPayMode !== 'cash' ? travelAllow : 0;
 
-		const otherAllowancesAmount = otherAllowBank + foodAllowBank + travelAllowBank;
+		const otherAllowancesAmount = otherAllowBank + foodAllowBank; // travelAllowBank handled conditionally in processMudadSheetXml
 
 		// Leave of Absence = incomplete + late + under worked deductions
 		let incompleteDed = 0;
@@ -559,7 +559,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			otherAllowances: otherAllowancesAmount,
 			leaveOfAbsence: leaveOfAbsenceAmount,
 			otherDeductions: otherDeductionsAmount,
-			netBank: parseFloat((computeRowSalary(row).netBank).toFixed(2))
+			netBank: parseFloat((computeRowSalary(row).netBank).toFixed(2)),
+			travelAllowBank: parseFloat(travelAllowBank.toFixed(2))
 		});
 	}
 	return map;
@@ -754,7 +755,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	function processMudadSheetXml(
 		xml: string,
 		sharedStrings: string[],
-		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number }>,
+		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number; travelAllowBank: number }>,
 		yellowStyleIdx?: number,
 		dxfRedIdx?: number,
 		dxfYellowIdx?: number,
@@ -766,7 +767,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		const rows = Array.from(doc.getElementsByTagName('row'));
 
 		let headerRowNum = -1;
-		let legalIdCol = 0, otherAllowCol = 0, leaveAbsenceCol = 0, otherDedCol = 0;
+		let legalIdCol = 0, otherAllowCol = 0, leaveAbsenceCol = 0, otherDedCol = 0, transportationCol = 0;
 		for (const row of rows) {
 			if (headerRowNum !== -1) break;
 			const colMap: Record<string, number> = {};
@@ -785,6 +786,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				otherAllowCol   = colMap['Other Allowances (Amount)'];
 				leaveAbsenceCol = colMap['Leave of Absence (Amount)'];
 				otherDedCol     = colMap['Other Deductions (Amount)'];
+				transportationCol = colMap['Transportation Allowance'] || 0;
 			}
 		}
 		if (headerRowNum === -1) return { result: xml, matchCount: 0, changed: false };
@@ -822,10 +824,22 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				continue;
 			}
 			matchedRows.push({ rowNum, netBank: vals.netBank });
+			// Check if template already has a Transportation Allowance value for this row
+			let templateTransportVal = 0;
+			if (transportationCol > 0) {
+				for (const cell of Array.from(row.getElementsByTagName('c'))) {
+					if (mudadColToNum(cell.getAttribute('r') || '') !== transportationCol) continue;
+					const vEl = cell.querySelector('v');
+					if (vEl?.textContent) templateTransportVal = parseFloat(vEl.textContent) || 0;
+					break;
+				}
+			}
+			// Only add travel allowance to Other Allowances if template Transportation Allowance is 0/empty
+			const travelToAdd = (transportationCol === 0 || templateTransportVal === 0) ? vals.travelAllowBank : 0;
 			for (const cell of Array.from(row.getElementsByTagName('c'))) {
 				const ref = cell.getAttribute('r') || '';
 				const col = mudadColToNum(ref);
-				if (col === otherAllowCol)       updates.set(ref, parseFloat(vals.otherAllowances.toFixed(2)));
+				if (col === otherAllowCol)       updates.set(ref, parseFloat((vals.otherAllowances + travelToAdd).toFixed(2)));
 				else if (col === leaveAbsenceCol) updates.set(ref, parseFloat(vals.leaveOfAbsence.toFixed(2)));
 				else if (col === otherDedCol)     updates.set(ref, parseFloat(vals.otherDeductions.toFixed(2)));
 			}
