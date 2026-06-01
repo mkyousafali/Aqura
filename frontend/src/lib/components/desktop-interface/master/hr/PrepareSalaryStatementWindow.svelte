@@ -2454,7 +2454,7 @@ return n;
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 				</svg>
-				Refresh
+				{$t('hr.salaryStatement.refresh')}
 			</button>
 
 			<button
@@ -2466,7 +2466,7 @@ return n;
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
 				</svg>
-				Export Excel
+				{$t('hr.salaryStatement.exportExcel')}
 			</button>
 
 			
@@ -2479,7 +2479,7 @@ title="Export salary data to Mudad Excel template"
 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
 </svg>
-Mudad Exporter
+{$t('hr.salaryStatement.mudadExporter')}
 </button>
 <!-- Column selector button -->
 			<div class="relative">
@@ -2671,8 +2671,11 @@ Mudad Exporter
 								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
 									<div class="flex flex-col">
 										<span>{row.employeeName}</span>
-										{#if row.shiftInfo}
-											<span class="text-[9px] text-slate-500 font-normal">{row.shiftInfo}</span>
+										{#if row.currentBranchId}
+											{@const branch = branches.find(b => b.id === row.currentBranchId)}
+											{#if branch}
+												<span class="text-[9px] text-slate-500 font-normal">{$locale === 'ar' ? branch.name_ar : branch.name_en}{#if ($locale === 'ar' ? branch.location_ar : branch.location_en)} - {$locale === 'ar' ? branch.location_ar : branch.location_en}{/if}</span>
+											{/if}
 										{/if}
 									</div>
 								</td>
@@ -3192,19 +3195,19 @@ Mudad Exporter
 						{#if isLoadedFromSaved && isModified}
 							<button type="button" on:click={confirmUpdate} disabled={saveBusy}
 								class="px-3 py-1 rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold shadow-sm">
-								{#if saveBusy}{$t('hr.salaryStatement.updating')}{:else}<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>Update</span>{/if}
+								{#if saveBusy}{$t('hr.salaryStatement.updating')}{:else}<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>{$t('hr.salaryStatement.update')}</span>{/if}
 							</button>
 						{:else}
 							<button type="button" on:click={openSaveModal}
 								disabled={saveBusy || !analysisData?.length || isLoadedFromSaved}
 								title={isLoadedFromSaved ? $t('hr.salaryStatement.saveDisabledLoadedTooltip') : $t('hr.salaryStatement.saveTooltip')}
 								class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold shadow-sm">
-								<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>Save</span>
+								<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>{$t('hr.salaryStatement.save')}</span>
 							</button>
 						{/if}
 						<button type="button" on:click={openLoadModal} disabled={saveBusy}
 							class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[11px] font-bold shadow-sm">
-							<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>Load</span>
+							<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>{$t('hr.salaryStatement.load')}</span>
 						</button>
 						{#if isLoadedFromSaved}
 							<button type="button" on:click={resetSavedStatementContext}
@@ -3253,7 +3256,7 @@ Mudad Exporter
 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
 </svg>
-<h3 class="text-lg font-bold text-slate-900">Mudad Exporter</h3>
+<h3 class="text-lg font-bold text-slate-900">{$t('hr.salaryStatement.mudadExporter')}</h3>
 </div>
 <button type="button" class="text-slate-400 hover:text-slate-700 text-xl leading-none" on:click={() => (showMudadModal = false)}>×</button>
 </div>
@@ -3283,7 +3286,7 @@ type="button"
 on:click={() => (showMudadModal = false)}
 disabled={mudadProcessing}
 class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"
->Cancel</button>
+>{ $t('hr.salaryStatement.cancel')}</button>
 <button
 type="button"
 on:click={exportMudadExcel}
@@ -3293,10 +3296,10 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 {#if mudadProcessing}
 <span class="flex items-center gap-2">
 <span class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-Processing...
+{$t('hr.salaryStatement.processing')}
 </span>
 {:else}
-Export Filled Excel
+{$t('hr.salaryStatement.exportFilledExcel')}
 {/if}
 </button>
 </div>
@@ -3336,7 +3339,7 @@ Export Filled Excel
 			</div>
 			<div class="mt-5 flex justify-end gap-2">
 				<button type="button" on:click={() => (showSaveModal = false)} disabled={saveBusy}
-					class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold">Cancel</button>
+					class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold">{$t('hr.salaryStatement.cancel')}</button>
 				<button type="button" on:click={confirmSave} disabled={saveBusy}
 					class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold shadow">
 					{saveBusy ? $t('hr.salaryStatement.saving') : $t('hr.salaryStatement.save')}
