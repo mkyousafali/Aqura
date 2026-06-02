@@ -1206,11 +1206,18 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			}
 			// Dynamic import - keeps initial bundle smaller
 			const XLSX: any = await import('xlsx');
+			// Capture live .value from original inputs BEFORE cloning.
+			// cloneNode copies HTML attributes, not the IDL .value property that Svelte sets
+			// programmatically, so reading from the clone would return stale/empty values
+			// (e.g. after loading a saved statement the restored values wouldn't appear).
+			const originalFormEls = Array.from(tableEl.querySelectorAll('input, select, textarea')) as HTMLInputElement[];
+			const originalFormValues = originalFormEls.map((el) => el.value);
 			// Clone so we can strip <input> and form controls (export their values as plain text)
 			const clone = tableEl.cloneNode(true) as HTMLTableElement;
-			// Replace inputs/selects with their values
-			clone.querySelectorAll('input, select, textarea').forEach((el: any) => {
-				const text = document.createTextNode(el.value ?? '');
+			// Replace inputs/selects with the values captured from the original elements
+			const cloneFormEls = Array.from(clone.querySelectorAll('input, select, textarea'));
+			cloneFormEls.forEach((el: any, i) => {
+				const text = document.createTextNode(originalFormValues[i] ?? '');
 				el.parentNode?.replaceChild(text, el);
 			});
 			// Remove elements explicitly hidden (so we don't export hidden columns)
@@ -2765,21 +2772,20 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-rose-700 bg-rose-50/20 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDays ? '' : 'hidden'}">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays)}</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-pink-700 bg-pink-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDeductions ? '' : 'hidden'}">
-									{#if employeeShifts.get(String(row.employeeId)) && (row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) > 0}
-										{(() => {
+									{(() => {
+											const _isRemote = row.employmentStatus === 'Remote Job';
+											const incompOvr = incompleteDayDeductionOverrides[row.employeeId];
+											if (incompOvr !== undefined) return _isRemote ? '-' : (incompOvr > 0 ? incompOvr.toFixed(2) : '-');
+											const incompleteDays = _isRemote ? 0 : row.totalIncompleteDays;
+											if (!incompleteDays || !employeeShifts.get(String(row.employeeId))) return '-';
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
 											const travelAllow = travelAllowances[row.employeeId] || 0;
 											const foodAllow = foodAllowances[row.employeeId] || 0;
-											const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-											const hourlyRate = totalSalary / 240;
-											const incompleteDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) * 8 * hourlyRate;
-											return incompleteDeduction.toFixed(2);
+											const hourlyRate = (basicSal + otherAllow + accommAllow + travelAllow + foodAllow) / 240;
+											return (incompleteDays * 8 * hourlyRate).toFixed(2);
 										})()}
-									{:else}
-										-
-									{/if}
 								</td>
 								<td class="hidden px-4 py-3 border-r text-center font-bold text-rose-700 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays)}</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-rose-900 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.unapprovedDaysOff ? '' : 'hidden'}">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff)}</td>
@@ -2869,14 +2875,16 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-purple-700 bg-purple-50/20 w-[150px] whitespace-nowrap group-hover:bg-purple-100/50 transition-colors {colVis.lateDeductions ? '' : 'hidden'}">
 										{(() => {
+											const _isRemote = row.employmentStatus === 'Remote Job';
+											const lateDedOvr = lateDeductionOverrides[row.employeeId];
+											if (lateDedOvr !== undefined) return (_isRemote ? 0 : lateDedOvr).toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
 											const travelAllow = travelAllowances[row.employeeId] || 0;
 											const foodAllow = foodAllowances[row.employeeId] || 0;
-											const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-											const hourlyRate = totalSalary / 240;
-											const lateMinutes = lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0;
+											const hourlyRate = (basicSal + otherAllow + accommAllow + travelAllow + foodAllow) / 240;
+											const lateMinutes = lateMinutesOverrides[row.employeeId] ?? (_isRemote ? 0 : row.totalLateMinutes) ?? 0;
 											return (lateMinutes / 60 * hourlyRate).toFixed(2);
 										})()}
 								</td>
@@ -2939,14 +2947,16 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-sky-700 bg-sky-50/20 w-[150px] whitespace-nowrap group-hover:bg-sky-100/50 transition-colors {colVis.unapprovedLeaveDeductions ? '' : 'hidden'}">
 										{(() => {
+											const _isRemote = row.employmentStatus === 'Remote Job';
+											const unapOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
+											if (unapOvr !== undefined) return (_isRemote ? 0 : unapOvr).toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
 											const travelAllow = travelAllowances[row.employeeId] || 0;
 											const foodAllow = foodAllowances[row.employeeId] || 0;
-											const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-											const hourlyRate = totalSalary / 240;
-											const unapprovedDays = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) || 0;
+											const hourlyRate = (basicSal + otherAllow + accommAllow + travelAllow + foodAllow) / 240;
+											const unapprovedDays = (_isRemote ? 0 : row.totalUnapprovedDaysOff) || 0;
 											return (unapprovedDays * 8 * hourlyRate).toFixed(2);
 										})()}
 								</td>
