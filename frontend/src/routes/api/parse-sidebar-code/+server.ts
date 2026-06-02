@@ -71,7 +71,7 @@ export const GET: RequestHandler = async () => {
 				REPORTS: ['VENDOR_RECORDS']
 			},
 			MEDIA: {
-				DASHBOARD: ['FLYER_MASTER', 'PRODUCTS_DASHBOARD'],
+				DASHBOARD: [], // FLYER_MASTER and PRODUCTS_DASHBOARD removed
 				MANAGE: [
 					'PRODUCT_MASTER',
 					'VARIATION_MANAGER',

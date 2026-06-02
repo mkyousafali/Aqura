@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
-	import { currentLocale, _ as t } from '$lib/i18n';
+	import { currentLocale, _ as t, t as translate } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import PrepareSalaryStatementWindow from './PrepareSalaryStatementWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
@@ -469,7 +469,7 @@
 		const windowId = `prepare-salary-statement-${Date.now()}`;
 		openWindow({
 			id: windowId,
-			title: '📄 Prepare Salary Statement',
+			title: `📄 ${translate('hr.salary.prepareSalaryStatement')}`,
 			component: PrepareSalaryStatementWindow,
 			props: {
 				windowId: windowId
@@ -492,7 +492,7 @@
 				{isLoading ? $t('common.loading') : `🔄 ${$t('hr.salary.refresh')}`}
 			</button>
 			<button class="prepare-statement-btn" on:click={openPrepareSalaryWindow}>
-				📄 Prepare Salary Statement
+				📄 {$t('hr.salary.prepareSalaryStatement')}
 			</button>
 		</div>
 	</div>

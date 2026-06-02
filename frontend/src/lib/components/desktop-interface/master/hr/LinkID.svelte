@@ -1,7 +1,11 @@
-<script>
+﻿<script>
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { _ as t, currentLocale } from '$lib/i18n';
+
+	$: isArabic = $currentLocale === 'ar';
+	$: displayName = (user) => isArabic ? (user.arabic_name || user.english_name || '') : (user.english_name || user.arabic_name || '');
 
 	let users = [];
 	let branches = [];
@@ -62,7 +66,7 @@
 			// Fetch all branches
 			const { data: branchesData, error: branchesError } = await supabase
 				.from('branches')
-				.select('id, name_en')
+				.select('id, name_en, name_ar')
 				.eq('is_active', true)
 				.order('name_en')
 				.limit(100000);
@@ -106,7 +110,7 @@
 			// Create a map of branches by id
 			branchMap = {};
 			branchesData.forEach(branch => {
-				branchMap[branch.id] = branch.name_en;
+				branchMap[branch.id] = branch;
 			});
 
 			// Populate users with master data and auto-fill current branch employee info
@@ -336,6 +340,7 @@
 	);
 
 	$: filteredUsers = users.filter(user =>
+		user.status !== 'inactive' &&
 		(user.username.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
 		(user.master_id && user.master_id.toLowerCase().includes(userSearchQuery.toLowerCase()))) &&
 		(selectedBranchFilter === '' || user.branch_id === parseInt(selectedBranchFilter))
@@ -346,12 +351,12 @@
 
 	<div class="header-section">
 		<button class="load-users-btn" on:click={loadUsers} disabled={isLoading}>
-			{isLoading ? '⏳ Loading...' : '🔄 Load Users'}
+		{isLoading ? `⏳ ${$t('hr.linkId.loading')}` : `🔄 ${$t('hr.linkId.loadUsers')}`}
 		</button>
 		
 		{#if users.length > 0}
 			<button class="save-all-btn" on:click={saveAllData} disabled={isSaving}>
-				{isSaving ? '⏳ Saving...' : '💾 Save All'}
+				{isSaving ? `⏳ ${$t('hr.linkId.saving')}` : `💾 ${$t('hr.linkId.saveAll')}`}
 			</button>
 		{/if}
 	</div>
@@ -372,7 +377,7 @@
 		<div class="search-bar">
 			<input 
 				type="text" 
-				placeholder="Search by username or EMP ID..." 
+				placeholder={$t('hr.linkId.searchPlaceholder')} 
 				bind:value={userSearchQuery}
 				class="search-input"
 			/>
@@ -380,9 +385,9 @@
 				bind:value={selectedBranchFilter}
 				class="branch-filter"
 			>
-				<option value="">All Branches</option>
+				<option value="">{$t('hr.linkId.allBranches')}</option>
 				{#each branches as branch (branch.id)}
-					<option value={branch.id}>{branch.name_en}</option>
+					<option value={branch.id}>{isArabic ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
 				{/each}
 			</select>
 		</div>
@@ -391,13 +396,13 @@
 			<table class="users-table">
 				<thead>
 					<tr>
-						<th>EMP ID</th>
-						<th>Username</th>
-						<th>Status</th>
-						<th>Current Branch</th>
-						<th>Name</th>
+						<th>{$t('hr.linkId.empId')}</th>
+						<th>{$t('hr.linkId.username')}</th>
+						<th>{$t('hr.linkId.status')}</th>
+						<th>{$t('hr.linkId.currentBranch')}</th>
+						<th>{$t('hr.linkId.name')}</th>
 						{#each branches as branch (branch.id)}
-							<th>{branch.name_en}</th>
+							<th>{isArabic ? (branch.name_ar || branch.name_en) : branch.name_en}</th>
 						{/each}
 					</tr>
 				</thead>
@@ -407,7 +412,7 @@
 							<td>{user.master_id || '-'}</td>
 							<td>{user.username}</td>
 							<td>{user.status || '-'}</td>
-							<td>{branchMap[user.branch_id] || '-'}</td>
+								<td>{branchMap[user.branch_id] ? (isArabic ? (branchMap[user.branch_id].name_ar || branchMap[user.branch_id].name_en) : branchMap[user.branch_id].name_en) : '-'}</td>
 							<td class="cell-with-button">
 								<div 
 									class="cell-content"
@@ -416,15 +421,14 @@
 									tabindex="0"
 								>
 									{#if user.english_name || user.arabic_name}
-										<div class="name-line">{user.english_name || ''}</div>
-										<div class="name-line">{user.arabic_name || ''}</div>
+										<div class="name-line">{isArabic ? (user.arabic_name || user.english_name || '') : (user.english_name || user.arabic_name || '')}</div>
 									{/if}
 								</div>
 								{#if !user.english_name && !user.arabic_name}
 									<button 
 										class="add-btn"
 										on:click={() => openNameModal(user.id)}
-										title="Add names"
+										title={$t('hr.linkId.addNamesTooltip')}
 									>
 										+
 									</button>
@@ -444,7 +448,7 @@
 										<button 
 											class="clear-btn"
 											on:click={() => user[`branch_${branch.id}_employee`] = ''}
-											title="Clear employee"
+											title={$t('hr.linkId.clearEmployee')}
 										>
 											×
 										</button>
@@ -452,7 +456,7 @@
 										<button 
 											class="add-btn"
 											on:click={() => openBranchModal(branch.id, user.id)}
-											title="Add employee"
+											title={$t('hr.linkId.addEmployee')}
 										>
 											+
 										</button>
@@ -472,31 +476,31 @@
 	<div class="modal-overlay" on:click={closeModal}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>Select Employee</h2>
+				<h2>{$t('hr.linkId.selectEmployee')}</h2>
 				<button class="close-btn" on:click={closeModal}>×</button>
 			</div>
 
 			<div class="modal-search">
 				<input 
 					type="text" 
-					placeholder="Search by name or employee ID..." 
+					placeholder={$t('hr.linkId.searchEmployeePlaceholder')} 
 					bind:value={employeeSearchQuery}
 					class="search-input"
 				/>
 			</div>
 
 			{#if modalIsLoading}
-				<div class="loading-state">Loading employees...</div>
+				<div class="loading-state">{$t('hr.linkId.loadingEmployees')}</div>
 			{:else if filteredEmployees.length === 0}
-				<div class="empty-state">No employees found</div>
+				<div class="empty-state">{$t('hr.linkId.noEmployeesFound')}</div>
 			{:else}
 				<div class="modal-table-wrapper">
 					<table class="modal-table">
 						<thead>
 							<tr>
-								<th>Employee ID</th>
-								<th>Name</th>
-								<th>Action</th>
+								<th>{$t('hr.linkId.employeeId')}</th>
+								<th>{$t('hr.linkId.name')}</th>
+								<th>{$t('hr.linkId.action')}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -527,36 +531,36 @@
 	<div class="modal-overlay" on:click={closeNameModal}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>Add Names</h2>
+				<h2>{$t('hr.linkId.addNames')}</h2>
 				<button class="close-btn" on:click={closeNameModal}>×</button>
 			</div>
 
 			<div class="name-modal-body">
 				<div class="form-group">
-					<label for="english-name">English Name</label>
+					<label for="english-name">{$t('hr.linkId.englishName')}</label>
 					<input 
 						id="english-name"
 						type="text" 
-						placeholder="Enter English name..." 
+						placeholder={$t('hr.linkId.enterEnglishName')} 
 						bind:value={englishNameInput}
 						class="name-input"
 					/>
 				</div>
 
 				<div class="form-group">
-					<label for="arabic-name">Arabic Name</label>
+					<label for="arabic-name">{$t('hr.linkId.arabicName')}</label>
 					<input 
 						id="arabic-name"
 						type="text" 
-						placeholder="Enter Arabic name..." 
+						placeholder={$t('hr.linkId.enterArabicName')} 
 						bind:value={arabicNameInput}
 						class="name-input"
 					/>
 				</div>
 
 				<div class="modal-footer">
-					<button class="cancel-btn" on:click={closeNameModal}>Cancel</button>
-					<button class="save-btn" on:click={saveNames}>Save</button>
+					<button class="cancel-btn" on:click={closeNameModal}>{$t('hr.linkId.cancel')}</button>
+					<button class="save-btn" on:click={saveNames}>{$t('hr.linkId.save')}</button>
 				</div>
 			</div>
 		</div>
@@ -969,3 +973,5 @@
 	}
 	.save-btn:hover { background: linear-gradient(135deg, #d97706, #b45309); transform: translateY(-1px); }
 </style>
+
+

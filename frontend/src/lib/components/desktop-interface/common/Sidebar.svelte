@@ -2009,8 +2009,8 @@ function openApprovalCenter() {
 			'START_RECEIVING': openStartReceiving,
 			'RECEIVING_RECORDS': openReceivingRecords,
 			'VENDOR_RECORDS': openVendorRecords,
-			'FLYER_MASTER': openFlyerMaster,
-			'PRODUCTS_DASHBOARD': openProductsDashboard,
+			// 'FLYER_MASTER': openFlyerMaster,       // removed from Media > Dashboard
+			// 'PRODUCTS_DASHBOARD': openProductsDashboard, // removed from Media > Dashboard
 			'PRODUCT_MASTER': openProductMaster,
 			'VARIATION_MANAGER': openVariationManager,
 			'OFFER_MANAGER': openOfferManager,
@@ -4172,7 +4172,8 @@ function openApprovalCenter() {
 			</div>
 
 		<!-- Dashboard Subsection Items -->
-		{#if showMediaDashboardSubmenu}
+		<!-- FLYER_MASTER and PRODUCTS_DASHBOARD removed from Media > Dashboard -->
+		<!-- {#if showMediaDashboardSubmenu}
 			<div class="submenu-subitem-container">
 				{#if isButtonAllowed('FLYER_MASTER')}
 					<div class="submenu-item-container">
@@ -4191,7 +4192,7 @@ function openApprovalCenter() {
 					</div>
 				{/if}
 			</div>
-		{/if}			<!-- Manage Subsection -->
+		{/if} -->			<!-- Manage Subsection -->
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
