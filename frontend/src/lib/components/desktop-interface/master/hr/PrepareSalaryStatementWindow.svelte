@@ -2890,14 +2890,16 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-indigo-700 bg-indigo-50/20 w-[150px] whitespace-nowrap group-hover:bg-indigo-100/50 transition-colors {colVis.underWorkedDeductions ? '' : 'hidden'}">
 										{(() => {
+											const _isRemote = row.employmentStatus === 'Remote Job';
+											const underOvr = underWorkedDeductionOverrides[row.employeeId];
+											if (underOvr !== undefined) return (_isRemote ? 0 : underOvr).toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
 											const travelAllow = travelAllowances[row.employeeId] || 0;
 											const foodAllow = foodAllowances[row.employeeId] || 0;
-											const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-											const hourlyRate = totalSalary / 240;
-											const uwMinutes = underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes) ?? 0;
+											const hourlyRate = (basicSal + otherAllow + accommAllow + travelAllow + foodAllow) / 240;
+											const uwMinutes = underWorkedMinutesOverrides[row.employeeId] ?? (_isRemote ? 0 : row.totalUnderWorkedMinutes) ?? 0;
 											return (uwMinutes / 60 * hourlyRate).toFixed(2);
 										})()}
 								</td>
