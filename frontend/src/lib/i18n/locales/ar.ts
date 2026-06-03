@@ -2705,6 +2705,7 @@ export const arabicLocale: LocaleData = {
         totalDeductions: "إجمالي الاستقطاعات",
         idNumber: "الهوية القانونية",
         whatsappNumber: "رقم الواتساب",
+        branch: "الفرع",
         openWhatsapp: "فتح محادثة واتساب",
         netSalary: "صافي الراتب",
         netBank: "صافي البنك",

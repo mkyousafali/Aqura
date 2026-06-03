@@ -201,7 +201,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('hr_basic_salary')
-				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, food_allowance, food_payment_mode, food_deduction_active, travel_allowance, travel_payment_mode, gosi_deduction');
+				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, food_allowance, food_payment_mode, food_deduction_active, travel_allowance, travel_payment_mode, gosi_deduction, gosi_is_percentage, gosi_percentage');
 
 			if (error) {
 				console.error('Error loading basic salaries:', error);
@@ -223,6 +223,8 @@
 					travelValues[item.employee_id] = item.travel_allowance?.toString() || '';
 					travelPaymentMode[item.employee_id] = item.travel_payment_mode || 'Bank';
 					gosiValues[item.employee_id] = item.gosi_deduction?.toString() || '';
+					gosiIsPercentage[item.employee_id] = item.gosi_is_percentage ?? true;
+					gosiPercentage[item.employee_id] = item.gosi_percentage?.toString() || '';
 				});
 			}
 		} catch (error) {
@@ -316,6 +318,12 @@
 				gosiVal = parseFloat(gosiValues[employeeId]) || 0;
 			}
 			
+			// Round all calculated values to 2 decimal places
+			accomVal = Math.round(accomVal * 100) / 100;
+			foodVal = Math.round(foodVal * 100) / 100;
+			travelVal = Math.round(travelVal * 100) / 100;
+			gosiVal = Math.round(gosiVal * 100) / 100;
+			
 			const totalSalary = basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
 			
 			// Update state with calculated values
@@ -340,6 +348,8 @@
 					travel_allowance: travelVal,
 					travel_payment_mode: travelPaymentMode[employeeId] || 'Bank',
 					gosi_deduction: gosiVal,
+					gosi_is_percentage: gosiIsPercentage[employeeId] ?? true,
+					gosi_percentage: parseFloat(gosiPercentage[employeeId]) || 0,
 					total_salary: totalSalary,
 					updated_at: new Date().toISOString()
 				}, {
@@ -409,6 +419,12 @@
 		} else {
 			gosiVal = parseFloat(gosiValues[currentEmployeeId]) || 0;
 		}
+		
+		// Round to 2 decimal places for display
+		accomVal = Math.round(accomVal * 100) / 100;
+		foodVal = Math.round(foodVal * 100) / 100;
+		travelVal = Math.round(travelVal * 100) / 100;
+		gosiVal = Math.round(gosiVal * 100) / 100;
 		
 		const foodDed = (foodDeductionActive[currentEmployeeId] ?? false) ? foodVal : 0;
 		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal - foodDed;
@@ -740,7 +756,12 @@
 							</td>
 							<td class="px-4 py-3 text-sm text-center font-mono">
 								{#if gosiValues[employee.id] && parseFloat(gosiValues[employee.id]) > 0}
-									<span class="font-bold text-red-600">-{parseFloat(gosiValues[employee.id]).toLocaleString()}</span>
+									<div class="flex flex-col items-center">
+										<span class="font-bold text-red-600">-{parseFloat(gosiValues[employee.id]).toLocaleString()}</span>
+										{#if gosiIsPercentage[employee.id] && gosiPercentage[employee.id]}
+											<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">{parseFloat(gosiPercentage[employee.id]).toFixed(2)}%</span>
+										{/if}
+									</div>
 								{:else}
 									<span class="text-slate-400">-</span>
 								{/if}
@@ -870,7 +891,7 @@
 								/>
 								<span class="percentage-symbol">%</span>
 								{#if accommodationPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
-									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(accommodationPercentage[currentEmployeeId])) / 100}
+									{@const calculated = Math.round((parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(accommodationPercentage[currentEmployeeId])) / 100 * 100) / 100}
 									<span class="calculated-preview">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
@@ -914,7 +935,7 @@
 								/>
 								<span class="percentage-symbol">%</span>
 								{#if foodPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
-									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(foodPercentage[currentEmployeeId])) / 100}
+									{@const calculated = Math.round((parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(foodPercentage[currentEmployeeId])) / 100 * 100) / 100}
 									<span class="calculated-preview">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
@@ -973,7 +994,7 @@
 								/>
 								<span class="percentage-symbol">%</span>
 								{#if travelPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
-									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(travelPercentage[currentEmployeeId])) / 100}
+									{@const calculated = Math.round((parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(travelPercentage[currentEmployeeId])) / 100 * 100) / 100}
 									<span class="calculated-preview">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
@@ -1020,7 +1041,7 @@
 									{@const basicVal = parseFloat(basicSalaryValues[currentEmployeeId]) || 0}
 									{@const accomVal = accommodationIsPercentage[currentEmployeeId] ? (basicVal * (parseFloat(accommodationPercentage[currentEmployeeId]) || 0)) / 100 : parseFloat(accommodationValues[currentEmployeeId]) || 0}
 									{@const baseForGosi = basicVal + accomVal}
-									{@const calculated = (baseForGosi * parseFloat(gosiPercentage[currentEmployeeId])) / 100}
+									{@const calculated = Math.round((baseForGosi * parseFloat(gosiPercentage[currentEmployeeId])) / 100 * 100) / 100}
 									<span class="calculated-preview deduction">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>

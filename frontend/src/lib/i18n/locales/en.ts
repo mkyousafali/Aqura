@@ -2692,6 +2692,7 @@ export const englishLocale: LocaleData = {
         totalDeductions: "Total Deductions",
         idNumber: "Legal Id",
         whatsappNumber: "WhatsApp Number",
+        branch: "Branch",
         openWhatsapp: "Open WhatsApp chat",
         netSalary: "Net Salary",
         netBank: "Net Bank",

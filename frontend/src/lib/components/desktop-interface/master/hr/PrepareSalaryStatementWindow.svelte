@@ -6,6 +6,7 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
+	import SalaryAndWage from './SalaryAndWage.svelte';
 
 	export let windowId: string;
 
@@ -18,6 +19,26 @@
 		notesEmployeeId = row.employeeId;
 		notesEmployeeName = row.employeeName || row.employeeId;
 		showNotesPopup = true;
+	}
+
+	function openSalaryAndWageWindow() {
+		const winId = `salary-and-wage-${Date.now()}`;
+		openWindow({
+			id: winId,
+			title: $t('hr.salaryAndWage.title'),
+			component: SalaryAndWage,
+			props: { windowId: winId },
+			icon: '💰',
+			size: { width: 1200, height: 700 },
+			position: {
+				x: 100 + Math.random() * 100,
+				y: 100 + Math.random() * 100
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	interface Employee {
@@ -52,6 +73,8 @@
 	let travelAllowances: { [key: string]: number } = {};
 	let travelPaymentModes: { [key: string]: string } = {};
 	let gosiDeductions: { [key: string]: number } = {};
+	let gosiIsPercentages: { [key: string]: boolean } = {};
+	let gosiPercentages: { [key: string]: number } = {};
 	let foodAllowances: { [key: string]: number } = {};
 	let foodPaymentModes: { [key: string]: string } = {};
 	let foodDeductionActives: { [key: string]: boolean } = {};
@@ -71,7 +94,7 @@
 		underWorkedDeductions: true, posShortage: true, salaryAdvance: true,
 		loanDeductions: true, penaltiesDeductions: true, unapprovedLeaveDeductions: true,
                 otherDeductions: true, grossEarnings: true, totalDeductions: true, netSalary: true, netBank: true, netCash: true,
-		idNumber: true, whatsappNumber: true,
+		idNumber: true, whatsappNumber: true, branch: true,
 	};
 	function toggleAllColumns(visible: boolean) {
 		(Object.keys(colVis) as Array<keyof typeof colVis>).forEach(k => colVis[k] = visible);
@@ -93,6 +116,8 @@
 		food: 0,
 		foodPaymentMode: 'Bank',
 		gosiDeduction: 0,
+		gosiIsPercentage: true,
+		gosiPercentage: 0,
 		posShortage: 0,
 		salaryAdvance: 0,
 		loanDeductions: 0,
@@ -121,6 +146,8 @@
 			food: foodAllowances[row.employeeId] || 0,
 			foodPaymentMode: foodPaymentModes[row.employeeId] || 'Bank',
 			gosiDeduction: gosiDeductions[row.employeeId] || 0,
+			gosiIsPercentage: gosiIsPercentages[row.employeeId] ?? true,
+			gosiPercentage: gosiPercentages[row.employeeId] || 0,
 			posShortage: posShortageDeductions[row.employeeId] || 0,
 			salaryAdvance: empEditOverrides[row.employeeId]?.salaryAdvance || 0,
 			loanDeductions: empEditOverrides[row.employeeId]?.loanDeductions || 0,
@@ -447,7 +474,7 @@
 	$: salaryTotals = (
 		filteredAnalysisData,
 		basicSalaries, otherAllowances, accommodationAllowances, travelAllowances, foodAllowances,
-		gosiDeductions, paymentModes, otherAllowancePaymentModes, accommodationPaymentModes,
+		gosiDeductions, gosiIsPercentages, gosiPercentages, paymentModes, otherAllowancePaymentModes, accommodationPaymentModes,
 		travelPaymentModes, foodPaymentModes, foodDeductionActives,
 		editableWorkedDays, lateMinutesOverrides, underWorkedMinutesOverrides,
 		lateDeductionOverrides, underWorkedDeductionOverrides, unapprovedLeaveDeductionOverrides,
@@ -994,6 +1021,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			travelAllowances,
 			travelPaymentModes,
 			gosiDeductions,
+			gosiIsPercentages,
+			gosiPercentages,
 			foodAllowances,
 			foodPaymentModes,
 			foodDeductionActives,
@@ -1031,6 +1060,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		travelAllowances = snap.travelAllowances || {};
 		travelPaymentModes = snap.travelPaymentModes || {};
 		gosiDeductions = snap.gosiDeductions || {};
+		gosiIsPercentages = snap.gosiIsPercentages || {};
+		gosiPercentages = snap.gosiPercentages || {};
 		foodAllowances = snap.foodAllowances || {};
 		foodPaymentModes = snap.foodPaymentModes || {};
 		foodDeductionActives = snap.foodDeductionActives || {};
@@ -1048,6 +1079,23 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			employeeShifts = new Map(snap.employeeShifts);
 		} else {
 			employeeShifts = new Map();
+		}
+	}
+
+	async function refreshGosiPercentagesFromDatabase() {
+		try {
+			const { data: salaryData } = await supabase
+				.from('hr_basic_salary')
+				.select('employee_id, gosi_is_percentage, gosi_percentage');
+			
+			if (salaryData) {
+				salaryData.forEach(item => {
+					gosiIsPercentages[item.employee_id] = item.gosi_is_percentage ?? true;
+					gosiPercentages[item.employee_id] = item.gosi_percentage || 0;
+				});
+			}
+		} catch (e) {
+			console.error('Error refreshing GOSI percentages:', e);
 		}
 	}
 
@@ -1115,6 +1163,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			if (!data?.success) throw new Error(data?.error || 'Load failed');
 			const item = data.item;
 			restoreStatementSnapshot(item.data_json);
+			await refreshGosiPercentagesFromDatabase();
 			currentSavedStatementId = item.id;
 			saveStatementName = item.statement_name;
 			isLoadedFromSaved = true;
@@ -1181,7 +1230,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	$: void [
 		basicSalaries, paymentModes, otherAllowances, otherAllowancePaymentModes,
 		accommodationAllowances, accommodationPaymentModes, travelAllowances, travelPaymentModes,
-		gosiDeductions, foodAllowances, foodPaymentModes, foodDeductionActives,
+		gosiDeductions, gosiIsPercentages, gosiPercentages, foodAllowances, foodPaymentModes, foodDeductionActives,
 		posShortageDeductions, posDeductionsList, empEditOverrides,
 		lateMinutesOverrides, underWorkedMinutesOverrides, lateDeductionOverrides,
 		underWorkedDeductionOverrides, unapprovedLeaveDeductionOverrides,
@@ -1268,18 +1317,84 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			
 			const ws = XLSX.utils.table_to_sheet(clone, { raw: false });
 
+			// Format dates for header
+			const formatDateHeader = (dateStr: string): string => {
+				const [y, m, d] = dateStr.split('-');
+				return `${d}-${m}-${y}`;
+			};
+			const periodStart = formatDateHeader(startDate);
+			const periodEnd = formatDateHeader(endDate);
+			
+			// Create header content based on current locale
+			const headerText = $locale === 'ar' 
+				? `مسير الرواتب للفترة من ${periodStart} إلى ${periodEnd}`
+				: `Payroll Register for the Period from ${periodStart} to ${periodEnd}`;
+			
+			// Get original range before adding header
+			const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+			const originalLastRow = range.e.r;
+			
+			// Shift all existing data down by 2 rows (1 header row + 1 empty row)
+			// Do this in reverse order to avoid overwriting
+			const allCellAddrs = Object.keys(ws).filter(addr => addr.match(/^[A-Z]+\d+$/));
+			allCellAddrs.sort((a, b) => {
+				const aRow = parseInt(a.match(/\d+$/)[0]);
+				const bRow = parseInt(b.match(/\d+$/)[0]);
+				return bRow - aRow; // reverse sort by row number
+			});
+			
+			allCellAddrs.forEach(addr => {
+				const cell = XLSX.utils.decode_cell(addr);
+				const newAddr = XLSX.utils.encode_cell({ r: cell.r + 2, c: cell.c });
+				ws[newAddr] = ws[addr];
+				delete ws[addr];
+			});
+			
+			// Update merges if they exist
+			if (ws['!merges']) {
+				ws['!merges'] = ws['!merges'].map((merge: any) => ({
+					s: { r: merge.s.r + 2, c: merge.s.c },
+					e: { r: merge.e.r + 2, c: merge.e.c }
+				}));
+			}
+			
+			// Add header row with bold formatting
+			ws['A1'] = { t: 's', v: headerText, b: true };
+			ws['A1'].font = { bold: true };
+			
+			// Merge cells for header (A1:H1)
+			ws['!merges'] = ws['!merges'] || [];
+			ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } });
+			
+			// Set column widths
+			ws['!cols'] = ws['!cols'] || [];
+			for (let i = 0; i < 20; i++) {
+				ws['!cols'][i] = { wch: 15 };
+			}
+			
+			// Set row heights for header row
+			ws['!rows'] = ws['!rows'] || [];
+			ws['!rows'][0] = { hpt: 20 };
+			
+			// Update range to include header (shifted data + 2 new rows at top)
+			const newRange = {
+				s: { r: 0, c: range.s.c },
+				e: { r: originalLastRow + 2, c: range.e.c }
+			};
+			ws['!ref'] = XLSX.utils.encode_range(newRange);
+
 			// Convert numeric-looking string cells into real numbers so SUM formulas work,
 			// then append a TOTAL row with SUM formulas for each numeric column so edits
 			// in Excel automatically update the totals.
 			try {
-				const range = XLSX.utils.decode_range(ws['!ref']);
-				const headerRow = range.s.r;
+				const shiftedRange = XLSX.utils.decode_range(ws['!ref']);
+				const headerRow = 2; // Header row is now at row 2 (0-indexed) after shift
 				const firstDataRow = headerRow + 1;
-				const lastDataRow = range.e.r;
+				const lastDataRow = originalLastRow + 2; // Last data row is original + 2 due to shift
 				const numericByCol: { [c: number]: boolean } = {};
 
 				// Pass 1: detect numeric columns and convert numeric strings -> real numbers
-				for (let c = range.s.c; c <= range.e.c; c++) {
+				for (let c = shiftedRange.s.c; c <= shiftedRange.e.c; c++) {
 					let hasNumeric = false;
 					let hasNonNumeric = false;
 					for (let r = firstDataRow; r <= lastDataRow; r++) {
@@ -1308,7 +1423,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				if (lastDataRow >= firstDataRow) {
 					const totalRow = lastDataRow + 1;
 					let labelPlaced = false;
-					for (let c = range.s.c; c <= range.e.c; c++) {
+					for (let c = shiftedRange.s.c; c <= shiftedRange.e.c; c++) {
 						const addr = XLSX.utils.encode_cell({ r: totalRow, c });
 						if (numericByCol[c]) {
 							const firstAddr = XLSX.utils.encode_cell({ r: firstDataRow, c });
@@ -1317,10 +1432,13 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 						} else if (!labelPlaced) {
 							ws[addr] = { t: 's', v: 'TOTAL' };
 							labelPlaced = true;
+						} else {
+							// Clear non-numeric columns in TOTAL row (don't show employee data)
+							ws[addr] = { t: 's', v: '' };
 						}
 					}
-					range.e.r = totalRow;
-					ws['!ref'] = XLSX.utils.encode_range(range);
+					shiftedRange.e.r = totalRow;
+					ws['!ref'] = XLSX.utils.encode_range(shiftedRange);
 				}
 			} catch (totalErr) {
 				console.warn('Could not append totals row with formulas:', totalErr);
@@ -1509,7 +1627,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			// Load basic salaries
 			const { data: salaryData } = await supabase
 				.from('hr_basic_salary')
-				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction, food_allowance, food_payment_mode, food_deduction_active');
+				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction, gosi_is_percentage, gosi_percentage, food_allowance, food_payment_mode, food_deduction_active');
 			
 			if (salaryData) {
 				salaryData.forEach(item => {
@@ -1522,6 +1640,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					travelAllowances[item.employee_id] = item.travel_allowance || 0;
 					travelPaymentModes[item.employee_id] = item.travel_payment_mode || 'Bank';
 					gosiDeductions[item.employee_id] = item.gosi_deduction || 0;
+					gosiIsPercentages[item.employee_id] = item.gosi_is_percentage ?? true;
+					gosiPercentages[item.employee_id] = item.gosi_percentage || 0;
 
 					foodAllowances[item.employee_id] = item.food_allowance || 0;
 					foodPaymentModes[item.employee_id] = item.food_payment_mode || 'Bank';
@@ -2562,6 +2682,7 @@ title="Export salary data to Mudad Excel template"
 								['status', $t('hr.salaryStatement.status')],
 				['idNumber', $t('hr.salaryStatement.idNumber')],
 				['whatsappNumber', $t('hr.salaryStatement.whatsappNumber')],
+				['branch', $t('hr.salaryStatement.branch')],
 								['workedHours', $t('hr.salaryStatement.totalWorkedHours')],
 								['expectedHours', $t('hr.salaryStatement.totalExpectedHours')],
 								['underWorkedHours', $t('hr.salaryStatement.totalUnderWorkedHours')],
@@ -2633,6 +2754,7 @@ title="Export salary data to Mudad Excel template"
 							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[200px] sticky top-0 z-50 bg-slate-50 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'}">{$t('hr.fullName')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[130px] whitespace-nowrap {colVis.idNumber ? '' : 'hidden'}">{$t('hr.salaryStatement.idNumber')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-green-700 border-b border-r bg-green-50 text-center w-[160px] whitespace-nowrap {colVis.whatsappNumber ? '' : 'hidden'}">{$t('hr.salaryStatement.whatsappNumber')}</th>
+							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-cyan-700 border-b border-r bg-cyan-50 text-center w-[180px] whitespace-nowrap {colVis.branch ? '' : 'hidden'}">{$t('hr.salaryStatement.branch')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[130px] whitespace-nowrap {colVis.status ? '' : 'hidden'}">{$t('hr.salaryStatement.status')}</th>
 							{#each datesInRange as date}
 								<th class="sticky top-0 z-30 hidden px-3 py-2 font-bold text-slate-700 border-b border-r text-center w-[100px] whitespace-nowrap bg-slate-50">
@@ -2680,6 +2802,7 @@ title="Export salary data to Mudad Excel template"
 						{#each filteredAnalysisData as row, rowIdx}
 							<tr class="transition-colors group {row.employmentStatus === 'Remote Job' ? 'bg-orange-50 even:bg-orange-100' : 'even:bg-slate-100'}">
 								<td class="px-2 py-3 border-r sticky z-20 group-hover:bg-emerald-100 flex flex-col justify-center items-center gap-0.5 {$locale === 'ar' ? 'right-0' : 'left-0'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
+									<span class="text-xs font-semibold text-slate-600">{rowIdx + 1}</span>
 									{#if row.employmentStatus === 'Job (With Finger)'}
 										<button 
 											class="p-1 hover:bg-slate-200 rounded-full transition-colors text-blue-600"
@@ -2720,15 +2843,7 @@ title="Export salary data to Mudad Excel template"
 									</div>
 								</td>
 								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
-									<div class="flex flex-col">
-										<span>{row.employeeName}</span>
-										{#if row.currentBranchId}
-											{@const branch = branches.find(b => b.id === row.currentBranchId)}
-											{#if branch}
-												<span class="text-[9px] text-slate-500 font-normal">{$locale === 'ar' ? branch.name_ar : branch.name_en}{#if ($locale === 'ar' ? branch.location_ar : branch.location_en)} - {$locale === 'ar' ? branch.location_ar : branch.location_en}{/if}</span>
-											{/if}
-										{/if}
-									</div>
+									<span>{row.employeeName}</span>
 								</td>
 								<td class="px-4 py-3 border-r text-center text-sm font-mono text-slate-700 w-[130px] whitespace-nowrap {colVis.idNumber ? '' : 'hidden'}">
 									<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -2756,6 +2871,19 @@ title="Export salary data to Mudad Excel template"
 										</div>
 									{:else}
 										<span class="text-slate-400">—</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 border-r text-center font-semibold text-slate-700 w-[180px] whitespace-nowrap {colVis.branch ? '' : 'hidden'}">
+									{#if row.currentBranchId}
+										{@const branch = branches.find(b => b.id === row.currentBranchId)}
+										{#if branch}
+											<div class="flex flex-col text-sm">
+												<span>{$locale === 'ar' ? branch.name_ar : branch.name_en}</span>
+												{#if ($locale === 'ar' ? branch.location_ar : branch.location_en)}
+													<span class="text-xs text-slate-500">({$locale === 'ar' ? branch.location_ar : branch.location_en})</span>
+												{/if}
+											</div>
+										{/if}
 									{/if}
 								</td>
 								<td class="px-3 py-3 border-r text-center w-[130px] {colVis.status ? '' : 'hidden'}">
@@ -2908,8 +3036,13 @@ title="Export salary data to Mudad Excel template"
 									{/if}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-800 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-red-100/50 transition-colors {colVis.gosiDeduction ? '' : 'hidden'}">
-							{#if gosiDeductions[row.employeeId] && gosiDeductions[row.employeeId] > 0}
-										<span class="font-bold text-slate-800">{gosiDeductions[row.employeeId].toLocaleString()}</span>
+									{#if gosiDeductions[row.employeeId] && gosiDeductions[row.employeeId] > 0}
+										<div class="flex flex-col items-center gap-1">
+											<span class="font-bold text-slate-800">{gosiDeductions[row.employeeId].toLocaleString()}</span>
+											{#if gosiIsPercentages[row.employeeId] !== false}
+												<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">{(gosiPercentages[row.employeeId] || 0).toFixed(2)}%</span>
+											{/if}
+										</div>
 									{:else}
 										<span class="text-slate-400">-</span>
 									{/if}
@@ -3654,7 +3787,11 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<div class="grid grid-cols-3 gap-3 mb-4">
 						<div class="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
 							<label for="ee-gosi" class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.gosi')}</label>
-							<input id="ee-gosi" type="number" min="0" bind:value={empEdit.gosiDeduction} class="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-violet-400" />
+							<div class="flex gap-2 items-center">
+								<input id="ee-gosi" type="number" min="0" bind:value={empEdit.gosiDeduction} class="flex-1 px-2.5 py-1.5 border border-slate-200 rounded-md text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-violet-400" />
+								<div class="px-2.5 py-1.5 bg-green-600 text-white text-sm font-semibold rounded-md whitespace-nowrap">{empEdit.gosiPercentage.toFixed(2)}%</div>
+								<button on:click={openSalaryAndWageWindow} class="px-2.5 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-md transition-colors whitespace-nowrap">⚙️ {$t('common.edit')}</button>
+							</div>
 						</div>
 						<div class="bg-orange-50 rounded-lg p-2.5 border border-orange-100">
 							<label for="ee-pos" class="block text-[10px] font-bold text-orange-600 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.posShortageLabel')}</label>
