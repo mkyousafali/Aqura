@@ -1222,6 +1222,50 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			});
 			// Remove elements explicitly hidden (so we don't export hidden columns)
 			clone.querySelectorAll('.hidden').forEach((el) => el.parentNode?.removeChild(el));
+			
+			// Remove attendance/hours columns that should not be exported
+			const columnsToRemove = [
+				'worked hours',
+				'expected hours',
+				'under worked hours',
+				'late hours',
+				'incomplete days',
+				'unapproved',
+				'official leave',
+				'approved',
+				'expected work days',
+				'worked days'
+			];
+			
+			// Find header cells that match column names to remove and track their indices
+			const headerRow = clone.querySelector('thead tr');
+			if (headerRow) {
+				const headerCells = Array.from(headerRow.querySelectorAll('th'));
+				const indicesToRemove = new Set<number>();
+				
+				headerCells.forEach((th, idx) => {
+					const headerText = (th.textContent || '').toLowerCase();
+					if (columnsToRemove.some(col => headerText.includes(col))) {
+						indicesToRemove.add(idx);
+					}
+				});
+				
+				// Remove header cells
+				Array.from(indicesToRemove).reverse().forEach(idx => {
+					headerCells[idx]?.parentNode?.removeChild(headerCells[idx]);
+				});
+				
+				// Remove data cells in the same columns from body rows
+				clone.querySelectorAll('tbody tr').forEach(row => {
+					const cells = Array.from(row.querySelectorAll('td'));
+					Array.from(indicesToRemove).reverse().forEach(idx => {
+						if (cells[idx]) {
+							cells[idx].parentNode?.removeChild(cells[idx]);
+						}
+					});
+				});
+			}
+			
 			const ws = XLSX.utils.table_to_sheet(clone, { raw: false });
 
 			// Convert numeric-looking string cells into real numbers so SUM formulas work,
@@ -2532,7 +2576,7 @@ title="Export salary data to Mudad Excel template"
 								['basicSalary', $t('hr.salaryStatement.basicSalary')],
 								['otherAllowance', $t('hr.salaryStatement.otherAllowance')],
 								['accommodation', $t('hr.salaryStatement.accommodation')],
-								['travel', $t('hr.salaryStatement.travel')],
+								['travel', $t('hr.salaryStatement.travelAllowance')],
 								['foodAllowance', $t('hr.salaryStatement.foodAllowance')],
 								['foodDeduction', $t('hr.salaryStatement.foodAllowanceDeduction')],
 								['gosiDeduction', $t('hr.salaryStatement.gosiDeduction')],
@@ -2614,7 +2658,7 @@ title="Export salary data to Mudad Excel template"
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-green-800 border-b border-r bg-green-50 text-center w-[150px] whitespace-nowrap {colVis.basicSalary ? '' : 'hidden'}">{$t('hr.salaryStatement.basicSalary')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-amber-800 border-b border-r bg-amber-50 text-center w-[150px] whitespace-nowrap {colVis.otherAllowance ? '' : 'hidden'}">{$t('hr.salaryStatement.otherAllowance')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-cyan-800 border-b border-r bg-cyan-50 text-center w-[150px] whitespace-nowrap {colVis.accommodation ? '' : 'hidden'}">{$t('hr.salaryStatement.accommodation')}</th>
-							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-blue-800 border-b border-r bg-blue-50 text-center w-[150px] whitespace-nowrap {colVis.travel ? '' : 'hidden'}">{$t('hr.salaryStatement.travel')}</th>
+							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-blue-800 border-b border-r bg-blue-50 text-center w-[150px] whitespace-nowrap {colVis.travel ? '' : 'hidden'}">{$t('hr.salaryStatement.travelAllowance')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-orange-800 border-b border-r bg-orange-50 text-center w-[150px] whitespace-nowrap {colVis.foodAllowance ? '' : 'hidden'}">{$t('hr.salaryStatement.foodAllowance')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-red-600 border-b border-r bg-red-50 text-center w-[150px] whitespace-nowrap {colVis.foodDeduction ? '' : 'hidden'}">{$t('hr.salaryStatement.foodAllowanceDeduction')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-red-800 border-b border-r bg-red-50 text-center w-[150px] whitespace-nowrap {colVis.gosiDeduction ? '' : 'hidden'}">{$t('hr.salaryStatement.gosiDeduction')}</th>
@@ -2858,12 +2902,9 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-600 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-red-100/50 transition-colors {colVis.foodDeduction ? '' : 'hidden'}">
 									{#if foodDeductionActives[row.employeeId]}
-										<div class="flex flex-col items-center">
-											<span class="font-bold text-red-700">-{(foodAllowances[row.employeeId] || 0).toLocaleString()}</span>
-											<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 mt-1">{$t('hr.salaryStatement.deducted')}</span>
-										</div>
+										<span class="font-bold text-red-700">{(foodAllowances[row.employeeId] || 0).toLocaleString()}</span>
 									{:else}
-										<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-600">{$t('hr.salaryStatement.included')}</span>
+										<span class="text-slate-400">0</span>
 									{/if}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-800 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-red-100/50 transition-colors {colVis.gosiDeduction ? '' : 'hidden'}">
@@ -3537,7 +3578,12 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 
 				<!-- Allowances -->
 				<div>
-					<p class="text-xs font-bold text-green-700 uppercase tracking-widest mb-3">{$t('hr.salaryStatement.allowances')}</p>
+					<div class="flex items-center justify-between mb-3">
+						<p class="text-xs font-bold text-green-700 uppercase tracking-widest">{$t('hr.salaryStatement.salaryAndAllowances')}</p>
+						<span class="text-xs font-bold text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-1">
+							{$t('hr.salaryStatement.total')}: {(_basicSal + _otherAllow + _accomm + _travel + _food).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR
+						</span>
+					</div>
 					<div class="grid grid-cols-5 gap-3">
 						<div>
 							<label for="ee-basic" class="block text-xs font-semibold text-slate-500 mb-1">{$t('hr.salaryStatement.basicSalary')}</label>
@@ -3597,9 +3643,14 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<p class="text-xs font-bold text-green-700 uppercase tracking-widest mb-3">{$t('hr.salaryStatement.deductions')}</p>
 
 					<!-- Group 1: Financial / Manual Deductions -->
-					<p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-						<span class="inline-block w-2 h-2 rounded-full bg-slate-300"></span>{$t('hr.salaryStatement.financialDeductions')}
-					</p>
+					<div class="flex items-center justify-between mb-2">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+							<span class="inline-block w-2 h-2 rounded-full bg-slate-300"></span>{$t('hr.salaryStatement.financialDeductions')}
+						</p>
+						<span class="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1">
+							{$t('hr.salaryStatement.total')}: {(_gosi + _posShort + _salAdv + _loan + _pen + _otherDed).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR
+						</span>
+					</div>
 					<div class="grid grid-cols-3 gap-3 mb-4">
 						<div class="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
 							<label for="ee-gosi" class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.gosi')}</label>
@@ -3638,10 +3689,15 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					</div>
 
 					<!-- Group 2: Attendance-Based Deductions (auto-computed, overridable) -->
-					<p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-						<span class="inline-block w-2 h-2 rounded-full bg-violet-400"></span>{$t('hr.salaryStatement.attendanceBasedDeductions')}
-						<span class="normal-case font-normal text-slate-300 ml-1">— {$t('hr.salaryStatement.autoComputedEditable')}</span>
-					</p>
+					<div class="flex items-center justify-between mb-2">
+						<p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+							<span class="inline-block w-2 h-2 rounded-full bg-violet-400"></span>{$t('hr.salaryStatement.attendanceBasedDeductions')}
+							<span class="normal-case font-normal text-slate-300 ml-1">— {$t('hr.salaryStatement.autoComputedEditable')}</span>
+						</p>
+						<span class="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-1">
+							{$t('hr.salaryStatement.total')}: {(_lateDed + _underDed + _unapDed + _incompleteDed).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR
+						</span>
+					</div>
 					<div class="grid grid-cols-4 gap-3">
 						<div class="bg-purple-50 rounded-lg p-2.5 border border-purple-100">
 							<label for="ee-late-ded" class="block text-[10px] font-bold text-purple-600 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.lateDeductionsLabel')}</label>
@@ -3659,21 +3715,52 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 							<label for="ee-incomp-ded" class="block text-[10px] font-bold text-pink-600 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.incompleteDayDeductions')}</label>
 							<input id="ee-incomp-ded" type="number" min="0" bind:value={empEdit.incompleteDayDeduction} class="w-full px-2.5 py-1.5 border border-pink-200 rounded-md text-sm font-semibold text-pink-800 bg-white focus:outline-none focus:ring-2 focus:ring-pink-400" />
 						</div>
-						<div class="bg-red-50 rounded-lg p-2.5 border border-red-200 col-span-1">
-							<p class="text-[10px] font-bold text-red-600 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.foodAllowanceDeduction')}</p>
-							<div class="flex items-center gap-2 mt-1">
-								<button
-									type="button"
-									aria-label="{$t('hr.salaryStatement.toggleFoodAllowanceDeduction')}"
-									class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none {empEdit.foodDeductionActive ? 'bg-red-500' : 'bg-slate-300'}"
-									on:click={() => { empEdit.foodDeductionActive = !empEdit.foodDeductionActive; empEdit = empEdit; }}
-								>
-									<span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform {empEdit.foodDeductionActive ? 'translate-x-4' : 'translate-x-0.5'}"></span>
-								</button>
-								<span class="text-xs font-semibold {empEdit.foodDeductionActive ? 'text-red-700' : 'text-slate-400'}">
-									{empEdit.foodDeductionActive ? '-' + _food.toFixed(2) : $t('hr.salaryStatement.inactive')}
-								</span>
-							</div>
+					</div>
+				</div>
+
+				<!-- Food Allowance Deduction -->
+				<div class="border-t border-slate-100 pt-4">
+					<div class="flex items-center justify-between mb-3">
+						<p class="text-[10px] font-bold text-red-500 uppercase tracking-widest flex items-center gap-1.5">
+							<span class="inline-block w-2 h-2 rounded-full bg-red-400"></span>{$t('hr.salaryStatement.foodAllowanceDeduction')}
+						</p>
+						<span class="text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-1">
+							{$t('hr.salaryStatement.total')}: {_foodDed.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR
+						</span>
+					</div>
+					<div class="bg-red-50 rounded-lg p-3 border border-red-200 flex items-center gap-4">
+						<button
+							type="button"
+							aria-label="{$t('hr.salaryStatement.toggleFoodAllowanceDeduction')}"
+							class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none flex-shrink-0 {empEdit.foodDeductionActive ? 'bg-red-500' : 'bg-slate-300'}"
+							on:click={() => { empEdit.foodDeductionActive = !empEdit.foodDeductionActive; empEdit = empEdit; }}
+						>
+							<span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform {empEdit.foodDeductionActive ? 'translate-x-5' : 'translate-x-1'}"></span>
+						</button>
+						<div>
+							<p class="text-[10px] font-bold text-red-600 uppercase tracking-wide">{$t('hr.salaryStatement.foodAllowanceDeduction')}</p>
+							<p class="text-sm font-bold {empEdit.foodDeductionActive ? 'text-red-700' : 'text-slate-400'}">
+								{empEdit.foodDeductionActive ? '-' + _food.toFixed(2) + ' SAR' : $t('hr.salaryStatement.inactive')}
+							</p>
+						</div>
+					</div>
+				</div>
+
+				<!-- Summary Section -->
+				<div class="border-t border-slate-100 pt-4">
+					<p class="text-xs font-bold text-emerald-700 uppercase tracking-widest mb-3">{$t('hr.salaryStatement.summary')}</p>
+					<div class="grid grid-cols-3 gap-3">
+						<div class="bg-emerald-50 rounded-xl px-4 py-3 text-center border-2 border-emerald-300 shadow-sm">
+							<p class="text-xs text-emerald-700 font-semibold mb-1">{$t('hr.salaryStatement.totalSalaryAllowances')}</p>
+							<p class="text-2xl font-bold text-emerald-800">{_totalAllow.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+						</div>
+						<div class="bg-orange-50 rounded-xl px-4 py-3 text-center border-2 border-orange-300 shadow-sm">
+							<p class="text-xs text-orange-700 font-semibold mb-1">{$t('hr.salaryStatement.totalDeductions')}</p>
+							<p class="text-2xl font-bold text-orange-800">{(_gosi + _posShort + _salAdv + _loan + _pen + _otherDed + _lateDed + _underDed + _unapDed + _incompleteDed + _foodDed).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+						</div>
+						<div class="bg-teal-50 rounded-xl px-4 py-3 text-center border-2 border-teal-400 shadow-md">
+							<p class="text-xs text-teal-700 font-semibold mb-1">{$t('hr.salaryStatement.netSalary')}</p>
+							<p class="text-2xl font-bold text-teal-800">{_netSal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
 						</div>
 					</div>
 				</div>

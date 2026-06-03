@@ -593,7 +593,7 @@
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.otherAllowance')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.accommodation')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.foodAllowance')}</th>
-							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Food Ded.</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salaryStatement.foodAllowanceDeduction')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.travel')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.gosiDeduction')}</th>
 							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.totalSalary')}</th>
@@ -723,9 +723,9 @@
 							</td>
 							<td class="px-4 py-3 text-sm text-center">
 								{#if foodDeductionActive[employee.id]}
-									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">Deducted</span>
+									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">{$t('hr.salaryStatement.deducted')}</span>
 								{:else}
-									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Included</span>
+									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">{$t('hr.salaryStatement.included')}</span>
 								{/if}
 							</td>
 							<td class="px-4 py-3 text-sm text-center font-mono">
