@@ -1253,40 +1253,34 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				alert('No table to export.');
 				return;
 			}
-			// Dynamic import - keeps initial bundle smaller
-			const XLSX: any = await import('xlsx');
-			// Capture live .value from original inputs BEFORE cloning.
-			// cloneNode copies HTML attributes, not the IDL .value property that Svelte sets
-			// programmatically, so reading from the clone would return stale/empty values
-			// (e.g. after loading a saved statement the restored values wouldn't appear).
+			// Use ExcelJS for proper styling
+			const ExcelJS: any = await import('exceljs');
+			const Workbook = ExcelJS.Workbook;
+			
+			// Capture live .value from original inputs BEFORE cloning
 			const originalFormEls = Array.from(tableEl.querySelectorAll('input, select, textarea')) as HTMLInputElement[];
 			const originalFormValues = originalFormEls.map((el) => el.value);
-			// Clone so we can strip <input> and form controls (export their values as plain text)
+			
+			// Clone so we can strip <input> and form controls
 			const clone = tableEl.cloneNode(true) as HTMLTableElement;
+			
 			// Replace inputs/selects with the values captured from the original elements
 			const cloneFormEls = Array.from(clone.querySelectorAll('input, select, textarea'));
 			cloneFormEls.forEach((el: any, i) => {
 				const text = document.createTextNode(originalFormValues[i] ?? '');
 				el.parentNode?.replaceChild(text, el);
 			});
-			// Remove elements explicitly hidden (so we don't export hidden columns)
+			
+			// Remove elements explicitly hidden
 			clone.querySelectorAll('.hidden').forEach((el) => el.parentNode?.removeChild(el));
 			
-			// Remove attendance/hours columns that should not be exported
+			// Remove attendance/hours columns
 			const columnsToRemove = [
-				'worked hours',
-				'expected hours',
-				'under worked hours',
-				'late hours',
-				'incomplete days',
-				'unapproved',
-				'official leave',
-				'approved',
-				'expected work days',
-				'worked days'
+				'worked hours', 'expected hours', 'under worked hours', 'late hours',
+				'incomplete days', 'unapproved', 'official leave', 'approved',
+				'expected work days', 'worked days'
 			];
 			
-			// Find header cells that match column names to remove and track their indices
 			const headerRow = clone.querySelector('thead tr');
 			if (headerRow) {
 				const headerCells = Array.from(headerRow.querySelectorAll('th'));
@@ -1299,12 +1293,12 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					}
 				});
 				
-				// Remove header cells
+				// Remove header cells (reverse order to maintain indices)
 				Array.from(indicesToRemove).reverse().forEach(idx => {
 					headerCells[idx]?.parentNode?.removeChild(headerCells[idx]);
 				});
 				
-				// Remove data cells in the same columns from body rows
+				// Remove data cells in the same columns
 				clone.querySelectorAll('tbody tr').forEach(row => {
 					const cells = Array.from(row.querySelectorAll('td'));
 					Array.from(indicesToRemove).reverse().forEach(idx => {
@@ -1315,9 +1309,16 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				});
 			}
 			
-			const ws = XLSX.utils.table_to_sheet(clone, { raw: false });
-
-			// Format dates for header
+			// Create workbook and worksheet
+			const wb = new Workbook();
+			const ws = wb.addWorksheet('Salary Statement');
+			
+			// Set RTL for Arabic
+			if ($locale === 'ar') {
+				ws.properties.rightToLeft = true;
+			}
+			
+			// Format dates
 			const formatDateHeader = (dateStr: string): string => {
 				const [y, m, d] = dateStr.split('-');
 				return `${d}-${m}-${y}`;
@@ -1325,130 +1326,206 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			const periodStart = formatDateHeader(startDate);
 			const periodEnd = formatDateHeader(endDate);
 			
-			// Create header content based on current locale
+			// Create header text
 			const headerText = $locale === 'ar' 
 				? `مسير الرواتب للفترة من ${periodStart} إلى ${periodEnd}`
 				: `Payroll Register for the Period from ${periodStart} to ${periodEnd}`;
 			
-			// Get original range before adding header
-			const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-			const originalLastRow = range.e.r;
+			// Add title row with styling
+			const titleRow = ws.addRow([headerText]);
+			titleRow.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+			titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } };
+			titleRow.alignment = { horizontal: 'center', vertical: 'center', wrapText: true };
+			titleRow.height = 35;
 			
-			// Shift all existing data down by 2 rows (1 header row + 1 empty row)
-			// Do this in reverse order to avoid overwriting
-			const allCellAddrs = Object.keys(ws).filter(addr => addr.match(/^[A-Z]+\d+$/));
-			allCellAddrs.sort((a, b) => {
-				const aRow = parseInt(a.match(/\d+$/)[0]);
-				const bRow = parseInt(b.match(/\d+$/)[0]);
-				return bRow - aRow; // reverse sort by row number
+			// Add empty row
+			ws.addRow([]);
+			
+			// Extract table data
+			const tableHeaders: string[] = [];
+			const tableData: any[] = [];
+			
+			const headerThs = clone.querySelectorAll('thead tr th');
+			headerThs.forEach(th => {
+				tableHeaders.push(th.textContent?.trim() || '');
 			});
 			
-			allCellAddrs.forEach(addr => {
-				const cell = XLSX.utils.decode_cell(addr);
-				const newAddr = XLSX.utils.encode_cell({ r: cell.r + 2, c: cell.c });
-				ws[newAddr] = ws[addr];
-				delete ws[addr];
-			});
-			
-			// Update merges if they exist
-			if (ws['!merges']) {
-				ws['!merges'] = ws['!merges'].map((merge: any) => ({
-					s: { r: merge.s.r + 2, c: merge.s.c },
-					e: { r: merge.e.r + 2, c: merge.e.c }
-				}));
+			// Merge title row across all columns
+			if (tableHeaders.length > 1) {
+				// Helper function to convert column number to Excel column letter
+				const getColumnLetter = (colNum: number): string => {
+					let letter = '';
+					while (colNum > 0) {
+						const mod = (colNum - 1) % 26;
+						letter = String.fromCharCode(65 + mod) + letter;
+						colNum = Math.floor((colNum - 1) / 26);
+					}
+					return letter;
+				};
+				const lastCol = getColumnLetter(tableHeaders.length);
+				ws.mergeCells(`A1:${lastCol}1`);
 			}
 			
-			// Add header row with bold formatting
-			ws['A1'] = { t: 's', v: headerText, b: true };
-			ws['A1'].font = { bold: true };
+			clone.querySelectorAll('tbody tr').forEach(tr => {
+				const row: any[] = [];
+				tr.querySelectorAll('td').forEach(td => {
+					row.push(td.textContent?.trim() || '');
+				});
+				tableData.push(row);
+			});
 			
-			// Merge cells for header (A1:H1)
-			ws['!merges'] = ws['!merges'] || [];
-			ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } });
+			// Add header row to worksheet
+			const headerRowExcel = ws.addRow(tableHeaders);
+			headerRowExcel.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+			headerRowExcel.height = 45;
+			headerRowExcel.alignment = { horizontal: 'center', vertical: 'center', wrapText: true };
+			
+			// Define colors for different column types
+			const getHeaderColor = (header: string): string => {
+				const h = header.toLowerCase();
+				if (h.includes('salary')) return 'FF059669'; // Green
+				if (h.includes('allowance') || h.includes('other')) return 'FF0891B2'; // Cyan
+				if (h.includes('deduction') || h.includes('gosi')) return 'FFDCA5D9'; // Rose
+				if (h.includes('earning') || h.includes('gross')) return 'FF065F46'; // Dark green
+				if (h.includes('total') || h.includes('net')) return 'FF1E40AF'; // Dark blue
+				return 'FF374151'; // Default gray
+			};
+			
+			headerRowExcel.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+				const columnHeader = tableHeaders[colNumber - 1] || '';
+				const bgColor = getHeaderColor(columnHeader);
+				
+				cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+				cell.border = {
+					left: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+					right: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+					top: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+					bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } }
+				};
+			});
+			
+			// Add data rows with styling
+			tableData.forEach((rowData, idx) => {
+				const row = ws.addRow(rowData);
+				row.height = 20;
+				const isEvenRow = idx % 2 === 0;
+				
+				row.fill = isEvenRow 
+					? { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+					: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+				
+				row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+					cell.border = {
+						left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+						right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+						top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+						bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+					};
+					
+					// Check if column header contains "GOSI %" or numeric columns
+					const columnHeader = tableHeaders[colNumber - 1] || '';
+					if (columnHeader.toLowerCase().includes('gosi %') || 
+						columnHeader.toLowerCase().includes('total') ||
+						columnHeader.toLowerCase().includes('deduction') ||
+						columnHeader.toLowerCase().includes('earning') ||
+						columnHeader.toLowerCase().includes('salary')) {
+						cell.alignment = { horizontal: 'center', vertical: 'center' };
+					} else {
+						cell.alignment = { horizontal: 'left', vertical: 'center' };
+					}
+					
+					// Format percentage columns
+					if (columnHeader.toLowerCase().includes('gosi %')) {
+						const numVal = parseFloat(String(cell.value || '0'));
+						if (!isNaN(numVal)) {
+							cell.value = numVal;
+							cell.numFmt = '0.00';
+						}
+					}
+					// Format numeric columns with thousands separator
+					else if (columnHeader.toLowerCase().includes('deduction') ||
+							 columnHeader.toLowerCase().includes('earning') ||
+							 columnHeader.toLowerCase().includes('salary')) {
+						const numVal = parseFloat(String(cell.value || '0').replace(/,/g, ''));
+						if (!isNaN(numVal)) {
+							cell.value = numVal;
+							cell.numFmt = '#,##0.00';
+						}
+					}
+				});
+			});
+			
+			// Add total row if there's data
+			if (tableData.length > 0) {
+				const totalRow = ws.addRow([]);
+				totalRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+				totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } };
+				totalRow.height = 22;
+				
+				// Helper to convert column number to letter
+				const getColumnLetter = (colNum: number): string => {
+					let col = '';
+					let n = colNum;
+					while (n > 0) {
+						n--;
+						col = String.fromCharCode(65 + (n % 26)) + col;
+						n = Math.floor(n / 26);
+					}
+					return col;
+				};
+				
+				let labelAdded = false;
+				totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+					if (!labelAdded) {
+						cell.value = 'TOTAL';
+						cell.alignment = { horizontal: 'left', vertical: 'center' };
+						labelAdded = true;
+					} else {
+						const columnHeader = tableHeaders[colNumber - 1] || '';
+						if (columnHeader.toLowerCase().includes('deduction') ||
+							columnHeader.toLowerCase().includes('earning') ||
+							columnHeader.toLowerCase().includes('salary') ||
+							columnHeader.toLowerCase().includes('gosi %')) {
+							// Create SUM formula
+							const dataStartRow = 4; // Row 1 = title, Row 2 = empty, Row 3 = headers, Row 4 = first data
+							const dataEndRow = 3 + tableData.length;
+							const colLetter = getColumnLetter(colNumber);
+							cell.value = { formula: `SUM(${colLetter}${dataStartRow}:${colLetter}${dataEndRow})` };
+							cell.numFmt = '#,##0.00';
+							cell.alignment = { horizontal: 'center', vertical: 'center' };
+						}
+					}
+					
+					cell.border = {
+						left: { style: 'medium', color: { argb: 'FF047857' } },
+						right: { style: 'medium', color: { argb: 'FF047857' } },
+						top: { style: 'medium', color: { argb: 'FF047857' } },
+						bottom: { style: 'medium', color: { argb: 'FF047857' } }
+					};
+				});
+			}
 			
 			// Set column widths
-			ws['!cols'] = ws['!cols'] || [];
-			for (let i = 0; i < 20; i++) {
-				ws['!cols'][i] = { wch: 15 };
-			}
+			ws.columns.forEach((col) => {
+				col.width = 16;
+			});
 			
-			// Set row heights for header row
-			ws['!rows'] = ws['!rows'] || [];
-			ws['!rows'][0] = { hpt: 20 };
-			
-			// Update range to include header (shifted data + 2 new rows at top)
-			const newRange = {
-				s: { r: 0, c: range.s.c },
-				e: { r: originalLastRow + 2, c: range.e.c }
-			};
-			ws['!ref'] = XLSX.utils.encode_range(newRange);
-
-			// Convert numeric-looking string cells into real numbers so SUM formulas work,
-			// then append a TOTAL row with SUM formulas for each numeric column so edits
-			// in Excel automatically update the totals.
-			try {
-				const shiftedRange = XLSX.utils.decode_range(ws['!ref']);
-				const headerRow = 2; // Header row is now at row 2 (0-indexed) after shift
-				const firstDataRow = headerRow + 1;
-				const lastDataRow = originalLastRow + 2; // Last data row is original + 2 due to shift
-				const numericByCol: { [c: number]: boolean } = {};
-
-				// Pass 1: detect numeric columns and convert numeric strings -> real numbers
-				for (let c = shiftedRange.s.c; c <= shiftedRange.e.c; c++) {
-					let hasNumeric = false;
-					let hasNonNumeric = false;
-					for (let r = firstDataRow; r <= lastDataRow; r++) {
-						const addr = XLSX.utils.encode_cell({ r, c });
-						const cell = ws[addr];
-						if (!cell) continue;
-						const raw = cell.v;
-						if (raw === null || raw === undefined || raw === '') continue;
-						if (typeof raw === 'number') { hasNumeric = true; continue; }
-						const s = String(raw).trim().replace(/,/g, '');
-						if (s === '' || s === '-') continue;
-						const n = Number(s);
-						if (Number.isFinite(n)) {
-							cell.v = n;
-							cell.t = 'n';
-							delete cell.w;
-							hasNumeric = true;
-						} else {
-							hasNonNumeric = true;
-						}
-					}
-					numericByCol[c] = hasNumeric && !hasNonNumeric;
-				}
-
-				// Pass 2: append TOTAL row with SUM formulas for numeric columns
-				if (lastDataRow >= firstDataRow) {
-					const totalRow = lastDataRow + 1;
-					let labelPlaced = false;
-					for (let c = shiftedRange.s.c; c <= shiftedRange.e.c; c++) {
-						const addr = XLSX.utils.encode_cell({ r: totalRow, c });
-						if (numericByCol[c]) {
-							const firstAddr = XLSX.utils.encode_cell({ r: firstDataRow, c });
-							const lastAddr = XLSX.utils.encode_cell({ r: lastDataRow, c });
-							ws[addr] = { t: 'n', f: `SUM(${firstAddr}:${lastAddr})` };
-						} else if (!labelPlaced) {
-							ws[addr] = { t: 's', v: 'TOTAL' };
-							labelPlaced = true;
-						} else {
-							// Clear non-numeric columns in TOTAL row (don't show employee data)
-							ws[addr] = { t: 's', v: '' };
-						}
-					}
-					shiftedRange.e.r = totalRow;
-					ws['!ref'] = XLSX.utils.encode_range(shiftedRange);
-				}
-			} catch (totalErr) {
-				console.warn('Could not append totals row with formulas:', totalErr);
-			}
-
-			const wb = XLSX.utils.book_new();
-			XLSX.utils.book_append_sheet(wb, ws, 'Salary Statement');
+			// Generate filename with timestamp
 			const today = new Date();
 			const stamp = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}_${String(today.getHours()).padStart(2, '0')}${String(today.getMinutes()).padStart(2, '0')}`;
-			XLSX.writeFile(wb, `Salary_Statement_${stamp}.xlsx`);
+			
+			// Create localized filename
+			const filenamePart = $locale === 'ar' ? 'مسير_الرواتب' : 'Salary_Statement';
+			
+			// Write and download file
+			const buffer = await wb.xlsx.writeBuffer();
+			const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `${filenamePart}_${stamp}.xlsx`;
+			link.click();
+			URL.revokeObjectURL(url);
 		} catch (err) {
 			console.error('Export to Excel failed:', err);
 			alert('Failed to export to Excel. See console for details.');
@@ -2784,6 +2861,7 @@ title="Export salary data to Mudad Excel template"
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-orange-800 border-b border-r bg-orange-50 text-center w-[150px] whitespace-nowrap {colVis.foodAllowance ? '' : 'hidden'}">{$t('hr.salaryStatement.foodAllowance')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-red-600 border-b border-r bg-red-50 text-center w-[150px] whitespace-nowrap {colVis.foodDeduction ? '' : 'hidden'}">{$t('hr.salaryStatement.foodAllowanceDeduction')}</th>
 							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-red-800 border-b border-r bg-red-50 text-center w-[150px] whitespace-nowrap {colVis.gosiDeduction ? '' : 'hidden'}">{$t('hr.salaryStatement.gosiDeduction')}</th>
+							<th class="sticky top-0 z-30 px-4 py-4 font-bold text-red-700 border-b border-r bg-red-100/50 text-center w-[120px] whitespace-nowrap {colVis.gosiDeduction ? '' : 'hidden'}">{$t('hr.salaryStatement.gosiPercentage')}</th>
 						<th class="sticky top-0 z-30 px-4 py-4 font-bold text-purple-700 border-b border-r bg-purple-50 text-center w-[150px] whitespace-nowrap {colVis.lateDeductions ? '' : 'hidden'}">{$t('hr.salaryStatement.lateDeductions')}</th>
 						<th class="sticky top-0 z-30 px-4 py-4 font-bold text-indigo-700 border-b border-r bg-indigo-50 text-center w-[150px] whitespace-nowrap {colVis.underWorkedDeductions ? '' : 'hidden'}">{$t('hr.salaryStatement.underWorkedDeductions')}</th>
 						<th class="sticky top-0 z-30 px-4 py-4 font-bold text-pink-700 border-b border-r bg-pink-50 text-center w-[150px] whitespace-nowrap {colVis.posShortage ? '' : 'hidden'}">{$t('hr.salaryStatement.posShortageDeduction')}</th>
@@ -3037,12 +3115,14 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-800 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-red-100/50 transition-colors {colVis.gosiDeduction ? '' : 'hidden'}">
 									{#if gosiDeductions[row.employeeId] && gosiDeductions[row.employeeId] > 0}
-										<div class="flex flex-col items-center gap-1">
-											<span class="font-bold text-slate-800">{gosiDeductions[row.employeeId].toLocaleString()}</span>
-											{#if gosiIsPercentages[row.employeeId] !== false}
-												<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">{(gosiPercentages[row.employeeId] || 0).toFixed(2)}%</span>
-											{/if}
-										</div>
+										<span class="font-bold text-slate-800">{gosiDeductions[row.employeeId].toLocaleString()}</span>
+									{:else}
+										<span class="text-slate-400">-</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 border-r text-center font-bold text-red-700 bg-red-100/30 w-[120px] whitespace-nowrap group-hover:bg-red-100/50 transition-colors {colVis.gosiDeduction ? '' : 'hidden'}">
+									{#if gosiIsPercentages[row.employeeId] !== false}
+										<span class="text-sm font-bold text-red-700">{(gosiPercentages[row.employeeId] || 0).toFixed(2)}</span>
 									{:else}
 										<span class="text-slate-400">-</span>
 									{/if}

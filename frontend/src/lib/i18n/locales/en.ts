@@ -2680,6 +2680,7 @@ export const englishLocale: LocaleData = {
         foodAllowance: "Food Allowance",
         foodAllowanceDeduction: "Food Allow. Deduction",
         gosiDeduction: "GOSI Deduction",
+        gosiPercentage: "GOSI %",
         lateDeductions: "Late Deductions",
         underWorkedDeductions: "Under Worked Deductions",
         posShortageDeduction: "POS Shortage Deduction",

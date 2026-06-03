@@ -2693,6 +2693,7 @@ export const arabicLocale: LocaleData = {
         foodAllowance: "بدل الإعاشة",
         foodAllowanceDeduction: "خصم بدل الإعاشة",
         gosiDeduction: "خصم التأمينات",
+        gosiPercentage: "نسبة التأمينات %",
         lateDeductions: "خصومات التأخير",
         underWorkedDeductions: "خصومات نقص العمل",
         posShortageDeduction: "خصم نقص الصندوق",
