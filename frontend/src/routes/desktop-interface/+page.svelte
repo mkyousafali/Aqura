@@ -98,6 +98,7 @@
 	let breakQrTtl = 10;
 	let breakQrInterval: ReturnType<typeof setInterval> | null = null;
 	let QRCode: any = null;
+	let showBreakQr = false;
 
 	// Map button_code → i18n translation key for showing translated button names
 	const buttonCodeTranslationMap: Record<string, string> = {
@@ -530,19 +531,6 @@
 		<!-- Welcome Screen -->
 		<div class="welcome-screen">
 			<div class="welcome-container">
-				<!-- Break Security QR Code - Completely outside the card -->
-				{#if breakQrDataUrl}
-					<div class="break-qr-fixed">
-						<div class="break-qr-container">
-							<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
-							<div class="break-qr-label">
-								<span>🔒</span>
-								<span>{$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
-							</div>
-						</div>
-					</div>
-				{/if}
-
 				<div class="welcome-card">
 					<div class="logo-section">
 						{#if $updateAvailable}
@@ -554,14 +542,33 @@
 								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
 							</span>
 						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ6.5.5.5</button>
+						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ7.6.6.6</button>
 
 						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 							<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
 						</div>
 						<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
+
+						<!-- Security Code toggle button - bottom left of logo card -->
+						{#if breakQrDataUrl}
+							<button class="qr-toggle-btn" on:click={() => showBreakQr = !showBreakQr} title={$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}>
+								🔒
+							</button>
+						{/if}
 					</div>
 				</div>
+
+				<!-- Break Security QR Code popup -->
+				{#if breakQrDataUrl && showBreakQr}
+					<div class="break-qr-popup">
+						<button class="qr-popup-close" on:click={() => showBreakQr = false}>✕</button>
+						<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
+						<div class="break-qr-label">
+							<span>🔒</span>
+							<span>{$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 
@@ -945,27 +952,70 @@
 	}
 
 	/* Break QR Code - Centered above the welcome card */
-	.break-qr-fixed {
-		position: relative;
-		margin-bottom: 5px;
-		z-index: 10;
+	.qr-toggle-btn {
+		position: absolute;
+		bottom: 10px;
+		right: 10px;
+		background: rgba(255, 255, 255, 0.15);
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-radius: 50%;
+		width: 36px;
+		height: 36px;
+		font-size: 1.1rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 	}
 
-	.break-qr-container {
+	.qr-toggle-btn:hover {
+		background: rgba(255, 255, 255, 0.3);
+		transform: scale(1.1);
+	}
+
+	.break-qr-popup {
+		position: absolute;
+		bottom: 56px;
+		right: 10px;
 		background: white;
 		border-radius: 14px;
 		padding: 10px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 5px;
+		gap: 6px;
+		z-index: 50;
 		animation: qrPulse 10s ease-in-out infinite;
 	}
 
+	.qr-popup-close {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		background: #f1f5f9;
+		border: none;
+		border-radius: 50%;
+		width: 22px;
+		height: 22px;
+		font-size: 0.7rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #64748b;
+		transition: background 0.2s;
+	}
+
+	.qr-popup-close:hover {
+		background: #e2e8f0;
+	}
+
 	.break-qr-img {
-		width: 160px;
-		height: 160px;
+		width: 150px;
+		height: 150px;
 		border-radius: 6px;
 		display: block;
 	}
