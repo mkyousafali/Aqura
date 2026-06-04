@@ -128,6 +128,7 @@
 	import SecurityCodeWindow from '$lib/components/desktop-interface/master/hr/SecurityCodeWindow.svelte';
 	import EmployeeDashboard from '$lib/components/desktop-interface/master/hr/EmployeeDashboard.svelte';
 	// NOTE: EmployeeDashboard merged into EmployeeMaster tabs
+	import AnalyzeAllWindow from '$lib/components/desktop-interface/master/hr/AnalyzeAllWindow.svelte';
 	import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
 	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
 	import HRServices from '$lib/components/desktop-interface/master/hr/HRServices.svelte';
@@ -1159,6 +1160,30 @@
 		showHRSubmenu = false;
 	}
 
+	function openFingerprintDashboard() {
+		collapseAllMenus();
+		const windowId = generateWindowId('fingerprint-dashboard');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.fingerprintDashboard')} #${instanceNumber}`,
+			component: AnalyzeAllWindow,
+			componentName: "AnalyzeAllWindow",
+			icon: '🖐️',
+			size: { width: 1300, height: 750 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
 	function openSecurityCodeWindow() {
 		collapseAllMenus();
 		const windowId = generateWindowId('security-code');
@@ -2065,6 +2090,7 @@ function openApprovalCenter() {
 			'DAILY_CHECKLIST_MANAGER': openDailyChecklistManager,
 			'BREAK_REGISTER': openBreakRegister,
 			'SECURITY_CODE': openSecurityCodeWindow,
+			'FINGERPRINT_DASHBOARD': openFingerprintDashboard,
 			'FINGERPRINT_TRANSACTIONS': openFingerprintTransactions,
 			'EXPORT_BIOMETRIC_DATA': openExportBiometricData,
 			'TASK_MASTER': openTaskMaster,
@@ -4894,6 +4920,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openSecurityCodeWindow}>
 								<span class="menu-icon">🔒</span>
 								<span class="menu-text">{t('nav.securityCode')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('FINGERPRINT_DASHBOARD')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openFingerprintDashboard}>
+								<span class="menu-icon">🖐️</span>
+								<span class="menu-text">{t('nav.fingerprintDashboard')}</span>
 							</button>
 						</div>
 					{/if}

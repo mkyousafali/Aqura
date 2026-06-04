@@ -169,6 +169,7 @@ export const englishLocale: LocaleData = {
       apiKeysManager: "API Keys Manager",
       breakRegister: "Break Register",
       securityCode: "Security Code",
+      fingerprintDashboard: "Fingerprint Dashboard",
       employeeDashboard: "Employee Dashboard",
       employeeMaster: "Employee Master",
       createDepartment: "Create Department",

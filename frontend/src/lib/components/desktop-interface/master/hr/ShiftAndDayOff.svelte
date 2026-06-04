@@ -523,9 +523,12 @@
         } else if (activeTab === 'Special Shift (weekday-wise)') {
             await loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Special Shift (date-wise)') {
-            const dateRange = getDefaultDateRange();
-            specialDateFilterStart = dateRange.start;
-            specialDateFilterEnd = dateRange.end;
+            const today = new Date();
+            const past40 = new Date(today);
+            past40.setDate(today.getDate() - 40);
+            const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            specialDateFilterStart = fmt(past40);
+            specialDateFilterEnd = fmt(today);
             await loadSpecialShiftDateWiseData();
         } else if (activeTab === 'Leave (date-wise)') {
             const dateRange = getDefaultDateRange();
@@ -585,9 +588,6 @@
         } else if (activeTab === 'Special Shift (weekday-wise)') {
             await loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Special Shift (date-wise)') {
-            const dateRange = getDefaultDateRange();
-            specialDateFilterStart = dateRange.start;
-            specialDateFilterEnd = dateRange.end;
             await loadSpecialShiftDateWiseData();
         } else if (activeTab === 'Leave (date-wise)') {
             const dateRange = getDefaultDateRange();
@@ -819,50 +819,45 @@
         }
     }
 
-    async function loadSpecialShiftDateWiseData() {
-        loading = true;
-        error = null;
+    function mapDateWiseRpcRow(row: any) {
+        return {
+            id: row.id,
+            employee_id: row.employee_id,
+            employee_name_en: row.employee_name_en || 'N/A',
+            employee_name_ar: row.employee_name_ar || 'N/A',
+            branch_id: row.branch_id,
+            branch_name_en: row.branch_name_en || 'N/A',
+            branch_name_ar: row.branch_name_ar || 'N/A',
+            branch_location_en: row.branch_location_en || '',
+            branch_location_ar: row.branch_location_ar || '',
+            nationality_id: row.nationality_id,
+            nationality_name_en: row.nationality_name_en || 'N/A',
+            nationality_name_ar: row.nationality_name_ar || 'N/A',
+            sponsorship_status: row.sponsorship_status,
+            employment_status: row.employment_status,
+            shift_date: row.shift_date,
+            shift_start_time: row.shift_start_time,
+            shift_start_buffer: row.shift_start_buffer,
+            shift_end_time: row.shift_end_time,
+            shift_end_buffer: row.shift_end_buffer,
+            is_shift_overlapping_next_day: row.is_shift_overlapping_next_day,
+            working_hours: row.working_hours
+        };
+    }
+
+    async function loadDateWiseEmployeesForModal() {
         try {
-            await initSupabase();
-            
-            // Get all employees for selection
-            const { data: employeeData, error: empError } = await supabase
-                .from('hr_employee_master')
-                .select(`
-                    id,
-                    name_en,
-                    name_ar,
-                    current_branch_id,
-                    nationality_id,
-                    employment_status,
-                    sponsorship_status
-                `);
-
-            if (empError) throw empError;
-
-            if (!employeeData || employeeData.length === 0) {
-                allEmployeesForDateWise = [];
-                dateWiseShifts = [];
-                loading = false;
-                return;
-            }
-
-            // Get branch information
-            const branchIds = [...new Set(employeeData.map(e => e.current_branch_id).filter(Boolean))];
-            const { data: branches, error: branchError } = await supabase
-                .from('branches')
-                .select('id, name_en, name_ar, location_en, location_ar')
-                .in('id', branchIds);
-
-            if (branchError) throw branchError;
-
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
-
-            // Populate available branches for filter
-            availableBranches = (branches as Branch[] | null) || [];
-
-            // Build employee selection list
-            allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
+            const [empResult, branchResult, natResult] = await Promise.all([
+                supabase.from('hr_employee_master').select('id, name_en, name_ar, current_branch_id, nationality_id, employment_status, sponsorship_status'),
+                supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+                supabase.from('nationalities').select('id, name_en, name_ar')
+            ]);
+            if (empResult.error) throw empResult.error;
+            const empData: EmployeeMaster[] = empResult.data || [];
+            availableBranches = (branchResult.data as Branch[]) || [];
+            availableNationalities = (natResult.data as Nationality[]) || [];
+            const branchMap = new Map<string, Branch>(availableBranches.map(b => [String(b.id), b]));
+            allEmployeesForDateWise = sortEmployees(empData.map(emp => {
                 const branch = branchMap.get(String(emp.current_branch_id));
                 return {
                     id: emp.id,
@@ -871,71 +866,35 @@
                     branch_name_en: branch?.name_en || 'N/A',
                     branch_name_ar: branch?.name_ar || 'N/A'
                 };
-            });
-            
-            allEmployeesForDateWise = [...sortEmployees(allEmployeesForDateWise)];
-
+            }));
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
+        } catch (err) {
+            console.error('Error loading employees for date-wise modal:', err);
+        }
+    }
 
-            // Get nationality information
-            const nationalityIds = [...new Set((employeeData as EmployeeMaster[]).map(e => e.nationality_id).filter(Boolean))];
-            let nationalities: Nationality[] = [];
-            if (nationalityIds.length > 0) {
-                const { data: nat, error: natError } = await supabase
-                    .from('nationalities')
-                    .select('id, name_en, name_ar')
-                    .in('id', nationalityIds);
-                if (natError) throw natError;
-                nationalities = (nat as Nationality[]) || [];
-            }
+    async function loadSpecialShiftDateWiseData() {
+        loading = true;
+        error = null;
+        try {
+            await initSupabase();
 
-            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [String(n.id), n]) || []);
+            // Load employees for add-modal and filter dropdowns in parallel
+            const modalPromise = loadDateWiseEmployeesForModal();
 
-            // Populate available nationalities for filter
-            availableNationalities = nationalities || [];
+            // Build RPC params — dates are optional filters
+            // Use high limit so all records for the date range are returned
+            const rpcParams: any = { p_limit: 1000000, p_offset: 0 };
+            if (specialDateFilterStart) rpcParams.p_start_date = specialDateFilterStart;
+            if (specialDateFilterEnd)   rpcParams.p_end_date   = specialDateFilterEnd;
 
-            // Get special shift date-wise data
-            const { data: shifts, error: shiftError } = await supabase
-                .from('special_shift_date_wise')
-                .select('*')
-                .gte('shift_date', specialDateFilterStart)
-                .lte('shift_date', specialDateFilterEnd)
-                .order('shift_date', { ascending: false });
+            const { data, error: rpcError } = await supabase.rpc('get_special_shift_date_wise', rpcParams);
+            if (rpcError) throw rpcError;
 
-            if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
+            await modalPromise;
 
-            // Map shifts with employee details
-            dateWiseShifts = ((shifts as any[]) || []).map(shift => {
-                const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(shift.employee_id));
-                const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
-                const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
-
-                return {
-                    id: shift.id,
-                    employee_id: shift.employee_id,
-                    employee_name_en: emp?.name_en || 'N/A',
-                    employee_name_ar: emp?.name_ar || 'N/A',
-                    branch_id: emp?.current_branch_id,
-                    branch_name_en: branch?.name_en || 'N/A',
-                    branch_name_ar: branch?.name_ar || 'N/A',
-                    branch_location_en: branch?.location_en || '',
-                    branch_location_ar: branch?.location_ar || '',
-                    nationality_id: emp?.nationality_id,
-                    nationality_name_en: nationality?.name_en || 'N/A',
-                    nationality_name_ar: nationality?.name_ar || 'N/A',
-                    sponsorship_status: emp?.sponsorship_status,
-                    employment_status: emp?.employment_status,
-                    shift_date: shift.shift_date,
-                    shift_start_time: shift.shift_start_time,
-                    shift_start_buffer: shift.shift_start_buffer,
-                    shift_end_time: shift.shift_end_time,
-                    shift_end_buffer: shift.shift_end_buffer,
-                    is_shift_overlapping_next_day: shift.is_shift_overlapping_next_day,
-                    working_hours: shift.working_hours
-                };
-            });
-            
-            dateWiseShifts = [...sortEmployees(dateWiseShifts)];
+            const rows: any[] = data || [];
+            dateWiseShifts = sortEmployees(rows.map(mapDateWiseRpcRow));
         } catch (err) {
             console.error('Error loading special shift date-wise data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -2195,7 +2154,14 @@
             );
         }
 
-        return sortEmployees(filtered);
+        // Sort by latest shift date descending (newest at top)
+        filtered.sort((a, b) => {
+            const dateA = a._dateTo || a.shift_date || '';
+            const dateB = b._dateTo || b.shift_date || '';
+            return dateB.localeCompare(dateA);
+        });
+
+        return filtered;
     }
 
     // Group day-off requests by employee + submission time + reason (same batch) — same logic as ApprovalCenter
@@ -3733,14 +3699,14 @@
                             </div>
                         </div>
 
-                        <!-- Load Button -->
+                        <!-- Apply Filter Button -->
                         <div class="self-end pb-0.5">
                             <button 
                                 on:click={loadSpecialShiftDateWiseData}
                                 class="px-6 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-200 transition-all flex items-center gap-2 h-[42px]"
                             >
-                                <span class="text-sm">🔄</span>
-                                Load Data
+                                <span class="text-sm">🔍</span>
+                                {$locale === 'ar' ? 'تطبيق الفلتر' : 'Apply Filter'}
                             </button>
                         </div>
                     </div>

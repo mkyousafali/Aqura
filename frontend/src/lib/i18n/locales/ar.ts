@@ -172,6 +172,7 @@ export const arabicLocale: LocaleData = {
       apiKeysManager: "مدير مفاتيح API",
       breakRegister: "سجل الاستراحات",
       securityCode: "رمز الأمان",
+      fingerprintDashboard: "لوحة البصمة",
       employeeDashboard: "لوحة معلومات الموظفين",
       employeeMaster: "إدارة الموظفين",
       createDepartment: "إنشاء قسم",
