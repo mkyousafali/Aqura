@@ -197,6 +197,10 @@
 					remember_device: rememberDevice
 				}));
 
+				// Save plaintext access code so the customer can view it later on the home screen
+				// (The DB only stores a hash so it cannot be retrieved from there)
+				localStorage.setItem('customer_access_code', customerAccessCode);
+
 				// Redirect to customer interface
 				setTimeout(() => {
 					dispatch('success', { 
@@ -310,6 +314,8 @@
 				popupWhatsappSent = waSent;
 				showAccessCodePopup = true;
 				startPopupCountdown();
+				// Save plaintext code for home page display
+				localStorage.setItem('customer_access_code', data.access_code);
 				
 				// Clear form
 				customerName = '';
@@ -389,6 +395,8 @@
 				popupAccessCode = data.access_code;
 				popupWhatsappSent = waSent;
 				showAccessCodePopup = true;
+				// Save plaintext code for home page display
+				localStorage.setItem('customer_access_code', data.access_code);
 				popupCountdown = 5;
 				popupCountdownMax = 5;
 				if (popupTimer) clearInterval(popupTimer);

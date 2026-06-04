@@ -56,6 +56,53 @@
   let surpriseBoxActive = false;
   let giftWheelActive = false;
 
+  // ── Pending Loyalty OTP ───────────────────────────────────────
+  let pendingOtp: string | null = null;
+  let pendingOtpCopied = false;
+  let otpPollTimer: any = null;
+
+  async function checkPendingOtp() {
+    try {
+      const sessionRaw = localStorage.getItem('customer_session');
+      if (!sessionRaw) return;
+      const session = JSON.parse(sessionRaw);
+      let phone: string = session.whatsapp_number || '';
+      if (!phone) return;
+      // Normalize to E.164 format (966XXXXXXXXX)
+      phone = phone.replace(/\D/g, '');
+      if (phone.startsWith('0')) phone = '966' + phone.slice(1);
+      if (!phone.startsWith('966')) phone = '966' + phone;
+
+      const { data, error } = await supabase.rpc('get_customer_pending_loyalty_otp', { p_phone: phone });
+      if (error) { console.warn('Pending OTP check failed:', error); return; }
+      pendingOtp = (data && data.length > 0) ? data[0].otp_code : null;
+    } catch (e) {
+      console.warn('checkPendingOtp error:', e);
+    }
+  }
+
+  function startOtpPolling() {
+    checkPendingOtp();
+    otpPollTimer = setInterval(checkPendingOtp, 10000);
+  }
+
+  function stopOtpPolling() {
+    clearInterval(otpPollTimer);
+  }
+
+  function copyOtp() {
+    if (pendingOtp && navigator.clipboard) {
+      navigator.clipboard.writeText(pendingOtp).then(() => {
+        pendingOtpCopied = true;
+        setTimeout(() => { pendingOtpCopied = false; }, 2000);
+      });
+    }
+  }
+
+  function dismissOtp() {
+    pendingOtp = null;
+  }
+
   // Navigate to loyalty balance with customer's own phone pre-filled
   function goLoyaltyBalance(event: MouseEvent) {
     event.preventDefault();
@@ -551,6 +598,9 @@
     // Load feature availability flags (non-blocking)
     loadFeatureStatus();
 
+    // Start polling for pending loyalty OTP (non-blocking)
+    startOtpPolling();
+
     // Load media from database
     await loadMediaItems();
     
@@ -629,6 +679,7 @@
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       offersChannel.unsubscribe();
       if (channel) channel.close();
+      stopOtpPolling();
     };
   });
 
@@ -880,6 +931,33 @@
         </button>
       {/if}
     </div>
+
+    <!-- Pending Loyalty OTP Banner -->
+    {#if pendingOtp}
+      <div class="otp-banner" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+        <div class="otp-banner-inner">
+          <div class="otp-banner-icon">🔑</div>
+          <div class="otp-banner-content">
+            <p class="otp-banner-label">{currentLanguage === 'ar' ? 'رمز الاسترداد للكاشير' : 'Redemption OTP for cashier'}</p>
+            <div class="otp-banner-digits">
+              {#each pendingOtp.split('') as d}
+                <span class="otp-digit">{d}</span>
+              {/each}
+            </div>
+          </div>
+          <div class="otp-banner-actions">
+            <button class="otp-copy-btn" on:click={copyOtp} type="button">
+              {#if pendingOtpCopied}
+                ✅
+              {:else}
+                {currentLanguage === 'ar' ? 'نسخ' : 'Copy'}
+              {/if}
+            </button>
+            <button class="otp-dismiss-btn" on:click={dismissOtp} type="button">✕</button>
+          </div>
+        </div>
+      </div>
+    {/if}
 
     <!-- Quick Access Buttons -->
     {#if surpriseBoxActive || giftWheelActive}
@@ -1805,6 +1883,80 @@
   .qa-loyalty .qa-icon { background: linear-gradient(135deg, var(--brand-green-light), var(--brand-green)); color: white; box-shadow: 0 6px 15px rgba(16, 185, 129, 0.3); }
   .qa-follow .qa-icon { background: linear-gradient(135deg, #60a5fa, #3b82f6); color: white; box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3); }
   .qa-offers .qa-icon { background: linear-gradient(135deg, var(--brand-orange-light), var(--brand-orange)); color: white; box-shadow: 0 6px 15px rgba(249, 115, 22, 0.3); }
+
+  /* ── Pending OTP Banner ─────────────────────────────── */
+  .otp-banner {
+    width: 100%;
+    max-width: 460px;
+    padding: 0 1rem 0.75rem;
+    animation: slideDown 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .otp-banner-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 2px solid #f59e0b;
+    border-radius: 18px;
+    padding: 0.85rem 1rem;
+    box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25);
+  }
+  .otp-banner-icon { font-size: 1.6rem; flex-shrink: 0; }
+  .otp-banner-content { flex: 1; min-width: 0; }
+  .otp-banner-label { font-size: 0.72rem; font-weight: 700; color: #92400e; margin: 0 0 0.3rem; }
+  .otp-banner-digits {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+  .otp-digit {
+    width: 30px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #1e293b;
+    border: 1.5px solid #fcd34d;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+  .otp-banner-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+  .otp-copy-btn {
+    background: #f59e0b;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .otp-copy-btn:hover { background: #d97706; }
+  .otp-dismiss-btn {
+    background: rgba(0,0,0,0.08);
+    color: #78716c;
+    border: none;
+    border-radius: 10px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .otp-dismiss-btn:hover { background: rgba(0,0,0,0.15); }
 
   .qa-label {
     text-align: center;
