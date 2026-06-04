@@ -110,6 +110,7 @@ export const englishLocale: LocaleData = {
       operations: "Operations",
       localBranchUpdate: "Local Branch Update",
       helperApps: "Helper Apps",
+      sidebarAnimation: "Sidebar Animation",
       receiving: "Receiving",
       receivingRecords: "Receiving Records",
       flyerMaster: "Flyer Master",
@@ -5114,6 +5115,22 @@ export const englishLocale: LocaleData = {
           no: "No"
         }
       }
+    },
+    animManager: {
+      title: "Sidebar Animation Manager",
+      subtitle: "Upload and manage the sidebar dancing character animation",
+      uploadNew: "Upload New Animation",
+      uploading: "Uploading...",
+      dropHere: "Click to select a .lottie or .json animation file",
+      animations: "Animations",
+      noAnimations: "No animations uploaded yet.",
+      active: "Active",
+      activate: "Activate",
+      deactivate: "Deactivate",
+      preview: "Preview",
+      previewNote: "Preview requires dotlottie-player. The sidebar uses the @lottiefiles/dotlottie-web renderer.",
+      uploadSuccess: "Animation uploaded successfully!",
+      setActiveSuccess: "Animation activated! Reload sidebar to apply.",
     },
   },
 };

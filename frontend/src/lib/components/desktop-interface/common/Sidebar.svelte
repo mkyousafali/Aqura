@@ -107,6 +107,7 @@
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
 	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
+	import SidebarAnimationManager from '$lib/components/desktop-interface/settings/SidebarAnimationManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
@@ -1818,6 +1819,29 @@ function openApprovalCenter() {
 			componentName: 'HelperApps',
 			icon: '🧩',
 			size: { width: 1100, height: 680 },
+			position: {
+				x: 130 + (Math.random() * 100),
+				y: 80 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllSubsections();
+	}
+
+	function openSidebarAnimationManager() {
+		const windowId = generateWindowId('sidebar-animation-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${t('nav.sidebarAnimation') || 'Sidebar Animation'} #${instanceNumber}`,
+			component: SidebarAnimationManager,
+			componentName: 'SidebarAnimationManager',
+			icon: '🎭',
+			size: { width: 780, height: 650 },
 			position: {
 				x: 130 + (Math.random() * 100),
 				y: 80 + (Math.random() * 100)
@@ -6153,6 +6177,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openHelperApps}>
 								<span class="menu-icon">🧩</span>
 								<span class="menu-text">{t('nav.helperApps') || 'Helper Apps'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SIDEBAR_ANIMATION')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSidebarAnimationManager}>
+								<span class="menu-icon">🎭</span>
+								<span class="menu-text">{t('nav.sidebarAnimation') || 'Sidebar Animation'}</span>
 							</button>
 						</div>
 					{/if}

@@ -60,8 +60,11 @@
 
 	$: greetings = $currentLocale === 'ar' ? greetingsAr : greetingsEn;
 
-	// Animation file from static folder
-	const ANIMATION_URL = '/animations/businessman.lottie';
+	// Animation file - loaded from DB
+	let animationUrl = '';
+	let showCharacter = false;
+	let pollTimer: ReturnType<typeof setInterval> | null = null;
+	let supabaseInstance: any = null;
 
 	function showNextMessage() {
 		if (bubbleTimer) clearTimeout(bubbleTimer);
@@ -74,28 +77,61 @@
 		}, 12000);
 	}
 
-	onMount(async () => {
+	async function loadDotLottie(url: string) {
+		if (!canvasEl) return;
+		dotLottie?.destroy();
+		dotLottie = null;
 		const { DotLottie } = await import('@lottiefiles/dotlottie-web');
 		dotLottie = new DotLottie({
 			canvas: canvasEl,
-			src: ANIMATION_URL,
+			src: url,
 			loop: true,
 			autoplay: true,
 			speed: 0.8
 		});
+	}
 
-		// Show messages automatically in order: 6s visible, 2s pause, then next
-		intervalTimer = setInterval(() => {
-			if (!showBubble) {
-				showNextMessage();
+	async function checkActiveAnimation() {
+		try {
+			const { data } = await supabaseInstance.rpc('get_active_sidebar_animation');
+			const newUrl = data || '';
+			if (newUrl !== animationUrl) {
+				animationUrl = newUrl;
+				if (newUrl) {
+					showCharacter = true;
+					// Wait for Svelte to render the canvas before loading
+					await new Promise(r => setTimeout(r, 50));
+					await loadDotLottie(newUrl);
+				} else {
+					showCharacter = false;
+					dotLottie?.destroy();
+					dotLottie = null;
+				}
 			}
-		}, 8000);
+		} catch {
+			// keep current state
+		}
+	}
 
-		// Show first message after 3 seconds
-		setTimeout(() => showNextMessage(), 3000);
+	onMount(async () => {
+		const mod = await import('$lib/utils/supabase');
+		supabaseInstance = mod.supabase;
+
+		// Initial check
+		await checkActiveAnimation();
+
+		// Poll every 15 seconds
+		pollTimer = setInterval(checkActiveAnimation, 15000);
+
+		// Start message loop
+		intervalTimer = setInterval(() => {
+			if (!showBubble && showCharacter) showNextMessage();
+		}, 8000);
+		setTimeout(() => { if (showCharacter) showNextMessage(); }, 3000);
 
 		return () => {
 			dotLottie?.destroy();
+			if (pollTimer) clearInterval(pollTimer);
 			if (intervalTimer) clearInterval(intervalTimer);
 			if (bubbleTimer) clearTimeout(bubbleTimer);
 		};
@@ -107,7 +143,7 @@
 	}
 </script>
 
-{#if !hidden}
+{#if !hidden && showCharacter}
 	<div class="character-wrapper">
 		{#if showBubble}
 			<div class="speech-bubble" style:direction={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
