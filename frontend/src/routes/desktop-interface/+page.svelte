@@ -531,44 +531,45 @@
 		<!-- Welcome Screen -->
 		<div class="welcome-screen">
 			<div class="welcome-container">
-				<div class="welcome-card">
-					<div class="logo-section">
-						{#if $updateAvailable}
-							<button class="update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
-								🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
-							</button>
-						{:else}
-							<span class="update-badge up-to-date">
-								✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
-							</span>
-						{/if}
-						<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ7.6.6.6</button>
+				<div class="card-qr-row">
+					<div class="welcome-card">
+						<div class="logo-section">
+							{#if $updateAvailable}
+								<button class="update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
+									🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
+								</button>
+							{:else}
+								<span class="update-badge up-to-date">
+									✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
+								</span>
+							{/if}
+							<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ7.6.6.6</button>
 
-						<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
-							<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
+							<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
+								<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
+							</div>
+							<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
+
+							<!-- Security Code toggle button - bottom right of logo card -->
+							{#if breakQrDataUrl}
+								<button class="qr-toggle-btn" on:click={() => showBreakQr = !showBreakQr} title={$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}>
+									🔒
+								</button>
+							{/if}
 						</div>
-						<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
-
-						<!-- Security Code toggle button - bottom left of logo card -->
-						{#if breakQrDataUrl}
-							<button class="qr-toggle-btn" on:click={() => showBreakQr = !showBreakQr} title={$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}>
-								🔒
-							</button>
-						{/if}
 					</div>
+
+					<!-- Break Security QR Code popup - sits to the right of the card -->
+					{#if breakQrDataUrl && showBreakQr}
+						<div class="break-qr-popup">
+							<div class="qr-popup-header">
+								<span class="qr-popup-title">🔒 {$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
+								<button class="qr-popup-close" on:click={() => showBreakQr = false}>✕</button>
+							</div>
+							<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
+						</div>
+					{/if}
 				</div>
-
-				<!-- Break Security QR Code popup -->
-				{#if breakQrDataUrl && showBreakQr}
-					<div class="break-qr-popup">
-						<button class="qr-popup-close" on:click={() => showBreakQr = false}>✕</button>
-						<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
-						<div class="break-qr-label">
-							<span>🔒</span>
-							<span>{$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
-						</div>
-					</div>
-				{/if}
 			</div>
 		</div>
 
@@ -975,27 +976,46 @@
 		transform: scale(1.1);
 	}
 
+	.card-qr-row {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 12px;
+	}
+
 	.break-qr-popup {
-		position: absolute;
-		bottom: 56px;
-		right: 10px;
 		background: white;
 		border-radius: 14px;
-		padding: 10px;
+		padding: 0;
 		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 6px;
 		z-index: 50;
 		animation: qrPulse 10s ease-in-out infinite;
+		overflow: hidden;
+		align-self: center;
+	}
+
+	.qr-popup-header {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 8px 10px;
+		background: #f1f5f9;
+		border-bottom: 1px solid #e2e8f0;
+		box-sizing: border-box;
+	}
+
+	.qr-popup-title {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #475569;
 	}
 
 	.qr-popup-close {
-		position: absolute;
-		top: 6px;
-		right: 6px;
-		background: #f1f5f9;
+		background: #e2e8f0;
 		border: none;
 		border-radius: 50%;
 		width: 22px;
@@ -1007,6 +1027,7 @@
 		justify-content: center;
 		color: #64748b;
 		transition: background 0.2s;
+		flex-shrink: 0;
 	}
 
 	.qr-popup-close:hover {
@@ -1016,7 +1037,7 @@
 	.break-qr-img {
 		width: 150px;
 		height: 150px;
-		border-radius: 6px;
+		border-radius: 0 0 14px 14px;
 		display: block;
 	}
 
