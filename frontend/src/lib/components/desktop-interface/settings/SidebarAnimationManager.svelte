@@ -226,6 +226,7 @@
 									{$t('animManager.activate') || 'Activate'}
 								</button>
 							{/if}
+							<button class="btn-delete" on:click={() => deleteAnimation(anim)} title="Delete">🗑️</button>
 						</div>
 					</div>
 				{/each}
