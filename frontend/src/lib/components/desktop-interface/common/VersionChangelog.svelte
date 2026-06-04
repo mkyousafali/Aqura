@@ -15,27 +15,27 @@ export let onClose: () => void;
 <div class="value-grid">
 <div class="value-item">
 <p class="value-label">Total Development Hours</p>
-<p class="value-number">5,394 hours</p>
-<p class="value-note">Phase One + Phase Two</p>
+<p class="value-number">5,430 hours</p>
+<p class="value-note">Phase 1: 4,842 hrs &nbsp;|&nbsp; Phase 2: 588 hrs</p>
 </div>
 <div class="value-item">
 <p class="value-label">Total Duration</p>
-<p class="value-number">~10 months</p>
-<p class="value-note">July 2025 — May 2026</p>
+<p class="value-number">~11 months</p>
+<p class="value-note">Phase 1: Jul 2025 – Mar 2026 &nbsp;|&nbsp; Phase 2: Apr – Jun 2026</p>
 </div>
 <div class="value-item">
 <p class="value-label">Development Cost</p>
-<p class="value-number">606,825 SAR</p>
+<p class="value-number">610,875 SAR</p>
 <p class="value-note">Human Development (Professional)</p>
 </div>
 <div class="value-item">
 <p class="value-label">AI Assistance Cost</p>
-<p class="value-number">16,835.36 SAR</p>
-<p class="value-note">Phase 1: $3,689.43 USD + Phase 2: 3,000 SAR</p>
+<p class="value-number">16,217.58 SAR</p>
+<p class="value-note">Phase 1: $3,689.43 USD + Phase 2: $635.26 USD</p>
 </div>
 <div class="value-item highlight">
 <p class="value-label">Grand Total Value</p>
-<p class="value-number">623,660.36 SAR</p>
+<p class="value-number">627,092.58 SAR</p>
 <p class="value-note">Total Professional Investment</p>
 </div>
 </div>
@@ -73,21 +73,38 @@ export let onClose: () => void;
 </div>
 
 <div class="latest-change">
-<h3>🚀 Phase Two — In Progress (Updated May 29, 2026)</h3>
+<h3>✨ Latest Update — June 4, 2026 (AQ7.6.6.6)</h3>
+<p class="change-description">Desktop security code QR toggle, mobile POS-closed enhancements, and fingerprint card visual improvements.</p>
+<div class="change-details">
+<h4>🖥️ Desktop Interface (v7):</h4>
+<ul>
+<li>🔒 <b>Security Code QR Toggle Button:</b> QR code is now hidden by default — a lock button (🔒) appears at the bottom-right of the logo card; click to show/hide the QR popup</li>
+<li>🎨 <b>Cleaner Login Screen:</b> Removed always-visible QR clutter; popup appears on demand and can be dismissed with ✕</li>
+</ul>
+<h4>📱 Mobile Interface (v6):</h4>
+<ul>
+<li>🏪 <b>POS Closed RPC:</b> Updated to use 35-day window for checking POS-closed status</li>
+<li>👆 <b>Fingerprint Card:</b> Added coloured borders, emoji indicators, and heartbeat animation for visual clarity</li>
+</ul>
+</div>
+</div>
+
+<div class="latest-change">
+<h3>🚀 Phase Two — In Progress (Updated June 4, 2026)</h3>
 <p class="change-description">Phase Two development is actively underway with major enhancements, new modules, system optimizations, and expanded functionality across all platforms.</p>
 <div class="change-details">
 <h4>Phase Two Development Summary:</h4>
 <ul>
 <li>👨‍💻 <b>Developed by:</b> Yousafali — mk.yousafali@gmail.com</li>
-<li>📅 <b>Development Period:</b> February 27, 2026 — May 29, 2026 (ongoing)</li>
-<li>⏱️ <b>Duration so far:</b> 92 days (~3 months)</li>
+<li>📅 <b>Development Period:</b> April 1, 2026 — June 4, 2026 (ongoing)</li>
+<li>⏱️ <b>Duration so far:</b> 98 days (~3.3 months)</li>
 <li>🕐 <b>Average Daily Development:</b> 6 hours/day</li>
-<li>⚡ <b>Development Hours (Phase 2):</b> 552 hours (as of May 29, 2026)</li>
-<li>💰 <b>Professional Development Cost (Phase 2):</b> 62,100 SAR</li>
-<li>📊 <b>Combined Development Hours:</b> Phase One (4,842 hrs) + Phase Two (552 hrs) = 5,394 hours</li>
-<li>💰 <b>Combined Professional Development Cost:</b> 606,825 SAR</li>
+<li>⚡ <b>Development Hours (Phase 2):</b> 588 hours (as of June 4, 2026)</li>
+<li>💰 <b>Professional Development Cost (Phase 2):</b> 66,150 SAR</li>
+<li>📊 <b>Combined Development Hours:</b> Phase One (4,842 hrs) + Phase Two (588 hrs) = 5,430 hours</li>
+<li>💰 <b>Combined Professional Development Cost:</b> 610,875 SAR</li>
 </ul>
-<h4>Phase Two Key Features Delivered (Feb 27 — May 29, 2026):</h4>
+<h4>Phase Two Key Features Delivered (Apr 1 — June 4, 2026):</h4>
 <ul>
 <li>👥 <b>Employee Master Window:</b> Unified HR hub with Dashboard, Departments, Levels, Positions &amp; Documents Expiry tabs</li>
 <li>🛠️ <b>HR Services:</b> Employee leave salary rules, shift assignments, and service management</li>
@@ -99,28 +116,31 @@ export let onClose: () => void;
 <li>🧮 <b>Saudi ESOB Calculator:</b> End-of-service benefit calculations</li>
 <li>📅 <b>Day Off Enhancements:</b> is_paid field, qualification usage RPC updates</li>
 <li>🔒 <b>Security Code Window:</b> HR Dashboard security access management</li>
+<li>🏪 <b>POS Closed RPC:</b> 35-day window for POS-closed status checks on mobile</li>
+<li>👆 <b>Fingerprint Card:</b> Coloured borders, emoji indicators, and heartbeat animations</li>
+<li>🔒 <b>Security Code QR Toggle:</b> On-demand QR popup on desktop login screen</li>
 <li>⚙️ <b>System Optimizations:</b> RPC bug fixes, table layout improvements, speed patches</li>
 </ul>
 </div>
 </div>
 
 <div class="latest-change">
-<h3>🤖 AI Assistant Costs — Updated May 29, 2026</h3>
+<h3>🤖 AI Assistant Costs — Updated June 4, 2026</h3>
 <p class="change-description">AI assistance (Claude / GitHub Copilot) has been utilized throughout both phases to accelerate coding, debugging, and feature implementation.</p>
 <div class="change-details">
 <h4>AI Development Cost Summary:</h4>
 <ul>
 <li>👨‍💻 <b>AI Model Used:</b> Claude / GitHub Copilot</li>
 <li>📅 <b>Phase 1 AI Usage:</b> Feb 27, 2026 — Mar 5, 2026 → <b>$3,689.43 USD = 13,835.36 SAR</b></li>
-<li>📅 <b>Phase 2 AI Usage:</b> Feb 27, 2026 — May 29, 2026 → <b>3,000 SAR</b></li>
-<li>📊 <b>Total AI Cost:</b> 13,835.36 + 3,000 = <b>16,835.36 SAR</b></li>
-<li>💰 <b>Grand Total Investment:</b> Development (606,825 SAR) + AI (16,835.36 SAR) = <b>623,660.36 SAR</b></li>
+<li>📅 <b>Phase 2 AI Usage:</b> Apr 1, 2026 — June 4, 2026 → <b>$635.26 USD = 2,382.22 SAR</b></li>
+<li>📊 <b>Total AI Cost:</b> 13,835.36 + 2,382.22 = <b>16,217.58 SAR</b></li>
+<li>💰 <b>Grand Total Investment:</b> Development (610,875 SAR) + AI (16,217.58 SAR) = <b>627,092.58 SAR</b></li>
 </ul>
 </div>
 </div>
 
 <div class="latest-change">
-<h3>💵 Real Cost Breakdown — Actual Expenses (Updated May 29, 2026)</h3>
+<h3>💵 Real Cost Breakdown — Actual Expenses (Updated June 4, 2026)</h3>
 <p class="change-description">Real cost calculation based on actual daily developer rate (94 SAR/day) minus 4 free days per month, plus AI expenses incurred. Note: Phase Two has no additional developer payment.</p>
 <div class="change-details">
 <h4>Real Development Cost Summary:</h4>
@@ -130,13 +150,13 @@ export let onClose: () => void;
 <li>📅 <b>Phase One Duration:</b> 269 days (~8.8 months)</li>
 <li>📅 <b>Phase One Free Days:</b> 36 days (4 days/month × 9 months)</li>
 <li>📅 <b>Phase One Paid Days:</b> 233 days × 94 SAR/day = <b>21,902 SAR</b></li>
-<li>📅 <b>Phase Two Duration:</b> 92 days (Feb 27 — May 29, 2026)</li>
+<li>📅 <b>Phase Two Duration:</b> 65 days (Apr 1 — June 4, 2026)</li>
 <li>⚠️ <b>Phase Two Developer Cost:</b> <b>0 SAR</b> — No additional payment for Phase Two development</li>
 <li>📊 <b>Total Developer Real Cost:</b> <b>21,902 SAR</b> (Phase One additional salary for Yousuf)</li>
 <li>🤖 <b>Phase One AI Cost:</b> 13,835.36 SAR</li>
-<li>🤖 <b>Phase Two AI Cost:</b> 3,000 SAR</li>
-<li>🤖 <b>Total AI Cost:</b> <b>16,835.36 SAR</b></li>
-<li>💰 <b>Grand Total Real Cost:</b> <b>38,737.36 SAR</b></li>
+<li>🤖 <b>Phase Two AI Cost:</b> 2,382.22 SAR</li>
+<li>🤖 <b>Total AI Cost:</b> <b>16,217.58 SAR</b></li>
+<li>💰 <b>Grand Total Real Cost:</b> <b>38,119.58 SAR</b></li>
 </ul>
 </div>
 </div>
@@ -146,36 +166,40 @@ export let onClose: () => void;
 		<div class="value-card-content">
 			<div class="value-row total">
 				<span class="value-label">Total Development Hours:</span>
-				<span class="value-amount">5,394 hrs</span>
+				<span class="value-amount">5,430 hrs</span>
 			</div>
 			<div class="value-row">
 				<span class="value-label">Professional Development Cost:</span>
-				<span class="value-amount">606,825 SAR</span>
+				<span class="value-amount">610,875 SAR</span>
 			</div>
 			<div class="value-row">
 				<span class="value-label">AI Assistance Cost:</span>
-				<span class="value-amount">16,835.36 SAR</span>
+				<span class="value-amount">16,217.58 SAR</span>
 			</div>
 			<div class="value-row final">
 				<span class="value-label">💰 Grand Total Value:</span>
-				<span class="value-amount final">623,660.36 SAR</span>
+				<span class="value-amount final">627,092.58 SAR</span>
 			</div>
 			<div class="value-divider"></div>
 			<div class="value-row">
 				<span class="value-label">Real Developer Cost (Phase 1):</span>
-				<span class="value-amount">21,902 SAR <span class="upcoming">(Additional salary for Yousuf)</span></span>
+				<span class="value-amount">21,902 SAR</span>
 			</div>
 			<div class="value-row">
 				<span class="value-label">Real Developer Cost (Phase 2):</span>
 				<span class="value-amount">0 SAR <span class="upcoming">(No additional payment)</span></span>
 			</div>
 			<div class="value-row">
-				<span class="value-label">Real AI Cost (Phase 1 + Phase 2):</span>
-				<span class="value-amount">16,835.36 SAR</span>
+				<span class="value-label">Real AI Cost (Phase 1):</span>
+				<span class="value-amount">13,835.36 SAR <span class="upcoming">($3,689.43 USD)</span></span>
+			</div>
+			<div class="value-row">
+				<span class="value-label">Real AI Cost (Phase 2):</span>
+				<span class="value-amount">2,382.22 SAR <span class="upcoming">($635.26 USD)</span></span>
 			</div>
 			<div class="value-row final">
 				<span class="value-label">💵 Grand Total Real Cost:</span>
-				<span class="value-amount final">38,737.36 SAR</span>
+				<span class="value-amount final">38,119.58 SAR</span>
 			</div>
 		</div>
 	</div>
