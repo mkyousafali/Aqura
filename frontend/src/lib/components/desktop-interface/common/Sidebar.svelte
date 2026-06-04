@@ -287,7 +287,7 @@
 		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
 		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
 		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
-		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'SECURITY_CODE': 'nav.securityCode', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
+		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'SECURITY_CODE': 'nav.securityCode', 'FINGERPRINT_DASHBOARD': 'nav.fingerprintDashboard', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
 		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
 		'CREATE_TASK': 'nav.createTaskTemplate', 'VIEW_TASKS': 'nav.viewTaskTemplates',
 		'ASSIGN_TASKS': 'nav.assignTasks', 'VIEW_MY_TASKS': 'nav.viewMyTasks',
