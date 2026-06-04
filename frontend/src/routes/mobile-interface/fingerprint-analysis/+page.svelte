@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -1109,10 +1109,15 @@
 				{@const isUnapprovedLeave = pair.isEmptyDate && !isOfficial && !isSpecific}
 				{@const assignedShift = getApplicableShift(shiftDate)}
 
-				<div class="timeline-card" class:is-day-off={isOfficial || (isSpecific && dayOff?.approval_status === 'approved')} class:is-unapproved={isUnapprovedLeave}>
+				<div class="timeline-card" class:is-day-off={isOfficial || (isSpecific && dayOff?.approval_status === 'approved')} class:is-unapproved={isUnapprovedLeave} class:is-under-hours={pair.isUnderHours} class:is-late={!pair.isUnderHours && pair.checkInEarlyLateTime?.late > 0}>
 					<div class="timeline-header">
 						<div class="header-left">
 							<div class="date-badge">{shiftDate}</div>
+							{#if !isOfficial && !isSpecific && !isUnapprovedLeave}
+								<span class="mood-emoji">
+									{#if pair.isUnderHours || (pair.isUnderHours && pair.checkInEarlyLateTime?.late > 0)}<span style="filter: hue-rotate(330deg) saturate(3) brightness(0.85);">&#x1F620;</span>{:else if pair.checkInEarlyLateTime?.late > 0}&#x1F622;{:else if pair.workedTime}&#x1F44F;{/if}
+								</span>
+							{/if}
 							{#if assignedShift}
 								<span class="shift-info-mini">
 									{formatTime12Hour(assignedShift.shift_start_time)} - {formatTime12Hour(assignedShift.shift_end_time)}
@@ -1416,9 +1421,17 @@
 	.timeline-card {
 		background: var(--futuristic-white);
 		border-radius: 8px;
-		border: 1px solid var(--futuristic-border);
+		border: 1px solid #16A34A;
 		overflow: hidden;
 		transition: transform 0.2s ease;
+	}
+
+	.timeline-card.is-under-hours {
+		border-color: #EF4444;
+	}
+
+	.timeline-card.is-late {
+		border-color: #EF4444;
 	}
 
 	.timeline-header {
@@ -1450,6 +1463,11 @@
 	.status-pill.approved { background: #D1FAE5; color: #059669; border: 1px solid #A7F3D0; }
 	.status-pill.unapproved { background: #FEF3C7; color: #D97706; border: 1px solid #FDE68A; }
 
+	.mood-emoji {
+		font-size: 1rem;
+		line-height: 1;
+	}
+
 	.date-badge {
 		font-size: 0.74rem;
 		font-weight: 700;
@@ -1477,6 +1495,14 @@
 		border-left: 4px solid #F97316;
 	}
 
+	@keyframes heartbeat {
+		0%, 100% { transform: scale(1); }
+		14% { transform: scale(1.15); }
+		28% { transform: scale(1); }
+		42% { transform: scale(1.1); }
+		56% { transform: scale(1); }
+	}
+
 	.work-duration {
 		display: flex;
 		align-items: center;
@@ -1493,6 +1519,7 @@
 	.work-duration.under-hours {
 		color: #EF4444;
 		background: rgba(239, 68, 68, 0.08);
+		animation: heartbeat 1.4s ease infinite;
 	}
 
 	.status-indicator {
@@ -1596,7 +1623,7 @@
 		font-weight: 700;
 	}
 
-	.slot-badge.late { background: #FEE2E2; color: #DC2626; }
+	.slot-badge.late { background: #FEE2E2; color: #DC2626; animation: heartbeat 1.4s ease infinite; }
 	.slot-badge.early { background: #D1FAE5; color: #10B981; }
 	.slot-badge.warning { background: #FFEDD5; color: #EA580C; }
 
@@ -1802,3 +1829,5 @@
 		color: white;
 	}
 </style>
+
+

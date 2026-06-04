@@ -34,38 +34,14 @@
 
 	async function loadClosedBoxes() {
 		try {
-			// Get full count first
-			const { count, error: countError } = await supabase
-				.from('box_operations')
-				.select('id', { count: 'exact', head: true })
-				.eq('user_id', currentUserData.id)
-				.eq('status', 'completed');
-
-			if (!countError) {
-				totalCount = count || 0;
-			}
-
-			// Load only last 3 days of data
-			const threeDaysAgo = new Date();
-			threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-			threeDaysAgo.setHours(0, 0, 0, 0);
-
 			const { data, error } = await supabase
-				.from('box_operations')
-				.select(`
-					*,
-					branches:branch_id(id, name_en, name_ar, location_en, location_ar)
-				`)
-				.eq('user_id', currentUserData.id)
-				.eq('status', 'completed')
-				.gte('end_time', threeDaysAgo.toISOString())
-				.order('end_time', { ascending: false });
+				.rpc('get_my_closed_boxes', { p_user_id: currentUserData.id });
 
 			if (error) throw error;
 
-			closedBoxes = data || [];
-			console.log('📦 Loaded closed boxes:', closedBoxes);
-			console.log('🏢 Branch data:', closedBoxes[0]?.branches);
+			totalCount = data?.total_count || 0;
+			closedBoxes = data?.boxes || [];
+			console.log('📦 Loaded closed boxes via RPC:', closedBoxes.length, 'total:', totalCount);
 		} catch (error) {
 			console.error('Error loading closed boxes:', error);
 		}
@@ -147,8 +123,7 @@
 			{#each closedBoxes as box (box.id)}
 				<div class="box-card">
 					<div class="box-header">
-						<div class="box-number">{getTranslation('boxOperations.box')} #{box.box_number}</div>
-						<div class="box-status completed">{getTranslation('boxOperations.completed')}</div>
+						<div class="box-date-title">{formatDate(box.end_time)}</div>
 					</div>
 					
 					<div class="box-info">
@@ -159,10 +134,6 @@
 						<div class="info-row">
 							<span class="label">{getTranslation('boxOperations.duration')}:</span>
 							<span class="value">{calculateDuration(box.start_time, box.end_time)}</span>
-						</div>
-						<div class="info-row">
-							<span class="label">{getTranslation('boxOperations.closed')}:</span>
-							<span class="value">{formatDate(box.end_time)}</span>
 						</div>
 						
 						{#if box.complete_details}
@@ -183,13 +154,13 @@
 								</div>
 							{/if}
 						{/if}
+
+						<div class="info-row box-number-row">
+							<span class="box-number-label">{getTranslation('boxOperations.box')} #{box.box_number}</span>
+						</div>
 					</div>
 
-					{#if box.completed_by_name}
-						<div class="box-footer">
-							<span class="completed-by">{getTranslation('boxOperations.completedBy')}: {box.completed_by_name}</span>
-						</div>
-					{/if}
+
 				</div>
 			{/each}
 		</div>
@@ -291,30 +262,27 @@
 	}
 
 	.box-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 1rem;
-		padding-bottom: 0.75rem;
-		border-bottom: 1px solid #E5E7EB;
+		margin-bottom: 0.75rem;
+		padding: 0.6rem 0.75rem;
+		background: #EDE9FE;
+		border-radius: 8px;
 	}
 
-	.box-number {
-		font-size: 1.125rem;
+	.box-date-title {
+		font-size: 1rem;
 		font-weight: 700;
-		color: #1F2937;
+		color: #4C1D95;
 	}
 
-	.box-status {
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
+	.box-number-row {
+		margin-top: 0.25rem;
+		justify-content: flex-start;
+	}
+
+	.box-number-label {
 		font-size: 0.75rem;
-		font-weight: 600;
-	}
-
-	.box-status.completed {
-		background: #D1FAE5;
-		color: #065F46;
+		color: #9CA3AF;
+		font-weight: 500;
 	}
 
 	.box-info {
