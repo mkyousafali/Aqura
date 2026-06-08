@@ -11,6 +11,8 @@
 	let paymentSchedules = []; // New: payment schedules requiring approval
 	let vendorPayments = []; // New: vendor payments requiring approval
 	let purchaseVouchers = []; // Purchase vouchers requiring approval
+	let boxEditRequests = []; // Box edit requests requiring approval
+	let myBoxEditRequests = []; // Box edit requests created by current user
 	let approvedPaymentSchedules = []; // Approved payment schedules from expense_scheduler
 	let rejectedPaymentSchedules = []; // Rejected payment schedules
 	let myCreatedRequisitions = []; // Requisitions created by current user
@@ -151,6 +153,13 @@
 				// day_off requests are visible to all with leave approval permission, or if they are the requester
 				loadRequisitions();
 			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'box_edit_requests' }, (payload) => {
+				console.log('Real-time update: box_edit_requests', payload);
+				const isRelevant =
+					(payload.new && (payload.new.assigned_approver_id === $currentUser?.id || payload.new.requested_by === $currentUser?.id)) ||
+					(payload.old && (payload.old.assigned_approver_id === $currentUser?.id || payload.old.requested_by === $currentUser?.id));
+				if (isRelevant) loadRequisitions();
+			})
 			.subscribe();
 	}
 
@@ -193,7 +202,8 @@
 			approvalPerms.can_approve_recurring_bill ||
 			approvalPerms.can_approve_vendor_payments ||
 			approvalPerms.can_approve_leave_requests ||
-			approvalPerms.can_approve_purchase_vouchers;
+			approvalPerms.can_approve_purchase_vouchers ||
+			approvalPerms.can_approve_closed_box_edit;
 	} else {
 		userCanApprove = false;
 	}
@@ -231,6 +241,11 @@
 	purchaseVouchers = rpcResult.purchase_vouchers || [];
 	console.log('✅ Loaded purchase vouchers:', purchaseVouchers.length);
 
+	// Box edit requests
+	boxEditRequests = rpcResult.box_edit_requests || [];
+	myBoxEditRequests = rpcResult.my_box_edit_requests || [];
+	console.log('✅ Loaded box edit requests:', boxEditRequests.length);
+
 	// My created items
 	myCreatedRequisitions = rpcResult.my_requisitions || [];
 	myCreatedSchedules = rpcResult.my_schedules || [];
@@ -246,7 +261,7 @@
 	rejectedPaymentSchedules = [];
 
 	// Calculate stats (only pending for now, historical loads on demand)
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length + boxEditRequests.length;
 	stats.approved = 0;
 	stats.rejected = 0;
 	stats.total = stats.pending;
@@ -535,7 +550,12 @@ async function loadHistoricalData() {
 					item_type: 'purchase_voucher'
 				})) : []),
 				// Add day off requests
-				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
+				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' })),
+				// Add box edit requests (only show in pending tab)
+				...(selectedStatus === 'pending' || selectedStatus === 'all' ? boxEditRequests.map(b => ({
+					...b,
+					item_type: 'box_edit'
+				})) : [])
 			];
 			
 			console.log('✅ Final filtered approvals:', {
@@ -637,7 +657,9 @@ async function loadHistoricalData() {
 					item_type: 'purchase_voucher'
 				})),
 				// Add my day off requests
-				...filteredMyDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
+				...filteredMyDayOffs.map(d => ({ ...d, item_type: 'day_off' })),
+				// Add my box edit requests
+				...myBoxEditRequests.map(b => ({ ...b, item_type: 'box_edit' }))
 			];
 
 			console.log('✅ Final filtered my requests:', {
@@ -1468,6 +1490,84 @@ async function loadHistoricalData() {
 		}
 	}
 
+	// Box Edit Request: Approve
+	async function approveBoxEditRequest(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			// Update request status
+			const { error: reqError } = await supabase
+				.from('box_edit_requests')
+				.update({ status: 'approved', resolved_at: new Date().toISOString(), resolved_by: $currentUser?.id })
+				.eq('id', req.id);
+			if (reqError) throw reqError;
+
+			// Open box for editing
+			const { error: boxError } = await supabase
+				.from('box_operations')
+				.update({ status: 'pending_close' })
+				.eq('id', req.box_operation_id);
+			if (boxError) throw boxError;
+
+			// Notify requester
+			try {
+				await notificationService.createNotification({
+					title: 'Box Edit Approved / تمت الموافقة على تعديل الصندوق',
+					message: `Box ${req.box_number} has been approved for editing by ${getCurrentUserName()}. / تمت الموافقة على تعديل الصندوق ${req.box_number} من قبل ${getCurrentUserName()}`,
+					type: 'assignment_approved',
+					priority: 'high',
+					target_type: 'specific_users',
+					target_users: [req.requested_by]
+				}, $currentUser?.id || $currentUser?.username || 'System');
+			} catch (notifError) {
+				console.error('⚠️ Failed to send approval notification:', notifError);
+			}
+
+			notifications.add({ type: 'success', message: 'Box edit request approved / تمت الموافقة' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error approving box edit:', err);
+			notifications.add({ type: 'error', message: 'Failed to approve box edit request' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	// Box Edit Request: Reject
+	async function rejectBoxEditRequest(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			const { error: reqError } = await supabase
+				.from('box_edit_requests')
+				.update({ status: 'rejected', resolved_at: new Date().toISOString(), resolved_by: $currentUser?.id })
+				.eq('id', req.id);
+			if (reqError) throw reqError;
+
+			// Notify requester
+			try {
+				await notificationService.createNotification({
+					title: 'Box Edit Rejected / تم رفض تعديل الصندوق',
+					message: `Box ${req.box_number} edit request was rejected by ${getCurrentUserName()}. / تم رفض طلب تعديل الصندوق ${req.box_number} من قبل ${getCurrentUserName()}`,
+					type: 'assignment_rejected',
+					priority: 'high',
+					target_type: 'specific_users',
+					target_users: [req.requested_by]
+				}, $currentUser?.id || $currentUser?.username || 'System');
+			} catch (notifError) {
+				console.error('⚠️ Failed to send rejection notification:', notifError);
+			}
+
+			notifications.add({ type: 'success', message: 'Box edit request rejected / تم الرفض' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error rejecting box edit:', err);
+			notifications.add({ type: 'error', message: 'Failed to reject box edit request' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
 </script>
 
 <div class="approval-center">
@@ -1886,6 +1986,48 @@ async function loadHistoricalData() {
 												✅
 											</button>
 											<button class="btn-reject-inline" on:click={() => rejectDayOffInstant(req)} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
+									</td>
+								{:else if req.item_type === 'box_edit'}
+									<!-- Box Edit Request Row -->
+									<td class="req-number">
+										<span class="schedule-badge box-edit">📦 Box {req.box_number}</span>
+									</td>
+									<td>{req.branch_name || '-'}</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">
+												👤 {activeSection === 'approvals' ? (req.requested_by_name || '-') : 'My Request'}
+											</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">Box #{req.box_number}</div>
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											<div>Box Edit / تعديل صندوق</div>
+										</div>
+									</td>
+									<td class="amount">-</td>
+									<td class="payment-type">-</td>
+									<td>
+										<span class="status-badge status-{req.status === 'sent_for_approval' ? 'pending' : req.status}">
+											{req.status === 'sent_for_approval' ? 'Pending' : req.status === 'approved' ? 'Approved' : req.status === 'rejected' ? 'Rejected' : req.status}
+										</span>
+									</td>
+									<td class="date">-</td>
+									<td class="date">{req.created_at ? formatDate(req.created_at) : '-'}</td>
+									<td class="action-buttons">
+										{#if req.status === 'sent_for_approval' && activeSection === 'approvals' && userCanApprove}
+											<button class="btn-approve-inline" on:click={() => approveBoxEditRequest(req)} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => rejectBoxEditRequest(req)} disabled={isProcessing}>
 												❌
 											</button>
 										{/if}
@@ -2990,6 +3132,11 @@ async function loadHistoricalData() {
 	.schedule-badge.day-off {
 		background: #e0e7ff;
 		color: #3730a3;
+	}
+
+	.schedule-badge.box-edit {
+		background: #d1fae5;
+		color: #065f46;
 	}
 
 	.schedule-id {

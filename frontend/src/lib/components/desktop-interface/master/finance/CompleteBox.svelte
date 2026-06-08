@@ -979,13 +979,18 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 					// Log to audit table
 					const { data: { user } } = await supabase.auth.getUser();
-					await supabase.from('pos_deduction_transfer_edits').insert({
+					const { error: auditError } = await supabase.from('pos_deduction_transfer_edits').insert({
 						box_operation_id: operation.id,
 						old_short_amount: existingDeduction.short_amount,
 						new_short_amount: isNowExcess ? null : newShortAmount,
 						action: isNowExcess ? 'deleted' : 'updated',
 						edited_by: user?.id || null
 					});
+					if (auditError) {
+						console.error('❌ Audit log insert failed:', auditError);
+					} else {
+						console.log('📝 Audit log written successfully');
+					}
 
 					if (isNowExcess) {
 						// No more shortage — remove the deduction record

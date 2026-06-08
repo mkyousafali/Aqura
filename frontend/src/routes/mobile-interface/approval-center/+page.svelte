@@ -17,6 +17,8 @@
 	let myApprovedSchedules = []; // My approved schedules
 	let dayOffRequests = []; // Day off requests requiring approval
 	let myDayOffRequests = []; // My created day off requests
+	let boxEditRequests = []; // Box edit requests requiring approval
+	let myBoxEditRequests = []; // My box edit requests
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
 	let selectedStatus = 'pending';
@@ -102,7 +104,8 @@
 			approvalPerms.can_approve_multiple_bill ||
 			approvalPerms.can_approve_recurring_bill ||
 			approvalPerms.can_approve_vendor_payments ||
-			approvalPerms.can_approve_leave_requests;
+			approvalPerms.can_approve_leave_requests ||
+			approvalPerms.can_approve_closed_box_edit;
 	} else {
 		userCanApprove = false;
 	}
@@ -162,6 +165,11 @@
 	myDayOffRequests = groupDayOffRequests(rpcResult.my_day_off_requests || []);
 	console.log('✅ My day off requests (grouped):', myDayOffRequests.length);
 
+	// Box edit requests
+	boxEditRequests = rpcResult.box_edit_requests || [];
+	myBoxEditRequests = rpcResult.my_box_edit_requests || [];
+	console.log('✅ Box edit requests:', boxEditRequests.length);
+
 	// Enrich vendor payments with employee names
 	vendorPayments = vendorPayments.map(v => {
 		if (v.requester?.id && employeeNamesMap[v.requester.id]) {
@@ -176,7 +184,7 @@
 	rejectedPaymentSchedules = [];
 
 	// Calculate stats (only pending for now, historical data will be loaded on demand)
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length + boxEditRequests.length;
 	stats.approved = 0;
 	stats.rejected = 0;
 	stats.total = stats.pending;
@@ -438,7 +446,10 @@ async function loadHistoricalData() {
 				...(selectedStatus === 'pending' || selectedStatus === 'all' 
 					? vendorPayments.map(v => ({ ...v, item_type: 'vendor_payment' }))
 					: []),
-				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
+				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' })),
+				...(selectedStatus === 'pending' || selectedStatus === 'all'
+					? boxEditRequests.map(b => ({ ...b, item_type: 'box_edit' }))
+					: [])
 			];
 		} else {
 			// Filter my created requests
@@ -479,7 +490,8 @@ async function loadHistoricalData() {
 					item_type: 'payment_schedule',
 					approval_status: s.approval_status || 'approved'
 				})),
-				...filteredMyDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
+				...filteredMyDayOffs.map(d => ({ ...d, item_type: 'day_off' })),
+				...myBoxEditRequests.map(b => ({ ...b, item_type: 'box_edit' }))
 			];
 			
 			console.log('🔍 Filtered my requests:', {
@@ -595,6 +607,82 @@ async function loadHistoricalData() {
 		} finally {
 			isProcessing = false;
 			selectedRequisition = null;
+		}
+	}
+
+	// Box Edit Request: Approve
+	async function approveBoxEditRequest(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error: reqError } = await supabase
+				.from('box_edit_requests')
+				.update({ status: 'approved', resolved_at: new Date().toISOString(), resolved_by: $currentUser?.id })
+				.eq('id', req.id);
+			if (reqError) throw reqError;
+
+			const { error: boxError } = await supabase
+				.from('box_operations')
+				.update({ status: 'pending_close' })
+				.eq('id', req.box_operation_id);
+			if (boxError) throw boxError;
+
+			try {
+				await notificationService.createNotification({
+					title: 'Box Edit Approved / تمت الموافقة على تعديل الصندوق',
+					message: `Box ${req.box_number} has been approved for editing by ${$currentUser?.username}. / تمت الموافقة على تعديل الصندوق ${req.box_number}`,
+					type: 'assignment_approved',
+					priority: 'high',
+					target_type: 'specific_users',
+					target_users: [req.requested_by]
+				}, $currentUser?.id || $currentUser?.username || 'System');
+			} catch (notifError) {
+				console.error('⚠️ Failed to send approval notification:', notifError);
+			}
+
+			notifications.add({ type: 'success', message: 'Box edit approved / تمت الموافقة' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error approving box edit:', err);
+			notifications.add({ type: 'error', message: 'Failed to approve box edit request' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	// Box Edit Request: Reject
+	async function rejectBoxEditRequest(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error: reqError } = await supabase
+				.from('box_edit_requests')
+				.update({ status: 'rejected', resolved_at: new Date().toISOString(), resolved_by: $currentUser?.id })
+				.eq('id', req.id);
+			if (reqError) throw reqError;
+
+			try {
+				await notificationService.createNotification({
+					title: 'Box Edit Rejected / تم رفض تعديل الصندوق',
+					message: `Box ${req.box_number} edit request was rejected by ${$currentUser?.username}. / تم رفض طلب تعديل الصندوق ${req.box_number}`,
+					type: 'assignment_rejected',
+					priority: 'high',
+					target_type: 'specific_users',
+					target_users: [req.requested_by]
+				}, $currentUser?.id || $currentUser?.username || 'System');
+			} catch (notifError) {
+				console.error('⚠️ Failed to send rejection notification:', notifError);
+			}
+
+			notifications.add({ type: 'success', message: 'Box edit rejected / تم الرفض' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error rejecting box edit:', err);
+			notifications.add({ type: 'error', message: 'Failed to reject box edit request' });
+		} finally {
+			isProcessing = false;
 		}
 	}
 
@@ -1415,6 +1503,32 @@ async function rejectRequisition(reason) {
 									<span class="value">{timeAgo(req.approval_requested_at)}</span>
 								</div>
 							</div>
+						{:else if req.item_type === 'box_edit'}
+							<!-- Box Edit Request Card -->
+							<div class="req-header">
+								<div class="req-number">
+									<span class="schedule-badge box-edit">📦 Box {req.box_number}</span>
+								</div>
+								<div class="status-badge status-{req.status === 'sent_for_approval' ? 'pending' : req.status}">
+									{req.status === 'sent_for_approval' ? t('Pending', 'قيد الانتظار') : req.status === 'approved' ? t('Approved', 'مقبول') : t('Rejected', 'مرفوض')}
+								</div>
+							</div>
+							<div class="req-info">
+								<div class="info-row">
+									<span class="label">{t('Box Number', 'رقم الصندوق')}:</span>
+									<span class="value">Box {req.box_number}</span>
+								</div>
+								{#if activeSection === 'approvals'}
+									<div class="info-row">
+										<span class="label">{t('Requested by', 'طلب بواسطة')}:</span>
+										<span class="value">👤 {req.requested_by_name || '-'}</span>
+									</div>
+								{/if}
+								<div class="info-row">
+									<span class="label">{t('Requested on', 'تاريخ الطلب')}:</span>
+									<span class="value">{req.created_at ? timeAgo(req.created_at) : '-'}</span>
+								</div>
+							</div>
 						{/if}
 						</div>
 					</div>
@@ -1422,7 +1536,8 @@ async function rejectRequisition(reason) {
 					{#if ((req.item_type === 'requisition' && req.status === 'pending') || 
 					      (req.item_type === 'payment_schedule' && req.approval_status === 'pending') || 
 					      (req.item_type === 'vendor_payment') ||
-					      (req.item_type === 'day_off' && req.approval_status === 'pending')) && 
+					      (req.item_type === 'day_off' && req.approval_status === 'pending') ||
+					      (req.item_type === 'box_edit' && req.status === 'sent_for_approval')) && 
 					     activeSection === 'approvals' && userCanApprove}
 						<div class="card-actions">
 							{#if req.item_type === 'day_off'}
@@ -1430,6 +1545,13 @@ async function rejectRequisition(reason) {
 									✅ {t('Accept', 'قبول')}
 								</button>
 								<button class="btn-reject-card" on:click|stopPropagation={() => rejectDayOffInstant(req)} disabled={isProcessing}>
+									❌ {t('Reject', 'رفض')}
+								</button>
+							{:else if req.item_type === 'box_edit'}
+								<button class="btn-approve-card" on:click|stopPropagation={() => approveBoxEditRequest(req)} disabled={isProcessing}>
+									✅ {t('Approve', 'موافقة')}
+								</button>
+								<button class="btn-reject-card" on:click|stopPropagation={() => rejectBoxEditRequest(req)} disabled={isProcessing}>
 									❌ {t('Reject', 'رفض')}
 								</button>
 							{:else}
@@ -2027,6 +2149,11 @@ async function rejectRequisition(reason) {
 	.schedule-badge.day-off {
 		background: #e0e7ff;
 		color: #3730a3;
+	}
+
+	.schedule-badge.box-edit {
+		background: #d1fae5;
+		color: #065f46;
 	}
 
 	.bill-number {

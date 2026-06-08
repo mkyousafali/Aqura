@@ -69,6 +69,7 @@
 				{ key: 'can_approve_multiple_bill', label: 'Approve Multiple Bill', amountKey: 'multiple_bill_amount_limit', icon: '📑' },
 				{ key: 'can_approve_recurring_bill', label: 'Approve Recurring Bill', amountKey: 'recurring_bill_amount_limit', icon: '🔄' },
 				{ key: 'can_approve_vendor_payments', label: 'Approve Vendor Payments', amountKey: 'vendor_payment_amount_limit', icon: '💳' },
+				{ key: 'can_approve_closed_box_edit', label: 'Approve Closed Box Edit Requests', icon: '📦' },
 			]
 		},
 		{
@@ -180,6 +181,7 @@
 						can_approve_leave_requests: false,
 						can_approve_purchase_vouchers: false,
 						can_add_missing_punches: false,
+						can_approve_closed_box_edit: false,
 						can_receive_customer_incidents: false,
 						can_receive_employee_incidents: false,
 						can_receive_maintenance_incidents: false,
@@ -219,6 +221,7 @@
 				can_approve_leave_requests: user.permissions.can_approve_leave_requests === true,
 				can_approve_purchase_vouchers: user.permissions.can_approve_purchase_vouchers === true,
 				can_add_missing_punches: user.permissions.can_add_missing_punches === true,
+				can_approve_closed_box_edit: user.permissions.can_approve_closed_box_edit === true,
 				can_receive_customer_incidents: user.permissions.can_receive_customer_incidents === true,
 				can_receive_employee_incidents: user.permissions.can_receive_employee_incidents === true,
 				can_receive_maintenance_incidents: user.permissions.can_receive_maintenance_incidents === true,

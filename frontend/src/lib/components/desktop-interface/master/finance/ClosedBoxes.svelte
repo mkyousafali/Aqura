@@ -4,36 +4,61 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CompletedBoxDetails from './CompletedBoxDetails.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	export let windowId: string;
 
 	let supabase: any = null;
 
 	let branches: any[] = [];
+	let mounted = false; // prevent reactive watcher from firing before onMount completes
 	let selectedBranch = '';
 	let allLoadedBoxes: any[] = []; // raw data from server
 	let completedBoxes: any[] = []; // filtered for display
 	let isLoading = true;
 	let realtimeChannel: RealtimeChannel | null = null;
 	
-	// Date-based loading: initial load = last 2 months, "Load Older" = everything before that
+	// Date-based loading: default = last 7 days
 	let totalCount = 0;
 	let loadingMore = false;
 
-	// Date boundaries
-	function getTwoMonthsAgo(): string {
+	// Date boundaries (ISO date strings for <input type="date">)
+	function getSevenDaysAgo(): string {
 		const d = new Date();
-		d.setMonth(d.getMonth() - 2);
-		return d.toISOString();
+		d.setDate(d.getDate() - 7);
+		return d.toISOString().slice(0, 10);
 	}
-	let dateFrom: string | null = getTwoMonthsAgo();
-	let dateTo: string | null = null; // null = no upper bound (now)
-	let showingOlderData = false;
+	function getTodayStr(): string {
+		return new Date().toISOString().slice(0, 10);
+	}
+
+	// Inputs bound to UI
+	let dateFromInput: string = getSevenDaysAgo();
+	let dateToInput: string = getTodayStr();
+	let specificDateInput: string = '';
+	let isSpecificDateMode = false;
+
+	// What was actually used to load the current data (for display)
+	let loadedDateFrom: string = getSevenDaysAgo();
+	let loadedDateTo: string = getTodayStr();
+
+	// Internal ISO strings passed to RPC
+	let dateFrom: string | null = getSevenDaysAgo();
+	let dateTo: string | null = getTodayStr();
 	
 	// Filters
 	let selectedStatus = 'all'; // all, not-transferred, forgiven, proposed
 	let selectedDifference = 'all'; // all, short, excess
 	let searchCashierName = '';
+
+	// Box edit approval state
+	let showBoxEditApprovalModal = false;
+	let pendingBoxForEdit: any = null;
+	let boxEditApprovers: any[] = [];
+	let selectedBoxEditApprover: any = null;
+	let loadingBoxEditApprovers = false;
+	let submittingBoxEditRequest = false;
+	let boxEditRequestMap: Record<string, { id: string; status: string }> = {};
 
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
@@ -42,6 +67,7 @@
 		await loadCompletedBoxes();
 		setupRealtimeSubscription();
 		isLoading = false;
+		mounted = true;
 	});
 
 	onDestroy(() => {
@@ -127,23 +153,120 @@
 	}
 
 	async function handleBoxStatusToggle(box: any) {
-		try {
-			// Toggle between "completed" and "pending_close"
-			const newStatus = box.status === 'completed' ? 'pending_close' : 'completed';
-			
-			const { error } = await supabase
-				.from('box_operations')
-				.update({ status: newStatus })
-				.eq('id', box.id);
+		if (box.status === 'pending_close') {
+			// Toggle back to completed (no approval needed)
+			try {
+				const { error } = await supabase
+					.from('box_operations')
+					.update({ status: 'completed' })
+					.eq('id', box.id);
+				if (error) throw error;
+				box.status = 'completed';
+				updateBoxInList(box);
+			} catch (error) {
+				console.error('Error toggling box status:', error);
+				alert($currentLocale === 'ar' ? 'خطأ في تغيير حالة الصندوق' : 'Error changing box status');
+			}
+			return;
+		}
 
+		// box.status === 'completed' → need approval to re-open
+		if (boxEditRequestMap[box.id]) {
+			alert($currentLocale === 'ar' ? 'طلب التعديل قيد الانتظار بالفعل' : 'Edit request is already pending approval');
+			return;
+		}
+
+		// Open approver selection modal
+		pendingBoxForEdit = box;
+		selectedBoxEditApprover = null;
+		showBoxEditApprovalModal = true;
+		loadBoxEditApprovers();
+	}
+
+	async function loadBoxEditApprovers() {
+		loadingBoxEditApprovers = true;
+		try {
+			const { data } = await supabase
+				.from('approval_permissions')
+				.select('user_id, users!approval_permissions_user_id_fkey(id, username)')
+				.eq('can_approve_closed_box_edit', true)
+				.eq('is_active', true);
+			boxEditApprovers = (data || [])
+				.filter((p: any) => p.users)
+				.map((p: any) => ({ userId: p.user_id, username: p.users?.username }));
+		} catch (e) {
+			console.error('Error loading box edit approvers:', e);
+		} finally {
+			loadingBoxEditApprovers = false;
+		}
+	}
+
+	async function submitBoxEditRequest() {
+		if (!selectedBoxEditApprover || !pendingBoxForEdit) return;
+		submittingBoxEditRequest = true;
+		try {
+			const { data: inserted, error } = await supabase
+				.from('box_edit_requests')
+				.insert({
+					box_operation_id: pendingBoxForEdit.id,
+					box_number: pendingBoxForEdit.box_number,
+					branch_id: pendingBoxForEdit.branch_id,
+					requested_by: $currentUser?.id,
+					requested_by_name: $currentUser?.username || 'Unknown',
+					assigned_approver_id: selectedBoxEditApprover.userId,
+					status: 'sent_for_approval'
+				})
+				.select('id')
+				.single();
 			if (error) throw error;
 
-			// Update local state
-			box.status = newStatus;
-			updateBoxInList(box);
-		} catch (error) {
-			console.error('Error toggling box status:', error);
-			alert($currentLocale === 'ar' ? 'خطأ في تغيير حالة الصندوق' : 'Error changing box status');
+			// Send notification to approver
+			try {
+				const { notificationManagement } = await import('$lib/utils/notificationManagement');
+				await notificationManagement.createNotification({
+					title: $currentLocale === 'ar' ? '📦 طلب تعديل صندوق مكتمل' : '📦 Closed Box Edit Request',
+					message: `${$currentLocale === 'ar' ? 'طلب تعديل الصندوق رقم' : 'Box edit request for Box'} ${pendingBoxForEdit.box_number} ${$currentLocale === 'ar' ? 'من' : 'from'} ${$currentUser?.username}`,
+					type: 'approval_request',
+					priority: 'high',
+					target_type: 'specific_users',
+					target_users: [selectedBoxEditApprover.userId]
+				}, $currentUser?.id);
+			} catch (notifErr) {
+				console.error('Notification failed:', notifErr);
+			}
+
+			// Update local map
+			boxEditRequestMap = { ...boxEditRequestMap, [pendingBoxForEdit.id]: { id: inserted.id, status: 'sent_for_approval' } };
+			closeBoxEditModal();
+			alert($currentLocale === 'ar' ? 'تم إرسال طلب التعديل بنجاح' : 'Edit request sent successfully');
+		} catch (e: any) {
+			console.error('Error submitting box edit request:', e);
+			alert($currentLocale === 'ar' ? 'خطأ في إرسال الطلب' : 'Error submitting request: ' + e.message);
+		} finally {
+			submittingBoxEditRequest = false;
+		}
+	}
+
+	function closeBoxEditModal() {
+		showBoxEditApprovalModal = false;
+		pendingBoxForEdit = null;
+		selectedBoxEditApprover = null;
+		boxEditApprovers = [];
+	}
+
+	async function loadBoxEditRequests() {
+		if (!supabase) return;
+		try {
+			const { data } = await supabase.rpc('get_pending_box_edit_requests', {
+				p_branch_id: selectedBranch || 'all',
+				p_date_from: dateFrom || null,
+				p_date_to: dateTo || null
+			});
+			const newMap: Record<string, { id: string; status: string }> = {};
+			(data || []).forEach((r: any) => { newMap[r.box_operation_id] = r; });
+			boxEditRequestMap = newMap;
+		} catch (e) {
+			console.error('Error loading box edit requests:', e);
 		}
 	}
 
@@ -209,6 +332,9 @@ async function loadBranches() {
 			} else {
 				allLoadedBoxes = boxes;
 			}
+
+			// Load pending box edit requests via RPC (no giant URL)
+			await loadBoxEditRequests();
 			
 			// Apply filters
 			applyFilters();
@@ -223,13 +349,28 @@ async function loadBranches() {
 		}
 	}
 
-	function loadOlderData() {
-		if (loadingMore || isLoading) return;
-		// Load ALL older data (before the 2-month window) and append
-		showingOlderData = true;
-		dateTo = dateFrom; // upper bound = old dateFrom
-		dateFrom = null;   // no lower bound
-		loadCompletedBoxes(true); // append to existing
+	function loadWithDateRange() {
+		if (isLoading) return;
+		isSpecificDateMode = false;
+		specificDateInput = '';
+		// clamp: dateFrom = start of day, dateTo = end of day
+		dateFrom = dateFromInput ? dateFromInput : null;
+		dateTo = dateToInput ? dateToInput : null;
+		loadedDateFrom = dateFromInput;
+		loadedDateTo = dateToInput;
+		allLoadedBoxes = [];
+		loadCompletedBoxes();
+	}
+
+	function loadSpecificDate() {
+		if (isLoading || !specificDateInput) return;
+		isSpecificDateMode = true;
+		dateFrom = specificDateInput;
+		dateTo = specificDateInput;
+		loadedDateFrom = specificDateInput;
+		loadedDateTo = specificDateInput;
+		allLoadedBoxes = [];
+		loadCompletedBoxes();
 	}
 
 	function setupRealtimeSubscription() {
@@ -332,12 +473,18 @@ async function loadBranches() {
 		completedBoxes = filtered;
 	}
 
-	// Watch for branch changes
-	$: if (selectedBranch && supabase) {
-		// Reset date range
-		dateFrom = getTwoMonthsAgo();
-		dateTo = null;
-		showingOlderData = false;
+	// Watch for branch changes (only after mount to avoid duplicate initial load)
+	$: if (mounted && selectedBranch && supabase) {
+		// Reset to 7-day default
+		dateFromInput = getSevenDaysAgo();
+		dateToInput = getTodayStr();
+		specificDateInput = '';
+		isSpecificDateMode = false;
+		dateFrom = dateFromInput;
+		dateTo = dateToInput;
+		loadedDateFrom = dateFromInput;
+		loadedDateTo = dateToInput;
+		allLoadedBoxes = [];
 		loadCompletedBoxes();
 		setupRealtimeSubscription();
 	}
@@ -383,6 +530,18 @@ async function loadBranches() {
 		});
 	}
 
+	function formatDateOnly(dateString: string) {
+		if (!dateString) return 'N/A';
+		const date = new Date(dateString);
+		return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+	}
+
+	function formatTimeOnly(dateString: string) {
+		if (!dateString) return '';
+		const date = new Date(dateString);
+		return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+	}
+
 	function parseCashierName(notes: any) {
 		try {
 			const parsed = typeof notes === 'string' ? JSON.parse(notes) : notes;
@@ -412,9 +571,13 @@ async function loadBranches() {
 	function getBranchName(branchId: number) {
 		const branch = branches.find(b => b.id === branchId);
 		if (!branch) return `Branch ${branchId}`;
-		const name = $currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar);
-		const location = $currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar);
-		return `${name} - ${location}`;
+		return $currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar);
+	}
+
+	function getBranchLocation(branchId: number) {
+		const branch = branches.find(b => b.id === branchId);
+		if (!branch) return '';
+		return $currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar);
 	}
 
 	function getClosingDifference(completeDetails: any) {
@@ -440,83 +603,103 @@ async function loadBranches() {
 	<div class="header">
 		<h1>📋 {$currentLocale === 'ar' ? 'الصناديق المغلقة' : 'Closed Boxes'}</h1>
 		<div class="filters-container">
-			<div class="filter-section">
-				<label for="branch-select">
-					{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}
-				</label>
-				<select id="branch-select" bind:value={selectedBranch} class="branch-select">
-					<option value="all">
-						{$currentLocale === 'ar' ? '🌍 جميع الفروع' : '🌍 All Branches'}
-					</option>
-					{#each branches as branch}
-						<option value={String(branch.id)}>
-							{$currentLocale === 'ar'
-								? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}`
-								: `${branch.name_en || branch.name_ar} - ${branch.location_en || branch.location_ar}`}
+			<!-- Row 1: Branch + Deduction Status + Difference + Cashier Search -->
+			<div class="filter-row">
+				<div class="filter-section">
+					<label for="branch-select">
+						{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}
+					</label>
+					<select id="branch-select" bind:value={selectedBranch} class="branch-select">
+						<option value="all">
+							{$currentLocale === 'ar' ? '🌍 جميع الفروع' : '🌍 All Branches'}
 						</option>
-					{/each}
-				</select>
-			</div>
-			
-			<div class="filter-section">
-				<label for="status-select">
-					{$currentLocale === 'ar' ? 'حالة الخصم:' : 'Deduction Status:'}
-				</label>
-				<select id="status-select" bind:value={selectedStatus} class="status-select">
-					<option value="all">
-						{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}
-					</option>
-					<option value="not-transferred">
-						{$currentLocale === 'ar' ? '🔴 غير محول' : '🔴 Not Transferred'}
-					</option>
-					<option value="forgiven">
-						{$currentLocale === 'ar' ? '🟠 مسامح' : '🟠 Forgiven'}
-					</option>
-					<option value="proposed">
-						{$currentLocale === 'ar' ? '🟢 مقترح' : '🟢 Proposed'}
-					</option>
-				</select>
+						{#each branches as branch}
+							<option value={String(branch.id)}>
+								{$currentLocale === 'ar'
+									? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}`
+									: `${branch.name_en || branch.name_ar} - ${branch.location_en || branch.location_ar}`}
+							</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="filter-section">
+					<label for="status-select">
+						{$currentLocale === 'ar' ? 'حالة الخصم:' : 'Deduction Status:'}
+					</label>
+					<select id="status-select" bind:value={selectedStatus} class="status-select">
+						<option value="all">{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}</option>
+						<option value="not-transferred">{$currentLocale === 'ar' ? '🔴 غير محول' : '🔴 Not Transferred'}</option>
+						<option value="forgiven">{$currentLocale === 'ar' ? '🟠 مسامح' : '🟠 Forgiven'}</option>
+						<option value="proposed">{$currentLocale === 'ar' ? '🟢 مقترح' : '🟢 Proposed'}</option>
+					</select>
+				</div>
+
+				<div class="filter-section">
+					<label for="difference-select">
+						{$currentLocale === 'ar' ? 'الفرق:' : 'Difference:'}
+					</label>
+					<select id="difference-select" bind:value={selectedDifference} class="status-select">
+						<option value="all">{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}</option>
+						<option value="short">{$currentLocale === 'ar' ? '🔴 نقص فقط' : '🔴 Short Only'}</option>
+						<option value="excess">{$currentLocale === 'ar' ? '🟢 زيادة فقط' : '🟢 Excess Only'}</option>
+					</select>
+				</div>
+
+				<div class="filter-section">
+					<label for="search-cashier">
+						{$currentLocale === 'ar' ? 'بحث بالكاشير:' : 'Search Cashier:'}
+					</label>
+					<input
+						id="search-cashier"
+						type="text"
+						bind:value={searchCashierName}
+						placeholder={$currentLocale === 'ar' ? 'اسم الكاشير...' : 'Cashier name...'}
+						class="search-input"
+					/>
+				</div>
 			</div>
 
-			<div class="filter-section">
-				<label for="difference-select">
-					{$currentLocale === 'ar' ? 'الفرق:' : 'Difference:'}
-				</label>
-				<select id="difference-select" bind:value={selectedDifference} class="status-select">
-					<option value="all">
-						{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}
-					</option>
-					<option value="short">
-						{$currentLocale === 'ar' ? '🔴 نقص فقط' : '🔴 Short Only'}
-					</option>
-					<option value="excess">
-						{$currentLocale === 'ar' ? '🟢 زيادة فقط' : '🟢 Excess Only'}
-					</option>
-				</select>
-			</div>
-			
-			<div class="filter-section">
-				<label for="search-cashier">
-					{$currentLocale === 'ar' ? 'بحث بالكاشير:' : 'Search Cashier:'}
-				</label>
-				<input 
-					id="search-cashier"
-					type="text" 
-					bind:value={searchCashierName} 
-					placeholder={$currentLocale === 'ar' ? 'اسم الكاشير...' : 'Cashier name...'}
-					class="search-input"
-				/>
-			</div>
-			
-			{#if completedBoxes.length > 0}
+			<!-- Row 2: Date range load -->
+			<div class="filter-row date-range-row">
 				<div class="filter-section">
-					<span class="load-more-info">
-						{$currentLocale === 'ar' 
-							? `عرض ${completedBoxes.length} (${showingOlderData ? 'الكل' : 'آخر شهرين'})` 
-							: `Showing ${completedBoxes.length} (${showingOlderData ? 'All time' : 'Last 2 months'})`}
-					</span>
+					<label>{$currentLocale === 'ar' ? 'من تاريخ:' : 'Start Date:'}</label>
+					<input type="date" bind:value={dateFromInput} class="date-input" />
 				</div>
-			{/if}
+				<div class="filter-section">
+					<label>{$currentLocale === 'ar' ? 'إلى تاريخ:' : 'End Date:'}</label>
+					<input type="date" bind:value={dateToInput} class="date-input" />
+				</div>
+				<div class="filter-section filter-section-btn">
+					<button class="load-range-btn" on:click={loadWithDateRange} disabled={isLoading}>
+						{isLoading && !isSpecificDateMode ? '⏳' : '📥'} {$currentLocale === 'ar' ? 'تحميل' : 'Load'}
+					</button>
+				</div>
+
+				<div class="filter-divider">|</div>
+
+				<div class="filter-section">
+					<label>{$currentLocale === 'ar' ? 'تاريخ محدد:' : 'Specific Date:'}</label>
+					<input type="date" bind:value={specificDateInput} class="date-input" />
+				</div>
+				<div class="filter-section filter-section-btn">
+					<button class="load-range-btn load-specific-btn" on:click={loadSpecificDate} disabled={isLoading || !specificDateInput}>
+						{isLoading && isSpecificDateMode ? '⏳' : '📅'} {$currentLocale === 'ar' ? 'تحميل اليوم' : 'Load Day'}
+					</button>
+				</div>
+
+				{#if completedBoxes.length > 0}
+					<div class="filter-section loaded-info">
+						<span class="load-more-info">
+							{completedBoxes.length} {$currentLocale === 'ar' ? 'سجل' : 'records'}
+							·
+							{isSpecificDateMode
+								? loadedDateFrom
+								: `${loadedDateFrom} → ${loadedDateTo}`}
+						</span>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 
@@ -551,17 +734,26 @@ async function loadBranches() {
 					{#each completedBoxes as box}
 						<tr>
 							<td class="box-number">
-								<span class="box-badge">Box {box.box_number}</span>
+								<span class="box-badge">{box.box_number}</span>
 							</td>
 							<td class="status-cell">
 								<button 
-									class="status-toggle-btn status-{box.status}"
+									class="status-toggle-btn status-{boxEditRequestMap[box.id] ? 'waiting-approval' : box.status}"
 									on:click={() => handleBoxStatusToggle(box)}
 								>
-								{box.status === 'completed' ? '✓ Completed' : box.status === 'pending_close' ? '⏳ Pending Close' : box.status || 'N/A'}
+								{#if boxEditRequestMap[box.id]}
+									⏳ {$currentLocale === 'ar' ? 'بانتظار الموافقة' : 'Waiting Approval'}
+								{:else}
+									{box.status === 'completed' ? 'Completed' : box.status === 'pending_close' ? '⏳ Pending Close' : box.status || 'N/A'}
+								{/if}
 								</button>
 							</td>
-							<td>{getBranchName(box.branch_id)}</td>
+							<td>
+								<span class="branch-name">{getBranchName(box.branch_id)}</span>
+								{#if getBranchLocation(box.branch_id)}
+									<span class="branch-location">{getBranchLocation(box.branch_id)}</span>
+								{/if}
+							</td>
 							<td>{parseCashierName(box.notes)}</td>
 							<td>{parseSupervisorName(box.notes)}</td>
 							<td class="closed-by-user">{box.completed_by_name || 'N/A'}</td>
@@ -581,10 +773,14 @@ async function loadBranches() {
 						{:else}
 							<span class="na-text">N/A</span>
 						{/if}
-					</td>							<td class="datetime">{formatDateTime(box.updated_at)}</td>
+					</td>
+					<td class="datetime">
+						<span class="date-line">{formatDateOnly(box.updated_at)}</span>
+						<span class="time-line">{formatTimeOnly(box.updated_at)}</span>
+					</td>
 							<td class="actions">
 								<button class="view-btn" on:click={() => viewBoxDetails(box)}>
-									👁️ {$currentLocale === 'ar' ? 'عرض النهائي' : 'View Final'}
+									👁️
 								</button>
 							</td>
 						</tr>
@@ -592,22 +788,56 @@ async function loadBranches() {
 				</tbody>
 			</table>
 
-			<!-- Load Older Data button -->
-			<div class="load-more-container">
-				{#if loadingMore}
-					<div class="loading-more-indicator">
-						<div class="spinner-small"></div>
-						<span>{$currentLocale === 'ar' ? 'جاري تحميل البيانات الأقدم...' : 'Loading older data...'}</span>
-					</div>
-				{:else if !showingOlderData}
-					<button class="load-older-btn" on:click={loadOlderData}>
-						📜 {$currentLocale === 'ar' ? 'تحميل بيانات أقدم (قبل شهرين)' : 'Load Older Data (before 2 months)'}
-					</button>
-				{/if}
-			</div>
 		{/if}
 	</div>
 </div>
+
+<!-- Box Edit Approval Modal -->
+{#if showBoxEditApprovalModal}
+	<div class="modal-backdrop" on:click={closeBoxEditModal}>
+		<div class="box-edit-modal" on:click|stopPropagation>
+			<div class="bem-header">
+				<h2>{$currentLocale === 'ar' ? 'طلب الموافقة لتعديل الصندوق' : 'Request Approval to Edit Box'}</h2>
+				<button class="bem-close" on:click={closeBoxEditModal}>×</button>
+			</div>
+			<div class="bem-body">
+				{#if pendingBoxForEdit}
+					<div class="bem-box-info">
+						<p><strong>{$currentLocale === 'ar' ? 'الصندوق:' : 'Box:'}</strong> Box {pendingBoxForEdit.box_number}</p>
+						<p><strong>{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}</strong> {getBranchName(pendingBoxForEdit.branch_id)}</p>
+					</div>
+				{/if}
+				<p class="bem-note">{$currentLocale === 'ar' ? 'اختر موظفًا لإرسال طلب الموافقة:' : 'Select an approver to send the request to:'}</p>
+				{#if loadingBoxEditApprovers}
+					<p class="bem-loading">{$currentLocale === 'ar' ? 'جاري تحميل...' : 'Loading approvers...'}</p>
+				{:else if boxEditApprovers.length === 0}
+					<p class="bem-no-approvers">{$currentLocale === 'ar' ? 'لا يوجد معتمدون. أضف الصلاحية من إدارة صلاحيات الموافقة.' : 'No approvers found. Enable "Approve Closed Box Edit" in Approval Permissions Manager.'}</p>
+				{:else}
+					<div class="bem-approver-list">
+						{#each boxEditApprovers as approver}
+							<button
+								class="bem-approver-item {selectedBoxEditApprover?.userId === approver.userId ? 'selected' : ''}"
+								on:click={() => selectedBoxEditApprover = approver}
+							>
+								👤 {approver.username}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+			<div class="bem-footer">
+				<button class="bem-cancel" on:click={closeBoxEditModal}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+				<button
+					class="bem-submit"
+					disabled={!selectedBoxEditApprover || submittingBoxEditRequest}
+					on:click={submitBoxEditRequest}
+				>
+					{submittingBoxEditRequest ? ($currentLocale === 'ar' ? 'جاري...' : 'Sending...') : ($currentLocale === 'ar' ? 'إرسال الطلب' : 'Send Request')}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.closed-boxes-container {
@@ -624,9 +854,9 @@ async function loadBranches() {
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 		background: white;
-		padding: 1.5rem;
+		padding: 0.75rem 1.5rem 1rem;
 		border-radius: 0.75rem;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15),
 		            inset 0 1px 0 rgba(255, 255, 255, 0.6);
@@ -642,21 +872,91 @@ async function loadBranches() {
 
 	.filters-container {
 		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.filter-row {
+		display: flex;
 		gap: 1rem;
 		flex-wrap: wrap;
 		align-items: flex-end;
 	}
 
+	.date-range-row {
+		background: white;
+		border: 1.5px solid #d1fae5;
+		border-radius: 10px;
+		padding: 0.65rem 1rem;
+		align-items: center;
+		box-shadow: 0 2px 8px rgba(31, 122, 58, 0.08);
+	}
+
+	.filter-divider {
+		color: #d1d5db;
+		font-size: 1.4rem;
+		align-self: center;
+		padding: 0 0.5rem;
+		font-weight: 300;
+	}
+
+	.filter-section-btn {
+		justify-content: flex-end;
+	}
+
+	.date-input {
+		padding: 0.55rem 0.75rem;
+		border: 2px solid #bbf7d0;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+		color: #1f2937;
+		background: #f0fdf4;
+		cursor: pointer;
+		transition: border-color 0.2s, box-shadow 0.2s;
+		font-weight: 500;
+	}
+	.date-input:hover { border-color: #4ade80; }
+	.date-input:focus { outline: none; border-color: #1f7a3a; box-shadow: 0 0 0 3px rgba(31,122,58,0.1); }
+
+	.load-range-btn {
+		padding: 0.55rem 1.4rem;
+		background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+		color: #fff;
+		border: none;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+		box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
+		letter-spacing: 0.01em;
+	}
+	.load-range-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+	.load-range-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4); }
+
+	.load-specific-btn {
+		background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+		box-shadow: 0 2px 8px rgba(3, 105, 161, 0.3);
+	}
+	.load-specific-btn:hover:not(:disabled) { box-shadow: 0 4px 12px rgba(3, 105, 161, 0.4); }
+
+	.loaded-info {
+		justify-content: center;
+	}
+
 	.filter-section {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.4rem;
 	}
 
 	.filter-section label {
-		font-weight: 700;
-		color: #2d5f4f;
-		font-size: 0.85rem;
+		font-weight: 600;
+		color: #374151;
+		font-size: 0.78rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.branch-select, .status-select {
@@ -703,7 +1003,7 @@ async function loadBranches() {
 		flex: 1;
 		background: white;
 		border-radius: 0.75rem;
-		padding: 1.5rem;
+		padding: 0;
 		overflow: auto;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15),
 		            inset 0 1px 0 rgba(255, 255, 255, 0.6);
@@ -735,18 +1035,19 @@ async function loadBranches() {
 
 	.boxes-table {
 		width: 100%;
-		border-collapse: collapse;
+		border-collapse: separate;
+		border-spacing: 0;
 	}
 
 	.boxes-table thead {
-		position: sticky;
-		top: 0;
 		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
-		z-index: 1;
-		box-shadow: 0 4px 8px rgba(31, 122, 58, 0.2);
 	}
 
 	.boxes-table th {
+		position: sticky;
+		top: 0;
+		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
+		z-index: 10;
 		padding: 1rem 1.5rem;
 		text-align: left;
 		color: white;
@@ -754,6 +1055,7 @@ async function loadBranches() {
 		font-size: 0.85rem;
 		text-transform: uppercase;
 		letter-spacing: 1px;
+		box-shadow: 0 2px 4px rgba(31, 122, 58, 0.3);
 	}
 
 	.boxes-table tbody tr {
@@ -781,11 +1083,38 @@ async function loadBranches() {
 		color: white;
 		padding: 0.35rem 0.85rem;
 		border-radius: 1.5rem;
-		font-size: 0.8rem;
+		font-size: 0.65rem;
 		font-weight: 700;
 		display: inline-block;
 		box-shadow: 0 4px 8px rgba(31, 122, 58, 0.25);
 		letter-spacing: 0.3px;
+	}
+
+	.date-line {
+		display: block;
+		font-size: 0.85rem;
+		color: #1e293b;
+		font-weight: 500;
+	}
+
+	.time-line {
+		display: block;
+		font-size: 0.75rem;
+		color: #64748b;
+		margin-top: 0.1rem;
+	}
+
+	.branch-name {		display: block;
+		font-weight: 600;
+		font-size: 0.85rem;
+		color: #1e293b;
+	}
+
+	.branch-location {
+		display: block;
+		font-size: 0.75rem;
+		color: #64748b;
+		margin-top: 0.1rem;
 	}
 
 	.closed-by-user {
@@ -949,10 +1278,14 @@ async function loadBranches() {
 
 	.load-more-info {
 		font-size: 0.8rem;
-		color: #2d5f4f;
+		color: #fff;
 		font-weight: 600;
-		text-align: center;
-		margin-top: 0.5rem;
+		background: linear-gradient(135deg, #16a34a, #15803d);
+		padding: 0.3rem 0.85rem;
+		border-radius: 999px;
+		white-space: nowrap;
+		align-self: center;
+		box-shadow: 0 1px 4px rgba(22,163,74,0.25);
 	}
 
 	.status-cell {
@@ -976,6 +1309,79 @@ async function loadBranches() {
 	.status-toggle-btn.status-pending_close:hover {
 		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
 	}
+
+	.status-toggle-btn.status-waiting-approval {
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+		box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
+		cursor: default;
+		opacity: 0.85;
+	}
+
+	/* Box Edit Approval Modal */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.65);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.box-edit-modal {
+		background: #1e293b;
+		border: 1px solid #334155;
+		border-radius: 12px;
+		width: 420px;
+		max-width: 90vw;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	.bem-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		background: #0f172a;
+		border-bottom: 1px solid #334155;
+	}
+	.bem-header h2 { color: #f1f5f9; font-size: 1rem; font-weight: 600; margin: 0; }
+	.bem-close { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; line-height: 1; }
+	.bem-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+	.bem-box-info {
+		background: #0f172a;
+		border-radius: 8px;
+		padding: 0.75rem 1rem;
+		color: #cbd5e1;
+		font-size: 0.875rem;
+	}
+	.bem-box-info p { margin: 0.2rem 0; }
+	.bem-note { color: #94a3b8; font-size: 0.85rem; margin: 0; }
+	.bem-loading, .bem-no-approvers { color: #94a3b8; font-size: 0.875rem; }
+	.bem-approver-list { display: flex; flex-direction: column; gap: 0.4rem; max-height: 200px; overflow-y: auto; }
+	.bem-approver-item {
+		background: #0f172a;
+		border: 1px solid #334155;
+		border-radius: 8px;
+		color: #cbd5e1;
+		padding: 0.6rem 1rem;
+		text-align: left;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: all 0.15s;
+	}
+	.bem-approver-item:hover { border-color: #6366f1; color: #f1f5f9; }
+	.bem-approver-item.selected { border-color: #6366f1; background: #1e1b4b; color: #a5b4fc; }
+	.bem-footer {
+		display: flex;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
+		border-top: 1px solid #334155;
+		justify-content: flex-end;
+	}
+	.bem-cancel { background: #334155; color: #cbd5e1; border: none; border-radius: 8px; padding: 0.5rem 1.25rem; cursor: pointer; font-size: 0.875rem; }
+	.bem-submit { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; border-radius: 8px; padding: 0.5rem 1.25rem; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
+	.bem-submit:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.status-toggle-btn.status-open {
 		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
