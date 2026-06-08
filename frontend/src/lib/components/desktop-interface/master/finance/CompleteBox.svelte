@@ -954,14 +954,56 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		try {
 			const { error } = await supabase
 				.from('box_operations')
-				.update({ status: 'completed' })
+				.update({ 
+					status: 'completed',
+					total_difference: totalDifference
+				})
 				.eq('id', operation.id);
 
 			if (error) {
 				console.error('Error completing box:', error);
 				alert($currentLocale === 'ar' ? 'خطأ في إكمال الصندوق' : 'Error completing box');
 			} else {
-				console.log('✅ Box completed successfully');
+				console.log('✅ Box completed successfully, total_difference:', totalDifference);
+
+				// Sync pos_deduction_transfers if a record already exists for this box
+				const { data: existingDeduction } = await supabase
+					.from('pos_deduction_transfers')
+					.select('id, short_amount, status')
+					.eq('box_operation_id', operation.id)
+					.maybeSingle();
+
+				if (existingDeduction) {
+					const newShortAmount = Math.abs(totalDifference);
+					const isNowExcess = totalDifference >= 0;
+
+					// Log to audit table
+					const { data: { user } } = await supabase.auth.getUser();
+					await supabase.from('pos_deduction_transfer_edits').insert({
+						box_operation_id: operation.id,
+						old_short_amount: existingDeduction.short_amount,
+						new_short_amount: isNowExcess ? null : newShortAmount,
+						action: isNowExcess ? 'deleted' : 'updated',
+						edited_by: user?.id || null
+					});
+
+					if (isNowExcess) {
+						// No more shortage — remove the deduction record
+						await supabase
+							.from('pos_deduction_transfers')
+							.delete()
+							.eq('box_operation_id', operation.id);
+						console.log('🗑️ Deduction removed (no shortage after re-edit)');
+					} else if (newShortAmount !== existingDeduction.short_amount) {
+						// Shortage amount changed — update it
+						await supabase
+							.from('pos_deduction_transfers')
+							.update({ short_amount: newShortAmount })
+							.eq('box_operation_id', operation.id);
+						console.log('🔄 Deduction updated:', existingDeduction.short_amount, '→', newShortAmount);
+					}
+				}
+
 				alert($currentLocale === 'ar' ? 'تم إكمال الصندوق بنجاح' : 'Box completed successfully');
 				// Refresh operation data
 				if (operation) {
