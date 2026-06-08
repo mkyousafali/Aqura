@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
@@ -17,6 +17,7 @@
 	// QR Scanner state
 	let showScanner = false;
 	let scanError = '';
+	let scanMode: 'start' | 'end' = 'end';
 	let videoEl: HTMLVideoElement;
 	let scanCanvas: HTMLCanvasElement;
 	let scanCtx: CanvasRenderingContext2D | null = null;
@@ -76,19 +77,32 @@
 		stopScanner();
 	});
 
-	async function startBreak() {
+	function openStartScanner() {
 		if (!selectedReason || isSubmitting) return;
 		if (selectedReason.requires_note && !reasonNote.trim()) return;
+		scanMode = 'start';
+		scanError = '';
+		showScanner = true;
+		setTimeout(startScanner, 100);
+	}
 
+	async function startBreakWithCode(code: string) {
+		if (isSubmitting) return;
 		isSubmitting = true;
+		scanError = '';
+
 		const { data, error } = await supabase.rpc('start_break', {
 			p_user_id: $currentUser.id,
 			p_reason_id: selectedReason.id,
-			p_reason_note: selectedReason.requires_note ? reasonNote.trim() : null
+			p_reason_note: selectedReason.requires_note ? reasonNote.trim() : null,
+			p_security_code: code
 		});
 
 		if (error || !data?.success) {
-			alert(data?.error || error?.message || 'Failed to start break');
+			const msg = data?.error || error?.message || 'Failed to start break';
+			scanError = msg;
+			showScanner = true;
+			setTimeout(startScanner, 500);
 			isSubmitting = false;
 			return;
 		}
@@ -105,6 +119,7 @@
 	}
 
 	function openScanner() {
+		scanMode = 'end';
 		scanError = '';
 		showScanner = true;
 		setTimeout(startScanner, 100);
@@ -165,7 +180,11 @@
 				const code = barcodes[0].rawValue;
 				if (code) {
 					stopScanner();
-					await endBreakWithCode(code);
+					if (scanMode === 'start') {
+						await startBreakWithCode(code);
+					} else {
+						await endBreakWithCode(code);
+					}
 				}
 			}
 		} catch (e) {
@@ -250,47 +269,9 @@
 						<circle cx="12" cy="13" r="4"/>
 					</svg>
 				{/if}
-				{t('Scan QR to End Break', 'امسح رمز QR لإنهاء الاستراحة')}
+				{t('Scan QR to End Break', 'امسح رمز كيو آر لإنهاء الاستراحة')}
 			</button>
-
-			<p class="scan-hint">{t('Scan the QR code displayed on the office screen to end your break', 'امسح رمز QR المعروض على شاشة المكتب لإنهاء استراحتك')}</p>
 		</div>
-
-		<!-- QR Scanner Overlay -->
-		{#if showScanner}
-			<div class="scanner-overlay">
-				<div class="scanner-header">
-					<button class="scanner-close" on:click={stopScanner} aria-label="Close scanner">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-							<line x1="18" y1="6" x2="6" y2="18"/>
-							<line x1="6" y1="6" x2="18" y2="18"/>
-						</svg>
-					</button>
-					<span class="scanner-title">{t('Scan Break QR Code', 'امسح رمز QR الاستراحة')}</span>
-				</div>
-
-				<div class="scanner-viewport">
-					<!-- svelte-ignore a11y-media-has-caption -->
-					<video bind:this={videoEl} playsinline autoplay muted class="scanner-video"></video>
-					<canvas bind:this={scanCanvas} class="scanner-canvas-hidden"></canvas>
-					<div class="scanner-frame">
-						<div class="corner tl"></div>
-						<div class="corner tr"></div>
-						<div class="corner bl"></div>
-						<div class="corner br"></div>
-					</div>
-				</div>
-
-				{#if scanError}
-					<div class="scanner-error">
-						<span>⚠️</span>
-						<span>{scanError}</span>
-					</div>
-				{/if}
-
-				<p class="scanner-instructions">{t('Point your camera at the QR code on the office screen', 'وجّه الكاميرا نحو رمز QR على شاشة المكتب')}</p>
-			</div>
-		{/if}
 	{:else}
 		<!-- Reason Selection View -->
 		<div class="reason-selection">
@@ -338,20 +319,59 @@
 				</div>
 			{/if}
 
+			{#if selectedReason && !(selectedReason.requires_note && !reasonNote.trim())}
 			<button
 				class="start-break-btn"
-				on:click={startBreak}
-				disabled={!selectedReason || isSubmitting || (selectedReason?.requires_note && !reasonNote.trim())}
+				on:click={openStartScanner}
+				disabled={isSubmitting}
 			>
 				{#if isSubmitting}
 					<div class="btn-spinner"></div>
 				{:else}
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polygon points="5 3 19 12 5 21 5 3"/>
+						<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+						<circle cx="12" cy="13" r="4"/>
 					</svg>
 				{/if}
-				{t('Start Break', 'بدء الاستراحة')}
+				{t('Scan QR to Start Break', 'امسح رمز كيو آر لبدء الاستراحة')}
 			</button>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- QR Scanner Overlay (shared for both start & end) -->
+	{#if showScanner}
+		<div class="scanner-overlay">
+			<div class="scanner-header">
+				<button class="scanner-close" on:click={stopScanner} aria-label="Close scanner">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+				<span class="scanner-title">{t('Scan Break QR Code', 'امسح رمز كيو آر الاستراحة')}</span>
+			</div>
+
+			<div class="scanner-viewport">
+				<!-- svelte-ignore a11y-media-has-caption -->
+				<video bind:this={videoEl} playsinline autoplay muted class="scanner-video"></video>
+				<canvas bind:this={scanCanvas} class="scanner-canvas-hidden"></canvas>
+				<div class="scanner-frame">
+					<div class="corner tl"></div>
+					<div class="corner tr"></div>
+					<div class="corner bl"></div>
+					<div class="corner br"></div>
+				</div>
+			</div>
+
+			{#if scanError}
+				<div class="scanner-error">
+					<span>⚠️</span>
+					<span>{scanError}</span>
+				</div>
+			{/if}
+
+			<p class="scanner-instructions">{t('Point your camera at the QR code on the office screen', 'وجّه الكاميرا نحو رمز كيو آر على شاشة المكتب')}</p>
 		</div>
 	{/if}
 </div>
