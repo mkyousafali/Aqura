@@ -194,16 +194,6 @@
 	let showTasksManageSubmenu = false;
 	let showTasksOperationsSubmenu = false;
 	let showTasksReportsSubmenu = false;
-	let showNotificationsSubmenu = false;
-	let showNotificationsDashboardSubmenu = false;
-	let showNotificationsManageSubmenu = false;
-	let showNotificationsOperationsSubmenu = false;
-	let showNotificationsReportsSubmenu = false;
-	let showStockSubmenu = false;
-	let showStockDashboardSubmenu = false;
-	let showStockManageSubmenu = false;
-	let showStockOperationsSubmenu = false;
-	let showStockReportsSubmenu = false;
 	let showControlsSubmenu = false;
 	let showControlsDashboardSubmenu = false;
 	let showControlsManageSubmenu = false;
@@ -1994,8 +1984,6 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showNotificationsSubmenu = false;
-		showNotificationsDashboardSubmenu = false;
 	}
 
 	// Open Start Receiving window
@@ -2245,18 +2233,10 @@ function openApprovalCenter() {
 		showTasksManageSubmenu = false;
 		showTasksOperationsSubmenu = false;
 		showTasksReportsSubmenu = false;
-		showNotificationsDashboardSubmenu = false;
-		showNotificationsManageSubmenu = false;
-		showNotificationsOperationsSubmenu = false;
-		showNotificationsReportsSubmenu = false;
 		showControlsDashboardSubmenu = false;
 		showControlsManageSubmenu = false;
 		showControlsOperationsSubmenu = false;
 		showControlsReportsSubmenu = false;
-		showStockDashboardSubmenu = false;
-		showStockManageSubmenu = false;
-		showStockOperationsSubmenu = false;
-		showStockReportsSubmenu = false;
 		showUserDashboardSubmenu = false;
 		showUserManageSubmenu = false;
 		showUserOperationsSubmenu = false;
@@ -2279,9 +2259,7 @@ function openApprovalCenter() {
 		showFinanceSubmenu = false;
 		showHRSubmenu = false;
 		showTasksSubmenu = false;
-		showNotificationsSubmenu = false;
 		showUserSubmenu = false;
-		showStockSubmenu = false;
 		showWhatsAppSubmenu = false;
 		showLoyaltySubmenu = false;
 	}
@@ -3826,6 +3804,26 @@ function openApprovalCenter() {
 		</button>
 	</div>
 
+	<!-- Online/Offline Indicator + Language Switch -->
+	<div class="bottom-controls-row">
+		<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
+			<div class="status-light"></div>
+		</div>
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div 
+			class="electric-switch lang-electric-switch" 
+			class:on={$currentLocale === 'ar'}
+			on:click={() => { switchLocale($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
+			title="{$currentLocale === 'en' ? 'Switch to Arabic' : 'Switch to English'}"
+		>
+			<div class="switch-track">
+				<div class="switch-knob">
+					<span class="knob-icon" class:off={$currentLocale === 'en'}>{$currentLocale === 'en' ? 'ع' : 'E'}</span>
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
 
@@ -4108,6 +4106,54 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					{#if isButtonAllowed('STOCK_PO_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPORequestsList}>
+								<span class="menu-icon">🛒</span>
+								<span class="menu-text">{t('nav.poRequests') || 'PO Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_STOCK_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openStockRequestsList}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">{t('nav.stockRequests') || 'Stock Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_BT_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBTRequestsList}>
+								<span class="menu-icon">🔄</span>
+								<span class="menu-text">{t('nav.btRequests') || 'BT Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_NEAR_EXPIRY_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openNearExpiryRequestsList}>
+								<span class="menu-icon">⏰</span>
+								<span class="menu-text">{t('nav.nearExpiryRequests') || 'Near Expiry Reports'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_CUSTOMER_PRODUCT_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCustomerProductRequestsList}>
+								<span class="menu-icon">🛍️</span>
+								<span class="menu-text">{t('nav.customerProductRequests') || 'Customer Requests'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_OFFER_COST_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOfferCostManager}>
+								<span class="menu-icon">💰</span>
+								<span class="menu-text">{t('nav.offerCostManager')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -4146,6 +4192,38 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openReceivingRecords}>
 								<span class="menu-icon">📋</span>
 								<span class="menu-text">{t('nav.receivingRecords')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_PRODUCT_REQUEST')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductRequestDesktop}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('nav.productRequest') || 'Product Request'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_ERP_PRODUCTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openStockErpProducts}>
+								<span class="menu-icon">🏭</span>
+								<span class="menu-text">{t('nav.erpProducts') || 'ERP Products'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_PRODUCT_CLAIM_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductClaimManager}>
+								<span class="menu-icon">👤</span>
+								<span class="menu-text">{t('nav.productClaimManager') || 'Product Claim Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STOCK_EXPIRY_CONTROL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openExpiryControl}>
+								<span class="menu-icon">📅</span>
+								<span class="menu-text">{t('nav.expiryControl') || 'Expiry Control'}</span>
 							</button>
 						</div>
 					{/if}
@@ -4487,6 +4565,14 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+				{#if isButtonAllowed('COMMUNICATION_CENTER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCommunicationCenter}>
+							<span class="menu-icon">📞</span>
+							<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -4590,6 +4676,22 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openProductManagerPromo}>
 							<span class="menu-icon">🎁</span>
 							<span class="menu-text">{t('nav.manageProducts')}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('CREATE_NOTIFICATION')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateNotification}>
+							<span class="menu-icon">📝</span>
+							<span class="menu-text">{t('mobile.createNotification')}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('PUSH_NOTIFICATION_SETTINGS')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openPushNotificationSettings}>
+							<span class="menu-icon">🔔</span>
+							<span class="menu-text">Push Notifications</span>
 						</button>
 					</div>
 				{/if}
@@ -5147,205 +5249,6 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
-	<!-- Stock Section -->
-	<div class="menu-section">
-		<button 
-			class="section-button"
-			on:click={() => showStockSubmenu = !showStockSubmenu}
-		>
-			<span class="section-icon">📦</span>
-			<span class="section-text">{t('nav.stock') || 'Stock'}</span>
-			<span class="arrow" class:expanded={showStockSubmenu}>▼</span>
-		</button>
-	</div>
-
-	<!-- Stock Submenu - Inline below Stock button -->
-	{#if showStockSubmenu}
-		<div class="submenu-inline stock-submenu">
-			<!-- Dashboard Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showStockDashboardSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showStockDashboardSubmenu = true;
-						}
-					}}
-					title={t('nav.dashboard')}
-				>
-					
-					<span class="menu-text">{t('nav.dashboard')}</span>
-				</button>
-			</div>
-
-			<!-- Dashboard Subsection Items -->
-			{#if showStockDashboardSubmenu}
-				<div class="submenu-subitem-container">
-					<!-- Dashboard items will be added here -->
-				</div>
-			{/if}
-
-			<!-- Manage Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showStockManageSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showStockManageSubmenu = true;
-						}
-					}}
-					title={t('nav.manage')}
-				>
-					
-					<span class="menu-text">{t('nav.manage')}</span>
-				</button>
-			</div>
-
-			<!-- Manage Subsection Items -->
-			{#if showStockManageSubmenu}
-				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('STOCK_PO_REQUESTS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openPORequestsList}>
-								<span class="menu-icon">🛒</span>
-								<span class="menu-text">{t('nav.poRequests') || 'PO Requests'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_STOCK_REQUESTS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openStockRequestsList}>
-								<span class="menu-icon">📦</span>
-								<span class="menu-text">{t('nav.stockRequests') || 'Stock Requests'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_BT_REQUESTS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBTRequestsList}>
-								<span class="menu-icon">🔄</span>
-								<span class="menu-text">{t('nav.btRequests') || 'BT Requests'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_NEAR_EXPIRY_REQUESTS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openNearExpiryRequestsList}>
-								<span class="menu-icon">⏰</span>
-								<span class="menu-text">{t('nav.nearExpiryRequests') || 'Near Expiry Reports'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_CUSTOMER_PRODUCT_REQUESTS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCustomerProductRequestsList}>
-								<span class="menu-icon">🛍️</span>
-								<span class="menu-text">{t('nav.customerProductRequests') || 'Customer Requests'}</span>
-							</button>
-						</div>
-					{/if}
-				{#if isButtonAllowed('STOCK_OFFER_COST_MANAGER')}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openOfferCostManager}>
-							<span class="menu-icon">💰</span>
-							<span class="menu-text">{t('nav.offerCostManager')}</span>
-						</button>
-					</div>
-				{/if}
-				</div>
-			{/if}
-
-			<!-- Operations Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showStockOperationsSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showStockOperationsSubmenu = true;
-						}
-					}}
-					title={t('nav.operations')}
-				>
-					
-					<span class="menu-text">{t('nav.operations')}</span>
-				</button>
-			</div>
-
-			<!-- Operations Subsection Items -->
-			{#if showStockOperationsSubmenu}
-				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('STOCK_PRODUCT_REQUEST')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openProductRequestDesktop}>
-								<span class="menu-icon">📋</span>
-								<span class="menu-text">{t('nav.productRequest') || 'Product Request'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_ERP_PRODUCTS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openStockErpProducts}>
-								<span class="menu-icon">🏭</span>
-								<span class="menu-text">{t('nav.erpProducts') || 'ERP Products'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_PRODUCT_CLAIM_MANAGER')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openProductClaimManager}>
-								<span class="menu-icon">👤</span>
-								<span class="menu-text">{t('nav.productClaimManager') || 'Product Claim Manager'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('STOCK_EXPIRY_CONTROL')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openExpiryControl}>
-								<span class="menu-icon">📅</span>
-								<span class="menu-text">{t('nav.expiryControl') || 'Expiry Control'}</span>
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Reports Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showStockReportsSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showStockReportsSubmenu = true;
-						}
-					}}
-					title={t('nav.reports')}
-				>
-					
-					<span class="menu-text">{t('nav.reports')}</span>
-				</button>
-			</div>
-
-			<!-- Reports Subsection Items -->
-			{#if showStockReportsSubmenu}
-				<div class="submenu-subitem-container">
-					<!-- Reports items will be added here -->
-				</div>
-			{/if}
-		</div>
-	{/if}
-
 	<!-- Tasks Section -->
 	<div class="menu-section">
 		<button 
@@ -5524,141 +5427,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-				</div>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- Communications Section -->
-	<div class="menu-section">
-		<button 
-			class="section-button"
-			on:click={() => showNotificationsSubmenu = !showNotificationsSubmenu}
-		>
-			<span class="section-icon">🔔</span>
-			<span class="section-text">{t('nav.notification') || 'Outreach'}</span>
-			<span class="arrow" class:expanded={showNotificationsSubmenu}>▼</span>
-		</button>
-	</div>
-
-	<!-- Notifications Submenu -->
-	{#if showNotificationsSubmenu}
-		<div class="submenu-inline">
-			<!-- Dashboard Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showNotificationsDashboardSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showNotificationsDashboardSubmenu = true;
-						}
-					}}
-					title={t('nav.dashboard')}
-				>
-					
-					<span class="menu-text">{t('nav.dashboard')}</span>
-				</button>
-			</div>
-
-			<!-- Dashboard Subsection Items -->
-			{#if showNotificationsDashboardSubmenu}
-				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('COMMUNICATION_CENTER')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCommunicationCenter}>
-								<span class="menu-icon">📞</span>
-								<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Manage Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showNotificationsManageSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showNotificationsManageSubmenu = true;
-						}
-					}}
-					title={t('nav.manage')}
-				>
-					
-					<span class="menu-text">{t('nav.manage')}</span>
-				</button>
-			</div>
-
-			<!-- Manage Subsection Items -->
-			{#if showNotificationsManageSubmenu}
-				<div class="submenu-subitem-container">
-					<!-- Manage items will be added here -->
-				</div>
-			{/if}
-
-			<!-- Operations Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showNotificationsOperationsSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showNotificationsOperationsSubmenu = true;
-						}
-					}}
-					title={t('nav.operations')}
-				>
-					
-					<span class="menu-text">{t('nav.operations')}</span>
-				</button>
-			</div>
-
-			<!-- Operations Subsection Items -->
-			{#if showNotificationsOperationsSubmenu}
-				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('CREATE_NOTIFICATION')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCreateNotification}>
-								<span class="menu-icon">📝</span>
-								<span class="menu-text">{t('mobile.createNotification')}</span>
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Reports Subsection -->
-			<div class="submenu-item-container">
-				<button 
-					class="submenu-subsection-button icon-only"
-					on:click={() => {
-						if (showNotificationsReportsSubmenu) {
-							collapseAllSubsections();
-						} else {
-							collapseAllSubsections();
-							showNotificationsReportsSubmenu = true;
-						}
-					}}
-					title={t('nav.reports')}
-				>
-					
-					<span class="menu-text">{t('nav.reports')}</span>
-				</button>
-			</div>
-
-			<!-- Reports Subsection Items -->
-			{#if showNotificationsReportsSubmenu}
-				<div class="submenu-subitem-container">
-					<!-- Reports items will be added here -->
 				</div>
 			{/if}
 		</div>
@@ -6451,26 +6219,6 @@ function openApprovalCenter() {
 		<DancingCharacter />
 	</div>
 
-	<!-- Online/Offline Indicator + Language Switch -->
-	<div class="bottom-controls-row">
-		<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
-			<div class="status-light"></div>
-		</div>
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div 
-			class="electric-switch lang-electric-switch" 
-			class:on={$currentLocale === 'ar'}
-			on:click={() => { switchLocale($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
-			title="{$currentLocale === 'en' ? 'Switch to Arabic' : 'Switch to English'}"
-		>
-			<div class="switch-track">
-				<div class="switch-knob">
-					<span class="knob-icon" class:off={$currentLocale === 'en'}>{$currentLocale === 'en' ? 'ع' : 'E'}</span>
-				</div>
-			</div>
-		</div>
-	</div>
-
 	</div>
 
 </div>
@@ -6484,63 +6232,112 @@ function openApprovalCenter() {
 	.interface-switch-btn {
 		width: 100%;
 		padding: 0.5rem 1rem;
-		background: var(--theme-interface-switch-bg, linear-gradient(145deg, #3b82f6, #2563eb));
-		border: none;
-		border-radius: 0.375rem;
+		background: linear-gradient(145deg,
+			rgba(59, 130, 246, 0.8),
+			rgba(37, 99, 235, 0.75)
+		);
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		border-radius: 0.5rem;
 		color: white;
 		font-size: 0.8rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.15s ease;
-		box-shadow: 
-			0 2px 4px rgba(59, 130, 246, 0.3),
-			inset 0 1px 0 rgba(255, 255, 255, 0.2),
-			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
-		text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+		box-shadow:
+			0 3px 10px rgba(59, 130, 246, 0.4),
+			inset 0 1px 0 rgba(255, 255, 255, 0.22),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+		backdrop-filter: blur(4px);
 	}
 
 	.interface-switch-btn:hover {
-		background: var(--theme-interface-switch-hover-bg, linear-gradient(145deg, #2563eb, #1d4ed8));
+		background: linear-gradient(145deg,
+			rgba(37, 99, 235, 0.88),
+			rgba(29, 78, 216, 0.82)
+		);
 		transform: translateY(-1px);
-		box-shadow: 
-			0 3px 6px rgba(59, 130, 246, 0.4),
-			inset 0 1px 0 rgba(255, 255, 255, 0.2),
-			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+		box-shadow:
+			0 5px 16px rgba(59, 130, 246, 0.5),
+			inset 0 1px 0 rgba(255, 255, 255, 0.25),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+		border-color: rgba(255, 255, 255, 0.24);
 	}
 
 	.interface-switch-btn:active {
 		transform: translateY(1px);
-		box-shadow: 
-			0 1px 2px rgba(59, 130, 246, 0.3),
-			inset 0 1px 3px rgba(0, 0, 0, 0.2);
-	}
-
-	.interface-switch-btn:active {
-		transform: translateY(1px);
-		box-shadow: 
-			0 1px 2px rgba(59, 130, 246, 0.3),
-			inset 0 1px 3px rgba(0, 0, 0, 0.2);
+		box-shadow:
+			0 1px 4px rgba(59, 130, 246, 0.35),
+			inset 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	.sidebar {
 		position: fixed;
 		left: 0;
 		top: 0;
-		bottom: 56px; /* Fixed taskbar height */
+		bottom: 56px;
 		width: 154px;
-		background: var(--theme-sidebar-bg, #374151);
+		/* Rich glass gradient — visible even on dark desktop */
+		background:
+			linear-gradient(
+				175deg,
+				rgba(55, 75, 100, 0.96) 0%,
+				rgba(28, 38, 56, 0.98) 40%,
+				rgba(18, 26, 42, 0.99) 100%
+			);
+		backdrop-filter: blur(18px) saturate(160%);
+		-webkit-backdrop-filter: blur(18px) saturate(160%);
 		color: var(--theme-sidebar-text, #e5e7eb);
 		display: flex;
 		flex-direction: column;
-		box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+		/* Layered depth: right-side glow + strong shadow */
+		box-shadow:
+			4px 0 32px rgba(0, 0, 0, 0.6),
+			1px 0 0 rgba(255, 255, 255, 0.1) inset,
+			-1px 0 0 rgba(0, 0, 0, 0.3) inset;
 		z-index: 1200;
-		border-right: 1px solid var(--theme-sidebar-border, #1f2937);
-		transition: all 0.3s ease;
+		border-right: 1px solid rgba(255, 255, 255, 0.1);
+		transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+		overflow: hidden;
+	}
+
+	/* Top glass reflection sheen */
+	.sidebar::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 180px;
+		background: linear-gradient(
+			160deg,
+			rgba(255, 255, 255, 0.09) 0%,
+			rgba(255, 255, 255, 0.03) 40%,
+			transparent 70%
+		);
+		pointer-events: none;
+		z-index: 0;
+		border-radius: 0;
+	}
+
+	/* Ensure content sits above the reflection */
+	.sidebar > * {
+		position: relative;
+		z-index: 1;
 	}
 
 	.sidebar.favorites-mode {
-		background: var(--theme-sidebar-favorites-bg, #1d2c5e);
-		border-right-color: var(--theme-sidebar-favorites-bg, #1d2c5e);
+		background:
+			linear-gradient(
+				175deg,
+				rgba(45, 70, 140, 0.96) 0%,
+				rgba(22, 35, 80, 0.98) 40%,
+				rgba(14, 22, 55, 0.99) 100%
+			);
+		border-right-color: rgba(99, 150, 255, 0.15);
+		box-shadow:
+			4px 0 32px rgba(0, 0, 40, 0.65),
+			1px 0 0 rgba(120, 170, 255, 0.12) inset;
 	}
 
 	.sidebar.favorites-mode .sidebar-content {
@@ -6549,32 +6346,44 @@ function openApprovalCenter() {
 
 	.sidebar-content {
 		flex: 1;
-		padding: 15px;
+		padding: 12px 10px;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 15px;
-		padding-bottom: 0;
+		gap: 6px;
+		padding-bottom: 4px;
 	}
 
 	.menu-section {
 		display: flex;
 		flex-direction: column;
 		position: relative;
-		margin-bottom: 8px; /* Consistent spacing between sections */
+		margin-bottom: 5px;
+		border-radius: 9px;
 	}
 
 	.section-button {
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
-		padding: 10px 8px;
-		background: var(--theme-section-btn-bg, #1DBC83);
-		border: none;
+		padding: 9px 8px;
+		/* Glass green button: semi-transparent with backdrop */
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-section-btn-bg, #1DBC83) 75%, transparent),
+			color-mix(in srgb, var(--theme-section-btn-bg, #17a474) 60%, transparent)
+		);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		/* Inner highlight for glass depth */
+		box-shadow:
+			0 2px 8px rgba(0, 0, 0, 0.25),
+			inset 0 1px 0 rgba(255, 255, 255, 0.18),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.12);
 		color: var(--theme-section-btn-text, white);
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 		cursor: pointer;
-		border-radius: 8px;
-		transition: all 0.2s ease;
+		border-radius: 9px;
+		transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 		font-size: 11px;
 		width: 100%;
 		min-height: 40px;
@@ -6582,41 +6391,67 @@ function openApprovalCenter() {
 	}
 
 	.section-button:hover {
-		background: var(--theme-section-btn-hover-bg, #3b82f6);
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-section-btn-hover-bg, #3b82f6) 80%, transparent),
+			color-mix(in srgb, var(--theme-section-btn-hover-bg, #2563eb) 65%, transparent)
+		);
 		color: var(--theme-section-btn-hover-text, white);
 		transform: translateX(2px);
+		box-shadow:
+			0 4px 12px rgba(59, 130, 246, 0.35),
+			inset 0 1px 0 rgba(255, 255, 255, 0.22),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+		border-color: rgba(255, 255, 255, 0.2);
 	}
 
 	.section-button:active {
 		transform: translateX(2px) scale(0.98);
+		box-shadow:
+			0 1px 4px rgba(0, 0, 0, 0.3),
+			inset 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	/* Special styling for Approval Center button */
 	.approval-button {
-		background: rgba(16, 185, 129, 0.1);
-		border: 1px solid rgba(16, 185, 129, 0.3);
+		background: rgba(16, 185, 129, 0.12);
+		border: 1px solid rgba(16, 185, 129, 0.25);
+		box-shadow:
+			0 2px 8px rgba(16, 185, 129, 0.1),
+			inset 0 1px 0 rgba(255, 255, 255, 0.08);
 	}
 
 	.approval-button:hover {
-		background: rgba(16, 185, 129, 0.2);
-		border-color: rgba(16, 185, 129, 0.5);
-		color: #10B981;
+		background: rgba(16, 185, 129, 0.22);
+		border-color: rgba(16, 185, 129, 0.45);
+		color: #34d399;
+		box-shadow:
+			0 4px 14px rgba(16, 185, 129, 0.3),
+			inset 0 1px 0 rgba(255, 255, 255, 0.12);
 	}
 
 	.approval-button .section-icon {
-		filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.5));
+		filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.6));
 	}
 
 	.section-icon {
 		font-size: 16px;
 		flex-shrink: 0;
-		width: 20px; /* Fixed width for consistent alignment */
-		height: 16px; /* Fixed height */
+		width: 20px;
+		height: 16px;
 		text-align: center;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		color: white;
+		/* Subtle icon glow for glass luminance */
+		filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.25));
+		transition: filter 0.2s ease;
+	}
+
+	.section-button:hover .section-icon,
+	.submenu-subsection-button:hover .section-icon {
+		filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.4));
 	}
 
 	.section-icon.whatsapp-icon :global(svg) {
@@ -6652,13 +6487,17 @@ function openApprovalCenter() {
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
-		padding: 10px 8px;
-		background: var(--theme-submenu-item-bg, white);
-		border: none;
+		padding: 9px 8px;
+		/* Glass leaf item: translucent white surface */
+		background: rgba(255, 255, 255, 0.07);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow:
+			0 1px 4px rgba(0, 0, 0, 0.15),
+			inset 0 1px 0 rgba(255, 255, 255, 0.1);
 		color: var(--theme-submenu-item-text, #f97316);
 		cursor: pointer;
 		border-radius: 8px;
-		transition: all 0.2s ease;
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 		font-size: 11px;
 		width: 100%;
 		min-height: 40px;
@@ -6668,34 +6507,49 @@ function openApprovalCenter() {
 	}
 
 	.submenu-item:hover {
-		background: var(--theme-submenu-item-hover-bg, #3b82f6);
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-submenu-item-hover-bg, #3b82f6) 75%, transparent),
+			color-mix(in srgb, var(--theme-submenu-item-hover-bg, #2563eb) 60%, transparent)
+		);
 		color: var(--theme-submenu-item-hover-text, white);
 		transform: translateX(2px);
+		border-color: rgba(255, 255, 255, 0.2);
+		box-shadow:
+			0 3px 10px rgba(59, 130, 246, 0.3),
+			inset 0 1px 0 rgba(255, 255, 255, 0.2);
 	}
 
 	.submenu-item:active {
 		transform: translateX(2px) scale(0.98);
+		box-shadow:
+			0 1px 3px rgba(0, 0, 0, 0.25),
+			inset 0 1px 3px rgba(0, 0, 0, 0.15);
 	}
 
 	.submenu-item:last-child {
 		margin-bottom: 0;
 	}
 
-	/* Inline submenu below Work button */
+	/* Inline submenu below section button */
 	.submenu-inline {
-		padding: 0px 0 0px 0;
-		margin-bottom: 0px;
-		background: transparent;
-		border-radius: 8px;
-		animation: slideDown 0.2s ease;
+		padding: 4px 0 2px;
+		margin-bottom: 2px;
+		/* Frosted glass submenu container */
+		background: rgba(255, 255, 255, 0.03);
+		border-radius: 0 0 10px 10px;
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-top: none;
+		animation: glassSlideDown 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		position: relative;
+		padding: 4px 4px 4px 4px;
 	}
 
 	.submenu-inline.vendor-submenu {
-		padding: 0px 0 0px 4px;
+		padding: 4px 4px 4px 8px;
 		margin-bottom: 0px;
 	}
 
@@ -6712,11 +6566,29 @@ function openApprovalCenter() {
 		}
 	}
 
+	@keyframes glassSlideDown {
+		from {
+			opacity: 0;
+			transform: translateY(-6px) scaleY(0.96);
+			filter: blur(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scaleY(1);
+			filter: blur(0);
+		}
+	}
+
+	@keyframes glassShimmer {
+		0% { background-position: -200% center; }
+		100% { background-position: 200% center; }
+	}
+
 	/* Individual container for each submenu button */
 	.submenu-item-container {
 		background: transparent;
-		border-radius: 0;
-		margin-bottom: 6px;
+		border-radius: 8px;
+		margin-bottom: 4px;
 		padding: 0;
 		border: none;
 		display: flex;
@@ -6742,13 +6614,14 @@ function openApprovalCenter() {
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
-		padding: 10px 8px;
-		background: var(--theme-submenu-item-bg, white);
-		border: none;
+		padding: 9px 8px;
+		background: rgba(255, 255, 255, 0.07);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 		color: var(--theme-submenu-item-text, #f97316);
 		cursor: pointer;
 		border-radius: 8px;
-		transition: all 0.2s ease;
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 		font-size: 11px;
 		width: 100%;
 		min-height: 40px;
@@ -6758,9 +6631,15 @@ function openApprovalCenter() {
 	}
 
 	.submenu-inline .submenu-item:hover {
-		background: var(--theme-submenu-item-hover-bg, #3b82f6);
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-submenu-item-hover-bg, #3b82f6) 75%, transparent),
+			color-mix(in srgb, var(--theme-submenu-item-hover-bg, #2563eb) 60%, transparent)
+		);
 		color: var(--theme-submenu-item-hover-text, white);
 		transform: translateX(2px);
+		border-color: rgba(255, 255, 255, 0.2);
+		box-shadow: 0 3px 10px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 	}
 
 	.menu-icon {
@@ -6773,6 +6652,15 @@ function openApprovalCenter() {
 		align-items: center;
 		justify-content: center;
 		color: inherit;
+		/* Subtle icon luminance on hover */
+		filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.15));
+		transition: filter 0.2s ease;
+	}
+
+	.submenu-item:hover .menu-icon,
+	.submenu-subsection-button:hover .menu-icon,
+	.section-button:hover .menu-icon {
+		filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.35));
 	}
 
 	.menu-icon-img {
@@ -6796,20 +6684,30 @@ function openApprovalCenter() {
 		color: inherit;
 	}
 
-	/* Subsection styling - Matching main section button style */
+	/* Subsection styling - Glass nested section button */
 	.submenu-subsection-button {
 		width: 100%;
 		margin: 0;
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
-		padding: 10px 8px;
-		background: var(--theme-subsection-btn-bg, #1DBC83);
-		border: none;
+		padding: 9px 8px;
+		/* Glass green: slightly muted vs top-level */
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-subsection-btn-bg, #1DBC83) 65%, transparent),
+			color-mix(in srgb, var(--theme-subsection-btn-bg, #17a474) 52%, transparent)
+		);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		box-shadow:
+			0 1px 6px rgba(0, 0, 0, 0.2),
+			inset 0 1px 0 rgba(255, 255, 255, 0.15),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
 		color: var(--theme-subsection-btn-text, white);
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 		cursor: pointer;
 		border-radius: 8px;
-		transition: all 0.2s ease;
+		transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 		font-size: 11px;
 		min-height: 40px;
 		text-align: left;
@@ -6817,13 +6715,24 @@ function openApprovalCenter() {
 	}
 
 	.submenu-subsection-button:hover {
-		background: var(--theme-subsection-btn-hover-bg, #3b82f6);
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-subsection-btn-hover-bg, #3b82f6) 78%, transparent),
+			color-mix(in srgb, var(--theme-subsection-btn-hover-bg, #2563eb) 63%, transparent)
+		);
 		color: var(--theme-subsection-btn-hover-text, white);
 		transform: translateX(2px);
+		border-color: rgba(255, 255, 255, 0.2);
+		box-shadow:
+			0 3px 10px rgba(59, 130, 246, 0.32),
+			inset 0 1px 0 rgba(255, 255, 255, 0.2);
 	}
 
 	.submenu-subsection-button:active {
 		transform: translateX(2px) scale(0.98);
+		box-shadow:
+			0 1px 3px rgba(0, 0, 0, 0.3),
+			inset 0 1px 3px rgba(0, 0, 0, 0.18);
 	}
 
 	.submenu-subsection-button .menu-icon {
@@ -6862,13 +6771,18 @@ function openApprovalCenter() {
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
-		padding: 10px 8px;
-		background: var(--theme-subsection-btn-bg, #1DBC83);
-		border: none;
+		padding: 9px 8px;
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--theme-subsection-btn-bg, #1DBC83) 65%, transparent),
+			color-mix(in srgb, var(--theme-subsection-btn-bg, #17a474) 52%, transparent)
+		);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 		color: var(--theme-subsection-btn-text, white);
 		cursor: pointer;
 		border-radius: 8px;
-		transition: all 0.2s ease;
+		transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 		font-size: 11px;
 		width: 100%;
 		min-height: 40px;
@@ -6908,15 +6822,16 @@ function openApprovalCenter() {
 		transform: rotate(180deg);
 	}
 
-	/* Nested submenu items container */
+	/* Nested submenu items container - glass inset */
 	.submenu-subitem-container {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		margin-left: 12px;
+		margin-left: 8px;
 		padding: 4px 0;
-		border-left: none;
+		border-left: 2px solid rgba(255, 255, 255, 0.08);
 		padding-left: 8px;
+		border-radius: 0 0 0 6px;
 	}
 
 	.submenu-subitem-container .submenu-item-container {
@@ -6928,22 +6843,32 @@ function openApprovalCenter() {
 		border-color: transparent;
 	}
 
-	/* Scrollbar styling */
+	/* Glass scrollbar */
 	.sidebar-content::-webkit-scrollbar {
-		width: 6px;
+		width: 4px;
 	}
 
 	.sidebar-content::-webkit-scrollbar-track {
-		background: transparent;
+		background: rgba(255, 255, 255, 0.03);
+		border-radius: 2px;
 	}
 
 	.sidebar-content::-webkit-scrollbar-thumb {
-		background: rgba(255, 255, 255, 0.2);
-		border-radius: 3px;
+		background: linear-gradient(
+			180deg,
+			rgba(255, 255, 255, 0.18),
+			rgba(255, 255, 255, 0.08)
+		);
+		border-radius: 2px;
+		border: 1px solid rgba(255, 255, 255, 0.06);
 	}
 
 	.sidebar-content::-webkit-scrollbar-thumb:hover {
-		background: rgba(255, 255, 255, 0.3);
+		background: linear-gradient(
+			180deg,
+			rgba(255, 255, 255, 0.28),
+			rgba(255, 255, 255, 0.15)
+		);
 	}
 
 
@@ -6954,39 +6879,54 @@ function openApprovalCenter() {
 		justify-content: center;
 		gap: 6px;
 		padding: 8px 12px;
-		background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-		border: none;
+		/* Glass blue PWA button */
+		background: linear-gradient(135deg, rgba(59, 130, 246, 0.78) 0%, rgba(29, 78, 216, 0.72) 100%);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+		border: 1px solid rgba(255, 255, 255, 0.16);
 		color: white;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 		cursor: pointer;
-		border-radius: 6px;
-		transition: all 0.2s ease;
+		border-radius: 8px;
+		transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 		font-size: 11px;
 		width: 100%;
 		height: 36px;
 		text-align: center;
 		font-weight: 500;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		box-shadow:
+			0 2px 10px rgba(59, 130, 246, 0.35),
+			inset 0 1px 0 rgba(255, 255, 255, 0.2),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.12);
 	}
 
 	.pwa-install-button:hover {
-		background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+		background: linear-gradient(135deg, rgba(37, 99, 235, 0.88) 0%, rgba(30, 64, 175, 0.82) 100%);
 		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+		box-shadow:
+			0 5px 16px rgba(59, 130, 246, 0.45),
+			inset 0 1px 0 rgba(255, 255, 255, 0.25),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+		border-color: rgba(255, 255, 255, 0.22);
 	}
 
 	.pwa-install-button:active {
 		transform: translateY(0);
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		box-shadow:
+			0 1px 4px rgba(59, 130, 246, 0.3),
+			inset 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	.pwa-not-supported {
-		background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
-		opacity: 0.7;
+		background: linear-gradient(135deg, rgba(107, 114, 128, 0.6) 0%, rgba(75, 85, 99, 0.55) 100%);
+		backdrop-filter: blur(4px);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		opacity: 0.75;
 	}
 
 	.pwa-not-supported:hover {
-		background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
-		opacity: 0.8;
+		background: linear-gradient(135deg, rgba(107, 114, 128, 0.7) 0%, rgba(75, 85, 99, 0.65) 100%);
+		opacity: 0.85;
 	}
 
 	.pwa-installed {
@@ -6995,12 +6935,17 @@ function openApprovalCenter() {
 		justify-content: center;
 		gap: 6px;
 		padding: 8px 12px;
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		border-radius: 6px;
+		/* Glass green installed badge */
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.65) 0%, rgba(5, 150, 105, 0.6) 100%);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+		border: 1px solid rgba(16, 185, 129, 0.3);
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+		border-radius: 8px;
 		color: white;
 		font-size: 11px;
 		font-weight: 500;
-		opacity: 0.8;
+		opacity: 0.9;
 	}
 
 	.pwa-icon {
@@ -7020,12 +6965,17 @@ function openApprovalCenter() {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 8px;
-		padding: 8px 12px;
-		border-top: 1px solid rgba(107, 114, 128, 0.3);
-		background: var(--theme-sidebar-bg, #374151);
-		position: sticky;
-		bottom: 0;
+		gap: 10px;
+		padding: 6px 8px;
+		margin: 0;
+		/* Exact same glass card as .view-mode-toggle */
+		background: rgba(255, 255, 255, 0.06);
+		border-radius: 10px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow:
+			0 2px 12px rgba(0, 0, 0, 0.25),
+			inset 0 1px 0 rgba(255, 255, 255, 0.12),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
 		flex-shrink: 0;
 	}
 
@@ -7041,7 +6991,12 @@ function openApprovalCenter() {
 	}
 
 	.sidebar.favorites-mode .bottom-controls-row {
-		background: var(--theme-sidebar-favorites-bg, #1d2c5e);
+		background: rgba(99, 150, 255, 0.07);
+		border-color: rgba(99, 150, 255, 0.15);
+		box-shadow:
+			0 2px 12px rgba(0, 0, 30, 0.3),
+			inset 0 1px 0 rgba(120, 170, 255, 0.14),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.12);
 	}
 
 	.connection-indicator {
@@ -7053,9 +7008,11 @@ function openApprovalCenter() {
 		border-radius: 50%;
 		transition: all 0.3s ease;
 		flex-shrink: 0;
+		/* Glass pill for status indicator */
+		backdrop-filter: blur(4px);
 	}
 
-	/* Language Switch */
+	/* Language Switch — glass amber theme */
 	.lang-electric-switch {
 	}
 
@@ -7064,14 +7021,25 @@ function openApprovalCenter() {
 	}
 
 	.lang-electric-switch .switch-knob {
-		background: linear-gradient(145deg, #F59E0B, #D97706) !important;
-		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.3) !important;
+		/* Amber glass knob */
+		background: linear-gradient(145deg, rgba(251, 191, 36, 0.92), rgba(217, 119, 6, 0.88)) !important;
+		box-shadow:
+			0 2px 10px rgba(245, 158, 11, 0.55),
+			inset 0 1px 0 rgba(255, 255, 255, 0.35),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.15) !important;
+		backdrop-filter: blur(2px);
 	}
 
 	.lang-electric-switch .switch-track {
-		background: #3d3520 !important;
-		border-color: #8B6914 !important;
-		box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 8px rgba(245, 158, 11, 0.3) !important;
+		/* Glass amber track */
+		background: rgba(61, 53, 32, 0.72) !important;
+		backdrop-filter: blur(6px) !important;
+		-webkit-backdrop-filter: blur(6px) !important;
+		border-color: rgba(245, 158, 11, 0.35) !important;
+		box-shadow:
+			inset 0 2px 6px rgba(0, 0, 0, 0.35),
+			0 0 12px rgba(245, 158, 11, 0.2),
+			inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
 	}
 
 	.lang-electric-switch .switch-knob .knob-icon {
@@ -7079,18 +7047,27 @@ function openApprovalCenter() {
 		font-weight: 700;
 		color: white !important;
 		filter: none !important;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 	}
 
-	/* View Mode Toggle - Electric Switch */
+	/* View Mode Toggle - glass card container */
 	.view-mode-toggle {
-		padding: 0;
-		margin-top: 2px;
-		margin-bottom: -10px;
-		margin-left: -8px;
+		padding: 6px 8px;
+		margin-top: 0;
+		margin-bottom: 2px;
+		margin-left: 0;
 		display: flex;
 		justify-content: center;
 		align-items: center;
 		gap: 10px;
+		/* Glass card: visible frosted panel */
+		background: rgba(255, 255, 255, 0.06);
+		border-radius: 10px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow:
+			0 2px 12px rgba(0, 0, 0, 0.25),
+			inset 0 1px 0 rgba(255, 255, 255, 0.12),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
 	}
 
 	.electric-switch {
@@ -7104,18 +7081,28 @@ function openApprovalCenter() {
 	.switch-track {
 		width: 100%;
 		height: 100%;
-		background: #4a4a4a;
+		background: rgba(40, 40, 50, 0.75);
+		backdrop-filter: blur(4px);
 		border-radius: 14px;
 		position: relative;
-		border: 2px solid #333;
-		box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow:
+			inset 0 2px 6px rgba(0, 0, 0, 0.45),
+			0 1px 2px rgba(0, 0, 0, 0.25),
+			inset 0 1px 0 rgba(255, 255, 255, 0.06);
 		transition: all 0.3s ease;
 	}
 
 	.electric-switch.on .switch-track {
-		background: #3d3520;
-		border-color: #8B6914;
-		box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 8px rgba(245, 158, 11, 0.3);
+		/* Glass amber when toggled on */
+		background: rgba(61, 53, 32, 0.72);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+		border-color: rgba(245, 158, 11, 0.38);
+		box-shadow:
+			inset 0 2px 6px rgba(0, 0, 0, 0.35),
+			0 0 12px rgba(245, 158, 11, 0.22),
+			inset 0 1px 0 rgba(255, 255, 255, 0.05);
 	}
 
 	.switch-knob {
@@ -7124,19 +7111,30 @@ function openApprovalCenter() {
 		left: 1px;
 		width: 22px;
 		height: 22px;
-		background: linear-gradient(145deg, #888, #666);
+		/* Glass grey knob (off state) */
+		background: linear-gradient(145deg, rgba(160, 160, 170, 0.85), rgba(100, 100, 110, 0.9));
+		backdrop-filter: blur(2px);
 		border-radius: 50%;
 		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+		box-shadow:
+			0 2px 6px rgba(0, 0, 0, 0.4),
+			inset 0 1px 0 rgba(255, 255, 255, 0.28),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.15);
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		border: 1px solid rgba(255, 255, 255, 0.12);
 	}
 
 	.electric-switch.on .switch-knob {
 		left: 29px;
-		background: linear-gradient(145deg, #F59E0B, #D97706);
-		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+		/* Glass amber knob (on state) */
+		background: linear-gradient(145deg, rgba(251, 191, 36, 0.92), rgba(217, 119, 6, 0.88));
+		box-shadow:
+			0 2px 10px rgba(245, 158, 11, 0.55),
+			inset 0 1px 0 rgba(255, 255, 255, 0.35),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+		border-color: rgba(245, 158, 11, 0.3);
 	}
 
 	.knob-icon {
@@ -7151,15 +7149,24 @@ function openApprovalCenter() {
 	}
 
 	.electric-switch:hover .switch-track {
-		border-color: #555;
+		border-color: rgba(255, 255, 255, 0.2);
+		box-shadow:
+			inset 0 2px 6px rgba(0, 0, 0, 0.4),
+			0 0 6px rgba(255, 255, 255, 0.06),
+			inset 0 1px 0 rgba(255, 255, 255, 0.08);
 	}
 
 	.electric-switch.on:hover .switch-track {
-		border-color: #B8860B;
+		border-color: rgba(245, 158, 11, 0.55);
+		box-shadow:
+			inset 0 2px 6px rgba(0, 0, 0, 0.35),
+			0 0 16px rgba(245, 158, 11, 0.3),
+			inset 0 1px 0 rgba(255, 255, 255, 0.06);
 	}
 
 	.electric-switch:focus-visible .switch-track {
-		border-color: #F59E0B;
+		border-color: rgba(245, 158, 11, 0.6);
+		outline: none;
 	}
 
 	.link-button {
@@ -7167,35 +7174,39 @@ function openApprovalCenter() {
 		height: 32px;
 		border-radius: 8px;
 		background: rgba(34, 197, 94, 0.1);
-		border: 1px solid rgba(34, 197, 94, 0.3);
+		border: 1px solid rgba(34, 197, 94, 0.22);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 		font-size: 1rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		transition: all 0.2s ease;
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 		color: #22c55e;
 		filter: hue-rotate(90deg);
 	}
 
 	.link-button:hover {
 		background: rgba(34, 197, 94, 0.2);
-		border-color: rgba(34, 197, 94, 0.5);
-		transform: scale(1.05);
+		border-color: rgba(34, 197, 94, 0.45);
+		transform: scale(1.06);
+		box-shadow: 0 3px 10px rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 	}
 
 	.link-button:active {
-		transform: scale(0.95);
+		transform: scale(0.94);
 	}
 
 	.connection-indicator.online {
-		background: rgba(16, 185, 129, 0.1);
-		border: 1px solid rgba(16, 185, 129, 0.3);
+		background: rgba(16, 185, 129, 0.12);
+		border: 1px solid rgba(16, 185, 129, 0.28);
+		box-shadow: 0 0 8px rgba(16, 185, 129, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 	}
 
 	.connection-indicator.offline {
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: rgba(239, 68, 68, 0.12);
+		border: 1px solid rgba(239, 68, 68, 0.28);
+		box-shadow: 0 0 8px rgba(239, 68, 68, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 	}
 
 	.status-light {
@@ -7255,10 +7266,19 @@ function openApprovalCenter() {
 	}
 
 	.speed-separator {
-		height: 2px;
-		background: linear-gradient(90deg, transparent, rgba(156, 163, 175, 0.5), transparent);
-		margin: 12px 0;
-		border-top: 1px solid rgba(107, 114, 128, 0.3);
+		height: 1px;
+		/* Glass separator with glow */
+		background: linear-gradient(
+			90deg,
+			transparent,
+			rgba(255, 255, 255, 0.12) 30%,
+			rgba(255, 255, 255, 0.18) 50%,
+			rgba(255, 255, 255, 0.12) 70%,
+			transparent
+		);
+		margin: 8px 0;
+		border: none;
+		box-shadow: 0 0 6px rgba(255, 255, 255, 0.06);
 	}
 
 	/* ============ Favorites Sidebar View Styles ============ */
@@ -7274,8 +7294,10 @@ function openApprovalCenter() {
 		align-items: center;
 		gap: 8px;
 		padding: 9px 8px;
-		background: rgba(21, 163, 74, 0.08);
-		border: 1px solid rgba(21, 163, 74, 0.15);
+		/* Glass favorites button */
+		background: rgba(21, 163, 74, 0.1);
+		border: 1px solid rgba(21, 163, 74, 0.18);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 		border-radius: 8px;
 		color: #e5e7eb;
 		cursor: move;
@@ -7283,15 +7305,16 @@ function openApprovalCenter() {
 		font-weight: 500;
 		text-align: left;
 		width: 100%;
-		transition: all 0.15s ease;
+		transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 		line-height: 1.3;
 	}
 
 	.favorite-sidebar-btn:hover {
-		background: rgba(21, 163, 74, 0.2);
+		background: rgba(21, 163, 74, 0.22);
 		border-color: rgba(21, 163, 74, 0.4);
 		transform: translateX(2px);
 		color: #34d399;
+		box-shadow: 0 3px 10px rgba(21, 163, 74, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 	}
 
 	.favorite-sidebar-btn:active {
@@ -7299,17 +7322,19 @@ function openApprovalCenter() {
 	}
 
 	.favorite-sidebar-btn.dragging {
-		opacity: 0.5;
+		opacity: 0.45;
 		background: rgba(21, 163, 74, 0.05);
 		border-color: rgba(21, 163, 74, 0.08);
 		cursor: grabbing;
+		box-shadow: none;
 	}
 
 	.favorite-sidebar-btn.drag-over {
-		background: rgba(21, 163, 74, 0.25);
+		background: rgba(21, 163, 74, 0.28);
 		border-color: rgba(21, 163, 74, 0.6);
-		border-top: 3px solid #15A34A;
+		border-top: 2px solid rgba(21, 163, 74, 0.9);
 		transform: scale(1.02);
+		box-shadow: 0 4px 14px rgba(21, 163, 74, 0.35);
 	}
 
 	.fav-btn-icon {
