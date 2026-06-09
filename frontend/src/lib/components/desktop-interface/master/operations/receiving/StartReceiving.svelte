@@ -109,6 +109,76 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let vendorError = '';
   let vendorHighlightIndex = -1;
 
+  // ERP vendor ledger balance
+  let erpVendorBalance: { netBalance: number; direction: string } | null = null;
+  let erpVendorBalanceLoading = false;
+
+  // Overdue balance from Aqura DB for selected vendor + branch
+  let overdueVendorBalance: number = 0;
+  let overdueVendorBalanceLoading = false;
+
+  async function loadOverdueVendorBalance(vendor: any) {
+    if (!vendor?.erp_vendor_id || !vendor?.branch_id) return;
+    overdueVendorBalance = 0;
+    overdueVendorBalanceLoading = true;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const [billsResult, expensesResult] = await Promise.all([
+        supabase
+          .from('vendor_payment_schedule')
+          .select('final_bill_amount')
+          .eq('vendor_id', vendor.erp_vendor_id)
+          .eq('branch_id', vendor.branch_id)
+          .eq('is_paid', false)
+          .lt('due_date', today),
+        supabase
+          .from('expense_scheduler')
+          .select('amount')
+          .eq('vendor_id', vendor.erp_vendor_id)
+          .eq('branch_id', vendor.branch_id)
+          .eq('is_paid', false)
+          .lt('due_date', today)
+      ]);
+      const billsTotal = (billsResult.data || []).reduce((sum: number, r: any) => sum + (r.final_bill_amount || 0), 0);
+      const expensesTotal = (expensesResult.data || []).reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
+      overdueVendorBalance = billsTotal + expensesTotal;
+    } catch (_) {}
+    overdueVendorBalanceLoading = false;
+  }
+
+  async function loadErpVendorBalance(vendor: any) {
+    if (!vendor?.erp_vendor_id || !vendor?.branch_id) return;
+    erpVendorBalance = null;
+    erpVendorBalanceLoading = true;
+    try {
+      const { data: conn } = await supabase
+        .from('erp_connections')
+        .select('tunnel_url, erp_branch_id')
+        .eq('branch_id', vendor.branch_id)
+        .eq('is_active', true)
+        .single();
+      if (!conn?.tunnel_url) { erpVendorBalanceLoading = false; return; }
+
+      const baseUrl = conn.tunnel_url.replace(/\/+$/, '');
+      const erpBranchId = conn.erp_branch_id ? parseInt(conn.erp_branch_id) : null;
+      const branchFilter = erpBranchId ? `AND p.BranchID = ${erpBranchId}` : '';
+      const sql = `SELECT SUM(d.Debit) as TotalDebit, SUM(d.Credit) as TotalCredit, SUM(d.Debit-d.Credit) as NetBalance FROM Parties p JOIN AccLedgers l ON l.LedgerCode=p.PartyCode AND l.BranchID=p.BranchID JOIN AccTransactionMaster m ON m.BranchID=l.BranchID JOIN AccTransactionDetails d ON d.AccTransactionMasterID=m.AccTransactionMasterID AND d.BranchID=m.BranchID AND d.LedgerID=l.LedgerID WHERE p.PartyCode='${parseInt(vendor.erp_vendor_id)}' ${branchFilter} AND m.IsActive='True'`;
+
+      const resp = await fetch('/api/erp-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'query', tunnelUrl: conn.tunnel_url, sql })
+      });
+      const data = await resp.json();
+      if (data.success && data.recordset?.length > 0) {
+        const row = data.recordset[0];
+        const net = parseFloat(row.NetBalance) || 0;
+        erpVendorBalance = { netBalance: Math.abs(net), direction: net > 0 ? 'Dr' : net < 0 ? 'Cr' : 'Nil' };
+      }
+    } catch (_) {}
+    erpVendorBalanceLoading = false;
+  }
+
   // Vendor update popup state
   let showVendorUpdatePopup = false;
   let vendorToUpdate = null;
@@ -1559,6 +1629,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Vendor has all required information, proceed normally
       selectedVendor = vendor;
       currentStep = 2; // Move to bill information step
+      loadErpVendorBalance(vendor);
+      loadOverdueVendorBalance(vendor);
       await tick();
       const dateEl = document.getElementById('billDate');
       if (dateEl) { dateEl.focus(); try { dateEl.showPicker(); } catch(e) {} }
@@ -3433,6 +3505,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {selectedVendor.no_return ? '🚫 ' + $t('receiving.noReturns') : '✅ ' + $t('receiving.returnsOk')}
           </span>
         </div>
+      </div>
+
+      <!-- ERP Ledger Balance Card -->
+      <div class="erp-balance-card">
+        <div class="erp-balance-label">🏦 ERP Balance</div>
+        {#if erpVendorBalanceLoading}
+          <div class="erp-balance-loading">⏳</div>
+        {:else if erpVendorBalance}
+          <div class="erp-balance-amount {erpVendorBalance.direction === 'Cr' ? 'erp-cr' : erpVendorBalance.direction === 'Dr' ? 'erp-dr' : ''}">
+            {erpVendorBalance.netBalance.toFixed(2)} {erpVendorBalance.direction}
+          </div>
+        {:else}
+          <div class="erp-balance-na">—</div>
+        {/if}
+      </div>
+
+      <!-- Overdue Balance Card -->
+      <div class="erp-balance-card overdue-card">
+        <div class="erp-balance-label">⏰ Overdue</div>
+        {#if overdueVendorBalanceLoading}
+          <div class="erp-balance-loading">⏳</div>
+        {:else if overdueVendorBalance > 0}
+          <div class="erp-balance-amount erp-dr">
+            {overdueVendorBalance.toFixed(2)}
+          </div>
+        {:else}
+          <div class="erp-balance-amount erp-cr" style="font-size:0.85rem">Cleared</div>
+        {/if}
       </div>
     </div>
 
@@ -6155,9 +6255,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	/* Row 1: Bill Info + Return Policy side by side */
 	.step3-row-1 {
 		display: grid;
-		grid-template-columns: 3fr 2fr;
+		grid-template-columns: 3fr 2fr auto auto;
 		gap: 0.5rem;
 		margin-bottom: 0.5rem;
+		align-items: stretch;
 	}
 
 	.bill-info-card {
@@ -6279,6 +6380,40 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		padding: 0.4rem 0.5rem;
 		border-left: 3px solid #667eea;
 	}
+
+	.erp-balance-card {
+		background: #f0f4ff;
+		border: 1px solid #c7d2fe;
+		border-radius: 6px;
+		padding: 0.4rem 0.7rem;
+		border-left: 3px solid #4f46e5;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		min-width: 120px;
+		gap: 0.2rem;
+	}
+	.overdue-card {
+		background: #fff7ed;
+		border-color: #fed7aa;
+		border-left-color: #ea580c;
+	}
+	.erp-balance-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #4f46e5;
+		white-space: nowrap;
+	}
+	.erp-balance-amount {
+		font-size: 1.05rem;
+		font-weight: 800;
+		white-space: nowrap;
+	}
+	.erp-balance-amount.erp-cr { color: #15803d; }
+	.erp-balance-amount.erp-dr { color: #c2410c; }
+	.erp-balance-loading { font-size: 1rem; }
+	.erp-balance-na { color: #94a3b8; font-size: 0.85rem; }
 
 	.rp-header {
 		font-weight: 600;

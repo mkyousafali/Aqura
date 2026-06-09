@@ -42,6 +42,72 @@
 	let vendorTableSearch = '';
 	let vendorTableLimit = 50;
 
+	// ERP balance per vendor (vendor_id -> { netBalance, direction })
+	let erpBalanceMap: Map<string, { netBalance: number; direction: string }> = new Map();
+	let erpBalancesLoading = false;
+	let erpBalancesLoaded = false;
+	let erpFailedBranches: string[] = []; // branch names that failed
+
+	async function loadAllErpBalances() {
+		erpBalancesLoading = true;
+		erpBalanceMap = new Map();
+		erpFailedBranches = [];
+		try {
+			const { data: conns } = await supabase
+				.from('erp_connections')
+				.select('branch_id, branch_name, tunnel_url, erp_branch_id')
+				.eq('is_active', true);
+			if (!conns || conns.length === 0) { erpBalancesLoading = false; return; }
+
+			// One query per branch — get ALL supplier balances at once
+			const branchResults = await Promise.all(conns.map(async (conn: any) => {
+				try {
+					const erpBranchId = conn.erp_branch_id ? parseInt(conn.erp_branch_id) : null;
+					const branchFilter = erpBranchId ? `AND p.BranchID = ${erpBranchId}` : '';
+					const sql = `SELECT p.PartyCode, SUM(d.Debit) as TotalDebit, SUM(d.Credit) as TotalCredit, SUM(d.Debit-d.Credit) as NetBalance FROM Parties p JOIN AccLedgers l ON l.LedgerCode=p.PartyCode AND l.BranchID=p.BranchID JOIN AccTransactionMaster m ON m.BranchID=l.BranchID JOIN AccTransactionDetails d ON d.AccTransactionMasterID=m.AccTransactionMasterID AND d.BranchID=m.BranchID AND d.LedgerID=l.LedgerID WHERE p.PartyType='Supp' ${branchFilter} AND m.IsActive='True' GROUP BY p.PartyCode`;
+					const resp = await fetch('/api/erp-products', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ action: 'query', tunnelUrl: conn.tunnel_url, sql })
+					});
+					const data = await resp.json();
+					if (!data.success) return { rows: [], failed: conn.branch_name };
+					return { rows: data.recordset || [], failed: null };
+				} catch (_) {
+					return { rows: [], failed: conn.branch_name };
+				}
+			}));
+
+			const failed: string[] = [];
+			for (const result of branchResults) {
+				if (result.failed) failed.push(result.failed);
+			}
+			erpFailedBranches = failed;
+
+			// Sum across all branches per PartyCode
+			const totals: Map<string, { debit: number; credit: number }> = new Map();
+			for (const result of branchResults) {
+				for (const row of result.rows) {
+					const code = String(row.PartyCode);
+					const existing = totals.get(code) || { debit: 0, credit: 0 };
+					totals.set(code, {
+						debit: existing.debit + (parseFloat(row.TotalDebit) || 0),
+						credit: existing.credit + (parseFloat(row.TotalCredit) || 0)
+					});
+				}
+			}
+
+			const newMap = new Map<string, { netBalance: number; direction: string }>();
+			totals.forEach((v, code) => {
+				const net = v.debit - v.credit;
+				newMap.set(code, { netBalance: Math.abs(net), direction: net > 0 ? 'Dr' : net < 0 ? 'Cr' : 'Nil' });
+			});
+			erpBalanceMap = newMap;
+			erpBalancesLoaded = true;
+		} catch (_) {}
+		erpBalancesLoading = false;
+	}
+
 	// Pagination (detail view)
 	let currentPage = 1;
 	let pageSize = 10;
@@ -174,6 +240,7 @@
 		await Promise.all([loadInitialData(), loadBranches()]);
 		loading = false;
 		await tick();
+		loadAllErpBalances();
 	});
 
 	async function loadInitialData() {
@@ -959,6 +1026,14 @@
 					</span>
 				</div>
 
+				<!-- ERP tunnel warning -->
+				{#if erpFailedBranches.length > 0}
+					<div class="mx-0 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-xs font-semibold">
+						<span class="text-base flex-shrink-0">⚠️</span>
+						<span>ERP tunnel unreachable for: <strong>{erpFailedBranches.join(', ')}</strong> — balances may be incomplete</span>
+					</div>
+				{/if}
+
 				<!-- Vendor table with scroll-to-load-more -->
 				<div
 					class="flex-1 overflow-auto bg-white/60 backdrop-blur-xl rounded-2xl border border-white/80 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)]"
@@ -974,6 +1049,17 @@
 								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Expenses Unpaid</th>
 								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Total Unpaid</th>
 								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-orange-400 border-r border-orange-500/30 bg-orange-600">Total Overdue</th>
+								<th class="px-3 py-2 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-indigo-400 bg-indigo-600 border-r border-indigo-500/30">
+									<div class="flex items-center justify-end gap-1.5">
+										<span>ERP Balance</span>
+										{#if erpBalancesLoading}
+											<span class="text-[10px] opacity-70">⏳</span>
+										{:else}
+											<button class="px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 text-[9px] font-bold" on:click={loadAllErpBalances} title="Refresh">🔄</button>
+										{/if}
+									</div>
+								</th>
+								<th class="px-4 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-slate-400 bg-slate-600 border-r border-slate-500/30">Match</th>
 								<th class="px-4 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
 							</tr>
 						</thead>
@@ -1025,6 +1111,32 @@
 											<span class="text-xs text-slate-300 font-medium">—</span>
 										{/if}
 									</td>
+									<td class="px-4 py-3 text-right border-r border-indigo-100 bg-indigo-50/30">
+										{#if erpBalancesLoading}
+											<span class="text-xs text-indigo-300">⏳</span>
+										{:else if erpBalanceMap.has(vendor.vendor_id)}
+											{@const erb = erpBalanceMap.get(vendor.vendor_id)}
+											<span class="text-sm font-black inline-flex items-center justify-end gap-1 {erb?.direction === 'Cr' ? 'text-emerald-700' : erb?.direction === 'Dr' ? 'text-red-600' : 'text-slate-400'}">
+												{erb?.netBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												<span class="text-[10px] font-bold opacity-70">{erb?.direction}</span>
+											</span>
+										{:else}
+											<span class="text-xs text-slate-300">—</span>
+										{/if}
+									</td>
+									<td class="px-3 py-3 text-center border-r border-slate-100">
+										{#if erpBalanceMap.has(vendor.vendor_id)}
+											{@const erb = erpBalanceMap.get(vendor.vendor_id)}
+											{@const overdue = getVendorTotalUnpaid(vendor.vendor_id)}
+											{@const erpVal = erb?.netBalance ?? 0}
+											{@const matched = Math.abs(overdue - erpVal) < 1}
+											<span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-black text-white {matched ? 'bg-emerald-600' : 'bg-red-600'}">
+												{matched ? '✓' : '✗'}
+											</span>
+										{:else}
+											<span class="text-xs text-slate-300">—</span>
+										{/if}
+									</td>
 									<td class="px-4 py-3 text-center">
 										<button
 											class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-sm shadow-blue-200/60 transition-all"
@@ -1038,7 +1150,7 @@
 							{/each}
 							{#if visibleTableVendors.length === 0}
 								<tr>
-									<td colspan="8" class="px-4 py-14 text-center">
+									<td colspan="10" class="px-4 py-14 text-center">
 										<div class="text-slate-400 text-sm">
 											{vendorTableSearch ? `No vendors matching "${vendorTableSearch}"` : 'No vendors found.'}
 										</div>
@@ -1093,6 +1205,8 @@
 										<span class="text-xs text-white/60 font-medium">—</span>
 									{/if}
 								</td>
+								<td class="px-4 py-3 border-r border-indigo-500/30"></td>
+								<td class="px-4 py-3"></td>
 								<td class="px-4 py-3"></td>
 							</tr>
 						</tfoot>
