@@ -104,6 +104,57 @@
 	// Employee edit modal state
 	let showEmpEditModal = false;
 	let empEditRow: any = null;
+
+	// ERP Ledger Balance state for edit modal
+	let erpBalances: Array<{ branchName: string; erpEmpId: number; totalDebit: number; totalCredit: number; netBalance: number; direction: string }> = [];
+	let erpBalancesLoading = false;
+
+	async function loadErpBalancesForEmployee(masterRecordId: string) {
+		erpBalances = [];
+		erpBalancesLoading = true;
+		try {
+			const { data: master } = await supabase
+				.from('hr_employee_master')
+				.select('erp_employee_id_mapping')
+				.eq('id', masterRecordId)
+				.single();
+
+			if (!master?.erp_employee_id_mapping) { erpBalancesLoading = false; return; }
+
+			const { data: conns } = await supabase
+				.from('erp_connections')
+				.select('branch_id, branch_name')
+				.eq('is_active', true);
+
+			const connMap: Record<string, string> = {};
+			(conns || []).forEach((c: any) => { connMap[c.branch_id.toString()] = c.branch_name; });
+
+			const entries = Object.entries(master.erp_employee_id_mapping as Record<string, number>);
+			const results = await Promise.all(entries.map(async ([branchId, empId]) => {
+				try {
+					const resp = await fetch('/api/erp-employee-balance', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ branchId: parseInt(branchId), erpEmployeeId: empId })
+					});
+					const data = await resp.json();
+					if (data.success && data.balance) {
+						return {
+							branchName: connMap[branchId] || `Branch ${branchId}`,
+							erpEmpId: empId,
+							totalDebit: data.balance.totalDebit,
+							totalCredit: data.balance.totalCredit,
+							netBalance: data.balance.netBalance,
+							direction: data.balance.direction
+						};
+					}
+				} catch (_) {}
+				return null;
+			}));
+			erpBalances = results.filter(Boolean) as any[];
+		} catch (_) {}
+		erpBalancesLoading = false;
+	}
 	let empEdit = {
 		basicSalary: 0,
 		basicPaymentMode: 'Bank',
@@ -134,6 +185,8 @@
 
 	function openEmpEdit(row: any) {
 		empEditRow = row;
+		erpBalances = [];
+		loadErpBalancesForEmployee(row.employeeId);
 		empEdit = {
 			basicSalary: basicSalaries[row.employeeId] || 0,
 			basicPaymentMode: paymentModes[row.employeeId] || 'Bank',
@@ -3787,6 +3840,37 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 							<p class="text-xs font-bold text-slate-800 leading-tight">{empEditRow.totalExpectedWorkDays}</p>
 						</div>
 					</div>
+				</div>
+
+				<!-- ERP Ledger Balance (read-only) -->
+				<div>
+					<p class="text-xs font-bold text-blue-700 uppercase tracking-widest mb-2">🏦 ERP Ledger Balance</p>
+					{#if erpBalancesLoading}
+						<div class="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">
+							<svg class="animate-spin h-3 w-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+							Loading live balance from ERP…
+						</div>
+					{:else if erpBalances.length === 0}
+						<div class="text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">No ERP link found for this employee.</div>
+					{:else}
+						<div class="grid gap-2" style="grid-template-columns: repeat({Math.min(erpBalances.length, 4)}, 1fr)">
+							{#each erpBalances as bal}
+								<div class="rounded-lg px-3 py-2 border {bal.direction === 'Dr' ? 'bg-orange-50 border-orange-200' : bal.direction === 'Cr' ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}">
+									<p class="text-[10px] font-semibold text-slate-500 mb-1 truncate">{bal.branchName}</p>
+									<div class="flex justify-between text-[10px] text-slate-500 mb-0.5">
+										<span>Debit</span><span class="font-medium">{bal.totalDebit.toFixed(2)}</span>
+									</div>
+									<div class="flex justify-between text-[10px] text-slate-500 mb-1">
+										<span>Credit</span><span class="font-medium">{bal.totalCredit.toFixed(2)}</span>
+									</div>
+									<div class="flex justify-between items-center border-t {bal.direction === 'Dr' ? 'border-orange-200' : 'border-green-200'} pt-1">
+										<span class="text-[10px] font-bold {bal.direction === 'Dr' ? 'text-orange-700' : 'text-green-700'}">Balance</span>
+										<span class="text-sm font-bold {bal.direction === 'Dr' ? 'text-orange-700' : bal.direction === 'Cr' ? 'text-green-700' : 'text-slate-600'}">{bal.netBalance.toFixed(2)} {bal.direction}</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 
 				<!-- Allowances -->

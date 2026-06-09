@@ -33,9 +33,184 @@
 	let englishNameInput = '';
 	let arabicNameInput = '';
 
+	// Tab state
+	let activeTab = 'biometric'; // 'biometric' | 'erp'
+
+	// ERP Link state
+	let erpBranches = [];
+	let erpSelectedBranch = null;
+	let erpSearchQuery = '';
+	let erpSearchResults = [];
+	let erpIsSearching = false;
+	let erpSearchError = '';
+	let erpSelectedEmployee = null; // { erpEmployeeId, name, code }
+
+	// User search for ERP tab
+	let erpUserSearchQuery = '';
+	let erpSelectedUserId = null;
+	let erpBalance = null; // { netBalance, direction, totalDebit, totalCredit, ledgerName }
+	let erpIsLoadingBalance = false;
+	let erpSaveSuccess = '';
+	let erpSaveError = '';
+	let erpLinkedMap = {}; // user_id -> { branch_id -> erp_employee_id }
+	let erpLinkedBalances = {}; // `${userId}_${branchId}` -> balance object
+	let erpLinkedBalancesLoading = false;
+
+	async function loadLinkedBalances(userId) {
+		const links = erpLinkedMap[userId];
+		console.log('[ERP Balance] loadLinkedBalances called', userId, links);
+		if (!links || Object.keys(links).length === 0) return;
+		erpLinkedBalancesLoading = true;
+		for (const [branchId, empId] of Object.entries(links)) {
+			try {
+				console.log('[ERP Balance] fetching', branchId, empId);
+				const resp = await fetch('/api/erp-employee-balance', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ branchId: parseInt(branchId), erpEmployeeId: empId })
+				});
+				const data = await resp.json();
+				console.log('[ERP Balance] result', data);
+				if (data.success && data.balance) {
+					erpLinkedBalances[`${userId}_${branchId}`] = data.balance;
+					erpLinkedBalances = { ...erpLinkedBalances };
+				}
+			} catch (e) { console.error('[ERP Balance] error', e); }
+		}
+		erpLinkedBalancesLoading = false;
+	}
+
 	onMount(() => {
 		loadUsers();
+		loadErpBranches();
 	});
+
+	async function loadErpBranches() {
+		const { data, error } = await supabase
+			.from('erp_connections')
+			.select('id, branch_id, branch_name, tunnel_url')
+			.eq('is_active', true)
+			.order('branch_id');
+		if (!error && data) {
+			erpBranches = data;
+			if (data.length > 0) erpSelectedBranch = data[0];
+		}
+	}
+
+	async function searchErpEmployees() {
+		if (!erpSelectedBranch || erpSearchQuery.trim().length < 2) return;
+		erpIsSearching = true;
+		erpSearchError = '';
+		erpSearchResults = [];
+		try {
+			const resp = await fetch(`/api/erp-employee-balance?branchId=${erpSelectedBranch.branch_id}&query=${encodeURIComponent(erpSearchQuery.trim())}`);
+			const data = await resp.json();
+			if (data.success) {
+				erpSearchResults = data.employees;
+			} else {
+				erpSearchError = data.error || 'Search failed';
+			}
+		} catch (e) {
+			erpSearchError = 'Connection error';
+		} finally {
+			erpIsSearching = false;
+		}
+	}
+
+	function selectErpEmployee(emp) {
+		erpSelectedEmployee = {
+			erpEmployeeId: parseInt(emp.EmployeeID),
+			name: emp.EmployeeName,
+			code: emp.EmployeeCode
+		};
+		erpSearchResults = [];
+		erpSearchQuery = `${emp.EmployeeCode} - ${emp.EmployeeName}`;
+		erpBalance = null;
+		if (erpSelectedUserId) loadErpBalance();
+	}
+
+	async function loadErpBalance() {
+		if (!erpSelectedEmployee || !erpSelectedBranch) return;
+		erpIsLoadingBalance = true;
+		erpBalance = null;
+		try {
+			const resp = await fetch('/api/erp-employee-balance', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ branchId: erpSelectedBranch.branch_id, erpEmployeeId: erpSelectedEmployee.erpEmployeeId })
+			});
+			const data = await resp.json();
+			if (data.success && data.balance) {
+				erpBalance = data.balance;
+			}
+		} catch (e) {
+			console.error('Balance load error', e);
+		} finally {
+			erpIsLoadingBalance = false;
+		}
+	}
+
+	async function saveErpLink() {
+		if (!erpSelectedUserId || !erpSelectedEmployee || !erpSelectedBranch) return;
+		erpSaveError = '';
+		erpSaveSuccess = '';
+
+		// Get current master record for this user
+		const { data: master, error: masterError } = await supabase
+			.from('hr_employee_master')
+			.select('id, erp_employee_id_mapping')
+			.eq('user_id', erpSelectedUserId)
+			.single();
+
+		if (masterError || !master) {
+			erpSaveError = 'User has no master record. Please save in the Biometric tab first.';
+			return;
+		}
+
+		const currentMapping = master.erp_employee_id_mapping || {};
+		const newMapping = { ...currentMapping, [erpSelectedBranch.branch_id.toString()]: erpSelectedEmployee.erpEmployeeId };
+
+		const { error: updateError } = await supabase
+			.from('hr_employee_master')
+			.update({ erp_employee_id_mapping: newMapping, updated_at: new Date().toISOString() })
+			.eq('id', master.id);
+
+		if (updateError) {
+			erpSaveError = updateError.message;
+		} else {
+			erpSaveSuccess = `Linked ERP Employee #${erpSelectedEmployee.erpEmployeeId} (${erpSelectedEmployee.name}) to this user for ${erpSelectedBranch.branch_name}`;
+			// Update local map
+			if (!erpLinkedMap[erpSelectedUserId]) erpLinkedMap[erpSelectedUserId] = {};
+			erpLinkedMap[erpSelectedUserId][erpSelectedBranch.branch_id] = erpSelectedEmployee.erpEmployeeId;
+			erpLinkedMap = { ...erpLinkedMap };
+			// Load balance
+			await loadErpBalance();
+			await loadLinkedBalances(erpSelectedUserId);
+		}
+	}
+
+	async function removeErpLink(userId, branchId) {
+		const { data: master } = await supabase
+			.from('hr_employee_master')
+			.select('id, erp_employee_id_mapping')
+			.eq('user_id', userId)
+			.single();
+
+		if (!master) return;
+		const newMapping = { ...master.erp_employee_id_mapping };
+		delete newMapping[branchId.toString()];
+		await supabase.from('hr_employee_master').update({ erp_employee_id_mapping: newMapping }).eq('id', master.id);
+		if (erpLinkedMap[userId]) {
+			delete erpLinkedMap[userId][branchId];
+			erpLinkedMap = { ...erpLinkedMap };
+		}
+	}
+
+	$: erpFilteredUsers = users.filter(u =>
+		u.status !== 'inactive' &&
+		(u.username.toLowerCase().includes(erpUserSearchQuery.toLowerCase()) ||
+		(u.master_id && u.master_id.toLowerCase().includes(erpUserSearchQuery.toLowerCase())))
+	).slice(0, 100);
 
 	async function loadUsers() {
 		isLoading = true;
@@ -88,7 +263,7 @@
 			// Fetch existing master records (CRITICAL: must load ALL to prevent duplicate EMP IDs)
 			const { data: masterData, error: masterError } = await supabase
 				.from('hr_employee_master')
-				.select('user_id, id, name_en, name_ar, employee_id_mapping, current_branch_id, current_position_id')
+				.select('user_id, id, name_en, name_ar, employee_id_mapping, erp_employee_id_mapping, current_branch_id, current_position_id')
 				.limit(1000000);
 
 			if (masterError) {
@@ -134,6 +309,15 @@
 
 			branches = branchesData || [];
 			users = usersData || [];
+
+			// Populate ERP linked map from master data
+			const newErpLinkedMap = {};
+			masterData?.forEach(record => {
+				if (record.erp_employee_id_mapping && Object.keys(record.erp_employee_id_mapping).length > 0) {
+					newErpLinkedMap[record.user_id] = record.erp_employee_id_mapping;
+				}
+			});
+			erpLinkedMap = newErpLinkedMap;
 		} catch (error) {
 			console.error('Error loading users:', error);
 			errorMessage = error.message || 'Failed to load users';
@@ -349,6 +533,19 @@
 
 <div class="container">
 
+	<!-- Tab bar -->
+	<div class="tab-bar">
+		<button class="tab-btn" class:active={activeTab === 'biometric'} on:click={() => activeTab = 'biometric'}>
+			🖐 Biometric Link
+		</button>
+		<button class="tab-btn" class:active={activeTab === 'erp'} on:click={() => activeTab = 'erp'}>
+			🏢 ERP Employee Link
+		</button>
+	</div>
+
+	<!-- ===================== BIOMETRIC TAB ===================== -->
+	{#if activeTab === 'biometric'}
+
 	<div class="header-section">
 		<button class="load-users-btn" on:click={loadUsers} disabled={isLoading}>
 		{isLoading ? `⏳ ${$t('hr.linkId.loading')}` : `🔄 ${$t('hr.linkId.loadUsers')}`}
@@ -469,6 +666,187 @@
 			</table>
 		</div>
 	{/if}
+
+	{/if}
+	<!-- END BIOMETRIC TAB -->
+
+	<!-- ===================== ERP EMPLOYEE LINK TAB ===================== -->
+	{#if activeTab === 'erp'}
+	<div class="erp-tab">
+
+		<div class="erp-columns">
+
+			<!-- LEFT: User selector -->
+			<div class="erp-panel">
+				<h3 class="erp-panel-title">👤 Select User</h3>
+				<input
+					type="text"
+					class="search-input"
+					placeholder="Search username or EMP ID..."
+					bind:value={erpUserSearchQuery}
+				/>
+				<div class="erp-user-list">
+					{#each erpFilteredUsers as user (user.id)}
+						<button
+							class="erp-user-item"
+							class:selected={erpSelectedUserId === user.id}
+							on:click={() => { erpSelectedUserId = user.id; erpSaveSuccess = ''; erpSaveError = ''; erpBalance = null; if (erpSelectedEmployee) loadErpBalance(); loadLinkedBalances(user.id); }}
+						>
+							<span class="erp-user-emp">{user.master_id || '—'}</span>
+							<span class="erp-user-name">{user.username}</span>
+							{#if erpLinkedMap[user.id] && Object.keys(erpLinkedMap[user.id]).length > 0}
+								<span class="erp-linked-badge">🔗 {Object.keys(erpLinkedMap[user.id]).length}</span>
+							{/if}
+						</button>
+					{/each}
+					{#if erpFilteredUsers.length === 0 && users.length === 0}
+						<div class="erp-empty">Load users first (click Biometric tab → Load Users)</div>
+					{/if}
+				</div>
+			</div>
+
+			<!-- RIGHT: ERP Search + Balance -->
+			<div class="erp-panel right">
+				<h3 class="erp-panel-title">🏢 ERP Employee</h3>
+
+				<!-- Branch selector -->
+				<div class="erp-branch-row">
+					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<label>Branch:</label>
+					<select class="erp-branch-select" bind:value={erpSelectedBranch}>
+						{#each erpBranches as b (b.branch_id)}
+							<option value={b}>{b.branch_name}</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- ERP employee search -->
+				<div class="erp-search-row">
+					<input
+						type="text"
+						class="search-input"
+						placeholder="Search ERP employee by name, code or ID..."
+						bind:value={erpSearchQuery}
+						on:keydown={(e) => e.key === 'Enter' && searchErpEmployees()}
+					/>
+					<button class="erp-search-btn" on:click={searchErpEmployees} disabled={erpIsSearching}>
+						{erpIsSearching ? '⏳' : '🔍'}
+					</button>
+				</div>
+
+				{#if erpSearchError}
+					<div class="erp-error">{erpSearchError}</div>
+				{/if}
+
+				<!-- Search results dropdown -->
+				{#if erpSearchResults.length > 0}
+					<div class="erp-results">
+						{#each erpSearchResults as emp (emp.EmployeeID)}
+							<button class="erp-result-item" on:click={() => selectErpEmployee(emp)}>
+								<span class="erp-result-id">#{emp.EmployeeID}</span>
+								<span class="erp-result-code">{emp.EmployeeCode}</span>
+								<span class="erp-result-name">{emp.EmployeeName}</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+
+				<!-- Selected ERP employee -->
+				{#if erpSelectedEmployee}
+					<div class="erp-selected-emp">
+						<div class="erp-selected-row">
+							<span class="erp-label">ERP ID:</span>
+							<span class="erp-value">{erpSelectedEmployee.erpEmployeeId}</span>
+						</div>
+						<div class="erp-selected-row">
+							<span class="erp-label">Code:</span>
+							<span class="erp-value">{erpSelectedEmployee.code}</span>
+						</div>
+						<div class="erp-selected-row">
+							<span class="erp-label">Name:</span>
+							<span class="erp-value">{erpSelectedEmployee.name}</span>
+						</div>
+					</div>
+
+					<!-- Balance -->
+					{#if erpIsLoadingBalance}
+						<div class="erp-balance-loading">⏳ Loading balance...</div>
+					{:else if erpBalance}
+						<div class="erp-balance" class:balance-dr={erpBalance.direction === 'Dr'} class:balance-cr={erpBalance.direction === 'Cr'}>
+							<div class="erp-balance-title">📊 Ledger Balance — {erpSelectedBranch?.branch_name}</div>
+							<div class="erp-balance-row"><span>Debit:</span><span>{erpBalance.totalDebit.toFixed(2)}</span></div>
+							<div class="erp-balance-row"><span>Credit:</span><span>{erpBalance.totalCredit.toFixed(2)}</span></div>
+							<div class="erp-balance-main">
+								<span>Balance:</span>
+								<span class="erp-balance-amount">{erpBalance.netBalance.toFixed(2)} {erpBalance.direction}</span>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Link / Save button -->
+					{#if erpSelectedUserId}
+						<button
+							class="erp-link-btn"
+							on:click={saveErpLink}
+							disabled={!erpSelectedEmployee || !erpSelectedBranch}
+						>
+							🔗 Link ERP Employee to Selected User
+						</button>
+					{:else}
+						<div class="erp-hint">← Select a user on the left to link</div>
+					{/if}
+				{/if}
+
+				{#if erpSaveSuccess}
+					<div class="erp-success">{erpSaveSuccess}</div>
+				{/if}
+				{#if erpSaveError}
+					<div class="erp-error">{erpSaveError}</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Linked ERP IDs table for selected user -->
+		{#if erpSelectedUserId}
+			{@const selectedUser = users.find(u => u.id === erpSelectedUserId)}
+			{#if selectedUser}
+			<div class="erp-links-section">
+				<h3 class="erp-panel-title">🔗 ERP Links for: {selectedUser.username} ({selectedUser.master_id || '—'})</h3>
+				{#if Object.keys(erpLinkedMap[erpSelectedUserId] || {}).length === 0}
+					<div class="erp-empty">No ERP links yet for this user.</div>
+				{:else}
+					<table class="erp-links-table">
+						<thead>
+							<tr><th>Branch</th><th>ERP ID</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Action</th></tr>
+						</thead>
+						<tbody>
+							{#each Object.entries(erpLinkedMap[erpSelectedUserId] || {}) as [branchId, empId]}
+								{@const branchInfo = erpBranches.find(b => b.branch_id.toString() === branchId)}
+								{@const bal = erpLinkedBalances[`${erpSelectedUserId}_${branchId}`]}
+								<tr>
+									<td>{branchInfo?.branch_name || `Branch ${branchId}`}</td>
+									<td>{empId}</td>
+									<td class="num-cell">{bal ? bal.totalDebit.toFixed(2) : (erpLinkedBalancesLoading ? '…' : '—')}</td>
+									<td class="num-cell">{bal ? bal.totalCredit.toFixed(2) : (erpLinkedBalancesLoading ? '…' : '—')}</td>
+									<td class="balance-cell" class:bal-dr={bal?.direction === 'Dr'} class:bal-cr={bal?.direction === 'Cr'}>
+										{bal ? `${bal.netBalance.toFixed(2)} ${bal.direction}` : (erpLinkedBalancesLoading ? '⏳' : '—')}
+									</td>
+									<td>
+										<button class="erp-remove-btn" on:click={() => removeErpLink(erpSelectedUserId, parseInt(branchId))}>Remove</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+			</div>
+			{/if}
+		{/if}
+
+	</div>
+	{/if}
+	<!-- END ERP TAB -->
+
 </div>
 
 <!-- Modal -->
@@ -580,6 +958,222 @@
 		overflow: hidden;
 	}
 
+	/* ---- Tab bar ---- */
+	.tab-bar {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 12px;
+		flex-shrink: 0;
+	}
+	.tab-btn {
+		padding: 8px 18px;
+		border: 2px solid #e2e8f0;
+		border-radius: 10px;
+		background: #fff;
+		color: #475569;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.tab-btn.active {
+		background: linear-gradient(135deg, #7c3aed, #6d28d9);
+		color: #fff;
+		border-color: #7c3aed;
+	}
+	.tab-btn:hover:not(.active) {
+		background: #f1f5f9;
+		border-color: #7c3aed;
+		color: #7c3aed;
+	}
+
+	/* ---- ERP Tab ---- */
+	.erp-tab {
+		flex: 1;
+		overflow: hidden;
+		display: grid;
+		grid-template-rows: 1fr auto;
+		gap: 10px;
+	}
+	.erp-columns {
+		display: grid;
+		grid-template-columns: 325px 1fr;
+		gap: 10px;
+		overflow: hidden;
+	}
+	.erp-panel {
+		background: #fff;
+		border: 1px solid #e2e8f0;
+		border-radius: 10px;
+		padding: 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 7px;
+		overflow: hidden;
+	}
+	.erp-panel-title {
+		font-size: 12px;
+		font-weight: 700;
+		color: #64748b;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin: 0;
+		flex-shrink: 0;
+	}
+	.erp-user-list {
+		flex: 1;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.erp-user-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 7px 10px;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		background: #fff;
+		cursor: pointer;
+		text-align: left;
+		font-size: 12px;
+		transition: all 0.12s;
+		width: 100%;
+		box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+	}
+	.erp-user-item:hover { background: #ede9fe; border-color: #c4b5fd; box-shadow: 0 2px 6px rgba(124,58,237,0.12); }
+	.erp-user-item.selected { background: linear-gradient(135deg, #7c3aed, #6d28d9); color: #fff; border-color: #7c3aed; box-shadow: 0 2px 8px rgba(124,58,237,0.3); }
+	.erp-user-emp { font-weight: 700; min-width: 48px; font-size: 10px; opacity: 0.8; flex-shrink: 0; }
+	.erp-user-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.erp-linked-badge { background: #22c55e; color: #fff; border-radius: 999px; padding: 1px 5px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+
+	/* Right panel scrollable */
+	.erp-panel.right { overflow-y: auto; }
+
+	.erp-branch-row { display: flex; align-items: center; gap: 6px; font-size: 12px; flex-shrink: 0; }
+	.erp-branch-row label { color: #64748b; font-weight: 600; white-space: nowrap; }
+	.erp-branch-select { flex: 1; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; background: #f8fafc; }
+
+	.erp-search-row { display: flex; gap: 5px; flex-shrink: 0; }
+	.erp-search-row .search-input { font-size: 12px; padding: 6px 10px; }
+	.erp-search-btn {
+		padding: 6px 12px;
+		background: linear-gradient(135deg, #7c3aed, #6d28d9);
+		color: #fff;
+		border: none;
+		border-radius: 7px;
+		font-size: 13px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.erp-search-btn:disabled { opacity: 0.6; }
+
+	.erp-results {
+		border: 1px solid #e2e8f0;
+		border-radius: 7px;
+		max-height: 130px;
+		overflow-y: auto;
+		background: #fff;
+		flex-shrink: 0;
+	}
+	.erp-result-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 10px;
+		width: 100%;
+		background: none;
+		border: none;
+		border-bottom: 1px solid #f1f5f9;
+		cursor: pointer;
+		text-align: left;
+		font-size: 11px;
+		transition: background 0.12s;
+	}
+	.erp-result-item:hover { background: #ede9fe; }
+	.erp-result-id { font-weight: 700; color: #7c3aed; min-width: 30px; }
+	.erp-result-code { color: #64748b; min-width: 44px; }
+	.erp-result-name { flex: 1; }
+
+	.erp-selected-emp {
+		background: #f0fdf4;
+		border: 1px solid #86efac;
+		border-radius: 8px;
+		padding: 7px 10px;
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+		flex-shrink: 0;
+	}
+	.erp-selected-row { display: flex; gap: 5px; font-size: 12px; align-items: center; }
+	.erp-label { font-weight: 600; color: #475569; }
+	.erp-value { color: #1e293b; }
+
+	.erp-balance {
+		border-radius: 8px;
+		padding: 8px 12px;
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		font-size: 12px;
+		flex-shrink: 0;
+		flex-wrap: wrap;
+	}
+	.balance-dr { background: #fff7ed; border: 1px solid #fdba74; }
+	.balance-cr { background: #f0fdf4; border: 1px solid #86efac; }
+	.erp-balance-title { font-weight: 700; font-size: 11px; color: #64748b; white-space: nowrap; }
+	.erp-balance-row { display: flex; gap: 4px; color: #475569; }
+	.erp-balance-main { display: flex; gap: 6px; font-weight: 700; font-size: 14px; color: #1e293b; margin-left: auto; }
+	.erp-balance-amount { color: #7c3aed; }
+	.erp-balance-loading { font-size: 12px; color: #64748b; flex-shrink: 0; }
+
+	.erp-link-btn {
+		padding: 8px 16px;
+		background: linear-gradient(135deg, #16a34a, #15803d);
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		flex-shrink: 0;
+		align-self: flex-start;
+	}
+	.erp-link-btn:hover:not(:disabled) { opacity: 0.88; }
+	.erp-link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.erp-hint { font-size: 11px; color: #94a3b8; }
+
+	.erp-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; border-radius: 7px; padding: 6px 10px; font-size: 11px; flex-shrink: 0; }
+	.erp-error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; border-radius: 7px; padding: 6px 10px; font-size: 11px; flex-shrink: 0; }
+	.erp-empty { font-size: 11px; color: #94a3b8; }
+
+	.erp-links-section {
+		background: #fff;
+		border: 1px solid #e2e8f0;
+		border-radius: 10px;
+		padding: 10px 12px;
+		flex-shrink: 0;
+	}
+	.erp-links-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+	.erp-links-table th { background: #f8fafc; padding: 6px 10px; text-align: left; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; }
+	.erp-links-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; }
+	.num-cell { text-align: right; color: #475569; font-variant-numeric: tabular-nums; }
+	.balance-cell { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+	.bal-dr { color: #c2410c; }
+	.bal-cr { color: #15803d; }
+	.erp-remove-btn {
+		padding: 4px 10px;
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+		border-radius: 6px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.erp-remove-btn:hover { background: #fca5a5; }
+
 	.header-section {
 		display: flex;
 		gap: 10px;
@@ -654,6 +1248,20 @@
 		flex-shrink: 0;
 		display: flex;
 		gap: 10px;
+	}
+
+	.erp-panel .search-input {
+		padding: 5px 10px;
+		font-size: 12px;
+		border-radius: 7px;
+		flex: none;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	/* search row needs flex:1 on input so button stays visible */
+	.erp-search-row .search-input {
+		flex: 1;
+		width: auto;
 	}
 
 	.search-input {
