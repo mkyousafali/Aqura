@@ -323,7 +323,12 @@
     function isClaimedByCurrentUser(incident: any): boolean {
         if (!currentUserID) return false;
         
-        // Check user_statuses for claimed status - ONLY check the current user's status
+        // Primary check: use claimed_user_id (most reliable, set directly on claim)
+        if (incident.claimed_user_id && incident.claimed_user_id === currentUserID) {
+            return true;
+        }
+        
+        // Fallback: check user_statuses for claimed status
         if (incident.user_statuses) {
             const userStatuses = typeof incident.user_statuses === 'string'
                 ? JSON.parse(incident.user_statuses)
