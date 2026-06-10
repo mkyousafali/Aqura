@@ -256,24 +256,17 @@
 					to_branch_name: toDisplay
 				};
 			});
-			// Pre-cache images as blob URLs
-			cacheImages(requests);
 
-			// Load assigned IM for each BT request via RPC (avoids URL length limit with many IDs)
-			const reqIds = rows.map((r: any) => r.id);
-			if (reqIds.length > 0) {
-				try {
-					const { data: imData, error: imErr } = await supabase.rpc('get_bt_assigned_ims', { p_request_ids: reqIds });
-					if (imErr) throw imErr;
-					if (imData) {
-						for (const row of imData) {
-							btAssignedIM[row.product_request_id] = row.assigned_to_user_id;
-						}
-					}
-				} catch (err) {
-					console.error('Error loading BT assigned IMs:', err);
+			// Populate assigned IM map from the main RPC result (no second round-trip needed)
+			btAssignedIM = {};
+			for (const r of rows) {
+				if (r.assigned_im_user_id) {
+					btAssignedIM[r.id] = r.assigned_im_user_id;
 				}
 			}
+
+			// Pre-cache images as blob URLs (fire-and-forget, does not block render)
+			cacheImages(requests);
 		} catch (err: any) {
 			console.error('Error loading BT requests:', err);
 			error = err?.message || 'Failed to load requests';
