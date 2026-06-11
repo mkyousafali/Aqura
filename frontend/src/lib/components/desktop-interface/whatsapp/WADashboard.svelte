@@ -63,112 +63,46 @@
     }
 
     async function loadAllStats() {
-        await Promise.all([loadConversationStats(), loadMessageStats(), loadBroadcastStats(), loadTemplateStats(), loadRecentActivity(), loadTemplatePerformance()]);
-    }
-
-    async function loadConversationStats() {
         try {
-            const { data: convs } = await supabase.from('wa_conversations').select('status, is_bot_handling, bot_type, last_message_at, unread_count').eq('wa_account_id', accountId);
-            if (!convs) return;
+            const { data, error } = await supabase.rpc('get_wa_dashboard_data', { p_account_id: accountId });
+            if (error) throw error;
 
-            const now = new Date();
-            stats.totalConversations = convs.length;
-            stats.activeConversations = convs.filter((c: any) => c.status === 'active').length;
-            stats.unreadMessages = convs.reduce((sum: number, c: any) => sum + (c.unread_count || 0), 0);
+            const c = data.conversations;
+            stats.totalConversations  = Number(c.total)        || 0;
+            stats.activeConversations = Number(c.active)       || 0;
+            stats.unreadMessages      = Number(c.unread)       || 0;
+            stats.inside24hr          = Number(c.inside24hr)   || 0;
+            stats.outside24hr         = Number(c.outside24hr)  || 0;
+            stats.botHandled          = Number(c.botHandled)   || 0;
+            stats.aiHandled           = Number(c.aiHandled)    || 0;
+            stats.humanHandled        = Number(c.humanHandled) || 0;
+            stats.messagesIn          = Number(data.messages_in)        || 0;
+            stats.messagesOut         = Number(data.messages_out)       || 0;
+            stats.broadcastsSent      = Number(data.broadcasts_sent)    || 0;
+            stats.templatesApproved   = Number(data.templates_approved) || 0;
 
-            let inside = 0, outside = 0, bot = 0, ai = 0, human = 0;
-            for (const c of convs) {
-                if (c.status !== 'active') continue;
-                const lastMsg = c.last_message_at ? new Date(c.last_message_at) : null;
-                const hrs = lastMsg ? (now.getTime() - lastMsg.getTime()) / 3600000 : Infinity;
-                if (hrs <= 24) inside++; else outside++;
-                if (c.is_bot_handling) {
-                    if (c.bot_type === 'ai') ai++;
-                    else bot++;
-                } else human++;
-            }
-            stats.inside24hr = inside;
-            stats.outside24hr = outside;
-            stats.botHandled = bot;
-            stats.aiHandled = ai;
-            stats.humanHandled = human;
-        } catch {}
-    }
+            recentActivity = (data.recent_activity || []).map((m: any) => ({
+                id: m.id,
+                type: m.direction,
+                customer_name: m.customer_name || 'Unknown',
+                customer_phone: m.customer_phone || '',
+                preview: (m.content || '').substring(0, 60),
+                time: m.created_at
+            }));
 
-    async function loadMessageStats() {
-        try {
-            const { count: inCount } = await supabase.from('wa_messages').select('id', { count: 'exact', head: true }).eq('wa_account_id', accountId).eq('direction', 'inbound');
-            const { count: outCount } = await supabase.from('wa_messages').select('id', { count: 'exact', head: true }).eq('wa_account_id', accountId).eq('direction', 'outbound');
-            stats.messagesIn = inCount || 0;
-            stats.messagesOut = outCount || 0;
-        } catch {}
-    }
-
-    async function loadBroadcastStats() {
-        try {
-            const { count } = await supabase.from('wa_broadcasts').select('id', { count: 'exact', head: true }).eq('wa_account_id', accountId).eq('status', 'completed');
-            stats.broadcastsSent = count || 0;
-        } catch {}
-    }
-
-    async function loadTemplateStats() {
-        try {
-            const { count } = await supabase.from('wa_templates').select('id', { count: 'exact', head: true }).eq('wa_account_id', accountId).eq('status', 'APPROVED');
-            stats.templatesApproved = count || 0;
-        } catch {}
-    }
-
-
-
-    async function loadRecentActivity() {
-        try {
-            const { data } = await supabase.from('wa_messages')
-                .select('id, direction, content, customer_phone:conversation_id, created_at')
-                .eq('wa_account_id', accountId)
-                .order('created_at', { ascending: false })
-                .limit(10);
-            
-            // Also get conversation data for names
-            const { data: convs } = await supabase.from('wa_conversations')
-                .select('id, customer_name, customer_phone')
-                .eq('wa_account_id', accountId);
-
-            const convMap = new Map((convs || []).map((c: any) => [c.id, c]));
-
-            recentActivity = (data || []).map((m: any) => {
-                const conv: any = convMap.get(m.customer_phone);
-                return {
-                    id: m.id,
-                    type: m.direction,
-                    customer_name: conv?.customer_name || 'Unknown',
-                    customer_phone: conv?.customer_phone || '',
-                    preview: (m.content || '').substring(0, 60),
-                    time: m.created_at
-                };
-            });
-        } catch {}
-    }
-
-    async function loadTemplatePerformance() {
-        try {
-            const { data: broadcasts } = await supabase.from('wa_broadcasts')
-                .select('name, sent_count, delivered_count, read_count')
-                .eq('wa_account_id', accountId)
-                .eq('status', 'completed')
-                .order('created_at', { ascending: false })
-                .limit(10);
-
-            // Aggregate by template
             const perfMap = new Map<string, TemplatePerf>();
-            for (const bc of (broadcasts || [])) {
-                const existing = perfMap.get(bc.name) || { name: bc.name, sent: 0, delivered: 0, read: 0 };
-                existing.sent += bc.sent_count || 0;
-                existing.delivered += bc.delivered_count || 0;
-                existing.read += bc.read_count || 0;
-                perfMap.set(bc.name, existing);
+            for (const tp of (data.template_performance || [])) {
+                perfMap.set(tp.name, {
+                    name: tp.name,
+                    sent: Number(tp.sent) || 0,
+                    delivered: Number(tp.delivered) || 0,
+                    read: Number(tp.read) || 0
+                });
             }
             templatePerf = Array.from(perfMap.values());
-        } catch {}
+        } catch (err) {
+            console.error('Error loading WA dashboard:', err);
+        }
     }
 
     function formatTime(dateStr: string) {

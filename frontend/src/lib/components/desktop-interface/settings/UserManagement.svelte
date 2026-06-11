@@ -50,58 +50,35 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			loading = true;
 			error = null;
 
-			// Load all necessary data concurrently
-			const [usersResult, branchesResult, employeeMasterResult] = await Promise.all([
-				userManagement.getAllUsers(),
-				userManagement.getBranches(),
-				loadEmployeeMasterData()
-			]);
+			const { data, error: rpcError } = await supabase.rpc('get_user_management_data');
+			if (rpcError) throw rpcError;
 
-			users = usersResult;
-			branches = branchesResult;
+			// Map users — add position_title fallback same as getAllUsers()
+			users = (data.users || []).map((u) => ({
+				...u,
+				position_title: u.position_title_en || 'Not Assigned'
+			}));
 
-			// Create a map of user_id to employee data from hr_employee_master
+			branches = data.branches || [];
+
+			// Build employee master map keyed by user_id
 			employeeMasterMap = new Map();
-			if (employeeMasterResult && employeeMasterResult.length > 0) {
-				employeeMasterResult.forEach(emp => {
-					if (emp.user_id) {
-						employeeMasterMap.set(emp.user_id, {
-							id: emp.id,
-							name_en: emp.name_en,
-							name_ar: emp.name_ar,
-							whatsapp_number: emp.whatsapp_number,
-							email: emp.email
-						});
-					}
-				});
+			for (const emp of (data.employees || [])) {
+				if (emp.user_id) {
+					employeeMasterMap.set(emp.user_id, {
+						id: emp.id,
+						name_en: emp.name_en,
+						name_ar: emp.name_ar,
+						whatsapp_number: emp.whatsapp_number,
+						email: emp.email
+					});
+				}
 			}
-
-			console.log('Loaded users:', users);
-			console.log('Loaded branches:', branches);
-			console.log('Loaded employee master map:', employeeMasterMap);
 		} catch (err) {
 			console.error('Error loading user management data:', err);
 			error = err.message;
 		} finally {
 			loading = false;
-		}
-	}
-
-	async function loadEmployeeMasterData() {
-		try {
-			const { data, error } = await supabase
-				.from('hr_employee_master')
-				.select('id, user_id, name_en, name_ar, whatsapp_number, email');
-
-			if (error) {
-				console.error('Error loading employee master data:', error);
-				return [];
-			}
-
-			return data || [];
-		} catch (err) {
-			console.error('Error in loadEmployeeMasterData:', err);
-			return [];
 		}
 	}
 

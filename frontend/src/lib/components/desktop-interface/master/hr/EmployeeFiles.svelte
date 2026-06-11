@@ -1713,7 +1713,7 @@
 									<div class="employment-status-section">
 										<label class="status-section-label">{$t('employeeFiles.employmentStatus')}</label>
 										<div class="employment-status-rows">
-											{#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'] as status}
+											{#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated'] as status}
 												<div class="status-row">
 													<label class="status-radio-label">
 														<input 

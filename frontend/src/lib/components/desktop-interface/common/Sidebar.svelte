@@ -966,7 +966,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Employee Files #${instanceNumber}`,
+			title: `${t('nav.employeeFiles') || 'Employee Files'} #${instanceNumber}`,
 			component: EmployeeFiles,
 			componentName: "EmployeeFiles",
 			icon: '📁',
