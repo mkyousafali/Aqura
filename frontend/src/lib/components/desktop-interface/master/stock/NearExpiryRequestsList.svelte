@@ -609,13 +609,13 @@
 							class="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-xs shadow-lg shadow-emerald-200"
 							on:click={exportToExcel}
 						>
-							<span>📥</span> Export Excel
+							<span>📥</span> {$locale === 'ar' ? 'تصدير Excel' : 'Export Excel'}
 						</button>
 						<button
 							class="flex items-center gap-1.5 px-4 py-2 bg-slate-600 text-white font-bold rounded-xl hover:bg-slate-700 transition-all text-xs shadow-lg shadow-slate-200"
 							on:click={printRequest}
 						>
-							<span>🖨️</span> Print
+							<span>🖨️</span> {$locale === 'ar' ? 'طباعة' : 'Print'}
 						</button>
 						{#if selectedRequest.status === 'pending'}
 							<button

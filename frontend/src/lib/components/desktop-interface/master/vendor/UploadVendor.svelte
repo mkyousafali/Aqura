@@ -1,6 +1,7 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import * as XLSX from 'xlsx';
+	import { t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 
 	// State management
@@ -27,7 +28,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar, location_en')
+				.select('id, name_en, name_ar, location_en, location_ar')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -36,7 +37,7 @@
 			console.log('Loaded branches:', branches);
 		} catch (error) {
 			console.error('Error loading branches:', error);
-			uploadStatus = 'Error loading branches: ' + error.message;
+			uploadStatus = `${t('vendorUpload.errorLoadingBranches')} ${error.message}`;
 		} finally {
 			loadingBranches = false;
 		}
@@ -53,14 +54,14 @@
 		];
 		
 		if (!allowedTypes.includes(file.type)) {
-			uploadStatus = 'Error: Please select an Excel file (.xlsx or .xls) only';
+			uploadStatus = t('vendorUpload.errorInvalidExcel');
 			selectedFile = null;
 			return;
 		}
 
 		// Validate file size (max 50MB for large vendor lists)
 		if (file.size > 50 * 1024 * 1024) {
-			uploadStatus = 'Error: File size must be less than 50MB';
+			uploadStatus = t('vendorUpload.errorFileSize');
 			selectedFile = null;
 			return;
 		}
@@ -139,7 +140,7 @@
 		// Download as Excel file
 		XLSX.writeFile(workbook, 'vendor_upload_template.xlsx');
 
-		uploadStatus = 'Excel template downloaded successfully!';
+		uploadStatus = t('vendorUpload.templateDownloaded');
 	}
 
 	// Upload file function
@@ -147,18 +148,18 @@
 		if (!selectedFile) return;
 		
 		if (!selectedBranch) {
-			uploadStatus = 'Error: Please select a branch first';
+			uploadStatus = t('vendorUpload.errorSelectBranch');
 			return;
 		}
 
 		isUploading = true;
 		uploadProgress = 0;
-		uploadStatus = 'Starting upload...';
+		uploadStatus = t('vendorUpload.startingUpload');
 
 		try {
 			// Step 1: Read Excel file
 			uploadProgress = 10;
-			uploadStatus = 'Reading Excel file...';
+			uploadStatus = t('vendorUpload.readingExcel');
 			
 			const arrayBuffer = await selectedFile.arrayBuffer();
 			const workbook = XLSX.read(arrayBuffer);
@@ -167,15 +168,15 @@
 
 			// Step 2: Validate data structure
 			uploadProgress = 20;
-			uploadStatus = 'Validating file structure...';
+			uploadStatus = t('vendorUpload.validatingFile');
 			
 			if (jsonData.length < 2) {
 				throw new Error('File must contain header row and at least one data row');
 			}
 
-			const headers = jsonData[0];
+			const headers = (jsonData[0] as string[]).map((header) => String(header).trim());
 			const requiredHeaders = ['ERP Vendor ID', 'Vendor Name'];
-			const missingHeaders = requiredHeaders.filter(header => !headers.includes(header));
+			const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
 			
 			if (missingHeaders.length > 0) {
 				throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`);
@@ -183,7 +184,7 @@
 
 			// Step 3: Process vendor data
 			uploadProgress = 30;
-			uploadStatus = 'Processing vendor data...';
+			uploadStatus = t('vendorUpload.processingData');
 			
 			const vendorData = [];
 			const errors = [];
@@ -223,7 +224,7 @@
 
 			// Step 4: Check for duplicates in file
 			uploadProgress = 50;
-			uploadStatus = 'Checking for duplicates...';
+			uploadStatus = t('vendorUpload.checkingDuplicates');
 			
 			const seenIds = new Set();
 			const duplicateRows = [];
@@ -239,7 +240,7 @@
 
 			// Step 5: Check database for existing IDs within the same branch
 			uploadProgress = 60;
-			uploadStatus = 'Checking database for existing vendors in this branch...';
+			uploadStatus = t('vendorUpload.checkingExisting');
 			
 			const existingIds = vendorData.map(v => v.erp_vendor_id);
 			const { data: existing, error: checkError } = await supabase
@@ -262,7 +263,7 @@
 
 			// Step 6: Insert valid vendors
 			uploadProgress = 80;
-			uploadStatus = 'Saving to database...';
+			uploadStatus = t('vendorUpload.savingDatabase');
 			
 			let successful = 0;
 			if (validVendors.length > 0) {
@@ -277,7 +278,7 @@
 
 			// Step 7: Complete
 			uploadProgress = 100;
-			uploadStatus = `Upload completed successfully! ${successful} vendors added to ${getBranchName()}.`;
+			uploadStatus = t('vendorUpload.uploadCompleted', { count: successful, branch: getBranchName() });
 			
 			uploadResults = {
 				totalRecords: jsonData.length - 1, // Exclude header
@@ -289,7 +290,7 @@
 			};
 
 		} catch (error) {
-			uploadStatus = `Error: ${error.message}`;
+			uploadStatus = `${t('vendorUpload.errorPrefix')}: ${error.message}`;
 			uploadResults = null;
 		} finally {
 			isUploading = false;
@@ -298,8 +299,8 @@
 
 	// Helper function to get branch name
 	function getBranchName() {
-		if (!selectedBranch) return 'No branch selected';
-		if (!branches || branches.length === 0) return 'No branches loaded';
+		if (!selectedBranch) return t('vendorUpload.noBranchSelected');
+		if (!branches || branches.length === 0) return t('vendorUpload.noBranchesLoaded');
 		
 		console.log('Selected branch:', selectedBranch, typeof selectedBranch);
 		console.log('Available branches:', branches);
@@ -310,7 +311,7 @@
 		});
 		
 		console.log('Found branch:', branch);
-		return branch ? branch.name_en : 'Unknown Branch';
+		return branch ? ($locale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)) : t('vendorUpload.unknownBranch');
 	}
 
 	// Reset upload state
@@ -325,32 +326,32 @@
 	}
 </script>
 
-<div class="upload-vendor">
+<div class="upload-vendor" dir={$locale === 'ar' ? 'rtl' : 'ltr'} lang={$locale || 'en'}>
 	<!-- Header -->
 	<div class="header">
-		<h1 class="title">📤 Upload Vendor Data</h1>
-		<p class="subtitle">Import vendor information from Excel files</p>
+		<h1 class="title">📤 {t('vendorUpload.title')}</h1>
+		<p class="subtitle">{t('vendorUpload.subtitle')}</p>
 	</div>
 
 	<!-- Branch Selection Section -->
 	<div class="branch-section">
 		<div class="section-header">
-			<h3>🏢 Step 1: Select Branch</h3>
-			<p class="section-subtitle">Choose the branch where these vendors will be assigned</p>
+			<h3>🏢 {t('vendorUpload.step1Title')}</h3>
+			<p class="section-subtitle">{t('vendorUpload.step1Desc')}</p>
 		</div>
 		
 		{#if loadingBranches}
 			<div class="loading-state">
 				<div class="spinner"></div>
-				<span>Loading branches...</span>
+				<span>{t('vendorUpload.loadingBranches')}</span>
 			</div>
 		{:else}
 			<div class="branch-selector">
 				<select bind:value={selectedBranch} disabled={isUploading} class="branch-select">
-					<option value="">Choose a branch...</option>
+					<option value="">{t('vendorUpload.chooseBranch')}</option>
 					{#each branches as branch}
 						<option value={branch.id}>
-							{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+							{$locale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)} - {$locale === 'ar' ? (branch.location_ar || branch.location_en || '') : (branch.location_en || branch.location_ar || '')}
 						</option>
 					{/each}
 				</select>
@@ -358,7 +359,7 @@
 				{#if selectedBranch}
 					<div class="selected-branch-info">
 						<span class="success-icon">✅</span>
-						<span class="branch-label">Selected: {getBranchName()}</span>
+						<span class="branch-label">{t('vendorUpload.selectedBranchLabel')} {getBranchName()}</span>
 					</div>
 				{/if}
 			</div>
@@ -368,24 +369,24 @@
 	<!-- Template Download Section -->
 	<div class="template-section">
 		<div class="section-header">
-			<h3>📋 Step 2: Download Template</h3>
-			<p class="section-subtitle">Get the required Excel format with sample data and instructions</p>
+			<h3>📋 {t('vendorUpload.step2Title')}</h3>
+			<p class="section-subtitle">{t('vendorUpload.step2Desc')}</p>
 		</div>
 		
 		<div class="template-card">
 			<div class="template-icon">📋</div>
 			<div class="template-content">
-				<h4>Excel Template with Instructions</h4>
-				<p>Includes sample data, format requirements, and upload instructions</p>
+				<h4>{t('vendorUpload.templateCardTitle')}</h4>
+				<p>{t('vendorUpload.templateCardDesc')}</p>
 				<div class="template-features">
-					<span class="feature">✓ Required columns defined</span>
-					<span class="feature">✓ Sample vendor data</span>
-					<span class="feature">✓ Upload instructions</span>
-					<span class="feature">✓ Language support notes</span>
+					<span class="feature">✓ {t('vendorUpload.featureRequiredColumns')}</span>
+					<span class="feature">✓ {t('vendorUpload.featureSampleData')}</span>
+					<span class="feature">✓ {t('vendorUpload.featureUploadInstructions')}</span>
+					<span class="feature">✓ {t('vendorUpload.featureLanguageSupport')}</span>
 				</div>
 			</div>
 			<button class="template-btn" on:click={downloadTemplate} disabled={isUploading}>
-				📥 Download Template
+				📥 {t('vendorUpload.downloadTemplate')}
 			</button>
 		</div>
 	</div>
@@ -393,8 +394,8 @@
 	<!-- File Upload Section -->
 	<div class="upload-section">
 		<div class="section-header">
-			<h3>📤 Step 3: Upload Excel File</h3>
-			<p class="section-subtitle">Select your Excel file with vendor data</p>
+			<h3>📤 {t('vendorUpload.step3Title')}</h3>
+			<p class="section-subtitle">{t('vendorUpload.step3Desc')}</p>
 		</div>
 		
 		<div 
@@ -408,8 +409,8 @@
 			{#if !selectedBranch}
 				<div class="disabled-overlay">
 					<div class="disabled-icon">🔒</div>
-					<h4>Select a branch first</h4>
-					<p>Please choose a branch before uploading vendor data</p>
+					<h4>{t('vendorUpload.selectBranchFirst')}</h4>
+					<p>{t('vendorUpload.selectBranchFirstDesc')}</p>
 				</div>
 			{:else if selectedFile}
 				<!-- Selected File Display -->
@@ -417,10 +418,10 @@
 					<div class="file-icon">📊</div>
 					<div class="file-info">
 						<h4>{selectedFile.name}</h4>
-						<p>{(selectedFile.size / 1024 / 1024).toFixed(2)} MB • Excel File</p>
+						<p>{(selectedFile.size / 1024 / 1024).toFixed(2)} MB • {t('vendorUpload.excelFileLabel')}</p>
 						<div class="file-details">
-							<span class="file-type">✅ Valid Excel format</span>
-							<span class="branch-assignment">📍 Will be assigned to: {getBranchName()}</span>
+							<span class="file-type">✅ {t('vendorUpload.validExcelFormat')}</span>
+							<span class="branch-assignment">📍 {t('vendorUpload.willBeAssignedTo')} {getBranchName()}</span>
 						</div>
 					</div>
 					<button class="remove-file" on:click={removeFile} disabled={isUploading}>×</button>
@@ -429,10 +430,10 @@
 				<!-- Drop Zone -->
 				<div class="drop-instructions">
 					<div class="upload-icon">📁</div>
-					<h3>Drop Excel file here</h3>
-					<p>or click to browse files</p>
+					<h3>{t('vendorUpload.dropFileHere')}</h3>
+					<p>{t('vendorUpload.orClickBrowse')}</p>
 					<div class="supported-formats">
-						<span>Supported: .xlsx, .xls</span>
+						<span>{t('vendorUpload.supportedFormats')}</span>
 					</div>
 					<input 
 						type="file" 
@@ -443,10 +444,10 @@
 						disabled={isUploading}
 					/>
 					<label for="file-input" class="browse-btn" class:disabled={isUploading}>
-						Choose Excel File
+						{t('vendorUpload.chooseExcelFile')}
 					</label>
 					<div class="branch-info">
-						<span class="info-text">Vendors will be assigned to: <strong>{getBranchName()}</strong></span>
+						<span class="info-text">{t('vendorUpload.assignedTo')} <strong>{getBranchName()}</strong></span>
 					</div>
 				</div>
 			{/if}
@@ -455,34 +456,34 @@
 
 	<!-- Requirements Section -->
 	<div class="requirements-section">
-		<h3>📋 Excel File Requirements</h3>
+		<h3>📋 {t('vendorUpload.requirementsTitle')}</h3>
 		<div class="requirements-grid">
 			<div class="requirement-item">
 				<span class="req-icon">📄</span>
 				<div class="req-content">
-					<h4>File Format</h4>
-					<p>Excel files only (.xlsx, .xls)</p>
+					<h4>{t('vendorUpload.requirementFormat')}</h4>
+					<p>{t('vendorUpload.requirementFormatDesc')}</p>
 				</div>
 			</div>
 			<div class="requirement-item">
 				<span class="req-icon">📊</span>
 				<div class="req-content">
-					<h4>Required Columns</h4>
-					<p>ERP Vendor ID (number), Vendor Name (text)</p>
+					<h4>{t('vendorUpload.requirementColumns')}</h4>
+					<p>{t('vendorUpload.requirementColumnsDesc')}</p>
 				</div>
 			</div>
 			<div class="requirement-item">
 				<span class="req-icon">🌐</span>
 				<div class="req-content">
-					<h4>Language Support</h4>
-					<p>English, Arabic, or mixed text with special characters</p>
+					<h4>{t('vendorUpload.requirementLanguage')}</h4>
+					<p>{t('vendorUpload.requirementLanguageDesc')}</p>
 				</div>
 			</div>
 			<div class="requirement-item">
 				<span class="req-icon">📏</span>
 				<div class="req-content">
-					<h4>File Size</h4>
-					<p>Maximum 50MB</p>
+					<h4>{t('vendorUpload.requirementSize')}</h4>
+					<p>{t('vendorUpload.requirementSizeDesc')}</p>
 				</div>
 			</div>
 		</div>
@@ -491,7 +492,7 @@
 	<!-- Upload Progress -->
 	{#if isUploading || uploadProgress > 0}
 		<div class="progress-section">
-			<h4>Upload Progress</h4>
+			<h4>{t('vendorUpload.uploadProgress')}</h4>
 			<div class="progress-bar">
 				<div class="progress-fill" style="width: {uploadProgress}%"></div>
 			</div>
@@ -505,29 +506,29 @@
 	<!-- Upload Results -->
 	{#if uploadResults}
 		<div class="results-section">
-			<h4>📊 Upload Results</h4>
+			<h4>📊 {t('vendorUpload.uploadResults')}</h4>
 			<div class="results-grid">
 				<div class="result-card success">
 					<div class="result-number">{uploadResults.totalRecords}</div>
-					<div class="result-label">Total Records</div>
+					<div class="result-label">{t('vendorUpload.totalRecords')}</div>
 				</div>
 				<div class="result-card success">
 					<div class="result-number">{uploadResults.successful}</div>
-					<div class="result-label">Successful</div>
+					<div class="result-label">{t('vendorUpload.successful')}</div>
 				</div>
 				<div class="result-card warning">
 					<div class="result-number">{uploadResults.duplicates}</div>
-					<div class="result-label">Duplicates</div>
+					<div class="result-label">{t('vendorUpload.duplicates')}</div>
 				</div>
 				<div class="result-card error">
 					<div class="result-number">{uploadResults.failed}</div>
-					<div class="result-label">Failed</div>
+					<div class="result-label">{t('vendorUpload.failed')}</div>
 				</div>
 			</div>
 
 			{#if uploadResults.errors.length > 0}
 				<div class="errors-section">
-					<h5>❌ Errors Found</h5>
+					<h5>❌ {t('vendorUpload.errorsFound')}</h5>
 					<ul class="error-list">
 						{#each uploadResults.errors as error}
 							<li>Row {error.row}: {error.error}</li>
@@ -536,8 +537,8 @@
 				</div>
 			{:else}
 				<div class="success-section">
-					<h5>🎉 All vendors uploaded successfully!</h5>
-					<p>All {uploadResults.successful} vendors have been assigned to <strong>{uploadResults.branchName}</strong></p>
+					<h5>🎉 {t('vendorUpload.successTitle')}</h5>
+					<p>{t('vendorUpload.successMessage', { count: uploadResults.successful, branch: uploadResults.branchName })}</p>
 				</div>
 			{/if}
 		</div>
@@ -553,7 +554,7 @@
 	<!-- Action Buttons -->
 	<div class="action-buttons">
 		<button class="btn btn-secondary" on:click={resetUpload} disabled={isUploading}>
-			🔄 Reset Upload
+			🔄 {t('vendorUpload.resetUpload')}
 		</button>
 		<button 
 			class="btn btn-primary" 
@@ -561,9 +562,9 @@
 			disabled={!selectedFile || !selectedBranch || isUploading}
 		>
 			{#if isUploading}
-				<span class="spinner"></span> Uploading...
+				<span class="spinner"></span> {t('vendorUpload.uploading')}
 			{:else}
-				📤 Upload Vendors to {selectedBranch ? getBranchName() : 'Branch'}
+				📤 {t('vendorUpload.uploadVendorsTo')} {selectedBranch ? getBranchName() : t('vendorUpload.branchFallback')}
 			{/if}
 		</button>
 	</div>

@@ -2,6 +2,13 @@
 	// Category Manager Component
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { locale, t } from '$lib/i18n';
+
+	// Helper to get locale-aware category name
+	function getCatName(cat) {
+		if (!cat) return '';
+		return $locale === 'ar' ? (cat.name_ar || cat.name_en) : (cat.name_en || cat.name_ar);
+	}
 
 	// Data variables
 	let parentCategories = [];
@@ -171,7 +178,7 @@
 	async function saveParentCategory() {
 		try {
 			if (!parentForm.name_en.trim() || !parentForm.name_ar.trim()) {
-				alert('Please fill in both English and Arabic names');
+				alert($locale === 'ar' ? 'يرجى ملء الاسمين بالعربية والإنجليزية' : 'Please fill in both English and Arabic names');
 				return;
 			}
 
@@ -186,7 +193,7 @@
 					.eq('id', editingCategory.id);
 
 				if (error) throw error;
-				alert('✅ Parent category updated successfully!');
+				alert($locale === 'ar' ? '✅ تم تحديث الفئة الرئيسية بنجاح!' : '✅ Parent category updated successfully!');
 			} else {
 				const { error } = await supabase
 					.from('expense_parent_categories')
@@ -196,7 +203,7 @@
 					});
 
 				if (error) throw error;
-				alert('✅ Parent category created successfully!');
+				alert($locale === 'ar' ? '✅ تم إنشاء الفئة الرئيسية بنجاح!' : '✅ Parent category created successfully!');
 			}
 
 			closeParentModal();
@@ -211,7 +218,7 @@
 	async function saveSubCategory() {
 		try {
 			if (!subForm.parent_category_id || !subForm.name_en.trim() || !subForm.name_ar.trim()) {
-				alert('Please fill in all fields');
+				alert($locale === 'ar' ? 'يرجى ملء جميع الحقول' : 'Please fill in all fields');
 				return;
 			}
 
@@ -230,7 +237,7 @@
 					.eq('id', editingCategory.id);
 
 				if (error) throw error;
-				alert('✅ Sub category updated successfully!');
+				alert($locale === 'ar' ? '✅ تم تحديث الفئة الفرعية بنجاح!' : '✅ Sub category updated successfully!');
 			} else {
 				const { error } = await supabase
 					.from('expense_sub_categories')
@@ -241,7 +248,7 @@
 					});
 
 				if (error) throw error;
-				alert('✅ Sub category created successfully!');
+				alert($locale === 'ar' ? '✅ تم إنشاء الفئة الفرعية بنجاح!' : '✅ Sub category created successfully!');
 			}
 
 			closeSubModal();
@@ -254,7 +261,8 @@
 
 	// Delete parent category
 	async function deleteParentCategory(category) {
-		if (!confirm(`Are you sure you want to delete "${category.name_en}"?\n\nThis will also delete all related sub-categories.`)) {
+		const name = getCatName(category);
+		if (!confirm($locale === 'ar' ? `هل أنت متأكد من حذف "${name}"؟\n\nسيؤدي هذا إلى حذف جميع الفئات الفرعية المرتبطة.` : `Are you sure you want to delete "${name}"?\n\nThis will also delete all related sub-categories.`)) {
 			return;
 		}
 
@@ -265,7 +273,7 @@
 				.eq('id', category.id);
 
 			if (error) throw error;
-			alert('✅ Parent category deleted successfully!');
+			alert($locale === 'ar' ? '✅ تم حذف الفئة الرئيسية بنجاح!' : '✅ Parent category deleted successfully!');
 			await loadCategories();
 		} catch (err) {
 			console.error('Error deleting parent category:', err);
@@ -275,7 +283,8 @@
 
 	// Delete sub category
 	async function deleteSubCategory(category) {
-		if (!confirm(`Are you sure you want to delete "${category.name_en}"?`)) {
+		const name = getCatName(category);
+		if (!confirm($locale === 'ar' ? `هل أنت متأكد من حذف "${name}"؟` : `Are you sure you want to delete "${name}"?`)) {
 			return;
 		}
 
@@ -286,7 +295,7 @@
 				.eq('id', category.id);
 
 			if (error) throw error;
-			alert('✅ Sub category deleted successfully!');
+			alert($locale === 'ar' ? '✅ تم حذف الفئة الفرعية بنجاح!' : '✅ Sub category deleted successfully!');
 			await loadCategories();
 		} catch (err) {
 			console.error('Error deleting sub category:', err);
@@ -300,20 +309,20 @@
 	}
 </script>
 
-<div class="category-manager">
+<div class="category-manager" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 	<div class="header">
 		<div class="title-section">
-			<h1 class="title">📁 Category Manager</h1>
-			<p class="subtitle">Manage expense categories and classifications</p>
+			<h1 class="title">📁 {$locale === 'ar' ? 'مدير الفئات' : 'Category Manager'}</h1>
+			<p class="subtitle">{$locale === 'ar' ? 'إدارة فئات المصاريف والتصنيفات' : 'Manage expense categories and classifications'}</p>
 		</div>
 		<div class="header-actions">
 			<button class="btn-primary" on:click={() => openParentModal()}>
 				<span>➕</span>
-				Create Parent Category
+				{$locale === 'ar' ? 'إنشاء فئة رئيسية' : 'Create Parent Category'}
 			</button>
 			<button class="btn-secondary" on:click={() => openSubModal()}>
 				<span>➕</span>
-				Create Sub Category
+				{$locale === 'ar' ? 'إنشاء فئة فرعية' : 'Create Sub Category'}
 			</button>
 		</div>
 	</div>
@@ -325,13 +334,13 @@
 				class="tab {activeTab === 'parent' ? 'active' : ''}"
 				on:click={() => { activeTab = 'parent'; searchQuery = ''; handleSearch(); }}
 			>
-				Parent Categories ({parentCategories.length})
+				{$locale === 'ar' ? 'الفئات الرئيسية' : 'Parent Categories'} ({parentCategories.length})
 			</button>
 			<button 
 				class="tab {activeTab === 'sub' ? 'active' : ''}"
 				on:click={() => { activeTab = 'sub'; searchQuery = ''; selectedParentFilter = ''; handleSearch(); }}
 			>
-				Sub Categories ({subCategories.length})
+				{$locale === 'ar' ? 'الفئات الفرعية' : 'Sub Categories'} ({subCategories.length})
 			</button>
 		</div>
 
@@ -342,7 +351,7 @@
 					type="text" 
 					bind:value={searchQuery}
 					on:input={handleSearch}
-					placeholder="Search by name (English or Arabic)..."
+					placeholder={$locale === 'ar' ? 'ابحث بالاسم (عربي أو إنجليزي)...' : 'Search by name (English or Arabic)...'}
 					class="search-input"
 				/>
 			</div>
@@ -350,9 +359,9 @@
 			{#if activeTab === 'sub'}
 				<div class="filter-box">
 					<select bind:value={selectedParentFilter} on:change={handleParentFilter} class="filter-select">
-						<option value="">All Parent Categories</option>
+						<option value="">{$locale === 'ar' ? 'كل الفئات الرئيسية' : 'All Parent Categories'}</option>
 						{#each parentCategories as parent}
-							<option value={parent.id}>{parent.name_en} - {parent.name_ar}</option>
+							<option value={parent.id}>{getCatName(parent)}</option>
 						{/each}
 					</select>
 				</div>
@@ -363,7 +372,7 @@
 		{#if isLoading}
 			<div class="loading">
 				<div class="spinner"></div>
-				<span>Loading categories...</span>
+				<span>{$locale === 'ar' ? 'جاري تحميل الفئات...' : 'Loading categories...'}</span>
 			</div>
 		{:else if error}
 			<div class="error">
@@ -377,25 +386,23 @@
 					<table class="categories-table">
 						<thead>
 							<tr>
-								<th>English Name</th>
-								<th>Arabic Name</th>
-								<th>Sub Categories</th>
-								<th>Created Date</th>
-								<th>Actions</th>
+                                                                <th>{$locale === 'ar' ? 'الاسم' : 'Name'}</th>
+								<th>{$locale === 'ar' ? 'الفئات الفرعية' : 'Sub Categories'}</th>
+								<th>{$locale === 'ar' ? 'تاريخ الإنشاء' : 'Created Date'}</th>
+								<th>{$locale === 'ar' ? 'الإجراءات' : 'Actions'}</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each filteredParentCategories as category}
 								<tr>
-									<td class="name-cell">{category.name_en}</td>
-									<td class="name-cell arabic">{category.name_ar}</td>
+									<td class="name-cell">{getCatName(category)}</td>
 									<td class="count-cell">{getSubCategoryCount(category.id)}</td>
-									<td class="date-cell">{new Date(category.created_at).toLocaleDateString()}</td>
+									<td class="date-cell">{new Date(category.created_at).toLocaleDateString($locale === 'ar' ? 'ar-SA' : 'en-US')}</td>
 									<td class="actions-cell">
-										<button class="btn-edit" on:click={() => openParentModal(category)} title="Edit">
+										<button class="btn-edit" on:click={() => openParentModal(category)} title={$locale === 'ar' ? 'تعديل' : 'Edit'}>
 											✏️
 										</button>
-										<button class="btn-delete" on:click={() => deleteParentCategory(category)} title="Delete">
+										<button class="btn-delete" on:click={() => deleteParentCategory(category)} title={$locale === 'ar' ? 'حذف' : 'Delete'}>
 											🗑️
 										</button>
 									</td>
@@ -406,8 +413,8 @@
 
 					{#if filteredParentCategories.length === 0}
 						<div class="no-data">
-							<span class="no-data-icon">�</span>
-							<span>No parent categories found</span>
+							<span class="no-data-icon">📋</span>
+							<span>{$locale === 'ar' ? 'لا توجد فئات رئيسية' : 'No parent categories found'}</span>
 						</div>
 					{/if}
 				</div>
@@ -419,11 +426,10 @@
 					<table class="categories-table">
 						<thead>
 							<tr>
-								<th>Parent Category</th>
-								<th>English Name</th>
-								<th>Arabic Name</th>
-								<th>Created Date</th>
-								<th>Actions</th>
+                                                                <th>{$locale === 'ar' ? 'الفئة الرئيسية' : 'Parent Category'}</th>
+								<th>{$locale === 'ar' ? 'الاسم' : 'Name'}</th>
+								<th>{$locale === 'ar' ? 'تاريخ الإنشاء' : 'Created Date'}</th>
+								<th>{$locale === 'ar' ? 'الإجراءات' : 'Actions'}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -431,17 +437,16 @@
 								<tr>
 									<td class="parent-cell">
 										<div class="parent-badge">
-											{category.expense_parent_categories?.name_en || 'N/A'}
+											{getCatName(category.expense_parent_categories) || 'N/A'}
 										</div>
 									</td>
-									<td class="name-cell">{category.name_en}</td>
-									<td class="name-cell arabic">{category.name_ar}</td>
-									<td class="date-cell">{new Date(category.created_at).toLocaleDateString()}</td>
+									<td class="name-cell">{getCatName(category)}</td>
+									<td class="date-cell">{new Date(category.created_at).toLocaleDateString($locale === 'ar' ? 'ar-SA' : 'en-US')}</td>
 									<td class="actions-cell">
-										<button class="btn-edit" on:click={() => openSubModal(category)} title="Edit">
+										<button class="btn-edit" on:click={() => openSubModal(category)} title={$locale === 'ar' ? 'تعديل' : 'Edit'}>
 											✏️
 										</button>
-										<button class="btn-delete" on:click={() => deleteSubCategory(category)} title="Delete">
+										<button class="btn-delete" on:click={() => deleteSubCategory(category)} title={$locale === 'ar' ? 'حذف' : 'Delete'}>
 											🗑️
 										</button>
 									</td>
@@ -453,7 +458,7 @@
 					{#if filteredSubCategories.length === 0}
 						<div class="no-data">
 							<span class="no-data-icon">📋</span>
-							<span>No sub categories found</span>
+							<span>{$locale === 'ar' ? 'لا توجد فئات فرعية' : 'No sub categories found'}</span>
 						</div>
 					{/if}
 				</div>
@@ -467,23 +472,23 @@
 	<div class="modal-overlay" on:click={closeParentModal}>
 		<div class="modal" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>{isEditMode ? 'Edit' : 'Create'} Parent Category</h3>
+				<h3>{isEditMode ? ($locale === 'ar' ? 'تعديل' : 'Edit') : ($locale === 'ar' ? 'إنشاء' : 'Create')} {$locale === 'ar' ? 'فئة رئيسية' : 'Parent Category'}</h3>
 				<button class="close-btn" on:click={closeParentModal}>×</button>
 			</div>
 			
 			<div class="modal-content">
 				<div class="form-group">
-					<label for="parent_name_en">English Name</label>
+					<label for="parent_name_en">{$locale === 'ar' ? 'الاسم بالإنجليزية' : 'English Name'}</label>
 					<input 
 						type="text" 
 						id="parent_name_en"
 						bind:value={parentForm.name_en}
-						placeholder="Enter English name"
+						placeholder={$locale === 'ar' ? 'أدخل الاسم بالإنجليزية' : 'Enter English name'}
 					/>
 				</div>
 				
 				<div class="form-group">
-					<label for="parent_name_ar">Arabic Name</label>
+					<label for="parent_name_ar">{$locale === 'ar' ? 'الاسم بالعربية' : 'Arabic Name'}</label>
 					<input 
 						type="text" 
 						id="parent_name_ar"
@@ -495,9 +500,9 @@
 			</div>
 			
 			<div class="modal-footer">
-				<button class="btn-cancel" on:click={closeParentModal}>Cancel</button>
+				<button class="btn-cancel" on:click={closeParentModal}>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
 				<button class="btn-save" on:click={saveParentCategory}>
-					{isEditMode ? 'Update' : 'Create'}
+					{isEditMode ? ($locale === 'ar' ? 'تحديث' : 'Update') : ($locale === 'ar' ? 'إنشاء' : 'Create')}
 				</button>
 			</div>
 		</div>
@@ -509,33 +514,33 @@
 	<div class="modal-overlay" on:click={closeSubModal}>
 		<div class="modal" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>{isEditMode ? 'Edit' : 'Create'} Sub Category</h3>
+				<h3>{isEditMode ? ($locale === 'ar' ? 'تعديل' : 'Edit') : ($locale === 'ar' ? 'إنشاء' : 'Create')} {$locale === 'ar' ? 'فئة فرعية' : 'Sub Category'}</h3>
 				<button class="close-btn" on:click={closeSubModal}>×</button>
 			</div>
 			
 			<div class="modal-content">
 				<div class="form-group">
-					<label for="parent_category">Parent Category</label>
+					<label for="parent_category">{$locale === 'ar' ? 'الفئة الرئيسية' : 'Parent Category'}</label>
 					<select id="parent_category" bind:value={subForm.parent_category_id}>
-						<option value={null}>Select parent category...</option>
+						<option value={null}>{$locale === 'ar' ? 'اختر الفئة الرئيسية...' : 'Select parent category...'}</option>
 						{#each parentCategories as parent}
-							<option value={parent.id}>{parent.name_en} - {parent.name_ar}</option>
+							<option value={parent.id}>{getCatName(parent)}</option>
 						{/each}
 					</select>
 				</div>
 
 				<div class="form-group">
-					<label for="sub_name_en">English Name</label>
+					<label for="sub_name_en">{$locale === 'ar' ? 'الاسم بالإنجليزية' : 'English Name'}</label>
 					<input 
 						type="text" 
 						id="sub_name_en"
 						bind:value={subForm.name_en}
-						placeholder="Enter English name"
+						placeholder={$locale === 'ar' ? 'أدخل الاسم بالإنجليزية' : 'Enter English name'}
 					/>
 				</div>
 				
 				<div class="form-group">
-					<label for="sub_name_ar">Arabic Name</label>
+					<label for="sub_name_ar">{$locale === 'ar' ? 'الاسم بالعربية' : 'Arabic Name'}</label>
 					<input 
 						type="text" 
 						id="sub_name_ar"
@@ -547,9 +552,9 @@
 			</div>
 			
 			<div class="modal-footer">
-				<button class="btn-cancel" on:click={closeSubModal}>Cancel</button>
+				<button class="btn-cancel" on:click={closeSubModal}>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
 				<button class="btn-save" on:click={saveSubCategory}>
-					{isEditMode ? 'Update' : 'Create'}
+					{isEditMode ? ($locale === 'ar' ? 'تحديث' : 'Update') : ($locale === 'ar' ? 'إنشاء' : 'Create')}
 				</button>
 			</div>
 		</div>
@@ -557,171 +562,182 @@
 {/if}
 
 <style>
+	/* ===================== BASE ===================== */
 	.category-manager {
-		padding: 2rem;
-		background: #f8fafc;
+		padding: 0.75rem 1rem;
+		background: linear-gradient(135deg, #e8f0fe 0%, #f0f7ff 50%, #e8f4f8 100%);
 		height: 100%;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
+		gap: 0.75rem;
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 	}
 
+	/* ===================== HEADER ===================== */
 	.header {
-		margin-bottom: 2rem;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding-bottom: 16px;
-		border-bottom: 2px solid #e5e7eb;
+		background: rgba(255, 255, 255, 0.72);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border: 1px solid rgba(255, 255, 255, 0.9);
+		border-radius: 14px;
+		padding: 0.9rem 1.25rem;
+		box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+		flex-shrink: 0;
 	}
 
-	.title-section {
-		flex: 1;
-	}
+	.title-section { flex: 1; }
 
 	.title {
-		font-size: 2rem;
+		font-size: 1.25rem;
 		font-weight: 700;
 		color: #1e293b;
-		margin: 0 0 0.5rem 0;
+		margin: 0 0 0.2rem 0;
 	}
 
 	.subtitle {
 		color: #64748b;
-		font-size: 1rem;
+		font-size: 0.82rem;
 		margin: 0;
 	}
 
 	.header-actions {
 		display: flex;
-		gap: 12px;
+		gap: 0.6rem;
 	}
 
 	.btn-primary, .btn-secondary {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 10px 20px;
+		gap: 6px;
+		padding: 0.45rem 0.9rem;
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
 		font-weight: 600;
-		font-size: 14px;
-		transition: all 0.2s ease;
+		font-size: 0.82rem;
+		transition: all 0.2s;
+		white-space: nowrap;
 	}
 
 	.btn-primary {
-		background: #3b82f6;
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
 		color: white;
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
 	}
-
 	.btn-primary:hover {
-		background: #2563eb;
 		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.38);
 	}
 
 	.btn-secondary {
-		background: #10b981;
+		background: linear-gradient(135deg, #10b981, #059669);
 		color: white;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.22);
 	}
-
 	.btn-secondary:hover {
-		background: #059669;
 		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
 	}
 
+	/* ===================== CONTENT CARD ===================== */
 	.content {
 		flex: 1;
-		background: white;
-		border-radius: 12px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-		padding: 2rem;
+		background: rgba(255, 255, 255, 0.75);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border: 1px solid rgba(255, 255, 255, 0.9);
+		border-radius: 14px;
+		padding: 1.25rem;
 		display: flex;
 		flex-direction: column;
+		box-shadow: 0 4px 20px rgba(59, 130, 246, 0.07);
+		min-height: 0;
 	}
 
+	/* ===================== TABS ===================== */
 	.tabs {
 		display: flex;
-		gap: 8px;
-		margin-bottom: 24px;
-		border-bottom: 2px solid #e5e7eb;
+		gap: 6px;
+		margin-bottom: 1rem;
+		border-bottom: 1.5px solid #e2e8f0;
 	}
 
 	.tab {
-		padding: 12px 24px;
+		padding: 0.5rem 1.1rem;
 		background: none;
 		border: none;
-		border-bottom: 3px solid transparent;
+		border-bottom: 2.5px solid transparent;
 		cursor: pointer;
 		font-weight: 600;
-		font-size: 14px;
-		color: #6b7280;
-		transition: all 0.2s ease;
-		margin-bottom: -2px;
+		font-size: 0.84rem;
+		color: #64748b;
+		transition: all 0.2s;
+		margin-bottom: -1.5px;
+		border-radius: 6px 6px 0 0;
 	}
-
-	.tab:hover {
-		color: #3b82f6;
-		background: #f0f9ff;
-	}
-
+	.tab:hover { color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
 	.tab.active {
-		color: #3b82f6;
+		color: #2563eb;
 		border-bottom-color: #3b82f6;
-		background: #f0f9ff;
+		background: rgba(59, 130, 246, 0.06);
 	}
 
+	/* ===================== FILTERS ===================== */
 	.filter-section {
 		display: flex;
-		gap: 16px;
-		margin-bottom: 24px;
+		gap: 0.75rem;
+		margin-bottom: 1rem;
 	}
 
-	.search-box {
-		flex: 1;
-	}
+	.search-box { flex: 1; }
 
 	.search-input {
 		width: 100%;
-		padding: 12px 16px;
-		border: 1px solid #d1d5db;
+		padding: 0.48rem 0.875rem;
+		border: 1px solid #e2e8f0;
 		border-radius: 8px;
-		font-size: 14px;
-		transition: border-color 0.2s ease;
+		font-size: 0.84rem;
+		background: rgba(255, 255, 255, 0.8);
+		color: #1e293b;
+		transition: all 0.2s;
 	}
-
+	.search-input::placeholder { color: #b0bec5; }
 	.search-input:focus {
 		outline: none;
 		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		background: white;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 
-	.filter-box {
-		min-width: 300px;
-	}
+	.filter-box { min-width: 260px; }
 
 	.filter-select {
 		width: 100%;
-		padding: 12px 16px;
-		border: 1px solid #d1d5db;
+		padding: 0.48rem 0.875rem;
+		border: 1px solid #e2e8f0;
 		border-radius: 8px;
-		font-size: 14px;
-		transition: border-color 0.2s ease;
+		font-size: 0.84rem;
+		background: rgba(255, 255, 255, 0.8);
+		color: #1e293b;
 		cursor: pointer;
+		transition: all 0.2s;
 	}
-
 	.filter-select:focus {
 		outline: none;
 		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 
+	/* ===================== TABLE ===================== */
 	.table-container {
 		flex: 1;
 		overflow-x: auto;
+		border-radius: 10px;
+		border: 1px solid #e2e8f0;
 	}
 
 	.categories-table {
@@ -730,163 +746,136 @@
 	}
 
 	.categories-table thead {
-		background: #f9fafb;
-		border-bottom: 2px solid #e5e7eb;
+		position: sticky;
+		top: 0;
+		z-index: 5;
 	}
 
 	.categories-table th {
-		padding: 12px 16px;
+		padding: 0.65rem 1rem;
 		text-align: left;
 		font-weight: 600;
-		font-size: 13px;
-		color: #374151;
+		font-size: 0.72rem;
+		color: #64748b;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		background: rgba(241, 245, 249, 0.95);
+		border-bottom: 1px solid #e2e8f0;
+		border-right: 1px solid #f1f5f9;
+		white-space: nowrap;
+		backdrop-filter: blur(10px);
 	}
+	.categories-table th:last-child { border-right: none; }
 
 	.categories-table tbody tr {
-		border-bottom: 1px solid #e5e7eb;
-		transition: background-color 0.2s ease;
+		border-bottom: 1px solid #f1f5f9;
+		transition: background 0.15s;
 	}
-
-	.categories-table tbody tr:hover {
-		background: #f9fafb;
-	}
+	.categories-table tbody tr:hover { background: rgba(59, 130, 246, 0.03); }
+	.categories-table tbody tr:last-child { border-bottom: none; }
 
 	.categories-table td {
-		padding: 12px 16px;
-		font-size: 14px;
-		color: #1f2937;
+		padding: 0.6rem 1rem;
+		font-size: 0.84rem;
+		color: #374151;
+		border-right: 1px solid #f8fafc;
 	}
+	.categories-table td:last-child { border-right: none; }
 
-	.name-cell {
-		font-weight: 500;
-	}
-
-	.name-cell.arabic {
-		direction: rtl;
-		text-align: right;
-	}
+	.name-cell { font-weight: 500; color: #1e293b; }
 
 	.count-cell {
 		text-align: center;
-		font-weight: 600;
-		color: #3b82f6;
+		font-weight: 700;
+		color: #2563eb;
 	}
 
-	.date-cell {
-		color: #6b7280;
-		font-size: 13px;
-	}
+	.date-cell { color: #64748b; font-size: 0.78rem; }
 
-	.parent-cell {
-		max-width: 200px;
-	}
+	.parent-cell { max-width: 200px; }
 
 	.parent-badge {
 		display: inline-block;
-		padding: 4px 12px;
+		padding: 0.18rem 0.65rem;
 		background: #dbeafe;
 		color: #1e40af;
+		border: 1px solid #bfdbfe;
 		border-radius: 12px;
-		font-size: 12px;
+		font-size: 0.75rem;
 		font-weight: 600;
 	}
 
 	.actions-cell {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
 		justify-content: flex-end;
 	}
 
 	.btn-edit, .btn-delete {
-		padding: 6px 12px;
+		padding: 0.3rem 0.6rem;
 		border: none;
 		border-radius: 6px;
 		cursor: pointer;
-		font-size: 16px;
-		transition: all 0.2s ease;
+		font-size: 0.9rem;
+		transition: all 0.2s;
 	}
+	.btn-edit { background: #fef9c3; color: #92400e; border: 1px solid #fde68a; }
+	.btn-edit:hover { background: #fde68a; transform: scale(1.08); }
+	.btn-delete { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+	.btn-delete:hover { background: #fecaca; transform: scale(1.08); }
 
-	.btn-edit {
-		background: #fef3c7;
-		color: #92400e;
-	}
-
-	.btn-edit:hover {
-		background: #fde68a;
-		transform: scale(1.1);
-	}
-
-	.btn-delete {
-		background: #fee2e2;
-		color: #991b1b;
-	}
-
-	.btn-delete:hover {
-		background: #fecaca;
-		transform: scale(1.1);
-	}
-
+	/* ===================== STATES ===================== */
 	.loading {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 60px;
-		gap: 16px;
-		color: #6b7280;
+		padding: 3rem;
+		gap: 0.75rem;
+		color: #64748b;
+		font-size: 0.88rem;
 	}
 
 	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #e5e7eb;
+		width: 32px;
+		height: 32px;
+		border: 3px solid #e2e8f0;
 		border-top-color: #3b82f6;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
+	@keyframes spin { to { transform: rotate(360deg); } }
 
 	.error {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 12px;
-		padding: 40px;
+		gap: 10px;
+		padding: 2.5rem;
 		color: #dc2626;
 		font-weight: 500;
+		font-size: 0.88rem;
 	}
-
-	.error-icon {
-		font-size: 24px;
-	}
+	.error-icon { font-size: 1.5rem; }
 
 	.no-data {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 60px;
-		color: #9ca3af;
-		gap: 12px;
+		padding: 3rem;
+		color: #94a3b8;
+		gap: 0.6rem;
+		font-size: 0.88rem;
 	}
+	.no-data-icon { font-size: 2.5rem; }
 
-	.no-data-icon {
-		font-size: 48px;
-	}
-
-	/* Modal Styles */
+	/* ===================== MODAL ===================== */
 	.modal-overlay {
 		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
+		inset: 0;
+		background: rgba(15, 23, 42, 0.35);
+		backdrop-filter: blur(4px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -894,113 +883,120 @@
 	}
 
 	.modal {
-		background: white;
-		border-radius: 12px;
+		background: rgba(255, 255, 255, 0.97);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border: 1px solid rgba(255, 255, 255, 0.9);
+		border-radius: 16px;
 		width: 90%;
-		max-width: 500px;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+		max-width: 480px;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+		overflow: hidden;
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 24px;
-		border-bottom: 1px solid #e5e7eb;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid #f1f5f9;
+		background: rgba(248, 250, 252, 0.8);
 	}
 
 	.modal-header h3 {
-		font-size: 18px;
-		font-weight: 600;
-		color: #1f2937;
+		font-size: 1rem;
+		font-weight: 700;
+		color: #1e293b;
 		margin: 0;
 	}
 
 	.close-btn {
-		background: none;
+		width: 28px;
+		height: 28px;
 		border: none;
-		font-size: 24px;
-		color: #9ca3af;
+		background: #f1f5f9;
+		border-radius: 7px;
 		cursor: pointer;
-		padding: 4px;
+		font-size: 1rem;
+		color: #64748b;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
 		line-height: 1;
 	}
-
-	.close-btn:hover {
-		color: #6b7280;
-	}
+	.close-btn:hover { background: #fee2e2; color: #dc2626; }
 
 	.modal-content {
-		padding: 24px;
+		padding: 1.25rem;
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: 1rem;
 	}
 
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 5px;
 	}
 
 	.form-group label {
-		font-weight: 500;
+		font-weight: 600;
 		color: #374151;
-		font-size: 14px;
+		font-size: 0.82rem;
 	}
 
 	.form-group input,
 	.form-group select {
-		padding: 10px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 14px;
-		transition: border-color 0.2s ease;
+		padding: 0.48rem 0.75rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 0.84rem;
+		background: rgba(255, 255, 255, 0.9);
+		color: #1e293b;
+		transition: all 0.2s;
 	}
-
 	.form-group input:focus,
 	.form-group select:focus {
 		outline: none;
 		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		background: white;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 
 	.modal-footer {
 		display: flex;
 		justify-content: flex-end;
-		gap: 12px;
-		padding: 24px;
-		border-top: 1px solid #e5e7eb;
+		gap: 0.6rem;
+		padding: 0.9rem 1.25rem;
+		border-top: 1px solid #f1f5f9;
+		background: rgba(248, 250, 252, 0.6);
 	}
 
 	.btn-cancel {
-		padding: 10px 20px;
-		border: 1px solid #d1d5db;
+		padding: 0.45rem 1rem;
+		border: 1px solid #e2e8f0;
 		background: white;
 		color: #374151;
-		border-radius: 6px;
+		border-radius: 7px;
 		cursor: pointer;
 		font-weight: 500;
-		transition: all 0.2s ease;
+		font-size: 0.84rem;
+		transition: all 0.2s;
 	}
-
-	.btn-cancel:hover {
-		background: #f9fafb;
-		border-color: #9ca3af;
-	}
+	.btn-cancel:hover { background: #f8fafc; border-color: #94a3b8; }
 
 	.btn-save {
-		padding: 10px 20px;
-		background: #3b82f6;
+		padding: 0.45rem 1rem;
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
 		color: white;
 		border: none;
-		border-radius: 6px;
+		border-radius: 7px;
 		cursor: pointer;
-		font-weight: 500;
-		transition: all 0.2s ease;
+		font-weight: 600;
+		font-size: 0.84rem;
+		transition: all 0.2s;
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.22);
 	}
-
-	.btn-save:hover {
-		background: #2563eb;
-	}
+	.btn-save:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35); }
 </style>

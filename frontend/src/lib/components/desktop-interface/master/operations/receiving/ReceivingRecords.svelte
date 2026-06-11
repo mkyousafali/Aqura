@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, t as tFn, currentLocale } from '$lib/i18n';
 	import { compressImage } from '$lib/utils/imageCompression';
 	import XLSX from 'xlsx-js-style';
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
@@ -124,9 +124,21 @@
 								credit_period: newRec.credit_period,
 								bank_name: newRec.bank_name,
 								iban: newRec.iban,
-								branches: newRec.branch_name_en ? { name_en: newRec.branch_name_en, location_en: newRec.branch_location_en } : null,
+								branches: newRec.branch_name_en ? {
+									name_en: newRec.branch_name_en,
+									name_ar: newRec.branch_name_ar || newRec.branch_name_en,
+									location_en: newRec.branch_location_en || '',
+									location_ar: newRec.branch_location_ar || newRec.branch_location_en || ''
+								} : null,
 								vendors: newRec.vendor_name ? { erp_vendor_id: newRec.vendor_id, vendor_name: newRec.vendor_name, vat_number: newRec.vat_number, branch_id: newRec.branch_id } : null,
-								users: newRec.username ? { username: newRec.username, hr_employees: { name: newRec.user_display_name } } : null,
+								users: newRec.username ? {
+									username: newRec.username,
+									hr_employees: {
+										name: newRec.user_display_name || newRec.username,
+										name_en: newRec.user_display_name_en || newRec.user_display_name || newRec.username,
+										name_ar: newRec.user_display_name_ar || newRec.user_display_name || newRec.username
+									}
+								} : null,
 								schedule_status: newRec.is_scheduled ? {
 									receiving_record_id: newRec.id,
 									is_paid: newRec.is_paid,
@@ -232,7 +244,7 @@
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, location_en')
+				.select('id, name_en, name_ar, location_en, location_ar')
 				.eq('is_active', true)
 				.order('name_en');
 			if (!error && data) {
@@ -335,9 +347,21 @@
 				bank_name: record.bank_name,
 				iban: record.iban,
 				// Nested objects for template compatibility
-				branches: record.branch_name_en ? { name_en: record.branch_name_en, location_en: record.branch_location_en } : null,
+				branches: record.branch_name_en ? {
+					name_en: record.branch_name_en,
+					name_ar: record.branch_name_ar || record.branch_name_en,
+					location_en: record.branch_location_en || '',
+					location_ar: record.branch_location_ar || record.branch_location_en || ''
+				} : null,
 				vendors: record.vendor_name ? { erp_vendor_id: record.vendor_id, vendor_name: record.vendor_name, vat_number: record.vat_number, branch_id: record.branch_id } : null,
-				users: record.username ? { username: record.username, hr_employees: { name: record.user_display_name } } : null,
+				users: record.username ? {
+					username: record.username,
+					hr_employees: {
+						name: record.user_display_name || record.username,
+						name_en: record.user_display_name_en || record.user_display_name || record.username,
+						name_ar: record.user_display_name_ar || record.user_display_name || record.username
+					}
+				} : null,
 				// Payment schedule data
 				schedule_status: record.is_scheduled ? {
 					receiving_record_id: record.id,
@@ -555,7 +579,7 @@
 
 				if (uploadError) {
 					console.error('Error uploading file:', uploadError);
-					alert('Error uploading file. Please try again.');
+					alert(tFn('receiving.records.errorUploadFile'));
 					return;
 				}
 
@@ -572,16 +596,16 @@
 
 				if (updateError) {
 					console.error('Error updating record:', updateError);
-					alert('Error saving file reference. Please try again.');
+					alert(tFn('receiving.records.errorSaveFileRef'));
 					return;
 				}
 
 				// Reload records to show updated data
 				await loadReceivingRecords();
-				
+
 			} catch (error) {
 				console.error('Error in upload process:', error);
-				alert('Error uploading file. Please try again.');
+				alert(tFn('receiving.records.errorUploadFile'));
 			} finally {
 				uploadingBillId = null;
 			}
@@ -632,7 +656,7 @@
 
 				if (uploadError) {
 					console.error('Error uploading updated file:', uploadError);
-					alert('Error uploading updated file. Please try again.');
+					alert(tFn('receiving.records.errorUploadFile'));
 					return;
 				}
 
@@ -644,7 +668,7 @@
 				// Update the record with the new file URL
 				const { error: updateError } = await supabase
 					.from('receiving_records')
-					.update({ 
+					.update({
 						original_bill_url: publicUrl,
 						updated_at: new Date().toISOString()
 					})
@@ -652,19 +676,19 @@
 
 				if (updateError) {
 					console.error('Error updating record:', updateError);
-					alert('Error saving updated file reference. Please try again.');
+					alert(tFn('receiving.records.errorSaveFileRef'));
 					return;
 				}
 
 				// Show success message
-				alert('Original bill updated successfully!');
+				alert(tFn('receiving.records.billUpdatedSuccess'));
 
 				// Reload records to show updated data
 				await loadReceivingRecords();
-				
+
 			} catch (error) {
 				console.error('Error in update process:', error);
-				alert('Error updating file. Please try again.');
+				alert(tFn('receiving.records.errorUpdateFile'));
 			} finally {
 				updatingBillId = null;
 			}
@@ -705,7 +729,7 @@
 
 				if (uploadError) {
 					console.error('Error uploading PR Excel file:', uploadError);
-					alert('Error uploading PR Excel file. Please try again.');
+					alert(tFn('receiving.records.errorUploadPrExcel'));
 					return;
 				}
 
@@ -722,17 +746,17 @@
 
 				if (updateError) {
 					console.error('Error updating record with PR Excel:', updateError);
-					alert('Error saving PR Excel file reference. Please try again.');
+					alert(tFn('receiving.records.errorSavePrExcelRef'));
 					return;
 				}
 
 				// Reload records to show updated data
 				await loadReceivingRecords();
-				alert('PR Excel file uploaded successfully!');
-				
+				alert(tFn('receiving.records.prExcelUploadSuccess'));
+
 			} catch (error) {
 				console.error('Error in PR Excel upload process:', error);
-				alert('Error uploading PR Excel file. Please try again.');
+				alert(tFn('receiving.records.errorUploadPrExcel'));
 			} finally {
 				uploadingExcelId = null;
 			}
@@ -773,9 +797,8 @@
 
 			// Verify we have a payment schedule for this record
 			if (!scheduleData || scheduleData.length === 0) {
-				console.warn(
-					`No payment schedules found for receiving record ${recordId}`);
-				alert(`Warning: No payment schedules found for this receiving record. Please ensure the record is properly scheduled before verification.`);
+				console.warn(`No payment schedules found for receiving record ${recordId}`);
+				alert(tFn('receiving.records.noPaymentSchedules'));
 				return;
 			}
 
@@ -803,13 +826,52 @@
 			
 		} catch (error) {
 			console.error('Error updating PR Excel verification:', error);
-			alert(`Error updating verification status: ${error.message}`);
+			alert(tFn('receiving.records.errorUpdateVerification', { error: error.message }));
 		}
+	}
+
+	// Fast lookup for locale-aware branch display
+	$: branchMap = new Map(branches.map(b => [b.id, b]));
+
+	function getBranchName(record, locale) {
+		const b = branchMap.get(record.branch_id);
+		if (locale === 'ar') {
+			return record.branches?.name_ar || b?.name_ar || record.branches?.name_en || b?.name_en || tFn('receiving.records.naText');
+		}
+		return record.branches?.name_en || b?.name_en || tFn('receiving.records.naText');
+	}
+
+	function getBranchLocation(record, locale) {
+		const b = branchMap.get(record.branch_id);
+		if (locale === 'ar') {
+			return record.branches?.location_ar || b?.location_ar || record.branches?.location_en || b?.location_en || '';
+		}
+		return record.branches?.location_en || b?.location_en || '';
+	}
+
+	function getReceivedByName(record, locale) {
+		const employee = record.users?.hr_employees;
+		if (locale === 'ar') {
+			return employee?.name_ar || employee?.name_en || employee?.name || record.users?.username || tFn('receiving.records.naText');
+		}
+		return employee?.name_en || employee?.name || record.users?.username || tFn('receiving.records.naText');
+	}
+
+	function translatePaymentMethod(method) {
+		if (!method) return tFn('receiving.records.naText');
+		const map = {
+			'Cash on Delivery': 'receiving.cashOnDelivery',
+			'Bank on Delivery': 'receiving.bankOnDelivery',
+			'Cash Credit':      'receiving.cashCredit',
+			'Bank Credit':      'receiving.bankCredit',
+		};
+		const key = map[method];
+		return key ? tFn(key) : method;
 	}
 
 	// Helper function to format dates as dd/mm/yyyy
 	function formatDate(dateString) {
-		if (!dateString) return 'N/A';
+		if (!dateString) return tFn('receiving.records.naText');
 		try {
 			const date = new Date(dateString);
 			const day = date.getDate().toString().padStart(2, '0');
@@ -817,7 +879,7 @@
 			const year = date.getFullYear();
 			return `${day}/${month}/${year}`;
 		} catch (error) {
-			return 'Invalid Date';
+			return tFn('receiving.records.invalidDate');
 		}
 	}
 
@@ -874,25 +936,18 @@
 
 	// Helper function to calculate days remaining to due date
 	function getDaysRemaining(dueDateString) {
-		if (!dueDateString) return 'N/A';
+		if (!dueDateString) return tFn('receiving.records.naText');
 		try {
 			const dueDate = new Date(dueDateString);
 			const today = new Date();
 			today.setHours(0, 0, 0, 0);
 			dueDate.setHours(0, 0, 0, 0);
-			
+
 			const diffTime = dueDate.getTime() - today.getTime();
 			const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-			
-			if (diffDays < 0) {
-				return `${diffDays} days`;
-			} else if (diffDays === 0) {
-				return '0 days';
-			} else {
-				return `${diffDays} days`;
-			}
+			return tFn('receiving.records.daysText', { n: diffDays });
 		} catch (error) {
-			return 'Invalid Date';
+			return tFn('receiving.records.invalidDate');
 		}
 	}
 
@@ -1014,10 +1069,10 @@
 			receivingRecords = updatedRecords;
 
 			closeErpPopup();
-			alert('ERP invoice reference updated successfully');
+			alert(tFn('receiving.records.erpUpdatedSuccess'));
 		} catch (error) {
 			console.error('Error updating ERP reference:', error);
-			alert(`Failed to update ERP reference: ${error.message}`);
+			alert(tFn('receiving.records.erpUpdateFailed', { error: error.message }));
 		} finally {
 			updatingErp = false;
 		}
@@ -1041,13 +1096,16 @@
 
 	async function deleteReceivingRecord(recordId) {
 		if (!isMasterAdmin) {
-			alert('Only Master Admins can delete receiving records');
+			alert(tFn('receiving.records.onlyMasterAdmin'));
 			return;
 		}
 
 		const record = receivingRecords.find(r => r.id === recordId);
-		const confirmMessage = `Are you sure you want to delete this receiving record?\n\nBill: ${record?.bill_number || 'Unknown'}\nVendor: ${record?.vendors?.vendor_name || 'Unknown'}\n\nThis action cannot be undone.`;
-		
+		const confirmMessage = tFn('receiving.records.confirmDelete', {
+			bill: record?.bill_number || tFn('receiving.records.naText'),
+			vendor: record?.vendors?.vendor_name || tFn('receiving.records.naText')
+		});
+
 		if (!confirm(confirmMessage)) {
 			return;
 		}
@@ -1068,10 +1126,10 @@
 			allLoadedRecords = allLoadedRecords.filter(r => r.id !== recordId);
 			updatePaginatedRecords();
 
-			alert('Receiving record deleted successfully');
+			alert(tFn('receiving.records.deleteSuccess'));
 		} catch (error) {
 			console.error('Error deleting receiving record:', error);
-			alert(`Failed to delete receiving record: ${error.message}`);
+			alert(tFn('receiving.records.deleteFailed', { error: error.message }));
 		} finally {
 			deletingRecordId = null;
 		}
@@ -1085,39 +1143,43 @@
 	<div class="px-8 pt-6">
 		<div class="mb-4 flex gap-3 flex-wrap">
 			<div class="flex-1 min-w-[160px]">
-				<label for="branch-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">Filter by Branch</label>
+				<label for="branch-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.dashboard.filterByBranch')}</label>
 				<select id="branch-filter" bind:value={selectedBranchFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
-					<option value="">All Branches</option>
+					<option value="">{$t('receiving.dashboard.allBranches')}</option>
 					{#each branches as branch}
-						<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
+						<option value={branch.id}>
+							{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
+							-
+							{$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en}
+						</option>
 					{/each}
 				</select>
 			</div>
 			<div class="flex-1 min-w-[140px]">
-				<label for="pr-excel-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">PR Excel Status</label>
+				<label for="pr-excel-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.prExcelStatus')}</label>
 				<select id="pr-excel-filter" bind:value={selectedPrExcelFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
-					<option value="">All Records</option>
-					<option value="verified">✅ Verified</option>
-					<option value="unverified">❌ Unverified</option>
+					<option value="">{$t('receiving.records.allRecords')}</option>
+					<option value="verified">{$t('receiving.records.verified')}</option>
+					<option value="unverified">{$t('receiving.records.unverified')}</option>
 				</select>
 			</div>
 			<div class="flex-1 min-w-[160px]">
-				<label for="vendor-search" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">Search Vendor</label>
-				<input 
-					id="vendor-search" 
-					type="text" 
-					bind:value={vendorSearchTerm} 
+				<label for="vendor-search" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.searchVendor')}</label>
+				<input
+					id="vendor-search"
+					type="text"
+					bind:value={vendorSearchTerm}
 					on:input={onVendorSearchInput}
-					placeholder="Type vendor name..." 
+					placeholder={$t('receiving.records.typeVendorName')}
 					class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
 				/>
 			</div>
 			<div class="flex-1 min-w-[140px]">
-				<label for="erp-ref-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">ERP Invoice Ref</label>
+				<label for="erp-ref-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.erpInvoiceRef')}</label>
 				<select id="erp-ref-filter" bind:value={selectedErpRefFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
-					<option value="">All Records</option>
-					<option value="entered">✓ Entered</option>
-					<option value="not_entered">✗ Not Entered</option>
+					<option value="">{$t('receiving.records.allRecords')}</option>
+					<option value="entered">{$t('receiving.records.entered')}</option>
+					<option value="not_entered">{$t('receiving.records.notEntered')}</option>
 				</select>
 			</div>
 			<div class="flex-1 min-w-[140px]">
@@ -1144,11 +1206,11 @@
 		{#if loading}
 			<div class="flex items-center justify-center py-20">
 				<div class="spinner"></div>
-				<p class="ml-4 text-slate-500">⏳ Loading receiving records...</p>
+				<p class="ml-4 text-slate-500">{$t('receiving.records.loadingRecords')}</p>
 			</div>
 		{:else if paginatedRecords.length === 0}
 			<div class="flex items-center justify-center py-20">
-				<p class="text-slate-500 text-lg">📭 No receiving records found.</p>
+				<p class="text-slate-500 text-lg">{$t('receiving.records.noRecordsFound')}</p>
 			</div>
 		{:else}
 			<!-- Table scroll wrapper -->
@@ -1156,18 +1218,18 @@
 				<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
 					<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
 						<tr>
-							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">#</th>
-							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Certificate</th>
-							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Original Bill</th>
-							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">PR Excel</th>
-							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Bill Info</th>
-							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Vendor Details</th>
-							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Branch</th>
-							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Payment Info</th>
-							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Days to Due</th>
-							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Amounts</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colNo')}</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colCertificate')}</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colOriginalBill')}</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colPrExcel')}</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colBillInfo')}</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colVendorDetails')}</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colBranch')}</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colPaymentInfo')}</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colDaysToDue')}</th>
+							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colAmounts')}</th>
 							{#if isMasterAdmin}
-								<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Actions</th>
+								<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colActions')}</th>
 							{/if}
 						</tr>
 					</thead>
@@ -1191,12 +1253,12 @@
 									{#if generatingCertificateId === record.id}
 										<div class="generating-indicator">
 											<div class="spinner-small"></div>
-											<small>Generating...</small>
+											<small>{$t('receiving.records.generating')}</small>
 										</div>
 									{:else}
 										<button class="generate-certificate-btn" on:click={() => generateCertificate(record)}>
 											<span>📜</span>
-											<small>Generate Certificate</small>
+											<small>{$t('receiving.records.generateCertificate')}</small>
 										</button>
 									{/if}
 								</div>
@@ -1222,12 +1284,12 @@
 										{#if updatingBillId === record.id}
 											<div class="updating-indicator">
 												<div class="spinner-small"></div>
-												<small>Updating...</small>
+												<small>{$t('receiving.records.updating')}</small>
 											</div>
 										{:else}
 											<button class="update-bill-btn" on:click={() => updateOriginalBill(record.id)} title="Upload updated version">
 												<span>🔄</span>
-												<small>Update</small>
+												<small>{$t('receiving.records.update')}</small>
 											</button>
 										{/if}
 									</div>
@@ -1237,12 +1299,12 @@
 									{#if uploadingBillId === record.id}
 										<div class="uploading-indicator">
 											<div class="spinner-small"></div>
-											<small>Uploading...</small>
+											<small>{$t('receiving.records.uploading')}</small>
 										</div>
 									{:else}
 										<button class="upload-bill-btn" on:click={() => uploadOriginalBill(record.id)}>
 											<span>📎</span>
-											<small>Original Bill Not Uploaded</small>
+											<small>{$t('receiving.records.originalBillNotUploaded')}</small>
 										</button>
 									{/if}
 								</div>
@@ -1265,7 +1327,7 @@
 										})}
 									>
 										<div class="excel-icon">📊</div>
-										<small>PR Excel</small>
+										<small>{$t('receiving.records.prExcelLabel')}</small>
 									</button>
 									{#if record.pr_excel_verified}
 										<span class="text-green-600 text-lg" title="Verified">✓</span>
@@ -1276,12 +1338,12 @@
 												checked={false}
 												on:change={(e) => handlePRExcelVerification(record.id, e.target.checked)}
 											/>
-											<span class="checkbox-label">Verify</span>
+											<span class="checkbox-label">{$t('receiving.records.verify')}</span>
 										</label>
 									{/if}
 									<button class="update-bill-btn" on:click={() => uploadPRExcel(record.id)} title="Upload updated PR Excel">
 										<span>🔄</span>
-										<small>Update</small>
+										<small>{$t('receiving.records.update')}</small>
 									</button>
 								</div>
 							{:else}
@@ -1289,17 +1351,17 @@
 									{#if uploadingExcelId === record.id}
 										<div class="uploading-indicator">
 											<div class="spinner-small"></div>
-											<small>Uploading...</small>
+											<small>{$t('receiving.records.uploading')}</small>
 										</div>
 									{:else}
 										<div class="flex items-center gap-1.5" style="height: 50px;">
 											<button class="upload-excel-btn" style="flex: 1; height: 100%;" on:click={() => uploadPRExcel(record.id)}>
 												<span>📊</span>
-												<small>Upload</small>
+												<small>{$t('receiving.records.upload')}</small>
 											</button>
 											<button class="upload-excel-btn" style="flex: 1; height: 100%; background: #f0fdf4; border-color: #10b981; color: #047857;" on:click={downloadReceivingTemplate} title="Download empty PR Excel template">
 												<span>📥</span>
-												<small>Template</small>
+												<small>{$t('receiving.records.downloadTemplate')}</small>
 											</button>
 										</div>
 									{/if}
@@ -1309,36 +1371,36 @@
 						
 						<td class="px-3 py-3 text-sm text-slate-700">
 							<div>
-								<div class="font-semibold text-slate-800">#{record.bill_number || 'N/A'}</div>
-								<div class="text-xs text-slate-400">Bill Date: {formatDate(record.bill_date)}</div>
-								<div class="text-xs text-slate-400">Received: {formatDate(record.created_at)}</div>
-								<div class="text-xs text-slate-400">By: {record.users?.hr_employees?.name || record.users?.username || 'N/A'}</div>
+								<div class="font-semibold text-slate-800">#{record.bill_number || $t('receiving.records.naText')}</div>
+								<div class="text-xs text-slate-400">{$t('receiving.records.billDateLabel')} {formatDate(record.bill_date)}</div>
+								<div class="text-xs text-slate-400">{$t('receiving.records.receivedLabel')} {formatDate(record.created_at)}</div>
+								<div class="text-xs text-slate-400">{$t('receiving.records.byLabel')} {getReceivedByName(record, $currentLocale)}</div>
 							</div>
 						</td>
-						
+
 						<td class="px-3 py-3 text-sm text-slate-700">
 							<div>
-								<div class="font-semibold text-slate-800">{record.vendors?.vendor_name || 'N/A'}</div>
-								<div class="text-xs text-slate-400">ID: {record.vendors?.erp_vendor_id || 'N/A'}</div>
-								<div class="text-xs text-slate-400">VAT: {record.vendors?.vat_number || 'N/A'}</div>
+								<div class="font-semibold text-slate-800">{record.vendors?.vendor_name || $t('receiving.records.naText')}</div>
+								<div class="text-xs text-slate-400">{$t('receiving.records.idLabel')} {record.vendors?.erp_vendor_id || $t('receiving.records.naText')}</div>
+								<div class="text-xs text-slate-400">{$t('receiving.records.vatLabel')} {record.vendors?.vat_number || $t('receiving.records.naText')}</div>
 							</div>
 						</td>
-						
+
 						<td class="px-3 py-3 text-sm text-slate-700">
 							<div>
-								<div>{record.branches?.name_en || 'N/A'}</div>
-								{#if record.branches?.location_en}
-									<div class="text-xs text-slate-400">{record.branches.location_en}</div>
+								<div>{getBranchName(record, $currentLocale)}</div>
+								{#if getBranchLocation(record, $currentLocale)}
+									<div class="text-xs text-slate-400">{getBranchLocation(record, $currentLocale)}</div>
 								{/if}
 							</div>
 						</td>
-						
+
 						<td class="px-3 py-3 text-sm text-slate-700">
 							<div>
-								<div class="font-semibold text-slate-800">{record.payment_method || 'N/A'}</div>
-								<div class="text-xs text-slate-400">Due: {formatDate(record.due_date)}</div>
+								<div class="font-semibold text-slate-800">{translatePaymentMethod(record.payment_method)}</div>
+								<div class="text-xs text-slate-400">{$t('receiving.records.dueLabel')} {formatDate(record.due_date)}</div>
 								{#if record.credit_period}
-									<div class="text-xs text-slate-400">{record.credit_period} days</div>
+									<div class="text-xs text-slate-400">{$t('receiving.records.daysText', { n: record.credit_period })}</div>
 								{/if}
 							</div>
 						</td>
@@ -1346,13 +1408,13 @@
 						<td class="px-3 py-3 text-sm text-left text-slate-700">
 							<div>
 								{#if record.payment_method?.toLowerCase()?.includes('on delivery') || record.is_paid || record.schedule_status?.is_paid}
-									<div class="text-xs text-emerald-600">✓ Paid</div>
+									<div class="text-xs text-emerald-600">{$t('receiving.records.paid')}</div>
 								{:else if record.is_scheduled || record.schedule_status}
 									<div class:text-red-600={record.due_date && getDaysRemaining(record.due_date).includes('-')}>{getDaysRemaining(record.due_date)}</div>
-									<div class="text-xs text-blue-600">📅 {record.has_multiple_schedules ? 'Split Scheduled' : 'Scheduled'}</div>
+									<div class="text-xs text-blue-600">📅 {record.has_multiple_schedules ? $t('receiving.records.splitScheduled') : $t('receiving.records.scheduled')}</div>
 								{:else}
 									<div class:text-red-600={record.due_date && getDaysRemaining(record.due_date).includes('-')}>{getDaysRemaining(record.due_date)}</div>
-									<button 
+									<button
 										class="text-xs text-white bg-orange-500 hover:bg-orange-600 px-2 py-0.5 rounded cursor-pointer border-none transition-colors duration-200"
 										title="Schedule payment for this record"
 										on:click={() => openWindow({
@@ -1366,7 +1428,7 @@
 											position: { x: 140, y: 140 }
 										})}
 									>
-										📅 Schedule
+										{$t('receiving.records.scheduleBtn')}
 									</button>
 								{/if}
 							</div>
@@ -1374,17 +1436,17 @@
 						
 						<td class="px-3 py-3 text-sm text-left text-slate-700">
 							<div>
-								<div>Bill: {parseFloat(record.bill_amount || 0).toFixed(2)}</div>
-								<div class="font-bold text-emerald-700">Final: {parseFloat(record.final_bill_amount || 0).toFixed(2)}</div>
+								<div>{$t('receiving.records.billLabel')} {parseFloat(record.bill_amount || 0).toFixed(2)}</div>
+								<div class="font-bold text-emerald-700">{$t('receiving.records.finalLabel')} {parseFloat(record.final_bill_amount || 0).toFixed(2)}</div>
 								{#if record.erp_purchase_invoice_reference}
-									<div class="text-xs text-slate-500">ERP: {record.erp_purchase_invoice_reference}</div>
+									<div class="text-xs text-slate-500">{$t('receiving.records.erpLabel')} {record.erp_purchase_invoice_reference}</div>
 								{:else}
-									<button 
-										class="text-xs text-red-400 hover:text-red-600 cursor-pointer bg-transparent border-none p-0 text-left" 
+									<button
+										class="text-xs text-red-400 hover:text-red-600 cursor-pointer bg-transparent border-none p-0 text-left"
 										on:click={() => openErpPopup(record)}
 										title="Click to enter ERP invoice reference"
 									>
-										ERP: Not Entered
+										{$t('receiving.records.erpNotEntered')}
 									</button>
 								{/if}
 							</div>
@@ -1395,7 +1457,7 @@
 								{#if deletingRecordId === record.id}
 									<div class="deleting-indicator">
 										<div class="spinner-small"></div>
-										<small>Deleting...</small>
+										<small>{$t('receiving.records.deleting')}</small>
 									</div>
 								{:else}
 									<button 
@@ -1417,30 +1479,30 @@
 
 		<!-- Footer -->
 		<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex items-center justify-between">
-			<span>📊 Total: {totalRecords} • Page: {currentPage}/{totalPages} • Showing: {paginatedRecords.length}</span>
+			<span>{$t('receiving.records.footerInfo', { total: totalRecords, current: currentPage, pages: totalPages, showing: paginatedRecords.length })}</span>
 			{#if totalPages > 1}
 				<div class="flex items-center gap-2">
-					<button 
+					<button
 						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
 						on:click={() => { currentPage = 1; loading = true; loadPageData(1).then(() => loading = false); }}
 						disabled={currentPage <= 1 || loading}
-					>⏮ First</button>
-					<button 
+					>{$t('receiving.records.first')}</button>
+					<button
 						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
 						on:click={() => { currentPage--; loading = true; loadPageData(currentPage).then(() => loading = false); }}
 						disabled={currentPage <= 1 || loading}
-					>◀ Prev</button>
-					<span class="px-3 py-1.5 text-sm font-bold text-slate-700">Page {currentPage} of {totalPages}</span>
-					<button 
+					>{$t('receiving.records.prev')}</button>
+					<span class="px-3 py-1.5 text-sm font-bold text-slate-700">{$t('receiving.records.pageOf', { current: currentPage, total: totalPages })}</span>
+					<button
 						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
 						on:click={() => { currentPage++; loading = true; loadPageData(currentPage).then(() => loading = false); }}
 						disabled={currentPage >= totalPages || loading}
-					>Next ▶</button>
-					<button 
+					>{$t('receiving.records.next')}</button>
+					<button
 						class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
 						on:click={() => { currentPage = totalPages; loading = true; loadPageData(currentPage).then(() => loading = false); }}
 						disabled={currentPage >= totalPages || loading}
-					>Last ⏭</button>
+					>{$t('receiving.records.last')}</button>
 				</div>
 			{/if}
 		</div>
@@ -1454,42 +1516,42 @@
 	<div class="erp-popup-overlay" on:click={closeErpPopup}>
 		<div class="erp-popup-modal" on:click|stopPropagation>
 			<div class="erp-popup-header">
-				<h3>Enter ERP Invoice Reference</h3>
+				<h3>{$t('receiving.records.enterErpTitle')}</h3>
 				<button class="erp-popup-close" on:click={closeErpPopup}>&times;</button>
 			</div>
 			<div class="erp-popup-content">
-				<p>Record: {selectedRecord?.bill_number || 'Unknown Bill'}</p>
-				<p>Vendor: {selectedRecord?.vendor_name || 'Unknown Vendor'}</p>
+				<p>{$t('receiving.records.recordLabel')} {selectedRecord?.bill_number || $t('receiving.records.naText')}</p>
+				<p>{$t('receiving.records.vendorLabel')} {selectedRecord?.vendor_name || $t('receiving.records.naText')}</p>
 				<div class="erp-input-group">
-					<label for="erpRef">ERP Invoice Reference:</label>
-					<input 
+					<label for="erpRef">{$t('receiving.records.erpRefLabel')}</label>
+					<input
 						id="erpRef"
-						type="text" 
+						type="text"
 						bind:value={erpReferenceValue}
-						placeholder="Enter ERP invoice reference number"
+						placeholder={$t('receiving.records.erpRefPlaceholder')}
 						class="erp-input"
 						disabled={updatingErp}
 					/>
 				</div>
 			</div>
 			<div class="erp-popup-actions">
-				<button 
-					class="erp-btn-cancel" 
+				<button
+					class="erp-btn-cancel"
 					on:click={closeErpPopup}
 					disabled={updatingErp}
 				>
-					Cancel
+					{$t('receiving.records.cancel')}
 				</button>
-				<button 
-					class="erp-btn-save" 
+				<button
+					class="erp-btn-save"
 					on:click={updateErpReference}
 					disabled={updatingErp || !erpReferenceValue?.trim()}
 				>
 					{#if updatingErp}
 						<div class="spinner-small"></div>
-						Updating...
+						{$t('receiving.records.updating')}
 					{:else}
-						Save Reference
+						{$t('receiving.records.saveReference')}
 					{/if}
 				</button>
 			</div>

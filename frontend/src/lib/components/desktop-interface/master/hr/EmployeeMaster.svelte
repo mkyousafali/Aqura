@@ -579,6 +579,19 @@
 		finally { empStatusLoading = false; }
 	}
 
+	function getStatusLabel(status: string): string {
+		if (lang !== 'ar') return status || '—';
+		const map: Record<string, string> = {
+			'Job (With Finger)': $t('employeeMaster.empStatus.statuses.jobWithFinger'),
+			'Remote Job':        $t('employeeMaster.empStatus.statuses.remoteJob'),
+			'Vacation':          $t('employeeMaster.empStatus.statuses.vacation'),
+			'Resigned':          $t('employeeMaster.empStatus.statuses.resigned'),
+			'Terminated':        $t('employeeMaster.empStatus.statuses.terminated'),
+			'Run Away':          $t('employeeMaster.empStatus.statuses.runAway'),
+		};
+		return map[status] || status || '—';
+	}
+
 	function getEmpStatusBadge(status: string): string {
 		const badges: Record<string, string> = {
 			'Job (With Finger)': 'bg-green-100 text-green-800', 'Remote Job': 'bg-blue-100 text-blue-800',
@@ -633,8 +646,8 @@
 			<span>💼</span> {$t('employeeMaster.tabs.positions')}
 		</button>
 		<button class="em-tab" class:active={activeTab === 'doc-expiry'} on:click={() => switchTab('doc-expiry')}>
-			<span>📄</span> Documents Expiry
-		</button>
+		<span>📄</span> {$t('employeeMaster.tabs.docExpiry')}
+	</button>
 	</div>
 
 	<!-- ── DASHBOARD TAB ── -->
@@ -688,7 +701,7 @@
 							}}
 						/>
 						<span class="em-chk-dot" style="background:{excluded ? '#cbd5e1' : statusBg(s)};border-color:{excluded ? '#94a3b8' : statusColor(s)}"></span>
-						<span class="em-chk-name" style="color:{excluded ? '#94a3b8' : statusColor(s)};text-decoration:{excluded ? 'line-through' : 'none'}">{s}</span>
+						<span class="em-chk-name" style="color:{excluded ? '#94a3b8' : statusColor(s)};text-decoration:{excluded ? 'line-through' : 'none'}">{getStatusLabel(s)}</span>
 					</label>
 				{/each}
 			</div>
@@ -733,7 +746,7 @@
 						<td>{lang === 'ar' ? (emp.position_title_ar || emp.position_title_en || '—') : (emp.position_title_en || emp.position_title_ar || '—')}</td>
 						<td>
 							<span class="em-badge" style="background:{statusBg(emp.employment_status)};color:{statusColor(emp.employment_status)}">
-								{emp.employment_status || '—'}
+								{getStatusLabel(emp.employment_status || '—')}
 							</span>
 						</td>
 						<td class="em-cell-contact">
@@ -959,22 +972,22 @@
 	<div class="em-panel" style="overflow:auto; padding:0; gap:0;">
 	<!-- Filters -->
 	<div class="flex flex-wrap gap-3 p-4 bg-white border-b border-slate-200">
-		<input type="text" bind:value={docSearchTerm} placeholder="🔍 Search employee..." class="border border-slate-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-[160px] focus:outline-none focus:ring-2 focus:ring-violet-400" />
+		<input type="text" bind:value={docSearchTerm} placeholder={$t('employeeMaster.docExpiry.searchPlaceholder')} class="border border-slate-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-[160px] focus:outline-none focus:ring-2 focus:ring-violet-400" />
 		<select bind:value={docSelectedBranch} class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
-			<option value="">All Branches</option>
+			<option value="">{$t('employeeMaster.docExpiry.allBranches')}</option>
 			{#each docUniqueBranches as b}
 				<option value={b.id}>{lang === 'ar' ? b.name_ar : b.name_en}</option>
 			{/each}
 		</select>
 		<select bind:value={docSelectedNationality} class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
-			<option value="">All Nationalities</option>
+			<option value="">{$t('employeeMaster.docExpiry.allNationalities')}</option>
 			{#each docUniqueNationalities as n}
 				<option value={n.id}>{lang === 'ar' ? n.name_ar : n.name_en}</option>
 			{/each}
 		</select>
 		<div class="relative">
 			<button on:click={() => showColumnDropdown = !showColumnDropdown} class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white hover:bg-slate-50 flex items-center gap-2">
-				🔧 Columns <span class="text-xs text-slate-500">{Object.values(columnVisibility).filter(Boolean).length}/{COLUMN_LABELS_EXP.length}</span>
+				🔧 {$t('employeeMaster.docExpiry.columns')} <span class="text-xs text-slate-500">{Object.values(columnVisibility).filter(Boolean).length}/{COLUMN_LABELS_EXP.length}</span>
 			</button>
 			{#if showColumnDropdown}
 			<div class="absolute top-10 right-0 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 min-w-[220px]">
@@ -987,28 +1000,28 @@
 			</div>
 			{/if}
 		</div>
-		<span class="text-sm text-slate-500 self-center">{docSortedData.length} employees</span>
-		<button on:click={loadDocumentsExpiryData} class="border border-violet-300 text-violet-700 rounded-lg px-3 py-2 text-sm hover:bg-violet-50">↻ Refresh</button>
+		<span class="text-sm text-slate-500 self-center">{docSortedData.length} {$t('employeeMaster.docExpiry.employees')}</span>
+		<button on:click={loadDocumentsExpiryData} class="border border-violet-300 text-violet-700 rounded-lg px-3 py-2 text-sm hover:bg-violet-50">↻ {$t('employeeMaster.docExpiry.refresh')}</button>
 	</div>
 	<!-- Table -->
 	{#if docExpiryLoading}
-		<div class="flex items-center justify-center p-16 text-slate-500">Loading documents expiry data...</div>
+		<div class="flex items-center justify-center p-16 text-slate-500">{$t('employeeMaster.docExpiry.loading')}</div>
 	{:else}
 	<div class="overflow-x-auto">
 		<table class="em-table">
 			<thead>
 				<tr>
-					{#if columnVisibility.id}<th>Employee ID</th>{/if}
-					{#if columnVisibility.name}<th>Name</th>{/if}
-					{#if columnVisibility.nationality}<th>Nationality</th>{/if}
-					{#if columnVisibility.branch}<th>Branch</th>{/if}
-					{#if columnVisibility.doc_id}<th style="text-align:center">ID Expiry</th>{/if}
-					{#if columnVisibility.doc_health_card}<th style="text-align:center">Health Card</th>{/if}
-					{#if columnVisibility.doc_driving_licence}<th style="text-align:center">Driving Licence</th>{/if}
-					{#if columnVisibility.doc_contract}<th style="text-align:center">Contract</th>{/if}
-					{#if columnVisibility.doc_work_permit}<th style="text-align:center">Work Permit</th>{/if}
-					{#if columnVisibility.doc_insurance}<th style="text-align:center">Insurance</th>{/if}
-					{#if columnVisibility.doc_health_educational}<th style="text-align:center">Health Educational</th>{/if}
+					{#if columnVisibility.id}<th>{$t('employeeMaster.docExpiry.colId')}</th>{/if}
+					{#if columnVisibility.name}<th>{$t('employeeMaster.docExpiry.colName')}</th>{/if}
+					{#if columnVisibility.nationality}<th>{$t('employeeMaster.docExpiry.colNationality')}</th>{/if}
+					{#if columnVisibility.branch}<th>{$t('employeeMaster.docExpiry.colBranch')}</th>{/if}
+					{#if columnVisibility.doc_id}<th style="text-align:center">{$t('employeeMaster.docExpiry.colIdExpiry')}</th>{/if}
+					{#if columnVisibility.doc_health_card}<th style="text-align:center">{$t('employeeMaster.docExpiry.colHealthCard')}</th>{/if}
+					{#if columnVisibility.doc_driving_licence}<th style="text-align:center">{$t('employeeMaster.docExpiry.colDrivingLicence')}</th>{/if}
+					{#if columnVisibility.doc_contract}<th style="text-align:center">{$t('employeeMaster.docExpiry.colContract')}</th>{/if}
+					{#if columnVisibility.doc_work_permit}<th style="text-align:center">{$t('employeeMaster.docExpiry.colWorkPermit')}</th>{/if}
+					{#if columnVisibility.doc_insurance}<th style="text-align:center">{$t('employeeMaster.docExpiry.colInsurance')}</th>{/if}
+					{#if columnVisibility.doc_health_educational}<th style="text-align:center">{$t('employeeMaster.docExpiry.colHealthEdu')}</th>{/if}
 				</tr>
 			</thead>
 			<tbody>
@@ -1046,7 +1059,7 @@
 										<span>N/A</span>
 									{:else}
 										<span>{formatDate(doc.expiryDate)}</span>
-										<span class="text-[10px]">{days < 0 ? `${Math.abs(days)}d ago` : `${days}d left`}</span>
+										<span class="text-[10px]">{days < 0 ? `${Math.abs(days)}${$t('employeeMaster.docExpiry.daysAgo')}` : `${days}${$t('employeeMaster.docExpiry.daysLeft')}`}</span>
 									{/if}
 								</button>
 							{:else}<span class="text-slate-300">—</span>{/if}
@@ -1056,7 +1069,7 @@
 				</tr>
 				{/each}
 				{#if docSortedData.length === 0}
-				<tr><td colspan="15" class="text-center py-12 text-slate-400">No employees found</td></tr>
+				<tr><td colspan="15" class="text-center py-12 text-slate-400">{$t('employeeMaster.docExpiry.noEmployees')}</td></tr>
 				{/if}
 			</tbody>
 		</table>
@@ -1324,24 +1337,24 @@
 <div class="em-overlay" on:click|self={closeDocDateModal} role="dialog" aria-modal="true">
 	<div class="em-modal" style="max-width:440px;">
 		<div class="em-modal-header">
-			<h2 class="em-modal-title">Edit Document Date</h2>
+			<h2 class="em-modal-title">{$t('employeeMaster.docExpiry.editTitle')}</h2>
 			<button class="em-modal-close" on:click={closeDocDateModal}>✕</button>
 		</div>
 		<div class="em-modal-body">
 			<p class="text-sm text-slate-500 mb-4"><strong>{modalEmpName}</strong> — {modalDocType}</p>
 			<div class="em-field">
-				<label>Current Date</label>
+				<label>{$t('employeeMaster.docExpiry.currentDate')}</label>
 				<input type="text" value={formatDate(modalCurDate)} readonly class="bg-slate-50 text-slate-500 cursor-not-allowed" />
 			</div>
 			<div class="em-field">
-				<label>New Date *</label>
+				<label>{$t('employeeMaster.docExpiry.newDate')} *</label>
 				<input type="date" bind:value={modalNewDate} />
 			</div>
 		</div>
 		<div class="em-modal-footer">
-			<button class="em-btn-cancel" on:click={closeDocDateModal}>Cancel</button>
+			<button class="em-btn-cancel" on:click={closeDocDateModal}>{$t('employeeMaster.docExpiry.cancel')}</button>
 			<button class="em-btn-save" on:click={saveDocDateChange} disabled={isSavingDate}>
-				{isSavingDate ? 'Saving...' : 'Save Date'}
+				{isSavingDate ? $t('employeeMaster.docExpiry.saving') : $t('employeeMaster.docExpiry.save')}
 			</button>
 		</div>
 	</div>
@@ -1355,19 +1368,19 @@
 <div class="em-overlay" on:click|self={closeEmpStatusModal} role="dialog" aria-modal="true">
 	<div class="em-modal" style="max-width:480px;">
 		<div class="em-modal-header">
-			<h2 class="em-modal-title">Change Employment Status</h2>
+			<h2 class="em-modal-title">{$t('employeeMaster.empStatus.changeTitle')}</h2>
 			<button class="em-modal-close" on:click={closeEmpStatusModal}>✕</button>
 		</div>
 		<div class="em-modal-body">
 			<p class="text-sm text-slate-500 mb-4"><strong>{statusModalEmpName}</strong></p>
 			<div class="em-field">
-				<label>Current Status</label>
+				<label>{$t('employeeMaster.empStatus.currentStatus')}</label>
 				<input type="text" value={statusModalCurStatus} readonly class="bg-slate-50 text-slate-500 cursor-not-allowed" />
 			</div>
 			<div class="em-field">
-				<label>New Status *</label>
+				<label>{$t('employeeMaster.empStatus.newStatus')} *</label>
 				<select bind:value={statusModalNewStatus}>
-					<option value="">— Select Status —</option>
+					<option value="">{$t('employeeMaster.empStatus.selectStatus')}</option>
 					{#each ALL_EMP_STATUSES_LIST as s}
 						<option value={s}>{s}</option>
 					{/each}
@@ -1375,19 +1388,19 @@
 			</div>
 			{#if docNeedsEffDate}
 			<div class="em-field">
-				<label>Effective Date *</label>
+				<label>{$t('employeeMaster.empStatus.effectiveDate')} *</label>
 				<input type="date" bind:value={statusModalEffDate} />
 			</div>
 			<div class="em-field">
-				<label>Reason (optional)</label>
-				<input type="text" bind:value={statusModalReason} placeholder="Reason for status change..." />
+				<label>{$t('employeeMaster.empStatus.reason')}</label>
+				<input type="text" bind:value={statusModalReason} placeholder={$t('employeeMaster.empStatus.reasonPlaceholder')} />
 			</div>
 			{/if}
 		</div>
 		<div class="em-modal-footer">
-			<button class="em-btn-cancel" on:click={closeEmpStatusModal}>Cancel</button>
+			<button class="em-btn-cancel" on:click={closeEmpStatusModal}>{$t('employeeMaster.empStatus.cancel')}</button>
 			<button class="em-btn-save" on:click={saveEmpStatusChange} disabled={statusModalSaving}>
-				{statusModalSaving ? 'Saving...' : 'Save Status'}
+				{statusModalSaving ? $t('employeeMaster.empStatus.saving') : $t('employeeMaster.empStatus.save')}
 			</button>
 		</div>
 	</div>

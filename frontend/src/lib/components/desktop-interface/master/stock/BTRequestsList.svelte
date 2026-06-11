@@ -528,6 +528,25 @@
 		}
 	}
 
+	function getLocalizedStatus(status: string): string {
+		if ($locale === 'ar') {
+			switch (status) {
+				case 'pending':   return 'معلق';
+				case 'approved':  return 'مقبول';
+				case 'rejected':  return 'مرفوض';
+				case 'completed': return 'مكتمل';
+				default:          return status;
+			}
+		}
+		switch (status) {
+			case 'pending':   return 'Pending';
+			case 'approved':  return 'Approved';
+			case 'rejected':  return 'Rejected';
+			case 'completed': return 'Completed';
+			default:          return status;
+		}
+	}
+
 	function getItemsCount(items: any): number {
 		if (Array.isArray(items)) return items.length;
 		try {
@@ -648,9 +667,9 @@
 						on:click={goBackToList}
 						>←</button>
 						<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-							<span>🔄</span> Branch Transfer Request
-						</h3>
-						<span class="text-xs px-3 py-1 rounded-full border font-bold {getStatusColor(selectedRequest.status)}">{selectedRequest.status.toUpperCase()}</span>
+						<span>🔄</span> {$t('nav.btRequests') || 'BT Requests'}
+					</h3>
+					<span class="text-xs px-3 py-1 rounded-full border font-bold {getStatusColor(selectedRequest.status)}">{getLocalizedStatus(selectedRequest.status)}</span>
 					</div>
 					<div class="flex items-center gap-2">
 						<span class="text-xs text-slate-400">{formatDate(selectedRequest.created_at)}</span>
@@ -658,13 +677,13 @@
 							class="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-xs shadow-lg shadow-emerald-200"
 							on:click={exportToExcel}
 						>
-							<span>📥</span> Export Excel
+							<span>📥</span> {$locale === 'ar' ? 'تصدير Excel' : 'Export Excel'}
 						</button>
 						<button
 							class="flex items-center gap-1.5 px-4 py-2 bg-slate-600 text-white font-bold rounded-xl hover:bg-slate-700 transition-all text-xs shadow-lg shadow-slate-200"
 							on:click={printRequest}
 						>
-							<span>🖨️</span> Print
+							<span>🖨️</span> {$locale === 'ar' ? 'طباعة' : 'Print'}
 						</button>
 				</div>
 			</div>
@@ -672,15 +691,15 @@
 				<!-- Request Info -->
 				<div class="grid grid-cols-4 gap-4 mb-6">
 					<div class="bg-slate-50 rounded-xl p-4">
-						<span class="text-xs text-slate-400 font-bold uppercase">From Branch</span>
+						<span class="text-xs text-slate-400 font-bold uppercase">{$locale === 'ar' ? 'من فرع' : 'From Branch'}</span>
 						<p class="text-sm font-bold text-slate-800 mt-1">{selectedRequest.from_branch_name}</p>
 					</div>
 					<div class="bg-slate-50 rounded-xl p-4">
-						<span class="text-xs text-slate-400 font-bold uppercase">To Branch</span>
+						<span class="text-xs text-slate-400 font-bold uppercase">{$locale === 'ar' ? 'إلى فرع' : 'To Branch'}</span>
 						<p class="text-sm font-bold text-slate-800 mt-1">{selectedRequest.to_branch_name}</p>
 					</div>
 					<div class="bg-slate-50 rounded-xl p-4">
-						<span class="text-xs text-slate-400 font-bold uppercase">Requester</span>
+						<span class="text-xs text-slate-400 font-bold uppercase">{$locale === 'ar' ? 'مقدم الطلب' : 'Requester'}</span>
 						<p class="text-sm font-bold text-slate-800 mt-1">{selectedRequest.requester_name}</p>
 					</div>
 					<div class="bg-slate-50 rounded-xl p-4">
@@ -698,7 +717,7 @@
 								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.barcode')}</th>
 								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.productName')}</th>
 								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.quantity')}</th>
-								<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold">Availability</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'التوفر' : 'Availability'}</th>
 								<th class="py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.photo')}</th>
 							</tr>
 						</thead>
@@ -791,16 +810,16 @@
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-blue-600 text-white">
 									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">#</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">From Branch</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">To Branch</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">Requester</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.manager') || 'Manager'}</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">Items</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">Status</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">Date</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold">Docs</th>
-									<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold">Approve</th>
-									<th class="py-2.5 px-3 text-center font-bold">Reject</th>
+						<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'من فرع' : 'From Branch'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'إلى فرع' : 'To Branch'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'مقدم الطلب' : 'Requester'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.manager') || ($locale === 'ar' ? 'المدير' : 'Manager')}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'العناصر' : 'Items'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'الحالة' : 'Status'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'التاريخ' : 'Date'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'الوثائق' : 'Docs'}</th>
+								<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'موافقة' : 'Approve'}</th>
+								<th class="py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'رفض' : 'Reject'}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -816,26 +835,26 @@
 												class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all text-blue-700 hover:text-blue-900 text-[10px] font-bold whitespace-nowrap"
 												on:click|stopPropagation={() => openDetail(req)}
 											>
-												{getItemsCount(req.items)} — View
+												{getItemsCount(req.items)} — {$locale === 'ar' ? 'عرض' : 'View'}
 											</button>
 										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3">
-											<span class="text-[10px] px-2.5 py-1 rounded-full border font-bold {getStatusColor(req.status)}">{req.status.toUpperCase()}</span>
+											<span class="text-[10px] px-2.5 py-1 rounded-full border font-bold {getStatusColor(req.status)}">{getLocalizedStatus(req.status)}</span>
 										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-500 text-[10px]">{formatDate(req.created_at)}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
 											{#if req.status === 'approved'}
 												{#if req.document_url}
 													<div class="flex items-center gap-1 justify-center">
-														<a href={req.document_url} target="_blank" rel="noopener" class="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 hover:text-blue-800 text-[10px] font-bold" title="View Document">📄 View</a>
-														<label class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 hover:text-slate-800 text-[10px] font-bold cursor-pointer {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
-															🔄 {uploadingDoc === req.id ? '...' : 'Update'}
+										<a href={req.document_url} target="_blank" rel="noopener" class="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 hover:text-blue-800 text-[10px] font-bold" title="View Document">📄 {$locale === 'ar' ? 'عرض' : 'View'}</a>
+											<label class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 hover:text-slate-800 text-[10px] font-bold cursor-pointer {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
+												🔄 {uploadingDoc === req.id ? '...' : ($locale === 'ar' ? 'تحديث' : 'Update')}
 															<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} />
 														</label>
 													</div>
 												{:else}
 													<label class="px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all text-blue-700 text-[10px] font-bold cursor-pointer whitespace-nowrap {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
-														📎 {uploadingDoc === req.id ? '...' : 'Upload'}
+														📎 {uploadingDoc === req.id ? '...' : ($locale === 'ar' ? 'رفع' : 'Upload')}
 														<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} on:click|stopPropagation />
 													</label>
 												{/if}
@@ -898,40 +917,39 @@
 		<div class="bg-white rounded-2xl shadow-2xl w-[440px] max-h-[80vh] overflow-hidden" on:click|stopPropagation role="dialog" tabindex="-1">
 			<!-- Header -->
 			<div class="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-4 flex items-center justify-between">
-				<h3 class="font-bold text-base flex items-center gap-2">✅ Approve BT Request</h3>
+				<h3 class="font-bold text-base flex items-center gap-2">✅ {$locale === 'ar' ? 'قبول طلب النقل' : 'Approve BT Request'}</h3>
 				<button class="text-white/80 hover:text-white text-lg" on:click={closeApprovalModal}>✕</button>
 			</div>
 			<!-- Body -->
 			<div class="p-6 space-y-4">
 				<div>
 					<label for="im-select" class="block text-sm font-semibold text-slate-700 mb-2">
-						📦 Select Inventory Manager
-						<span class="text-xs text-slate-400 font-normal">| اختر مدير المخزون</span>
+							📦 {$locale === 'ar' ? 'اختر مدير المخزون' : 'Select Inventory Manager'}
 					</label>
 					{#if loadingIMUsers}
 						<div class="flex items-center gap-2 text-sm text-slate-500 py-3">
 							<div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-							Loading users...
+							{$locale === 'ar' ? 'جارٍ تحميل...' : 'Loading users...'}
 						</div>
 					{:else if approvalBranchUsers.length === 0}
-						<p class="text-sm text-red-500 py-2">⚠️ No users found for this branch</p>
+						<p class="text-sm text-red-500 py-2">⚠️ {$locale === 'ar' ? 'لا يوجد مستخدمون لهذا الفرع' : 'No users found for this branch'}</p>
 					{:else}
 						<select
 							id="im-select"
 							bind:value={selectedIMUserId}
 							class="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
 						>
-							<option value={null}>-- Select Inventory Manager --</option>
+							<option value={null}>-- {$locale === 'ar' ? 'اختر مدير المخزون' : 'Select Inventory Manager'} --</option>
 							{#each approvalBranchUsers as user}
 								<option value={user.id}>
 									{$locale === 'ar' ? (user.name_ar || user.name_en || user.username) : (user.name_en || user.username)}
-									{user.id === defaultIMUserId ? ' ⭐ Default' : ''}
+									{user.id === defaultIMUserId ? (' ⭐ ' + ($locale === 'ar' ? 'افتراضي' : 'Default')) : ''}
 								</option>
 							{/each}
 						</select>
 						{#if selectedIMUserId}
 							<p class="mt-2 text-xs text-slate-500">
-								A Quick Task will be created for this user to upload the transfer document.
+								{$locale === 'ar' ? 'سيتم إنشاء مهمة سريعة لهذا المستخدم لرفع وثيقة النقل.' : 'A Quick Task will be created for this user to upload the transfer document.'}
 							</p>
 						{/if}
 					{/if}
@@ -943,7 +961,7 @@
 					class="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition-all"
 					on:click={closeApprovalModal}
 					disabled={approvingRequest}
-				>Cancel</button>
+				>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
 				<button
 					class="px-5 py-2 text-sm font-bold text-white bg-emerald-500 rounded-xl hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
 					on:click={confirmApproval}
@@ -951,9 +969,9 @@
 				>
 					{#if approvingRequest}
 						<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-						Approving...
+						{$locale === 'ar' ? 'جارٍ القبول...' : 'Approving...'}
 					{:else}
-						✅ Approve
+						✅ {$locale === 'ar' ? 'موافقة' : 'Approve'}
 					{/if}
 				</button>
 			</div>

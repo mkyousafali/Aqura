@@ -1282,7 +1282,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Manage Vendor #${instanceNumber}`,
+			title: `${t('admin.manageVendor')} #${instanceNumber}`,
 			component: ManageVendor,
 			componentName: "ManageVendor",
 			icon: '📋',
@@ -1306,7 +1306,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Create Vendor #${instanceNumber}`,
+			title: `${t('admin.createVendor')} #${instanceNumber}`,
 			component: EditVendor,
 			componentName: "EditVendor",
 			icon: '➕',
@@ -1344,7 +1344,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Upload Vendor #${instanceNumber}`,
+			title: `${t('admin.uploadVendor')} #${instanceNumber}`,
 			component: UploadVendor,
 			componentName: "UploadVendor",
 			icon: '📤',
@@ -1549,7 +1549,7 @@ function openApprovalCenter() {
 	const windowId = generateWindowId('approval-center');
 	const instanceNumber = Math.floor(Math.random() * 1000) + 1;		openWindow({
 			id: windowId,
-			title: `Approval Center #${instanceNumber}`,
+			title: `${t('nav.approvalCenter') || 'Approval Center'} #${instanceNumber}`,
 			component: ApprovalCenter,
 			componentName: 'ApprovalCenter',
 			icon: '✅',
@@ -1994,7 +1994,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Start Receiving #${instanceNumber}`,
+			title: `${t('nav.startReceiving')} #${instanceNumber}`,
 			component: StartReceiving,
 			componentName: "StartReceiving",
 			icon: '📦',
@@ -2015,7 +2015,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Default Positions #${instanceNumber}`,
+			title: `${t('defaultPositions.title')} #${instanceNumber}`,
 			component: DefaultPositions,
 			componentName: "DefaultPositions",
 			icon: '👥',
@@ -2404,7 +2404,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `PO Requests #${instanceNumber}`,
+			title: `${t('nav.poRequests') || 'PO Requests'} #${instanceNumber}`,
 			component: PORequestsList,
 			componentName: "PORequestsList",
 			icon: '🛒',
@@ -2427,7 +2427,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Stock Requests #${instanceNumber}`,
+			title: `${t('nav.stockRequests') || 'Stock Requests'} #${instanceNumber}`,
 			component: StockRequestsList,
 			componentName: "StockRequestsList",
 			icon: '📦',
@@ -2450,7 +2450,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `BT Requests #${instanceNumber}`,
+			title: `${t('nav.btRequests') || 'BT Requests'} #${instanceNumber}`,
 			component: BTRequestsList,
 			componentName: "BTRequestsList",
 			icon: '🔄',
@@ -2473,7 +2473,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Near Expiry Reports #${instanceNumber}`,
+			title: `${t('nav.nearExpiryRequests') || 'Near Expiry Reports'} #${instanceNumber}`,
 			component: NearExpiryRequestsList,
 			componentName: "NearExpiryRequestsList",
 			icon: '⏰',
@@ -2496,7 +2496,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Customer Requests #${instanceNumber}`,
+			title: `${t('nav.customerProductRequests') || 'Customer Requests'} #${instanceNumber}`,
 			component: CustomerProductRequestsList,
 			componentName: "CustomerProductRequestsList",
 			icon: '🛍️',
@@ -2564,7 +2564,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Receiving #${instanceNumber}`,
+			title: `${t('nav.receiving')} #${instanceNumber}`,
 			component: Receiving,
 			componentName: "Receiving",
 			icon: '📦',
@@ -2758,7 +2758,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Category Manager #${instanceNumber}`,
+			title: `${t('nav.categoryManager') || 'Category Manager'} #${instanceNumber}`,
 			component: CategoryManager,
 			componentName: "CategoryManager",
 			icon: '📁',
@@ -2802,7 +2802,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Purchase Voucher Manager #${instanceNumber}`,
+			title: `${t('nav.purchaseVoucherManager') || 'Purchase Voucher Manager'} #${instanceNumber}`,
 			component: PurchaseVoucherManager,
 			componentName: "PurchaseVoucherManager",
 			icon: '📄',
@@ -3083,7 +3083,7 @@ function openApprovalCenter() {
 		
 		openWindow({
 			id: windowId,
-			title: `Receiving Records #${instanceNumber}`,
+			title: `${t('nav.receivingRecords')} #${instanceNumber}`,
 			component: ReceivingRecords,
 			componentName: "ReceivingRecords",
 			icon: '📋',
@@ -4102,7 +4102,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDefaultPositions}>
 								<span class="menu-icon">👥</span>
-								<span class="menu-text">Default Positions</span>
+								<span class="menu-text">{t('defaultPositions.title') || 'Default Positions'}</span>
 							</button>
 						</div>
 					{/if}

@@ -3,6 +3,7 @@
 <script lang="ts">
   import { supabase } from '$lib/utils/supabase';
   import { onMount } from 'svelte';
+  import { t, locale } from '$lib/i18n';
 
   // Branch selection state
   let branches: any[] = [];
@@ -17,14 +18,14 @@
   let saveSuccess = '';
   let saveError = '';
 
-  // Position definitions (the 6 roles, excluding Shelf Stocker)
+  // Position definitions — label keys map to i18n
   const positionRoles = [
-    { key: 'branch_manager_user_id', label: 'Branch Manager', icon: '👔', single: true },
-    { key: 'purchasing_manager_user_id', label: 'Purchasing Manager', icon: '🛒', single: true },
-    { key: 'inventory_manager_user_id', label: 'Inventory Manager', icon: '📦', single: true },
-    { key: 'accountant_user_id', label: 'Accountant', icon: '💰', single: true },
-    { key: 'night_supervisor_user_ids', label: 'Night Supervisor(s)', icon: '🌙', single: false },
-    { key: 'warehouse_handler_user_id', label: 'Warehouse Handler', icon: '🏭', single: true },
+    { key: 'branch_manager_user_id',    labelKey: 'branchManager',       icon: '👔', single: true },
+    { key: 'purchasing_manager_user_id', labelKey: 'purchasingManager',   icon: '🛒', single: true },
+    { key: 'inventory_manager_user_id',  labelKey: 'inventoryManager',    icon: '📦', single: true },
+    { key: 'accountant_user_id',         labelKey: 'accountant',          icon: '💰', single: true },
+    { key: 'night_supervisor_user_ids',  labelKey: 'nightSupervisor',     icon: '🌙', single: false },
+    { key: 'warehouse_handler_user_id',  labelKey: 'warehouseHandler',    icon: '🏭', single: true },
   ];
 
   // Assigned users (resolved from IDs)
@@ -33,7 +34,7 @@
   // User picker state
   let showUserPicker = false;
   let pickerRoleKey = '';
-  let pickerRoleLabel = '';
+  let pickerRoleLabelKey = '';
   let pickerIsSingle = true;
   let allUsers: any[] = [];
   let filteredUsers: any[] = [];
@@ -49,10 +50,9 @@
       isLoadingBranches = true;
       const { data, error } = await supabase
         .from('branches')
-        .select('id, name_en')
+        .select('id, name_en, name_ar')
         .eq('is_active', true)
         .order('name_en');
-      
       if (error) throw error;
       branches = data || [];
     } catch (err: any) {
@@ -62,10 +62,14 @@
     }
   }
 
+  function getBranchName(branch: any) {
+    return $locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en;
+  }
+
   async function selectBranch(branchId: number) {
     selectedBranchId = branchId;
     const branch = branches.find(b => b.id === branchId);
-    selectedBranchName = branch?.name_en || '';
+    selectedBranchName = branch ? getBranchName(branch) : '';
     saveSuccess = '';
     saveError = '';
     await loadDefaultPositions();
@@ -73,25 +77,18 @@
 
   async function loadDefaultPositions() {
     if (!selectedBranchId) return;
-
     try {
       isLoadingPositions = true;
       assignedUsers = {};
-
       const { data, error } = await supabase
         .from('branch_default_positions')
         .select('*')
         .eq('branch_id', selectedBranchId)
         .maybeSingle();
-
       if (error) throw error;
-
       defaultPositions = data;
-
-      // Resolve user names for assigned positions
       if (data) {
         const userIds: string[] = [];
-        
         for (const role of positionRoles) {
           if (role.single) {
             if (data[role.key]) userIds.push(data[role.key]);
@@ -101,33 +98,22 @@
             }
           }
         }
-
         if (userIds.length > 0) {
           const { data: employees, error: usersError } = await supabase
             .from('hr_employee_master')
-            .select('user_id, name_en, id')
+            .select('user_id, name_en, name_ar, id')
             .in('user_id', userIds);
-
           if (!usersError && employees) {
             const userMap: Record<string, any> = {};
             employees.forEach(emp => {
-              userMap[emp.user_id] = {
-                id: emp.user_id,
-                username: emp.id,
-                displayName: emp.name_en || emp.id,
-              };
+              userMap[emp.user_id] = { id: emp.user_id, username: emp.id, name_en: emp.name_en, name_ar: emp.name_ar };
             });
-
             for (const role of positionRoles) {
               if (role.single) {
-                if (data[role.key] && userMap[data[role.key]]) {
-                  assignedUsers[role.key] = userMap[data[role.key]];
-                }
+                if (data[role.key] && userMap[data[role.key]]) assignedUsers[role.key] = userMap[data[role.key]];
               } else {
                 if (data[role.key] && Array.isArray(data[role.key])) {
-                  assignedUsers[role.key] = data[role.key]
-                    .filter((id: string) => userMap[id])
-                    .map((id: string) => userMap[id]);
+                  assignedUsers[role.key] = data[role.key].filter((id: string) => userMap[id]).map((id: string) => userMap[id]);
                 }
               }
             }
@@ -141,9 +127,9 @@
     }
   }
 
-  function openUserPicker(roleKey: string, roleLabel: string, isSingle: boolean) {
+  function openUserPicker(roleKey: string, roleLabelKey: string, isSingle: boolean) {
     pickerRoleKey = roleKey;
-    pickerRoleLabel = roleLabel;
+    pickerRoleLabelKey = roleLabelKey;
     pickerIsSingle = isSingle;
     userSearchQuery = '';
     showUserPicker = true;
@@ -153,30 +139,16 @@
   async function loadAllUsers() {
     try {
       isLoadingUsers = true;
-      
-      // Get all employees
       const { data, error } = await supabase
         .from('hr_employee_master')
-        .select('user_id, name_en, id')
+        .select('user_id, name_en, name_ar, id')
         .order('name_en');
-      
       if (error) throw error;
-      
-      // Get inactive user IDs (small set) to filter them out
-      const { data: inactiveUsers } = await supabase
-        .from('users')
-        .select('id')
-        .neq('status', 'active');
-      
-      const inactiveIds = new Set((inactiveUsers || []).map(u => u.id));
-      
+      const { data: inactiveUsers } = await supabase.from('users').select('id').neq('status', 'active');
+      const inactiveIds = new Set((inactiveUsers || []).map((u: any) => u.id));
       allUsers = (data || [])
         .filter(emp => emp.user_id && !inactiveIds.has(emp.user_id))
-        .map(emp => ({
-          id: emp.user_id,
-          username: emp.id,
-          displayName: emp.name_en || emp.id,
-        }));
+        .map(emp => ({ id: emp.user_id, username: emp.id, name_en: emp.name_en, name_ar: emp.name_ar }));
       filteredUsers = allUsers;
     } catch (err: any) {
       console.error('Error loading users:', err);
@@ -185,28 +157,28 @@
     }
   }
 
+  function getUserName(user: any): string {
+    if (!user) return '';
+    return ($locale === 'ar' ? (user.name_ar || user.name_en) : (user.name_en || user.name_ar)) || user.username || '';
+  }
+
   function handleUserSearch() {
-    if (!userSearchQuery.trim()) {
-      filteredUsers = allUsers;
-      return;
-    }
+    if (!userSearchQuery.trim()) { filteredUsers = allUsers; return; }
     const q = userSearchQuery.toLowerCase();
-    filteredUsers = allUsers.filter(u => 
+    filteredUsers = allUsers.filter(u =>
       (u.username && u.username.toLowerCase().includes(q)) ||
-      (u.displayName && u.displayName.toLowerCase().includes(q))
+      (u.name_en && u.name_en.toLowerCase().includes(q)) ||
+      (u.name_ar && u.name_ar.toLowerCase().includes(q))
     );
   }
 
-  $: if (userSearchQuery !== undefined) {
-    handleUserSearch();
-  }
+  $: if (userSearchQuery !== undefined) { handleUserSearch(); }
 
   function selectUser(user: any) {
     if (pickerIsSingle) {
       assignedUsers[pickerRoleKey] = user;
       assignedUsers = { ...assignedUsers };
     } else {
-      // Multi-select (night supervisors)
       const current = assignedUsers[pickerRoleKey] || [];
       if (!current.find((u: any) => u.id === user.id)) {
         assignedUsers[pickerRoleKey] = [...current, user];
@@ -222,17 +194,13 @@
       delete assignedUsers[roleKey];
       assignedUsers = { ...assignedUsers };
     } else {
-      // Multi-select removal
       const current = assignedUsers[roleKey] || [];
       assignedUsers[roleKey] = current.filter((u: any) => u.id !== userId);
       assignedUsers = { ...assignedUsers };
     }
   }
 
-  function closeUserPicker() {
-    showUserPicker = false;
-    userSearchQuery = '';
-  }
+  function closeUserPicker() { showUserPicker = false; userSearchQuery = ''; }
 
   function isUserAlreadySelected(userId: string): boolean {
     if (!pickerIsSingle) {
@@ -244,35 +212,26 @@
 
   async function saveDefaults() {
     if (!selectedBranchId) return;
-    
     try {
       isSaving = true;
       saveSuccess = '';
       saveError = '';
-
       const posData: any = {
         branch_id: selectedBranchId,
-        branch_manager_user_id: assignedUsers['branch_manager_user_id']?.id || null,
-        purchasing_manager_user_id: assignedUsers['purchasing_manager_user_id']?.id || null,
-        inventory_manager_user_id: assignedUsers['inventory_manager_user_id']?.id || null,
-        accountant_user_id: assignedUsers['accountant_user_id']?.id || null,
-        night_supervisor_user_ids: (assignedUsers['night_supervisor_user_ids'] || []).map((u: any) => u.id),
-        warehouse_handler_user_id: assignedUsers['warehouse_handler_user_id']?.id || null,
+        branch_manager_user_id:     assignedUsers['branch_manager_user_id']?.id || null,
+        purchasing_manager_user_id:  assignedUsers['purchasing_manager_user_id']?.id || null,
+        inventory_manager_user_id:   assignedUsers['inventory_manager_user_id']?.id || null,
+        accountant_user_id:          assignedUsers['accountant_user_id']?.id || null,
+        night_supervisor_user_ids:   (assignedUsers['night_supervisor_user_ids'] || []).map((u: any) => u.id),
+        warehouse_handler_user_id:   assignedUsers['warehouse_handler_user_id']?.id || null,
       };
-
-      const { error } = await supabase
-        .from('branch_default_positions')
-        .upsert(posData, { onConflict: 'branch_id' });
-
+      const { error } = await supabase.from('branch_default_positions').upsert(posData, { onConflict: 'branch_id' });
       if (error) throw error;
-
-      saveSuccess = `Default positions saved for ${selectedBranchName}!`;
-      
-      // Reload to confirm
+      saveSuccess = t('defaultPositions.saveDefaults') + ' ✅';
       await loadDefaultPositions();
     } catch (err: any) {
       console.error('Error saving default positions:', err);
-      saveError = 'Failed to save: ' + err.message;
+      saveError = err.message;
     } finally {
       isSaving = false;
     }
@@ -288,125 +247,109 @@
   }
 </script>
 
-<div class="default-positions-container">
-  <div class="header">
-    <h2>🏢 Default Positions</h2>
-    <p class="subtitle">Assign default staff positions per branch for the receiving process</p>
-  </div>
+<div class="dp-container">
 
   <!-- Branch Selection -->
   {#if !selectedBranchId}
-    <div class="branch-selection-section">
-      <h3>Select Branch</h3>
+    <div class="branch-selection-card">
+      <div class="section-label">🏢 {t('defaultPositions.selectBranch')}</div>
+
       {#if isLoadingBranches}
-        <div class="loading-state">
+        <div class="state-center">
           <div class="spinner"></div>
-          <span>Loading branches...</span>
+          <span>{t('defaultPositions.loadingBranches')}</span>
         </div>
       {:else if branches.length === 0}
-        <div class="empty-state">
-          <span class="empty-icon">📭</span>
-          <p>No active branches found</p>
+        <div class="state-center muted">
+          <span>📭</span>
+          <p>{t('defaultPositions.noBranches')}</p>
         </div>
       {:else}
         <div class="branch-grid">
           {#each branches as branch}
             <button class="branch-card" on:click={() => selectBranch(branch.id)}>
-              <span class="branch-icon">🏪</span>
-              <span class="branch-name">{branch.name_en}</span>
-              <span class="branch-id">ID: {branch.id}</span>
+              <span class="branch-card-icon">🏪</span>
+              <span class="branch-card-name">{getBranchName(branch)}</span>
+              <span class="branch-card-id">{t('defaultPositions.branchId')}: {branch.id}</span>
             </button>
           {/each}
         </div>
       {/if}
     </div>
+
   {:else}
     <!-- Selected Branch Header -->
-    <div class="selected-branch-header">
-      <div class="branch-info">
-        <span class="branch-icon-large">🏪</span>
+    <div class="branch-header-bar">
+      <div class="branch-header-info">
+        <span class="bh-icon">🏪</span>
         <div>
-          <h3>{selectedBranchName}</h3>
-          <span class="branch-id-label">Branch ID: {selectedBranchId}</span>
+          <div class="bh-name">{selectedBranchName}</div>
+          <div class="bh-id">{t('defaultPositions.branchId')}: {selectedBranchId}</div>
         </div>
       </div>
-      <button class="change-branch-btn" on:click={changeBranch}>
-        Change Branch
-      </button>
+      <button class="change-btn" on:click={changeBranch}>{t('defaultPositions.changeBranch')}</button>
     </div>
 
     <!-- Position Cards -->
     {#if isLoadingPositions}
-      <div class="loading-state">
+      <div class="state-center">
         <div class="spinner"></div>
-        <span>Loading positions...</span>
+        <span>{t('defaultPositions.loadingPositions')}</span>
       </div>
     {:else}
       <div class="positions-grid">
         {#each positionRoles as role}
           <div class="position-card">
-            <div class="position-header">
-              <span class="position-icon">{role.icon}</span>
-              <h4>{role.label}</h4>
+            <div class="pos-header">
+              <span class="pos-icon">{role.icon}</span>
+              <span class="pos-label">{t('defaultPositions.roles.' + role.labelKey)}</span>
               {#if !role.single}
-                <span class="multi-badge">Multiple</span>
+                <span class="multi-chip">{t('defaultPositions.multiple')}</span>
               {/if}
             </div>
 
-            <div class="position-body">
+            <div class="pos-body">
               {#if role.single}
-                <!-- Single user assignment -->
                 {#if assignedUsers[role.key]}
-                  <div class="assigned-user">
-                    <div class="user-info-card">
-                      <span class="user-avatar">👤</span>
-                      <div class="user-details">
-                        <span class="user-name">{assignedUsers[role.key].displayName || assignedUsers[role.key].username}</span>
-                      </div>
+                  <div class="assigned-row">
+                    <div class="user-chip">
+                      <span class="user-chip-avatar">👤</span>
+                      <span class="user-chip-name">{getUserName(assignedUsers[role.key])}</span>
                     </div>
-                    <div class="user-actions">
-                      <button class="change-btn" on:click={() => openUserPicker(role.key, role.label, role.single)} title="Change user">
-                        🔄
-                      </button>
-                      <button class="remove-btn" on:click={() => removeUser(role.key)} title="Remove user">
-                        ✕
-                      </button>
+                    <div class="row-actions">
+                      <button class="icon-btn blue" on:click={() => openUserPicker(role.key, role.labelKey, role.single)} title="Change">🔄</button>
+                      <button class="icon-btn red"  on:click={() => removeUser(role.key)} title="Remove">✕</button>
                     </div>
                   </div>
                 {:else}
-                  <div class="no-assignment">
-                    <span class="no-user-text">No user assigned</span>
-                    <button class="assign-btn" on:click={() => openUserPicker(role.key, role.label, role.single)}>
-                      + Assign User
+                  <div class="no-assignment-row">
+                    <span class="no-assign-text">{t('defaultPositions.noAssignment')}</span>
+                    <button class="assign-btn" on:click={() => openUserPicker(role.key, role.labelKey, role.single)}>
+                      {t('defaultPositions.assignUser')}
                     </button>
                   </div>
                 {/if}
               {:else}
-                <!-- Multi user assignment (Night Supervisors) -->
                 {#if assignedUsers[role.key] && assignedUsers[role.key].length > 0}
-                  <div class="assigned-users-list">
+                  <div class="multi-list">
                     {#each assignedUsers[role.key] as user}
-                      <div class="assigned-user compact">
-                        <div class="user-info-card">
-                          <span class="user-avatar">👤</span>
-                          <div class="user-details">
-                            <span class="user-name">{user.displayName || user.username}</span>
-                          </div>
+                      <div class="assigned-row compact">
+                        <div class="user-chip">
+                          <span class="user-chip-avatar">👤</span>
+                          <span class="user-chip-name">{getUserName(user)}</span>
                         </div>
-                        <button class="remove-btn" on:click={() => removeUser(role.key, user.id)} title="Remove">
-                          ✕
-                        </button>
+                        <button class="icon-btn red" on:click={() => removeUser(role.key, user.id)} title="Remove">✕</button>
                       </div>
                     {/each}
                   </div>
-                  <button class="assign-btn add-more" on:click={() => openUserPicker(role.key, role.label, role.single)}>
-                    + Add Another
+                  <button class="assign-btn purple full-w" on:click={() => openUserPicker(role.key, role.labelKey, role.single)}>
+                    {t('defaultPositions.addAnother')}
                   </button>
                 {:else}
-                  <div class="no-assignment">
-                    <span class="no-user-text">No users assigned</span>
-                    <button class="assign-btn" on:click={() => openUserPicker(role.key, role.label, role.single)}>
-                      + Assign User
+                  <div class="no-assignment-row">
+                    <span class="no-assign-text">{t('defaultPositions.noAssignment')}</span>
+                    <button class="assign-btn" on:click={() => openUserPicker(role.key, role.labelKey, role.single)}>
+                      {t('defaultPositions.assignUser')}
                     </button>
                   </div>
                 {/if}
@@ -417,18 +360,18 @@
       </div>
 
       <!-- Save Section -->
-      <div class="save-section">
+      <div class="save-bar">
         {#if saveSuccess}
-          <div class="save-success">✅ {saveSuccess}</div>
+          <div class="alert success">✅ {saveSuccess}</div>
         {/if}
         {#if saveError}
-          <div class="save-error">❌ {saveError}</div>
+          <div class="alert error">❌ {saveError}</div>
         {/if}
         <button class="save-btn" on:click={saveDefaults} disabled={isSaving}>
           {#if isSaving}
-            <div class="spinner-small"></div> Saving...
+            <div class="spinner-sm"></div> {t('defaultPositions.saving')}
           {:else}
-            💾 Save Default Positions
+            💾 {t('defaultPositions.saveDefaults')}
           {/if}
         </button>
       </div>
@@ -439,61 +382,58 @@
 <!-- User Picker Modal -->
 {#if showUserPicker}
   <div class="modal-overlay" on:click={closeUserPicker}>
-    <div class="user-picker-modal" on:click|stopPropagation>
-      <div class="modal-header">
-        <h3>Select {pickerRoleLabel}</h3>
+    <div class="picker-modal" on:click|stopPropagation>
+      <div class="picker-header">
+        <h3>{t('defaultPositions.roles.' + pickerRoleLabelKey)}</h3>
         <button class="close-btn" on:click={closeUserPicker}>✕</button>
       </div>
-      
-      <div class="modal-search">
-        <input 
-          type="text" 
-          placeholder="Search by name or employee ID..." 
+
+      <div class="picker-search">
+        <span class="search-icon">🔍</span>
+        <input
+          type="text"
+          placeholder={t('defaultPositions.searchUsers')}
           bind:value={userSearchQuery}
-          class="search-input"
+          class="picker-input"
         />
         {#if userSearchQuery}
-          <button class="clear-search" on:click={() => userSearchQuery = ''}>✕</button>
+          <button class="clear-x" on:click={() => userSearchQuery = ''}>✕</button>
         {/if}
       </div>
 
-      <div class="modal-body">
+      <div class="picker-body">
         {#if isLoadingUsers}
-          <div class="loading-state">
+          <div class="state-center">
             <div class="spinner"></div>
-            <span>Loading users...</span>
+            <span>{t('defaultPositions.loadingUsers')}</span>
           </div>
         {:else if filteredUsers.length === 0}
-          <div class="empty-state">
-            <span class="empty-icon">🔍</span>
-            <p>No users found</p>
+          <div class="state-center muted">
+            <span>🔍</span>
+            <p>{t('defaultPositions.noUsers')}</p>
           </div>
         {:else}
-          <div class="users-list">
-            <div class="search-results-info">
-              Showing {filteredUsers.length} of {allUsers.length} users
-            </div>
-            {#each filteredUsers as user}
-              {@const alreadySelected = isUserAlreadySelected(user.id)}
-              <button 
-                class="user-row" 
-                class:already-selected={alreadySelected}
-                on:click={() => !alreadySelected && selectUser(user)}
-                disabled={alreadySelected}
-              >
-                <span class="user-avatar">👤</span>
-                <div class="user-row-info">
-                  <span class="user-row-name">{user.displayName || user.username}</span>
-                  <span class="user-row-meta">
-                    {user.username}
-                  </span>
-                </div>
-                {#if alreadySelected}
-                  <span class="selected-badge">✓ Selected</span>
-                {/if}
-              </button>
-            {/each}
+          <div class="results-info">
+            {t('defaultPositions.showingUsers', { shown: filteredUsers.length, total: allUsers.length })}
           </div>
+          {#each filteredUsers as user}
+            {@const alreadySelected = isUserAlreadySelected(user.id)}
+            <button
+              class="user-row"
+              class:already-selected={alreadySelected}
+              on:click={() => !alreadySelected && selectUser(user)}
+              disabled={alreadySelected}
+            >
+              <span class="ur-avatar">👤</span>
+              <div class="ur-info">
+                <span class="ur-name">{getUserName(user)}</span>
+                <span class="ur-id">{user.username}</span>
+              </div>
+              {#if alreadySelected}
+                <span class="selected-tag">{t('defaultPositions.selected')}</span>
+              {/if}
+            </button>
+          {/each}
         {/if}
       </div>
     </div>
@@ -501,521 +441,392 @@
 {/if}
 
 <style>
-  .default-positions-container {
-    padding: 1.5rem;
-    max-width: 100%;
+  /* ===================== CONTAINER ===================== */
+  .dp-container {
+    padding: 0.75rem 1rem;
     height: 100%;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: linear-gradient(135deg, #e8f0fe 0%, #f0f7ff 50%, #e8f4f8 100%);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   }
 
-  .header {
-    margin-bottom: 1.5rem;
+  /* ===================== BRANCH SELECTION ===================== */
+  .branch-selection-card {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    border-radius: 14px;
+    padding: 1.25rem;
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
   }
 
-  .header h2 {
-    font-size: 1.5rem;
+  .section-label {
     font-weight: 700;
-    color: #1a202c;
-    margin: 0 0 0.25rem 0;
-  }
-
-  .subtitle {
-    color: #718096;
-    font-size: 0.9rem;
-    margin: 0;
-  }
-
-  /* Branch Selection */
-  .branch-selection-section h3 {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #2d3748;
+    font-size: 1rem;
+    color: #1e293b;
     margin-bottom: 1rem;
   }
 
   .branch-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 0.75rem;
   }
 
   .branch-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
-    padding: 1.25rem;
-    background: white;
-    border: 2px solid #e2e8f0;
+    gap: 0.4rem;
+    padding: 1rem 0.75rem;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1.5px solid rgba(0, 0, 0, 0.08);
     border-radius: 12px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s;
   }
-
   .branch-card:hover {
-    border-color: #3182ce;
-    background: #ebf8ff;
+    border-color: #3b82f6;
+    background: #eff6ff;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(49, 130, 206, 0.15);
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.15);
   }
+  .branch-card-icon { font-size: 1.8rem; }
+  .branch-card-name { font-weight: 600; font-size: 0.88rem; color: #1e293b; text-align: center; }
+  .branch-card-id  { font-size: 0.72rem; color: #94a3b8; }
 
-  .branch-icon {
-    font-size: 2rem;
-  }
-
-  .branch-name {
-    font-weight: 600;
-    color: #2d3748;
-    text-align: center;
-    font-size: 0.95rem;
-  }
-
-  .branch-id {
-    font-size: 0.75rem;
-    color: #a0aec0;
-  }
-
-  /* Selected Branch Header */
-  .selected-branch-header {
+  /* ===================== BRANCH HEADER BAR ===================== */
+  .branch-header-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: linear-gradient(135deg, #ebf8ff, #e6fffa);
-    padding: 1rem 1.5rem;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-    border: 1px solid #bee3f8;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    border-radius: 14px;
+    padding: 0.75rem 1.25rem;
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+    flex-shrink: 0;
   }
+  .branch-header-info { display: flex; align-items: center; gap: 0.75rem; }
+  .bh-icon { font-size: 1.6rem; }
+  .bh-name { font-weight: 700; font-size: 1rem; color: #1e293b; }
+  .bh-id  { font-size: 0.75rem; color: #94a3b8; }
 
-  .branch-info {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .branch-icon-large {
-    font-size: 2rem;
-  }
-
-  .branch-info h3 {
-    margin: 0;
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #2d3748;
-  }
-
-  .branch-id-label {
-    font-size: 0.8rem;
-    color: #718096;
-  }
-
-  .change-branch-btn {
-    padding: 0.5rem 1rem;
-    background: white;
-    border: 1px solid #cbd5e0;
+  .change-btn {
+    padding: 0.4rem 0.9rem;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid #cbd5e1;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 0.85rem;
-    color: #4a5568;
+    font-size: 0.82rem;
+    color: #475569;
+    font-weight: 500;
     transition: all 0.2s;
   }
+  .change-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
 
-  .change-branch-btn:hover {
-    background: #f7fafc;
-    border-color: #a0aec0;
-  }
-
-  /* Positions Grid */
+  /* ===================== POSITIONS GRID ===================== */
   .positions-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.75rem;
   }
 
   .position-card {
-    background: white;
-    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
     border-radius: 12px;
     overflow: hidden;
+    box-shadow: 0 2px 12px rgba(59, 130, 246, 0.06);
     transition: box-shadow 0.2s;
   }
+  .position-card:hover { box-shadow: 0 4px 18px rgba(59, 130, 246, 0.12); }
 
-  .position-card:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  }
-
-  .position-header {
+  .pos-header {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    background: #f7fafc;
+    padding: 0.6rem 0.9rem;
+    background: rgba(241, 245, 249, 0.9);
     border-bottom: 1px solid #e2e8f0;
   }
-
-  .position-icon {
-    font-size: 1.3rem;
-  }
-
-  .position-header h4 {
-    margin: 0;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: #2d3748;
-    flex: 1;
-  }
-
-  .multi-badge {
-    font-size: 0.7rem;
-    background: #805ad5;
-    color: white;
-    padding: 0.15rem 0.5rem;
+  .pos-icon  { font-size: 1.15rem; }
+  .pos-label { font-weight: 600; font-size: 0.88rem; color: #1e293b; flex: 1; }
+  .multi-chip {
+    font-size: 0.68rem;
+    background: #ede9fe;
+    color: #7c3aed;
+    border: 1px solid #ddd6fe;
+    padding: 0.12rem 0.45rem;
     border-radius: 10px;
-    font-weight: 500;
+    font-weight: 600;
   }
 
-  .position-body {
-    padding: 1rem;
-  }
+  .pos-body { padding: 0.75rem; }
 
-  /* Assigned User */
-  .assigned-user {
+  /* Assigned row */
+  .assigned-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.5rem;
-    background: #f0fff4;
-    border: 1px solid #c6f6d5;
+    padding: 0.45rem 0.6rem;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
     border-radius: 8px;
   }
+  .assigned-row.compact { margin-bottom: 0.4rem; }
 
-  .assigned-user.compact {
-    margin-bottom: 0.5rem;
-  }
-
-  .user-info-card {
+  .user-chip {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
   }
-
-  .user-avatar {
-    font-size: 1.2rem;
-  }
-
-  .user-details {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .user-name {
+  .user-chip-avatar { font-size: 1rem; }
+  .user-chip-name {
     font-weight: 600;
-    font-size: 0.9rem;
-    color: #2d3748;
+    font-size: 0.84rem;
+    color: #166534;
   }
 
-  .user-position {
-    font-size: 0.75rem;
-    color: #718096;
-  }
+  .row-actions { display: flex; gap: 0.25rem; }
 
-  .user-actions {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .change-btn, .remove-btn {
-    width: 30px;
-    height: 30px;
+  .icon-btn {
+    width: 28px;
+    height: 28px;
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: all 0.2s;
+    font-weight: 600;
   }
+  .icon-btn.blue { background: #dbeafe; color: #1d4ed8; }
+  .icon-btn.blue:hover { background: #bfdbfe; }
+  .icon-btn.red  { background: #fee2e2; color: #dc2626; }
+  .icon-btn.red:hover  { background: #fecaca; }
 
-  .change-btn {
-    background: #ebf8ff;
-    color: #3182ce;
-  }
-
-  .change-btn:hover {
-    background: #bee3f8;
-  }
-
-  .remove-btn {
-    background: #fed7d7;
-    color: #e53e3e;
-  }
-
-  .remove-btn:hover {
-    background: #feb2b2;
-  }
-
-  /* No Assignment */
-  .no-assignment {
+  /* No assignment */
+  .no-assignment-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem;
+    padding: 0.55rem 0.7rem;
     background: #fffbeb;
-    border: 1px dashed #f6e05e;
+    border: 1px dashed #fde68a;
     border-radius: 8px;
   }
-
-  .no-user-text {
-    color: #b7791f;
-    font-size: 0.85rem;
-    font-style: italic;
-  }
+  .no-assign-text { color: #92400e; font-size: 0.82rem; font-style: italic; }
 
   .assign-btn {
-    padding: 0.4rem 0.75rem;
-    background: #3182ce;
+    padding: 0.35rem 0.7rem;
+    background: #3b82f6;
     color: white;
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 500;
+    font-size: 0.8rem;
+    font-weight: 600;
     transition: background 0.2s;
+    white-space: nowrap;
   }
+  .assign-btn:hover  { background: #2563eb; }
+  .assign-btn.purple { background: #7c3aed; }
+  .assign-btn.purple:hover { background: #6d28d9; }
+  .assign-btn.full-w { width: 100%; margin-top: 0.4rem; justify-content: center; display: flex; }
 
-  .assign-btn:hover {
-    background: #2b6cb0;
-  }
+  .multi-list { display: flex; flex-direction: column; max-height: 200px; overflow-y: auto; }
 
-  .assign-btn.add-more {
-    margin-top: 0.5rem;
-    background: #805ad5;
-    width: 100%;
-  }
-
-  .assign-btn.add-more:hover {
-    background: #6b46c1;
-  }
-
-  .assigned-users-list {
-    max-height: 200px;
-    overflow-y: auto;
-  }
-
-  /* Save Section */
-  .save-section {
+  /* ===================== SAVE BAR ===================== */
+  .save-bar {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
-    padding: 1.5rem;
-    background: #f7fafc;
-    border-radius: 12px;
-    border: 1px solid #e2e8f0;
+    gap: 0.6rem;
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+    flex-shrink: 0;
   }
 
+  .alert {
+    padding: 0.45rem 1rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 500;
+  }
+  .alert.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .alert.error   { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
   .save-btn {
-    padding: 0.75rem 2rem;
-    background: #38a169;
+    padding: 0.55rem 1.75rem;
+    background: linear-gradient(135deg, #10b981, #059669);
     color: white;
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 1rem;
-    font-weight: 600;
-    transition: background 0.2s;
+    font-size: 0.9rem;
+    font-weight: 700;
+    transition: all 0.2s;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.22);
   }
-
   .save-btn:hover:not(:disabled) {
-    background: #2f855a;
+    background: linear-gradient(135deg, #059669, #047857);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.32);
   }
+  .save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-  .save-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .save-success {
-    padding: 0.5rem 1rem;
-    background: #f0fff4;
-    color: #276749;
-    border: 1px solid #c6f6d5;
-    border-radius: 8px;
-    font-size: 0.9rem;
-  }
-
-  .save-error {
-    padding: 0.5rem 1rem;
-    background: #fff5f5;
-    color: #c53030;
-    border: 1px solid #fed7d7;
-    border-radius: 8px;
-    font-size: 0.9rem;
-  }
-
-  /* Loading & Empty States */
-  .loading-state {
+  /* ===================== STATE HELPERS ===================== */
+  .state-center {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     padding: 2rem;
-    color: #718096;
+    color: #64748b;
+    font-size: 0.88rem;
   }
+  .state-center.muted { color: #94a3b8; }
+  .state-center span:first-child { font-size: 2rem; }
 
   .spinner {
-    width: 24px;
-    height: 24px;
+    width: 22px; height: 22px;
     border: 3px solid #e2e8f0;
-    border-top-color: #3182ce;
+    border-top-color: #3b82f6;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
-
-  .spinner-small {
-    width: 16px;
-    height: 16px;
+  .spinner-sm {
+    width: 14px; height: 14px;
     border: 2px solid rgba(255,255,255,0.3);
     border-top-color: white;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 2rem;
-    color: #a0aec0;
-  }
-
-  .empty-icon {
-    font-size: 2rem;
-  }
-
-  /* Modal Overlay */
+  /* ===================== PICKER MODAL ===================== */
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 9999;
   }
 
-  .user-picker-modal {
-    background: white;
+  .picker-modal {
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
     border-radius: 16px;
     width: 90%;
-    max-width: 500px;
-    max-height: 80vh;
+    max-width: 480px;
+    max-height: 78vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
   }
 
-  .modal-header {
+  .picker-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid #e2e8f0;
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid #f1f5f9;
   }
-
-  .modal-header h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #2d3748;
-  }
+  .picker-header h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #1e293b; }
 
   .close-btn {
-    width: 32px;
-    height: 32px;
+    width: 30px; height: 30px;
     border: none;
-    background: #f7fafc;
-    border-radius: 8px;
+    background: #f8fafc;
+    border-radius: 7px;
     cursor: pointer;
-    font-size: 1rem;
-    color: #718096;
+    font-size: 0.9rem;
+    color: #64748b;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: all 0.2s;
   }
+  .close-btn:hover { background: #fee2e2; color: #dc2626; }
 
-  .close-btn:hover {
-    background: #edf2f7;
-    color: #e53e3e;
-  }
-
-  .modal-search {
+  .picker-search {
     position: relative;
-    padding: 0.75rem 1.5rem;
-    border-bottom: 1px solid #e2e8f0;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
   }
-
-  .modal-search .search-input {
+  .search-icon {
+    position: absolute;
+    left: 1.6rem;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    pointer-events: none;
+  }
+  .picker-input {
     width: 100%;
-    padding: 0.6rem 2rem 0.6rem 0.75rem;
+    padding: 0.45rem 2rem 0.45rem 2rem;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     outline: none;
+    background: #f8fafc;
+    color: #1e293b;
     transition: border-color 0.2s;
   }
-
-  .modal-search .search-input:focus {
-    border-color: #3182ce;
-    box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
-  }
-
-  .clear-search {
+  .picker-input:focus { border-color: #3b82f6; background: white; box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+  .picker-input::placeholder { color: #b0bec5; }
+  .clear-x {
     position: absolute;
-    right: 2rem;
-    top: 50%;
-    transform: translateY(-50%);
+    right: 1.6rem;
     border: none;
     background: none;
-    color: #a0aec0;
+    color: #94a3b8;
     cursor: pointer;
-    font-size: 1rem;
+    font-size: 0.9rem;
+    line-height: 1;
   }
+  .clear-x:hover { color: #dc2626; }
 
-  .modal-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0.5rem;
-  }
+  .picker-body { flex: 1; overflow-y: auto; padding: 0.4rem; }
 
-  .search-results-info {
-    font-size: 0.75rem;
-    color: #a0aec0;
-    padding: 0.25rem 0.75rem;
-    margin-bottom: 0.25rem;
-  }
-
-  .users-list {
-    display: flex;
-    flex-direction: column;
+  .results-info {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    padding: 0.2rem 0.7rem 0.4rem;
   }
 
   .user-row {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.65rem 0.75rem;
+    gap: 0.65rem;
+    padding: 0.55rem 0.75rem;
     border: none;
     background: transparent;
     cursor: pointer;
@@ -1024,40 +835,21 @@
     border-radius: 8px;
     transition: background 0.15s;
   }
+  .user-row:hover:not(:disabled) { background: #eff6ff; }
+  .user-row.already-selected { background: #f0fdf4; opacity: 0.75; cursor: default; }
+  .user-row:disabled { cursor: default; }
 
-  .user-row:hover:not(:disabled) {
-    background: #ebf8ff;
-  }
+  .ur-avatar { font-size: 1rem; }
+  .ur-info { display: flex; flex-direction: column; flex: 1; }
+  .ur-name { font-weight: 600; font-size: 0.86rem; color: #1e293b; }
+  .ur-id   { font-size: 0.72rem; color: #94a3b8; }
 
-  .user-row:disabled {
-    cursor: default;
-  }
+  .selected-tag { font-size: 0.72rem; color: #059669; font-weight: 700; }
 
-  .user-row.already-selected {
-    background: #f0fff4;
-    opacity: 0.7;
-  }
-
-  .user-row-info {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-  }
-
-  .user-row-name {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: #2d3748;
-  }
-
-  .user-row-meta {
-    font-size: 0.75rem;
-    color: #a0aec0;
-  }
-
-  .selected-badge {
-    font-size: 0.75rem;
-    color: #38a169;
-    font-weight: 600;
+  /* ===================== RESPONSIVE ===================== */
+  @media (max-width: 600px) {
+    .dp-container { padding: 0.5rem; }
+    .positions-grid { grid-template-columns: 1fr; }
+    .branch-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   }
 </style>

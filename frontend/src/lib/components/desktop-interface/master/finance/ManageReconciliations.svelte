@@ -71,10 +71,8 @@
 	}, { mada: 0, visa: 0, mastercard: 0, google_pay: 0, other: 0, total: 0 });
 
 	onMount(async () => {
-		await loadBranches();
-		await loadReconciliations();
+		await loadAll();
 		setupRealtime();
-		isLoading = false;
 	});
 
 	onDestroy(() => {
@@ -83,105 +81,34 @@
 		}
 	});
 
-	async function loadBranches() {
-		try {
-			const { data, error } = await supabase
-				.from('branches')
-				.select('id, name_en, name_ar, location_en, location_ar')
-				.eq('is_active', true);
-			if (error) throw error;
-			branches = data || [];
-		} catch (err) {
-			console.error('Error loading branches:', err);
-		}
-	}
-
-	async function loadReconciliations() {
+	async function loadAll() {
 		try {
 			isLoading = true;
-			let query = supabase
-				.from('bank_reconciliations')
-				.select('*')
-				.order('created_at', { ascending: false });
-
-			if (selectedBranch && selectedBranch !== 'all') {
-				query = query.eq('branch_id', selectedBranch);
-			}
-			if (dateFrom) {
-				query = query.gte('created_at', dateFrom + 'T00:00:00');
-			}
-			if (dateTo) {
-				query = query.lte('created_at', dateTo + 'T23:59:59');
-			}
-
-			const { data, error } = await query;
+			const { data, error } = await supabase.rpc('get_reconciliations_data', {
+				p_branch_id: selectedBranch === 'all' ? null : selectedBranch || null,
+				p_date_from: dateFrom || null,
+				p_date_to:   dateTo   || null
+			});
 			if (error) throw error;
 
-			reconciliations = data || [];
-			totalCount = reconciliations.length;
-
-			// Enrich with branch names
-			const branchMap = new Map(branches.map(b => [b.id, b]));
-			for (const r of reconciliations) {
-				const branch = branchMap.get(r.branch_id);
-				if (branch) {
-					r.branch_name_en = branch.name_en;
-					r.branch_name_ar = branch.name_ar;
-					r.branch_location_en = branch.location_en;
-					r.branch_location_ar = branch.location_ar;
-				}
-			}
-
-			// Load user names for supervisors and cashiers via hr_employee_master
-			const userIds = new Set<string>();
-			reconciliations.forEach(r => {
-				if (r.supervisor_id) userIds.add(r.supervisor_id);
-				if (r.cashier_id) userIds.add(r.cashier_id);
-			});
-
-			if (userIds.size > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, name_en, name_ar')
-					.in('user_id', Array.from(userIds));
-
-				if (employees) {
-					const isAr = $currentLocale === 'ar';
-					const empMap = new Map(employees.map(e => [e.user_id, isAr ? (e.name_ar || e.name_en) : (e.name_en || e.name_ar)]));
-					for (const r of reconciliations) {
-						r.supervisor_name = empMap.get(r.supervisor_id) || '-';
-						r.cashier_name = empMap.get(r.cashier_id) || '-';
-					}
-				}
-			}
-
-			// Load box details (box_number, date closed)
-			const opIds = [...new Set(reconciliations.map(r => r.operation_id).filter(Boolean))];
-			if (opIds.length > 0) {
-				const { data: ops } = await supabase
-					.from('box_operations')
-					.select('id, box_number, closing_details')
-					.in('id', opIds);
-				if (ops) {
-					const opMap = new Map(ops.map(o => [o.id, o]));
-					for (const r of reconciliations) {
-						const op = opMap.get(r.operation_id);
-						if (op) {
-							r.box_number = op.box_number;
-						}
-					}
-				}
-			}
-
-			currentPage = 1;
-			// Trigger Svelte reactivity after enrichment
-			reconciliations = reconciliations;
+			branches        = data.branches        || [];
+			const isAr      = $currentLocale === 'ar';
+			reconciliations = (data.reconciliations || []).map((r: any) => ({
+				...r,
+				supervisor_name: isAr ? (r.supervisor_name_ar || r.supervisor_name_en) : r.supervisor_name_en,
+				cashier_name:    isAr ? (r.cashier_name_ar    || r.cashier_name_en)    : r.cashier_name_en
+			}));
+			totalCount   = reconciliations.length;
+			currentPage  = 1;
 		} catch (err) {
 			console.error('Error loading reconciliations:', err);
 		} finally {
 			isLoading = false;
 		}
 	}
+
+	async function loadBranches() { /* handled by loadAll */ }
+	async function loadReconciliations() { await loadAll(); }
 
 	function applyClientFilters(items: Reconciliation[]): Reconciliation[] {
 		let result = [...items];
@@ -215,7 +142,7 @@
 		realtimeChannel = supabase
 			.channel('bank-recon-changes')
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'bank_reconciliations' }, () => {
-				loadReconciliations();
+				loadAll();
 			})
 			.subscribe();
 	}
@@ -241,7 +168,7 @@
 	}
 
 	async function handleFilterChange() {
-		await loadReconciliations();
+		await loadAll();
 	}
 
 	function prevPage() {

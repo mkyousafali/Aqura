@@ -1,6 +1,7 @@
 <script>
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
+	import { locale } from '$lib/i18n';
 	import * as XLSX from 'xlsx';
 
 	let showManagePerBook = false;
@@ -69,18 +70,20 @@
 
 	// Reactive lookup maps
 	$: branchMap = branches.reduce((map, b) => {
-		map[b.id] = `${b.name_en} - ${b.location_en}`;
+		const name = ($locale === 'ar') ? (b.name_ar || b.name_en) : b.name_en;
+		const loc  = ($locale === 'ar') ? (b.location_ar || b.location_en || '') : (b.location_en || '');
+		map[b.id] = loc ? `${name} — ${loc}` : name;
 		return map;
 	}, {});
 
+	// employees keyed by user_id (from hr_employee_master)
 	$: employeeMap = employees.reduce((map, e) => {
-		map[e.id] = e.name;
+		if (e.user_id) map[e.user_id] = ($locale === 'ar') ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || '');
 		return map;
 	}, {});
 
 	$: userEmployeeMap = users.reduce((map, u) => {
-		const empName = employeeMap[u.employee_id];
-		map[u.id] = empName ? `${u.username} - ${empName}` : u.username;
+		map[u.id] = employeeMap[u.id] || u.username;
 		return map;
 	}, {});
 
@@ -178,21 +181,16 @@
 		const { eventType, new: newRecord, old: oldRecord } = payload;
 
 		// Create lookup maps
+		const isAr2 = $locale === 'ar';
 		const branchMap = {};
 		branches.forEach(b => {
-			branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
+			const nm = isAr2 ? (b.name_ar || b.name_en) : b.name_en;
+			const lc = isAr2 ? (b.location_ar || b.location_en || '') : (b.location_en || '');
+			branchMap[b.id] = lc ? `${nm} — ${lc}` : nm;
 		});
-
-		const employeeMap = {};
-		employees.forEach(e => {
-			employeeMap[e.id] = e.name;
-		});
-
 		const userEmployeeMap = {};
-		users.forEach(u => {
-			const empName = employeeMap[u.employee_id];
-			userEmployeeMap[u.id] = empName ? `${u.username} - ${empName}` : u.username;
-		});
+		employees.forEach(e => { if (e.user_id) userEmployeeMap[e.user_id] = isAr2 ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || ''); });
+		users.forEach(u => { if (!userEmployeeMap[u.id]) userEmployeeMap[u.id] = u.username; });
 
 		if (eventType === 'UPDATE' && newRecord) {
 			console.log('🔄 Realtime: Updating item in place:', newRecord.id);
@@ -262,14 +260,17 @@
 			const items = itemsRes.data || [];
 
 			// Create lookup maps
+			const isAr3 = $locale === 'ar';
 			const branchMap = {};
 			branches.forEach(b => {
-				branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
+				const nm = isAr3 ? (b.name_ar || b.name_en) : b.name_en;
+				const lc = isAr3 ? (b.location_ar || b.location_en || '') : (b.location_en || '');
+				branchMap[b.id] = lc ? `${nm} — ${lc}` : nm;
 			});
 
 			const employeeMap = {};
 			employees.forEach(e => {
-				employeeMap[e.id] = e.name;
+				if (e.user_id) employeeMap[e.user_id] = isAr3 ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || '');
 			});
 
 			const userNameMap = {};
@@ -354,11 +355,16 @@
 			employees = rpcResult.employees || [];
 
 			// Build lookup maps for display names
+			const isAr = $locale === 'ar';
 			const _branchMap = {};
-			branches.forEach(b => { _branchMap[b.id] = `${b.name_en} - ${b.location_en}`; });
-
+			branches.forEach(b => {
+				const nm = isAr ? (b.name_ar || b.name_en) : b.name_en;
+				const lc = isAr ? (b.location_ar || b.location_en || '') : (b.location_en || '');
+				_branchMap[b.id] = lc ? `${nm} — ${lc}` : nm;
+			});
 			const _userNameMap = {};
-			users.forEach(u => { _userNameMap[u.id] = u.username; });
+			employees.forEach(e => { if (e.user_id) _userNameMap[e.user_id] = isAr ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || ''); });
+			users.forEach(u => { if (!_userNameMap[u.id]) _userNameMap[u.id] = u.username; });
 
 			// Book Summary
 			bookSummary = (rpcResult.book_summary || []).map(book => {
@@ -473,7 +479,7 @@
 
 	function openBatchAssignModal() {
 		if (selectedItems.size === 0) {
-			alert('Please select at least one voucher');
+			alert($locale === 'ar' ? 'الرجاء تحديد قسيمة واحدة على الأقل' : 'Please select at least one voucher');
 			return;
 		}
 		assignMultipleMode = true;
@@ -486,7 +492,7 @@
 
 	function openBatchAssignBooksModal() {
 		if (selectedBooks.size === 0) {
-			alert('Please select at least one book');
+			alert($locale === 'ar' ? 'الرجاء تحديد دفتر واحد على الأقل' : 'Please select at least one book');
 			return;
 		}
 		assignMultipleMode = true;
@@ -524,7 +530,7 @@
 
 	async function handleAssignSubmit() {
 		if (!selectedStockLocation || !selectedStockPerson) {
-			alert('Please select stock location and stock person');
+			alert($locale === 'ar' ? 'الرجاء تحديد موقع المخزون والمسؤول' : 'Please select stock location and stock person');
 			return;
 		}
 
@@ -534,11 +540,12 @@
 			
 			const locationInt = parseInt(selectedStockLocation);
 			const selectedBranchName = branches.find(b => b.id === locationInt);
-			const locationDisplay = selectedBranchName ? `${selectedBranchName.name_en} - ${selectedBranchName.location_en}` : locationInt.toString();
+			const _n = selectedBranchName ? (($locale === 'ar') ? (selectedBranchName.name_ar || selectedBranchName.name_en) : selectedBranchName.name_en) : '';
+			const _l = selectedBranchName ? (($locale === 'ar') ? (selectedBranchName.location_ar || selectedBranchName.location_en || '') : (selectedBranchName.location_en || '')) : '';
+			const locationDisplay = selectedBranchName ? (_l ? `${_n} — ${_l}` : _n) : locationInt.toString();
 			
 			const selectedUser = users.find(u => u.id === selectedStockPerson);
-			const empName = selectedUser?.employee_id ? employees.find(e => e.id === selectedUser.employee_id)?.name : null;
-			const personDisplay = empName ? `${selectedUser.username} - ${empName}` : selectedUser?.username || selectedStockPerson;
+			const personDisplay = (selectedUser?.id ? (employeeMap[selectedUser.id] || selectedUser?.username) : null) || selectedStockPerson;
 			
 			if (modalMode === 'book') {
 				// Update all items for this voucher book
@@ -569,7 +576,7 @@
 				});
 				applyBookFilters();
 
-				alert('Assignment successful!');
+				alert($locale === 'ar' ? 'تم التعيين بنجاح!' : 'Assignment successful!');
 				closeAssignModal();
 			} else if (modalMode === 'item') {
 				// Update single item
@@ -602,7 +609,7 @@
 				});
 				applyFilters();
 
-				alert('Assignment successful!');
+				alert($locale === 'ar' ? 'تم التعيين بنجاح!' : 'Assignment successful!');
 				closeAssignModal();
 			} else if (modalMode === 'multiple') {
 				// Update multiple items
@@ -721,7 +728,19 @@
 				}
 			}
 
-			voucherItems = allItems;
+			// Pick locale-aware display names for each item
+			const isAr = $locale === 'ar';
+			voucherItems = allItems.map(item => ({
+				...item,
+				stock_location_name: isAr
+					? (item.stock_location_name_ar && item.stock_location_loc_ar
+						? `${item.stock_location_name_ar} — ${item.stock_location_loc_ar}`
+						: item.stock_location_name_ar || item.stock_location_name)
+					: (item.stock_location_name && item.stock_location_loc_en
+						? `${item.stock_location_name} — ${item.stock_location_loc_en}`
+						: item.stock_location_name),
+				stock_person_name: isAr ? (item.stock_person_name_ar || item.stock_person_name) : item.stock_person_name
+			}));
 			console.log(`📦 Loaded ${voucherItems.length} voucher items via parallel RPC (${Math.ceil(totalCount / CHUNK_SIZE)} chunks)`);
 
 			// Build unique filter options
@@ -766,7 +785,7 @@
 
 	async function handleExportToExcel() {
 		if (!exportStockLocation || !exportStockPerson) {
-			alert('Please select both Stock Location and Stock Person');
+			alert($locale === 'ar' ? 'الرجاء تحديد موقع المخزون والمسؤول' : 'Please select both Stock Location and Stock Person');
 			return;
 		}
 
@@ -774,11 +793,12 @@
 		try {
 			// Get the location and person names for filtering
 			const selectedBranch = branches.find(b => b.id === parseInt(exportStockLocation));
-			const locationName = selectedBranch ? `${selectedBranch.name_en} - ${selectedBranch.location_en}` : '';
+			const _en = selectedBranch ? (($locale === 'ar') ? (selectedBranch.name_ar || selectedBranch.name_en) : selectedBranch.name_en) : '';
+			const _el = selectedBranch ? (($locale === 'ar') ? (selectedBranch.location_ar || selectedBranch.location_en || '') : (selectedBranch.location_en || '')) : '';
+			const locationName = selectedBranch ? (_el ? `${_en} — ${_el}` : _en) : '';
 			
 			const selectedUser = users.find(u => u.id === exportStockPerson);
-			const empName = selectedUser?.employee_id ? employees.find(e => e.id === selectedUser.employee_id)?.name : null;
-			const personName = empName ? `${selectedUser.username} - ${empName}` : selectedUser?.username || '';
+			const personName = selectedUser?.id ? (employeeMap[selectedUser.id] || selectedUser?.username || '') : '';
 
 			// Filter books by selected location and person
 			const filteredData = bookSummary.filter(book => {
@@ -788,7 +808,7 @@
 			});
 
 			if (filteredData.length === 0) {
-				alert('No records found matching the selected criteria');
+				alert($locale === 'ar' ? 'لا توجد سجلات مطابقة للمعايير المحددة' : 'No records found matching the selected criteria');
 				isExporting = false;
 				return;
 			}
@@ -822,7 +842,7 @@
 			XLSX.writeFile(wb, filename);
 
 			closeExportModal();
-			alert(`Successfully exported ${filteredData.length} book(s) to Excel!`);
+			alert($locale === 'ar' ? `تم تصدير ${filteredData.length} دفتر بنجاح!` : `Successfully exported ${filteredData.length} book(s) to Excel!`);
 		} catch (error) {
 			console.error('Export error:', error);
 			alert('Failed to export data: ' + error.message);
@@ -832,7 +852,7 @@
 	}
 </script>
 
-<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 	<!-- Header / Navigation Bar -->
 	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
 		<!-- View Mode Tabs -->
@@ -845,7 +865,7 @@
 				on:click={handleManagePerBook}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📚</span>
-				<span class="relative z-10">Per Book</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'حسب الدفتر' : 'Per Book'}</span>
 				{#if showManagePerBook}
 					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
 				{/if}
@@ -858,7 +878,7 @@
 				on:click={handleManagePerVoucher}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">🎫</span>
-				<span class="relative z-10">Per Voucher</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'حسب القسيمة' : 'Per Voucher'}</span>
 				{#if showManagePerVoucher}
 					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
 				{/if}
@@ -867,10 +887,10 @@
 				<button
 					class="group relative flex items-center gap-2.5 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden text-slate-500 hover:bg-white hover:text-emerald-700 hover:shadow-md"
 					on:click={handleRefresh}
-					title="Refresh data"
+					title={$locale === 'ar' ? 'تحديث البيانات' : 'Refresh data'}
 				>
 					<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-180">🔄</span>
-					<span class="relative z-10">Refresh</span>
+					<span class="relative z-10">{$locale === 'ar' ? 'تحديث' : 'Refresh'}</span>
 				</button>
 			{/if}
 		</div>
@@ -883,7 +903,7 @@
 					on:click={openExportModal}
 				>
 					<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📊</span>
-					<span>Export Excel</span>
+					<span>{$locale === 'ar' ? 'تصدير Excel' : 'Export Excel'}</span>
 				</button>
 			{/if}
 			{#if showManagePerBook && selectedBooks.size > 0}
@@ -892,7 +912,7 @@
 					on:click={openBatchAssignBooksModal}
 				>
 					<span class="text-base">✅</span>
-					<span>Assign {selectedBooks.size} Book(s)</span>
+					<span>{$locale === 'ar' ? `تعيين ${selectedBooks.size} دفتر` : `Assign ${selectedBooks.size} {$locale === 'ar' ? 'دفتر' : 'Book(s)'}`}</span>
 				</button>
 			{/if}
 			{#if showManagePerVoucher && selectedItems.size > 0}
@@ -901,7 +921,7 @@
 					on:click={openBatchAssignModal}
 				>
 					<span class="text-base">✅</span>
-					<span>Assign {selectedItems.size} Voucher(s)</span>
+					<span>{$locale === 'ar' ? `تعيين ${selectedItems.size} قسيمة` : `Assign ${selectedItems.size} {$locale === 'ar' ? 'قسيمة' : 'Voucher(s)'}`}</span>
 				</button>
 			{/if}
 		</div>
@@ -920,8 +940,8 @@
 				<div class="flex-1 flex items-center justify-center">
 					<div class="text-center">
 						<div class="text-6xl mb-4">📦</div>
-						<h2 class="text-xl font-black text-slate-700 mb-2">Purchase Voucher Stock Manager</h2>
-						<p class="text-sm text-slate-500">Select <strong>Per Book</strong> or <strong>Per Voucher</strong> to start managing stock</p>
+						<h2 class="text-xl font-black text-slate-700 mb-2">{$locale === 'ar' ? 'مدير مخزون قسائم الشراء' : 'Purchase Voucher Stock Manager'}</h2>
+						<p class="text-sm text-slate-500">{$locale === 'ar' ? 'اختر <strong>حسب الدفتر</strong> أو <strong>حسب القسيمة</strong> للبدء' : 'Select <strong>Per Book</strong> or <strong>Per Voucher</strong> to start managing stock'}</p>
 					</div>
 				</div>
 
@@ -932,7 +952,7 @@
 						<div class="animate-spin inline-block">
 							<div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
 						</div>
-						<p class="mt-4 text-slate-600 font-semibold">Loading data...</p>
+						<p class="mt-4 text-slate-600 font-semibold">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading data...'}</p>
 					</div>
 				</div>
 
@@ -941,50 +961,50 @@
 				{#if bookSummary.length === 0}
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
 						<div class="text-5xl mb-4">📭</div>
-						<p class="text-slate-600 font-semibold">No book data found</p>
+						<p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'لا توجد دفاتر' : 'No book data found'}</p>
 					</div>
 				{:else}
 					<!-- Filters Row -->
 					<div class="mb-4 grid grid-cols-4 gap-3">
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookPVId">PV ID</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookPVId">{$locale === 'ar' ? 'رقم PV' : 'PV ID'}</label>
 							<input
 								id="filterBookPVId"
 								type="text"
-								placeholder="Search PV ID..."
+								placeholder={$locale === 'ar' ? 'ابحث برقم PV...' : 'Search PV ID...'}
 								bind:value={filterBookPVId}
 								on:input={handleBookFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
 							/>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookNumber">Book Number</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookNumber">{$locale === 'ar' ? 'رقم الدفتر' : 'Book Number'}</label>
 							<input
 								id="filterBookNumber"
 								type="text"
-								placeholder="Enter book number..."
+								placeholder={$locale === 'ar' ? 'أدخل رقم الدفتر...' : 'Enter book number...'}
 								bind:value={filterBookNumber}
 								on:input={handleBookFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
 							/>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookStockLocation">Stock Location</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookStockLocation">{$locale === 'ar' ? 'موقع المخزون' : 'Stock Location'}</label>
 							<select id="filterBookStockLocation" bind:value={filterBookStockLocation} on:change={handleBookFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
 								style="color: #000 !important; background-color: #fff !important;">
-								<option value="" style="color: #000 !important;">All</option>
+								<option value="" style="color: #000 !important;">{$locale === 'ar' ? 'الكل' : 'All'}</option>
 								{#each uniqueBookLocations as location}
 									<option value={location} style="color: #000 !important;">{location}</option>
 								{/each}
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookStockPerson">Stock Person</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterBookStockPerson">{$locale === 'ar' ? 'مسؤول المخزون' : 'Stock Person'}</label>
 							<select id="filterBookStockPerson" bind:value={filterBookStockPerson} on:change={handleBookFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
 								style="color: #000 !important; background-color: #fff !important;">
-								<option value="" style="color: #000 !important;">All</option>
+								<option value="" style="color: #000 !important;">{$locale === 'ar' ? 'الكل' : 'All'}</option>
 								{#each uniqueBookPersons as person}
 									<option value={person} style="color: #000 !important;">{person}</option>
 								{/each}
@@ -1006,18 +1026,18 @@
 												class="w-4 h-4 cursor-pointer rounded accent-emerald-300"
 											/>
 										</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Voucher ID</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Book #</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Serial Range</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Count</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Value</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stock</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stocked</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Issued</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Closed</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Location</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Person</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Action</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'رقم القسيمة' : 'Voucher ID'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'الدفتر' : 'Book #'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'نطاق السيريال' : 'Serial Range'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'العدد' : 'Count'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'القيمة' : 'Value'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'مخزون' : 'Stock'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'تم التخزين' : 'Stocked'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'مُصدَر' : 'Issued'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'مُغلَق' : 'Closed'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'الموقع' : 'Location'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'الشخص' : 'Person'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'إجراء' : 'Action'}</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
@@ -1054,7 +1074,7 @@
 												<button
 													class="px-3 py-1.5 text-[10px] font-black uppercase tracking-wide bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all duration-200 hover:shadow-md"
 													on:click={() => openAssignModal(book)}
-												>Assign</button>
+												>{$locale === 'ar' ? 'تعيين' : 'Assign'}</button>
 											</td>
 										</tr>
 									{/each}
@@ -1063,7 +1083,7 @@
 						</div>
 						<!-- Footer -->
 						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-							Showing {filteredBookSummary.length} books {filterBookPVId || filterBookNumber || filterBookStockLocation || filterBookStockPerson ? `(filtered from ${bookSummary.length})` : ''}
+							{$locale === 'ar' ? `عرض ${filteredBookSummary.length} دفتر ${filterBookPVId || filterBookNumber || filterBookStockLocation || filterBookStockPerson ? '(مفلتر من ' + bookSummary.length + ')' : ''}` : `Showing ${filteredBookSummary.length} books ${filterBookPVId || filterBookNumber || filterBookStockLocation || filterBookStockPerson ? '(filtered from ' + bookSummary.length + ')' : ''}`}
 						</div>
 					</div>
 				{/if}
@@ -1073,72 +1093,72 @@
 				{#if voucherItems.length === 0}
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
 						<div class="text-5xl mb-4">📭</div>
-						<p class="text-slate-600 font-semibold">No voucher items found</p>
+						<p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'لا توجد قسائم' : 'No voucher items found'}</p>
 					</div>
 				{:else}
 					<!-- Filters Row -->
 					<div class="mb-4 grid grid-cols-6 gap-3">
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterPVId">PV ID</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterPVId">{$locale === 'ar' ? 'رقم PV' : 'PV ID'}</label>
 							<input
 								id="filterPVId"
 								type="text"
-								placeholder="Search PV ID..."
+								placeholder={$locale === 'ar' ? 'ابحث برقم PV...' : 'Search PV ID...'}
 								bind:value={filterPVId}
 								on:input={handleFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 							/>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterSerialNumber">Serial #</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterSerialNumber">{$locale === 'ar' ? 'السيريال' : 'Serial #'}</label>
 							<input
 								id="filterSerialNumber"
 								type="text"
-								placeholder="Exact serial..."
+								placeholder={$locale === 'ar' ? 'السيريال الدقيق...' : 'Exact serial...'}
 								bind:value={filterSerialNumber}
 								on:input={handleFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 							/>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterValue">Value</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterValue">{$locale === 'ar' ? 'القيمة' : 'Value'}</label>
 							<input
 								id="filterValue"
 								type="text"
-								placeholder="Exact value..."
+								placeholder={$locale === 'ar' ? 'القيمة الدقيقة...' : 'Exact value...'}
 								bind:value={filterValue}
 								on:input={handleFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 							/>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStatus">Status</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStatus">{$locale === 'ar' ? 'الحالة' : 'Status'}</label>
 							<select id="filterStatus" bind:value={filterStatus} on:change={handleFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 								style="color: #000 !important; background-color: #fff !important;">
-								<option value="" style="color: #000 !important;">All</option>
+								<option value="" style="color: #000 !important;">{$locale === 'ar' ? 'الكل' : 'All'}</option>
 								{#each uniqueStatuses as status}
 									<option value={status} style="color: #000 !important;">{status}</option>
 								{/each}
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStockLocation">Location</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStockLocation">{$locale === 'ar' ? 'الموقع' : 'Location'}</label>
 							<select id="filterStockLocation" bind:value={filterStockLocation} on:change={handleFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 								style="color: #000 !important; background-color: #fff !important;">
-								<option value="" style="color: #000 !important;">All</option>
+								<option value="" style="color: #000 !important;">{$locale === 'ar' ? 'الكل' : 'All'}</option>
 								{#each uniqueLocations as location}
 									<option value={location} style="color: #000 !important;">{location}</option>
 								{/each}
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStockPerson">Person</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="filterStockPerson">{$locale === 'ar' ? 'الشخص' : 'Person'}</label>
 							<select id="filterStockPerson" bind:value={filterStockPerson} on:change={handleFilterChange}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 								style="color: #000 !important; background-color: #fff !important;">
-								<option value="" style="color: #000 !important;">All</option>
+								<option value="" style="color: #000 !important;">{$locale === 'ar' ? 'الكل' : 'All'}</option>
 								{#each uniquePersons as person}
 									<option value={person} style="color: #000 !important;">{person}</option>
 								{/each}
@@ -1160,15 +1180,15 @@
 												class="w-4 h-4 cursor-pointer rounded accent-blue-300"
 											/>
 										</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">PV ID</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Serial #</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Value</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Stock</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issue Type</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Location</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Person</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'رقم PV' : 'PV ID'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'السيريال' : 'Serial #'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'القيمة' : 'Value'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'مخزون' : 'Stock'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'الحالة' : 'Status'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'نوع الإصدار' : 'Issue Type'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'الموقع' : 'Location'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'الشخص' : 'Person'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'إجراء' : 'Action'}</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
@@ -1193,17 +1213,17 @@
 													 item.status === 'closed' ? 'bg-red-100 text-red-800' :
 													 item.status === 'stock' ? 'bg-slate-200 text-slate-700' :
 													 'bg-amber-100 text-amber-800'}">
-													{item.status || 'N/A'}
+													{$locale === 'ar' ? (item.status === 'stock' ? 'مخزون' : item.status === 'stocked' ? 'تم التخزين' : item.status === 'issued' ? 'مُصدَر' : item.status === 'closed' ? 'مُغلَق' : item.status || 'غير محدد') : (item.status || 'N/A')}
 												</span>
 											</td>
-											<td class="px-4 py-3 text-xs text-center text-slate-600">{item.issue_type || '—'}</td>
+											<td class="px-4 py-3 text-xs text-center text-slate-600">{item.issue_type ? ($locale === 'ar' ? (item.issue_type === 'gift' ? 'هدية' : item.issue_type === 'not issued' ? 'غير مُصدَر' : item.issue_type === 'sales' ? 'مبيعات' : item.issue_type) : item.issue_type) : '—'}</td>
 											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_location_name}</td>
 											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_person_name}</td>
 											<td class="px-4 py-3 text-center">
 												<button
 													class="px-3 py-1.5 text-[10px] font-black uppercase tracking-wide bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 hover:shadow-md"
 													on:click={() => openAssignItemModal(item)}
-												>Assign</button>
+												>{$locale === 'ar' ? 'تعيين' : 'Assign'}</button>
 											</td>
 										</tr>
 									{/each}
@@ -1212,7 +1232,7 @@
 						</div>
 						<!-- Footer -->
 						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-							Showing {filteredVoucherItems.length} of {voucherItems.length} vouchers {filterPVId || filterSerialNumber || filterValue || filterStatus || filterStockLocation || filterStockPerson ? '(filtered)' : ''}
+							{$locale === 'ar' ? `عرض ${filteredVoucherItems.length} من ${voucherItems.length} قسيمة ${filterPVId || filterSerialNumber || filterValue || filterStatus || filterStockLocation || filterStockPerson ? '(مفلتر)' : ''}` : `Showing ${filteredVoucherItems.length} of ${voucherItems.length} vouchers ${filterPVId || filterSerialNumber || filterValue || filterStatus || filterStockLocation || filterStockPerson ? '(filtered)' : ''}`}
 						</div>
 					</div>
 				{/if}
@@ -1230,15 +1250,15 @@
 			<div class="flex justify-between items-center px-6 py-4 border-b border-slate-200">
 				<h3 class="text-base font-black text-slate-800 flex items-center gap-2">
 					<span class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-lg">📌</span>
-					Assign Stock —
+					{$locale === 'ar' ? 'تعيين المخزون —' : 'Assign Stock —'}
 					{#if modalMode === 'book'}
 						{selectedBook?.voucher_id}
 					{:else if modalMode === 'item'}
-						Serial {selectedItem?.serial_number}
+						{$locale === 'ar' ? 'سيريال' : 'Serial'} {selectedItem?.serial_number}
 					{:else if modalMode === 'multiple'}
-						{selectedItems.size} Voucher(s)
+						{selectedItems.size} {$locale === 'ar' ? 'قسيمة' : 'Voucher(s)'}
 					{:else if modalMode === 'multiple-books'}
-						{selectedBooks.size} Book(s)
+						{selectedBooks.size} {$locale === 'ar' ? 'دفتر' : 'Book(s)'}
 					{/if}
 				</h3>
 				<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors text-xl" on:click={closeAssignModal}>&times;</button>
@@ -1246,23 +1266,23 @@
 
 			<div class="p-6 space-y-5">
 				<div>
-					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="stockLocation">Stock Location (Branch)</label>
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="stockLocation">{$locale === 'ar' ? 'موقع المخزون (الفرع)' : 'Stock Location (Branch)'}</label>
 					<select id="stockLocation" bind:value={selectedStockLocation}
 						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
 						style="color: #000 !important; background-color: #fff !important;">
-						<option value="" style="color: #000 !important;">— Select Branch —</option>
+						<option value="" style="color: #000 !important;">{$locale === 'ar' ? '— اختر الفرع —' : '— Select Branch —'}</option>
 						{#each branches as branch (branch.id)}
-							<option value={branch.id} style="color: #000 !important;">{branch.name_en} - {branch.location_en}</option>
+                                                        <option value={branch.id} style="color: #000 !important;">{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}{branch.location_en ? (' — ' + ($locale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en)) : ''}</option>
 						{/each}
 					</select>
 				</div>
 
 				<div>
 					<!-- svelte-ignore a11y-label-has-associated-control -->
-					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Stock Person</label>
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'مسؤول المخزون' : 'Stock Person'}</label>
 					<input
 						type="text"
-						placeholder="Search users..."
+						placeholder={$locale === 'ar' ? 'بحث عن مستخدم...' : 'Search users...'}
 						bind:value={stockPersonSearch}
 						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all mb-2"
 					/>
@@ -1277,7 +1297,7 @@
 									bind:group={selectedStockPerson}
 									class="accent-emerald-600"
 								/>
-								<span class="text-sm text-slate-700">{user.username} - {employee?.name || 'N/A'}</span>
+								<span class="text-sm text-slate-700">{userEmployeeMap[user.id] || user.username}</span>
 							</label>
 						{/each}
 					</div>
@@ -1293,7 +1313,7 @@
 					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:shadow-lg shadow-emerald-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
 					on:click={handleAssignSubmit}
 					disabled={!selectedStockLocation || !selectedStockPerson}
-				>Assign</button>
+				>{$locale === 'ar' ? 'تعيين' : 'Assign'}</button>
 			</div>
 		</div>
 	</div>
@@ -1308,34 +1328,34 @@
 			<div class="flex justify-between items-center px-6 py-4 border-b border-slate-200">
 				<h3 class="text-base font-black text-slate-800 flex items-center gap-2">
 					<span class="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center text-lg">📊</span>
-					Export to Excel
+					{$locale === 'ar' ? 'تصدير إلى Excel' : 'Export to Excel'}
 				</h3>
 				<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors text-xl" on:click={closeExportModal}>&times;</button>
 			</div>
 
 			<div class="p-6 space-y-5">
 				<div class="p-3 bg-blue-50 rounded-xl text-sm text-blue-700 font-medium">
-					Select the Stock Location and Stock Person to filter and export.
+					{$locale === 'ar' ? 'اختر موقع المخزون ومسؤول المخزون للتصفية والتصدير.' : 'Select the Stock Location and Stock Person to filter and export.'}
 				</div>
 
 				<div>
-					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="exportStockLocation">Stock Location (Branch)</label>
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="exportStockLocation">{$locale === 'ar' ? 'موقع المخزون (الفرع)' : 'Stock Location (Branch)'}</label>
 					<select id="exportStockLocation" bind:value={exportStockLocation}
 						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
 						style="color: #000 !important; background-color: #fff !important;">
-						<option value="" style="color: #000 !important;">— Select Branch —</option>
+						<option value="" style="color: #000 !important;">{$locale === 'ar' ? '— اختر الفرع —' : '— Select Branch —'}</option>
 						{#each branches as branch (branch.id)}
-							<option value={branch.id} style="color: #000 !important;">{branch.name_en} - {branch.location_en}</option>
+                                                        <option value={branch.id} style="color: #000 !important;">{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}{branch.location_en ? (' — ' + ($locale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en)) : ''}</option>
 						{/each}
 					</select>
 				</div>
 
 				<div>
 					<!-- svelte-ignore a11y-label-has-associated-control -->
-					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Stock Person</label>
+					<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'مسؤول المخزون' : 'Stock Person'}</label>
 					<input
 						type="text"
-						placeholder="Search users..."
+						placeholder={$locale === 'ar' ? 'بحث عن مستخدم...' : 'Search users...'}
 						bind:value={exportStockPersonSearch}
 						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all mb-2"
 					/>
@@ -1354,7 +1374,7 @@
 									bind:group={exportStockPerson}
 									class="accent-teal-600"
 								/>
-								<span class="text-sm text-slate-700">{user.username} - {employee?.name || 'N/A'}</span>
+								<span class="text-sm text-slate-700">{userEmployeeMap[user.id] || user.username}</span>
 							</label>
 						{/each}
 					</div>
@@ -1365,13 +1385,13 @@
 				<button
 					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
 					on:click={closeExportModal}
-				>Cancel</button>
+				>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
 				<button
 					class="px-5 py-2.5 text-xs font-black uppercase tracking-wide bg-teal-600 text-white rounded-xl hover:bg-teal-700 hover:shadow-lg shadow-teal-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
 					on:click={handleExportToExcel}
 					disabled={isExporting || !exportStockLocation || !exportStockPerson}
 				>
-					{isExporting ? 'Exporting...' : 'Export'}
+					{isExporting ? ($locale === 'ar' ? 'جاري التصدير...' : 'Exporting...') : ($locale === 'ar' ? 'تصدير' : 'Export')}
 				</button>
 			</div>
 		</div>

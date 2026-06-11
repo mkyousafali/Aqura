@@ -1,4 +1,5 @@
 <script>
+	import { _ as t } from '$lib/i18n';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import UploadVendor from '$lib/components/desktop-interface/master/vendor/UploadVendor.svelte';
@@ -13,14 +14,14 @@
 	const vendorButtons = [
 		{
 			id: 'upload-vendor',
-			title: 'Upload Vendor',
+			title: t('admin.uploadVendor'),
 			description: 'Import vendor data from Excel files',
 			icon: '📤',
 			color: 'blue'
 		},
 		{
 			id: 'manage-vendor',
-			title: 'Manage Vendor',
+			title: t('admin.manageVendor'),
 			description: 'View, edit and manage vendor records',
 			icon: '🏪',
 			color: 'green'
@@ -35,7 +36,7 @@
 			// Open Upload Vendor component
 			openWindow({
 				id: windowId,
-				title: `Upload Vendor #${instanceNumber}`,
+				title: `${t('admin.uploadVendor')} #${instanceNumber}`,
 				component: UploadVendor,
 				icon: vendorOperation.icon,
 				size: { width: 900, height: 700 },
@@ -52,7 +53,7 @@
 			// Open Manage Vendor component
 			openWindow({
 				id: windowId,
-				title: `Manage Vendor #${instanceNumber}`,
+				title: `${t('admin.manageVendor')} #${instanceNumber}`,
 				component: ManageVendor,
 				icon: vendorOperation.icon,
 				size: { width: 1200, height: 800 },
@@ -73,8 +74,8 @@
 <div class="vendor-master">
 	<div class="header">
 		<div class="title-section">
-			<h1 class="title">🏪 Vendor Master</h1>
-			<p class="subtitle">Vendor Management Dashboard</p>
+			<h1 class="title">🏪 {t('admin.vendorMaster')}</h1>
+			<p class="subtitle">{t('vendorManagement.subtitle')}</p>
 		</div>
 	</div>
 

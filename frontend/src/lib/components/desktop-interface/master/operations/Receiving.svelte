@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { _ as t, currentLocale } from '$lib/i18n';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { realtimeService } from '$lib/utils/realtimeService';
@@ -7,7 +8,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import ReceivingDataWindow from '$lib/components/desktop-interface/master/operations/receiving/ReceivingDataWindow.svelte';
 
-	let totalReceivedBills = 0;
 	let billsWithoutOriginal = 0;
 	let billsWithoutErpReference = 0;
 	let billsWithoutPrExcel = 0;
@@ -17,7 +17,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let branches = [];
 	let selectedBranch = '';
 	let branchFilterMode = 'all'; // 'all', 'branch'
-	let loadingBranches = false;
 	
 	// Date filtering variables
 	let dateFilterMode = 'all'; // 'all', 'today', 'yesterday', 'range'
@@ -46,12 +45,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Load branches for filtering
 	async function loadBranches() {
-		loadingBranches = true;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar, location_en')
+				.select('id, name_en, name_ar, location_en, location_ar')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -59,8 +57,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			branches = data || [];
 		} catch (error) {
 			console.error('Error loading branches:', error);
-		} finally {
-			loadingBranches = false;
 		}
 	}
 
@@ -68,35 +64,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			// Get total count of received bills (filtered by branch and date if selected)
-			let billsQuery = supabase
-				.from('receiving_records')
-				.select('*', { count: 'exact', head: true });
-			
-			if (branchFilterMode === 'branch' && selectedBranch) {
-				billsQuery = billsQuery.eq('branch_id', selectedBranch);
-			}
-			
-			// Apply date filtering
-			if (dateFilterMode === 'today') {
-				const today = getToday();
-				billsQuery = billsQuery.gte('created_at', `${today}T00:00:00`).lt('created_at', `${today}T23:59:59`);
-			} else if (dateFilterMode === 'yesterday') {
-				const yesterday = getYesterday();
-				billsQuery = billsQuery.gte('created_at', `${yesterday}T00:00:00`).lt('created_at', `${yesterday}T23:59:59`);
-			} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
-				billsQuery = billsQuery.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
-			}
-			
-			const { count: billsCount, error: billsError } = await billsQuery;
-
-			if (billsError) {
-				console.error('Error loading bills count:', billsError);
-				totalReceivedBills = 0;
-			} else {
-				totalReceivedBills = billsCount || 0;
-			}
-
 			// Get count of bills without original bill uploaded (with branch and date filter)
 			let noOriginalQuery = supabase
 				.from('receiving_records')
@@ -188,7 +155,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 		} catch (err) {
 			console.error('Error in loadDashboardData:', err);
-			totalReceivedBills = 0;
 			billsWithoutOriginal = 0;
 			billsWithoutErpReference = 0;
 			billsWithoutPrExcel = 0;
@@ -240,7 +206,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		loadDashboardData();
 	} else if (branchFilterMode === 'branch' && !selectedBranch) {
 		// Reset data when branch mode is selected but no branch is chosen
-		totalReceivedBills = 0;
 		billsWithoutOriginal = 0;
 		billsWithoutErpReference = 0;
 		billsWithoutPrExcel = 0;
@@ -263,7 +228,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		loadDashboardData();
 	} else if (dateFilterMode === 'range' && (!dateFrom || !dateTo)) {
 		// Reset data when range mode is selected but dates are not chosen
-		totalReceivedBills = 0;
 		billsWithoutOriginal = 0;
 		billsWithoutErpReference = 0;
 		billsWithoutPrExcel = 0;
@@ -278,19 +242,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Dashboard cards with dynamic data
 	$: dashboardCards = [
 		{
-			id: 'card1',
-			title: 'Total Received Bills',
-			description: loading ? 'Loading...' : `${totalReceivedBills} bills received`,
-			icon: '📊',
-			color: 'blue',
-			count: totalReceivedBills,
-			dataType: 'bills',
-			clickable: true
-		},
-		{
 			id: 'card5',
-			title: 'Original Bills Upload Pending',
-			description: loading ? 'Loading...' : `${billsWithoutOriginal} bills pending upload`,
+			title: $t('receiving.dashboard.originalBillsUploadPending'),
+			description: loading ? $t('receiving.dashboard.loading') : $t('receiving.dashboard.billsPendingUpload', { count: billsWithoutOriginal }),
 			icon: '📄',
 			color: 'orange',
 			count: billsWithoutOriginal,
@@ -299,8 +253,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		},
 		{
 			id: 'card7',
-			title: 'PR Excel Upload Pending',
-			description: loading ? 'Loading...' : `${billsWithoutPrExcel} bills pending PR Excel upload`,
+			title: $t('receiving.dashboard.prExcelUploadPending'),
+			description: loading ? $t('receiving.dashboard.loading') : $t('receiving.dashboard.billsPendingPrExcel', { count: billsWithoutPrExcel }),
 			icon: '📊',
 			color: 'cyan',
 			count: billsWithoutPrExcel,
@@ -309,8 +263,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		},
 		{
 			id: 'card6',
-			title: 'Bills Not Entered to ERP',
-			description: loading ? 'Loading...' : `${billsWithoutErpReference} bills not entered to ERP`,
+			title: $t('receiving.dashboard.billsNotEnteredToErp'),
+			description: loading ? $t('receiving.dashboard.loading') : $t('receiving.dashboard.billsNotEnteredToErpDesc', { count: billsWithoutErpReference }),
 			icon: '🔗',
 			color: 'teal',
 			count: billsWithoutErpReference,
@@ -325,7 +279,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		openWindow({
 			id: windowId,
-			title: `Start Receiving #${instanceNumber}`,
+			title: `${$t('nav.startReceiving')} #${instanceNumber}`,
 			component: StartReceiving,
 			icon: '📦',
 			size: { width: 1200, height: 800 },
@@ -345,7 +299,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		openWindow({
 			id: windowId,
-			title: 'Receiving Records',
+			title: $t('nav.receivingRecords'),
 			component: ReceivingRecords,
 			icon: '📋',
 			size: { width: 1400, height: 900 },
@@ -416,30 +370,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		<div class="filter-controls">
 			<div class="filter-options">
 				<label class="filter-option">
-					<input 
-						type="radio" 
+					<input
+						type="radio"
 						bind:group={branchFilterMode}
 						value="all"
 					/>
-					<span class="option-text">All Branches</span>
+					<span class="option-text">{$t('receiving.dashboard.allBranches')}</span>
 				</label>
-				
+
 				<label class="filter-option">
-					<input 
-						type="radio" 
+					<input
+						type="radio"
 						bind:group={branchFilterMode}
 						value="branch"
 					/>
-					<span class="option-text">Filter by Branch</span>
+					<span class="option-text">{$t('receiving.dashboard.filterByBranch')}</span>
 				</label>
 			</div>
 
 			{#if branchFilterMode === 'branch'}
 				<div class="branch-selector">
 					<select bind:value={selectedBranch} class="branch-select">
-						<option value="">-- Select a branch --</option>
+						<option value="">{$t('receiving.dashboard.selectABranch')}</option>
 						{#each branches as branch}
-							<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
+							<option value={branch.id}>
+								{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
+								-
+								{$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en}
+							</option>
 						{/each}
 					</select>
 				</div>
@@ -447,12 +405,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</div>
 	</div>
 
-	<!-- Top Dashboard Section with 5 Placeholders -->
+	<!-- Top Dashboard Section -->
 	<div class="dashboard-section">
-		<h2 class="section-title">Dashboard Overview</h2>
+		<h2 class="section-title">{$t('receiving.dashboard.dashboardOverview')}</h2>
 		<div class="dashboard-grid">
 			{#each dashboardCards as card}
-				<div 
+				<div
 					class="dashboard-card {card.color} {card.clickable ? 'clickable' : ''}"
 					on:click={() => openCardData(card)}
 					role="button"
@@ -470,7 +428,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						<p class="card-description">{card.description}</p>
 					</div>
 					{#if card.clickable}
-						<div class="click-indicator">Click to view details</div>
+						<div class="click-indicator">{$t('receiving.dashboard.clickToViewDetails')}</div>
 					{/if}
 				</div>
 			{/each}
@@ -481,12 +439,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	<div class="action-section">
 		<button class="start-receiving-btn" on:click={openStartReceiving}>
 			<span class="btn-icon">🚀</span>
-			<span class="btn-text">Start Receiving</span>
+			<span class="btn-text">{$t('nav.startReceiving')}</span>
 		</button>
-		
+
 		<button class="receiving-records-btn" on:click={openReceivingRecords}>
 			<span class="btn-icon">📋</span>
-			<span class="btn-text">Receiving Records</span>
+			<span class="btn-text">{$t('nav.receivingRecords')}</span>
 		</button>
 	</div>
 </div>

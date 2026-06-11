@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -45,18 +46,17 @@
 
 	// Create lookup maps for display
 	$: branchMap = branches.reduce((map, b) => {
-		map[b.id] = `${b.name_en} - ${b.location_en}`;
+		const name = ($locale === 'ar') ? (b.name_ar || b.name_en) : b.name_en;
+		const loc  = ($locale === 'ar') ? (b.location_ar || b.location_en || '') : (b.location_en || '');
+		map[b.id] = loc ? `${name} — ${loc}` : name;
 		return map;
 	}, {});
 
-	$: employeeMap = employees.reduce((map, e) => {
-		map[e.id] = e.name;
-		return map;
-	}, {});
-
-	$: userEmployeeMap = users.reduce((map, u) => {
-		const empName = employeeMap[u.employee_id];
-		map[u.id] = empName ? `${u.username} - ${empName}` : u.username;
+	// user_id → employee display name from hr_employee_master (locale-aware)
+	$: userEmployeeMap = employees.reduce((map, e) => {
+		if (e.user_id) {
+			map[e.user_id] = ($locale === 'ar') ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || '');
+		}
 		return map;
 	}, {});
 
@@ -64,6 +64,21 @@
 		map[u.id] = u.username;
 		return map;
 	}, {});
+
+	$: employeeMap = employees.reduce((map, e) => {
+		if (e.user_id) map[e.user_id] = ($locale === 'ar') ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || '');
+		return map;
+	}, {});
+
+	function getIssueTypeLabel(type) {
+		if ($locale !== 'ar') return type || 'N/A';
+		switch ((type || '').toLowerCase()) {
+			case 'gift':       return 'هدية';
+			case 'not issued': return 'غير مصدر';
+			case 'sales':      return 'مبيعات';
+			default:           return type || 'غير محدد';
+		}
+	}
 
 	// Filter bookSummary based on search ID
 	$: filteredBookSummary = bookSummary.filter(book => {
@@ -231,14 +246,21 @@
 			employees = rpcResult.employees || [];
 
 			// Build lookup maps for display names
+			const isAr = $locale === 'ar';
 			const _branchMap = {};
-			branches.forEach(b => { _branchMap[b.id] = `${b.name_en} - ${b.location_en}`; });
+			branches.forEach(b => {
+				const name = isAr ? (b.name_ar || b.name_en) : b.name_en;
+				const loc  = isAr ? (b.location_ar || b.location_en || '') : (b.location_en || '');
+				_branchMap[b.id] = loc ? `${name} — ${loc}` : name;
+			});
 			
-			const _employeeMap = {};
-			employees.forEach(e => { _employeeMap[e.id] = e.name; });
-
+			// user_id → employee name from hr_employee_master
 			const _userNameMap = {};
-			users.forEach(u => { _userNameMap[u.id] = u.username; });
+			employees.forEach(e => {
+				if (e.user_id) _userNameMap[e.user_id] = isAr ? (e.name_ar || e.name_en || '') : (e.name_en || e.name_ar || '');
+			});
+			// fallback to username for unmapped user_ids
+			users.forEach(u => { if (!_userNameMap[u.id]) _userNameMap[u.id] = u.username; });
 
 			// --- Not Issued Stats ---
 			const niByBranch = {};
@@ -455,7 +477,7 @@
 	}
 </script>
 
-<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 	<!-- Header / Navigation Bar -->
 	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
 		<!-- Action Buttons -->
@@ -465,28 +487,28 @@
 				on:click={handleAddPurchaseVoucher}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">➕</span>
-				<span>Add Book</span>
+				<span>{$locale === 'ar' ? 'إضافة دفتر' : 'Add Book'}</span>
 			</button>
 			<button 
 				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-xl hover:scale-[1.02]"
 				on:click={handleIssuePurchaseVoucher}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📤</span>
-				<span>Issue</span>
+				<span>{$locale === 'ar' ? 'إصدار' : 'Issue'}</span>
 			</button>
 			<button 
 				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-orange-600 text-white shadow-lg shadow-orange-200 hover:bg-orange-700 hover:shadow-xl hover:scale-[1.02]"
 				on:click={handleClosePurchaseVoucher}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">✅</span>
-				<span>Close</span>
+				<span>{$locale === 'ar' ? 'إغلاق' : 'Close'}</span>
 			</button>
 			<button 
 				class="group relative flex items-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl bg-purple-600 text-white shadow-lg shadow-purple-200 hover:bg-purple-700 hover:shadow-xl hover:scale-[1.02]"
 				on:click={handlePurchaseVoucherStockManager}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📦</span>
-				<span>Stock Manager</span>
+				<span>{$locale === 'ar' ? 'مدير المخزون' : 'Stock Manager'}</span>
 			</button>
 		</div>
 
@@ -500,7 +522,7 @@
 				on:click={() => setViewMode('book')}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📚</span>
-				<span class="relative z-10">Book Wise</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'عرض الدفاتر' : 'Book Wise'}</span>
 				{#if viewMode === 'book'}
 					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
 				{/if}
@@ -513,7 +535,7 @@
 				on:click={() => setViewMode('voucher')}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">🎫</span>
-				<span class="relative z-10">Voucher Wise</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'عرض القسائم' : 'Voucher Wise'}</span>
 				{#if viewMode === 'voucher'}
 					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
 				{/if}
@@ -521,10 +543,10 @@
 			<button 
 				class="group relative flex items-center gap-2.5 px-5 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-500 rounded-xl overflow-hidden text-slate-500 hover:bg-white hover:text-emerald-700 hover:shadow-md"
 				on:click={handleRefresh}
-				title="Refresh data"
+				title={$locale === 'ar' ? 'تحديث البيانات' : 'Refresh data'}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-180">🔄</span>
-				<span class="relative z-10">Refresh</span>
+				<span class="relative z-10">{$locale === 'ar' ? 'تحديث' : 'Refresh'}</span>
 			</button>
 		</div>
 	</div>
@@ -546,24 +568,24 @@
 					<div class="flex items-center justify-between mb-3">
 						<h3 class="text-sm font-black uppercase tracking-wide text-slate-700 flex items-center gap-2">
 							<span class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-lg">📋</span>
-							Available
+							{$locale === 'ar' ? 'متاح' : 'Available'}
 						</h3>
 						<span class="text-xs font-bold text-slate-400">{showCard1Breakdown ? '▼' : '▶'}</span>
 					</div>
 					<div class="text-2xl font-black text-emerald-600 mb-2">{notIssuedStats.totalVouchers}</div>
-					<div class="text-xs text-slate-500 font-semibold">{notIssuedStats.totalVouchers === 1 ? 'book' : 'books'} not issued</div>
+					<div class="text-xs text-slate-500 font-semibold">{$locale === 'ar' ? 'دفتر' : (notIssuedStats.totalVouchers === 1 ? 'book' : 'books')} {$locale === 'ar' ? 'غير مُصدَر' : 'not issued'}</div>
 
 					{#if !showCard1Breakdown}
 						<div class="mt-3 space-y-1.5">
 							{#if Object.keys(notIssuedStats.byValue || {}).length > 0}
 								{#each Object.entries(notIssuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 									<div class="flex justify-between items-center px-2.5 py-1.5 bg-emerald-50/50 rounded-lg text-xs">
-										<span class="text-slate-600 font-semibold">Value {Number(value).toFixed(0)}</span>
-										<span class="text-emerald-700 font-black">{counts.vouchers} vouchers · {counts.books} books · {(Number(value) * counts.vouchers).toFixed(0)} total</span>
+										<span class="text-slate-600 font-semibold">{$locale === 'ar' ? 'القيمة' : 'Value'} {Number(value).toFixed(0)}</span>
+										<span class="text-emerald-700 font-black">{counts.vouchers} {$locale === 'ar' ? 'قسيمة ·' : 'vouchers ·'} {counts.books} {$locale === 'ar' ? 'دفتر ·' : 'books ·'} {(Number(value) * counts.vouchers).toFixed(0)} {$locale === 'ar' ? 'إجمالي' : 'total'}</span>
 									</div>
 								{/each}
 							{:else}
-								<p class="text-xs text-slate-400 italic text-center mt-2">No available vouchers</p>
+								<p class="text-xs text-slate-400 italic text-center mt-2">{$locale === 'ar' ? 'لا توجد قسائم متاحة' : 'No available vouchers'}</p>
 							{/if}
 						</div>
 					{:else}
@@ -574,14 +596,14 @@
 										<h4 class="text-xs font-black text-slate-700 mb-2 pb-1.5 border-b border-slate-200">{branchMap[branchId] || branchId}</h4>
 										{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 											<div class="flex justify-between items-center px-2 py-1 text-xs">
-												<span class="text-slate-500 font-semibold">Value {Number(value).toFixed(0)}</span>
-												<span class="text-emerald-700 font-bold">{counts.vouchers} vouchers · {counts.books} books</span>
+												<span class="text-slate-500 font-semibold">{$locale === 'ar' ? 'القيمة' : 'Value'} {Number(value).toFixed(0)}</span>
+												<span class="text-emerald-700 font-bold">{counts.vouchers} {$locale === 'ar' ? 'قسيمة ·' : 'vouchers ·'} {counts.books} {$locale === 'ar' ? 'دفتر' : 'books'}</span>
 											</div>
 										{/each}
 									</div>
 								{/each}
 							{:else}
-								<p class="text-xs text-slate-400 italic text-center">No available vouchers</p>
+								<p class="text-xs text-slate-400 italic text-center">{$locale === 'ar' ? 'لا توجد قسائم متاحة' : 'No available vouchers'}</p>
 							{/if}
 						</div>
 					{/if}
@@ -595,24 +617,24 @@
 					<div class="flex items-center justify-between mb-3">
 						<h3 class="text-sm font-black uppercase tracking-wide text-slate-700 flex items-center gap-2">
 							<span class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-lg">📤</span>
-							Issued
+							{$locale === 'ar' ? 'مُصدَر' : 'Issued'}
 						</h3>
 						<span class="text-xs font-bold text-slate-400">{showCard2Breakdown ? '▼' : '▶'}</span>
 					</div>
 					<div class="text-2xl font-black text-blue-600 mb-2">{issuedStats.totalVouchers}</div>
-					<div class="text-xs text-slate-500 font-semibold">{issuedStats.totalVouchers === 1 ? 'book' : 'books'} issued</div>
+					<div class="text-xs text-slate-500 font-semibold">{$locale === 'ar' ? 'دفتر' : (issuedStats.totalVouchers === 1 ? 'book' : 'books')} {$locale === 'ar' ? 'مُصدَر' : 'issued'}</div>
 
 					{#if !showCard2Breakdown}
 						<div class="mt-3 space-y-1.5">
 							{#if Object.keys(issuedStats.byValue || {}).length > 0}
 								{#each Object.entries(issuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 									<div class="flex justify-between items-center px-2.5 py-1.5 bg-blue-50/50 rounded-lg text-xs">
-										<span class="text-slate-600 font-semibold">Value {Number(value).toFixed(0)}</span>
-										<span class="text-blue-700 font-black">{counts.vouchers} vouchers · {counts.books} books · {(Number(value) * counts.vouchers).toFixed(0)} total</span>
+										<span class="text-slate-600 font-semibold">{$locale === 'ar' ? 'القيمة' : 'Value'} {Number(value).toFixed(0)}</span>
+										<span class="text-blue-700 font-black">{counts.vouchers} {$locale === 'ar' ? 'قسيمة ·' : 'vouchers ·'} {counts.books} {$locale === 'ar' ? 'دفتر ·' : 'books ·'} {(Number(value) * counts.vouchers).toFixed(0)} {$locale === 'ar' ? 'إجمالي' : 'total'}</span>
 									</div>
 								{/each}
 							{:else}
-								<p class="text-xs text-slate-400 italic text-center mt-2">No issued vouchers</p>
+								<p class="text-xs text-slate-400 italic text-center mt-2">{$locale === 'ar' ? 'لا توجد قسائم مُصدَرة' : 'No issued vouchers'}</p>
 							{/if}
 						</div>
 					{:else}
@@ -624,15 +646,15 @@
 										{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
 											{#each Object.entries(issueTypes) as [issueType, counts]}
 												<div class="flex justify-between items-center px-2 py-1 text-xs">
-													<span class="text-slate-500 font-semibold">Value {Number(value).toFixed(0)} · {issueType}</span>
-													<span class="text-blue-700 font-bold">{counts.vouchers} vouchers · {counts.books} books</span>
+													<span class="text-slate-500 font-semibold">{$locale === 'ar' ? 'القيمة' : 'Value'} {Number(value).toFixed(0)} · {getIssueTypeLabel(issueType)}</span>
+													<span class="text-blue-700 font-bold">{counts.vouchers} {$locale === 'ar' ? 'قسيمة ·' : 'vouchers ·'} {counts.books} {$locale === 'ar' ? 'دفتر' : 'books'}</span>
 												</div>
 											{/each}
 										{/each}
 									</div>
 								{/each}
 							{:else}
-								<p class="text-xs text-slate-400 italic text-center">No issued vouchers</p>
+								<p class="text-xs text-slate-400 italic text-center">{$locale === 'ar' ? 'لا توجد قسائم مُصدَرة' : 'No issued vouchers'}</p>
 							{/if}
 						</div>
 					{/if}
@@ -646,24 +668,24 @@
 					<div class="flex items-center justify-between mb-3">
 						<h3 class="text-sm font-black uppercase tracking-wide text-slate-700 flex items-center gap-2">
 							<span class="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-lg">🔒</span>
-							Closed
+							{$locale === 'ar' ? 'مُغلَق' : 'Closed'}
 						</h3>
 						<span class="text-xs font-bold text-slate-400">{showCard3Breakdown ? '▼' : '▶'}</span>
 					</div>
 					<div class="text-2xl font-black text-orange-600 mb-2">{closedStats.totalVouchers}</div>
-					<div class="text-xs text-slate-500 font-semibold">{closedStats.totalVouchers === 1 ? 'book' : 'books'} closed</div>
+					<div class="text-xs text-slate-500 font-semibold">{$locale === 'ar' ? 'دفتر' : (closedStats.totalVouchers === 1 ? 'book' : 'books')} {$locale === 'ar' ? 'مُغلَق' : 'closed'}</div>
 
 					{#if !showCard3Breakdown}
 						<div class="mt-3 space-y-1.5">
 							{#if Object.keys(closedStats.byValue || {}).length > 0}
 								{#each Object.entries(closedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 									<div class="flex justify-between items-center px-2.5 py-1.5 bg-orange-50/50 rounded-lg text-xs">
-										<span class="text-slate-600 font-semibold">Value {Number(value).toFixed(0)}</span>
-										<span class="text-orange-700 font-black">{counts.vouchers} vouchers · {counts.books} books · {(Number(value) * counts.vouchers).toFixed(0)} total</span>
+										<span class="text-slate-600 font-semibold">{$locale === 'ar' ? 'القيمة' : 'Value'} {Number(value).toFixed(0)}</span>
+										<span class="text-orange-700 font-black">{counts.vouchers} {$locale === 'ar' ? 'قسيمة ·' : 'vouchers ·'} {counts.books} {$locale === 'ar' ? 'دفتر ·' : 'books ·'} {(Number(value) * counts.vouchers).toFixed(0)} {$locale === 'ar' ? 'إجمالي' : 'total'}</span>
 									</div>
 								{/each}
 							{:else}
-								<p class="text-xs text-slate-400 italic text-center mt-2">No closed vouchers</p>
+								<p class="text-xs text-slate-400 italic text-center mt-2">{$locale === 'ar' ? 'لا توجد قسائم مُغلَقة' : 'No closed vouchers'}</p>
 							{/if}
 						</div>
 					{:else}
@@ -675,15 +697,15 @@
 										{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
 											{#each Object.entries(issueTypes) as [issueType, counts]}
 												<div class="flex justify-between items-center px-2 py-1 text-xs">
-													<span class="text-slate-500 font-semibold">Value {Number(value).toFixed(0)} · {issueType}</span>
-													<span class="text-orange-700 font-bold">{counts.vouchers} vouchers · {counts.books} books</span>
+													<span class="text-slate-500 font-semibold">{$locale === 'ar' ? 'القيمة' : 'Value'} {Number(value).toFixed(0)} · {getIssueTypeLabel(issueType)}</span>
+													<span class="text-orange-700 font-bold">{counts.vouchers} {$locale === 'ar' ? 'قسيمة ·' : 'vouchers ·'} {counts.books} {$locale === 'ar' ? 'دفتر' : 'books'}</span>
 												</div>
 											{/each}
 										{/each}
 									</div>
 								{/each}
 							{:else}
-								<p class="text-xs text-slate-400 italic text-center">No closed vouchers</p>
+								<p class="text-xs text-slate-400 italic text-center">{$locale === 'ar' ? 'لا توجد قسائم مُغلَقة' : 'No closed vouchers'}</p>
 							{/if}
 						</div>
 					{/if}
@@ -697,7 +719,7 @@
 						<div class="animate-spin inline-block">
 							<div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
 						</div>
-						<p class="mt-4 text-slate-600 font-semibold">Loading voucher data...</p>
+						<p class="mt-4 text-slate-600 font-semibold">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading voucher data...'}</p>
 					</div>
 				</div>
 
@@ -706,17 +728,17 @@
 				{#if bookSummary.length === 0}
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
 						<div class="text-5xl mb-4">📭</div>
-						<p class="text-slate-600 font-semibold">No book data found</p>
+						<p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'لا توجد دفاتر' : 'No book data found'}</p>
 					</div>
 				{:else}
 					<!-- Filters Row -->
 					<div class="mb-4 flex gap-3">
 						<div class="flex-1">
-							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="book-search-id">Search by ID</label>
+							<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="book-search-id">{$locale === 'ar' ? 'بحث بالرقم' : 'Search by ID'}</label>
 							<input 
 								id="book-search-id" 
 								type="text" 
-								placeholder="Search PV ID or Book Number..." 
+								placeholder={$locale === 'ar' ? 'ابحث برقم PV أو رقم الدفتر...' : 'Search PV ID or Book Number...'} 
 								bind:value={bookSearchId}
 								class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
 							/>
@@ -727,7 +749,7 @@
 									class="px-4 py-2.5 text-xs font-bold uppercase tracking-wide bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all"
 									on:click={() => bookSearchId = ''}
 								>
-									Clear
+									{$locale === 'ar' ? 'مسح' : 'Clear'}
 								</button>
 							</div>
 						{/if}
@@ -739,17 +761,17 @@
 							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
 								<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
 									<tr>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Voucher ID</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Book #</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Serial Range</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Count</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Value</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stock</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Stocked</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Issued</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Closed</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Location</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Person</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'رقم القسيمة' : 'Voucher ID'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'الدفتر' : 'Book #'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'نطاق السيريال' : 'Serial Range'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'العدد' : 'Count'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'القيمة' : 'Value'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'مخزون' : 'Stock'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'تم التخزين' : 'Stocked'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'مُصدَر' : 'Issued'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'مُغلَق' : 'Closed'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'الموقع' : 'Location'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$locale === 'ar' ? 'الشخص' : 'Person'}</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
@@ -781,7 +803,7 @@
 						</div>
 						<!-- Footer -->
 						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-							Showing {filteredBookSummary.length} books {bookSearchId ? `(filtered from ${bookSummary.length})` : ''}
+							{$locale === 'ar' ? `عرض ${filteredBookSummary.length} دفتر ${bookSearchId ? '(مفلتر من ' + bookSummary.length + ')' : ''}` : `Showing ${filteredBookSummary.length} books ${bookSearchId ? '(filtered from ' + bookSummary.length + ')' : ''}`}
 						</div>
 					</div>
 				{/if}
@@ -791,7 +813,7 @@
 				<!-- Filter Controls -->
 				<div class="mb-4 flex gap-3">
 					<div class="flex-1">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="status-filter">Filter by Status</label>
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="status-filter">{$locale === 'ar' ? 'فلتر الحالة' : 'Filter by Status'}</label>
 						<select 
 							id="status-filter" 
 							bind:value={statusFilter} 
@@ -799,11 +821,11 @@
 							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
 							style="color: #000000 !important; background-color: #ffffff !important;"
 						>
-							<option value="all" style="color: #000000 !important; background-color: #ffffff !important;">All Statuses</option>
-							<option value="stock" style="color: #000000 !important; background-color: #ffffff !important;">Stock</option>
-							<option value="stocked" style="color: #000000 !important; background-color: #ffffff !important;">Stocked</option>
-							<option value="issued" style="color: #000000 !important; background-color: #ffffff !important;">Issued</option>
-							<option value="closed" style="color: #000000 !important; background-color: #ffffff !important;">Closed</option>
+							<option value="all" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'الكل' : 'All Statuses'}</option>
+							<option value="stock" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'مخزون' : 'Stock'}</option>
+							<option value="stocked" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'تم التخزين' : 'Stocked'}</option>
+							<option value="issued" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'مُصدَر' : 'Issued'}</option>
+							<option value="closed" style="color: #000000 !important; background-color: #ffffff !important;">{$locale === 'ar' ? 'مُغلَق' : 'Closed'}</option>
 						</select>
 					</div>
 				</div>
@@ -811,7 +833,7 @@
 				{#if voucherItems.length === 0}
 					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex-1 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
 						<div class="text-5xl mb-4">📭</div>
-						<p class="text-slate-600 font-semibold">No voucher items found</p>
+						<p class="text-slate-600 font-semibold">{$locale === 'ar' ? 'لا توجد قسائم' : 'No voucher items found'}</p>
 					</div>
 				{:else}
 					<!-- Table Card -->
@@ -820,17 +842,17 @@
 							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
 								<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
 									<tr>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">PV ID</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Serial #</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Value</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issue Type</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Stock</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Location</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Person</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issued By</th>
-										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issued To</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Issue Date</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'رقم PV' : 'PV ID'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'السيريال' : 'Serial #'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'القيمة' : 'Value'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'الحالة' : 'Status'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'نوع الإصدار' : 'Issue Type'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'مخزون' : 'Stock'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'الموقع' : 'Location'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'الشخص' : 'Person'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'صادر بواسطة' : 'Issued By'}</th>
+										<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'صادر إلى' : 'Issued To'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$locale === 'ar' ? 'تاريخ الإصدار' : 'Issue Date'}</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
@@ -846,16 +868,16 @@
 													 item.status === 'closed' ? 'bg-red-100 text-red-800' : 
 													 item.status === 'stock' ? 'bg-slate-200 text-slate-700' : 
 													 'bg-amber-100 text-amber-800'}">
-													{item.status || 'N/A'}
+													{$locale === 'ar' ? (item.status === 'stock' ? 'مخزون' : item.status === 'stocked' ? 'تم التخزين' : item.status === 'issued' ? 'مُصدَر' : item.status === 'closed' ? 'مُغلَق' : item.status || 'غير محدد') : (item.status || 'N/A')}
 												</span>
 											</td>
-											<td class="px-4 py-3 text-xs text-center text-slate-600">{item.issue_type || 'N/A'}</td>
+											<td class="px-4 py-3 text-xs text-center text-slate-600">{getIssueTypeLabel(item.issue_type)}</td>
 											<td class="px-4 py-3 text-sm text-center text-slate-600">{item.stock}</td>
 											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_location ? (branchMap[item.stock_location] || item.stock_location) : '—'}</td>
-											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_person ? (userNameMap[item.stock_person] || item.stock_person) : '—'}</td>
+											<td class="px-4 py-3 text-xs text-slate-500">{item.stock_person ? (userEmployeeMap[item.stock_person] || item.stock_person) : '—'}</td>
 											<td class="px-4 py-3 text-xs text-slate-500">{item.issued_by ? (userEmployeeMap[item.issued_by] || item.issued_by) : '—'}</td>
 											<td class="px-4 py-3 text-xs text-slate-500">{item.issued_to ? (userEmployeeMap[item.issued_to] || item.issued_to) : '—'}</td>
-											<td class="px-4 py-3 text-xs text-center text-slate-500">{item.issued_date ? new Date(item.issued_date).toLocaleDateString() : '—'}</td>
+											<td class="px-4 py-3 text-xs text-center text-slate-500">{item.issued_date ? new Date(item.issued_date).toLocaleDateString($locale === 'ar' ? 'ar-SA' : 'en-US') : '—'}</td>
 										</tr>
 									{/each}
 								</tbody>
@@ -863,7 +885,7 @@
 						</div>
 						<!-- Footer -->
 						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex items-center justify-between">
-							<span>Showing {voucherItems.length} vouchers</span>
+							<span>{$locale === 'ar' ? `عرض ${voucherItems.length} قسيمة` : `Showing ${voucherItems.length} vouchers`}</span>
 							{#if hasMoreVouchers}
 								<button 
 									class="px-5 py-2 text-xs font-black uppercase tracking-wide bg-blue-600 text-white rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
@@ -871,9 +893,9 @@
 									disabled={isLoadingMore}
 								>
 									{#if isLoadingMore}
-										Loading...
+										{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}
 									{:else}
-										Load More
+										{$locale === 'ar' ? 'تحميل المزيد' : 'Load More'}
 									{/if}
 								</button>
 							{/if}

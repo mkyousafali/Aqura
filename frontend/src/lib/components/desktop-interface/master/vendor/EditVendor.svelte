@@ -5,25 +5,31 @@
 	export let isCreating = false; // Flag to indicate creation mode
 
 	import { onMount } from 'svelte';
+	import { t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 
 	// Payment method options
-	const paymentMethods = ['Cash on Delivery', 'Bank on Delivery', 'Cash Credit', 'Bank Credit'];
+	$: paymentMethods = [
+		{ value: 'Cash on Delivery', label: t('vendorEdit.paymentMethods.cashOnDelivery') },
+		{ value: 'Bank on Delivery', label: t('vendorEdit.paymentMethods.bankOnDelivery') },
+		{ value: 'Cash Credit', label: t('vendorEdit.paymentMethods.cashCredit') },
+		{ value: 'Bank Credit', label: t('vendorEdit.paymentMethods.bankCredit') }
+	];
 
 	// Predefined category options
-	const predefinedCategories = [
-		'Daily Fresh',
-		'Wholesaler', 
-		'Company Distributor',
-		'Sales Van',
-		'Maintenance Related'
+	$: predefinedCategories = [
+		{ value: 'Daily Fresh', label: t('vendors.dailyFresh') },
+		{ value: 'Wholesaler', label: t('vendors.wholesaler') },
+		{ value: 'Company Distributor', label: t('vendors.companyDistributor') },
+		{ value: 'Sales Van', label: t('vendors.salesVan') },
+		{ value: 'Maintenance Related', label: t('vendors.maintenanceRelated') }
 	];
 
 	// Predefined delivery mode options
-	const predefinedDeliveryModes = [
-		'Direct Pick Up',
-		'Delivery On Site', 
-		'Delivery To Parcel Companies'
+	$: predefinedDeliveryModes = [
+		{ value: 'Direct Pick Up', label: t('vendors.directPickUp') },
+		{ value: 'Delivery On Site', label: t('vendors.deliveryOnSite') },
+		{ value: 'Delivery To Parcel Companies', label: t('vendors.deliveryToParcelCompanies') }
 	];
 
 	// Edit form data
@@ -80,15 +86,68 @@
 	};
 
 	// VAT options
-	const vatOptions = [
-		'VAT Applicable',
-		'No VAT'
+	$: vatOptions = [
+		{ value: 'VAT Applicable', label: t('vendorEdit.vatOptions.vatApplicable') },
+		{ value: 'No VAT', label: t('vendorEdit.vatOptions.noVat') }
 	];
 
 	// Return policy options
-	const returnPolicyOptions = [
-		{ value: 'can_return', label: 'Can Return' },
-		{ value: 'cannot_return', label: 'Cannot Return' }
+	$: returnPolicyOptions = [
+		{ value: 'can_return', label: t('vendorEdit.returnPolicyOptions.canReturn') },
+		{ value: 'cannot_return', label: t('vendorEdit.returnPolicyOptions.cannotReturn') }
+	];
+
+	function getPaymentMethodLabel(method) {
+		const map = {
+			'Cash on Delivery': t('vendorEdit.paymentMethods.cashOnDelivery'),
+			'Bank on Delivery': t('vendorEdit.paymentMethods.bankOnDelivery'),
+			'Cash Credit': t('vendorEdit.paymentMethods.cashCredit'),
+			'Bank Credit': t('vendorEdit.paymentMethods.bankCredit')
+		};
+		return map[method] || method;
+	}
+
+	function getVatOptionLabel(value) {
+		const map = {
+			'VAT Applicable': t('vendorEdit.vatOptions.vatApplicable'),
+			'No VAT': t('vendorEdit.vatOptions.noVat')
+		};
+		return map[value] || value;
+	}
+
+	function getCategoryLabel(value) {
+		const map = {
+			'Daily Fresh': t('vendors.dailyFresh'),
+			'Wholesaler': t('vendors.wholesaler'),
+			'Company Distributor': t('vendors.companyDistributor'),
+			'Sales Van': t('vendors.salesVan'),
+			'Maintenance Related': t('vendors.maintenanceRelated')
+		};
+		return map[value] || value;
+	}
+
+	function getDeliveryModeLabel(value) {
+		const map = {
+			'Direct Pick Up': t('vendors.directPickUp'),
+			'Delivery On Site': t('vendors.deliveryOnSite'),
+			'Delivery To Parcel Companies': t('vendors.deliveryToParcelCompanies')
+		};
+		return map[value] || value;
+	}
+
+	function getReturnPolicyLabel(value) {
+		const map = {
+			'can_return': t('vendorEdit.returnPolicyOptions.canReturn'),
+			'cannot_return': t('vendorEdit.returnPolicyOptions.cannotReturn')
+		};
+		return map[value] || value;
+	}
+
+	$: paymentPriorityOptions = [
+		{ value: 'Most', label: t('vendorEdit.priorityMost') },
+		{ value: 'Medium', label: t('vendorEdit.priorityMedium') },
+		{ value: 'Normal', label: t('vendorEdit.priorityNormal') },
+		{ value: 'Low', label: t('vendorEdit.priorityLow') }
 	];
 
 	// Handle category selection change
@@ -114,21 +173,22 @@
 	// Add new custom category
 	function addNewCategory() {
 		if (!newCategoryName.trim()) {
-			alert('Please enter a category name');
+			alert(t('vendorEdit.alertCategoryRequired'));
 			return;
 		}
 
 		const trimmedName = newCategoryName.trim();
 		
 		// Check if category already exists
-		if (predefinedCategories.includes(trimmedName) || selectedCategories.includes(trimmedName)) {
-			alert('Category already exists');
+		const predefinedCategoryValues = predefinedCategories.map(item => item.value);
+		if (predefinedCategoryValues.includes(trimmedName) || selectedCategories.includes(trimmedName)) {
+			alert(t('vendorEdit.alertCategoryExists'));
 			return;
 		}
 
 		// Check limit of 5 categories
 		if (selectedCategories.length >= 5) {
-			alert('Maximum 5 categories allowed');
+			alert(t('vendorEdit.alertCategoryLimit'));
 			return;
 		}
 
@@ -175,23 +235,24 @@
 	function addNewDeliveryMode() {
 		const trimmedName = newDeliveryModeName.trim();
 		if (!trimmedName) {
-			alert('Please enter a delivery mode name');
+			alert(t('vendorEdit.alertDeliveryModeRequired'));
 			return;
 		}
 
-		if (predefinedDeliveryModes.includes(trimmedName) || selectedDeliveryModes.includes(trimmedName)) {
-			alert('This delivery mode already exists');
+		const predefinedDeliveryModeValues = predefinedDeliveryModes.map(item => item.value);
+		if (predefinedDeliveryModeValues.includes(trimmedName) || selectedDeliveryModes.includes(trimmedName)) {
+			alert(t('vendorEdit.alertDeliveryModeExists'));
 			return;
 		}
 
 		// Check limit of 3 delivery modes
 		if (selectedDeliveryModes.length >= 3) {
-			alert('Maximum 3 delivery modes allowed');
+			alert(t('vendorEdit.alertDeliveryModeLimit'));
 			return;
 		}
 
 		// Add the new delivery mode to predefined list and select it
-		predefinedDeliveryModes.push(trimmedName);
+		predefinedDeliveryModes = [...predefinedDeliveryModes, { value: trimmedName, label: trimmedName }];
 		selectedDeliveryModes = [...selectedDeliveryModes, trimmedName];
 		editData.delivery_modes = selectedDeliveryModes;
 		
@@ -248,23 +309,23 @@
 			// Check if Web Share API is supported
 			if (navigator.share) {
 				await navigator.share({
-					title: `${vendorName} Location`,
-					text: `Location for vendor: ${vendorName}`,
+					title: `${vendorName} ${t('vendorEdit.alertShareLocationTitle')}`,
+					text: `${t('vendorEdit.alertShareLocationText')}: ${vendorName}`,
 					url: locationLink
 				});
 			} else {
 				// Fallback: Copy to clipboard
 				await navigator.clipboard.writeText(locationLink);
-				alert(`Location link copied to clipboard!\n\nVendor: ${vendorName}\nLocation: ${locationLink}`);
+				alert(`${t('vendorEdit.alertLocationCopied')}!\n\n${t('vendorEdit.vendorName')}: ${vendorName}\n${t('vendorEdit.locationLink')}: ${locationLink}`);
 			}
 		} catch (error) {
 			// Manual fallback if clipboard fails
 			try {
 				await navigator.clipboard.writeText(locationLink);
-				alert(`Location link copied to clipboard!\n\nVendor: ${vendorName}\nLocation: ${locationLink}`);
+				alert(`${t('vendorEdit.alertLocationCopied')}!\n\n${t('vendorEdit.vendorName')}: ${vendorName}\n${t('vendorEdit.locationLink')}: ${locationLink}`);
 			} catch (clipboardError) {
 				// Ultimate fallback - show link in a prompt
-				prompt(`Copy this location link:\n\nVendor: ${vendorName}`, locationLink);
+				prompt(`${t('vendorEdit.alertCopyLocationPrompt')}\n\n${t('vendorEdit.vendorName')}: ${vendorName}`, locationLink);
 			}
 		}
 	}
@@ -275,7 +336,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar, location_en')
+				.select('id, name_en, name_ar, location_en, location_ar')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -301,19 +362,19 @@
 
 			// Validate mandatory fields
 			if (!editData.erp_vendor_id || editData.erp_vendor_id <= 0) {
-				error = 'ERP Vendor ID is required and must be a positive number';
+				error = t('vendorEdit.errorErpVendorIdRequired');
 				isSaving = false;
 				return;
 			}
 
 			if (!editData.vendor_name || !editData.vendor_name.trim()) {
-				error = 'Vendor Name is required';
+				error = t('vendorEdit.errorVendorNameRequired');
 				isSaving = false;
 				return;
 			}
 
 			if (!selectedBranchId) {
-				error = 'Branch selection is required';
+				error = t('vendorEdit.errorBranchRequired');
 				isSaving = false;
 				return;
 			}
@@ -394,17 +455,17 @@
 	}
 </script>
 
-<div class="edit-vendor">
+<div class="edit-vendor" dir={$locale === 'ar' ? 'rtl' : 'ltr'} lang={$locale || 'en'}>
 	<!-- Header -->
 	<div class="header">
-		<h1 class="title">✏️ Edit Vendor</h1>
-		<p class="subtitle">Update vendor information</p>
+		<h1 class="title">✏️ {t('vendorEdit.title')}</h1>
+		<p class="subtitle">{t('vendorEdit.subtitle')}</p>
 	</div>
 
 	{#if error}
 		<div class="error-message">
 			<span class="error-icon">⚠️</span>
-			<p>Error: {error}</p>
+			<p>{t('vendorEdit.errorPrefix')}: {error}</p>
 		</div>
 	{/if}
 
@@ -412,16 +473,16 @@
 	<div class="edit-form">
 		<!-- Basic Information Section -->
 		<div class="form-section">
-			<h3>📋 Basic Information</h3>
+			<h3>📋 {t('vendorEdit.basicInfo')}</h3>
 			<div class="form-grid">
 				<div class="form-field">
-					<label for="erp-id">ERP Vendor ID *</label>
+					<label for="erp-id">{t('vendorEdit.erpVendorId')}</label>
 					<input 
 						id="erp-id"
 						type="number" 
 						bind:value={editData.erp_vendor_id}
 						disabled={!isCreating}
-						placeholder={isCreating ? "Enter ERP vendor ID" : ""}
+						placeholder={isCreating ? t('vendorEdit.enterErpVendorId') : ""}
 						class="form-input {isCreating ? '' : 'disabled'}"
 						min="1"
 						step="1"
@@ -429,20 +490,20 @@
 					/>
 				</div>
 				<div class="form-field">
-					<label for="vendor-name">Vendor Name *</label>
+					<label for="vendor-name">{t('vendorEdit.vendorName')}</label>
 					<input 
 						id="vendor-name"
 						type="text" 
 						bind:value={editData.vendor_name}
-						placeholder="Enter vendor name"
+						placeholder={t('vendorEdit.enterVendorName')}
 						class="form-input"
 						required
 					/>
 				</div>
 				<div class="form-field">
-					<label for="branch-select">Branch *</label>
+					<label for="branch-select">{t('vendorEdit.branch')}</label>
 					{#if loadingBranches}
-						<div class="loading-state">Loading branches...</div>
+						<div class="loading-state">{t('vendorEdit.loadingBranches')}</div>
 					{:else}
 						<select 
 							id="branch-select"
@@ -450,10 +511,10 @@
 							class="form-select"
 							required
 						>
-							<option value="">Choose a branch...</option>
+							<option value="">{t('vendorEdit.chooseBranch')}</option>
 							{#each branches as branch}
 								<option value={branch.id}>
-									{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+									{$locale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)} - {$locale === 'ar' ? (branch.location_ar || branch.location_en || '') : (branch.location_en || branch.location_ar || '')}
 								</option>
 							{/each}
 						</select>
@@ -464,29 +525,29 @@
 
 		<!-- Contacts Section -->
 		<div class="form-section">
-			<h3>📞 Contacts</h3>
+			<h3>📞 {t('vendorEdit.contacts')}</h3>
 			<div class="contact-subsections">
 				<!-- Salesman Contact -->
 				<div class="contact-subsection">
-					<h4>👤 Salesman Information</h4>
+					<h4>👤 {t('vendorEdit.salesmanInfo')}</h4>
 					<div class="form-grid">
 						<div class="form-field">
-							<label for="salesman-name">Salesman Name</label>
+							<label for="salesman-name">{t('vendorEdit.salesmanName')}</label>
 							<input 
 								id="salesman-name"
 								type="text" 
 								bind:value={editData.salesman_name}
-								placeholder="Enter salesman name"
+								placeholder={t('vendorEdit.enterSalesmanName')}
 								class="form-input"
 							/>
 						</div>
 						<div class="form-field">
-							<label for="salesman-contact">Salesman Contact</label>
+							<label for="salesman-contact">{t('vendorEdit.salesmanContact')}</label>
 							<input 
 								id="salesman-contact"
 								type="text" 
 								bind:value={editData.salesman_contact}
-								placeholder="Enter salesman contact"
+								placeholder={t('vendorEdit.enterSalesmanContact')}
 								class="form-input"
 							/>
 						</div>
@@ -495,25 +556,25 @@
 
 				<!-- Supervisor Contact -->
 				<div class="contact-subsection">
-					<h4>👨‍💼 Supervisor Information</h4>
+					<h4>👨‍💼 {t('vendorEdit.supervisorInfo')}</h4>
 					<div class="form-grid">
 						<div class="form-field">
-							<label for="supervisor-name">Supervisor Name</label>
+							<label for="supervisor-name">{t('vendorEdit.supervisorName')}</label>
 							<input 
 								id="supervisor-name"
 								type="text" 
 								bind:value={editData.supervisor_name}
-								placeholder="Enter supervisor name"
+								placeholder={t('vendorEdit.enterSupervisorName')}
 								class="form-input"
 							/>
 						</div>
 						<div class="form-field">
-							<label for="supervisor-contact">Supervisor Contact</label>
+							<label for="supervisor-contact">{t('vendorEdit.supervisorContact')}</label>
 							<input 
 								id="supervisor-contact"
 								type="text" 
 								bind:value={editData.supervisor_contact}
-								placeholder="Enter supervisor contact"
+								placeholder={t('vendorEdit.enterSupervisorContact')}
 								class="form-input"
 							/>
 						</div>
@@ -522,15 +583,15 @@
 
 				<!-- Vendor Contact -->
 				<div class="contact-subsection">
-					<h4>🏢 Vendor Contact</h4>
+					<h4>🏢 {t('vendorEdit.vendorContact')}</h4>
 					<div class="form-grid">
 						<div class="form-field">
-							<label for="vendor-contact">Vendor Contact Number</label>
+							<label for="vendor-contact">{t('vendorEdit.vendorContactNumber')}</label>
 							<input 
 								id="vendor-contact"
 								type="text" 
 								bind:value={editData.vendor_contact_number}
-								placeholder="Enter vendor contact number"
+								placeholder={t('vendorEdit.enterVendorContactNumber')}
 								class="form-input"
 							/>
 						</div>
@@ -541,32 +602,32 @@
 
 		<!-- Place & Location Section -->
 		<div class="form-section">
-			<h3>📍 Place & Location</h3>
+			<h3>📍 {t('vendorEdit.placeLocation')}</h3>
 			<div class="form-grid">
 				<div class="form-field">
-					<label for="place">Place/Area</label>
+					<label for="place">{t('vendorEdit.placeArea')}</label>
 					<input 
 						id="place"
 						type="text" 
 						bind:value={editData.place}
-						placeholder="Enter vendor place or area"
+						placeholder={t('vendorEdit.enterPlace')}
 						class="form-input"
 					/>
 				</div>
 				<div class="form-field">
-					<label for="location-link">Location Link</label>
+					<label for="location-link">{t('vendorEdit.locationLink')}</label>
 					<input 
 						id="location-link"
 						type="url" 
 						bind:value={editData.location_link}
-						placeholder="Enter Google Maps link or location URL"
+						placeholder={t('vendorEdit.enterLocationLink')}
 						class="form-input"
 					/>
 				</div>
 			</div>
 			{#if editData.location_link}
 				<div class="location-preview">
-					<p class="location-preview-label">📍 Location Preview:</p>
+					<p class="location-preview-label">📍 {t('vendorEdit.locationPreview')}</p>
 					<div class="location-preview-actions">
 						<a 
 							href={editData.location_link} 
@@ -574,15 +635,15 @@
 							rel="noopener noreferrer"
 							class="location-link-preview"
 						>
-							🗺️ Open Location in Maps
+							🗺️ {t('vendorEdit.openLocation')}
 						</a>
 						<button 
 							type="button"
 							class="share-location-preview-btn"
 							on:click={() => shareLocationFromEdit(editData.location_link, editData.vendor_name)}
-							title="Share Location"
+							title={t('vendorEdit.shareLocation')}
 						>
-							📤 Share Location
+							📤 {t('vendorEdit.shareLocation')}
 						</button>
 					</div>
 				</div>
@@ -591,29 +652,29 @@
 
 		<!-- Payment Details Section -->
 		<div class="form-section">
-			<h3>💳 Payment Details</h3>
+			<h3>💳 {t('vendorEdit.paymentDetails')}</h3>
 			<div class="form-grid">
 				<div class="form-field">
 					<fieldset>
-						<legend>Payment Method</legend>
+						<legend>{t('vendorEdit.paymentMethod')}</legend>
 						<div class="radio-group">
 							{#each paymentMethods as method}
 								<label class="radio-label">
 									<input 
 										type="radio"
 										name="payment-method"
-										value={method}
-										checked={selectedPaymentMethod === method}
+										value={method.value}
+										checked={selectedPaymentMethod === method.value}
 										on:change={handlePaymentMethodChange}
 										class="radio-input"
 									/>
 									<span class="radio-text">
-										{method}
-										{#if ['Cash Credit', 'Bank Credit'].includes(method)}
-											<span class="credit-indicator" title="Requires credit period">💳</span>
+										{method.label}
+										{#if ['Cash Credit', 'Bank Credit'].includes(method.value)}
+											<span class="credit-indicator" title={t('vendorEdit.requiresCreditPeriod')}>💳</span>
 										{/if}
-										{#if ['Bank on Delivery', 'Bank Credit'].includes(method)}
-											<span class="bank-indicator" title="Requires bank details">🏦</span>
+										{#if ['Bank on Delivery', 'Bank Credit'].includes(method.value)}
+											<span class="bank-indicator" title={t('vendorEdit.requiresBankDetails')}>🏦</span>
 										{/if}
 									</span>
 								</label>
@@ -623,58 +684,57 @@
 				</div>
 				
 				<div class="form-field">
-					<label for="payment-priority">Payment Priority</label>
+					<label for="payment-priority">{t('vendorEdit.paymentPriority')}</label>
 					<select 
 						id="payment-priority"
 						bind:value={editData.payment_priority}
 						class="form-select"
 					>
-						<option value="Most">Most</option>
-						<option value="Medium">Medium</option>
-						<option value="Normal" selected>Normal</option>
-						<option value="Low">Low</option>
+						{#each paymentPriorityOptions as option}
+							<option value={option.value} selected={editData.payment_priority === option.value || (!editData.payment_priority && option.value === 'Normal')}>{option.label}</option>
+						{/each}
 					</select>
-					<small class="field-hint">Priority level for payment processing (optional)</small>
+					<small class="field-hint">{t('vendorEdit.paymentPriorityHint')}</small>
 				</div>
 
 				{#if showCreditPeriod}
 					<div class="form-field credit-field">
-						<label for="credit-period">Credit Period (Days)</label>
+						<label for="credit-period">{t('vendorEdit.creditPeriodDays')}</label>
 						<input 
 							id="credit-period"
 							type="number" 
 							bind:value={editData.credit_period}
-							placeholder="Enter credit days"
+							placeholder={t('vendorEdit.enterCreditDays')}
 							min="1"
 							max="365"
 							class="form-input"
 						/>
-						<small class="field-hint">Enter number of days for credit payment</small>
+						<small class="field-hint">{t('vendorEdit.creditPeriodHint')}</small>
 					</div>
 				{/if}
 				{#if showBankFields}
 					<div class="form-field">
-						<label for="bank-name">Bank Name</label>
+						<label for="bank-name">{t('vendorEdit.bankName')}</label>
 						<input 
 							id="bank-name"
 							type="text" 
 							bind:value={editData.bank_name}
-							placeholder="Enter bank name"
+							placeholder={t('vendorEdit.enterBankName')}
 							class="form-input"
 						/>
-						<small class="field-hint">Enter the bank name for transactions</small>
+						<small class="field-hint">{t('vendorEdit.bankNameHint')}</small>
 					</div>
 					<div class="form-field">
-						<label for="iban">IBAN</label>
+						<label for="iban">{t('vendorEdit.iban')}</label>
 						<input 
 							id="iban"
 							type="text" 
 							bind:value={editData.iban}
-							placeholder="Enter IBAN number"
+							placeholder={t('vendorEdit.enterIban')}
 							class="form-input"
 							maxlength="34"
 						/>
-						<small class="field-hint">International Bank Account Number</small>
+						<small class="field-hint">{t('vendorEdit.ibanHint')}</small>
 					</div>
 				{/if}
 			</div>
@@ -683,22 +743,22 @@
 
 	<!-- Vendor Categories Section -->
 	<div class="form-section">
-		<h3>🏷️ Vendor Categories</h3>
-		<p class="section-description">Select up to 5 categories for this vendor</p>
+		<h3>🏷️ {t('vendorEdit.vendorCategories')}</h3>
+		<p class="section-description">{t('vendorEdit.categoryDescription')}</p>
 		
 		<!-- Category Dropdown -->
 		<div class="form-field">
-			<label for="category-dropdown">Add Category</label>
+			<label for="category-dropdown">{t('vendorEdit.addCategory')}</label>
 			<select 
 				id="category-dropdown" 
 				class="form-input category-dropdown"
 				on:change={handleCategoryDropdownChange}
 				disabled={selectedCategories.length >= 5}
 			>
-				<option value="">-- Select a category --</option>
+				<option value="">{t('vendorEdit.selectCategory')}</option>
 				{#each predefinedCategories as category}
-					{#if !selectedCategories.includes(category)}
-						<option value={category}>{category}</option>
+					{#if !selectedCategories.includes(category.value)}
+						<option value={category.value}>{category.label}</option>
 					{/if}
 				{/each}
 			</select>
@@ -706,17 +766,17 @@
 		
 		<!-- Predefined Categories (Checkboxes Alternative) -->
 		<div class="categories-grid">
-			<h4>Or select from checkboxes:</h4>
+			<h4>{t('vendorEdit.orSelectCheckboxes')}</h4>
 			{#each predefinedCategories as category}
 				<label class="category-checkbox">
 					<input 
 						type="checkbox" 
-						checked={selectedCategories.includes(category)}
+						checked={selectedCategories.includes(category.value)}
 						on:change={handleCategoryToggle}
-						data-category={category}
-						disabled={!selectedCategories.includes(category) && selectedCategories.length >= 5}
+						data-category={category.value}
+						disabled={!selectedCategories.includes(category.value) && selectedCategories.length >= 5}
 					/>
-					<span class="category-label">{category}</span>
+					<span class="category-label">{category.label}</span>
 				</label>
 			{/each}
 		</div>
@@ -724,11 +784,11 @@
 		<!-- Selected Categories Display -->
 		{#if selectedCategories.length > 0}
 			<div class="selected-categories">
-				<h4>Selected Categories ({selectedCategories.length}/5):</h4>
+				<h4>{t('vendorEdit.selectedCategories')} ({selectedCategories.length}/5):</h4>
 				<div class="category-badges">
 					{#each selectedCategories as category}
 						<span class="category-badge">
-							{category}
+							{getCategoryLabel(category)}
 							<button type="button" class="remove-category" on:click={() => removeCategory(category)}>×</button>
 						</span>
 					{/each}
@@ -745,27 +805,27 @@
 					on:click={() => showNewCategoryForm = true}
 					disabled={selectedCategories.length >= 5}
 				>
-					➕ Create New Category
+					➕ {t('vendorEdit.createNewCategory')}
 				</button>
 			{:else}
 				<div class="new-category-form">
 					<div class="form-field">
-						<label for="new-category">New Category Name</label>
+						<label for="new-category">{t('vendorEdit.newCategoryName')}</label>
 						<input 
 							id="new-category"
 							type="text" 
 							bind:value={newCategoryName}
-							placeholder="Enter category name"
+							placeholder={t('vendorEdit.enterCategoryName')}
 							class="form-input"
 							maxlength="50"
 						/>
 					</div>
 					<div class="form-actions-inline">
 						<button type="button" class="save-category-btn" on:click={addNewCategory}>
-							✅ Add Category
+							✅ {t('vendorEdit.addCategoryAction')}
 						</button>
 						<button type="button" class="cancel-category-btn" on:click={() => {showNewCategoryForm = false; newCategoryName = '';}}>
-							❌ Cancel
+							❌ {t('vendorEdit.cancel')}
 						</button>
 					</div>
 				</div>
@@ -775,22 +835,22 @@
 
 	<!-- Vendor Delivery Modes Section -->
 	<div class="form-section">
-		<h3>🚚 Delivery Modes</h3>
-		<p class="section-description">Select up to 3 delivery modes for this vendor</p>
+		<h3>🚚 {t('vendorEdit.deliveryModes')}</h3>
+		<p class="section-description">{t('vendorEdit.deliveryDescription')}</p>
 		
 		<!-- Delivery Mode Dropdown -->
 		<div class="form-field">
-			<label for="delivery-mode-dropdown">Add Delivery Mode</label>
+			<label for="delivery-mode-dropdown">{t('vendorEdit.addDeliveryMode')}</label>
 			<select 
 				id="delivery-mode-dropdown" 
 				class="form-input delivery-mode-dropdown"
 				on:change={handleDeliveryModeDropdownChange}
 				disabled={selectedDeliveryModes.length >= 3}
 			>
-				<option value="">-- Select a delivery mode --</option>
+				<option value="">{t('vendorEdit.selectDeliveryMode')}</option>
 				{#each predefinedDeliveryModes as mode}
-					{#if !selectedDeliveryModes.includes(mode)}
-						<option value={mode}>{mode}</option>
+					{#if !selectedDeliveryModes.includes(mode.value)}
+						<option value={mode.value}>{mode.label}</option>
 					{/if}
 				{/each}
 			</select>
@@ -798,17 +858,17 @@
 		
 		<!-- Predefined Delivery Modes (Checkboxes Alternative) -->
 		<div class="delivery-modes-grid">
-			<h4>Or select from checkboxes:</h4>
+			<h4>{t('vendorEdit.orSelectCheckboxes')}</h4>
 			{#each predefinedDeliveryModes as mode}
 				<label class="delivery-mode-checkbox">
 					<input 
 						type="checkbox" 
-						checked={selectedDeliveryModes.includes(mode)}
+						checked={selectedDeliveryModes.includes(mode.value)}
 						on:change={handleDeliveryModeToggle}
-						data-delivery-mode={mode}
-						disabled={!selectedDeliveryModes.includes(mode) && selectedDeliveryModes.length >= 3}
+						data-delivery-mode={mode.value}
+						disabled={!selectedDeliveryModes.includes(mode.value) && selectedDeliveryModes.length >= 3}
 					/>
-					<span class="delivery-mode-label">{mode}</span>
+					<span class="delivery-mode-label">{mode.label}</span>
 				</label>
 			{/each}
 		</div>
@@ -816,11 +876,11 @@
 		<!-- Selected Delivery Modes Display -->
 		{#if selectedDeliveryModes.length > 0}
 			<div class="selected-delivery-modes">
-				<h4>Selected Delivery Modes ({selectedDeliveryModes.length}/3):</h4>
+				<h4>{t('vendorEdit.selectedDeliveryModes')} ({selectedDeliveryModes.length}/3):</h4>
 				<div class="delivery-mode-badges">
 					{#each selectedDeliveryModes as mode}
 						<span class="delivery-mode-badge">
-							{mode}
+							{getDeliveryModeLabel(mode)}
 							<button type="button" class="remove-delivery-mode" on:click={() => removeDeliveryMode(mode)}>×</button>
 						</span>
 					{/each}
@@ -837,27 +897,27 @@
 					on:click={() => showNewDeliveryModeForm = true}
 					disabled={selectedDeliveryModes.length >= 3}
 				>
-					➕ Create New Delivery Mode
+					➕ {t('vendorEdit.createNewDeliveryMode')}
 				</button>
 			{:else}
 				<div class="new-delivery-mode-form">
 					<div class="form-field">
-						<label for="new-delivery-mode">New Delivery Mode Name</label>
+						<label for="new-delivery-mode">{t('vendorEdit.newDeliveryModeName')}</label>
 						<input 
 							id="new-delivery-mode"
 							type="text" 
 							bind:value={newDeliveryModeName}
-							placeholder="Enter delivery mode name"
+							placeholder={t('vendorEdit.enterDeliveryModeName')}
 							class="form-input"
 							maxlength="50"
 						/>
 					</div>
 					<div class="form-actions-inline">
 						<button type="button" class="save-delivery-mode-btn" on:click={addNewDeliveryMode}>
-							✅ Add Delivery Mode
+							✅ {t('vendorEdit.addDeliveryModeAction')}
 						</button>
 						<button type="button" class="cancel-delivery-mode-btn" on:click={() => {showNewDeliveryModeForm = false; newDeliveryModeName = '';}}>
-							❌ Cancel
+							❌ {t('vendorEdit.cancel')}
 						</button>
 					</div>
 				</div>
@@ -867,7 +927,7 @@
 
 	<!-- Return Policy Section -->
 	<div class="form-section">
-		<h3>🔄 Return Policy</h3>
+		<h3>🔄 {t('vendorEdit.returnPolicy')}</h3>
 		
 		<!-- No Return Option -->
 		<div class="form-group">
@@ -889,27 +949,27 @@
 						}
 					}}
 				/>
-				🚫 No Returns Accepted
+				🚫 {t('vendorEdit.noReturnsAccepted')}
 			</label>
 		</div>
 
 		{#if !returnPolicies.noReturn}
 			<!-- Expired Products -->
 			<div class="form-group">
-				<label for="return-expired">Expired Products</label>
+				<label for="return-expired">{t('vendorEdit.expiredProducts')}</label>
 				<select 
 					id="return-expired"
 					bind:value={returnPolicies.expired}
 					class="form-input"
 				>
-					<option value="">Select policy</option>
+					<option value="">{t('vendorEdit.selectPolicy')}</option>
 					{#each returnPolicyOptions as option}
 						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
 				{#if returnPolicies.expired}
 					<textarea 
-						placeholder="Add notes for expired products return policy..."
+						placeholder={t('vendorEdit.expiredNoteHint')}
 						bind:value={returnPolicies.expiredNote}
 						class="form-input return-note"
 						rows="2"
@@ -919,20 +979,20 @@
 
 			<!-- Near Expiry Products -->
 			<div class="form-group">
-				<label for="return-near-expiry">Near Expiry Products</label>
+				<label for="return-near-expiry">{t('vendorEdit.nearExpiryProducts')}</label>
 				<select 
 					id="return-near-expiry"
 					bind:value={returnPolicies.nearExpiry}
 					class="form-input"
 				>
-					<option value="">Select policy</option>
+					<option value="">{t('vendorEdit.selectPolicy')}</option>
 					{#each returnPolicyOptions as option}
 						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
 				{#if returnPolicies.nearExpiry}
 					<textarea 
-						placeholder="Add notes for near expiry products return policy..."
+						placeholder={t('vendorEdit.nearExpiryNoteHint')}
 						bind:value={returnPolicies.nearExpiryNote}
 						class="form-input return-note"
 						rows="2"
@@ -942,20 +1002,20 @@
 
 			<!-- Over Stock Products -->
 			<div class="form-group">
-				<label for="return-over-stock">Over Stock Products</label>
+				<label for="return-over-stock">{t('vendorEdit.overStockProducts')}</label>
 				<select 
 					id="return-over-stock"
 					bind:value={returnPolicies.overStock}
 					class="form-input"
 				>
-					<option value="">Select policy</option>
+					<option value="">{t('vendorEdit.selectPolicy')}</option>
 					{#each returnPolicyOptions as option}
 						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
 				{#if returnPolicies.overStock}
 					<textarea 
-						placeholder="Add notes for over stock products return policy..."
+						placeholder={t('vendorEdit.overStockNoteHint')}
 						bind:value={returnPolicies.overStockNote}
 						class="form-input return-note"
 						rows="2"
@@ -965,20 +1025,20 @@
 
 			<!-- Damage Products -->
 			<div class="form-group">
-				<label for="return-damage">Damage Products</label>
+				<label for="return-damage">{t('vendorEdit.damageProducts')}</label>
 				<select 
 					id="return-damage"
 					bind:value={returnPolicies.damage}
 					class="form-input"
 				>
-					<option value="">Select policy</option>
+					<option value="">{t('vendorEdit.selectPolicy')}</option>
 					{#each returnPolicyOptions as option}
 						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
 				{#if returnPolicies.damage}
 					<textarea 
-						placeholder="Add notes for damage products return policy..."
+						placeholder={t('vendorEdit.damageNoteHint')}
 						bind:value={returnPolicies.damageNote}
 						class="form-input return-note"
 						rows="2"
@@ -990,11 +1050,11 @@
 
 	<!-- VAT Section -->
 	<div class="form-section">
-		<h3>💰 VAT Information</h3>
+		<h3>💰 {t('vendorEdit.vatInformation')}</h3>
 		
 		<!-- VAT Applicable Dropdown -->
 		<div class="form-group">
-			<label for="vat-applicable">VAT Status</label>
+			<label for="vat-applicable">{t('vendorEdit.vatStatus')}</label>
 			<select 
 				id="vat-applicable"
 				bind:value={vatInfo.applicable}
@@ -1009,7 +1069,7 @@
 				}}
 			>
 				{#each vatOptions as option}
-					<option value={option}>{option}</option>
+					<option value={option.value}>{option.label}</option>
 				{/each}
 			</select>
 		</div>
@@ -1017,12 +1077,12 @@
 		<!-- VAT Number Field (shown when VAT Applicable) -->
 		{#if vatInfo.applicable === 'VAT Applicable'}
 			<div class="form-group">
-				<label for="vat-number">VAT Number</label>
+				<label for="vat-number">{t('vendorEdit.vatNumber')}</label>
 				<input 
 					type="text"
 					id="vat-number"
 					bind:value={vatInfo.number}
-					placeholder="Enter VAT number..."
+					placeholder={t('vendorEdit.enterVatNumber')}
 					class="form-input"
 				/>
 			</div>
@@ -1031,11 +1091,11 @@
 		<!-- No VAT Note Field (shown when No VAT) -->
 		{#if vatInfo.applicable === 'No VAT'}
 			<div class="form-group">
-				<label for="no-vat-note">No VAT Note</label>
+				<label for="no-vat-note">{t('vendorEdit.noVatNote')}</label>
 				<textarea 
 					id="no-vat-note"
 					bind:value={vatInfo.noVatNote}
-					placeholder="Add note for why VAT is not applicable..."
+					placeholder={t('vendorEdit.enterNoVatNote')}
 					class="form-input vat-note"
 					rows="3"
 				></textarea>
@@ -1051,9 +1111,9 @@
 			disabled={isSaving || !editData.vendor_name}
 		>
 			{#if isSaving}
-				⏳ Saving...
+				⏳ {t('vendorEdit.saving')}
 			{:else}
-				💾 Save Changes
+				💾 {t('vendorEdit.saveChanges')}
 			{/if}
 		</button>
 		<button 
@@ -1061,7 +1121,7 @@
 			on:click={cancel}
 			disabled={isSaving}
 		>
-			❌ Cancel
+			❌ {t('vendorEdit.cancel')}
 		</button>
 	</div>
 </div>

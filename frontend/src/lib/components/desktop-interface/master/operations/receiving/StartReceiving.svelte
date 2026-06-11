@@ -1755,7 +1755,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     
     openWindow({
       id: windowId,
-      title: `Edit Vendor - ${vendor.vendor_name}`,
+      title: `${t('vendorEdit.title')} - ${vendor.vendor_name}`,
       component: EditVendor,
       icon: '✏️',
       size: { width: 800, height: 600 },

@@ -299,6 +299,25 @@
 		}
 	}
 
+	function getLocalizedStatus(status: string): string {
+		if ($locale === 'ar') {
+			switch (status) {
+				case 'pending':   return 'معلق';
+				case 'approved':  return 'مقبول';
+				case 'rejected':  return 'مرفوض';
+				case 'completed': return 'مكتمل';
+				default:          return status;
+			}
+		}
+		switch (status) {
+			case 'pending':   return 'Pending';
+			case 'approved':  return 'Approved';
+			case 'rejected':  return 'Rejected';
+			case 'completed': return 'Completed';
+			default:          return status;
+		}
+	}
+
 	function getItemsCount(items: any): number {
 		if (Array.isArray(items)) return items.length;
 		try {
@@ -497,9 +516,9 @@
 							on:click={goBackToList}
 						>←</button>
 						<h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-							<span>🛒</span> PO Request
+							<span>🛒</span> {$t('nav.poRequests') || 'PO Requests'}
 						</h3>
-						<span class="text-xs px-3 py-1 rounded-full border font-bold {getStatusColor(selectedRequest.status)}">{selectedRequest.status.toUpperCase()}</span>
+				<span class="text-xs px-3 py-1 rounded-full border font-bold {getStatusColor(selectedRequest.status)}">{getLocalizedStatus(selectedRequest.status)}</span>
 					</div>
 					<div class="flex items-center gap-2">
 						<span class="text-xs text-slate-400">{formatDate(selectedRequest.created_at)}</span>
@@ -507,13 +526,13 @@
 							class="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-xs shadow-lg shadow-emerald-200"
 							on:click={exportToExcel}
 						>
-							<span>📥</span> Export Excel
-						</button>
-						<button
-							class="flex items-center gap-1.5 px-4 py-2 bg-slate-600 text-white font-bold rounded-xl hover:bg-slate-700 transition-all text-xs shadow-lg shadow-slate-200"
-							on:click={printRequest}
-						>
-							<span>🖨️</span> Print
+								<span>📥</span> {$locale === 'ar' ? 'تصدير Excel' : 'Export Excel'}
+							</button>
+							<button
+								class="flex items-center gap-1.5 px-4 py-2 bg-slate-600 text-white font-bold rounded-xl hover:bg-slate-700 transition-all text-xs shadow-lg shadow-slate-200"
+								on:click={printRequest}
+							>
+								<span>🖨️</span> {$locale === 'ar' ? 'طباعة' : 'Print'}
 						</button>
 					</div>
 				</div>
@@ -525,7 +544,7 @@
 						<p class="text-sm font-bold text-slate-800 mt-1">{selectedRequest.branch_name}</p>
 					</div>
 					<div class="bg-slate-50 rounded-xl p-4">
-						<span class="text-xs text-slate-400 font-bold uppercase">Requester</span>
+						<span class="text-xs text-slate-400 font-bold uppercase">{$locale === 'ar' ? 'مقدم الطلب' : 'Requester'}</span>
 						<p class="text-sm font-bold text-slate-800 mt-1">{selectedRequest.requester_name}</p>
 					</div>
 					<div class="bg-slate-50 rounded-xl p-4">
@@ -543,7 +562,7 @@
 								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.barcode')}</th>
 								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.productName')}</th>
 								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.quantity')}</th>
-								<th class="border-r border-orange-500 py-2.5 px-3 text-center font-bold">Availability</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'التوفر' : 'Availability'}</th>
 								<th class="py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.photo')}</th>
 							</tr>
 						</thead>
@@ -589,7 +608,7 @@
 				{:else if requests.length === 0}
 					<div class="flex-1 flex flex-col items-center justify-center">
 						<div class="text-5xl mb-4">📭</div>
-						<p class="text-slate-500 font-semibold">No PO requests found</p>
+						<p class="text-slate-500 font-semibold">{$locale === 'ar' ? 'لا توجد طلبات شراء' : 'No PO requests found'}</p>
 					</div>
 				{:else if filteredRequests.length === 0}
 					<div class="flex-1 flex flex-col items-center justify-center">
@@ -604,14 +623,14 @@
 								<tr class="bg-orange-600 text-white">
 									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">#</th>
 									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.branch') || 'Branch'}</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">Requester</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$t('mobile.productRequestContent.manager') || 'Manager'}</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">Items</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">Status</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">Date</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-center font-bold">Docs</th>
-									<th class="border-r border-orange-500 py-2.5 px-3 text-center font-bold">Approve</th>
-									<th class="py-2.5 px-3 text-center font-bold">Reject</th>
+					<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'مقدم الطلب' : 'Requester'}</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'المدير' : 'Manager'}</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'العناصر' : 'Items'}</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'الحالة' : 'Status'}</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'التاريخ' : 'Date'}</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'الوثائق' : 'Docs'}</th>
+								<th class="border-r border-orange-500 py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'موافقة' : 'Approve'}</th>
+								<th class="py-2.5 px-3 text-center font-bold">{$locale === 'ar' ? 'رفض' : 'Reject'}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -626,25 +645,25 @@
 												class="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 rounded-lg transition-all text-orange-700 hover:text-orange-900 text-[10px] font-bold whitespace-nowrap"
 												on:click|stopPropagation={() => openDetail(req)}
 											>
-												{getItemsCount(req.items)} — View
+												{getItemsCount(req.items)} — {$locale === 'ar' ? 'عرض' : 'View'}
 											</button>
 										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3">
-											<span class="text-[10px] px-2.5 py-1 rounded-full border font-bold {getStatusColor(req.status)}">{req.status.toUpperCase()}</span>
+											<span class="text-[10px] px-2.5 py-1 rounded-full border font-bold {getStatusColor(req.status)}">{getLocalizedStatus(req.status)}</span>
 										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-500 text-[10px]">{formatDate(req.created_at)}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
 											{#if req.document_url}
 												<div class="flex items-center gap-1 justify-center">
-													<a href={req.document_url} target="_blank" rel="noopener" class="px-2 py-0.5 bg-orange-50 hover:bg-orange-100 rounded-lg text-orange-600 hover:text-orange-800 text-[10px] font-bold" title="View Document">📄 View</a>
-													<label class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 hover:text-slate-800 text-[10px] font-bold cursor-pointer {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
-														🔄 {uploadingDoc === req.id ? '...' : 'Update'}
+									<a href={req.document_url} target="_blank" rel="noopener" class="px-2 py-0.5 bg-orange-50 hover:bg-orange-100 rounded-lg text-orange-600 hover:text-orange-800 text-[10px] font-bold" title="View Document">📄 {$locale === 'ar' ? 'عرض' : 'View'}</a>
+										<label class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 hover:text-slate-800 text-[10px] font-bold cursor-pointer {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
+											🔄 {uploadingDoc === req.id ? '...' : ($locale === 'ar' ? 'تحديث' : 'Update')}
 														<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} />
 													</label>
 												</div>
 											{:else}
 												<label class="px-2 py-1 bg-orange-50 hover:bg-orange-100 rounded-lg transition-all text-orange-700 text-[10px] font-bold cursor-pointer whitespace-nowrap {uploadingDoc === req.id ? 'opacity-50 pointer-events-none' : ''}">
-													📎 {uploadingDoc === req.id ? '...' : 'Upload'}
+													📎 {uploadingDoc === req.id ? '...' : ($locale === 'ar' ? 'رفع' : 'Upload')}
 													<input type="file" class="hidden" on:change={(e) => uploadDocForRequest(req.id, e)} on:click|stopPropagation />
 												</label>
 											{/if}

@@ -1,5 +1,6 @@
 <script>
 	import { onMount, tick } from 'svelte';
+	import { t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -67,34 +68,35 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	};
 
 	// Column definitions
-	const columnDefinitions = [
-		{ key: 'erp_vendor_id', label: 'ERP Vendor ID' },
-		{ key: 'vendor_name', label: 'Vendor Name' },
-		{ key: 'branch_name', label: 'Branch' },
-		{ key: 'salesman_name', label: 'Salesman Name' },
-		{ key: 'salesman_contact', label: 'Salesman Contact' },
-		{ key: 'supervisor_name', label: 'Supervisor Name' },
-		{ key: 'supervisor_contact', label: 'Supervisor Contact' },
-		{ key: 'vendor_contact', label: 'Vendor Contact' },
-		{ key: 'payment_method', label: 'Payment Method' },
-		{ key: 'payment_priority', label: 'Payment Priority' },
-		{ key: 'credit_period', label: 'Credit Period' },
-		{ key: 'bank_name', label: 'Bank Name' },
-		{ key: 'iban', label: 'IBAN' },
-		{ key: 'last_visit', label: 'Last Visit' },
-		{ key: 'place', label: 'Place' },
-		{ key: 'location', label: 'Location' },
-		{ key: 'categories', label: 'Categories' },
-		{ key: 'delivery_modes', label: 'Delivery Modes' },
-		{ key: 'return_expired', label: 'Return Expired' },
-		{ key: 'return_near_expiry', label: 'Return Near Expiry' },
-		{ key: 'return_over_stock', label: 'Return Over Stock' },
-		{ key: 'return_damage', label: 'Return Damage' },
-		{ key: 'no_return', label: 'No Return' },
-		{ key: 'vat_status', label: 'VAT Status' },
-		{ key: 'vat_number', label: 'VAT Number' },
-		{ key: 'status', label: 'Status' },
-		{ key: 'actions', label: 'Actions' }
+	let columnDefinitions = [];
+	$: columnDefinitions = [
+		{ key: 'erp_vendor_id', label: t('vendorManagement.erpVendorId') },
+		{ key: 'vendor_name', label: t('vendorManagement.vendorName') },
+		{ key: 'branch_name', label: t('vendorManagement.branch') },
+		{ key: 'salesman_name', label: t('vendorManagement.salesmanName') },
+		{ key: 'salesman_contact', label: t('vendorManagement.salesmanContact') },
+		{ key: 'supervisor_name', label: t('vendorManagement.supervisorName') },
+		{ key: 'supervisor_contact', label: t('vendorManagement.supervisorContact') },
+		{ key: 'vendor_contact', label: t('vendorManagement.vendorContact') },
+		{ key: 'payment_method', label: t('vendorManagement.paymentMethod') },
+		{ key: 'payment_priority', label: t('vendorManagement.paymentPriority') },
+		{ key: 'credit_period', label: t('vendorManagement.creditPeriod') },
+		{ key: 'bank_name', label: t('vendorManagement.bankName') },
+		{ key: 'iban', label: t('vendorManagement.iban') },
+		{ key: 'last_visit', label: t('vendorManagement.lastVisit') },
+		{ key: 'place', label: t('vendorManagement.place') },
+		{ key: 'location', label: t('vendorManagement.location') },
+		{ key: 'categories', label: t('vendorManagement.categories') },
+		{ key: 'delivery_modes', label: t('vendorManagement.deliveryModes') },
+		{ key: 'return_expired', label: t('vendorManagement.returnExpired') },
+		{ key: 'return_near_expiry', label: t('vendorManagement.returnNearExpiry') },
+		{ key: 'return_over_stock', label: t('vendorManagement.returnOverStock') },
+		{ key: 'return_damage', label: t('vendorManagement.returnDamage') },
+		{ key: 'no_return', label: t('vendorManagement.noReturn') },
+		{ key: 'vat_status', label: t('vendorManagement.vatStatus') },
+		{ key: 'vat_number', label: t('vendorManagement.vatNumber') },
+		{ key: 'status', label: t('vendorManagement.status') },
+		{ key: 'actions', label: t('vendorManagement.actions') }
 	];
 
 	// Load vendor data on component mount
@@ -145,14 +147,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
-	// Load vendors from database with optimization
+	// Load vendors from database using a dedicated RPC for faster loading
 	async function loadVendors() {
 		try {
 			isLoading = true;
 			error = null;
 			loadingProgress = 0;
 
-			// If "By Branch" is selected but no branch is chosen, don't load vendors
 			if (branchFilterMode === 'branch' && !selectedBranch) {
 				vendors = [];
 				filteredVendors = [];
@@ -162,109 +163,38 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				return;
 			}
 
-			// First get the total count (optimized query)
-			// Note: Using erp_vendor_id instead of id as primary key
-			let countQuery = supabase
-				.from('vendors')
-				.select('erp_vendor_id', { count: 'exact', head: false });
+			const branchId = branchFilterMode === 'branch' ? selectedBranch ?? null : null;
+			const searchTerm = searchQuery?.trim() || null;
 
-			// Apply branch filtering for count
-			if (branchFilterMode === 'branch' && selectedBranch) {
-				countQuery = countQuery.eq('branch_id', selectedBranch);
-			} else if (branchFilterMode === 'unassigned') {
-				countQuery = countQuery.is('branch_id', null);
+			const { data, error: rpcError } = await supabase.rpc('get_vendor_management_list', {
+				p_branch_id: branchId,
+				p_mode: branchFilterMode,
+				p_search: searchTerm
+			});
+
+			if (rpcError) {
+				console.error('❌ RPC vendor load error:', rpcError);
+				throw rpcError;
 			}
 
-			const { count, error: countError } = await countQuery;
-			if (countError) {
-				console.error('❌ Count query error:', countError);
-				throw countError;
-			}
+			const rpcVendors = (data || []).map((vendor) => ({
+				...vendor,
+				branches: vendor.branch_id
+					? {
+						id: vendor.branch_id,
+						name_en: vendor.branch_name_en,
+						name_ar: vendor.branch_name_ar
+					}
+					: null
+			}));
 
-			const totalCount = count || 0;
-			totalVendors = totalCount;
-			console.log('Total vendor count:', totalCount);
-			loadingProgress = 10;
-
-			// Fetch vendors using optimized pagination
-			let allVendors = [];
-			const pageSize = 500; // Reduced page size for faster initial load
-			let currentPage = 0;
-			let hasMore = true;
-
-			while (hasMore) {
-				const startRange = currentPage * pageSize;
-				const endRange = startRange + pageSize - 1;
-
-				// Optimized query - only fetch needed columns initially
-				let query = supabase
-					.from('vendors')
-					.select(`
-						erp_vendor_id,
-						vendor_name,
-						branch_id,
-						salesman_name,
-						salesman_contact,
-						supervisor_name,
-						supervisor_contact,
-						vendor_contact_number,
-						payment_method,
-						payment_priority,
-						credit_period,
-						bank_name,
-						iban,
-						place,
-						location_link,
-						categories,
-						delivery_modes,
-						status,
-						last_visit,
-						return_expired_products,
-						return_near_expiry_products,
-						return_over_stock,
-						return_damage_products,
-						no_return,
-						vat_applicable,
-						vat_number,
-						no_vat_note,
-						branches(name_en)
-					`)
-					.order('erp_vendor_id', { ascending: true })
-					.range(startRange, endRange);
-
-				// Apply branch filtering
-				if (branchFilterMode === 'branch' && selectedBranch) {
-					query = query.eq('branch_id', selectedBranch);
-				} else if (branchFilterMode === 'unassigned') {
-					query = query.is('branch_id', null);
-				}
-
-				const { data, error: fetchError } = await query;
-				if (fetchError) throw fetchError;
-
-				if (data && data.length > 0) {
-					allVendors = [...allVendors, ...data];
-					currentPage++;
-					hasMore = data.length === pageSize;
-					
-					// Update progress
-					loadingProgress = Math.min(90, 10 + (allVendors.length / totalCount) * 80);
-					
-					// Allow UI to update during loading
-					await tick();
-					
-					console.log(`Loaded page ${currentPage}, total vendors: ${allVendors.length}/${totalCount} (${Math.round(loadingProgress)}%)`);
-				} else {
-					hasMore = false;
-				}
-			}
-
-			vendors = allVendors;
+			vendors = rpcVendors;
 			filteredVendors = vendors;
-			displayedVendors = filteredVendors.slice(0, 100); // Initially show only 100 vendors
+			displayedVendors = filteredVendors.slice(0, 100);
+			totalVendors = rpcVendors.length;
 			loadingProgress = 100;
 
-			console.log(`✅ Successfully loaded ${vendors.length} vendors`);
+			console.log(`✅ RPC loaded ${vendors.length} vendors (total: ${totalVendors})`);
 
 		} catch (err) {
 			console.error('❌ Error loading vendors:', err);
@@ -341,13 +271,108 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		return `edit-vendor-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 	}
 
+	function normalizeLabel(value) {
+		return String(value ?? '')
+			.toLowerCase()
+			.trim()
+			.replace(/[_\-\/]+/g, ' ')
+			.replace(/\s+/g, ' ');
+	}
+
+	function getLocalizedBranchName(branch) {
+		if (!branch) return t('vendorManagement.unassigned');
+		return $locale === 'ar' ? (branch.name_ar || branch.name_en || t('vendorManagement.unassigned')) : (branch.name_en || branch.name_ar || t('vendorManagement.unassigned'));
+	}
+
+	function getLocalizedPaymentMethod(method) {
+		if (!method) return t('vendorManagement.noMethod');
+
+		const normalized = normalizeLabel(method);
+		const methodMap = {
+			'cash on delivery': t('vendorManagement.paymentMethods.cashOnDelivery'),
+			'bank on delivery': t('vendorManagement.paymentMethods.bankOnDelivery'),
+			'cash credit': t('vendorManagement.paymentMethods.cashCredit'),
+			'bank credit': t('vendorManagement.paymentMethods.bankCredit')
+		};
+
+		return methodMap[normalized] || String(method).trim();
+	}
+
+	function getLocalizedPriorityLabel(priority) {
+		if (!priority) return t('vendorManagement.normalPriority');
+
+		const normalized = normalizeLabel(priority);
+		const labelMap = {
+			'most': t('vendorManagement.priorityMost'),
+			'medium': t('vendorManagement.priorityMedium'),
+			'normal': t('vendorManagement.normalPriority'),
+			'low': t('vendorManagement.priorityLow')
+		};
+
+		return labelMap[normalized] || String(priority).trim();
+	}
+
+	function getLocalizedCategoryLabel(category) {
+		if (!category) return category;
+
+		const normalized = normalizeLabel(category);
+		const categoryMap = {
+			'daily fresh': t('vendors.dailyFresh'),
+			'wholesaler': t('vendors.wholesaler'),
+			'company distributor': t('vendors.companyDistributor'),
+			'sales van': t('vendors.salesVan'),
+			'maintenance related': t('vendors.maintenanceRelated')
+		};
+
+		return categoryMap[normalized] || String(category).trim();
+	}
+
+	function getLocalizedDeliveryModeLabel(mode) {
+		if (!mode) return mode;
+
+		const normalized = normalizeLabel(mode);
+		const deliveryMap = {
+			'direct pick up': t('vendors.directPickUp'),
+			'delivery on site': t('vendors.deliveryOnSite'),
+			'delivery to parcel companies': t('vendors.deliveryToParcelCompanies')
+		};
+
+		return deliveryMap[normalized] || String(mode).trim();
+	}
+
+	function getLocalizedReturnPolicyLabel(value) {
+		if (!value) return t('vendorManagement.notSet');
+
+		const normalized = normalizeLabel(value);
+		const policyMap = {
+			'can return': t('vendorEdit.returnPolicyOptions.canReturn'),
+			'cannot return': t('vendorEdit.returnPolicyOptions.cannotReturn'),
+			'canreturn': t('vendorEdit.returnPolicyOptions.canReturn'),
+			'cannotreturn': t('vendorEdit.returnPolicyOptions.cannotReturn')
+		};
+
+		return policyMap[normalized] || String(value).trim();
+	}
+
+	function getLocalizedVatStatusLabel(value) {
+		if (!value) return t('vendorManagement.notSet');
+
+		const normalized = normalizeLabel(value);
+		const vatMap = {
+			'vat applicable': t('vendorManagement.vatApplicable'),
+			'no vat': t('vendorManagement.noVat')
+		};
+
+		return vatMap[normalized] || String(value).trim();
+	}
+
 	// Open edit vendor window
 	function openEditWindow(vendor) {
 		const windowId = generateWindowId();
 		
 		openWindow({
 			id: windowId,
-			title: `Edit Vendor - ${vendor.vendor_name}`,
+			title: `${t('vendorEdit.title')} - ${vendor.vendor_name}`,
 			component: EditVendor,
 			icon: '✏️',
 			size: { width: 800, height: 600 },
@@ -401,7 +426,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		openWindow({
 			id: windowId,
-			title: 'Create New Vendor',
+			title: t('admin.createVendor'),
 			component: EditVendor,
 			icon: '➕',
 			size: { width: 800, height: 600 },
@@ -562,131 +587,78 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </script>
 
 <div class="manage-vendor">
-	<!-- Header -->
-	<div class="header">
-		<h1 class="title">📊 Manage Vendors</h1>
-		<p class="subtitle">View and manage vendor information</p>
-	</div>
+	<!-- Unified Top Control Card -->
+	<div class="top-controls-card">
+		<button class="create-btn" on:click={openCreateVendor}>
+			➕ {t('admin.createVendor')}
+		</button>
+		<button class="refresh-btn" on:click={refreshData} disabled={isLoading}>
+			🔄 {t('common.refresh')}
+		</button>
 
-	<!-- Dashboard Card -->
-	<div class="dashboard-section">
-		<div class="vendor-card-minimal">
-			<div class="header-buttons-minimal">
-				<button class="create-btn-small" on:click={openCreateVendor}>
-					➕ Create Vendor
-				</button>
-				<button class="refresh-btn-small" on:click={refreshData} disabled={isLoading}>
-					🔄 Refresh
-				</button>
-			</div>
-		</div>
-	</div>
+		<div class="v-divider"></div>
 
-	<!-- Branch Filter Section -->
-	<div class="filter-section">
-		<div class="branch-filter">
-			<h4>🏢 Filter by Branch</h4>
-			<div class="filter-controls">
-				<div class="filter-options">
-					<label class="filter-option">
-						<input 
-							type="radio" 
-							bind:group={branchFilterMode} 
-							value="all"
-						/>
-						<span class="option-text">All Vendors ({totalVendors})</span>
-					</label>
-					
-					<label class="filter-option">
-						<input 
-							type="radio" 
-							bind:group={branchFilterMode} 
-							value="branch"
-						/>
-						<span class="option-text">By Branch</span>
-					</label>
-					
-					<label class="filter-option">
-						<input 
-							type="radio" 
-							bind:group={branchFilterMode} 
-							value="unassigned"
-						/>
-						<span class="option-text">Unassigned Vendors</span>
-					</label>
-				</div>
-				
-				{#if branchFilterMode === 'branch'}
-					<div class="branch-selector">
-						{#if loadingBranches}
-							<div class="loading-state">Loading branches...</div>
-						{:else}
-							<select bind:value={selectedBranch} class="branch-select">
-								<option value="">Choose a branch...</option>
-								{#each branches as branch}
-									<option value={branch.id}>
-										{branch.name_en} ({branch.name_ar}) - {branch.location_en}
-									</option>
-								{/each}
-							</select>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
-	</div>
-
-	<!-- Search Section -->
-	<div class="search-section">
-		<div class="search-bar">
-			<div class="search-input-wrapper">
-				<span class="search-icon">🔍</span>
-				<input 
-					type="text" 
-					placeholder="Search by ERP ID, vendor name, place, location, categories, delivery modes..."
-					bind:value={searchQuery}
-					class="search-input"
-				/>
-				{#if searchQuery}
-					<button class="clear-search" on:click={() => searchQuery = ''}>×</button>
-				{/if}
-			</div>
-		</div>
-		<div class="search-results">
-			{#if branchFilterMode === 'branch' && !selectedBranch}
-				<span class="branch-selection-hint">Please select a branch to view vendors</span>
-			{:else}
-				Showing {displayedVendors.length} of {filteredVendors.length} vendors
-				{#if filteredVendors.length < totalVendors}
-					(filtered from {totalVendors} total)
+		<div class="filter-group">
+			<label class="filter-chip" class:chip-active={branchFilterMode === 'all'}>
+				<input type="radio" bind:group={branchFilterMode} value="all" />
+				<span>{t('vendorManagement.allVendors', { count: totalVendors })}</span>
+			</label>
+			<label class="filter-chip" class:chip-active={branchFilterMode === 'branch'}>
+				<input type="radio" bind:group={branchFilterMode} value="branch" />
+				<span>{t('vendorManagement.byBranch')}</span>
+			</label>
+			<label class="filter-chip" class:chip-active={branchFilterMode === 'unassigned'}>
+				<input type="radio" bind:group={branchFilterMode} value="unassigned" />
+				<span>{t('vendorManagement.unassignedVendors')}</span>
+			</label>
+			{#if branchFilterMode === 'branch'}
+				{#if loadingBranches}
+					<span class="loading-hint">{t('vendorManagement.loadingBranches')}</span>
+				{:else}
+					<select bind:value={selectedBranch} class="branch-select">
+						<option value="">{t('vendorManagement.chooseBranch')}</option>
+						{#each branches as branch}
+							<option value={branch.id}>
+								{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+							</option>
+						{/each}
+					</select>
 				{/if}
 			{/if}
 		</div>
-	</div>
 
-	<!-- Column Selector -->
-	<div class="column-selector-section">
-		<div class="column-selector">
-			<button class="column-selector-btn" on:click={() => showColumnSelector = !showColumnSelector}>
-				🏷️ Show/Hide Columns
-				<span class="dropdown-arrow">{showColumnSelector ? '▲' : '▼'}</span>
+		<div class="v-divider"></div>
+
+		<div class="search-wrapper">
+			<span class="search-icon-inner">🔍</span>
+			<input
+				type="text"
+				placeholder={t('vendorManagement.searchPlaceholder')}
+				bind:value={searchQuery}
+				class="search-input"
+			/>
+			{#if searchQuery}
+				<button class="clear-search-btn-inner" on:click={() => searchQuery = ''}>×</button>
+			{/if}
+		</div>
+
+		<div class="v-divider"></div>
+
+		<div class="column-selector-wrapper">
+			<button class="columns-btn" on:click={() => showColumnSelector = !showColumnSelector}>
+				🏷️ {t('vendorManagement.showHideColumns')} <span class="arrow">{showColumnSelector ? '▲' : '▼'}</span>
 			</button>
-			
 			{#if showColumnSelector}
 				<div class="column-dropdown">
-					<div class="column-controls">
-						<button class="control-btn" on:click={() => toggleAllColumns(true)}>✅ Show All</button>
-						<button class="control-btn" on:click={() => toggleAllColumns(false)}>❌ Hide All</button>
+					<div class="col-controls">
+						<button class="ctrl-btn" on:click={() => toggleAllColumns(true)}>✅ {t('vendorManagement.showAll')}</button>
+						<button class="ctrl-btn" on:click={() => toggleAllColumns(false)}>❌ {t('vendorManagement.hideAll')}</button>
 					</div>
 					<div class="column-list">
 						{#each columnDefinitions as column}
 							<label class="column-item">
-								<input 
-									type="checkbox" 
-									checked={visibleColumns[column.key]} 
-									on:change={() => toggleColumn(column.key)}
-								/>
-								<span class="column-label">{column.label}</span>
+								<input type="checkbox" checked={visibleColumns[column.key]} on:change={() => toggleColumn(column.key)} />
+								<span>{column.label}</span>
 							</label>
 						{/each}
 					</div>
@@ -695,18 +667,32 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</div>
 	</div>
 
+	<!-- Status bar -->
+	<div class="status-bar">
+		{#if branchFilterMode === 'branch' && !selectedBranch}
+			<span>{t('vendorManagement.selectBranchHint')}</span>
+		{:else}
+			<span>
+				{t('vendorManagement.showingVendors', { shown: displayedVendors.length, total: filteredVendors.length })}
+				{#if filteredVendors.length < totalVendors}
+					&nbsp;({t('vendorManagement.filteredFrom', { total: totalVendors })})
+				{/if}
+			</span>
+		{/if}
+	</div>
+
 	<!-- Table Section -->
-	<div class="table-section">
+	<div class="table-card">
 		{#if error}
-			<div class="error-message">
-				<span class="error-icon">⚠️</span>
-				<p>Error loading vendors: {error}</p>
-				<button class="retry-btn" on:click={refreshData}>Try Again</button>
+			<div class="state-box error-state">
+				<span class="state-icon">⚠️</span>
+				<p>{t('vendorManagement.errorLoading')}: {error}</p>
+				<button class="action-state-btn" on:click={refreshData}>{t('common.tryAgain')}</button>
 			</div>
 		{:else if isLoading}
-			<div class="loading-table">
+			<div class="state-box loading-state">
 				<div class="loading-spinner">⏳</div>
-				<p>Loading vendors...</p>
+				<p>{t('vendorManagement.loadingVendors')}</p>
 				{#if loadingProgress > 0}
 					<div class="progress-bar">
 						<div class="progress-fill" style="width: {loadingProgress}%"></div>
@@ -715,16 +701,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				{/if}
 			</div>
 		{:else if filteredVendors.length === 0}
-			<div class="empty-state">
+			<div class="state-box empty-state">
 				{#if searchQuery}
-					<span class="empty-icon">🔍</span>
-					<h3>No vendors found</h3>
-					<p>No vendors match your search criteria</p>
-					<button class="clear-search-btn" on:click={() => searchQuery = ''}>Clear Search</button>
+					<span class="state-icon">🔍</span>
+					<h3>{t('vendorManagement.noVendorsFound')}</h3>
+					<p>{t('vendorManagement.noVendorsMatch')}</p>
+					<button class="action-state-btn" on:click={() => searchQuery = ''}>{t('vendorManagement.clearSearch')}</button>
 				{:else}
-					<span class="empty-icon">📝</span>
-					<h3>No vendors yet</h3>
-					<p>Upload vendor data to get started</p>
+					<span class="state-icon">📝</span>
+					<h3>{t('vendorManagement.noVendorsYet')}</h3>
+					<p>{t('vendorManagement.uploadVendorData')}</p>
 				{/if}
 			</div>
 		{:else}
@@ -732,26 +718,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<table>
 					<thead>
 						<tr>
-							{#if visibleColumns.erp_vendor_id}<th>ERP Vendor ID</th>{/if}
-							{#if visibleColumns.vendor_name}<th>Vendor Name</th>{/if}
-							{#if visibleColumns.branch_name}<th>Branch</th>{/if}
-							{#if visibleColumns.salesman_name}<th>Salesman Name</th>{/if}
-							{#if visibleColumns.salesman_contact}<th>Salesman Contact</th>{/if}
-							{#if visibleColumns.supervisor_name}<th>Supervisor Name</th>{/if}
-							{#if visibleColumns.supervisor_contact}<th>Supervisor Contact</th>{/if}
-							{#if visibleColumns.vendor_contact}<th>Vendor Contact</th>{/if}
-							{#if visibleColumns.payment_method}<th>Payment Method</th>{/if}
-							{#if visibleColumns.payment_priority}<th>Payment Priority</th>{/if}
-							{#if visibleColumns.credit_period}<th>Credit Period</th>{/if}
-							{#if visibleColumns.bank_name}<th>Bank Name</th>{/if}
-							{#if visibleColumns.iban}<th>IBAN</th>{/if}
-							{#if visibleColumns.last_visit}<th>Last Visit</th>{/if}
-							{#if visibleColumns.place}<th>Place</th>{/if}
-							{#if visibleColumns.location}<th>Location</th>{/if}
-							{#if visibleColumns.categories}<th>Categories</th>{/if}
-							{#if visibleColumns.delivery_modes}<th>Delivery Modes</th>{/if}
-							{#if visibleColumns.status}<th>Status</th>{/if}
-							{#if visibleColumns.actions}<th>Actions</th>{/if}
+							{#if visibleColumns.erp_vendor_id}<th>{t('vendorManagement.erpVendorId')}</th>{/if}
+							{#if visibleColumns.vendor_name}<th>{t('vendorManagement.vendorName')}</th>{/if}
+							{#if visibleColumns.branch_name}<th>{t('vendorManagement.branch')}</th>{/if}
+							{#if visibleColumns.salesman_name}<th>{t('vendorManagement.salesmanName')}</th>{/if}
+							{#if visibleColumns.salesman_contact}<th>{t('vendorManagement.salesmanContact')}</th>{/if}
+							{#if visibleColumns.supervisor_name}<th>{t('vendorManagement.supervisorName')}</th>{/if}
+							{#if visibleColumns.supervisor_contact}<th>{t('vendorManagement.supervisorContact')}</th>{/if}
+							{#if visibleColumns.vendor_contact}<th>{t('vendorManagement.vendorContact')}</th>{/if}
+							{#if visibleColumns.payment_method}<th>{t('vendorManagement.paymentMethod')}</th>{/if}
+							{#if visibleColumns.payment_priority}<th>{t('vendorManagement.paymentPriority')}</th>{/if}
+							{#if visibleColumns.credit_period}<th>{t('vendorManagement.creditPeriod')}</th>{/if}
+							{#if visibleColumns.bank_name}<th>{t('vendorManagement.bankName')}</th>{/if}
+							{#if visibleColumns.iban}<th>{t('vendorManagement.iban')}</th>{/if}
+							{#if visibleColumns.last_visit}<th>{t('vendorManagement.lastVisit')}</th>{/if}
+							{#if visibleColumns.place}<th>{t('vendorManagement.place')}</th>{/if}
+							{#if visibleColumns.location}<th>{t('vendorManagement.location')}</th>{/if}
+							{#if visibleColumns.categories}<th>{t('vendorManagement.categories')}</th>{/if}
+							{#if visibleColumns.delivery_modes}<th>{t('vendorManagement.deliveryModes')}</th>{/if}
+							{#if visibleColumns.status}<th>{t('vendorManagement.status')}</th>{/if}
+							{#if visibleColumns.actions}<th>{t('vendorManagement.actions')}</th>{/if}
 						</tr>
 					</thead>
 					<tbody>
@@ -765,10 +751,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								{/if}
 								{#if visibleColumns.branch_name}
 									<td class="branch-name">
-										{#if vendor.branches?.name_en}
-											<span class="branch-assigned">{vendor.branches.name_en}</span>
+										{#if vendor.branches?.name_en || vendor.branches?.name_ar}
+											<span class="branch-assigned">{getLocalizedBranchName(vendor.branches)}</span>
 										{:else}
-											<span class="branch-unassigned">Unassigned</span>
+											<span class="branch-unassigned">{t('vendorManagement.unassigned')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -777,7 +763,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.salesman_name}
 											{vendor.salesman_name}
 										{:else}
-											<span class="no-data">No salesman</span>
+											<span class="no-data">{t('vendorManagement.noSalesman')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -786,7 +772,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.salesman_contact}
 											{vendor.salesman_contact}
 										{:else}
-											<span class="no-data">No contact</span>
+											<span class="no-data">{t('vendorManagement.noContact')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -795,7 +781,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.supervisor_name}
 											{vendor.supervisor_name}
 										{:else}
-											<span class="no-data">No supervisor</span>
+											<span class="no-data">{t('vendorManagement.noSupervisor')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -804,7 +790,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.supervisor_contact}
 											{vendor.supervisor_contact}
 										{:else}
-											<span class="no-data">No contact</span>
+											<span class="no-data">{t('vendorManagement.noContact')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -813,7 +799,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.vendor_contact_number}
 											{vendor.vendor_contact_number}
 										{:else}
-											<span class="no-data">No contact</span>
+											<span class="no-data">{t('vendorManagement.noContact')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -824,15 +810,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 												<!-- Multiple payment methods -->
 												<div class="payment-methods-list">
 													{#each vendor.payment_method.split(',').map(m => m.trim()) as method}
-														<span class="payment-method-tag">{method}</span>
+														<span class="payment-method-tag">{getLocalizedPaymentMethod(method)}</span>
 													{/each}
 												</div>
 											{:else}
 												<!-- Single payment method -->
-												{vendor.payment_method}
+												{getLocalizedPaymentMethod(vendor.payment_method)}
 											{/if}
 										{:else}
-											<span class="no-data">No method</span>
+											<span class="no-data">{t('vendorManagement.noMethod')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -840,19 +826,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<td class="payment-priority">
 										{#if vendor.payment_priority}
 											<span class="priority-badge priority-{vendor.payment_priority.toLowerCase()}">
-												{vendor.payment_priority}
+												{getLocalizedPriorityLabel(vendor.payment_priority)}
 											</span>
 										{:else}
-											<span class="priority-badge priority-normal">Normal</span>
+											<span class="priority-badge priority-normal">{t('vendorManagement.normalPriority')}</span>
 										{/if}
 									</td>
 								{/if}
 								{#if visibleColumns.credit_period}
 									<td class="credit-period">
 										{#if vendor.payment_method && (vendor.payment_method.includes('Cash Credit') || vendor.payment_method.includes('Bank Credit')) && vendor.credit_period}
-											{vendor.credit_period} days
+											{vendor.credit_period} {t('vendorManagement.days')}
 										{:else}
-											<span class="no-data">No credit period</span>
+											<span class="no-data">{t('vendorManagement.noCreditPeriod')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -861,7 +847,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.payment_method && (vendor.payment_method.includes('Bank on Delivery') || vendor.payment_method.includes('Bank Credit')) && vendor.bank_name}
 											{vendor.bank_name}
 										{:else}
-											<span class="no-data">No bank</span>
+											<span class="no-data">{t('vendorManagement.noBank')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -870,7 +856,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.payment_method && (vendor.payment_method.includes('Bank on Delivery') || vendor.payment_method.includes('Bank Credit')) && vendor.iban}
 											{vendor.iban}
 										{:else}
-											<span class="no-data">No IBAN</span>
+											<span class="no-data">{t('vendorManagement.noIban')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -885,7 +871,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 												minute: '2-digit'
 											})}
 										{:else}
-											<span class="no-visit">Never visited</span>
+											<span class="no-visit">{t('vendorManagement.neverVisited')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -894,7 +880,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.place}
 											<span class="place-text">📍 {vendor.place}</span>
 										{:else}
-											<span class="no-place">No place</span>
+											<span class="no-place">{t('vendorManagement.noPlace')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -908,18 +894,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 													rel="noopener noreferrer"
 													class="location-link"
 												>
-													🗺️ Open Map
+													🗺️ {t('vendorManagement.openMap')}
 												</a>
 												<button 
 													class="share-location-btn"
 													on:click={() => shareLocation(vendor.location_link, vendor.vendor_name)}
 													title="Share Location"
 												>
-													📤 Share
+													📤 {t('vendorManagement.share')}
 												</button>
 											</div>
 										{:else}
-											<span class="no-location">No location</span>
+											<span class="no-location">{t('vendorManagement.noLocation')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -928,11 +914,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.categories && vendor.categories.length > 0}
 											<div class="category-badges">
 												{#each vendor.categories as category}
-													<span class="category-badge">{category}</span>
+													<span class="category-badge">{getLocalizedCategoryLabel(category)}</span>
 												{/each}
 											</div>
 										{:else}
-											<span class="no-categories">No categories</span>
+											<span class="no-categories">{t('vendorManagement.noCategories')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -941,11 +927,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.delivery_modes && vendor.delivery_modes.length > 0}
 											<div class="delivery-mode-badges">
 												{#each vendor.delivery_modes as mode}
-													<span class="delivery-mode-badge">{mode}</span>
+													<span class="delivery-mode-badge">{getLocalizedDeliveryModeLabel(mode)}</span>
 												{/each}
 											</div>
 										{:else}
-											<span class="no-delivery-modes">No delivery modes</span>
+											<span class="no-delivery-modes">{t('vendorManagement.noDeliveryModes')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -996,9 +982,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								{#if visibleColumns.no_return}
 									<td class="return-policy-cell">
 										{#if vendor.no_return}
-											<span class="return-policy-badge no-return-badge">🚫 No Returns</span>
+											<span class="return-policy-badge no-return-badge">🚫 {t('vendorManagement.noReturns')}</span>
 										{:else}
-											<span class="return-policy-badge returns-accepted">✅ Returns OK</span>
+											<span class="return-policy-badge returns-accepted">✅ {t('vendorManagement.returnsOk')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -1006,10 +992,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<td class="vat-cell">
 										{#if vendor.vat_applicable}
 											<span class="vat-badge {vendor.vat_applicable === 'VAT Applicable' ? 'vat-applicable' : 'no-vat'}">
-												{vendor.vat_applicable === 'VAT Applicable' ? '💰 VAT Applicable' : '🚫 No VAT'}
+												{vendor.vat_applicable === 'VAT Applicable' ? `💰 ${t('vendorManagement.vatApplicable')}` : `🚫 ${t('vendorManagement.noVat')}`}
 											</span>
 										{:else}
-											<span class="no-vat-info">Not set</span>
+											<span class="no-vat-info">{t('vendorManagement.notSet')}</span>
 										{/if}
 									</td>
 								{/if}
@@ -1018,7 +1004,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										{#if vendor.vat_applicable === 'VAT Applicable' && vendor.vat_number}
 											<span class="vat-number">{vendor.vat_number}</span>
 										{:else if vendor.vat_applicable === 'No VAT' && vendor.no_vat_note}
-											<span class="no-vat-note" title={vendor.no_vat_note}>📝 Note available</span>
+											<span class="no-vat-note" title={vendor.no_vat_note}>📝 {t('vendorManagement.noteAvailable')}</span>
 										{:else}
 											<span class="no-vat-info">-</span>
 										{/if}
@@ -1028,26 +1014,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<td class="status-cell">
 										{#if vendor.status === 'Active'}
 											<button class="status-cycle-btn status-active" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-												✅ Active
+												✅ {t('vendorManagement.active')}
 											</button>
 										{:else if vendor.status === 'Deactivated'}
 											<button class="status-cycle-btn status-deactivated" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-												🚫 Deactivated
+												🚫 {t('vendorManagement.deactivated')}
 											</button>
 										{:else if vendor.status === 'Blacklisted'}
 											<button class="status-cycle-btn status-blacklisted" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-												⚫ Blacklist
+												⚫ {t('vendorManagement.blacklisted')}
 											</button>
 										{:else}
 											<button class="status-cycle-btn status-active" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-												✅ Active
+												✅ {t('vendorManagement.active')}
 											</button>
 										{/if}
 									</td>
 								{/if}
 								{#if visibleColumns.actions}
 									<td class="action-buttons">
-										<button class="edit-btn" on:click={() => openEditWindow(vendor)}>✏️ Edit</button>
+										<button class="edit-btn" on:click={() => openEditWindow(vendor)}>✏️ {t('vendorManagement.edit')}</button>
 									</td>
 								{/if}
 							</tr>
@@ -1060,441 +1046,314 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </div>
 
 <style>
+	/* ===================== BASE ===================== */
 	.manage-vendor {
-		padding: 1.5rem;
-		background: #f8fafc;
-		height: 100vh;
+		padding: 0.75rem 1rem;
+		background: linear-gradient(135deg, #e8f0fe 0%, #f0f7ff 50%, #e8f4f8 100%);
+		height: 100%;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+		gap: 0.55rem;
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 	}
 
-	/* Header */
-	.header {
-		margin-bottom: 2rem;
-		text-align: center;
-	}
-
-	.title {
-		font-size: 2rem;
-		font-weight: 700;
-		color: #1e293b;
-		margin-bottom: 0.5rem;
-	}
-
-	.subtitle {
-		color: #64748b;
-		font-size: 1.1rem;
-	}
-
-	/* Dashboard Card */
-	.dashboard-section {
-		margin-bottom: 2rem;
-	}
-
-	.vendor-card {
-		background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-		color: white;
-		padding: 2rem;
-		border-radius: 16px;
+	/* ===================== TOP CONTROL CARD ===================== */
+	.top-controls-card {
 		display: flex;
 		align-items: center;
-		gap: 1.5rem;
-		box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
-		max-width: 600px;
-		margin: 0 auto;
-	}
-
-	.card-icon {
-		font-size: 3rem;
-		opacity: 0.9;
-	}
-
-	.card-content {
-		flex: 1;
-	}
-
-	.card-content h3 {
-		font-size: 1.2rem;
-		margin-bottom: 0.5rem;
-		opacity: 0.9;
-	}
-
-	.vendor-count {
-		font-size: 3rem;
-		font-weight: 800;
-		margin-bottom: 0.25rem;
-	}
-
-	.loading-count {
-		font-size: 3rem;
-		font-weight: 800;
-		margin-bottom: 0.25rem;
-		opacity: 0.7;
-	}
-
-	.card-content p {
-		opacity: 0.8;
-		font-size: 0.95rem;
-	}
-
-	.header-buttons {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-	}
-
-	/* Minimal vendor card styles */
-	.vendor-card-minimal {
-		background: #f8fafc;
-		border: 1px solid #e2e8f0;
-		padding: 1rem;
-		border-radius: 8px;
-		display: flex;
-		justify-content: center;
-		max-width: 400px;
-		margin: 0 auto;
-	}
-
-	.header-buttons-minimal {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
-	.create-btn-small {
-		background: #10b981;
-		color: white;
-		border: 1px solid #059669;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s;
-		font-weight: 500;
-		font-size: 0.875rem;
-	}
-
-	.create-btn-small:hover {
-		background: #059669;
-		transform: translateY(-1px);
-	}
-
-	.refresh-btn-small {
-		background: #6b7280;
-		color: white;
-		border: 1px solid #4b5563;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s;
-		font-weight: 500;
-		font-size: 0.875rem;
-	}
-
-	.refresh-btn-small:hover:not(:disabled) {
-		background: #4b5563;
-		transform: translateY(-1px);
-	}
-
-	.refresh-btn-small:disabled {
-		background: #9ca3af;
-		cursor: not-allowed;
-		transform: none;
+		gap: 0.55rem;
+		flex-wrap: wrap;
+		background: rgba(255, 255, 255, 0.72);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border: 1px solid rgba(255, 255, 255, 0.9);
+		border-radius: 14px;
+		padding: 0.65rem 1rem;
+		box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+		flex-shrink: 0;
 	}
 
 	.create-btn {
-		background: #10b981;
+		background: linear-gradient(135deg, #10b981, #059669);
 		color: white;
-		border: 1px solid #059669;
-		padding: 0.75rem 1.25rem;
+		border: 1px solid rgba(16, 185, 129, 0.4);
+		padding: 0.45rem 0.9rem;
 		border-radius: 8px;
 		cursor: pointer;
+		font-weight: 600;
+		font-size: 0.82rem;
+		white-space: nowrap;
 		transition: all 0.2s;
-		font-weight: 500;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.22);
 	}
-
 	.create-btn:hover {
-		background: #059669;
+		background: linear-gradient(135deg, #059669, #047857);
 		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
 	}
 
 	.refresh-btn {
-		background: rgba(255, 255, 255, 0.2);
-		color: white;
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		padding: 0.75rem 1.25rem;
+		background: rgba(99, 102, 241, 0.08);
+		color: #4f46e5;
+		border: 1px solid rgba(99, 102, 241, 0.25);
+		padding: 0.45rem 0.9rem;
 		border-radius: 8px;
 		cursor: pointer;
+		font-weight: 600;
+		font-size: 0.82rem;
+		white-space: nowrap;
 		transition: all 0.2s;
-		font-weight: 500;
 	}
-
 	.refresh-btn:hover:not(:disabled) {
-		background: rgba(255, 255, 255, 0.3);
+		background: rgba(99, 102, 241, 0.15);
+		color: #3730a3;
 		transform: translateY(-1px);
 	}
-
 	.refresh-btn:disabled {
-		opacity: 0.5;
+		opacity: 0.4;
 		cursor: not-allowed;
 	}
 
-	/* Filter Section */
-	.filter-section {
-		margin-bottom: 2rem;
-		background: #f8fafc;
-		border: 1px solid #e2e8f0;
-		border-radius: 12px;
-		padding: 1.5rem;
+	.v-divider {
+		width: 1px;
+		height: 28px;
+		background: rgba(0, 0, 0, 0.08);
+		flex-shrink: 0;
 	}
 
-	.branch-filter h4 {
-		margin: 0 0 1rem 0;
-		color: #1e293b;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.filter-controls {
+	/* Filter group */
+	.filter-group {
 		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.filter-options {
-		display: flex;
-		gap: 2rem;
+		align-items: center;
+		gap: 0.35rem;
 		flex-wrap: wrap;
 	}
 
-	.filter-option {
+	.filter-chip {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.35rem;
+		padding: 0.35rem 0.75rem;
+		border-radius: 20px;
 		cursor: pointer;
+		font-size: 0.8rem;
 		font-weight: 500;
-		color: #475569;
-	}
-
-	.filter-option input[type="radio"] {
-		margin: 0;
-		transform: scale(1.2);
-	}
-
-	.option-text {
-		font-size: 0.95rem;
-	}
-
-	.branch-selector {
-		margin-top: 0.5rem;
-	}
-
-	.branch-select {
-		padding: 0.75rem 1rem;
-		border: 2px solid #e2e8f0;
-		border-radius: 8px;
-		font-size: 1rem;
-		background: white;
-		color: #1e293b;
-		min-width: 300px;
-		cursor: pointer;
-	}
-
-	.branch-select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.loading-state {
-		padding: 0.75rem 1rem;
 		color: #64748b;
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		background: rgba(255, 255, 255, 0.5);
+		transition: all 0.2s;
+		white-space: nowrap;
+		user-select: none;
+	}
+	.filter-chip:hover {
+		color: #1e293b;
+		border-color: rgba(59, 130, 246, 0.3);
+		background: rgba(59, 130, 246, 0.06);
+	}
+	.filter-chip.chip-active {
+		background: rgba(59, 130, 246, 0.1);
+		border-color: rgba(59, 130, 246, 0.4);
+		color: #1d4ed8;
+	}
+	.filter-chip input[type="radio"] {
+		display: none;
+	}
+
+	.loading-hint {
+		color: #94a3b8;
+		font-size: 0.8rem;
 		font-style: italic;
 	}
 
-	/* Search Section */
-	.search-section {
-		margin-bottom: 2rem;
+	.branch-select {
+		background: rgba(255, 255, 255, 0.8);
+		color: #1e293b;
+		border: 1px solid rgba(0, 0, 0, 0.12);
+		border-radius: 8px;
+		padding: 0.35rem 0.7rem;
+		font-size: 0.82rem;
+		cursor: pointer;
+		outline: none;
+		max-width: 220px;
+		transition: border-color 0.2s;
+	}
+	.branch-select:focus {
+		border-color: rgba(59, 130, 246, 0.5);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+	}
+	.branch-select option {
+		background: white;
+		color: #1e293b;
 	}
 
-	.search-bar {
-		max-width: 600px;
-		margin: 0 auto 1rem;
-	}
-
-	.search-input-wrapper {
-		position: relative;
+	/* Search */
+	.search-wrapper {
 		display: flex;
 		align-items: center;
+		position: relative;
+		flex: 1;
+		min-width: 180px;
+		max-width: 300px;
 	}
-
-	.search-icon {
+	.search-icon-inner {
 		position: absolute;
-		left: 1rem;
-		font-size: 1.2rem;
-		color: #64748b;
-		z-index: 1;
+		left: 0.6rem;
+		font-size: 0.85rem;
+		color: #94a3b8;
+		pointer-events: none;
 	}
-
 	.search-input {
 		width: 100%;
-		padding: 1rem 1rem 1rem 3rem;
-		border: 2px solid #e2e8f0;
-		border-radius: 12px;
-		font-size: 1rem;
-		background: white;
+		padding: 0.42rem 2rem 0.42rem 2rem;
+		background: rgba(255, 255, 255, 0.75);
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		border-radius: 8px;
+		color: #1e293b;
+		font-size: 0.82rem;
+		outline: none;
 		transition: all 0.2s;
 	}
-
-	.search-input:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	.search-input::placeholder {
+		color: #b0bec5;
 	}
-
-	.clear-search {
+	.search-input:focus {
+		border-color: rgba(59, 130, 246, 0.45);
+		background: white;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+	}
+	.clear-search-btn-inner {
 		position: absolute;
-		right: 1rem;
-		background: #64748b;
-		color: white;
+		right: 0.5rem;
+		background: rgba(0, 0, 0, 0.08);
+		color: #64748b;
 		border: none;
-		width: 24px;
-		height: 24px;
+		width: 20px;
+		height: 20px;
 		border-radius: 50%;
 		cursor: pointer;
+		font-size: 13px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 14px;
-		transition: all 0.2s;
+		transition: background 0.2s;
+		line-height: 1;
+	}
+	.clear-search-btn-inner:hover {
+		background: rgba(0, 0, 0, 0.15);
+		color: #1e293b;
 	}
 
-	.clear-search:hover {
-		background: #475569;
-	}
-
-	.search-results {
-		text-align: center;
-		color: #64748b;
-		font-size: 0.9rem;
-	}
-
-	/* Column Selector */
-	.column-selector-section {
-		margin-bottom: 1rem;
-		display: flex;
-		justify-content: center;
-	}
-
-	.column-selector {
+	/* Column selector */
+	.column-selector-wrapper {
 		position: relative;
-		display: inline-block;
 	}
-
-	.column-selector-btn {
-		background: #3b82f6;
-		color: white;
-		border: none;
-		padding: 0.75rem 1.25rem;
+	.columns-btn {
+		background: rgba(59, 130, 246, 0.08);
+		color: #1d4ed8;
+		border: 1px solid rgba(59, 130, 246, 0.25);
+		padding: 0.45rem 0.9rem;
 		border-radius: 8px;
 		cursor: pointer;
+		font-size: 0.82rem;
+		font-weight: 600;
+		white-space: nowrap;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		font-weight: 500;
+		gap: 0.35rem;
 		transition: all 0.2s;
-		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
 	}
-
-	.column-selector-btn:hover {
-		background: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+	.columns-btn:hover {
+		background: rgba(59, 130, 246, 0.15);
+		color: #1e40af;
 	}
-
-	.dropdown-arrow {
-		font-size: 0.8rem;
-		transition: transform 0.2s;
+	.arrow {
+		font-size: 0.68rem;
 	}
 
 	.column-dropdown {
 		position: absolute;
-		top: 100%;
-		left: 0;
-		background: white;
-		border: 1px solid #e2e8f0;
-		border-radius: 8px;
-		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+		top: calc(100% + 6px);
+		right: 0;
+		background: rgba(255, 255, 255, 0.97);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		border-radius: 12px;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 		z-index: 1000;
-		min-width: 280px;
-		max-height: 400px;
+		min-width: 240px;
+		max-height: 380px;
 		overflow-y: auto;
-		margin-top: 0.5rem;
 	}
-
-	.column-controls {
-		padding: 1rem;
-		border-bottom: 1px solid #e2e8f0;
+	.col-controls {
+		padding: 0.7rem;
+		border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 		display: flex;
 		gap: 0.5rem;
 	}
-
-	.control-btn {
+	.ctrl-btn {
+		flex: 1;
 		background: #f8fafc;
+		color: #475569;
 		border: 1px solid #e2e8f0;
-		padding: 0.5rem 1rem;
+		padding: 0.38rem 0.5rem;
 		border-radius: 6px;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 0.78rem;
 		transition: all 0.2s;
-		flex: 1;
 	}
-
-	.control-btn:hover {
+	.ctrl-btn:hover {
 		background: #f1f5f9;
+		color: #1e293b;
 		border-color: #cbd5e1;
 	}
-
 	.column-list {
-		padding: 0.5rem;
+		padding: 0.4rem;
 	}
-
 	.column-item {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem;
+		gap: 0.6rem;
+		padding: 0.45rem 0.7rem;
 		border-radius: 6px;
 		cursor: pointer;
-		transition: background-color 0.2s;
+		transition: background 0.15s;
+		color: #374151;
+		font-size: 0.82rem;
 	}
-
 	.column-item:hover {
 		background: #f8fafc;
+		color: #1e293b;
 	}
-
 	.column-item input[type="checkbox"] {
-		width: 16px;
-		height: 16px;
+		width: 14px;
+		height: 14px;
 		accent-color: #3b82f6;
+		flex-shrink: 0;
 	}
 
-	.column-label {
-		font-size: 0.9rem;
-		color: #374151;
-		user-select: none;
+	/* ===================== STATUS BAR ===================== */
+	.status-bar {
+		font-size: 0.76rem;
+		color: #94a3b8;
+		padding: 0 0.3rem;
+		flex-shrink: 0;
 	}
 
-	/* Table Section */
-	.table-section {
-		background: white;
-		border-radius: 12px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+	/* ===================== TABLE CARD ===================== */
+	.table-card {
+		background: rgba(255, 255, 255, 0.75);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border: 1px solid rgba(255, 255, 255, 0.9);
+		border-radius: 14px;
 		overflow: hidden;
-		max-height: 70vh;
+		flex: 1;
 		display: flex;
 		flex-direction: column;
+		box-shadow: 0 4px 20px rgba(59, 130, 246, 0.07);
+		min-height: 0;
 	}
 
 	.vendor-table {
@@ -1508,624 +1367,508 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	thead {
-		background: #f1f5f9;
 		position: sticky;
 		top: 0;
 		z-index: 10;
 	}
 
 	th {
-		padding: 1rem;
+		padding: 0.7rem 0.875rem;
 		text-align: left;
 		font-weight: 600;
-		color: #374151;
-		border-bottom: 1px solid #e5e7eb;
-		background: #f1f5f9;
+		font-size: 0.74rem;
+		color: #64748b;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		background: rgba(241, 245, 249, 0.95);
+		border-bottom: 1px solid #e2e8f0;
+		border-right: 1px solid #f1f5f9;
 		white-space: nowrap;
+		backdrop-filter: blur(10px);
+	}
+	th:last-child {
+		border-right: none;
 	}
 
 	td {
-		padding: 1rem;
-		border-bottom: 1px solid #f3f4f6;
+		padding: 0.6rem 0.875rem;
+		border-bottom: 1px solid #f1f5f9;
+		border-right: 1px solid #f8fafc;
 		color: #374151;
+		font-size: 0.84rem;
+		vertical-align: middle;
+	}
+	td:last-child {
+		border-right: none;
 	}
 
+	tbody tr {
+		transition: background 0.15s;
+	}
+	tbody tr:hover {
+		background: rgba(59, 130, 246, 0.03);
+	}
+	tbody tr:last-child td {
+		border-bottom: none;
+	}
+
+	/* ===================== TABLE CELL STYLES ===================== */
 	.vendor-id {
-		font-weight: 600;
-		color: #3b82f6;
+		font-weight: 700;
+		color: #2563eb;
 		font-family: 'Courier New', monospace;
+		font-size: 0.84rem;
 	}
 
 	.vendor-name {
-		font-weight: 500;
+		font-weight: 600;
+		color: #1e293b;
 	}
 
 	.vendor-data {
-		font-size: 0.9rem;
-		color: #6b7280;
+		color: #64748b;
+		font-size: 0.82rem;
 	}
 
-	.payment-method {
+	.no-data {
+		color: #cbd5e1;
+		font-style: italic;
+		font-size: 0.74rem;
+	}
+
+	/* Branch */
+	.branch-name {
 		font-weight: 500;
-		font-size: 0.9rem;
+	}
+	.branch-assigned {
+		background: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+		padding: 0.18rem 0.55rem;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		display: inline-block;
+	}
+	.branch-unassigned {
+		background: #fef9c3;
+		color: #854d0e;
+		border: 1px solid #fde68a;
+		padding: 0.18rem 0.55rem;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-style: italic;
+		display: inline-block;
+	}
+
+	/* Payment */
+	.payment-method {
+		font-size: 0.82rem;
+	}
+	.payment-methods-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem;
+	}
+	.payment-method-tag {
+		background: #dbeafe;
+		color: #1e40af;
+		padding: 0.1rem 0.42rem;
+		border-radius: 10px;
+		font-size: 0.71rem;
+		font-weight: 500;
+		white-space: nowrap;
+		border: 1px solid #bfdbfe;
 	}
 
 	.payment-priority {
 		text-align: center;
 	}
-
 	.priority-badge {
 		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 600;
+		padding: 0.2rem 0.58rem;
+		border-radius: 10px;
+		font-size: 0.71rem;
+		font-weight: 700;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.04em;
 	}
-
 	.priority-most {
 		background: #fee2e2;
 		color: #991b1b;
-		border: 1px solid #fca5a5;
+		border: 1px solid #fecaca;
 	}
-
 	.priority-medium {
-		background: #fed7aa;
+		background: #ffedd5;
 		color: #c2410c;
-		border: 1px solid #fdba74;
+		border: 1px solid #fed7aa;
 	}
-
 	.priority-normal {
 		background: #dbeafe;
 		color: #1e40af;
-		border: 1px solid #93c5fd;
+		border: 1px solid #bfdbfe;
 	}
-
 	.priority-low {
-		background: #f3f4f6;
-		color: #6b7280;
-		border: 1px solid #d1d5db;
+		background: #f8fafc;
+		color: #94a3b8;
+		border: 1px solid #e2e8f0;
 	}
 
 	.credit-period {
-		font-size: 0.9rem;
 		color: #059669;
+		font-size: 0.82rem;
 		font-weight: 500;
 	}
-
 	.bank-info {
-		font-size: 0.85rem;
-		color: #374151;
+		font-size: 0.79rem;
+		color: #475569;
 		max-width: 120px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-
 	.last-visit {
-		font-size: 0.8rem;
-		color: #4b5563;
-		min-width: 120px;
+		font-size: 0.77rem;
+		color: #64748b;
 		white-space: nowrap;
 	}
-
 	.no-visit {
-		color: #9ca3af;
+		color: #cbd5e1;
 		font-style: italic;
-		font-size: 0.75rem;
+		font-size: 0.72rem;
 	}
 
-	.vendor-categories {
-		font-size: 0.8rem;
-		min-width: 150px;
-		max-width: 200px;
+	/* Place & Location */
+	.vendor-place, .vendor-location {
+		padding: 0.5rem 0.875rem;
 	}
-
-	.category-badges {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-	}
-
-	.category-badge {
-		background: #e0f2fe;
-		color: #0369a1;
-		padding: 0.125rem 0.375rem;
-		border-radius: 0.25rem;
-		font-size: 0.7rem;
-		font-weight: 500;
-		white-space: nowrap;
-	}
-
-	.no-categories {
-		color: #9ca3af;
-		font-style: italic;
-		font-size: 0.75rem;
-	}
-
-	.no-data {
-		color: #9ca3af;
-		font-style: italic;
-		font-size: 0.75rem;
-	}
-
-	/* Delivery Mode Badges */
-	.vendor-delivery-modes {
-		max-width: 200px;
-		padding: 0.5rem;
-	}
-
-	.delivery-mode-badges {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-	}
-
-	.delivery-mode-badge {
-		background: #fef3c7;
-		color: #d97706;
-		padding: 0.125rem 0.375rem;
-		border-radius: 0.25rem;
-		font-size: 0.7rem;
-		font-weight: 500;
-		white-space: nowrap;
-	}
-
-	.no-delivery-modes {
-		color: #9ca3af;
-		font-style: italic;
-		font-size: 0.75rem;
-	}
-
-	/* Place & Location Styles */
-	.vendor-place {
-		max-width: 120px;
-		padding: 0.5rem;
-	}
-
 	.place-text {
-		font-size: 0.75rem;
-		color: #374151;
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
+		font-size: 0.79rem;
+		color: #475569;
 	}
-
-	.no-place {
-		color: #9ca3af;
+	.no-place, .no-location {
+		color: #cbd5e1;
 		font-style: italic;
-		font-size: 0.75rem;
+		font-size: 0.72rem;
 	}
-
-	.vendor-location {
-		text-align: center;
-		padding: 0.5rem;
-	}
-
 	.location-actions {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.22rem;
 		align-items: center;
 	}
-
 	.location-link {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		padding: 0.375rem 0.75rem;
-		background: #3b82f6;
-		color: white;
+		padding: 0.28rem 0.55rem;
+		background: #dbeafe;
+		color: #1d4ed8;
 		text-decoration: none;
 		border-radius: 4px;
-		font-size: 0.75rem;
+		font-size: 0.72rem;
 		font-weight: 500;
 		transition: all 0.2s;
-		min-width: 90px;
+		border: 1px solid #bfdbfe;
+		white-space: nowrap;
 	}
-
 	.location-link:hover {
-		background: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+		background: #bfdbfe;
+		color: #1e40af;
 	}
-
 	.share-location-btn {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		padding: 0.25rem 0.5rem;
-		background: #10b981;
-		color: white;
-		border: none;
+		padding: 0.22rem 0.48rem;
+		background: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+	.share-location-btn:hover {
+		background: #bbf7d0;
+		color: #14532d;
+	}
+
+	/* Categories & Delivery */
+	.vendor-categories, .vendor-delivery-modes {
+		max-width: 200px;
+	}
+	.category-badges, .delivery-mode-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem;
+	}
+	.category-badge {
+		background: #e0f2fe;
+		color: #0369a1;
+		padding: 0.1rem 0.38rem;
 		border-radius: 4px;
 		font-size: 0.7rem;
 		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-		min-width: 90px;
-		justify-content: center;
+		white-space: nowrap;
+		border: 1px solid #bae6fd;
 	}
-
-	.share-location-btn:hover {
-		background: #059669;
-		transform: translateY(-1px);
-		box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
-	}
-
-	.no-location {
-		color: #9ca3af;
+	.no-categories, .no-delivery-modes {
+		color: #cbd5e1;
 		font-style: italic;
-		font-size: 0.75rem;
+		font-size: 0.72rem;
 	}
-
-	/* Status Button Styling in Status Column */
-	.status-cell {
-		text-align: center;
-		padding: 0.5rem;
-	}
-
-	/* Action Buttons */
-	.action-buttons {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		justify-content: center;
-		align-items: center;
-	}
-
-	.edit-btn, .status-cycle-btn {
-		padding: 0.375rem 0.75rem;
-		border: none;
-		border-radius: 0.375rem;
-		font-size: 0.75rem;
+	.delivery-mode-badge {
+		background: #fef9c3;
+		color: #a16207;
+		padding: 0.1rem 0.38rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
 		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
 		white-space: nowrap;
+		border: 1px solid #fde68a;
 	}
 
-	.edit-btn {
-		background: #3b82f6;
-		color: white;
-	}
-
-	.edit-btn:hover {
-		background: #2563eb;
-		transform: translateY(-1px);
-	}
-
-	/* Status Cycle Button Styles */
-	.status-cycle-btn {
-		font-weight: 600;
-		border: 2px solid transparent;
-		transition: all 0.3s ease;
-	}
-
-	.status-cycle-btn:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-	}
-
-	.status-active {
-		background: linear-gradient(135deg, #10b981, #059669);
-		color: white;
-		border-color: #059669;
-	}
-
-	.status-active:hover {
-		background: linear-gradient(135deg, #059669, #047857);
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-	}
-
-	.status-blacklisted {
-		background: linear-gradient(135deg, #ef4444, #dc2626);
-		color: white;
-		border-color: #dc2626;
-	}
-
-	.status-blacklisted:hover {
-		background: linear-gradient(135deg, #dc2626, #b91c1c);
-		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-	}
-
-	.status-deactivated {
-		background: linear-gradient(135deg, #f59e0b, #d97706);
-		color: white;
-		border-color: #d97706;
-	}
-
-	.status-deactivated:hover {
-		background: linear-gradient(135deg, #d97706, #b45309);
-		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
-	}
-
-	tbody tr:hover {
-		background: #f8fafc;
-	}
-
-	/* Loading and Error States */
-	.loading-table, .empty-state, .error-message {
-		text-align: center;
-		padding: 3rem 2rem;
-	}
-
-	.loading-spinner, .empty-icon, .error-icon {
-		font-size: 3rem;
-		margin-bottom: 1rem;
-		display: block;
-	}
-
-	.error-message {
-		color: #dc2626;
-	}
-
-	.retry-btn, .clear-search-btn {
-		background: #3b82f6;
-		color: white;
-		border: none;
-		padding: 0.75rem 1.5rem;
-		border-radius: 8px;
-		cursor: pointer;
-		margin-top: 1rem;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-
-	.retry-btn:hover, .clear-search-btn:hover {
-		background: #2563eb;
-		transform: translateY(-1px);
-	}
-
-	/* Action Buttons */
-	.action-buttons {
-		white-space: nowrap;
-		text-align: center;
-	}
-
-	.edit-btn {
-		background: #3b82f6;
-		color: white;
-		border: none;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: all 0.2s;
-		font-weight: 500;
-	}
-
-	.edit-btn:hover {
-		background: #2563eb;
-		transform: translateY(-1px);
-		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-	}
-
-	/* Responsive Design */
-	@media (max-width: 768px) {
-		.manage-vendor {
-			padding: 1rem;
-		}
-
-		.vendor-card {
-			flex-direction: column;
-			text-align: center;
-			gap: 1rem;
-		}
-
-		.card-icon {
-			font-size: 2.5rem;
-		}
-
-		.vendor-count {
-			font-size: 2.5rem;
-		}
-
-		.search-input {
-			padding: 0.875rem 0.875rem 0.875rem 2.5rem;
-		}
-
-		th, td {
-			padding: 0.75rem 0.5rem;
-			font-size: 0.9rem;
-		}
-	}
-
-	/* Return Policy Styles */
+	/* Return policy */
 	.return-policy-cell {
 		text-align: center;
-		padding: 0.75rem 0.5rem;
 	}
-
 	.return-policy-badge {
 		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
+		padding: 0.18rem 0.55rem;
+		border-radius: 10px;
+		font-size: 0.71rem;
 		font-weight: 600;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.04em;
 	}
-
 	.can-return {
-		background-color: #dcfce7;
-		color: #166534;
-		border: 1px solid #bbf7d0;
-	}
-
-	.cannot-return {
-		background-color: #fef2f2;
-		color: #dc2626;
-		border: 1px solid #fecaca;
-	}
-
-	.no-return-badge {
-		background-color: #f3f4f6;
-		color: #374151;
-		border: 1px solid #d1d5db;
-	}
-
-	.returns-accepted {
-		background-color: #eff6ff;
-		color: #1d4ed8;
-		border: 1px solid #bfdbfe;
-	}
-
-	.no-policy {
-		color: #9ca3af;
-		font-style: italic;
-		font-size: 0.75rem;
-	}
-
-	/* VAT Styles */
-	.vat-cell, .vat-number-cell {
-		text-align: center;
-		padding: 0.75rem 0.5rem;
-	}
-
-	.vat-badge {
-		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.vat-applicable {
-		background-color: #dcfce7;
-		color: #166534;
-		border: 1px solid #bbf7d0;
-	}
-
-	.no-vat {
-		background-color: #f3f4f6;
-		color: #374151;
-		border: 1px solid #d1d5db;
-	}
-
-	.vat-number {
-		font-family: monospace;
-		font-weight: 600;
-		color: #374151;
-		background-color: #f9fafb;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
-		border: 1px solid #e5e7eb;
-	}
-
-	.no-vat-note {
-		color: #6366f1;
-		cursor: help;
-		text-decoration: underline;
-		font-size: 0.75rem;
-	}
-
-	.no-vat-info {
-		color: #9ca3af;
-		font-style: italic;
-		font-size: 0.75rem;
-	}
-
-	/* Payment Method Styles */
-	.payment-methods-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-	}
-
-	.payment-method-tag {
-		display: inline-block;
-		background: #dbeafe;
-		color: #1e40af;
-		padding: 0.125rem 0.5rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 500;
-		white-space: nowrap;
-	}
-
-	/* Branch Column Styles */
-	.branch-name {
-		font-weight: 500;
-		padding: 0.25rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		display: inline-block;
-		min-width: 80px;
-		text-align: center;
-	}
-
-	.branch-assigned {
 		background: #dcfce7;
 		color: #166534;
 		border: 1px solid #bbf7d0;
 	}
-
-	.branch-unassigned {
-		background: #fef3c7;
-		color: #92400e;
-		border: 1px solid #fde68a;
-		font-style: italic;
+	.cannot-return {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fecaca;
 	}
-
-	/* Branch Selection Hint */
-	.branch-selection-hint {
+	.no-return-badge {
+		background: #f8fafc;
 		color: #64748b;
-		font-style: italic;
-		font-size: 0.9rem;
-		background: #f1f5f9;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
 		border: 1px solid #e2e8f0;
 	}
-
-	/* Loading Progress Bar */
-	.progress-bar {
-		width: 300px;
-		height: 8px;
-		background: #e5e7eb;
-		border-radius: 4px;
-		overflow: hidden;
-		margin: 1rem auto;
+	.returns-accepted {
+		background: #dbeafe;
+		color: #1e40af;
+		border: 1px solid #bfdbfe;
+	}
+	.no-policy {
+		color: #cbd5e1;
+		font-style: italic;
+		font-size: 0.72rem;
 	}
 
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #3b82f6, #60a5fa);
-		transition: width 0.3s ease;
-		border-radius: 4px;
+	/* VAT */
+	.vat-cell, .vat-number-cell {
+		text-align: center;
 	}
-
-	.progress-text {
+	.vat-badge {
+		display: inline-block;
+		padding: 0.18rem 0.55rem;
+		border-radius: 10px;
+		font-size: 0.71rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.vat-applicable {
+		background: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+	}
+	.no-vat {
+		background: #f8fafc;
 		color: #64748b;
-		font-size: 0.875rem;
-		margin-top: 0.5rem;
-		font-weight: 500;
+		border: 1px solid #e2e8f0;
+	}
+	.vat-number {
+		font-family: monospace;
+		font-weight: 600;
+		color: #374151;
+		background: #f8fafc;
+		padding: 0.18rem 0.42rem;
+		border-radius: 4px;
+		border: 1px solid #e2e8f0;
+		font-size: 0.79rem;
+	}
+	.no-vat-note {
+		color: #7c3aed;
+		cursor: help;
+		text-decoration: underline;
+		font-size: 0.72rem;
+	}
+	.no-vat-info {
+		color: #cbd5e1;
+		font-style: italic;
+		font-size: 0.72rem;
 	}
 
-	/* Loading and Error States */
-	.loading-table {
+	/* Status buttons */
+	.status-cell {
+		text-align: center;
+	}
+	.action-buttons {
+		display: flex;
+		gap: 0.4rem;
+		justify-content: center;
+		align-items: center;
+	}
+	.edit-btn, .status-cycle-btn {
+		padding: 0.28rem 0.62rem;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		font-size: 0.74rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		white-space: nowrap;
+	}
+	.edit-btn {
+		background: #dbeafe;
+		color: #1d4ed8;
+		border-color: #bfdbfe;
+	}
+	.edit-btn:hover {
+		background: #bfdbfe;
+		color: #1e40af;
+		transform: translateY(-1px);
+	}
+	.status-cycle-btn:hover {
+		transform: translateY(-1px);
+	}
+	.status-active {
+		background: #dcfce7;
+		color: #166534;
+		border-color: #bbf7d0;
+	}
+	.status-active:hover {
+		background: #bbf7d0;
+	}
+	.status-blacklisted {
+		background: #fee2e2;
+		color: #991b1b;
+		border-color: #fecaca;
+	}
+	.status-blacklisted:hover {
+		background: #fecaca;
+	}
+	.status-deactivated {
+		background: #ffedd5;
+		color: #c2410c;
+		border-color: #fed7aa;
+	}
+	.status-deactivated:hover {
+		background: #fed7aa;
+	}
+
+	/* ===================== STATE BOXES ===================== */
+	.state-box {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 3rem;
+		padding: 3rem 2rem;
+		text-align: center;
 		color: #64748b;
+		gap: 0.4rem;
+	}
+	.state-icon {
+		font-size: 2.5rem;
+		margin-bottom: 0.5rem;
+		display: block;
+	}
+	.error-state {
+		color: #dc2626;
+	}
+	.state-box h3 {
+		color: #1e293b;
+		margin: 0;
+		font-size: 1.05rem;
+	}
+	.state-box p {
+		color: #64748b;
+		margin: 0;
+		font-size: 0.88rem;
+	}
+	.action-state-btn {
+		margin-top: 0.5rem;
+		background: #dbeafe;
+		color: #1d4ed8;
+		border: 1px solid #bfdbfe;
+		padding: 0.48rem 1.2rem;
+		border-radius: 8px;
+		cursor: pointer;
+		font-weight: 600;
+		font-size: 0.875rem;
+		transition: all 0.2s;
+	}
+	.action-state-btn:hover {
+		background: #bfdbfe;
+		color: #1e40af;
 	}
 
+	.loading-state {
+		gap: 0.5rem;
+	}
 	.loading-spinner {
-		font-size: 3rem;
+		font-size: 2.5rem;
 		animation: spin 2s linear infinite;
 	}
-
 	@keyframes spin {
 		from { transform: rotate(0deg); }
 		to { transform: rotate(360deg); }
+	}
+	.progress-bar {
+		width: 260px;
+		height: 5px;
+		background: #e2e8f0;
+		border-radius: 3px;
+		overflow: hidden;
+		margin: 0.3rem 0;
+	}
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #60a5fa);
+		transition: width 0.3s ease;
+		border-radius: 3px;
+	}
+	.progress-text {
+		font-size: 0.8rem;
+		color: #94a3b8;
+	}
+
+	/* ===================== RESPONSIVE ===================== */
+	@media (max-width: 768px) {
+		.manage-vendor {
+			padding: 0.5rem;
+		}
+		.top-controls-card {
+			gap: 0.4rem;
+			padding: 0.5rem 0.75rem;
+		}
+		.v-divider {
+			display: none;
+		}
+		.search-wrapper {
+			min-width: 140px;
+			max-width: 100%;
+		}
+		td, th {
+			padding: 0.48rem 0.55rem;
+			font-size: 0.77rem;
+		}
 	}
 </style>
