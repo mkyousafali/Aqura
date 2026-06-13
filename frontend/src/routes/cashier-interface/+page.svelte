@@ -20,26 +20,6 @@
 	let selectedBranch: any = null;
 	let kickedNotice = '';
 
-	// Break Security QR Code
-	let breakQrDataUrl = '';
-	let breakQrInterval: ReturnType<typeof setInterval> | null = null;
-	let QRCode: any = null;
-
-	async function fetchBreakQr() {
-		try {
-			const { data, error } = await supabase.rpc('get_break_security_code');
-			if (!error && data?.code && QRCode) {
-				breakQrDataUrl = await QRCode.toDataURL(data.code, {
-					width: 160,
-					margin: 1,
-					color: { dark: '#1e293b', light: '#ffffff' }
-				});
-			}
-		} catch (e) {
-			console.error('Break QR fetch error:', e);
-		}
-	}
-
 	onMount(() => {
 		// Clear any desktop authentication when entering cashier interface
 		currentUser.set(null);
@@ -56,16 +36,9 @@
 			startCashierSessionGuard(handleForcedLogout);
 		}
 
-		// Initialize Break Security QR Code
-		import('qrcode').then(mod => {
-			QRCode = mod.default || mod;
-			fetchBreakQr();
-			breakQrInterval = setInterval(fetchBreakQr, 8000);
-		}).catch(e => console.error('QRCode library load error:', e));
 	});
 
 	onDestroy(() => {
-		if (breakQrInterval) clearInterval(breakQrInterval);
 		stopCashierSessionGuard();
 	});
 
@@ -134,15 +107,6 @@
 		<ContactInfoOverlay mode="cashier" employeeId={cashierUser?.id} />
 	{/if}
 
-	<!-- Break Security QR Code - Fixed Top Right -->
-	{#if breakQrDataUrl}
-		<div class="break-qr-fixed">
-			<div class="break-qr-container">
-				<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
-				<div class="break-qr-label">🔒 Security Code</div>
-			</div>
-		</div>
-	{/if}
 </div>
 
 <style>

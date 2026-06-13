@@ -93,13 +93,6 @@
 	let logoClickCount = 0;
 	let logoClickTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	// Break Security QR Code
-	let breakQrDataUrl = '';
-	let breakQrTtl = 10;
-	let breakQrInterval: ReturnType<typeof setInterval> | null = null;
-	let QRCode: any = null;
-	let showBreakQr = false;
-
 	// Map button_code → i18n translation key for showing translated button names
 	const buttonCodeTranslationMap: Record<string, string> = {
 		'CUSTOMER_MASTER': 'admin.customerMaster',
@@ -295,22 +288,6 @@
 		return sectionName;
 	}
 
-	async function fetchBreakQr() {
-		try {
-			const { data, error } = await supabase.rpc('get_break_security_code');
-			if (!error && data?.code && QRCode) {
-				breakQrTtl = data.ttl || 10;
-				breakQrDataUrl = await QRCode.toDataURL(data.code, {
-					width: 160,
-					margin: 1,
-					color: { dark: '#1e293b', light: '#ffffff' }
-				});
-			}
-		} catch (e) {
-			console.error('Break QR fetch error:', e);
-		}
-	}
-
 	onMount(async () => {
 		mounted = true;
 		
@@ -328,20 +305,9 @@
 			}, 1000);
 		}
 
-		// Initialize Break Security QR Code
-		try {
-			const mod = await import('qrcode');
-			QRCode = mod.default || mod;
-			await fetchBreakQr();
-			breakQrInterval = setInterval(fetchBreakQr, 8000);
-		} catch (e) {
-			console.error('QRCode library load error:', e);
-		}
 	});
 
-	onDestroy(() => {
-		if (breakQrInterval) clearInterval(breakQrInterval);
-	});
+	onDestroy(() => {});
 
 	// Reload favorites when user changes
 	$: if ($currentUser && mounted) {
@@ -549,26 +515,8 @@
 								<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
 							</div>
 							<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
-
-							<!-- Security Code toggle button - bottom right of logo card -->
-							{#if breakQrDataUrl}
-								<button class="qr-toggle-btn" on:click={() => showBreakQr = !showBreakQr} title={$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}>
-									🔒
-								</button>
-							{/if}
 						</div>
 					</div>
-
-					<!-- Break Security QR Code popup - sits to the right of the card -->
-					{#if breakQrDataUrl && showBreakQr}
-						<div class="break-qr-popup">
-							<div class="qr-popup-header">
-								<span class="qr-popup-title">🔒 {$currentLocale === 'ar' ? 'رمز الأمان' : 'Security Code'}</span>
-								<button class="qr-popup-close" on:click={() => showBreakQr = false}>✕</button>
-							</div>
-							<img src={breakQrDataUrl} alt="Break Security QR" class="break-qr-img" />
-						</div>
-					{/if}
 				</div>
 			</div>
 		</div>
