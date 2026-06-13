@@ -229,7 +229,11 @@
 			}
 			const { data, error } = await supabase.rpc('get_break_summary_all_employees', params);
 			if (!error && data?.employees) {
-				summaryData = data.employees;
+				// Compute total_breaks from days array
+				summaryData = (data.employees as any[]).map(emp => ({
+					...emp,
+					total_breaks: (emp.days || []).reduce((s: number, d: any) => s + (d.break_count || 0), 0)
+				})).filter(emp => emp.total_breaks > 0 || (emp.grand_total_seconds || 0) > 0);
 			} else {
 				summaryData = [];
 			}
@@ -252,6 +256,14 @@
 
 	function switchTab(tab: 'logs' | 'summary') {
 		activeTab = tab;
+		if (tab === 'summary' && !summaryLoaded && !loadingSummary) {
+			// Auto-load today
+			const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+			summarySpecificDate = today;
+			summaryDateFrom = '';
+			summaryDateTo = '';
+			loadSummary();
+		}
 	}
 </script>
 
@@ -431,11 +443,7 @@
 							</div>
 							<div class="summary-stat">
 								<span class="summary-stat-label">{t('Total Duration', 'إجمالي المدة')}</span>
-								<span class="summary-stat-val">{formatSummaryDuration(emp.total_duration_seconds ?? 0)}</span>
-							</div>
-							<div class="summary-stat">
-								<span class="summary-stat-label">{t('Open', 'مفتوحة')}</span>
-								<span class="summary-stat-val {(emp.open_breaks ?? 0) > 0 ? 'open-val' : ''}">{emp.open_breaks ?? 0}</span>
+							<span class="summary-stat-val">{formatSummaryDuration(emp.grand_total_seconds ?? 0)}</span>
 							</div>
 						</div>
 					</div>
