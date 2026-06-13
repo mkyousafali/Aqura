@@ -18,6 +18,10 @@
 	$: userBranchId = $currentUser?.branch_id ? Number($currentUser.branch_id) : null;
 	$: isAdminOrMaster = $currentUser?.isMasterAdmin || $currentUser?.isAdmin || false;
 
+	// Break register permissions
+	let canSeeBranchBreaks = false;
+	let canSeeAllBreaks = false;
+
 	$: isRtl = $localeData.code === 'ar';
 
 	function t(en: string, ar: string): string {
@@ -65,12 +69,28 @@
 			goto('/mobile-interface');
 			return;
 		}
-		await Promise.all([loadBreaks(), loadBranches()]);
+		await Promise.all([loadPermissions(), loadBreaks(), loadBranches()]);
 	});
 
 	onDestroy(() => {
 		if (tickInterval) clearInterval(tickInterval);
 	});
+
+	async function loadPermissions() {
+		if (isAdminOrMaster) {
+			// Admins always see everything
+			canSeeBranchBreaks = true;
+			canSeeAllBreaks = true;
+			return;
+		}
+		const { data } = await supabase
+			.from('break_register_permissions')
+			.select('can_see_branch_breaks, can_see_all_breaks')
+			.eq('user_id', $currentUser!.id)
+			.maybeSingle();
+		canSeeBranchBreaks = data?.can_see_branch_breaks ?? false;
+		canSeeAllBreaks = data?.can_see_all_breaks ?? false;
+	}
 
 	async function loadBranches() {
 		const { data } = await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true).order('id');
@@ -84,17 +104,29 @@
 			p_date_from: range.from,
 			p_date_to: range.to
 		};
-		// Admins see all branches; regular users see only their branch
-		if (!isAdminOrMaster && userBranchId) {
-			params.p_branch_id = userBranchId;
-		} else if (isAdminOrMaster && filterBranch) {
-			params.p_branch_id = parseInt(filterBranch);
+
+		// Determine scope based on permissions
+		if (canSeeAllBreaks || isAdminOrMaster) {
+			// See all branches; optionally filter by selected branch
+			if (filterBranch) params.p_branch_id = parseInt(filterBranch);
+		} else if (canSeeBranchBreaks) {
+			// See own branch only
+			if (userBranchId) params.p_branch_id = userBranchId;
+		} else {
+			// Only own breaks — filter client-side after loading own branch
+			if (userBranchId) params.p_branch_id = userBranchId;
 		}
+
 		if (filterStatus) params.p_status = filterStatus;
 
 		const { data, error } = await supabase.rpc('get_all_breaks', params);
 		if (!error && data?.breaks) {
-			breaks = data.breaks;
+			let result = data.breaks;
+			// If user can only see own breaks, filter to current user
+			if (!canSeeBranchBreaks && !canSeeAllBreaks && !isAdminOrMaster) {
+				result = result.filter((b: any) => b.user_id === $currentUser?.id);
+			}
+			breaks = result;
 		}
 		loading = false;
 	}
@@ -206,7 +238,7 @@
 				<option value="open">{t('Open', 'مفتوحة')}</option>
 				<option value="closed">{t('Closed', 'مغلقة')}</option>
 			</select>
-			{#if isAdminOrMaster}
+			{#if isAdminOrMaster || canSeeAllBreaks}
 				<select bind:value={filterBranch} on:change={() => loadBreaks()} class="filter-select">
 					<option value="">{t('All Branches', 'كل الفروع')}</option>
 					{#each branches as branch}

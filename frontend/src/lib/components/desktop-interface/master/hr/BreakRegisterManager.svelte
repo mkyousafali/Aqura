@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
+	import BreakPermissionManager from './BreakPermissionManager.svelte';
 
 	let breaks: any[] = [];
 	let loading = true;
@@ -19,7 +21,8 @@
 		{ id: 'Break Log', label: isRtl ? 'سجل الاستراحات' : 'Break Log', icon: '☕', color: 'green' },
 		{ id: 'Break Reasons', label: isRtl ? 'أسباب الاستراحة' : 'Break Reasons', icon: '📌', color: 'blue' },
 		{ id: 'Employee Summary', label: isRtl ? 'ملخص الموظف' : 'Employee Summary', icon: '📊', color: 'orange' },
-		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' }
+		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' },
+		...(isAdminOrMaster ? [{ id: 'Permission Manager', label: isRtl ? 'صلاحيات الوصول' : 'Permission Manager', icon: '🔐', color: 'indigo' }] : [])
 	];
 
 	// Filters
@@ -35,6 +38,9 @@
 	let editingReasonId: number | null = null;
 	let reasonFormData = { name_en: '', name_ar: '', sort_order: 0, is_active: true, requires_note: false, max_allowed_minutes: null as number | null };
 	let isSaving = false;
+
+	// Permission Manager
+	$: isAdminOrMaster = $currentUser?.isMasterAdmin || $currentUser?.isAdmin || false;
 
 	// Employee Summary
 	let summaryDateFrom = '';
@@ -531,7 +537,7 @@
 					class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
 					{activeTab === tab.id
 						? (tab.color === 'green' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]'
-							: tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'						: tab.color === 'purple' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]'							: 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]')
+							: tab.color === 'blue' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02]'						: tab.color === 'purple' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]'							: tab.color === 'indigo' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 scale-[1.02]'							: 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]')
 						: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
 					on:click={async () => {
 						activeTab = tab.id;
@@ -1035,6 +1041,13 @@
 						</div>
 					</div>
 				{/if}
+			{/if}
+
+			<!-- TAB: Permission Manager -->
+			{#if activeTab === 'Permission Manager' && isAdminOrMaster}
+				<div class="-mx-6 -my-6 h-[calc(100%+3rem)] overflow-hidden">
+					<BreakPermissionManager />
+				</div>
 			{/if}
 
 		</div>
