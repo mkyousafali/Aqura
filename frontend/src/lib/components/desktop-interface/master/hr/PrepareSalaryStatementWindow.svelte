@@ -3,14 +3,134 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
 	import SalaryAndWage from './SalaryAndWage.svelte';
 
 	export let windowId: string;
 
-	// Notes popup state
+	// ============================================================
+	// SALARY STATEMENT LOGS
+	// ============================================================
+	let showLogsModal = false;
+	let logsData: any[] = [];
+	let logsLoading = false;
+	let logsError = '';
+	let logsTotal = 0;
+	let logsPage = 0;
+	const LOGS_PAGE_SIZE = 100;
+
+	// Filter state for logs modal
+	let logsFilterAction = '';
+	let logsFilterStatus = '';
+	let logsFilterEmployee = '';
+	let logsFilterDateFrom = '';
+	let logsFilterDateTo = '';
+	let logsExpandedRow: string | null = null;
+
+	async function openLogsModal() {
+		showLogsModal = true;
+		logsPage = 0;
+		logsFilterAction = '';
+		logsFilterStatus = '';
+		logsFilterEmployee = '';
+		logsFilterDateFrom = '';
+		logsFilterDateTo = '';
+		await fetchLogs();
+	}
+
+	async function fetchLogs() {
+		const user = get(currentUser);
+		if (!user?.isMasterAdmin) return;
+		logsLoading = true;
+		logsError = '';
+		try {
+			const { data, error } = await supabase.rpc('list_salary_statement_logs', {
+				p_requesting_user_id: user.id,
+				p_limit: LOGS_PAGE_SIZE,
+				p_offset: logsPage * LOGS_PAGE_SIZE,
+				p_action_type: logsFilterAction || null,
+				p_status: logsFilterStatus || null,
+				p_employee_id: logsFilterEmployee.trim() || null,
+				p_date_from: logsFilterDateFrom ? new Date(logsFilterDateFrom).toISOString() : null,
+				p_date_to: logsFilterDateTo ? new Date(logsFilterDateTo + 'T23:59:59').toISOString() : null,
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Failed to load logs');
+			logsData = data.items || [];
+			logsTotal = data.total || 0;
+		} catch (e: any) {
+			logsError = e?.message || String(e);
+		} finally {
+			logsLoading = false;
+		}
+	}
+
+	/**
+	 * Central log helper — fire-and-forget, never throws.
+	 */
+	async function recordLog(opts: {
+		action_type: string;
+		action_description: string;
+		statement_id?: string | null;
+		statement_name?: string | null;
+		employee_id?: string | null;
+		employee_name?: string | null;
+		before_value?: any;
+		after_value?: any;
+		deleted_record?: any;
+		related_ui?: string;
+		status?: 'success' | 'failed' | 'cancelled' | 'validation_error';
+		metadata?: any;
+	}) {
+		try {
+			const user = get(currentUser);
+			if (!user) return;
+			await supabase.rpc('create_salary_statement_log', {
+				p_user_id: user.id,
+				p_user_name: user.username || user.employeeName || String(user.id),
+				p_user_role: user.isMasterAdmin ? 'master_admin' : (user.isAdmin ? 'admin' : 'user'),
+				p_statement_id: opts.statement_id || currentSavedStatementId || null,
+				p_statement_name: opts.statement_name || saveStatementName || null,
+				p_employee_id: opts.employee_id || null,
+				p_employee_name: opts.employee_name || null,
+				p_action_type: opts.action_type,
+				p_action_description: opts.action_description,
+				p_before_value: opts.before_value ? opts.before_value : null,
+				p_after_value: opts.after_value ? opts.after_value : null,
+				p_deleted_record: opts.deleted_record ? opts.deleted_record : null,
+				p_related_ui: opts.related_ui || null,
+				p_status: opts.status || 'success',
+				p_metadata: opts.metadata ? opts.metadata : null,
+			});
+		} catch { /* never break main flow */ }
+	}
+
+	// Unique action type constants
+	const LOG = {
+		OPEN:           'SCREEN_OPEN',
+		LOAD_ANALYSIS:  'LOAD_ANALYSIS',
+		REFRESH:        'REFRESH',
+		EXPORT_EXCEL:   'EXPORT_EXCEL',
+		MUDAD_OPEN:     'MUDAD_MODAL_OPEN',
+		MUDAD_EXPORT:   'MUDAD_EXPORT',
+		COLUMNS_TOGGLE: 'COLUMNS_TOGGLE',
+		CLOSE:          'SCREEN_CLOSE',
+		SAVE_OPEN:      'SAVE_MODAL_OPEN',
+		SAVE_CONFIRM:   'SAVE_STATEMENT',
+		LOAD_OPEN:      'LOAD_MODAL_OPEN',
+		LOAD_SELECT:    'LOAD_STATEMENT',
+		UPDATE:         'UPDATE_STATEMENT',
+		RESET:          'RESET_STATEMENT',
+		EMP_EDIT_OPEN:  'EMP_EDIT_MODAL_OPEN',
+		EMP_EDIT_APPLY: 'EMP_EDIT_APPLY',
+		NOTES_OPEN:     'NOTES_POPUP_OPEN',
+		SALARY_WAGE_OPEN:'SALARY_WAGE_OPEN',
+		WORKED_DAYS_EDIT:'WORKED_DAYS_EDIT',
+	} as const;
 	let showNotesPopup = false;
 	let notesEmployeeId = '';
 	let notesEmployeeName = '';
@@ -19,6 +139,7 @@
 		notesEmployeeId = row.employeeId;
 		notesEmployeeName = row.employeeName || row.employeeId;
 		showNotesPopup = true;
+		recordLog({ action_type: LOG.NOTES_OPEN, action_description: `Opened notes popup for employee ${notesEmployeeName}`, employee_id: row.employeeId, employee_name: notesEmployeeName, related_ui: 'EmployeeSalaryNotesPopup' });
 	}
 
 	function openSalaryAndWageWindow() {
@@ -39,6 +160,7 @@
 			maximizable: true,
 			closable: true
 		});
+		recordLog({ action_type: LOG.SALARY_WAGE_OPEN, action_description: 'Opened Salary & Wage window', related_ui: 'SalaryAndWage' });
 	}
 
 	interface Employee {
@@ -239,6 +361,7 @@
 			foodDeductionActive: foodDeductionActives[row.employeeId] ?? false,
 		};
 		showEmpEditModal = true;
+		recordLog({ action_type: LOG.EMP_EDIT_OPEN, action_description: `Opened edit modal for employee ${row.employeeName || row.employeeId}`, employee_id: row.employeeId, employee_name: row.employeeName, related_ui: 'EmpEditModal', before_value: { basicSalary: empEdit.basicSalary, otherAllowance: empEdit.otherAllowance, accommodation: empEdit.accommodation, travel: empEdit.travel, food: empEdit.food, gosiDeduction: empEdit.gosiDeduction, posShortage: empEdit.posShortage, salaryAdvance: empEdit.salaryAdvance, loanDeductions: empEdit.loanDeductions, penalties: empEdit.penalties, otherDeductions: empEdit.otherDeductions } });
 	}
 
 	// Store for manual deductions not in DB
@@ -253,6 +376,21 @@
 	function applyEmpEdit() {
 		if (!empEditRow) return;
 		const id = empEditRow.employeeId;
+		const beforeSnap = {
+			basicSalary: basicSalaries[id] || 0,
+			otherAllowance: otherAllowances[id] || 0,
+			accommodation: accommodationAllowances[id] || 0,
+			travel: travelAllowances[id] || 0,
+			food: foodAllowances[id] || 0,
+			gosiDeduction: gosiDeductions[id] || 0,
+			posShortage: posShortageDeductions[id] || 0,
+			salaryAdvance: empEditOverrides[id]?.salaryAdvance || 0,
+			loanDeductions: empEditOverrides[id]?.loanDeductions || 0,
+			penalties: empEditOverrides[id]?.penalties || 0,
+			otherDeductions: empEditOverrides[id]?.otherDeductions || 0,
+			lateMinutes: lateMinutesOverrides[id],
+			underWorkedMinutes: underWorkedMinutesOverrides[id],
+		};
 		basicSalaries[id] = Number(empEdit.basicSalary) || 0;
 		paymentModes[id] = empEdit.basicPaymentMode;
 		otherAllowances[id] = Number(empEdit.otherAllowance) || 0;
@@ -299,6 +437,22 @@
 		unapprovedLeaveDeductionOverrides = unapprovedLeaveDeductionOverrides;
 		incompleteDayDeductionOverrides = incompleteDayDeductionOverrides;
 		showEmpEditModal = false;
+		const afterSnap = {
+			basicSalary: basicSalaries[id],
+			otherAllowance: otherAllowances[id],
+			accommodation: accommodationAllowances[id],
+			travel: travelAllowances[id],
+			food: foodAllowances[id],
+			gosiDeduction: gosiDeductions[id],
+			posShortage: posShortageDeductions[id],
+			salaryAdvance: empEditOverrides[id]?.salaryAdvance || 0,
+			loanDeductions: empEditOverrides[id]?.loanDeductions || 0,
+			penalties: empEditOverrides[id]?.penalties || 0,
+			otherDeductions: empEditOverrides[id]?.otherDeductions || 0,
+			lateMinutes: lateMinutesOverrides[id],
+			underWorkedMinutes: underWorkedMinutesOverrides[id],
+		};
+		recordLog({ action_type: LOG.EMP_EDIT_APPLY, action_description: `Applied salary edits for employee ${empEditRow.employeeName || id}`, employee_id: id, employee_name: empEditRow.employeeName, related_ui: 'EmpEditModal', before_value: beforeSnap, after_value: afterSnap });
 	}
 
 	// Reactive filtering and sorting for the view
@@ -1047,9 +1201,11 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			mudadSuccess = totalMatched > 0
 				? 'Done — ' + totalMatched + ' employee(s) matched and exported.'
 				: 'Warning: No employees were matched. Check that Legal Id values in the template match the salary data.';
+			recordLog({ action_type: LOG.MUDAD_EXPORT, action_description: `Exported Mudad Excel — ${totalMatched} employees matched`, related_ui: 'MudadModal', metadata: { startDate, endDate, selectedBranch, totalMatched, templateFile: mudadTemplateFile?.name } });
 		} catch (err: any) {
 			console.error('Mudad export error:', err);
 			mudadError = 'Export failed: ' + (err?.message || 'Unknown error');
+			recordLog({ action_type: LOG.MUDAD_EXPORT, action_description: 'Mudad export failed', related_ui: 'MudadModal', status: 'failed', metadata: { error: err?.message } });
 		} finally {
 			mudadProcessing = false;
 		}
@@ -1157,6 +1313,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		saveError = '';
 		if (!saveStatementName) saveStatementName = `Salary ${startDate} to ${endDate}`;
 		showSaveModal = true;
+		recordLog({ action_type: LOG.SAVE_OPEN, action_description: 'Opened Save Statement modal', related_ui: 'SaveModal', metadata: { startDate, endDate, employeeCount: analysisData.length } });
 	}
 
 	async function confirmSave() {
@@ -1181,9 +1338,11 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			originalLoadedSnapshotJson = JSON.stringify(buildStatementSnapshot());
 			showSaveModal = false;
 			saveNotice = $t('hr.salaryStatement.savedSuccessfully');
+			recordLog({ action_type: LOG.SAVE_CONFIRM, action_description: `Saved new salary statement: ${saveStatementName.trim()}`, statement_id: data.id, statement_name: saveStatementName.trim(), related_ui: 'SaveModal', metadata: { startDate, endDate, employeeCount: analysisData.length } });
 			setTimeout(() => { saveNotice = ''; }, 3000);
 		} catch (e: any) {
 			saveError = e?.message || String(e);
+			recordLog({ action_type: LOG.SAVE_CONFIRM, action_description: `Failed to save statement: ${saveStatementName}`, related_ui: 'SaveModal', status: 'failed', metadata: { error: saveError } });
 		} finally {
 			saveBusy = false;
 		}
@@ -1194,6 +1353,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		loadListLoading = true;
 		loadList = [];
 		saveError = '';
+		recordLog({ action_type: LOG.LOAD_OPEN, action_description: 'Opened Load Statement modal', related_ui: 'LoadModal' });
 		try {
 			const { data, error } = await supabase.rpc('list_salary_statements');
 			if (error) throw error;
@@ -1226,9 +1386,11 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			}, 60);
 			showLoadModal = false;
 			saveNotice = $t('hr.salaryStatement.loadedNamed').replace('{name}', item.statement_name);
+			recordLog({ action_type: LOG.LOAD_SELECT, action_description: `Loaded salary statement: ${item.statement_name}`, statement_id: item.id, statement_name: item.statement_name, related_ui: 'LoadModal', metadata: { savedAt: item.created_at } });
 			setTimeout(() => { saveNotice = ''; }, 3000);
 		} catch (e: any) {
 			saveError = e?.message || String(e);
+			recordLog({ action_type: LOG.LOAD_SELECT, action_description: `Failed to load statement id: ${id}`, related_ui: 'LoadModal', status: 'failed', metadata: { error: saveError } });
 		} finally {
 			loadingStatementId = null;
 		}
@@ -1252,15 +1414,18 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			isModified = false;
 			originalLoadedSnapshotJson = JSON.stringify(snap);
 			saveNotice = $t('hr.salaryStatement.updatedSuccessfully');
+			recordLog({ action_type: LOG.UPDATE, action_description: `Updated salary statement: ${saveStatementName?.trim()}`, related_ui: 'SaveModal', metadata: { startDate, endDate, employeeCount: analysisData.length } });
 			setTimeout(() => { saveNotice = ''; }, 3000);
 		} catch (e: any) {
 			saveError = e?.message || String(e);
+			recordLog({ action_type: LOG.UPDATE, action_description: `Failed to update statement: ${saveStatementName}`, related_ui: 'SaveModal', status: 'failed', metadata: { error: saveError } });
 		} finally {
 			saveBusy = false;
 		}
 	}
 
 	function resetSavedStatementContext() {
+		recordLog({ action_type: LOG.RESET, action_description: `Reset saved statement context (was: ${saveStatementName || 'unnamed'})`, related_ui: 'SaveBar' });
 		currentSavedStatementId = null;
 		isLoadedFromSaved = false;
 		isModified = false;
@@ -1301,6 +1466,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	let tableEl: HTMLTableElement | null = null;
 
 	async function handleExportExcel() {
+		recordLog({ action_type: LOG.EXPORT_EXCEL, action_description: 'Exported salary statement to Excel', related_ui: 'TopBar', metadata: { startDate, endDate, selectedBranch, employeeCount: filteredAnalysisData.length } });
 		try {
 			if (!tableEl) {
 				alert('No table to export.');
@@ -1587,8 +1753,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 	async function handleRefresh() {
 		if (loading || analysisData.length === 0) return;
-		
-		console.log('🔄 Manual refresh triggered');
+		recordLog({ action_type: LOG.REFRESH, action_description: 'Manual refresh triggered', related_ui: 'TopBar', metadata: { startDate, endDate, employeeCount: analysisData.length } });
 		loading = true;
 		
 		try {
@@ -1698,6 +1863,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		if (employees.length > 0) {
 			await loadAnalysis();
 		}
+
+		recordLog({ action_type: LOG.OPEN, action_description: 'Opened Prepare Salary Statement window', related_ui: 'PrepareSalaryStatementWindow', metadata: { employeeCount: employees.length } });
 	});
 
 	onDestroy(() => {
@@ -1788,8 +1955,10 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	async function loadAnalysis() {
 		if (!startDate || !endDate) {
 			alert('Please select date range');
+			recordLog({ action_type: LOG.LOAD_ANALYSIS, action_description: 'Load analysis failed: no date range', related_ui: 'TopBar', status: 'validation_error' });
 			return;
 		}
+		recordLog({ action_type: LOG.LOAD_ANALYSIS, action_description: `Load analysis: ${startDate} to ${endDate}`, related_ui: 'TopBar', metadata: { startDate, endDate, selectedBranch, searchQuery } });
 
 		loading = true;
 		analysisData = [];
@@ -2772,7 +2941,7 @@ return n;
 
 			
 <button
-on:click={() => { showMudadModal = true; mudadError = ''; mudadSuccess = ''; mudadTemplateFile = null; }}
+on:click={() => { showMudadModal = true; mudadError = ''; mudadSuccess = ''; mudadTemplateFile = null; recordLog({ action_type: LOG.MUDAD_OPEN, action_description: 'Opened Mudad Exporter modal', related_ui: 'MudadModal' }); }}
 disabled={loading || analysisData.length === 0}
 class="px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
 title="Export salary data to Mudad Excel template"
@@ -2866,6 +3035,19 @@ title="Export salary data to Mudad Excel template"
 			>
 				{$t('common.close')}
 			</button>
+
+			{#if $currentUser?.isMasterAdmin}
+				<button
+					on:click={openLogsModal}
+					class="px-4 py-2 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors h-[38px] flex items-center gap-2"
+					title="View Salary Statement Audit Logs"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+					</svg>
+					Logs
+				</button>
+			{/if}
 		</div>
 	</div>
 
@@ -3625,6 +3807,232 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 </div>
 </div>
 {/if}
+
+<!-- ============================================================ -->
+<!-- SALARY STATEMENT LOGS MODAL (Master Admin only)              -->
+<!-- ============================================================ -->
+{#if showLogsModal && $currentUser?.isMasterAdmin}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm" on:click|self={() => (showLogsModal = false)}>
+	<div class="bg-white rounded-2xl shadow-2xl w-[96vw] max-w-[1300px] h-[88vh] flex flex-col border border-slate-200 overflow-hidden">
+
+		<!-- Modal Header -->
+		<div class="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-700 text-white shrink-0 rounded-t-2xl">
+			<div class="flex items-center gap-3">
+				<div class="w-9 h-9 bg-white/10 rounded-xl flex items-center justify-center">
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+					</svg>
+				</div>
+				<div>
+					<h2 class="text-base font-bold tracking-wide">Salary Statement Logs</h2>
+					<p class="text-xs text-white/60">Audit trail — Master Admin only</p>
+				</div>
+			</div>
+			<button class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors text-white text-lg" on:click={() => (showLogsModal = false)}>×</button>
+		</div>
+
+		<!-- Filters -->
+		<div class="flex flex-wrap gap-3 px-5 py-3 bg-slate-50 border-b border-slate-200 shrink-0">
+			<div class="flex flex-col gap-1">
+				<span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Action Type</span>
+				<select bind:value={logsFilterAction} class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none">
+					<option value="">All Actions</option>
+					<option value="SCREEN_OPEN">Screen Open</option>
+					<option value="LOAD_ANALYSIS">Load Analysis</option>
+					<option value="REFRESH">Refresh</option>
+					<option value="EXPORT_EXCEL">Export Excel</option>
+					<option value="MUDAD_MODAL_OPEN">Mudad Modal Open</option>
+					<option value="MUDAD_EXPORT">Mudad Export</option>
+					<option value="COLUMNS_TOGGLE">Columns Toggle</option>
+					<option value="SAVE_MODAL_OPEN">Save Modal Open</option>
+					<option value="SAVE_STATEMENT">Save Statement</option>
+					<option value="LOAD_MODAL_OPEN">Load Modal Open</option>
+					<option value="LOAD_STATEMENT">Load Statement</option>
+					<option value="UPDATE_STATEMENT">Update Statement</option>
+					<option value="RESET_STATEMENT">Reset Statement</option>
+					<option value="EMP_EDIT_MODAL_OPEN">Employee Edit Open</option>
+					<option value="EMP_EDIT_APPLY">Employee Edit Applied</option>
+					<option value="NOTES_POPUP_OPEN">Notes Popup Open</option>
+					<option value="SALARY_WAGE_OPEN">Salary & Wage Open</option>
+					<option value="WORKED_DAYS_EDIT">Worked Days Edit</option>
+				</select>
+			</div>
+			<div class="flex flex-col gap-1">
+				<span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Status</span>
+				<select bind:value={logsFilterStatus} class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none">
+					<option value="">All Statuses</option>
+					<option value="success">Success</option>
+					<option value="failed">Failed</option>
+					<option value="cancelled">Cancelled</option>
+					<option value="validation_error">Validation Error</option>
+				</select>
+			</div>
+			<div class="flex flex-col gap-1">
+				<span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Employee ID</span>
+				<input type="text" bind:value={logsFilterEmployee} placeholder="e.g. EMP001" class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 w-28 bg-white text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none" />
+			</div>
+			<div class="flex flex-col gap-1">
+				<span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">From Date</span>
+				<input type="date" bind:value={logsFilterDateFrom} class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none" />
+			</div>
+			<div class="flex flex-col gap-1">
+				<span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">To Date</span>
+				<input type="date" bind:value={logsFilterDateTo} class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-slate-300 outline-none" />
+			</div>
+			<div class="flex items-end gap-2">
+				<button on:click={() => { logsPage = 0; fetchLogs(); }} class="text-xs px-4 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold transition-colors">Apply</button>
+				<button on:click={() => { logsFilterAction=''; logsFilterStatus=''; logsFilterEmployee=''; logsFilterDateFrom=''; logsFilterDateTo=''; logsPage=0; fetchLogs(); }} class="text-xs px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 font-semibold transition-colors">Reset</button>
+				<button on:click={() => { logsPage = 0; fetchLogs(); }} class="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-semibold transition-colors flex items-center gap-1">
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+					Refresh
+				</button>
+			</div>
+			<div class="flex items-end ml-auto">
+				<span class="text-xs text-slate-400 font-medium">{logsTotal} record{logsTotal !== 1 ? 's' : ''} total</span>
+			</div>
+		</div>
+
+		<!-- Table -->
+		<div class="flex-1 min-h-0 overflow-auto">
+			{#if logsLoading}
+				<div class="flex items-center justify-center h-40 gap-3 text-slate-400">
+					<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+					<span class="text-sm font-medium">Loading logs…</span>
+				</div>
+			{:else if logsError}
+				<div class="flex items-center justify-center h-40">
+					<div class="text-center">
+						<p class="text-red-500 font-semibold mb-2">⚠️ {logsError}</p>
+						<button on:click={fetchLogs} class="text-xs text-blue-600 underline">Try again</button>
+					</div>
+				</div>
+			{:else if logsData.length === 0}
+				<div class="flex flex-col items-center justify-center h-40 text-slate-400 gap-2">
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" /></svg>
+					<span class="text-sm">No logs found for the selected filters.</span>
+				</div>
+			{:else}
+				<table class="w-full text-xs text-left border-collapse">
+					<thead class="bg-slate-50 sticky top-0 z-10">
+						<tr>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Date & Time</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">User</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Role</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Action</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200">Description</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Employee</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Statement</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">UI</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Status</th>
+							<th class="px-3 py-2.5 font-bold text-slate-500 border-b border-slate-200 whitespace-nowrap">Details</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each logsData as log, idx}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<tr
+								class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors {idx % 2 === 0 ? '' : 'bg-slate-50/50'}"
+								on:click={() => logsExpandedRow = logsExpandedRow === log.id ? null : log.id}
+							>
+								<td class="px-3 py-2 text-slate-500 whitespace-nowrap font-mono">{new Date(log.created_at).toLocaleString()}</td>
+								<td class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">{log.user_name || '—'}</td>
+								<td class="px-3 py-2 whitespace-nowrap">
+									{#if log.user_role === 'master_admin'}
+										<span class="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold text-[10px] uppercase tracking-wide">Master Admin</span>
+									{:else if log.user_role === 'admin'}
+										<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold text-[10px] uppercase tracking-wide">Admin</span>
+									{:else}
+										<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] uppercase tracking-wide">User</span>
+									{/if}
+								</td>
+								<td class="px-3 py-2 whitespace-nowrap">
+									<span class="px-2 py-0.5 rounded-md bg-slate-700 text-white font-mono text-[10px]">{log.action_type}</span>
+								</td>
+								<td class="px-3 py-2 text-slate-600 max-w-[260px] truncate" title={log.action_description}>{log.action_description}</td>
+								<td class="px-3 py-2 text-slate-600 whitespace-nowrap">{log.employee_name || log.employee_id || '—'}</td>
+								<td class="px-3 py-2 text-slate-500 max-w-[140px] truncate" title={log.statement_name}>{log.statement_name || '—'}</td>
+								<td class="px-3 py-2 text-slate-400 whitespace-nowrap text-[10px]">{log.related_ui || '—'}</td>
+								<td class="px-3 py-2 whitespace-nowrap">
+									{#if log.status === 'success'}
+										<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold text-[10px]">✓ Success</span>
+									{:else if log.status === 'failed'}
+										<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold text-[10px]">✗ Failed</span>
+									{:else if log.status === 'cancelled'}
+										<span class="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold text-[10px]">⊘ Cancelled</span>
+									{:else}
+										<span class="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-semibold text-[10px]">⚠ Val. Error</span>
+									{/if}
+								</td>
+								<td class="px-3 py-2 text-slate-400 text-center">
+									{#if log.before_value || log.after_value || log.deleted_record || log.metadata}
+										<span class="text-blue-500 text-[11px]">{logsExpandedRow === log.id ? '▲' : '▼'}</span>
+									{/if}
+								</td>
+							</tr>
+							{#if logsExpandedRow === log.id}
+								<tr class="bg-blue-50/60 border-b border-blue-100">
+									<td colspan="10" class="px-4 py-3">
+										<div class="grid grid-cols-2 gap-4 text-[11px]">
+											{#if log.before_value}
+												<div>
+													<p class="font-bold text-slate-500 mb-1 uppercase tracking-wide text-[10px]">Before</p>
+													<pre class="bg-white border border-slate-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.before_value, null, 2)}</pre>
+												</div>
+											{/if}
+											{#if log.after_value}
+												<div>
+													<p class="font-bold text-emerald-600 mb-1 uppercase tracking-wide text-[10px]">After</p>
+													<pre class="bg-white border border-emerald-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.after_value, null, 2)}</pre>
+												</div>
+											{/if}
+											{#if log.deleted_record}
+												<div class="col-span-2">
+													<p class="font-bold text-red-500 mb-1 uppercase tracking-wide text-[10px]">Deleted Record</p>
+													<pre class="bg-white border border-red-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.deleted_record, null, 2)}</pre>
+												</div>
+											{/if}
+											{#if log.metadata}
+												<div class="col-span-2">
+													<p class="font-bold text-slate-500 mb-1 uppercase tracking-wide text-[10px]">Metadata</p>
+													<pre class="bg-white border border-slate-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.metadata, null, 2)}</pre>
+												</div>
+											{/if}
+											<div class="col-span-2 text-slate-400 text-[10px]">Log ID: {log.id}</div>
+										</div>
+									</td>
+								</tr>
+							{/if}
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</div>
+
+		<!-- Pagination -->
+		{#if logsTotal > LOGS_PAGE_SIZE}
+			<div class="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50 shrink-0 rounded-b-2xl">
+				<button
+					disabled={logsPage === 0}
+					on:click={() => { logsPage--; fetchLogs(); }}
+					class="text-xs px-4 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-semibold text-slate-600 transition-colors"
+				>← Previous</button>
+				<span class="text-xs text-slate-500 font-medium">
+					Page {logsPage + 1} of {Math.ceil(logsTotal / LOGS_PAGE_SIZE)}
+					&nbsp;·&nbsp; {logsTotal} total records
+				</span>
+				<button
+					disabled={(logsPage + 1) * LOGS_PAGE_SIZE >= logsTotal}
+					on:click={() => { logsPage++; fetchLogs(); }}
+					class="text-xs px-4 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-semibold text-slate-600 transition-colors"
+				>Next →</button>
+			</div>
+		{/if}
+	</div>
+</div>
+{/if}
+
 <!-- Save Salary Statement Modal -->
 {#if showSaveModal}
 	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" on:click|self={() => (showSaveModal = false)}>
