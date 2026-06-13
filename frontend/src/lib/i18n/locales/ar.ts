@@ -478,6 +478,7 @@ export const arabicLocale: LocaleData = {
       breakRegister: "سجل الاستراحات",
       securityCode: "رمز الأمان",
       fingerprintDashboard: "لوحة البصمة",
+      quickDashboard: "لوحة المتابعة السريعة",
       employeeDashboard: "لوحة معلومات الموظفين",
       employeeMaster: "إدارة الموظفين",
       createDepartment: "إنشاء قسم",

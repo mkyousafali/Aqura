@@ -475,6 +475,7 @@ export const englishLocale: LocaleData = {
       breakRegister: "Break Register",
       securityCode: "Security Code",
       fingerprintDashboard: "Fingerprint Dashboard",
+      quickDashboard: "Quick Dashboard",
       employeeDashboard: "Employee Dashboard",
       employeeMaster: "Employee Master",
       createDepartment: "Create Department",

@@ -127,6 +127,7 @@
 	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
 	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 	import SecurityCodeWindow from '$lib/components/desktop-interface/master/hr/SecurityCodeWindow.svelte';
+	import QuickDashboardWindow from '$lib/components/desktop-interface/master/hr/QuickDashboardWindow.svelte';
 	import EmployeeDashboard from '$lib/components/desktop-interface/master/hr/EmployeeDashboard.svelte';
 	// NOTE: EmployeeDashboard merged into EmployeeMaster tabs
 	import AnalyzeAllWindow from '$lib/components/desktop-interface/master/hr/AnalyzeAllWindow.svelte';
@@ -1166,6 +1167,30 @@
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openQuickDashboardWindow() {
+		collapseAllMenus();
+		const windowId = generateWindowId('quick-dashboard');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `${t('nav.quickDashboard')} #${instanceNumber}`,
+			component: QuickDashboardWindow,
+			componentName: "QuickDashboardWindow",
+			icon: '📊',
+			size: { width: 1200, height: 700 },
+			position: { 
+				x: 60 + (Math.random() * 100),
+				y: 60 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -5054,6 +5079,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openFingerprintDashboard}>
 								<span class="menu-icon">🖐️</span>
 								<span class="menu-text">{t('nav.fingerprintDashboard')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if $currentUser?.isMasterAdmin}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openQuickDashboardWindow}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">{t('nav.quickDashboard')}</span>
 							</button>
 						</div>
 					{/if}
