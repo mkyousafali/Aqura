@@ -14,8 +14,11 @@
 	let yesterdayStr = '';
 	let now = Date.now();
 	let tickInterval: ReturnType<typeof setInterval> | null = null;
+	let pollInterval: ReturnType<typeof setInterval> | null = null;
+	let realtimeChannel: any = null;
+	let lastRefreshed = Date.now();
 
-	// Map: employee id (string) → { attendanceToday, attendanceYesterday, breakTodaySecs, breakYesterdaySecs, activeBreak }
+	// Map: employee id (string) → { attendanceToday, attendanceYesterday, breakTodaySecs, breakYesterdaySecs, activeBreak, pendingTasks }
 	let employeeDataMap: Record<string, any> = {};
 
 	$: isRtl = $locale === 'ar';
@@ -45,17 +48,57 @@
 		todayStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 		yesterdayStr = yest.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 		await loadData();
+
+		// Live second ticker for break timers
 		tickInterval = setInterval(() => { now = Date.now(); }, 1000);
+
+		// Realtime: watch break_register, attendance, and task tables
+		setupRealtimeChannel();
+
+		// Poll fallback every 30s for missed events
+		pollInterval = setInterval(() => silentRefresh(), 30_000);
 	});
 
 	onDestroy(() => {
 		if (tickInterval) clearInterval(tickInterval);
+		if (pollInterval) clearInterval(pollInterval);
+		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
 	});
 
-	async function loadData() {
-		loading = true;
+	function setupRealtimeChannel() {
+		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+		realtimeChannel = supabase
+			.channel('quick-dashboard-live-' + Date.now())
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'break_register' }, () => {
+				silentRefresh();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'hr_analysed_attendance_data' }, () => {
+				silentRefresh();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignments' }, () => {
+				silentRefresh();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'quick_task_assignments' }, () => {
+				silentRefresh();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'receiving_tasks' }, () => {
+				silentRefresh();
+			})
+			.subscribe();
+	}
+
+	/** Refresh data without showing the full loading spinner */
+	async function silentRefresh() {
+		// Debounce: skip if already refreshed within last 3s
+		if (Date.now() - lastRefreshed < 3000) return;
+		lastRefreshed = Date.now();
+		await loadData(true);
+	}
+
+	async function loadData(silent = false) {
+		if (!silent) loading = true;
 		try {
-			const [branchRes, empRes, attRes, breakSummaryRes, activeBreaksRes] = await Promise.all([
+			const [branchRes, empRes, attRes, breakSummaryRes, activeBreaksRes, taskRes, quickTaskRes, receivingTaskRes] = await Promise.all([
 				supabase
 					.from('branches')
 					.select('id, name_en, name_ar, location_en, location_ar')
@@ -63,10 +106,11 @@
 					.order('name_en'),
 				supabase
 					.from('hr_employee_master')
-					.select('id, name_en, name_ar, current_branch_id')
+					.select('id, name_en, name_ar, current_branch_id, user_id')
 					.in('employment_status', [
 						'Job (With Finger)',
 						'Job (Without Finger)',
+						'Remote Job',
 						'Active'
 					])
 					.order('name_en'),
@@ -83,7 +127,20 @@
 				supabase.rpc('get_all_breaks', {
 					p_date_from: todayStr,
 					p_date_to: todayStr
-				})
+				}),
+				supabase
+					.from('task_assignments')
+					.select('assigned_to_user_id')
+					.not('status', 'in', '(completed,cancelled)'),
+				supabase
+					.from('quick_task_assignments')
+					.select('assigned_to_user_id')
+					.not('status', 'in', '(completed,cancelled)'),
+				supabase
+					.from('receiving_tasks')
+					.select('assigned_user_id')
+					.eq('task_completed', false)
+					.neq('task_status', 'completed')
 			]);
 
 			branches = branchRes.data || [];
@@ -118,6 +175,24 @@
 				}
 			}
 
+			// Pending tasks map: user_id → count
+			const taskCountMap: Record<string, number> = {};
+			for (const row of taskRes.data || []) {
+				if (!row.assigned_to_user_id) continue;
+				const uid = String(row.assigned_to_user_id);
+				taskCountMap[uid] = (taskCountMap[uid] || 0) + 1;
+			}
+			for (const row of quickTaskRes.data || []) {
+				if (!row.assigned_to_user_id) continue;
+				const uid = String(row.assigned_to_user_id);
+				taskCountMap[uid] = (taskCountMap[uid] || 0) + 1;
+			}
+			for (const row of receivingTaskRes.data || []) {
+				if (!row.assigned_user_id) continue;
+				const uid = String(row.assigned_user_id);
+				taskCountMap[uid] = (taskCountMap[uid] || 0) + 1;
+			}
+
 			// Build final map
 			const map: Record<string, any> = {};
 			for (const emp of employees) {
@@ -129,7 +204,8 @@
 					attendanceYesterday: att.yesterday,
 					breakTodaySecs: brk.todaySecs,
 					breakYesterdaySecs: brk.yesterdaySecs,
-					activeBreak: activeMap[id] || null
+					activeBreak: activeMap[id] || null,
+					pendingTasks: taskCountMap[emp.user_id] || 0
 				};
 			}
 			employeeDataMap = map;
@@ -258,6 +334,10 @@
 			{#if !loading}
 				<span class="qd-count">{filteredEmployees.length} {isRtl ? 'موظف' : 'employees'}</span>
 			{/if}
+			<span class="live-dot" title={isRtl ? 'مباشر' : 'Live'}>
+				<span class="live-pulse"></span>
+				{isRtl ? 'مباشر' : 'LIVE'}
+			</span>
 		</div>
 		<div class="qd-toolbar-right">
 			<select class="qd-select" bind:value={selectedBranch}>
@@ -278,7 +358,7 @@
 					bind:value={searchQuery}
 				/>
 			</div>
-			<button class="qd-refresh" on:click={loadData} title={isRtl ? 'تحديث' : 'Refresh'}>
+			<button class="qd-refresh" on:click={() => loadData()} title={isRtl ? 'تحديث' : 'Refresh'}>
 				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<polyline points="23 4 23 10 17 10" />
 					<polyline points="1 20 1 14 7 14" />
@@ -298,6 +378,9 @@
 		</span>
 		<span class="qd-date-badge break-badge">
 			☕ {isRtl ? 'الاستراحة' : 'Break'}
+		</span>
+		<span class="qd-date-badge task-badge">
+			⏳ {isRtl ? 'المهام المعلقة' : 'Pending Tasks'}
 		</span>
 	</div>
 
@@ -319,6 +402,7 @@
 				{@const att = data.attendanceToday}
 				{@const attY = data.attendanceYesterday}
 				{@const activeBreak = data.activeBreak}
+				{@const pendingTasks = data.pendingTasks || 0}
 				<div class="emp-card" class:on-break={activeBreak}>
 					<!-- Card Header -->
 					<div class="card-header">
@@ -329,9 +413,16 @@
 							<div class="card-name">{empName(emp)}</div>
 							<div class="card-branch">{getBranchName(emp.current_branch_id)}</div>
 						</div>
-						{#if activeBreak}
-							<div class="active-break-dot" title={isRtl ? 'في استراحة' : 'On Break'}>☕</div>
-						{/if}
+						<div class="card-badges">
+							{#if pendingTasks > 0}
+								<div class="task-count-pill" title={isRtl ? 'مهام معلقة' : 'Pending Tasks'}>
+									⏳ {pendingTasks}
+								</div>
+							{/if}
+							{#if activeBreak}
+								<div class="active-break-dot" title={isRtl ? 'في استراحة' : 'On Break'}>☕</div>
+							{/if}
+						</div>
 					</div>
 
 					<!-- Attendance Rows -->
@@ -453,6 +544,31 @@
 		padding: 2px 8px;
 		border-radius: 999px;
 	}
+	.live-dot {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 0.65rem;
+		font-weight: 800;
+		letter-spacing: 0.8px;
+		color: #059669;
+		background: rgba(16, 185, 129, 0.1);
+		border: 1px solid rgba(16, 185, 129, 0.3);
+		padding: 2px 8px 2px 6px;
+		border-radius: 999px;
+	}
+	.live-pulse {
+		width: 7px;
+		height: 7px;
+		background: #10b981;
+		border-radius: 50%;
+		display: inline-block;
+		animation: livepulse 1.4s ease-in-out infinite;
+	}
+	@keyframes livepulse {
+		0%, 100% { opacity: 1; transform: scale(1); }
+		50% { opacity: 0.4; transform: scale(0.7); }
+	}
 	.qd-select {
 		background: rgba(255, 255, 255, 0.7);
 		border: 1px solid rgba(148, 163, 184, 0.4);
@@ -540,6 +656,11 @@
 		background: rgba(245, 158, 11, 0.12);
 		color: #d97706;
 		border: 1px solid rgba(245, 158, 11, 0.3);
+	}
+	.task-badge {
+		background: rgba(239, 68, 68, 0.1);
+		color: #dc2626;
+		border: 1px solid rgba(239, 68, 68, 0.25);
 	}
 
 	/* ─── States ────────────────────────────────────────────────────────────────── */
@@ -646,6 +767,23 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.card-badges {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+	.task-count-pill {
+		font-size: 0.65rem;
+		font-weight: 700;
+		padding: 2px 7px;
+		border-radius: 999px;
+		background: rgba(239, 68, 68, 0.1);
+		color: #dc2626;
+		border: 1px solid rgba(239, 68, 68, 0.25);
+		white-space: nowrap;
 	}
 	.active-break-dot {
 		font-size: 1rem;

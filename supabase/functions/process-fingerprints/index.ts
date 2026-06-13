@@ -217,6 +217,27 @@ Deno.serve(async (req: Request) => {
 
     console.log(`🏁 [Process Fingerprints] Done:`, JSON.stringify(result));
 
+    // ─── Step 7: Fire-and-forget → analyze-attendance ───────────────────────────
+    // Called automatically so the Quick Dashboard & mobile page get fresh attendance
+    // data immediately after new fingerprint records are processed.
+    try {
+      const analyzeUrl = `${supabaseUrl}/functions/v1/analyze-attendance`;
+      const serviceKey = supabaseServiceKey;
+      // fire-and-forget: we don't await so this never delays the response
+      fetch(analyzeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({ rollingDays: 3 }),
+      }).catch(e => console.warn('⚠️ analyze-attendance fire-and-forget failed:', e.message));
+      console.log('🔗 Triggered analyze-attendance (fire-and-forget)');
+    } catch (chainErr: any) {
+      // Never let this block the main response
+      console.warn('⚠️ Could not trigger analyze-attendance:', chainErr.message);
+    }
+
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
