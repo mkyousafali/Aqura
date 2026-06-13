@@ -269,137 +269,66 @@
 
 <div class="break-log-page" dir={isRtl ? 'rtl' : 'ltr'}>
 
-	<!-- Tab Switcher -->
-	<div class="tab-row">
-		<button class="tab-btn {activeTab === 'logs' ? 'tab-active' : ''}" on:click={() => switchTab('logs')}>
-			☕ {t('Logs', 'السجلات')}
-		</button>
-		{#if canSeeAllBreaks || isAdminOrMaster}
-			<button class="tab-btn {activeTab === 'summary' ? 'tab-active' : ''}" on:click={() => switchTab('summary')}>
-				📊 {t('Summary', 'الملخص')}
+	<!-- Sticky Top: Tab Switcher always visible -->
+	<div class="sticky-top">
+		<!-- Tab Switcher -->
+		<div class="tab-row">
+			<button class="tab-btn {activeTab === 'logs' ? 'tab-active' : ''}" on:click={() => switchTab('logs')}>
+				☕ {t('Logs', 'السجلات')}
 			</button>
-		{/if}
-	</div>
-
-	{#if activeTab === 'logs'}
-	<!-- 3-Day Notice -->
-	<div class="three-day-notice">
-		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-		<span>{t('Showing last 3 days only', 'عرض آخر 3 أيام فقط')}</span>
-	</div>
-
-	<!-- Stats Row -->
-	<div class="stats-row">
-		<div class="stat-card stat-open">
-			<span class="stat-number">{openBreaks.length}</span>
-			<span class="stat-label">{t('Open', 'مفتوحة')}</span>
-		</div>
-		<div class="stat-card stat-total">
-			<span class="stat-number">{filteredBreaks.length}</span>
-			<span class="stat-label">{t('Total', 'الإجمالي')}</span>
-		</div>
-	</div>
-
-	<!-- Filters -->
-	<div class="filters">
-		<input
-			type="text"
-			bind:value={searchQuery}
-			placeholder={t('Search employee...', 'بحث عن موظف...')}
-			class="filter-input"
-		/>
-		<div class="filter-row">
-			<select bind:value={filterStatus} on:change={() => loadBreaks()} class="filter-select">
-				<option value="">{t('All Status', 'كل الحالات')}</option>
-				<option value="open">{t('Open', 'مفتوحة')}</option>
-				<option value="closed">{t('Closed', 'مغلقة')}</option>
-			</select>
-			{#if isAdminOrMaster || canSeeAllBreaks}
-				<select bind:value={filterBranch} on:change={() => loadBreaks()} class="filter-select">
-					<option value="">{t('All Branches', 'كل الفروع')}</option>
-					{#each branches as branch}
-						<option value={String(branch.id)}>{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}</option>
-					{/each}
-				</select>
+			{#if canSeeAllBreaks || isAdminOrMaster}
+				<button class="tab-btn {activeTab === 'summary' ? 'tab-active' : ''}" on:click={() => switchTab('summary')}>
+					📊 {t('Summary', 'الملخص')}
+				</button>
 			{/if}
 		</div>
-	</div>
 
-	{#if loading}
-		<div class="loading-container">
-			<div class="spinner"></div>
-			<p>{t('Loading...', 'جاري التحميل...')}</p>
+		{#if activeTab === 'logs'}
+		<!-- 3-Day Notice -->
+		<div class="three-day-notice">
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+			<span>{t('Showing last 3 days only', 'عرض آخر 3 أيام فقط')}</span>
 		</div>
-	{:else if filteredBreaks.length === 0}
-		<div class="empty-state">
-			<span class="empty-icon">☕</span>
-			<p>{t('No breaks found', 'لا توجد استراحات')}</p>
-			<span class="empty-sub">{t('Last 3 days', 'آخر 3 أيام')}</span>
-		</div>
-	{:else}
-		<!-- Flat list -->
-		{#each filteredBreaks as b}
-				<div class="break-card {b.status === 'open' ? 'break-open' : ''}">
-						<div class="break-top">
-							<div class="employee-info">
-								<span class="employee-name">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</span>
-								<span class="employee-id">{b.employee_id}</span>
-							</div>
-							<div class="break-status">
-								{#if b.status === 'open'}
-									<span class="status-badge status-open">{t('Open', 'مفتوحة')}</span>
-								{:else}
-									<span class="status-badge status-closed">{t('Closed', 'مغلقة')}</span>
-								{/if}
-							</div>
-						</div>
-						<div class="break-details">
-							<div class="detail-item">
-								<span class="detail-icon">📅</span>
-								<span class="detail-text">{b.start_time ? new Date(b.start_time).toLocaleDateString(isRtl ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-							</div>
-							<div class="detail-item">
-								<span class="detail-icon">🏢</span>
-								<span class="detail-text branch-block">
-									<span class="branch-name">{getBranchName(b)}</span>
-									{#if getBranchLocation(b)}
-										<span class="branch-location">{getBranchLocation(b)}</span>
-									{/if}
-								</span>
-							</div>
-							<div class="detail-item">
-								<span class="detail-icon">📌</span>
-								<span class="detail-text">{isRtl ? (b.reason_ar || b.reason_en || '—') : (b.reason_en || b.reason_ar || '—')}</span>
-							</div>
-							{#if b.reason_note}
-								<div class="detail-item">
-									<span class="detail-icon">📝</span>
-									<span class="detail-text note">{b.reason_note}</span>
-								</div>
-							{/if}
-						</div>
-						<div class="break-times">
-							<div class="time-item">
-								<span class="time-label">{t('Start', 'بداية')}</span>
-								<span class="time-value">{formatTime(b.start_time)}</span>
-							</div>
-							<div class="time-item">
-								<span class="time-label">{t('End', 'نهاية')}</span>
-								<span class="time-value">{b.end_time ? formatTime(b.end_time) : '—'}</span>
-							</div>
-							<div class="time-item duration {b.status === 'open' ? 'live' : ''}">
-								<span class="time-label">{t('Duration', 'المدة')}</span>
-								<span class="time-value">{b.status === 'open' ? getLiveDuration(b.start_time, now) : formatDuration(b.duration_seconds)}</span>
-							</div>
-						</div>
 
+		<!-- Stats Row -->
+		<div class="stats-row">
+			<div class="stat-card stat-open">
+				<span class="stat-number">{openBreaks.length}</span>
+				<span class="stat-label">{t('Open', 'مفتوحة')}</span>
 			</div>
-		{/each}
-	{/if}
-	{/if}
+			<div class="stat-card stat-total">
+				<span class="stat-number">{filteredBreaks.length}</span>
+				<span class="stat-label">{t('Total', 'الإجمالي')}</span>
+			</div>
+		</div>
 
-	<!-- SUMMARY TAB -->
-	{#if activeTab === 'summary' && (canSeeAllBreaks || isAdminOrMaster)}
+		<!-- Filters -->
+		<div class="filters">
+			<input
+				type="text"
+				bind:value={searchQuery}
+				placeholder={t('Search employee...', 'بحث عن موظف...')}
+				class="filter-input"
+			/>
+			<div class="filter-row">
+				<select bind:value={filterStatus} on:change={() => loadBreaks()} class="filter-select">
+					<option value="">{t('All Status', 'كل الحالات')}</option>
+					<option value="open">{t('Open', 'مفتوحة')}</option>
+					<option value="closed">{t('Closed', 'مغلقة')}</option>
+				</select>
+				{#if isAdminOrMaster || canSeeAllBreaks}
+					<select bind:value={filterBranch} on:change={() => loadBreaks()} class="filter-select">
+						<option value="">{t('All Branches', 'كل الفروع')}</option>
+						{#each branches as branch}
+							<option value={String(branch.id)}>{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}</option>
+						{/each}
+					</select>
+				{/if}
+			</div>
+		</div>
+		{/if}
+
+		{#if activeTab === 'summary' && (canSeeAllBreaks || isAdminOrMaster)}
 		<div class="summary-filters">
 			<div class="summary-filter-row">
 				<label class="summary-label">{t('Specific Date', 'تاريخ محدد')}</label>
@@ -419,49 +348,145 @@
 				{loadingSummary ? t('Loading...', 'جاري التحميل...') : t('Load Summary', 'تحميل الملخص')}
 			</button>
 		</div>
+		{/if}
+	</div>
 
-		{#if loadingSummary}
+	<!-- Scrollable Content -->
+	<div class="scroll-content">
+		{#if activeTab === 'logs'}
+		{#if loading}
 			<div class="loading-container">
 				<div class="spinner"></div>
-				<p>{t('Loading summary...', 'جاري تحميل الملخص...')}</p>
+				<p>{t('Loading...', 'جاري التحميل...')}</p>
 			</div>
-		{:else if summaryLoaded && summaryData.length === 0}
+		{:else if filteredBreaks.length === 0}
 			<div class="empty-state">
-				<span class="empty-icon">📊</span>
-				<p>{t('No data found', 'لا توجد بيانات')}</p>
+				<span class="empty-icon">☕</span>
+				<p>{t('No breaks found', 'لا توجد استراحات')}</p>
+				<span class="empty-sub">{t('Last 3 days', 'آخر 3 أيام')}</span>
 			</div>
-		{:else if summaryLoaded}
-			<div class="summary-list">
-				{#each summaryData as emp}
-					<div class="summary-card">
-						<div class="summary-emp-name">{isRtl ? (emp.employee_name_ar || emp.employee_name_en) : (emp.employee_name_en || emp.employee_name_ar)}</div>
-						<div class="summary-emp-id">{emp.employee_id}</div>
-						<div class="summary-stats">
-							<div class="summary-stat">
-								<span class="summary-stat-label">{t('Total Breaks', 'إجمالي الاستراحات')}</span>
-								<span class="summary-stat-val">{emp.total_breaks ?? 0}</span>
+		{:else}
+			<!-- Flat list -->
+			{#each filteredBreaks as b}
+					<div class="break-card {b.status === 'open' ? 'break-open' : ''}">
+							<div class="break-top">
+								<div class="employee-info">
+									<span class="employee-name">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</span>
+									<span class="employee-id">{b.employee_id}</span>
+								</div>
+								<div class="break-status">
+									{#if b.status === 'open'}
+										<span class="status-badge status-open">{t('Open', 'مفتوحة')}</span>
+									{:else}
+										<span class="status-badge status-closed">{t('Closed', 'مغلقة')}</span>
+									{/if}
+								</div>
 							</div>
-							<div class="summary-stat">
-								<span class="summary-stat-label">{t('Total Duration', 'إجمالي المدة')}</span>
-							<span class="summary-stat-val">{formatSummaryDuration(emp.grand_total_seconds ?? 0)}</span>
+							<div class="break-details">
+								<div class="detail-item">
+									<span class="detail-icon">📅</span>
+									<span class="detail-text">{b.start_time ? new Date(b.start_time).toLocaleDateString(isRtl ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+								</div>
+								<div class="detail-item">
+									<span class="detail-icon">🏢</span>
+									<span class="detail-text branch-block">
+										<span class="branch-name">{getBranchName(b)}</span>
+										{#if getBranchLocation(b)}
+											<span class="branch-location">{getBranchLocation(b)}</span>
+										{/if}
+									</span>
+								</div>
+								<div class="detail-item">
+									<span class="detail-icon">📌</span>
+									<span class="detail-text">{isRtl ? (b.reason_ar || b.reason_en || '—') : (b.reason_en || b.reason_ar || '—')}</span>
+								</div>
+								{#if b.reason_note}
+									<div class="detail-item">
+										<span class="detail-icon">📝</span>
+										<span class="detail-text note">{b.reason_note}</span>
+									</div>
+								{/if}
+							</div>
+							<div class="break-times">
+								<div class="time-item">
+									<span class="time-label">{t('Start', 'بداية')}</span>
+									<span class="time-value">{formatTime(b.start_time)}</span>
+								</div>
+								<div class="time-item">
+									<span class="time-label">{t('End', 'نهاية')}</span>
+									<span class="time-value">{b.end_time ? formatTime(b.end_time) : '—'}</span>
+								</div>
+								<div class="time-item duration {b.status === 'open' ? 'live' : ''}">
+									<span class="time-label">{t('Duration', 'المدة')}</span>
+									<span class="time-value">{b.status === 'open' ? getLiveDuration(b.start_time, now) : formatDuration(b.duration_seconds)}</span>
+								</div>
+							</div>
+					</div>
+			{/each}
+		{/if}
+		{/if}
+
+		<!-- SUMMARY TAB -->
+		{#if activeTab === 'summary' && (canSeeAllBreaks || isAdminOrMaster)}
+			{#if loadingSummary}
+				<div class="loading-container">
+					<div class="spinner"></div>
+					<p>{t('Loading summary...', 'جاري تحميل الملخص...')}</p>
+				</div>
+			{:else if summaryLoaded && summaryData.length === 0}
+				<div class="empty-state">
+					<span class="empty-icon">📊</span>
+					<p>{t('No data found', 'لا توجد بيانات')}</p>
+				</div>
+			{:else if summaryLoaded}
+				<div class="summary-list">
+					{#each summaryData as emp}
+						<div class="summary-card">
+							<div class="summary-emp-name">{isRtl ? (emp.employee_name_ar || emp.employee_name_en) : (emp.employee_name_en || emp.employee_name_ar)}</div>
+							<div class="summary-emp-id">{emp.employee_id}</div>
+							<div class="summary-stats">
+								<div class="summary-stat">
+									<span class="summary-stat-label">{t('Total Breaks', 'إجمالي الاستراحات')}</span>
+									<span class="summary-stat-val">{emp.total_breaks ?? 0}</span>
+								</div>
+								<div class="summary-stat">
+									<span class="summary-stat-label">{t('Total Duration', 'إجمالي المدة')}</span>
+									<span class="summary-stat-val">{formatSummaryDuration(emp.grand_total_seconds ?? 0)}</span>
+								</div>
 							</div>
 						</div>
-					</div>
-				{/each}
-			</div>
+					{/each}
+				</div>
+			{/if}
 		{/if}
-	{/if}
+	</div>
 
 </div>
 
 <style>
 	.break-log-page {
-		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+		background: #f8fafc;
+	}
+	.sticky-top {
+		flex-shrink: 0;
+		background: #f8fafc;
+		padding: 12px 16px 0;
+		z-index: 10;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.scroll-content {
+		flex: 1;
+		overflow-y: auto;
+		padding: 12px 16px 24px;
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
-		min-height: 100%;
-		background: #f8fafc;
 	}
 
 	/* Tabs */
