@@ -7,6 +7,7 @@
 	import CompleteBox from './CompleteBox.svelte';
 	import ClosedBoxes from './ClosedBoxes.svelte';
 	import PendingToCloseBoxes from './PendingToCloseBoxes.svelte';
+	import DenominationPermissionManager from './DenominationPermissionManager.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -82,12 +83,50 @@
 	let successType: 'success' | 'error' = 'success';
 	let successTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	// Daily Temp Schedules popup state
+	let showSchedulesPopup = false;
+	let schedulesTab: 'vendor' | 'expense' = 'vendor';
+	let schedules: any[] = [];
+	let isLoadingSchedules = false;
+	let isSavingSchedule = false;
+	let showScheduleForm = false;
+
+	// Denomination permissions
+	let userPerm: any = undefined;
+	$: isMasterAdmin = $currentUser?.isMasterAdmin ?? false;
+	$: denomCanEdit = isMasterAdmin || (userPerm?.can_edit ?? false);
+	// No perm record at all = fully locked (treat as no access)
+	$: denomReadOnly = !isMasterAdmin && !denomCanEdit;
+	$: denomOneBranchOnly = !isMasterAdmin && (userPerm?.can_see_one_branch ?? false) && !(userPerm?.can_see_all_branches ?? false);
+	$: denomAllBranches = isMasterAdmin || (userPerm?.can_see_all_branches ?? false);
+	// Lock branch selector to user's own branch when one-branch only OR when userPerm is null/no access
+	$: denomBranchLocked = !isMasterAdmin && (denomOneBranchOnly || userPerm === null);
+	// No access at all: no perm record OR all flags are false
+	$: denomPermLoaded = !isMasterAdmin ? (userPerm !== undefined) : true;
+	$: denomNoAccess = !isMasterAdmin && denomPermLoaded && (
+		userPerm === null ||
+		(!userPerm?.can_see_one_branch && !userPerm?.can_see_all_branches && !userPerm?.can_edit && !userPerm?.read_only)
+	);
+	// Vendor schedule form
+	let schedVendorSearch = '';
+	let schedSelectedVendor: any = null;
+	let schedVendorAmount: number | '' = '';
+	let schedVendorNotes = '';
+	let schedVendorDate = new Date().toISOString().split('T')[0];
+	let schedVendorList: any[] = [];
+	// Expense schedule form
+	let schedExpenseDescription = '';
+	let schedExpenseAmount: number | '' = '';
+	let schedExpenseNotes = '';
+	let schedExpenseDate = new Date().toISOString().split('T')[0];
+
 	// Sidebar state
 	let isSidebarOpen = true;
 
 	onMount(async () => {
 		await loadBranches();
 		await loadUserPreferences();
+		await loadUserPerm();
 		await loadDenominationTypes();
 		await loadClosedBoxesCount();
 		await loadPendingBoxesCount();
@@ -642,6 +681,25 @@
 		}
 	}
 
+	async function loadUserPerm() {
+		if ($currentUser?.isMasterAdmin) { userPerm = null; return; }
+		if (!$currentUser?.id) { userPerm = null; return; }
+		try {
+			const { data } = await supabase
+				.from('denomination_permissions')
+				.select('*')
+				.eq('user_id', $currentUser.id)
+				.maybeSingle();
+			userPerm = data ?? null; // null = no record found
+			if (!data?.can_see_all_branches && $currentUser?.branch_id) {
+				selectedBranch = String($currentUser.branch_id);
+			}
+		} catch (e) {
+			console.error('Error loading denomination permission:', e);
+			userPerm = null;
+		}
+	}
+
 	async function setAsDefault() {
 		if (!selectedBranch || !$currentUser?.id) return;
 
@@ -919,6 +977,157 @@
 			loadPendingBoxesCount();
 		}, 500);
 	}
+
+	// ===== Daily Temp Schedules =====
+
+	function openPermissionManager() {
+		const windowId = `denom-perm-${Date.now()}`;
+		openWindow({
+			id: windowId,
+			title: 'Denomination Permission Manager',
+			component: DenominationPermissionManager,
+			icon: '🔐',
+			size: { width: 900, height: 620 },
+			position: { x: 180, y: 100 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	async function openSchedulesPopup() {
+		showSchedulesPopup = true;
+		schedulesTab = 'vendor';
+		showScheduleForm = false;
+		await loadSchedules();
+		if (schedVendorList.length === 0) {
+			await loadScheduleVendors();
+		}
+	}
+
+	function closeSchedulesPopup() {
+		showSchedulesPopup = false;
+		showScheduleForm = false;
+		resetScheduleForm();
+	}
+
+	async function loadScheduleVendors() {
+		try {
+			const { data, error } = await supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, salesman_name')
+				.eq('status', 'Active')
+				.order('vendor_name');
+			if (!error && data) {
+				// Deduplicate by erp_vendor_id — keep first occurrence
+				const seen = new Set();
+				schedVendorList = data.filter(v => {
+					if (seen.has(v.erp_vendor_id)) return false;
+					seen.add(v.erp_vendor_id);
+					return true;
+				});
+			}
+		} catch (e) {
+			console.error('Error loading schedule vendors:', e);
+		}
+	}
+
+	async function loadSchedules() {
+		if (!selectedBranch) return;
+		isLoadingSchedules = true;
+		try {
+			const { data, error } = await supabase
+				.rpc('get_daily_temp_schedules', { p_branch_id: parseInt(selectedBranch) });
+			if (!error) schedules = data || [];
+		} catch (e) {
+			console.error('Error loading schedules:', e);
+		} finally {
+			isLoadingSchedules = false;
+		}
+	}
+
+	function resetScheduleForm() {
+		schedVendorSearch = '';
+		schedSelectedVendor = null;
+		schedVendorAmount = '';
+		schedVendorNotes = '';
+		schedVendorDate = new Date().toISOString().split('T')[0];
+		schedExpenseDescription = '';
+		schedExpenseAmount = '';
+		schedExpenseNotes = '';
+		schedExpenseDate = new Date().toISOString().split('T')[0];
+		showScheduleForm = false;
+	}
+
+	$: filteredScheduleVendors = schedVendorList.filter(v =>
+		v.vendor_name?.toLowerCase().includes(schedVendorSearch.toLowerCase()) ||
+		String(v.erp_vendor_id).includes(schedVendorSearch)
+	);
+
+	async function saveVendorSchedule() {
+		if (!schedSelectedVendor || !schedVendorAmount || Number(schedVendorAmount) <= 0) return;
+		isSavingSchedule = true;
+		try {
+			const { error } = await supabase.from('daily_temp_schedules').insert({
+				branch_id: parseInt(selectedBranch),
+				type: 'vendor',
+				vendor_id: String(schedSelectedVendor.erp_vendor_id),
+				vendor_name: schedSelectedVendor.vendor_name,
+				amount: Number(schedVendorAmount),
+				notes: schedVendorNotes || null,
+				schedule_date: schedVendorDate
+			});
+			if (!error) {
+				resetScheduleForm();
+				await loadSchedules();
+			}
+		} catch (e) {
+			console.error('Error saving vendor schedule:', e);
+		} finally {
+			isSavingSchedule = false;
+		}
+	}
+
+	async function saveExpenseSchedule() {
+		if (!schedExpenseDescription || !schedExpenseAmount || Number(schedExpenseAmount) <= 0) return;
+		isSavingSchedule = true;
+		try {
+			const { error } = await supabase.from('daily_temp_schedules').insert({
+				branch_id: parseInt(selectedBranch),
+				type: 'expense',
+				description: schedExpenseDescription,
+				amount: Number(schedExpenseAmount),
+				notes: schedExpenseNotes || null,
+				schedule_date: schedExpenseDate
+			});
+			if (!error) {
+				resetScheduleForm();
+				await loadSchedules();
+			}
+		} catch (e) {
+			console.error('Error saving expense schedule:', e);
+		} finally {
+			isSavingSchedule = false;
+		}
+	}
+
+	async function deleteSchedule(id: string) {
+		try {
+			await supabase.from('daily_temp_schedules').delete().eq('id', id);
+			schedules = schedules.filter(s => s.id !== id);
+		} catch (e) {
+			console.error('Error deleting schedule:', e);
+		}
+	}
+
+	$: vendorSchedules = schedules.filter(s => s.type === 'vendor');
+	$: expenseSchedules = schedules.filter(s => s.type === 'expense');
+	const todayStr = new Date().toISOString().split('T')[0];
+	$: schedTotalCount = schedules.length;
+	$: schedTotalAmount = schedules.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+	$: schedTodayAmount = schedules.filter(s => s.schedule_date === todayStr).reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+
 
 	function openCashBoxModal(boxNumber: number) {
 		// Check if box is in use
@@ -2126,7 +2335,16 @@
 {/if}
 
 <div class="denomination-container">
-	{#if isLoading}
+	{#if denomNoAccess}
+		<div class="no-access-mask">
+			<div class="no-access-box">
+				<div class="no-access-icon">🔒</div>
+				<h2 class="no-access-title">Access Restricted</h2>
+				<p class="no-access-msg">You don't have permission to access the Denomination module.</p>
+				<p class="no-access-sub">Please contact your administrator to request access.</p>
+			</div>
+		</div>
+	{:else if isLoading}
 		<div class="loading">
 			<div class="spinner"></div>
 			<p>Loading...</p>
@@ -2153,7 +2371,7 @@
 									class:special-box={boxNum >= 10}
 									class:has-value={cashBoxTotals[boxNum - 1] > 0}
 									class:in-use={isInUse}
-									disabled={isInUse}
+									disabled={isInUse || boxNum >= 10 || denomReadOnly}
 									on:click={() => openCashBoxModal(boxNum)}
 								>
 									<div class="box-content">
@@ -2168,8 +2386,10 @@
 											{/if}
 										{:else if cashBoxTotals[boxNum - 1] > 0}
 											<span class="box-total">{cashBoxTotals[boxNum - 1].toLocaleString()}</span>
-										{:else}
+										{:else if boxNum < 10}
 											<span class="box-empty">Click to add</span>
+										{:else}
+											<span class="box-empty">Empty Box</span>
 										{/if}
 									</div>
 								</button>
@@ -2189,7 +2409,7 @@
 								{@const isPending = operation?.isPendingClose}
 								
 								{#if isPending}
-									<button class="pending-box-card" on:click={() => completeBoxClose(boxNum)}>
+									<button class="pending-box-card" disabled={denomReadOnly} on:click={() => completeBoxClose(boxNum)}>
 										<div class="box-header">
 											<span class="box-label">{getBoxDisplayName(boxNum)}</span>
 										</div>
@@ -2228,12 +2448,14 @@
 									<span class="total-item grand-total">Total: <span class="amount">{savedTransactions.filter(t => t.section === 'paid').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
 								</div>
 							</div>
-							<div class="action-buttons-group">
-								<button class="action-btn vendor-btn" on:click={() => openVendorModal('paid')}>Vendor</button>
-								<button class="action-btn expenses-btn" on:click={() => openExpensesModal('paid')}>Expenses</button>
-								<button class="action-btn user-btn" on:click={() => openUserModal('paid')}>User</button>
-								<button class="action-btn other-btn" on:click={() => openOtherModal('paid')}>Other</button>
-							</div>
+									{#if denomCanEdit}
+								<div class="action-buttons-group">
+									<button class="action-btn vendor-btn" on:click={() => openVendorModal('paid')}>Vendor</button>
+									<button class="action-btn expenses-btn" on:click={() => openExpensesModal('paid')}>Expenses</button>
+									<button class="action-btn user-btn" on:click={() => openUserModal('paid')}>User</button>
+									<button class="action-btn other-btn" on:click={() => openOtherModal('paid')}>Other</button>
+								</div>
+								{/if}
 						</div>
 						<!-- Paid Transactions Table -->
 						<div class="transactions-table-container">
@@ -2270,7 +2492,7 @@
 												<td class="denom-cell">{transaction.apply_denomination ? '✓' : '✗'}</td>
 												<td class="date-cell">{new Date(transaction.created_at).toLocaleDateString()}</td>
 												<td class="action-cell">
-													<button class="delete-btn" on:click={() => deleteTransaction(transaction.id)} title="Delete transaction">✕</button>
+													{#if denomCanEdit}<button class="delete-btn" on:click={() => deleteTransaction(transaction.id)} title="Delete transaction">✕</button>{/if}
 												</td>
 											</tr>
 										{/each}
@@ -2296,11 +2518,13 @@
 									<span class="total-item grand-total">Total: <span class="amount">{savedTransactions.filter(t => t.section === 'received').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
 								</div>
 							</div>
-							<div class="action-buttons-group">
-								<button class="action-btn vendor-btn" on:click={() => openVendorModal('received')}>Vendor</button>
-								<button class="action-btn user-btn" on:click={() => openUserModal('received')}>User</button>
-								<button class="action-btn other-btn" on:click={() => openOtherModal('received')}>Other</button>
-							</div>
+								{#if denomCanEdit}
+								<div class="action-buttons-group">
+									<button class="action-btn vendor-btn" on:click={() => openVendorModal('received')}>Vendor</button>
+									<button class="action-btn user-btn" on:click={() => openUserModal('received')}>User</button>
+									<button class="action-btn other-btn" on:click={() => openOtherModal('received')}>Other</button>
+								</div>
+								{/if}
 						</div>
 						<!-- Received Transactions Table -->
 						<div class="transactions-table-container">
@@ -2335,8 +2559,7 @@
 												<td class="denom-cell">{transaction.apply_denomination ? '✓' : '✗'}</td>
 												<td class="date-cell">{new Date(transaction.created_at).toLocaleDateString()}</td>
 												<td class="action-cell">
-													<button class="delete-btn" on:click={() => deleteTransaction(transaction.id)} title="Delete transaction">✕</button>
-												</td>
+												{#if denomCanEdit}<button class="delete-btn" on:click={() => deleteTransaction(transaction.id)} title="Delete transaction">✕</button>{/if}
 											</tr>
 										{/each}
 									</tbody>
@@ -2361,19 +2584,19 @@
 							</tr>
 						</thead>
 						<tbody>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />500</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d500')}>−</button><span class="count-value">{counts['d500']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d500')}>+</button></td><td class="total-cell">{totals['d500'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />200</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d200')}>−</button><span class="count-value">{counts['d200']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d200')}>+</button></td><td class="total-cell">{totals['d200'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />100</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d100')}>−</button><span class="count-value">{counts['d100']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d100')}>+</button></td><td class="total-cell">{totals['d100'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />50</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d50')}>−</button><span class="count-value">{counts['d50']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d50')}>+</button></td><td class="total-cell">{totals['d50'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />20</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d20')}>−</button><span class="count-value">{counts['d20']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d20')}>+</button></td><td class="total-cell">{totals['d20'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />10</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d10')}>−</button><span class="count-value">{counts['d10']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d10')}>+</button></td><td class="total-cell">{totals['d10'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />5</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d5')}>−</button><span class="count-value">{counts['d5']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d5')}>+</button></td><td class="total-cell">{totals['d5'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />2</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d2')}>−</button><span class="count-value">{counts['d2']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d2')}>+</button></td><td class="total-cell">{totals['d2'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />1</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d1')}>−</button><span class="count-value">{counts['d1']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d1')}>+</button></td><td class="total-cell">{totals['d1'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.5</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d05')}>−</button><span class="count-value">{counts['d05']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d05')}>+</button></td><td class="total-cell">{totals['d05'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.25</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d025')}>−</button><span class="count-value">{counts['d025']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d025')}>+</button></td><td class="total-cell">{totals['d025'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">🪙 Coins</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('coins')}>−</button><span class="count-value">{counts['coins']}</span><button class="count-btn plus" on:click={() => openPopupAdd('coins')}>+</button></td><td class="total-cell">{totals['coins'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">⚠️ Damage</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('damage')}>−</button><span class="count-value">{counts['damage']}</span><button class="count-btn plus" on:click={() => openPopupAdd('damage')}>+</button></td><td class="total-cell">{totals['damage'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />500</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d500')}>−</button><span class="count-value">{counts['d500']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d500')}>+</button></td><td class="total-cell">{totals['d500'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />200</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d200')}>−</button><span class="count-value">{counts['d200']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d200')}>+</button></td><td class="total-cell">{totals['d200'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />100</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d100')}>−</button><span class="count-value">{counts['d100']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d100')}>+</button></td><td class="total-cell">{totals['d100'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />50</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d50')}>−</button><span class="count-value">{counts['d50']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d50')}>+</button></td><td class="total-cell">{totals['d50'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />20</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d20')}>−</button><span class="count-value">{counts['d20']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d20')}>+</button></td><td class="total-cell">{totals['d20'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />10</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d10')}>−</button><span class="count-value">{counts['d10']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d10')}>+</button></td><td class="total-cell">{totals['d10'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />5</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d5')}>−</button><span class="count-value">{counts['d5']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d5')}>+</button></td><td class="total-cell">{totals['d5'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />2</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d2')}>−</button><span class="count-value">{counts['d2']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d2')}>+</button></td><td class="total-cell">{totals['d2'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />1</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d1')}>−</button><span class="count-value">{counts['d1']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d1')}>+</button></td><td class="total-cell">{totals['d1'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.5</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d05')}>−</button><span class="count-value">{counts['d05']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d05')}>+</button></td><td class="total-cell">{totals['d05'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.25</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d025')}>−</button><span class="count-value">{counts['d025']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d025')}>+</button></td><td class="total-cell">{totals['d025'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap">🪙 Coins</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('coins')}>−</button><span class="count-value">{counts['coins']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('coins')}>+</button></td><td class="total-cell">{totals['coins'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap">⚠️ Damage</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('damage')}>−</button><span class="count-value">{counts['damage']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('damage')}>+</button></td><td class="total-cell">{totals['damage'].toLocaleString()}</td></tr>
 						</tbody>
 						<tfoot>
 							<tr class="grand-total-row"><td colspan="2"><strong>Grand Total</strong></td><td class="total-cell"><strong>{grandTotal.toLocaleString()}</strong></td></tr>
@@ -2394,6 +2617,7 @@
 									class="erp-input" 
 									bind:value={erpBalance}
 									placeholder="Enter ERP balance"
+									disabled={denomReadOnly}
 								/>
 							</div>
 						</div>
@@ -2460,10 +2684,12 @@
 						</div>
 						<div class="balance-card-body">
 							<div class="form-group">
+							<div style="position:relative;">
 								<select 
 									id="branch-select" 
 									bind:value={selectedBranch}
 									class="form-select branch-select"
+									disabled={denomBranchLocked}
 								>
 									<option value="">-- Select Branch --</option>
 									{#each branches as branch (branch.id)}
@@ -2472,7 +2698,10 @@
 										</option>
 									{/each}
 								</select>
-								
+								{#if denomBranchLocked}
+									<div style="position:absolute;inset:0;cursor:not-allowed;z-index:10;"></div>
+								{/if}
+							</div>
 								{#if selectedBranch}
 									<button 
 										class="set-default-btn"
@@ -2526,11 +2755,240 @@
 							</div>
 						</div>
 					</div>
+
+					<!-- Daily Temp Schedules Card -->
+					<div class="balance-card daily-schedules-card" on:click={openSchedulesPopup} style="cursor:pointer;">
+						<div class="balance-card-header">
+							<span class="balance-icon">📅</span>
+							<span>Daily Temp Schedules</span>
+						</div>
+						<div class="balance-card-body" style="flex-direction:column; gap:6px; padding:10px 14px;">
+							<div class="sched-card-stat">
+								<span class="sched-stat-label">Total Schedules</span>
+								<span class="sched-stat-value" style="color:#818cf8;">{schedules.length > 0 ? schedTotalCount : '—'}</span>
+							</div>
+							<div class="sched-card-stat">
+								<span class="sched-stat-label">Total Amount</span>
+								<span class="sched-stat-value" style="color:#34d399;">{schedules.length > 0 ? schedTotalAmount.toLocaleString() + ' SAR' : '—'}</span>
+							</div>
+							<div class="sched-card-stat">
+								<span class="sched-stat-label">Today's Amount</span>
+								<span class="sched-stat-value" style="color:#f59e0b;">{schedules.length > 0 ? schedTodayAmount.toLocaleString() + ' SAR' : '—'}</span>
+							</div>
+						</div>
+					</div>
+
+					{#if $currentUser?.isMasterAdmin}
+					<!-- Permission Manager Card (Master Admin only) -->
+					<div class="balance-card perm-manager-card" on:click={openPermissionManager} style="cursor:pointer;">
+						<div class="balance-card-header">
+							<span class="balance-icon">🔐</span>
+							<span>Permission Manager</span>
+						</div>
+						<div class="balance-card-body">
+							<div class="closed-boxes-count-large">
+								<span class="count-label" style="font-size:0.78rem; color:#fff; font-weight:700; letter-spacing:0.05em;">Manage Access</span>
+							</div>
+						</div>
+					</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
 	{/if}
 </div>
+
+<!-- Daily Temp Schedules Popup -->
+{#if showSchedulesPopup}
+<div class="popup-overlay" on:click={closeSchedulesPopup} on:keydown={(e) => e.key === 'Escape' && closeSchedulesPopup()} role="dialog" aria-modal="true" tabindex="-1">
+	<div class="schedules-popup" on:click|stopPropagation>
+		<!-- Header -->
+		<div class="schedules-popup-header">
+			<span>📅 Daily Temp Schedules</span>
+			<button class="schedules-close-btn" on:click={closeSchedulesPopup}>✕</button>
+		</div>
+
+		<!-- Tabs -->
+		<div class="schedules-tabs">
+			<button class="sched-tab" class:active={schedulesTab === 'vendor'} on:click={() => { schedulesTab = 'vendor'; showScheduleForm = false; }}>
+				Vendor
+			</button>
+			<button class="sched-tab" class:active={schedulesTab === 'expense'} on:click={() => { schedulesTab = 'expense'; showScheduleForm = false; }}>
+				Expenses
+			</button>
+		</div>
+
+		<!-- Body -->
+		<div class="schedules-popup-body">
+
+			<!-- VENDOR TAB -->
+			{#if schedulesTab === 'vendor'}
+				<div class="sched-tab-content">
+					{#if !showScheduleForm}
+						<button class="sched-add-btn" on:click={() => showScheduleForm = true}>+ Add Vendor Schedule</button>
+					{:else}
+						<div class="sched-form">
+							<div class="sched-form-title">New Vendor Schedule</div>
+							<!-- Vendor search -->
+							<div class="sched-form-field">
+								<label>Vendor</label>
+								{#if schedSelectedVendor}
+									<div class="sched-selected-vendor">
+										<span>{schedSelectedVendor.vendor_name}</span>
+										<button on:click={() => { schedSelectedVendor = null; schedVendorSearch = ''; }}>✕</button>
+									</div>
+								{:else}
+									<input
+										type="text"
+										placeholder="Search vendors..."
+										bind:value={schedVendorSearch}
+										class="sched-input"
+									/>
+									<div class="sched-vendor-dropdown">
+										{#each filteredScheduleVendors as v}
+											<button class="sched-vendor-option" on:click={() => { schedSelectedVendor = v; schedVendorSearch = ''; }}>
+												<span class="vendor-name">{v.vendor_name}</span>
+												<span class="vendor-id">{v.salesman_name || 'N/A'}</span>
+											</button>
+										{:else}
+											<div class="sched-no-results">No vendors found</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+<!-- Schedule Date -->
+						<div class="sched-form-field">
+							<label>Schedule Date</label>
+							<input type="date" bind:value={schedVendorDate} class="sched-input" />
+						</div>
+						<!-- Amount -->
+						<div class="sched-form-field">
+							<label>Amount (SAR)</label>
+							<input type="number" min="0" step="0.01" placeholder="0.00" bind:value={schedVendorAmount} class="sched-input" />
+						</div>
+						<!-- Notes -->
+						<div class="sched-form-field">
+							<label>Notes <span class="optional">(optional)</span></label>
+							<input type="text" placeholder="Add a note..." bind:value={schedVendorNotes} class="sched-input" />
+						</div>
+						<div class="sched-form-actions">
+							<button class="sched-cancel-btn" on:click={resetScheduleForm}>Cancel</button>
+							<button class="sched-save-btn" on:click={saveVendorSchedule} disabled={!schedSelectedVendor || !schedVendorAmount || !schedVendorDate || isSavingSchedule}>
+								{isSavingSchedule ? 'Saving...' : 'Save'}
+							</button>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Vendor schedule table -->
+				{#if isLoadingSchedules}
+					<div class="sched-loading">Loading...</div>
+				{:else if vendorSchedules.length === 0}
+					<div class="sched-empty">No vendor schedules yet</div>
+				{:else}
+					<div class="sched-table-wrap">
+						<table class="sched-table">
+							<thead>
+								<tr>
+									<th>Date</th>
+									<th>Vendor</th>
+									<th>Amount</th>
+									<th>Notes</th>
+									<th></th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each vendorSchedules as s}
+									<tr>
+										<td class="sched-col-date">{s.schedule_date}</td>
+										<td class="sched-col-name">{s.vendor_name}</td>
+										<td class="sched-col-amount">{Number(s.amount).toLocaleString()} SAR</td>
+										<td class="sched-col-notes">{s.notes || '—'}</td>
+										<td><button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)}>×</button></td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+				</div>
+			{/if}
+
+			<!-- EXPENSE TAB -->
+			{#if schedulesTab === 'expense'}
+				<div class="sched-tab-content">
+					{#if !showScheduleForm}
+						<button class="sched-add-btn" on:click={() => showScheduleForm = true}>+ Add Expense Schedule</button>
+					{:else}
+						<div class="sched-form">
+							<div class="sched-form-title">New Expense Schedule</div>
+							<!-- Schedule Date -->
+							<div class="sched-form-field">
+								<label>Schedule Date</label>
+								<input type="date" bind:value={schedExpenseDate} class="sched-input" />
+							</div>
+							<!-- Description -->
+							<div class="sched-form-field">
+								<label>Description</label>
+								<input type="text" placeholder="Expense description..." bind:value={schedExpenseDescription} class="sched-input" />
+							</div>
+							<!-- Amount -->
+							<div class="sched-form-field">
+								<label>Amount (SAR)</label>
+								<input type="number" min="0" step="0.01" placeholder="0.00" bind:value={schedExpenseAmount} class="sched-input" />
+							</div>
+							<!-- Notes -->
+							<div class="sched-form-field">
+								<label>Notes <span class="optional">(optional)</span></label>
+								<input type="text" placeholder="Add a note..." bind:value={schedExpenseNotes} class="sched-input" />
+							</div>
+							<div class="sched-form-actions">
+								<button class="sched-cancel-btn" on:click={resetScheduleForm}>Cancel</button>
+								<button class="sched-save-btn" on:click={saveExpenseSchedule} disabled={!schedExpenseDescription || !schedExpenseAmount || !schedExpenseDate || isSavingSchedule}>
+									{isSavingSchedule ? 'Saving...' : 'Save'}
+								</button>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Expense schedule table -->
+					{#if isLoadingSchedules}
+						<div class="sched-loading">Loading...</div>
+					{:else if expenseSchedules.length === 0}
+						<div class="sched-empty">No expense schedules yet</div>
+					{:else}
+						<div class="sched-table-wrap">
+							<table class="sched-table">
+								<thead>
+									<tr>
+										<th>Date</th>
+										<th>Description</th>
+										<th>Amount</th>
+										<th>Notes</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each expenseSchedules as s}
+										<tr>
+											<td class="sched-col-date">{s.schedule_date}</td>
+											<td class="sched-col-name">{s.description}</td>
+											<td class="sched-col-amount">{Number(s.amount).toLocaleString()} SAR</td>
+											<td class="sched-col-notes">{s.notes || '—'}</td>
+											<td><button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)}>×</button></td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+		</div>
+	</div>
+</div>
+{/if}
 
 <!-- Delete Confirmation Popup -->
 {#if showDeleteConfirmPopup}
@@ -2575,6 +3033,51 @@
 		overflow: hidden;
 		padding: 0.5rem;
 		gap: 0.5rem;
+		position: relative;
+	}
+
+	.no-access-mask {
+		position: absolute;
+		inset: 0;
+		z-index: 999;
+		background: rgba(15, 23, 42, 0.82);
+		backdrop-filter: blur(6px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.no-access-box {
+		background: #fff;
+		border-radius: 20px;
+		padding: 48px 56px;
+		text-align: center;
+		max-width: 420px;
+		box-shadow: 0 24px 64px rgba(0,0,0,0.3);
+	}
+
+	.no-access-icon {
+		font-size: 3.5rem;
+		margin-bottom: 16px;
+	}
+
+	.no-access-title {
+		font-size: 1.4rem;
+		font-weight: 800;
+		color: #0f172a;
+		margin: 0 0 10px;
+	}
+
+	.no-access-msg {
+		font-size: 0.95rem;
+		color: #334155;
+		margin: 0 0 8px;
+	}
+
+	.no-access-sub {
+		font-size: 0.82rem;
+		color: #94a3b8;
+		margin: 0;
 	}
 
 	/* Loading */
@@ -3282,6 +3785,533 @@
 		color: #f59e0b;
 	}
 
+	.daily-schedules-card {
+		flex: 0 0 auto;
+		cursor: pointer;
+	}
+
+	.daily-schedules-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.15);
+	}
+
+	.perm-manager-card {
+		flex: 0 0 auto;
+		cursor: pointer;
+	}
+
+	.perm-manager-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.15);
+	}
+
+	.perm-manager-card .balance-card-header {
+		background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+	}
+
+	.perm-manager-card .balance-card-body {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.daily-schedules-card .balance-card-header {
+		background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+	}
+
+	.daily-schedules-card .balance-card-body {
+		display: flex;
+		align-items: stretch;
+		justify-content: center;
+	}
+
+	.sched-card-stat {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 4px 0;
+		border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+	}
+
+	.sched-card-stat:last-child {
+		border-bottom: none;
+	}
+
+	.sched-stat-label {
+		font-size: 0.72rem;
+		color: #94a3b8;
+		font-weight: 500;
+	}
+
+	.sched-stat-value {
+		font-size: 0.82rem;
+		font-weight: 700;
+	}
+
+	/* ===== Schedules Popup — Glassmorphism Light ===== */
+	.schedules-popup {
+		background: rgba(255, 255, 255, 0.72);
+		backdrop-filter: blur(24px) saturate(180%);
+		-webkit-backdrop-filter: blur(24px) saturate(180%);
+		border-radius: 20px;
+		width: 780px;
+		max-width: 95vw;
+		max-height: 82vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		box-shadow: 0 8px 40px rgba(99, 102, 241, 0.18), 0 2px 8px rgba(0,0,0,0.08);
+		border: 1px solid rgba(255, 255, 255, 0.6);
+	}
+
+	.schedules-popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 18px 22px;
+		background: linear-gradient(135deg, rgba(99,102,241,0.85) 0%, rgba(129,140,248,0.85) 100%);
+		backdrop-filter: blur(8px);
+		color: #fff;
+		font-weight: 700;
+		font-size: 1rem;
+		letter-spacing: 0.01em;
+	}
+
+	.schedules-close-btn {
+		background: rgba(255,255,255,0.25);
+		border: 1px solid rgba(255,255,255,0.3);
+		color: #fff;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		cursor: pointer;
+		font-size: 0.82rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.2s;
+	}
+
+	.schedules-close-btn:hover {
+		background: rgba(255,255,255,0.45);
+	}
+
+	.schedules-tabs {
+		display: flex;
+		background: rgba(241, 245, 249, 0.6);
+		border-bottom: 1px solid rgba(203, 213, 225, 0.6);
+	}
+
+	.sched-tab {
+		flex: 1;
+		padding: 12px;
+		background: transparent;
+		border: none;
+		color: #64748b;
+		font-size: 0.9rem;
+		font-weight: 500;
+		cursor: pointer;
+		border-bottom: 2px solid transparent;
+		transition: all 0.2s;
+	}
+
+	.sched-tab.active {
+		color: #6366f1;
+		border-bottom-color: #6366f1;
+		background: rgba(255,255,255,0.5);
+		font-weight: 600;
+	}
+
+	.sched-tab:hover:not(.active) {
+		color: #475569;
+		background: rgba(255,255,255,0.3);
+	}
+
+	.schedules-popup-body {
+		flex: 1;
+		overflow-y: auto;
+		padding: 18px;
+		background: rgba(248, 250, 252, 0.4);
+	}
+
+	.sched-tab-content {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+
+	.sched-add-btn {
+		background: linear-gradient(135deg, #6366f1, #818cf8);
+		color: #fff;
+		border: none;
+		padding: 10px 18px;
+		border-radius: 10px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		align-self: flex-start;
+		transition: all 0.2s;
+		box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+	}
+
+	.sched-add-btn:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 14px rgba(99,102,241,0.4);
+	}
+
+	.sched-form {
+		background: rgba(255, 255, 255, 0.75);
+		border: 1px solid rgba(203, 213, 225, 0.7);
+		border-radius: 14px;
+		padding: 18px;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		box-shadow: 0 2px 12px rgba(99,102,241,0.07);
+	}
+
+	.sched-form-title {
+		font-weight: 700;
+		color: #1e293b;
+		font-size: 0.9rem;
+	}
+
+	.sched-form-field {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		position: relative;
+	}
+
+	.sched-form-field label {
+		font-size: 0.78rem;
+		color: #475569;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.sched-form-field .optional {
+		color: #94a3b8;
+		font-size: 0.7rem;
+		text-transform: none;
+		letter-spacing: 0;
+		font-weight: 400;
+	}
+
+	.sched-input {
+		background: rgba(255, 255, 255, 0.8);
+		border: 1px solid rgba(203, 213, 225, 0.8);
+		border-radius: 8px;
+		color: #1e293b;
+		padding: 9px 12px;
+		font-size: 0.875rem;
+		outline: none;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.sched-input:focus {
+		border-color: #6366f1;
+		box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+	}
+
+	.sched-input::placeholder {
+		color: #94a3b8;
+	}
+
+	.sched-selected-vendor {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		background: rgba(238, 242, 255, 0.9);
+		border: 1px solid rgba(99,102,241,0.35);
+		border-radius: 8px;
+		padding: 9px 12px;
+		color: #3730a3;
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.sched-selected-vendor button {
+		background: none;
+		border: none;
+		color: #94a3b8;
+		cursor: pointer;
+		font-size: 0.8rem;
+	}
+
+	.sched-selected-vendor button:hover {
+		color: #ef4444;
+	}
+
+	.sched-vendor-dropdown {
+		position: static;
+		background: rgba(255, 255, 255, 0.95);
+		backdrop-filter: blur(12px);
+		border: 1px solid rgba(203, 213, 225, 0.8);
+		border-radius: 10px;
+		z-index: 100;
+		max-height: 220px;
+		overflow-y: auto;
+		box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+		margin-top: 6px;
+	}
+
+	.sched-vendor-option {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 10px 14px;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+		color: #1e293b;
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.83rem;
+		transition: background 0.15s;
+	}
+
+	.sched-vendor-option:last-child {
+		border-bottom: none;
+	}
+
+	.sched-vendor-option:hover {
+		background: rgba(238, 242, 255, 0.8);
+	}
+
+	.sched-vendor-option .vendor-name {
+		font-weight: 600;
+		color: #1e293b;
+	}
+
+	.sched-vendor-option .vendor-id {
+		color: #94a3b8;
+		font-size: 0.75rem;
+	}
+
+	.sched-no-results {
+		padding: 10px 12px;
+		color: #94a3b8;
+		font-size: 0.83rem;
+		background: rgba(255,255,255,0.8);
+		border: 1px solid rgba(203,213,225,0.7);
+		border-radius: 8px;
+		text-align: center;
+		margin-top: 4px;
+	}
+
+	.sched-form-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
+		padding-top: 4px;
+	}
+
+	.sched-cancel-btn {
+		background: rgba(241, 245, 249, 0.9);
+		color: #64748b;
+		border: 1px solid rgba(203, 213, 225, 0.7);
+		padding: 8px 18px;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-weight: 500;
+		transition: all 0.2s;
+	}
+
+	.sched-cancel-btn:hover {
+		background: #e2e8f0;
+		color: #334155;
+	}
+
+	.sched-save-btn {
+		background: linear-gradient(135deg, #6366f1, #818cf8);
+		color: #fff;
+		border: none;
+		padding: 8px 22px;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-weight: 600;
+		box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+		transition: all 0.2s;
+	}
+
+	.sched-save-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+		box-shadow: none;
+	}
+
+	.sched-save-btn:not(:disabled):hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 14px rgba(99,102,241,0.4);
+	}
+
+	.sched-list {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.sched-loading, .sched-empty {
+		text-align: center;
+		color: #94a3b8;
+		font-size: 0.875rem;
+		padding: 28px 0;
+	}
+
+	.sched-card {
+		background: rgba(255, 255, 255, 0.78);
+		border: 1px solid rgba(226, 232, 240, 0.8);
+		border-radius: 12px;
+		padding: 13px 15px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		box-shadow: 0 1px 6px rgba(0,0,0,0.05);
+		transition: box-shadow 0.2s;
+	}
+
+	.sched-card:hover {
+		box-shadow: 0 4px 14px rgba(99,102,241,0.1);
+	}
+
+	.vendor-sched-card {
+		border-left: 3px solid #6366f1;
+	}
+
+	.expense-sched-card {
+		border-left: 3px solid #f59e0b;
+	}
+
+	.sched-card-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.sched-vendor-name {
+		font-weight: 600;
+		color: #1e293b;
+		font-size: 0.875rem;
+	}
+
+	.sched-amount {
+		font-weight: 700;
+		color: #059669;
+		font-size: 0.9rem;
+	}
+
+	.sched-card-notes {
+		color: #64748b;
+		font-size: 0.78rem;
+	}
+
+	.sched-card-bottom {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.sched-date {
+		color: #94a3b8;
+		font-size: 0.74rem;
+	}
+
+	.sched-delete-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #ef4444;
+		opacity: 0.6;
+		transition: opacity 0.2s;
+		padding: 2px 6px;
+		border-radius: 4px;
+	}
+
+	.sched-delete-btn:hover {
+		opacity: 1;
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	/* Schedules table */
+	.sched-table-wrap {
+		overflow-x: auto;
+		border-radius: 10px;
+		border: 1px solid rgba(203, 213, 225, 0.7);
+		background: rgba(255,255,255,0.7);
+	}
+
+	.sched-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.83rem;
+	}
+
+	.sched-table thead tr {
+		background: rgba(238, 242, 255, 0.8);
+		border-bottom: 1px solid rgba(203, 213, 225, 0.7);
+	}
+
+	.sched-table th {
+		padding: 9px 12px;
+		text-align: left;
+		font-weight: 600;
+		color: #475569;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		white-space: nowrap;
+	}
+
+	.sched-table tbody tr {
+		border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+		transition: background 0.15s;
+	}
+
+	.sched-table tbody tr:last-child {
+		border-bottom: none;
+	}
+
+	.sched-table tbody tr:hover {
+		background: rgba(238, 242, 255, 0.5);
+	}
+
+	.sched-table td {
+		padding: 9px 12px;
+		color: #1e293b;
+		vertical-align: middle;
+	}
+
+	.sched-col-date {
+		white-space: nowrap;
+		font-weight: 600;
+		color: #6366f1;
+		font-size: 0.8rem;
+	}
+
+	.sched-col-name {
+		font-weight: 500;
+		max-width: 160px;
+	}
+
+	.sched-col-amount {
+		white-space: nowrap;
+		font-weight: 700;
+		color: #059669;
+	}
+
+	.sched-col-notes {
+		color: #64748b;
+		font-size: 0.78rem;
+		max-width: 120px;
+	}
+
 	.branch-selector-card {
 		flex: 0 0 auto;
 		display: flex;
@@ -3341,6 +4371,16 @@
 	.branch-selector-card .form-select:focus {
 		border-color: #ea580c;
 		box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+	}
+
+	.branch-selector-card .form-select:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+		pointer-events: none;
+		background: linear-gradient(145deg, #f1f5f9 0%, #e2e8f0 100%);
+		border-color: #94a3b8;
+		color: #475569;
+		background-image: none;
 	}
 
 	.branch-selector-card .set-default-btn {
