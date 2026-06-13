@@ -261,15 +261,9 @@
 			<span class="empty-sub">{t('Last 3 days', 'آخر 3 أيام')}</span>
 		</div>
 	{:else}
-		<!-- Grouped by date -->
-		{#each groupedBreaks as group}
-			<div class="date-group">
-				<div class="date-header">
-					<span>{group.label}</span>
-					<span class="date-count">{group.breaks.length}</span>
-				</div>
-				{#each group.breaks as b}
-					<div class="break-card {b.status === 'open' ? 'break-open' : ''}">
+		<!-- Flat list -->
+		{#each filteredBreaks as b}
+				<div class="break-card {b.status === 'open' ? 'break-open' : ''}">
 						<div class="break-top">
 							<div class="employee-info">
 								<span class="employee-name">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</span>
@@ -284,6 +278,10 @@
 							</div>
 						</div>
 						<div class="break-details">
+							<div class="detail-item">
+								<span class="detail-icon">📅</span>
+								<span class="detail-text">{b.start_time ? new Date(b.start_time).toLocaleDateString(isRtl ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+							</div>
 							<div class="detail-item">
 								<span class="detail-icon">🏢</span>
 								<span class="detail-text branch-block">
@@ -318,8 +316,7 @@
 								<span class="time-value">{b.status === 'open' ? getLiveDuration(b.start_time, now) : formatDuration(b.duration_seconds)}</span>
 							</div>
 						</div>
-					</div>
-				{/each}
+
 			</div>
 		{/each}
 	{/if}
