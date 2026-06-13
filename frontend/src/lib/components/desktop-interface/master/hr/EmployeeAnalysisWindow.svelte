@@ -379,25 +379,30 @@
 		console.log('specialShiftDateWise:', specialShiftDateWise);
 		console.log('specialShiftWeekday:', specialShiftWeekday);
 
-		// Default punch time based on shift
-		let defaultTime = '';
-		let defaultStatus = '';
+		// For multi-shift employees who have no regular shift, resolve the specific slot
+		let multiShiftSlot: any = null;
+		if (pair.multiShiftKey) {
+			const multiShifts = getMultiShiftsForDate(punchDate);
+			multiShiftSlot = multiShifts.find((ms: any) => ms.shift_start_time === pair.multiShiftKey) || null;
+		}
 
-		if (isMissingCheckIn && finalApplicableShift) {
-			// Default to shift start time for missing check-in
-			defaultTime = finalApplicableShift.shift_start_time;
-			defaultStatus = 'Check In';
-		} else if (!isMissingCheckIn && finalApplicableShift) {
-			// Default to shift end time for missing check-out
-			defaultTime = finalApplicableShift.shift_end_time;
-			defaultStatus = 'Check Out';
+		const effectiveShift = finalApplicableShift || multiShiftSlot;
+
+		// Always set status so savePunch() can proceed even without a regular shift
+		let defaultStatus = isMissingCheckIn ? 'Check In' : 'Check Out';
+		let defaultTime = '';
+
+		if (isMissingCheckIn && effectiveShift) {
+			defaultTime = effectiveShift.shift_start_time;
+		} else if (!isMissingCheckIn && effectiveShift) {
+			defaultTime = effectiveShift.shift_end_time;
 		}
 
 		modalData = {
 			pair,
 			isMissingCheckIn,
 			punchDate,
-			applicableShift: finalApplicableShift
+			applicableShift: effectiveShift
 		};
 
 		editPunchTime = defaultTime;
@@ -2015,42 +2020,33 @@
 				// Keep all check-ins for pairing
 				checkIns.forEach(txn => dedupedTransactions.push(txn));
 			} else if (checkIns.length > 0) {
-				// Normal case: deduplicate check-ins by calendar date, keep latest
-				const checkInMap: { [key: string]: any } = {};
-				checkIns.forEach(txn => {
-					const key = `${txn.calendarDate}`;
-					if (!checkInMap[key] || txn.created_at > checkInMap[key].created_at) {
-						checkInMap[key] = txn;
-					}
-				});
-				Object.values(checkInMap).forEach(txn => dedupedTransactions.push(txn));
+			// Keep only the single best check-in (latest created_at).
+			// Grouping by calendarDate is NOT sufficient — duplicate punches from faulty
+			// fingerprint machines can land on different punch_dates (e.g. 25th vs 26th),
+			// causing both to pass dedup and creating a phantom "Check-In Missing" pair.
+			const best = checkIns.reduce((a, b) => a.created_at >= b.created_at ? a : b);
+			dedupedTransactions.push(best);
+		}
+		
+		// If we have multiple Check Outs but NO Check Ins, keep all Check Outs (they can be paired together)
+		if (checkOuts.length >= 2 && checkIns.length === 0) {
+			// Keep all check-outs for pairing
+			checkOuts.forEach(txn => dedupedTransactions.push(txn));
+		} else if (checkOuts.length > 0) {
+			// Keep only the single best check-out (latest created_at) — same reason as above.
+			const best = checkOuts.reduce((a, b) => a.created_at >= b.created_at ? a : b);
+			dedupedTransactions.push(best);
+		}
+		
+		// Keep all "In Progress" and "Other" transactions (deduplicate by id)
+		const otherMap: { [key: string]: any } = {};
+		others.forEach((txn: any) => {
+			if (!otherMap[txn.id]) {
+				otherMap[txn.id] = txn;
 			}
-			
-			// If we have multiple Check Outs but NO Check Ins, keep all Check Outs (they can be paired together)
-			if (checkOuts.length >= 2 && checkIns.length === 0) {
-				// Keep all check-outs for pairing
-				checkOuts.forEach(txn => dedupedTransactions.push(txn));
-			} else if (checkOuts.length > 0) {
-				// Normal case: deduplicate check-outs by calendar date, keep latest
-				const checkOutMap: { [key: string]: any } = {};
-				checkOuts.forEach(txn => {
-					const key = `${txn.calendarDate}`;
-					if (!checkOutMap[key] || txn.created_at > checkOutMap[key].created_at) {
-						checkOutMap[key] = txn;
-					}
-				});
-				Object.values(checkOutMap).forEach(txn => dedupedTransactions.push(txn));
-			}
-			
-			// Keep all "In Progress" and "Other" transactions (deduplicate by id)
-			const otherMap: { [key: string]: any } = {};
-			others.forEach(txn => {
-				if (!otherMap[txn.id]) {
-					otherMap[txn.id] = txn;
-				}
-			});
-			Object.values(otherMap).forEach(txn => dedupedTransactions.push(txn));
 		});
+		Object.values(otherMap).forEach(txn => dedupedTransactions.push(txn));
+	});
 		
 		// Group deduplicated transactions by shift date (+ multi-shift slot if applicable)
 		const groupedByShiftDate: { [key: string]: any[] } = {};

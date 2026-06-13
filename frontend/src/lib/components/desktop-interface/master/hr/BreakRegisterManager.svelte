@@ -33,7 +33,7 @@
 	let breakReasons: any[] = [];
 	let showReasonModal = false;
 	let editingReasonId: number | null = null;
-	let reasonFormData = { name_en: '', name_ar: '', sort_order: 0, is_active: true, requires_note: false };
+	let reasonFormData = { name_en: '', name_ar: '', sort_order: 0, is_active: true, requires_note: false, max_allowed_minutes: null as number | null };
 	let isSaving = false;
 
 	// Employee Summary
@@ -277,6 +277,7 @@
 		const { data, error } = await supabase
 			.from('break_reasons')
 			.select('*')
+			.eq('deleted', false)
 			.order('sort_order', { ascending: true });
 		if (!error && data) {
 			breakReasons = data;
@@ -291,7 +292,8 @@
 				name_ar: reason.name_ar,
 				sort_order: reason.sort_order ?? 0,
 				is_active: reason.is_active ?? true,
-				requires_note: reason.requires_note ?? false
+				requires_note: reason.requires_note ?? false,
+				max_allowed_minutes: reason.max_allowed_minutes ?? null
 			};
 		} else {
 			editingReasonId = null;
@@ -301,7 +303,8 @@
 				name_ar: '',
 				sort_order: maxSort + 1,
 				is_active: true,
-				requires_note: false
+				requires_note: false,
+				max_allowed_minutes: null
 			};
 		}
 		showReasonModal = true;
@@ -345,7 +348,10 @@
 	async function deleteReason(id: number) {
 		if (!confirm(isRtl ? 'هل تريد حذف هذا السبب؟' : 'Delete this reason?')) return;
 		try {
-			const { error } = await supabase.from('break_reasons').delete().eq('id', id);
+			const { error } = await supabase
+				.from('break_reasons')
+				.update({ deleted: true, deleted_at: new Date().toISOString() })
+				.eq('id', id);
 			if (error) throw error;
 			await loadBreakReasons();
 		} catch (err) {
@@ -1113,6 +1119,20 @@
 					>
 						{reasonFormData.requires_note ? (isRtl ? '✓ نعم يتطلب ملاحظة' : '✓ Yes, requires note') : (isRtl ? '✗ لا يتطلب ملاحظة' : '✗ No, note not required')}
 					</button>
+				</div>
+
+				<!-- Max Allowed Minutes -->
+				<div>
+					<label for="reason-max-minutes" class="block text-sm font-bold text-slate-700 mb-2">{isRtl ? 'الحد الأقصى للمدة (دقيقة)' : 'Max Allowed Minutes'}</label>
+					<input
+						id="reason-max-minutes"
+						type="number"
+						bind:value={reasonFormData.max_allowed_minutes}
+						min="1"
+						placeholder={isRtl ? 'اتركه فارغاً لعدم التحديد' : 'Leave empty for no limit'}
+						class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					/>
+					<p class="text-xs text-slate-500 mt-1">{isRtl ? 'الحد الأقصى لمدة الاستراحة لهذا السبب' : 'Maximum break duration allowed for this reason'}</p>
 				</div>
 
 				<!-- Buttons -->

@@ -278,6 +278,9 @@ function analyzeEmployeeDays(
         status = specOff.is_deductible_on_salary ? 'Rejected-Deducted' : 'Rejected-Not Deducted';
       } else if (employeeOfficialHolidays.get(String(emp.id))?.has(date)) {
         status = 'Official Holiday';
+      } else if (emp.employment_status === 'Remote Job') {
+        // Remote employees have no fingerprint — treat no-punch days as Worked
+        status = 'Worked';
       } else {
         status = 'Absent';
       }
@@ -360,30 +363,21 @@ function analyzeEmployeeDays(
       if (allCheckIns.length >= 2 && allCheckOuts.length === 0) {
         dedupedTransactions.push(...allCheckIns);
       } else if (allCheckIns.length > 0) {
-        // Deduplicate check-ins by calendarDate, keep latest by created_at
-        const checkInMap: { [key: string]: any } = {};
-        allCheckIns.forEach((txn: any) => {
-          const key = `${txn.calendarDate}`;
-          if (!checkInMap[key] || new Date(txn.created_at) > new Date(checkInMap[key].created_at)) {
-            checkInMap[key] = txn;
-          }
-        });
-        dedupedTransactions.push(...Object.values(checkInMap));
+        // Keep only the single best check-in (latest created_at).
+        // Grouping by calendarDate is NOT sufficient — duplicate punches from faulty
+        // fingerprint machines can land on different punch_dates (e.g. 25th vs 26th),
+        // causing both to pass dedup and creating a phantom "Check-In Missing" pair.
+        const bestIn = allCheckIns.reduce((a: any, b: any) => new Date(a.created_at) >= new Date(b.created_at) ? a : b);
+        dedupedTransactions.push(bestIn);
       }
 
       // If multiple Check Outs but NO Check Ins, keep all (for self-pairing)
       if (allCheckOuts.length >= 2 && allCheckIns.length === 0) {
         dedupedTransactions.push(...allCheckOuts);
       } else if (allCheckOuts.length > 0) {
-        // Deduplicate check-outs by calendarDate, keep latest by created_at
-        const checkOutMap: { [key: string]: any } = {};
-        allCheckOuts.forEach((txn: any) => {
-          const key = `${txn.calendarDate}`;
-          if (!checkOutMap[key] || new Date(txn.created_at) > new Date(checkOutMap[key].created_at)) {
-            checkOutMap[key] = txn;
-          }
-        });
-        dedupedTransactions.push(...Object.values(checkOutMap));
+        // Keep only the single best check-out (latest created_at) — same reason as above.
+        const bestOut = allCheckOuts.reduce((a: any, b: any) => new Date(a.created_at) >= new Date(b.created_at) ? a : b);
+        dedupedTransactions.push(bestOut);
       }
 
       // Keep all "In Progress" and "Other" (dedup by id)
@@ -622,7 +616,7 @@ Deno.serve(async (req) => {
     let empQuery = supabase
       .from('hr_employee_master')
       .select(`id, name_en, name_ar, current_branch_id, employment_status, nationality_id, nationalities (name_en)`)
-      .eq('employment_status', 'Job (With Finger)');
+      .in('employment_status', ['Job (With Finger)', 'Remote Job']);
 
     if (specificEmployeeId) {
       empQuery = empQuery.eq('id', specificEmployeeId);

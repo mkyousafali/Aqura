@@ -27,6 +27,11 @@
 
 	$: isRtl = $localeData.code === 'ar';
 
+	$: timerMaxSecs = activeBreak?.max_allowed_minutes ? activeBreak.max_allowed_minutes * 60 : null;
+	$: timerOverLimit = timerMaxSecs ? elapsedSeconds > timerMaxSecs : true;
+	$: timerColor = timerOverLimit ? '#EF4444' : '#22C55E';
+	$: timerRingTotal = timerMaxSecs ?? 3600;
+
 	function t(en: string, ar: string): string {
 		return isRtl ? ar : en;
 	}
@@ -56,7 +61,7 @@
 
 		// Load reasons + check active break in parallel
 		const [reasonsRes, activeRes] = await Promise.all([
-			supabase.from('break_reasons').select('*').eq('is_active', true).order('sort_order'),
+			supabase.from('break_reasons').select('*').eq('is_active', true).eq('deleted', false).order('sort_order'),
 			supabase.rpc('get_active_break', { p_user_id: $currentUser.id })
 		]);
 
@@ -241,12 +246,12 @@
 				<div class="timer-ring">
 					<svg viewBox="0 0 120 120">
 						<circle cx="60" cy="60" r="54" fill="none" stroke="#E5E7EB" stroke-width="6"/>
-						<circle cx="60" cy="60" r="54" fill="none" stroke="#EF4444" stroke-width="6"
-							stroke-dasharray="339.29" stroke-dashoffset={339.29 - (339.29 * Math.min(elapsedSeconds / 3600, 1))}
+						<circle cx="60" cy="60" r="54" fill="none" stroke={timerColor} stroke-width="6"
+							stroke-dasharray="339.29" stroke-dashoffset={339.29 - (339.29 * Math.min(elapsedSeconds / timerRingTotal, 1))}
 							stroke-linecap="round" transform="rotate(-90 60 60)"/>
 					</svg>
 					<div class="timer-text">
-						<span class="timer-value">{formatTimer(elapsedSeconds)}</span>
+						<span class="timer-value" style="color: {timerColor}">{formatTimer(elapsedSeconds)}</span>
 						<span class="timer-label">{t('Break Duration', 'مدة الاستراحة')}</span>
 					</div>
 				</div>
@@ -295,8 +300,7 @@
 							{/if}
 						</div>
 						<div class="reason-text">
-							<span class="reason-name">{isRtl ? reason.name_ar : reason.name_en}</span>
-						</div>
+							<span class="reason-name">{isRtl ? reason.name_ar : reason.name_en}</span>						</div>
 						<div class="reason-check">
 							{#if selectedReason?.id === reason.id}
 								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="3">
@@ -438,7 +442,6 @@
 		display: block;
 		font-size: 1.8rem;
 		font-weight: 700;
-		color: #EF4444;
 		font-variant-numeric: tabular-nums;
 		font-family: 'Courier New', monospace;
 	}
@@ -557,6 +560,7 @@
 		font-size: 0.95rem;
 		font-weight: 500;
 		color: #111827;
+		display: block;
 	}
 
 	.reason-check {

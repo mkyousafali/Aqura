@@ -34,6 +34,7 @@
 	let exporting = false;
 	let refreshing = false;
 	let lastUpdated: string = '';
+	let lastUpdatedDate: Date | null = null;
 
 	// Multi-shift data for all employees
 	let multiShiftRegularAll: any[] = [];
@@ -189,13 +190,10 @@
 				return r.analyzed_at > max ? r.analyzed_at : max;
 			}, '');
 			if (maxAnalyzedAt) {
-				const d = new Date(maxAnalyzedAt);
-				const parts = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh' }).formatToParts(d);
-				const dd = parts.find(p => p.type === 'day')?.value ?? '';
-				const mm = parts.find(p => p.type === 'month')?.value ?? '';
-				const yyyy = parts.find(p => p.type === 'year')?.value ?? '';
-				lastUpdated = `${dd}-${mm}-${yyyy} ` + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' });
+				lastUpdatedDate = new Date(maxAnalyzedAt);
+				lastUpdated = 'set'; // non-empty sentinel
 			} else {
+				lastUpdatedDate = null;
 				lastUpdated = '';
 			}
 
@@ -768,7 +766,7 @@
 
 			<div class="flex-1 min-w-[200px]">
 				<label for="emp-search" class="block text-xs font-bold text-slate-500 uppercase mb-1">{$t('hr.shift.search_employee')}</label>
-				<input id="emp-search" type="text" bind:value={searchQuery} placeholder="ID or Name..." class="w-full px-3 py-2 border rounded-lg text-sm" />
+				<input id="emp-search" type="text" bind:value={searchQuery} placeholder={$locale === 'ar' ? 'رقم أو اسم الموظف...' : 'ID or Name...'} class="w-full px-3 py-2 border rounded-lg text-sm" />
 			</div>
 
 			<div class="w-40">
@@ -796,14 +794,16 @@
 				title="Re-run Edge Function to refresh analysis data from server"
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-				{refreshing ? 'Refreshing...' : 'Refresh Data'}
+				{refreshing ? ($locale === 'ar' ? 'جاري التحديث...' : 'Refreshing...') : ($locale === 'ar' ? 'تحديث بيانات البصمة' : 'Refresh Fingerprint Data')}
 			</button>
 
-			{#if lastUpdated}
-				<div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg h-[38px] text-xs text-slate-600" title="Last analysis run time">
+			{#if lastUpdatedDate}
+				<div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg h-[38px] text-xs text-slate-600" title={$locale === 'ar' ? 'وقت آخر تحليل' : 'Last analysis run time'}>
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-					<span class="font-semibold text-slate-500">Updated:</span>
-					<span class="font-bold text-slate-700">{lastUpdated}</span>
+					<span class="font-semibold text-slate-500">{$locale === 'ar' ? 'آخر تحديث:' : 'Updated:'}</span>
+					<span class="font-bold text-slate-700">
+						{lastUpdatedDate.toLocaleString($locale === 'ar' ? 'ar-SA' : 'en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' })}
+					</span>
 				</div>
 			{/if}
 
@@ -879,6 +879,7 @@
 									<td class="px-3 py-3 border-r text-center text-[10px] leading-tight w-[100px] group-hover:bg-emerald-100/50 transition-colors">
 										<div class={getStatusColor(row.dayByDay[date].status)}>
 											{#if row.dayByDay[date].status === 'Worked'}
+											{#if row.dayByDay[date].workedMins > 0}
 												<div class="font-bold whitespace-nowrap {row.dayByDay[date].underMins > 0 ? 'text-red-700' : ''}">
 													{formatMinutes(row.dayByDay[date].workedMins)}
 												</div>
@@ -887,6 +888,9 @@
 												{/if}
 												{#if row.dayByDay[date].overtimeMins > 0}
 													<div class="text-[8px] text-amber-600 font-bold">⏱️ {formatMinutes(row.dayByDay[date].overtimeMins)}</div>
+												{/if}
+											{:else}
+												<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">WORKED</span>
 												{/if}
 											{:else}
 												<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">{getStatusLabel(row.dayByDay[date].status)}</span>
