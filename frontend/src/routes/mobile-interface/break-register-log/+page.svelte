@@ -14,6 +14,17 @@
 	let filterStatus = '';
 	let searchQuery = '';
 
+	// Tabs
+	let activeTab: 'logs' | 'summary' = 'logs';
+
+	// Summary state
+	let summarySpecificDate = '';
+	let summaryDateFrom = '';
+	let summaryDateTo = '';
+	let summaryData: any[] = [];
+	let loadingSummary = false;
+	let summaryLoaded = false;
+
 	// User's branch — mobile only shows own branch (unless admin)
 	$: userBranchId = $currentUser?.branch_id ? Number($currentUser.branch_id) : null;
 	$: isAdminOrMaster = $currentUser?.isMasterAdmin || $currentUser?.isAdmin || false;
@@ -203,9 +214,62 @@
 				breaks: items
 			}));
 	})();
+
+	async function loadSummary() {
+		loadingSummary = true;
+		summaryLoaded = false;
+		try {
+			const params: any = {};
+			if (summarySpecificDate) {
+				params.p_date_from = summarySpecificDate;
+				params.p_date_to = summarySpecificDate;
+			} else {
+				if (summaryDateFrom) params.p_date_from = summaryDateFrom;
+				if (summaryDateTo) params.p_date_to = summaryDateTo;
+			}
+			const { data, error } = await supabase.rpc('get_break_summary_all_employees', params);
+			if (!error && data?.employees) {
+				summaryData = data.employees;
+			} else {
+				summaryData = [];
+			}
+		} catch (err) {
+			console.error('Error loading summary:', err);
+			summaryData = [];
+		} finally {
+			loadingSummary = false;
+			summaryLoaded = true;
+		}
+	}
+
+	function formatSummaryDuration(seconds: number): string {
+		if (!seconds || seconds === 0) return '—';
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		if (h > 0) return `${h}h ${m}m`;
+		return `${m}m`;
+	}
+
+	function switchTab(tab: 'logs' | 'summary') {
+		activeTab = tab;
+	}
 </script>
 
 <div class="break-log-page" dir={isRtl ? 'rtl' : 'ltr'}>
+
+	<!-- Tab Switcher -->
+	<div class="tab-row">
+		<button class="tab-btn {activeTab === 'logs' ? 'tab-active' : ''}" on:click={() => switchTab('logs')}>
+			☕ {t('Logs', 'السجلات')}
+		</button>
+		{#if canSeeAllBreaks || isAdminOrMaster}
+			<button class="tab-btn {activeTab === 'summary' ? 'tab-active' : ''}" on:click={() => switchTab('summary')}>
+				📊 {t('Summary', 'الملخص')}
+			</button>
+		{/if}
+	</div>
+
+	{#if activeTab === 'logs'}
 	<!-- 3-Day Notice -->
 	<div class="three-day-notice">
 		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -320,6 +384,66 @@
 			</div>
 		{/each}
 	{/if}
+	{/if}
+
+	<!-- SUMMARY TAB -->
+	{#if activeTab === 'summary' && (canSeeAllBreaks || isAdminOrMaster)}
+		<div class="summary-filters">
+			<div class="summary-filter-row">
+				<label class="summary-label">{t('Specific Date', 'تاريخ محدد')}</label>
+				<input type="date" bind:value={summarySpecificDate} class="summary-input"
+					on:change={() => { summaryDateFrom = ''; summaryDateTo = ''; }} />
+			</div>
+			<div class="summary-filter-row">
+				<label class="summary-label">{t('Date Range', 'نطاق التاريخ')}</label>
+				<div class="summary-range">
+					<input type="date" bind:value={summaryDateFrom} class="summary-input"
+						on:change={() => summarySpecificDate = ''} placeholder={t('From', 'من')} />
+					<input type="date" bind:value={summaryDateTo} class="summary-input"
+						on:change={() => summarySpecificDate = ''} placeholder={t('To', 'إلى')} />
+				</div>
+			</div>
+			<button class="load-summary-btn" on:click={loadSummary} disabled={loadingSummary}>
+				{loadingSummary ? t('Loading...', 'جاري التحميل...') : t('Load Summary', 'تحميل الملخص')}
+			</button>
+		</div>
+
+		{#if loadingSummary}
+			<div class="loading-container">
+				<div class="spinner"></div>
+				<p>{t('Loading summary...', 'جاري تحميل الملخص...')}</p>
+			</div>
+		{:else if summaryLoaded && summaryData.length === 0}
+			<div class="empty-state">
+				<span class="empty-icon">📊</span>
+				<p>{t('No data found', 'لا توجد بيانات')}</p>
+			</div>
+		{:else if summaryLoaded}
+			<div class="summary-list">
+				{#each summaryData as emp}
+					<div class="summary-card">
+						<div class="summary-emp-name">{isRtl ? (emp.employee_name_ar || emp.employee_name_en) : (emp.employee_name_en || emp.employee_name_ar)}</div>
+						<div class="summary-emp-id">{emp.employee_id}</div>
+						<div class="summary-stats">
+							<div class="summary-stat">
+								<span class="summary-stat-label">{t('Total Breaks', 'إجمالي الاستراحات')}</span>
+								<span class="summary-stat-val">{emp.total_breaks ?? 0}</span>
+							</div>
+							<div class="summary-stat">
+								<span class="summary-stat-label">{t('Total Duration', 'إجمالي المدة')}</span>
+								<span class="summary-stat-val">{formatSummaryDuration(emp.total_duration_seconds ?? 0)}</span>
+							</div>
+							<div class="summary-stat">
+								<span class="summary-stat-label">{t('Open', 'مفتوحة')}</span>
+								<span class="summary-stat-val {(emp.open_breaks ?? 0) > 0 ? 'open-val' : ''}">{emp.open_breaks ?? 0}</span>
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+
 </div>
 
 <style>
@@ -331,6 +455,133 @@
 		min-height: 100%;
 		background: #f8fafc;
 	}
+
+	/* Tabs */
+	.tab-row {
+		display: flex;
+		gap: 8px;
+		background: #f1f5f9;
+		border-radius: 12px;
+		padding: 4px;
+	}
+	.tab-btn {
+		flex: 1;
+		padding: 8px 0;
+		border: none;
+		border-radius: 9px;
+		background: transparent;
+		font-size: 13px;
+		font-weight: 700;
+		color: #64748b;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.tab-btn.tab-active {
+		background: #fff;
+		color: #1e293b;
+		box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+	}
+
+	/* Summary */
+	.summary-filters {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		background: #fff;
+		border-radius: 14px;
+		padding: 14px;
+		box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+	}
+	.summary-filter-row {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.summary-label {
+		font-size: 11px;
+		font-weight: 700;
+		color: #64748b;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.summary-input {
+		padding: 8px 10px;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 13px;
+		color: #1e293b;
+		background: #f8fafc;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.summary-range {
+		display: flex;
+		gap: 8px;
+	}
+	.summary-range .summary-input {
+		flex: 1;
+	}
+	.load-summary-btn {
+		padding: 10px;
+		background: #6366f1;
+		color: #fff;
+		border: none;
+		border-radius: 10px;
+		font-size: 14px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+	.load-summary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+	.load-summary-btn:not(:disabled):hover { background: #4f46e5; }
+	.summary-list {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.summary-card {
+		background: #fff;
+		border-radius: 14px;
+		padding: 14px;
+		box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+	}
+	.summary-emp-name {
+		font-size: 15px;
+		font-weight: 700;
+		color: #1e293b;
+	}
+	.summary-emp-id {
+		font-size: 11px;
+		color: #94a3b8;
+		margin-bottom: 10px;
+	}
+	.summary-stats {
+		display: flex;
+		gap: 10px;
+	}
+	.summary-stat {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		background: #f8fafc;
+		border-radius: 8px;
+		padding: 8px 4px;
+	}
+	.summary-stat-label {
+		font-size: 9px;
+		font-weight: 700;
+		color: #94a3b8;
+		text-transform: uppercase;
+		text-align: center;
+	}
+	.summary-stat-val {
+		font-size: 16px;
+		font-weight: 800;
+		color: #1e293b;
+		margin-top: 2px;
+	}
+	.summary-stat-val.open-val { color: #ef4444; }
 
 	/* 3-Day Notice */
 	.three-day-notice {
