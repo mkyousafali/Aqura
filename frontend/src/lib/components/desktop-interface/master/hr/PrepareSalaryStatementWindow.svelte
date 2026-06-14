@@ -202,6 +202,7 @@
 	let foodDeductionActives: { [key: string]: boolean } = {};
 	let posShortageDeductions: { [key: string]: number } = {};
 	let posDeductionsList: { [key: string]: any[] } = {}; // Store detailed POS deductions per employee
+	let autoFineDeductions: { [key: string]: number } = {}; // Auto-fetched from incident_actions (unpaid actual fines), editable by admin
 	let expandedPosDropdown: { [key: string]: boolean } = {}; // Track which employee's dropdown is open
 
 	// Column visibility panel
@@ -294,6 +295,7 @@
 		posShortage: 0,
 		salaryAdvance: 0,
 		loanDeductions: 0,
+		autoFine: 0,
 		penalties: 0,
 		otherDeductions: 0,
 		lateMinutes: 0,
@@ -326,6 +328,7 @@
 			posShortage: posShortageDeductions[row.employeeId] || 0,
 			salaryAdvance: empEditOverrides[row.employeeId]?.salaryAdvance || 0,
 			loanDeductions: empEditOverrides[row.employeeId]?.loanDeductions || 0,
+			autoFine: autoFineDeductions[row.employeeId] || 0,
 			penalties: empEditOverrides[row.employeeId]?.penalties || 0,
 			otherDeductions: empEditOverrides[row.employeeId]?.otherDeductions || 0,
 			lateMinutes: lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0,
@@ -403,6 +406,7 @@
 		foodPaymentModes[id] = empEdit.foodPaymentMode;
 		gosiDeductions[id] = Number(empEdit.gosiDeduction) || 0;
 		posShortageDeductions[id] = Number(empEdit.posShortage) || 0;
+		autoFineDeductions[id] = Number(empEdit.autoFine) || 0;
 		empEditOverrides[id] = {
 			salaryAdvance: Number(empEdit.salaryAdvance) || 0,
 			loanDeductions: Number(empEdit.loanDeductions) || 0,
@@ -416,6 +420,7 @@
 		unapprovedLeaveDeductionOverrides[id] = Number(empEdit.unapprovedLeaveDeduction) || 0;
 		incompleteDayDeductionOverrides[id] = Number(empEdit.incompleteDayDeduction) || 0;
 		foodDeductionActives[id] = empEdit.foodDeductionActive ?? false;
+		autoFineDeductions = autoFineDeductions;
 		// trigger reactivity
 		basicSalaries = basicSalaries;
 		paymentModes = paymentModes;
@@ -544,7 +549,7 @@
 
 		const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
 		const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-		const penaltiesDed = empEditOverrides[row.employeeId]?.penalties || 0;
+		const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
 		const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
 		const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 		const foodDeductionDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
@@ -657,7 +662,7 @@
 			t.posShortage += posShortageDeductions[r.employeeId] || 0;
 			t.salaryAdvance += empEditOverrides[r.employeeId]?.salaryAdvance || 0;
 			t.loanDeductions += empEditOverrides[r.employeeId]?.loanDeductions || 0;
-			t.penalties += empEditOverrides[r.employeeId]?.penalties || 0;
+			t.penalties += (autoFineDeductions[r.employeeId] || 0) + (empEditOverrides[r.employeeId]?.penalties || 0);
 			t.otherDeductions += empEditOverrides[r.employeeId]?.otherDeductions || 0;
 			t.foodDeduction += (foodDeductionActives[r.employeeId] ?? false) ? foodAllow : 0;
 			const s = computeRowSalary(r);
@@ -686,6 +691,7 @@
 		editableWorkedDays, lateMinutesOverrides, underWorkedMinutesOverrides,
 		lateDeductionOverrides, underWorkedDeductionOverrides, unapprovedLeaveDeductionOverrides,
 		incompleteDayDeductionOverrides, posShortageDeductions, empEditOverrides, branches,
+		autoFineDeductions,
 		computeSalaryTotals()
 	);
 
@@ -786,6 +792,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			(posShortageDeductions[empId] || 0) +
 			(empEditOverrides[empId]?.salaryAdvance || 0) +
 			(empEditOverrides[empId]?.loanDeductions || 0) +
+			(autoFineDeductions[empId] || 0) +
 			(empEditOverrides[empId]?.penalties || 0) +
 			(empEditOverrides[empId]?.otherDeductions || 0);
 
@@ -1238,6 +1245,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			posShortageDeductions,
 			posDeductionsList,
 			empEditOverrides,
+			autoFineDeductions,
 			lateMinutesOverrides,
 			underWorkedMinutesOverrides,
 			lateDeductionOverrides,
@@ -1277,6 +1285,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		posShortageDeductions = snap.posShortageDeductions || {};
 		posDeductionsList = snap.posDeductionsList || {};
 		empEditOverrides = snap.empEditOverrides || {};
+		autoFineDeductions = snap.autoFineDeductions || {};
 		lateMinutesOverrides = snap.lateMinutesOverrides || {};
 		underWorkedMinutesOverrides = snap.underWorkedMinutesOverrides || {};
 		lateDeductionOverrides = snap.lateDeductionOverrides || {};
@@ -1992,7 +2001,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 			// Fetch pre-computed attendance data + POS deductions in parallel
 			// (same approach as AnalyzeAllWindow — reads from hr_analysed_attendance_data)
-			const [{ data: rows, error }, { data: posDeductions }] = await Promise.all([
+			const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }] = await Promise.all([
 				supabase
 					.from('hr_analysed_attendance_data')
 					.select('*')
@@ -2005,10 +2014,26 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					.in('id', empIds)
 					.eq('status', 'Proposed')
 					.gte('date_closed_box', startDate)
-					.lte('date_closed_box', endDate)
+					.lte('date_closed_box', endDate),
+				supabase
+					.from('incident_actions')
+					.select('fine_amount, incidents!inner(employee_id)')
+					.eq('has_fine', true)
+					.eq('is_paid', false)
+					.gt('fine_amount', 0)
 			]);
 
 			if (error) throw error;
+
+			// Process unpaid incident fines per employee
+			autoFineDeductions = {};
+			const empIdSet = new Set(empIds.map(String));
+			(incidentFineRows || []).forEach((action: any) => {
+				const empId = String(action.incidents?.employee_id);
+				if (empId && empIdSet.has(empId)) {
+					autoFineDeductions[empId] = (autoFineDeductions[empId] || 0) + (action.fine_amount || 0);
+				}
+			});
 
 			// Process POS shortage deductions
 			posShortageDeductions = {};
@@ -3434,7 +3459,7 @@ title="Export salary data to Mudad Excel template"
 									{(empEditOverrides[row.employeeId]?.loanDeductions || 0) > 0 ? (empEditOverrides[row.employeeId].loanDeductions).toLocaleString() : '-'}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-orange-700 bg-orange-50/20 w-[150px] whitespace-nowrap group-hover:bg-orange-100/50 transition-colors {colVis.penaltiesDeductions ? '' : 'hidden'}">
-									{(empEditOverrides[row.employeeId]?.penalties || 0) > 0 ? (empEditOverrides[row.employeeId].penalties).toLocaleString() : '-'}
+									{(() => { const _pv = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0); return _pv > 0 ? _pv.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'; })()}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-sky-700 bg-sky-50/20 w-[150px] whitespace-nowrap group-hover:bg-sky-100/50 transition-colors {colVis.unapprovedLeaveDeductions ? '' : 'hidden'}">
 										{(() => {
@@ -3503,7 +3528,7 @@ title="Export salary data to Mudad Excel template"
 										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0) { unapprovedLeaveDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * shiftHoursPerDay * hourlyRate; }
 										const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
 										const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-										const penaltiesDed = empEditOverrides[row.employeeId]?.penalties || 0;
+										const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
 										const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
 										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 										
@@ -3561,7 +3586,7 @@ title="Export salary data to Mudad Excel template"
 										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0) { unapprovedLeaveDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * shiftHoursPerDay * hourlyRate; }
 										const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
 										const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-										const penaltiesDed = empEditOverrides[row.employeeId]?.penalties || 0;
+								const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
 										const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
 										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 										
@@ -3642,7 +3667,7 @@ title="Export salary data to Mudad Excel template"
 										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0) { unapprovedLeaveDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * shiftHoursPerDay * hourlyRate; }
 										const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
 										const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-										const penaltiesDed = empEditOverrides[row.employeeId]?.penalties || 0;
+								const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
 										const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
 										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 										const foodDeductionDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
@@ -4155,7 +4180,8 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	{@const _posShort = Number(empEdit.posShortage) || 0}
 	{@const _salAdv = Number(empEdit.salaryAdvance) || 0}
 	{@const _loan = Number(empEdit.loanDeductions) || 0}
-	{@const _pen = Number(empEdit.penalties) || 0}
+	{@const _autoFine = Number(empEdit.autoFine) || 0}
+	{@const _pen = _autoFine + (Number(empEdit.penalties) || 0)}
 	{@const _otherDed = Number(empEdit.otherDeductions) || 0}
 	{@const _totalAllow = _basicSal + _otherAllow + _accomm + _travel + _food}
 	{@const _workedDays = editableWorkedDays[empEditRow.employeeId] !== undefined && editableWorkedDays[empEditRow.employeeId] !== '' ? parseFloat(editableWorkedDays[empEditRow.employeeId]) : empEditRow.totalWorkedDays}
@@ -4376,6 +4402,12 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 						<div class="bg-fuchsia-50 rounded-lg p-2.5 border border-fuchsia-100">
 							<label for="ee-loan" class="block text-[10px] font-bold text-fuchsia-600 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.loanDeductionsLabel')}</label>
 							<input id="ee-loan" type="number" min="0" bind:value={empEdit.loanDeductions} class="w-full px-2.5 py-1.5 border border-fuchsia-200 rounded-md text-sm font-semibold text-fuchsia-800 bg-white focus:outline-none focus:ring-2 focus:ring-fuchsia-400" />
+						</div>
+						<div class="bg-red-50 rounded-lg p-2.5 border border-red-100">
+							<label for="ee-auto-fine" class="block text-[10px] font-bold text-red-600 uppercase tracking-wide mb-1">
+								{$locale === 'ar' ? 'غرامات الحوادث (تلقائي)' : 'Incident Fines (Auto)'}
+							</label>
+							<input id="ee-auto-fine" type="number" min="0" bind:value={empEdit.autoFine} class="w-full px-2.5 py-1.5 border border-red-200 rounded-md text-sm font-semibold text-red-800 bg-white focus:outline-none focus:ring-2 focus:ring-red-400" />
 						</div>
 						<div class="bg-amber-50 rounded-lg p-2.5 border border-amber-100">
 							<label for="ee-pen" class="block text-[10px] font-bold text-amber-600 uppercase tracking-wide mb-1">{$t('hr.salaryStatement.penaltiesLabel')}</label>
