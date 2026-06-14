@@ -30,6 +30,16 @@
     let showReportsToModal = false;
     let selectedReportsToIncident: any = null;
     let showWhatHappenedModal = false;
+    
+    // Manage Claimed By modal state
+    let showManageClaimedModal = false;
+    let manageClaimedIncident: any = null;
+    let showChangeClaimedSearch = false;
+    let manageClaimedSearchQuery = '';
+    let manageClaimedFilteredUsers: any[] = [];
+    let selectedNewClaimedUserId: string | null = null;
+    let isUpdatingClaim = false;
+    let manageClaimedAllUsers: any[] = [];
     let whatHappenedText = '';
     let whatHappenedIncidentId = '';
     
@@ -931,6 +941,152 @@
         previewImageName = '';
     }
     
+    async function openManageClaimedModal(incident: any) {
+        manageClaimedIncident = incident;
+        showChangeClaimedSearch = false;
+        manageClaimedSearchQuery = '';
+        manageClaimedFilteredUsers = [];
+        selectedNewClaimedUserId = null;
+        manageClaimedAllUsers = [];
+        showManageClaimedModal = true;
+        // Pre-load all users
+        try {
+            const { data, error: fetchError } = await supabase
+                .from('users')
+                .select(`
+                    id,
+                    username,
+                    hr_employee_master (
+                        name_en,
+                        name_ar
+                    )
+                `)
+                .order('username', { ascending: true });
+            if (!fetchError) {
+                manageClaimedAllUsers = (data || []).map((user: any) => ({
+                    user_id: user.id,
+                    name_en: user.hr_employee_master?.name_en || user.username,
+                    name_ar: user.hr_employee_master?.name_ar || user.username,
+                    email: user.username
+                }));
+            }
+        } catch (err) {
+            console.error('Error loading users for manage claimed modal:', err);
+        }
+    }
+
+    function closeManageClaimedModal() {
+        showManageClaimedModal = false;
+        manageClaimedIncident = null;
+        showChangeClaimedSearch = false;
+        manageClaimedSearchQuery = '';
+        manageClaimedFilteredUsers = [];
+        selectedNewClaimedUserId = null;
+        isUpdatingClaim = false;
+        manageClaimedAllUsers = [];
+    }
+
+    function handleManageClaimedSearch(e: Event) {
+        const query = (e.target as HTMLInputElement).value.toLowerCase();
+        manageClaimedSearchQuery = query;
+        if (!query) {
+            manageClaimedFilteredUsers = manageClaimedAllUsers;
+        } else {
+            manageClaimedFilteredUsers = manageClaimedAllUsers.filter(user =>
+                user.name_en?.toLowerCase().includes(query) ||
+                user.name_ar?.toLowerCase().includes(query) ||
+                user.email?.toLowerCase().includes(query)
+            );
+        }
+    }
+
+    function selectNewClaimedUser(user: any) {
+        selectedNewClaimedUserId = user.user_id;
+        manageClaimedSearchQuery = $locale === 'ar' ? user.name_ar : user.name_en;
+        manageClaimedFilteredUsers = [];
+    }
+
+    async function handleChangeClaim() {
+        if (!selectedNewClaimedUserId || !manageClaimedIncident) return;
+        try {
+            isUpdatingClaim = true;
+            const incident = manageClaimedIncident;
+            const userStatuses = typeof incident.user_statuses === 'string'
+                ? JSON.parse(incident.user_statuses || '{}')
+                : (incident.user_statuses || {});
+            // Clear claimed status from old claimed user
+            if (incident.claimed_user_id && userStatuses[incident.claimed_user_id]) {
+                userStatuses[incident.claimed_user_id] = {
+                    ...userStatuses[incident.claimed_user_id],
+                    status: 'reported'
+                };
+            }
+            // Set claimed status for new user
+            userStatuses[selectedNewClaimedUserId] = {
+                ...userStatuses[selectedNewClaimedUserId],
+                status: 'claimed',
+                claimed_at: new Date().toISOString()
+            };
+            const { error: updateError } = await supabase
+                .from('incidents')
+                .update({
+                    claimed_user_id: selectedNewClaimedUserId,
+                    user_statuses: userStatuses,
+                    resolution_status: 'claimed'
+                })
+                .eq('id', incident.id);
+            if (updateError) throw new Error(updateError.message);
+            closeManageClaimedModal();
+            await loadIncidents();
+            alert($locale === 'ar' ? '✅ تم تغيير المطالب بنجاح' : '✅ Claimed user changed successfully');
+        } catch (err) {
+            console.error('Error changing claimed user:', err);
+            alert($locale === 'ar' ? 'خطأ في تغيير المطالب' : 'Error changing claimed user');
+        } finally {
+            isUpdatingClaim = false;
+        }
+    }
+
+    async function handleMarkUnclaimed() {
+        if (!manageClaimedIncident) return;
+        const confirmMsg = $locale === 'ar'
+            ? 'هل أنت متأكد من إلغاء المطالبة؟ سيتم إعادة الحادثة إلى حالة "مبلغ عنه".'
+            : 'Are you sure you want to mark this incident as unclaimed? It will return to "reported" status.';
+        if (!confirm(confirmMsg)) return;
+        try {
+            isUpdatingClaim = true;
+            const incident = manageClaimedIncident;
+            const userStatuses = typeof incident.user_statuses === 'string'
+                ? JSON.parse(incident.user_statuses || '{}')
+                : (incident.user_statuses || {});
+            // Remove claimed status from the current claimed user
+            if (incident.claimed_user_id && userStatuses[incident.claimed_user_id]) {
+                userStatuses[incident.claimed_user_id] = {
+                    ...userStatuses[incident.claimed_user_id],
+                    status: 'reported',
+                    claimed_at: null
+                };
+            }
+            const { error: updateError } = await supabase
+                .from('incidents')
+                .update({
+                    claimed_user_id: null,
+                    user_statuses: userStatuses,
+                    resolution_status: 'reported'
+                })
+                .eq('id', incident.id);
+            if (updateError) throw new Error(updateError.message);
+            closeManageClaimedModal();
+            await loadIncidents();
+            alert($locale === 'ar' ? '✅ تم إلغاء المطالبة بنجاح' : '✅ Incident marked as unclaimed');
+        } catch (err) {
+            console.error('Error marking as unclaimed:', err);
+            alert($locale === 'ar' ? 'خطأ في إلغاء المطالبة' : 'Error marking as unclaimed');
+        } finally {
+            isUpdatingClaim = false;
+        }
+    }
+
     onMount(async () => {
         await loadIncidents();
         setupRealtime();
@@ -1215,10 +1371,19 @@
                             <!-- Claimed By -->
                             <td class="px-4 py-3 text-sm text-slate-700">
                                 {#if incident.claimedByName}
-                                    <div class="flex items-center gap-1.5">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
                                         <span class="px-2.5 py-1 rounded-full text-xs font-semibold shadow-sm {incident.resolution_status === 'resolved' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-yellow-100 text-yellow-700 border border-yellow-200'}">
                                             {incident.resolution_status === 'resolved' ? '✅' : '🔒'} {incident.claimedByName}
                                         </span>
+                                        {#if $currentUser?.isMasterAdmin && incident.resolution_status !== 'resolved'}
+                                            <button
+                                                on:click={() => openManageClaimedModal(incident)}
+                                                class="w-6 h-6 flex items-center justify-center rounded-full bg-slate-200 hover:bg-indigo-200 text-slate-500 hover:text-indigo-700 transition-all shadow-sm text-xs"
+                                                title={$locale === 'ar' ? 'إدارة المطالب' : 'Manage Claimed User'}
+                                            >
+                                                ✏️
+                                            </button>
+                                        {/if}
                                     </div>
                                 {:else}
                                     <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لم يُطالب بها' : 'Unclaimed'}</span>
@@ -1675,6 +1840,108 @@
             >
                 {$locale === 'ar' ? 'إغلاق' : 'Close'}
             </button>
+        </div>
+    </div>
+{/if}
+
+<!-- Manage Claimed User Modal (Master Admin only) -->
+{#if showManageClaimedModal && manageClaimedIncident}
+    <div class="modal-overlay" on:click={closeManageClaimedModal}>
+        <div class="modal-content" on:click|stopPropagation>
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-5">
+                <div class="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span class="text-xl">👤</span>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800">
+                        {$locale === 'ar' ? 'إدارة المطالب بالحادثة' : 'Manage Claimed User'}
+                    </h3>
+                    <p class="text-sm text-slate-500">
+                        {$locale === 'ar' ? `حادثة #${manageClaimedIncident.id}` : `Incident #${manageClaimedIncident.id}`}
+                        {#if manageClaimedIncident.claimedByName}
+                            · {$locale === 'ar' ? 'مطالب حالياً:' : 'Currently:'}
+                            <span class="font-semibold text-slate-700">{manageClaimedIncident.claimedByName}</span>
+                        {/if}
+                    </p>
+                </div>
+            </div>
+
+            {#if !showChangeClaimedSearch}
+                <!-- Action selection -->
+                <div class="flex flex-col gap-3">
+                    <button
+                        on:click={() => { showChangeClaimedSearch = true; manageClaimedFilteredUsers = manageClaimedAllUsers; manageClaimedSearchQuery = ''; }}
+                        disabled={isUpdatingClaim}
+                        class="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 transition-all font-semibold text-sm flex items-center gap-2 shadow disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        <span>🔄</span>
+                        {$locale === 'ar' ? 'تغيير المطالب' : 'Change Claimed User'}
+                    </button>
+                    <button
+                        on:click={handleMarkUnclaimed}
+                        disabled={isUpdatingClaim}
+                        class="w-full px-4 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all font-semibold text-sm flex items-center gap-2 shadow disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        <span>🔓</span>
+                        {$locale === 'ar' ? 'إلغاء المطالبة' : 'Mark as Unclaimed'}
+                    </button>
+                    <button
+                        on:click={closeManageClaimedModal}
+                        class="w-full px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all font-semibold text-sm"
+                    >
+                        {$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                    </button>
+                </div>
+            {:else}
+                <!-- User search & select -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        {$locale === 'ar' ? 'اختر المطالب الجديد' : 'Select New Claimed User'}
+                    </label>
+                    <div class="relative mb-4">
+                        <input
+                            type="text"
+                            placeholder={$locale === 'ar' ? 'ابحث عن مستخدم...' : 'Search for a user...'}
+                            value={manageClaimedSearchQuery}
+                            on:input={handleManageClaimedSearch}
+                            on:focus={() => { if (!manageClaimedSearchQuery) manageClaimedFilteredUsers = manageClaimedAllUsers; }}
+                            class="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        />
+                        {#if manageClaimedFilteredUsers.length > 0}
+                            <div class="absolute top-full left-0 right-0 mt-1 border border-slate-200 rounded-xl bg-white shadow-lg max-h-48 overflow-y-auto z-10">
+                                {#each manageClaimedFilteredUsers as user (user.user_id)}
+                                    <button
+                                        type="button"
+                                        on:click={() => selectNewClaimedUser(user)}
+                                        class="w-full text-left px-3 py-2 hover:bg-indigo-50 transition flex justify-between items-center text-sm {selectedNewClaimedUserId === user.user_id ? 'bg-indigo-50 font-semibold' : ''}"
+                                    >
+                                        <span>{$locale === 'ar' ? user.name_ar : user.name_en}</span>
+                                        <span class="text-xs text-slate-400">{user.email}</span>
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                    <div class="flex gap-2">
+                        <button
+                            on:click={handleChangeClaim}
+                            disabled={!selectedNewClaimedUserId || isUpdatingClaim}
+                            class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition font-semibold text-sm disabled:bg-slate-300 disabled:cursor-not-allowed"
+                        >
+                            {isUpdatingClaim
+                                ? ($locale === 'ar' ? 'جاري التحديث...' : 'Updating...')
+                                : ($locale === 'ar' ? 'تأكيد التغيير' : 'Confirm Change')}
+                        </button>
+                        <button
+                            on:click={() => { showChangeClaimedSearch = false; selectedNewClaimedUserId = null; manageClaimedSearchQuery = ''; manageClaimedFilteredUsers = []; }}
+                            class="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition font-semibold text-sm"
+                        >
+                            {$locale === 'ar' ? 'رجوع' : 'Back'}
+                        </button>
+                    </div>
+                </div>
+            {/if}
         </div>
     </div>
 {/if}
