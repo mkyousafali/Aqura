@@ -38,6 +38,10 @@
 	// Checklist operations (submissions)
 	let submissions: any[] = [];
 	let loadingSubmissions = true;
+	let submissionsTotal = 0;
+	let submissionsPage = 0;
+	const SUBMISSIONS_PAGE_SIZE = 100;
+	let searchSubmissionsDebounce: ReturnType<typeof setTimeout> | null = null;
 
 	// Search
 	let searchChecklists = '';
@@ -92,16 +96,7 @@
 			return nameA.localeCompare(nameB);
 		});
 
-	$: filteredSubmissions = searchSubmissions.trim()
-		? submissions.filter(s => {
-			const q = searchSubmissions.toLowerCase();
-			return (s.id || '').toLowerCase().includes(q)
-				|| (s.employee_id || '').toLowerCase().includes(q)
-				|| (s.checklist_id || '').toLowerCase().includes(q)
-				|| (s.hr_employee_master?.name_en || '').toLowerCase().includes(q)
-				|| (s.hr_employee_master?.name_ar || '').includes(q);
-		})
-		: submissions;
+	$: filteredSubmissions = submissions;
 
 	onMount(async () => {
 		await Promise.all([loadChecklists(), loadQuestions(), loadEmployees(), loadAvailableChecklists(), loadSubmissions(), loadAssignedChecklists()]);
@@ -276,19 +271,31 @@
 		});
 	}
 
-	async function loadSubmissions() {
+	async function loadSubmissions(page = 0) {
 		loadingSubmissions = true;
-		const { data, error } = await supabase
-			.from('hr_checklist_operations')
-			.select(`
-				*,
-				hr_employee_master(id, name_en, name_ar),
-				hr_checklists(id, checklist_name_en, checklist_name_ar),
-				branches(id, name_en, name_ar)
-			`)
-			.order('created_at', { ascending: false });
-		if (!error) submissions = data || [];
+		const { data, error } = await supabase.rpc('get_checklist_submissions', {
+			p_limit: SUBMISSIONS_PAGE_SIZE,
+			p_offset: page * SUBMISSIONS_PAGE_SIZE,
+			p_search: searchSubmissions.trim() || null,
+			p_date_from: null,
+			p_date_to: null
+		});
+		if (!error && data) {
+			submissionsTotal = data[0]?.total_count ?? 0;
+			submissionsPage = page;
+			submissions = data.map((row: any) => ({
+				...row,
+				hr_employee_master: row.emp_id ? { id: row.emp_id, name_en: row.emp_name_en, name_ar: row.emp_name_ar } : null,
+				hr_checklists: row.cl_id ? { id: row.cl_id, checklist_name_en: row.cl_name_en, checklist_name_ar: row.cl_name_ar } : null,
+				branches: row.br_id ? { id: row.br_id, name_en: row.br_name_en, name_ar: row.br_name_ar } : null,
+			}));
+		}
 		loadingSubmissions = false;
+	}
+
+	function onSearchSubmissionsInput() {
+		if (searchSubmissionsDebounce) clearTimeout(searchSubmissionsDebounce);
+		searchSubmissionsDebounce = setTimeout(() => loadSubmissions(0), 400);
 	}
 
 	async function deleteSubmission(id: string) {
@@ -911,7 +918,7 @@
 							/>
 							<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
 						</div>
-						<button on:click={loadSubmissions} class="bg-white/20 hover:bg-white/30 text-white font-bold p-2 rounded-lg transition-colors shadow" title="Refresh">
+						<button on:click={() => loadSubmissions(0)} class="bg-white/20 hover:bg-white/30 text-white font-bold p-2 rounded-lg transition-colors shadow" title="Refresh">
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
 						</button>
 					</div>
@@ -1000,6 +1007,26 @@
 									{/each}
 								</tbody>
 							</table>
+							<!-- Pagination -->
+							{#if submissionsTotal > SUBMISSIONS_PAGE_SIZE}
+								<div class="flex items-center justify-between pt-4 border-t border-slate-200 mt-2">
+									<span class="text-xs text-slate-500">
+										{$locale === 'ar' ? 'عرض' : 'Showing'} {submissionsPage * SUBMISSIONS_PAGE_SIZE + 1}–{Math.min((submissionsPage + 1) * SUBMISSIONS_PAGE_SIZE, submissionsTotal)} {$locale === 'ar' ? 'من' : 'of'} {submissionsTotal}
+									</span>
+									<div class="flex gap-2">
+										<button
+											on:click={() => loadSubmissions(submissionsPage - 1)}
+											disabled={submissionsPage === 0 || loadingSubmissions}
+											class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+										>{$locale === 'ar' ? 'السابق' : 'Prev'}</button>
+										<button
+											on:click={() => loadSubmissions(submissionsPage + 1)}
+											disabled={(submissionsPage + 1) * SUBMISSIONS_PAGE_SIZE >= submissionsTotal || loadingSubmissions}
+											class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+										>{$locale === 'ar' ? 'التالي' : 'Next'}</button>
+									</div>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</div>

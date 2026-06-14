@@ -26,6 +26,10 @@
 	let requests: BTRequest[] = [];
 	let loading = true;
 	let error = '';
+	let totalRequests = 0;
+	let currentPage = 0;
+	const PAGE_SIZE = 100;
+	let filterDebounce: ReturnType<typeof setTimeout> | null = null;
 
 	// Caches
 	let imageCache: Record<string, string> = {};
@@ -90,37 +94,7 @@
 	// Derived: unique branches for dropdown
 	$: branchOptions = [...new Set([...requests.map(r => r.from_branch_name), ...requests.map(r => r.to_branch_name)].filter(Boolean))] as string[];
 
-	// Derived: filtered requests
-	$: filteredRequests = requests.filter(r => {
-		if (filterStatus && r.status !== filterStatus) return false;
-		if (filterBranch && r.to_branch_name !== filterBranch) return false;
-		if (filterDateFrom) {
-			const from = new Date(filterDateFrom);
-			if (new Date(r.created_at) < from) return false;
-		}
-		if (filterDateTo) {
-			const to = new Date(filterDateTo);
-			to.setHours(23, 59, 59, 999);
-			if (new Date(r.created_at) > to) return false;
-		}
-		if (searchQuery.trim()) {
-			const q = searchQuery.trim().toLowerCase();
-			const items = getItemsList(r.items);
-			const matchesItems = items.some(item =>
-				(item.barcode && item.barcode.toLowerCase().includes(q)) ||
-				(item.product_name && item.product_name.toLowerCase().includes(q))
-			);
-			if (
-				!(r.requester_name?.toLowerCase().includes(q)) &&
-				!(r.target_name?.toLowerCase().includes(q)) &&
-				!(r.from_branch_name?.toLowerCase().includes(q)) &&
-				!(r.to_branch_name?.toLowerCase().includes(q)) &&
-				!(r.status?.toLowerCase().includes(q)) &&
-				!matchesItems
-			) return false;
-		}
-		return true;
-	});
+	$: filteredRequests = requests;
 
 	function clearFilters() {
 		searchQuery = '';
@@ -213,22 +187,36 @@
 		loadRequests();
 	});
 
+	function triggerReload() {
+		if (filterDebounce) clearTimeout(filterDebounce);
+		filterDebounce = setTimeout(() => loadRequests(0), 400);
+	}
+
 	onDestroy(() => {
 		for (const blobUrl of Object.values(imageCache)) {
 			if (blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl);
 		}
 	});
 
-	async function loadRequests() {
+	async function loadRequests(page = 0) {
 		loading = true;
 		error = '';
 		try {
 			// Single RPC call replaces 3 separate queries (requests + employees + branches)
-			const { data, error: err } = await supabase.rpc('get_bt_requests_with_details');
+			const { data, error: err } = await supabase.rpc('get_bt_requests_with_details', {
+				p_limit: PAGE_SIZE,
+				p_offset: page * PAGE_SIZE,
+				p_status: filterStatus || null,
+				p_search: searchQuery.trim() || null,
+				p_date_from: filterDateFrom || null,
+				p_date_to: filterDateTo || null
+			});
 
 			if (err) throw err;
 
 			const rows = data || [];
+			totalRequests = rows[0]?.total_count ?? 0;
+			currentPage = page;
 			const isAr = $locale === 'ar';
 
 			// Map RPC results to component format
@@ -648,7 +636,7 @@
 		</div>
 		<button
 			class="flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all text-xs"
-			on:click={loadRequests}
+			on:click={() => loadRequests(0)}
 		>
 			<span>🔄</span>
 			{$t('finance.assets.refresh')}
@@ -754,9 +742,9 @@
 				<div class="flex flex-wrap items-center gap-2 mb-4">
 					<div class="relative flex-1 min-w-[180px] max-w-[320px]">
 						<span class="absolute {$locale === 'ar' ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
-						<input type="text" bind:value={searchQuery} placeholder={$locale === 'ar' ? 'بحث بالاسم، الفرع، الباركود...' : 'Search name, branch, barcode...'} class="w-full {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all" />
+						<input type="text" bind:value={searchQuery} on:input={triggerReload} placeholder={$locale === 'ar' ? 'بحث بالاسم، الفرع، الباركود...' : 'Search name, branch, barcode...'} class="w-full {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all" />
 					</div>
-					<select bind:value={filterStatus} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[110px]">
+					<select bind:value={filterStatus} on:change={triggerReload} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[110px]">
 						<option value="">{$locale === 'ar' ? 'كل الحالات' : 'All Status'}</option>
 						<option value="pending">{$locale === 'ar' ? 'قيد الانتظار' : 'Pending'}</option>
 						<option value="approved">{$locale === 'ar' ? 'مقبول' : 'Approved'}</option>
@@ -771,16 +759,16 @@
 					</select>
 					<div class="flex items-center gap-1">
 						<span class="text-[10px] text-slate-400 font-bold">{$locale === 'ar' ? 'من' : 'From'}</span>
-						<input type="date" bind:value={filterDateFrom} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer" />
+						<input type="date" bind:value={filterDateFrom} on:change={triggerReload} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer" />
 					</div>
 					<div class="flex items-center gap-1">
 						<span class="text-[10px] text-slate-400 font-bold">{$locale === 'ar' ? 'إلى' : 'To'}</span>
-						<input type="date" bind:value={filterDateTo} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer" />
+						<input type="date" bind:value={filterDateTo} on:change={triggerReload} class="px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer" />
 					</div>
 					{#if hasActiveFilters}
 						<button on:click={clearFilters} class="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all">✕ {$locale === 'ar' ? 'مسح' : 'Clear'}</button>
 					{/if}
-					<span class="text-[10px] text-slate-400 font-semibold {$locale === 'ar' ? 'mr-auto' : 'ml-auto'}">{filteredRequests.length} / {requests.length}</span>
+					<span class="text-[10px] text-slate-400 font-semibold {$locale === 'ar' ? 'mr-auto' : 'ml-auto'}">{filteredRequests.length} / {totalRequests}</span>
 				</div>
 
 				{#if loading}
@@ -889,6 +877,24 @@
 							</tbody>
 						</table>
 					</div>
+					<!-- Pagination -->
+					{#if totalRequests > PAGE_SIZE}
+						<div class="flex items-center justify-between pt-4 border-t border-slate-200 mt-2">
+							<span class="text-xs text-slate-500">
+								{$locale === 'ar' ? 'عرض' : 'Showing'} {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, totalRequests)} {$locale === 'ar' ? 'من' : 'of'} {totalRequests}
+							</span>
+							<div class="flex gap-2">
+								<button on:click={() => loadRequests(currentPage - 1)} disabled={currentPage === 0 || loading}
+									class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+									{$locale === 'ar' ? 'السابق' : 'Prev'}
+								</button>
+								<button on:click={() => loadRequests(currentPage + 1)} disabled={(currentPage + 1) * PAGE_SIZE >= totalRequests || loading}
+									class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+									{$locale === 'ar' ? 'التالي' : 'Next'}
+								</button>
+							</div>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
