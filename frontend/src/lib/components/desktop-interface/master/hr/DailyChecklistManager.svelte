@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { _ as t, locale } from '$lib/i18n';
@@ -543,7 +543,7 @@
 						<div class="flex items-center gap-2">
 							<div class="relative">
 								<svg class="w-4 h-4 text-white/60 absolute top-1/2 -translate-y-1/2 {$locale === 'ar' ? 'right-2.5' : 'left-2.5'}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-								<input type="text" bind:value={searchChecklists} placeholder="Search..." class="w-80 {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-1.5 bg-white/20 border border-white/30 rounded-lg text-sm text-white placeholder-white/50 focus:bg-white/30 focus:border-white/50 outline-none" />
+								<input type="text" bind:value={searchChecklists} placeholder={$locale === 'ar' ? 'بحث...' : 'Search...'} class="w-80 {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-1.5 bg-white/20 border border-white/30 rounded-lg text-sm text-white placeholder-white/50 focus:bg-white/30 focus:border-white/50 outline-none" />
 							</div>
 							<button on:click={loadChecklists} class="bg-white/20 hover:bg-white/30 text-white font-bold p-2 rounded-lg transition-colors shadow" title="Refresh">
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -610,7 +610,7 @@
 								bind:value={selectedBranchFilter}
 								class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
 							>
-								<option value="">All Branches</option>
+								<option value="">{$locale === 'ar' ? 'جميع الفروع' : 'All Branches'}</option>
 								{#each uniqueBranches as branch}
 									<option value={String(branch.id)}>
 										{$locale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}
@@ -621,7 +621,7 @@
 						<div class="flex items-center gap-2">
 							<div class="relative">
 								<svg class="w-4 h-4 text-white/60 absolute top-1/2 -translate-y-1/2 {$locale === 'ar' ? 'right-2.5' : 'left-2.5'}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-								<input type="text" bind:value={searchEmployees} placeholder="Search..." class="w-80 {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-1.5 bg-white/20 border border-white/30 rounded-lg text-sm text-white placeholder-white/50 focus:bg-white/30 focus:border-white/50 outline-none" />
+								<input type="text" bind:value={searchEmployees} placeholder={$locale === 'ar' ? 'بحث...' : 'Search...'} class="w-80 {$locale === 'ar' ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-1.5 bg-white/20 border border-white/30 rounded-lg text-sm text-white placeholder-white/50 focus:bg-white/30 focus:border-white/50 outline-none" />
 							</div>
 							<button on:click={loadEmployees} class="bg-white/20 hover:bg-white/30 text-white font-bold p-2 rounded-lg transition-colors shadow" title="Refresh">
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -639,15 +639,15 @@
 								<thead>
 									<tr class="border-b border-slate-200">
 										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$t('hr.dailyChecklist.id')}</th>
-										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Name</th>
-										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Branch & Location</th>
-										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">Checklist</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$locale === 'ar' ? 'الاسم' : 'Name'}</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$locale === 'ar' ? 'الفرع والموقع' : 'Branch & Location'}</th>
+										<th class="text-start py-3 px-4 font-bold text-slate-600 uppercase text-xs">{$locale === 'ar' ? 'قائمة التحقق' : 'Checklist'}</th>
 									</tr>
 								</thead>
 								<tbody>
 									{#if filteredEmployees.length === 0}
 										<tr>
-											<td colspan="4" class="text-center py-12 text-slate-400">No employees found</td>
+											<td colspan="4" class="text-center py-12 text-slate-400">{$locale === 'ar' ? 'لم يتم العثور على موظفين' : 'No employees found'}</td>
 										</tr>
 									{:else}
 										{#each filteredEmployees as emp}
@@ -690,7 +690,7 @@
 																			</div>
 																		</div>
 																		<div class="flex items-center gap-2">
-																			<span class="text-xs font-semibold text-slate-600">Frequency:</span>
+																			<span class="text-xs font-semibold text-slate-600">{$locale === 'ar' ? 'التكرار:' : 'Frequency:'}</span>
 																			<select 
 																				value={config.frequency}
 																				on:change={(e) => {
@@ -703,13 +703,13 @@
 																				}}
 																				class="px-2 py-1 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
 																			>
-																				<option value="daily">Daily</option>
-																				<option value="weekly">Weekly</option>
+																				{#if $locale === 'ar'}<option value='daily'>يومي</option>{:else}<option value='daily'>Daily</option>{/if}
+																				{#if $locale === 'ar'}<option value='weekly'>أسبوعي</option>{:else}<option value='weekly'>Weekly</option>{/if}
 																			</select>
 																		</div>
 																		{#if config.frequency === 'weekly'}
 																			<div class="flex items-center gap-2">
-																				<span class="text-xs font-semibold text-slate-600">Day:</span>
+																				<span class="text-xs font-semibold text-slate-600">{$locale === 'ar' ? 'اليوم:' : 'Day:'}</span>
 																				<select 
 																					value={config.day || ''}
 																					on:change={(e) => {
@@ -719,14 +719,14 @@
 																					}}
 																					class="px-2 py-1 text-xs border border-slate-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
 																				>
-																					<option value="">Select Day</option>
-																					<option value="Monday">Monday</option>
-																					<option value="Tuesday">Tuesday</option>
-																					<option value="Wednesday">Wednesday</option>
-																					<option value="Thursday">Thursday</option>
-																					<option value="Friday">Friday</option>
-																					<option value="Saturday">Saturday</option>
-																					<option value="Sunday">Sunday</option>
+																					{#if $locale === 'ar'}<option value=''>اختر اليوم</option>{:else}<option value=''>Select Day</option>{/if}
+																					{#if $locale === 'ar'}<option value='Monday'>الاثنين</option>{:else}<option value='Monday'>Monday</option>{/if}
+																					{#if $locale === 'ar'}<option value='Tuesday'>الثلاثاء</option>{:else}<option value='Tuesday'>Tuesday</option>{/if}
+																					{#if $locale === 'ar'}<option value='Wednesday'>الأربعاء</option>{:else}<option value='Wednesday'>Wednesday</option>{/if}
+																					{#if $locale === 'ar'}<option value='Thursday'>الخميس</option>{:else}<option value='Thursday'>Thursday</option>{/if}
+																					{#if $locale === 'ar'}<option value='Friday'>الجمعة</option>{:else}<option value='Friday'>Friday</option>{/if}
+																					{#if $locale === 'ar'}<option value='Saturday'>السبت</option>{:else}<option value='Saturday'>Saturday</option>{/if}
+																					{#if $locale === 'ar'}<option value='Sunday'>الأحد</option>{:else}<option value='Sunday'>Sunday</option>{/if}
 																				</select>
 																			</div>
 																		{/if}
@@ -738,7 +738,7 @@
 															checklistSearchForEmployee = emp.id;
 															checklistSearchQuery = '';
 														}} class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-bold transition-colors w-full">
-															+ Add Checklist
+															{$locale === 'ar' ? '+ إضافة قائمة' : '+ Add Checklist'}
 														</button>
 													</div>
 												</td>
@@ -757,7 +757,7 @@
 					<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 						<div class="bg-white rounded-2xl shadow-2xl w-96 max-h-[600px] flex flex-col overflow-hidden">
 							<div class="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4 flex items-center justify-between">
-								<h3 class="text-white font-bold text-lg">Add Checklists</h3>
+								<h3 class="text-white font-bold text-lg">{$locale === 'ar' ? 'إضافة قوائم تحقق' : 'Add Checklists'}</h3>
 								<button on:click={() => {
 									checklistSearchForEmployee = null;
 									checklistSearchQuery = '';
@@ -770,8 +770,7 @@
 								<input 
 									type="text" 
 									bind:value={checklistSearchQuery}
-									placeholder="Search checklists..."
-
+									placeholder={$locale === 'ar' ? 'بحث في القوائم...' : 'Search checklists...'}
 									class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
 								/>
 							</div>
@@ -821,7 +820,7 @@
 									checklistSearchForEmployee = null;
 									checklistSearchQuery = '';
 								}} class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-50 transition-colors">
-									Done
+									{$locale === 'ar' ? 'تم' : 'Done'}
 								</button>
 							</div>
 						</div>

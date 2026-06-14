@@ -1111,7 +1111,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Daily Checklist Manager #${instanceNumber}`,
+			title: `${t('nav.dailyChecklistManager')} #${instanceNumber}`,
 			component: DailyChecklistManager,
 			componentName: "DailyChecklistManager",
 			icon: '📋',
