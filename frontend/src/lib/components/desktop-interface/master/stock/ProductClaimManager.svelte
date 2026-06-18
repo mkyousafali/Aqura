@@ -76,59 +76,20 @@
 		loading = true;
 		error = '';
 		try {
-			// Fetch all products that have managed_by entries
-			const { data: products, error: err } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, product_name_en, product_name_ar, managed_by')
-				.not('managed_by', 'eq', '[]');
+			// Call RPC to get aggregated product claims
+			const { data: claimsData, error: err } = await supabase
+				.rpc('get_product_claims', { p_locale: $locale });
 
 			if (err) throw err;
 
-			// Parse managed_by and aggregate by employee
-			const employeeMap = new Map<string, { 
-				products: { barcode: string; product_name: string; branch_id: number; claimed_at: string }[];
-				branch_counts: Record<number, number>;
-			}>();
+			// Collect unique branch IDs for caching
 			const branchIds = new Set<number>();
-
-			for (const p of products || []) {
-				let managedBy: { branch_id: number; claimed_at: string; employee_id: string }[] = [];
-				try {
-					managedBy = typeof p.managed_by === 'string' ? JSON.parse(p.managed_by) : (p.managed_by || []);
-				} catch { continue; }
-
-				if (!Array.isArray(managedBy)) continue;
-
-				const productName = $locale === 'ar' ? (p.product_name_ar || p.product_name_en || '') : (p.product_name_en || p.product_name_ar || '');
-
-				for (const entry of managedBy) {
-					if (!entry.employee_id) continue;
-					if (entry.branch_id) branchIds.add(entry.branch_id);
-
-					if (!employeeMap.has(entry.employee_id)) {
-						employeeMap.set(entry.employee_id, { products: [], branch_counts: {} });
-					}
-					const emp = employeeMap.get(entry.employee_id)!;
-					emp.products.push({
-						barcode: p.barcode,
-						product_name: productName,
-						branch_id: entry.branch_id,
-						claimed_at: entry.claimed_at || ''
+			for (const claim of claimsData || []) {
+				if (claim.branch_counts) {
+					Object.keys(claim.branch_counts).forEach(bid => {
+						const id = parseInt(bid);
+						if (!isNaN(id)) branchIds.add(id);
 					});
-					emp.branch_counts[entry.branch_id] = (emp.branch_counts[entry.branch_id] || 0) + 1;
-				}
-			}
-
-			// Fetch employee names from hr_employee_master
-			const empIds = [...employeeMap.keys()];
-			const nameMap: Record<string, string> = {};
-			if (empIds.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('id, name_en, name_ar')
-					.in('id', empIds);
-				for (const e of employees || []) {
-					nameMap[e.id] = $locale === 'ar' ? (e.name_ar || e.name_en || e.id) : (e.name_en || e.name_ar || e.id);
 				}
 			}
 
@@ -146,13 +107,13 @@
 				}
 			}
 
-			// Build final array
-			claims = [...employeeMap.entries()].map(([empId, data]) => ({
-				employee_id: empId,
-				name: nameMap[empId] || empId,
-				product_count: data.products.length,
-				branch_counts: data.branch_counts,
-				products: data.products
+			// Transform RPC data to component format
+			claims = (claimsData || []).map((claim: any) => ({
+				employee_id: claim.employee_id,
+				name: claim.employee_name,
+				product_count: claim.product_count,
+				branch_counts: claim.branch_counts || {},
+				products: claim.products || []
 			}));
 
 		} catch (err: any) {
@@ -166,52 +127,19 @@
 	async function loadInProcess() {
 		inProcessLoading = true;
 		try {
-			const { data: products, error: err } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, product_name_en, product_name_ar, in_process')
-				.not('in_process', 'eq', '[]');
+			// Call RPC to get in-process products
+			const { data: inProcessData, error: err } = await supabase
+				.rpc('get_product_in_process', { p_locale: $locale });
+			
 			if (err) throw err;
 
-			const rows: InProcessProduct[] = [];
-			const empIdsNeeded = new Set<string>();
+			// Collect unique branch IDs for caching
 			const branchIdsNeeded = new Set<number>();
-
-			for (const p of products || []) {
-				let entries: any[] = [];
-				try { entries = typeof p.in_process === 'string' ? JSON.parse(p.in_process) : (p.in_process || []); } catch { continue; }
-				if (!Array.isArray(entries)) continue;
-
-				const productName = $locale === 'ar' ? (p.product_name_ar || p.product_name_en || '') : (p.product_name_en || p.product_name_ar || '');
-
-				for (const entry of entries) {
-					if (!entry.employee_id) continue;
-					empIdsNeeded.add(entry.employee_id);
-					if (entry.branch_id) branchIdsNeeded.add(entry.branch_id);
-					rows.push({
-						barcode: p.barcode,
-						product_name: productName,
-						employee_id: entry.employee_id,
-						employee_name: '',
-						branch_id: entry.branch_id,
-						claimed_at: entry.claimed_at || '',
-						moved_at: entry.moved_at || ''
-					});
-				}
+			for (const row of inProcessData || []) {
+				if (row.branch_id) branchIdsNeeded.add(row.branch_id);
 			}
 
-			// Fetch employee names
-			const uncachedEmps = [...empIdsNeeded].filter(id => !userNameCache[id]);
-			if (uncachedEmps.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employee_master')
-					.select('id, name_en, name_ar')
-					.in('id', uncachedEmps);
-				for (const e of employees || []) {
-					userNameCache[e.id] = $locale === 'ar' ? (e.name_ar || e.name_en || e.id) : (e.name_en || e.name_ar || e.id);
-				}
-			}
-
-			// Fetch branches
+			// Fetch branch names
 			const uncachedBr = [...branchIdsNeeded].filter(id => !branchCache[id]);
 			if (uncachedBr.length > 0) {
 				const { data: branches } = await supabase
@@ -225,14 +153,20 @@
 				}
 			}
 
-			// Enrich names
-			for (const row of rows) {
-				row.employee_name = userNameCache[row.employee_id] || row.employee_id;
-			}
+			// Transform RPC data to component format
+			const rows: InProcessProduct[] = (inProcessData || []).map((row: any) => ({
+				barcode: row.barcode,
+				product_name: row.product_name,
+				employee_id: row.employee_id,
+				employee_name: row.employee_name,
+				branch_id: row.branch_id,
+				claimed_at: row.claimed_at || '',
+				moved_at: row.moved_at || ''
+			}));
 
 			inProcessProducts = rows;
 
-			// Group by employee (like claims)
+			// Group by employee
 			const empMap = new Map<string, InProcessEmployeeClaim>();
 			for (const row of rows) {
 				if (!empMap.has(row.employee_id)) {
@@ -263,7 +197,6 @@
 		}
 	}
 
-	let userNameCache: Record<string, string> = {};
 
 	function getBranchDisplay(branchId: number): string {
 		const b = branchCache[branchId];
@@ -491,31 +424,12 @@
 		bulkProcessing = true;
 		try {
 			const barcodes = toTransfer.map(p => p.barcode);
-			const { data: products, error: fetchErr } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, managed_by, in_process')
-				.in('barcode', barcodes);
-			if (fetchErr) throw fetchErr;
-
-			for (const prod of products || []) {
-				let managedBy: any[] = [];
-				let inProcess: any[] = [];
-				try { managedBy = typeof prod.managed_by === 'string' ? JSON.parse(prod.managed_by) : (prod.managed_by || []); } catch { managedBy = []; }
-				try { inProcess = typeof prod.in_process === 'string' ? JSON.parse(prod.in_process) : (prod.in_process || []); } catch { inProcess = []; }
-
-				// Find and move the employee's entries
-				const entriesToMove = managedBy.filter((e: any) => e.employee_id === selectedEmployee?.employee_id);
-				for (const entry of entriesToMove) {
-					inProcess.push({ ...entry, moved_at: new Date().toISOString() });
-				}
-				managedBy = managedBy.filter((e: any) => e.employee_id !== selectedEmployee?.employee_id);
-
-				const { error: updateErr } = await supabase
-					.from('erp_synced_products')
-					.update({ managed_by: managedBy, in_process: inProcess })
-					.eq('barcode', prod.barcode);
-				if (updateErr) throw updateErr;
-			}
+			const { error: rpcErr } = await supabase
+				.rpc('transfer_product_claims', {
+					p_employee_id: selectedEmployee!.employee_id,
+					p_barcodes: barcodes
+				});
+			if (rpcErr) throw rpcErr;
 
 			selectedDetailProductBarcodes.clear();
 			selectedDetailProductBarcodes = selectedDetailProductBarcodes;
@@ -637,34 +551,12 @@
 
 		processingTransfer = true;
 		try {
-			// Fetch current data for all affected products
-			const { data: products, error: fetchErr } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, managed_by, in_process')
-				.in('barcode', barcodes);
-			if (fetchErr) throw fetchErr;
-
-			for (const prod of products || []) {
-				let managedBy: any[] = [];
-				let inProcess: any[] = [];
-				try { managedBy = typeof prod.managed_by === 'string' ? JSON.parse(prod.managed_by) : (prod.managed_by || []); } catch { managedBy = []; }
-				try { inProcess = typeof prod.in_process === 'string' ? JSON.parse(prod.in_process) : (prod.in_process || []); } catch { inProcess = []; }
-
-				// Find the employee's entry in managed_by
-				const entryIndex = managedBy.findIndex((e: any) => e.employee_id === employeeId);
-				if (entryIndex === -1) continue;
-
-				// Move entry: copy to in_process, remove from managed_by
-				const entry = { ...managedBy[entryIndex], moved_at: new Date().toISOString() };
-				inProcess.push(entry);
-				managedBy.splice(entryIndex, 1);
-
-				const { error: updateErr } = await supabase
-					.from('erp_synced_products')
-					.update({ managed_by: managedBy, in_process: inProcess })
-					.eq('barcode', prod.barcode);
-				if (updateErr) throw updateErr;
-			}
+			const { error: rpcErr } = await supabase
+				.rpc('transfer_product_claims', {
+					p_employee_id: employeeId,
+					p_barcodes: barcodes
+				});
+			if (rpcErr) throw rpcErr;
 
 			// Refresh data
 			await loadClaims();
@@ -770,39 +662,15 @@
 
 		if (barcodes.length === 0) return;
 
-		// Build a fromId → toId lookup
-		const branchChangeMap = new Map<number, number>();
-		for (const c of changes) {
-			branchChangeMap.set(c.id, c.toId!);
-		}
-
 		manageBranchSaving = true;
 		try {
-			const { data: products, error: fetchErr } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, managed_by')
-				.in('barcode', barcodes);
-			if (fetchErr) throw fetchErr;
-
-			for (const prod of products || []) {
-				let managedBy: any[] = [];
-				try { managedBy = typeof prod.managed_by === 'string' ? JSON.parse(prod.managed_by) : (prod.managed_by || []); } catch { managedBy = []; }
-
-				let changed = false;
-				for (let i = 0; i < managedBy.length; i++) {
-					if (managedBy[i].employee_id === employeeId && branchChangeMap.has(managedBy[i].branch_id)) {
-						managedBy[i].branch_id = branchChangeMap.get(managedBy[i].branch_id);
-						changed = true;
-					}
-				}
-				if (!changed) continue;
-
-				const { error: updateErr } = await supabase
-					.from('erp_synced_products')
-					.update({ managed_by: managedBy })
-					.eq('barcode', prod.barcode);
-				if (updateErr) throw updateErr;
-			}
+			const { error: rpcErr } = await supabase
+				.rpc('manage_product_branch', {
+					p_employee_id: employeeId,
+					p_barcodes: barcodes,
+					p_branch_changes: changes.map(c => ({ from_id: c.id, to_id: c.toId }))
+				});
+			if (rpcErr) throw rpcErr;
 
 			// Refresh
 			await loadClaims();
@@ -878,29 +746,13 @@
 
 		unclaimProcessing = true;
 		try {
-			const { data: products, error: fetchErr } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, managed_by')
-				.in('barcode', barcodes);
-			if (fetchErr) throw fetchErr;
-
-			for (const prod of products || []) {
-				let managedBy: any[] = [];
-				try { managedBy = typeof prod.managed_by === 'string' ? JSON.parse(prod.managed_by) : (prod.managed_by || []); } catch { managedBy = []; }
-
-				// Remove the employee's entry for this branch
-				managedBy = managedBy.filter((e: any) => {
-					if (e.employee_id !== employeeId) return true;
-					if (branchId !== null && e.branch_id !== branchId) return true;
-					return false;
+			const { error: rpcErr } = await supabase
+				.rpc('unclaim_products', {
+					p_employee_id: employeeId,
+					p_barcodes: barcodes,
+					p_branch_id: branchId
 				});
-
-				const { error: updateErr } = await supabase
-					.from('erp_synced_products')
-					.update({ managed_by: managedBy })
-					.eq('barcode', prod.barcode);
-				if (updateErr) throw updateErr;
-			}
+			if (rpcErr) throw rpcErr;
 
 			// Refresh
 			await loadClaims();
@@ -944,41 +796,13 @@
 
 		assignProcessing = true;
 		try {
-			// Fetch current data for all affected products
-			const { data: products, error: fetchErr } = await supabase
-				.from('erp_synced_products')
-				.select('barcode, managed_by, in_process')
-				.in('barcode', barcodes);
-			if (fetchErr) throw fetchErr;
-
-			for (const prod of products || []) {
-				let managedBy: any[] = [];
-				let inProcess: any[] = [];
-				try { managedBy = typeof prod.managed_by === 'string' ? JSON.parse(prod.managed_by) : (prod.managed_by || []); } catch { managedBy = []; }
-				try { inProcess = typeof prod.in_process === 'string' ? JSON.parse(prod.in_process) : (prod.in_process || []); } catch { inProcess = []; }
-
-				// Find the old employee's entry in in_process
-				const entryIndex = inProcess.findIndex((e: any) => e.employee_id === oldEmployeeId);
-				if (entryIndex === -1) continue;
-
-				// Create new entry with new employee_id, add to managed_by
-				const newEntry = {
-					...inProcess[entryIndex],
-					employee_id: newEmployeeId,
-					claimed_at: new Date().toISOString()
-				};
-				delete newEntry.moved_at;
-				managedBy.push(newEntry);
-
-				// Remove from in_process
-				inProcess.splice(entryIndex, 1);
-
-				const { error: updateErr } = await supabase
-					.from('erp_synced_products')
-					.update({ managed_by: managedBy, in_process: inProcess })
-					.eq('barcode', prod.barcode);
-				if (updateErr) throw updateErr;
-			}
+			const { error: rpcErr } = await supabase
+				.rpc('assign_in_process_products', {
+					p_old_employee_id: oldEmployeeId,
+					p_new_employee_id: newEmployeeId,
+					p_barcodes: barcodes
+				});
+			if (rpcErr) throw rpcErr;
 
 			// Close modal and refresh
 			showAssignModal = false;
