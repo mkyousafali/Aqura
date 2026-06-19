@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
@@ -8,8 +8,9 @@
 		name: string;
 		product_count: number;
 		branch_counts: Record<number, number>;
-		products: { barcode: string; product_name: string; branch_id: number; claimed_at: string }[];
 	}
+
+	type ClaimProduct = { barcode: string; product_name: string; branch_id: number; claimed_at: string };
 
 	let claims: EmployeeClaim[] = [];
 	let loading = true;
@@ -67,10 +68,86 @@
 	// Branch cache
 	let branchCache: Record<number, { name: string; location: string }> = {};
 
+	// Per-employee product cache (loaded on demand)
+	let productCache: Record<string, ClaimProduct[]> = {};
+	let productCacheLoading = new Set<string>();
+
+	// Detail view state (loaded when employee is selected)
+	let selectedEmployeeProducts: ClaimProduct[] = [];
+	let selectedEmployeeProductsLoading = false;
+
+	// Clean duplicates state
+	let cleaningDups = new Set<string>();
+
 	onMount(() => {
 		loadClaims();
 		loadInProcess();
 	});
+
+	async function ensureProductsLoaded(employeeId: string): Promise<ClaimProduct[]> {
+		if (productCache[employeeId]) return productCache[employeeId];
+		productCacheLoading.add(employeeId);
+		productCacheLoading = productCacheLoading;
+		try {
+			const { data, error: err } = await supabase
+				.rpc('get_employee_claim_products', { p_employee_id: employeeId, p_locale: $locale });
+			if (err) throw err;
+			productCache[employeeId] = (data || []).map((row: any) => ({
+				barcode: row.barcode,
+				product_name: row.product_name,
+				branch_id: row.branch_id,
+				claimed_at: row.claimed_at || ''
+			}));
+			productCache = productCache;
+		} finally {
+			productCacheLoading.delete(employeeId);
+			productCacheLoading = productCacheLoading;
+		}
+		return productCache[employeeId] || [];
+	}
+
+	async function selectEmployee(claim: EmployeeClaim) {
+		selectedEmployee = claim;
+		detailFilterBranch = '';
+		detailSearch = '';
+		selectedDetailProductBarcodes.clear();
+		selectedDetailProductBarcodes = selectedDetailProductBarcodes;
+		selectedEmployeeProducts = productCache[claim.employee_id] || [];
+		if (!productCache[claim.employee_id]) {
+			selectedEmployeeProductsLoading = true;
+			const products = await ensureProductsLoaded(claim.employee_id);
+			selectedEmployeeProducts = products;
+			selectedEmployeeProductsLoading = false;
+		}
+	}
+
+	async function cleanDuplicates(employeeId: string) {
+		cleaningDups.add(employeeId);
+		cleaningDups = cleaningDups;
+		try {
+			const { error: err } = await supabase
+				.rpc('clean_employee_duplicates', { p_employee_id: employeeId });
+			if (err) throw err;
+			// Invalidate cache so fresh data is loaded
+			delete productCache[employeeId];
+			productCache = productCache;
+			await loadClaims();
+			if (selectedEmployee?.employee_id === employeeId) {
+				selectedEmployeeProductsLoading = true;
+				const products = await ensureProductsLoaded(employeeId);
+				selectedEmployeeProducts = products;
+				selectedEmployeeProductsLoading = false;
+				const updated = claims.find(c => c.employee_id === employeeId);
+				if (updated) selectedEmployee = updated;
+			}
+		} catch (err: any) {
+			console.error('Clean duplicates error:', err);
+			alert(($locale === 'ar' ? 'فشل تنظيف التكرارات: ' : 'Clean failed: ') + (err?.message || ''));
+		} finally {
+			cleaningDups.delete(employeeId);
+			cleaningDups = cleaningDups;
+		}
+	}
 
 	async function loadClaims() {
 		loading = true;
@@ -78,7 +155,7 @@
 		try {
 			// Call RPC to get aggregated product claims
 			const { data: claimsData, error: err } = await supabase
-				.rpc('get_product_claims', { p_locale: $locale });
+				.rpc('get_product_claim_summaries', { p_locale: $locale });
 
 			if (err) throw err;
 
@@ -107,14 +184,15 @@
 				}
 			}
 
-			// Transform RPC data to component format
+			// Transform RPC data to component format (no products — loaded on demand)
 			claims = (claimsData || []).map((claim: any) => ({
 				employee_id: claim.employee_id,
 				name: claim.employee_name,
-				product_count: claim.product_count,
-				branch_counts: claim.branch_counts || {},
-				products: claim.products || []
+				product_count: Number(claim.product_count),
+				branch_counts: claim.branch_counts || {}
 			}));
+			// Invalidate product cache on full refresh
+			productCache = {};
 
 		} catch (err: any) {
 			console.error('Error loading product claims:', err);
@@ -436,7 +514,12 @@
 			await loadClaims();
 			await loadInProcess();
 			if (selectedEmployee) {
-				const updated = claims.find(c => c.employee_id === selectedEmployee!.employee_id);
+				const empId = selectedEmployee.employee_id;
+				delete productCache[empId];
+				productCache = productCache;
+				const products = await ensureProductsLoaded(empId);
+				selectedEmployeeProducts = products;
+				const updated = claims.find(c => c.employee_id === empId);
 				selectedEmployee = updated || null;
 			}
 		} catch (err: any) {
@@ -534,15 +617,20 @@
 	});
 
 	async function processTransfer(item: any) {
-		// Determine if called from main table (EmployeeClaim with employee_id + products[])
-		// or from detail table (single product with barcode + branch_id)
-		const isMainTable = Array.isArray(item.products);
-		const employeeId = isMainTable ? item.employee_id : selectedEmployee?.employee_id;
+		// Determine if called from main table (EmployeeClaim) or detail table (single product)
+		const isFromDetail = 'barcode' in item;
+		const employeeId = isFromDetail ? selectedEmployee?.employee_id : item.employee_id;
 		if (!employeeId) return;
 
-		const barcodes: string[] = isMainTable
-			? item.products.map((p: any) => p.barcode)
-			: [item.barcode];
+		let barcodes: string[];
+		if (isFromDetail) {
+			barcodes = [item.barcode];
+		} else {
+			// Load products for this employee (cached after first fetch)
+			const products = await ensureProductsLoaded(item.employee_id);
+			barcodes = products.map(p => p.barcode);
+		}
+		if (barcodes.length === 0) return;
 
 		const confirmMsg = $locale === 'ar'
 			? `هل تريد نقل ${barcodes.length} منتج من المطالبات إلى قيد المعالجة؟`
@@ -561,11 +649,14 @@
 			// Refresh data
 			await loadClaims();
 			await loadInProcess();
-			// If in detail view and all products moved, go back to list
-			if (selectedEmployee && isMainTable) {
+			if (!isFromDetail) {
+				// Main table transfer: go back to list
 				selectedEmployee = null;
-			} else if (selectedEmployee && !isMainTable) {
-				// Update selected employee from refreshed claims
+				selectedEmployeeProducts = [];
+			} else if (selectedEmployee) {
+				// Detail transfer: reload this employee's products
+				const products = await ensureProductsLoaded(employeeId);
+				selectedEmployeeProducts = products;
 				const updated = claims.find(c => c.employee_id === employeeId);
 				selectedEmployee = updated || null;
 			}
@@ -579,7 +670,7 @@
 
 	function processManages(item: any) {
 		managesItem = item;
-		managesIsMainTable = Array.isArray(item.products);
+		managesIsMainTable = !('barcode' in item); // claims have no barcode; products do
 		showManagesModal = true;
 	}
 
@@ -653,9 +744,10 @@
 		const changedFromIds = new Set(changes.map(c => c.id));
 		let barcodes: string[] = [];
 		if (managesIsMainTable) {
-			barcodes = managesItem.products
-				.filter((p: any) => changedFromIds.has(p.branch_id))
-				.map((p: any) => p.barcode);
+			const products = await ensureProductsLoaded(employeeId);
+			barcodes = products
+				.filter(p => changedFromIds.has(p.branch_id))
+				.map(p => p.barcode);
 		} else {
 			barcodes = [managesItem.barcode];
 		}
@@ -675,7 +767,11 @@
 			// Refresh
 			await loadClaims();
 			await loadInProcess();
-			if (selectedEmployee) {
+			if (selectedEmployee?.employee_id === employeeId) {
+				delete productCache[employeeId];
+				productCache = productCache;
+				const products = await ensureProductsLoaded(employeeId);
+				selectedEmployeeProducts = products;
 				const updated = claims.find(c => c.employee_id === employeeId);
 				selectedEmployee = updated || null;
 			}
@@ -735,9 +831,10 @@
 		// Get barcodes to update
 		let barcodes: string[] = [];
 		if (managesIsMainTable) {
+			const products = await ensureProductsLoaded(employeeId);
 			barcodes = branchId !== null
-				? managesItem.products.filter((p: any) => p.branch_id === branchId).map((p: any) => p.barcode)
-				: managesItem.products.map((p: any) => p.barcode);
+				? products.filter(p => p.branch_id === branchId).map(p => p.barcode)
+				: products.map(p => p.barcode);
 		} else {
 			barcodes = [managesItem.barcode];
 		}
@@ -757,7 +854,11 @@
 			// Refresh
 			await loadClaims();
 			await loadInProcess();
-			if (selectedEmployee) {
+			delete productCache[employeeId];
+			productCache = productCache;
+			if (selectedEmployee?.employee_id === employeeId) {
+				const products = await ensureProductsLoaded(employeeId);
+				selectedEmployeeProducts = products;
 				const updated = claims.find(c => c.employee_id === employeeId);
 				selectedEmployee = updated || null;
 			}
@@ -825,14 +926,25 @@
 		}
 	}
 
-	$: detailProducts = selectedEmployee ? selectedEmployee.products.filter(p => {
+	$: detailProducts = selectedEmployeeProducts.filter(p => {
 		if (detailFilterBranch && String(p.branch_id) !== detailFilterBranch) return false;
 		if (detailSearch.trim()) {
 			const q = detailSearch.trim().toLowerCase();
 			if (!p.barcode.toLowerCase().includes(q) && !p.product_name.toLowerCase().includes(q)) return false;
 		}
 		return true;
-	}) : [];
+	});
+
+	$: selectedEmployeeDupCount = (() => {
+		const seen = new Map<string, number>();
+		for (const p of selectedEmployeeProducts) {
+			const key = `${p.barcode}|${p.branch_id}`;
+			seen.set(key, (seen.get(key) || 0) + 1);
+		}
+		let total = 0;
+		for (const [, v] of seen) if (v > 1) total += v - 1;
+		return total;
+	})();
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -947,6 +1059,14 @@
 								}
 							}}>{selectedEmployee.employee_id}</span>
 						<span class="text-xs px-3 py-1 rounded-full border font-bold bg-emerald-100 text-emerald-700 border-emerald-200">{selectedEmployee.product_count} {$locale === 'ar' ? 'منتج' : 'products'}</span>
+					{#if selectedEmployeeDupCount > 0}
+						<span class="text-xs bg-orange-100 text-orange-700 border border-orange-300 px-2.5 py-1 rounded-full font-bold">{selectedEmployeeDupCount} {$locale === 'ar' ? 'تكرار' : 'dups'}</span>
+						<button
+							class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+							on:click={() => cleanDuplicates(selectedEmployee!.employee_id)}
+							disabled={cleaningDups.has(selectedEmployee?.employee_id || '')}
+						>{cleaningDups.has(selectedEmployee?.employee_id || '') ? '...' : ($locale === 'ar' ? 'تنظيف تكرارات' : 'Clean Dups')}</button>
+					{/if}
 					</div>
 					<div class="flex items-center gap-2">
 						<!-- Detail search -->
@@ -1004,6 +1124,12 @@
 
 				<!-- Products Table -->
 				<div class="flex-1 overflow-auto">
+					{#if selectedEmployeeProductsLoading}
+						<div class="flex flex-col items-center justify-center h-48 gap-3">
+							<div class="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin"></div>
+							<p class="text-slate-500 text-sm font-semibold">{$locale === 'ar' ? 'جارٍ التحميل...' : 'Loading products...'}</p>
+						</div>
+					{:else}
 					<table class="w-full text-xs border-collapse border border-slate-300">
 						<thead class="sticky top-0 z-10">
 							<tr class="bg-violet-600 text-white">
@@ -1063,6 +1189,7 @@
 							{/each}
 						</tbody>
 					</table>
+					{/if}
 				</div>
 			</div>
 		{:else if activeTab === 'claimed'}
@@ -1174,7 +1301,7 @@
 												class="w-4 h-4 rounded border-slate-300 accent-violet-600 cursor-pointer"
 											/>
 										</td>
-										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono cursor-pointer" on:click={() => selectedEmployee = claim}>{i + 1}</td>
+										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono cursor-pointer" on:click={() => selectEmployee(claim)}>{i + 1}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-mono text-violet-700 font-bold cursor-pointer select-all" 
 											title="Double-click to copy"
 											on:dblclick={() => {
@@ -1214,8 +1341,7 @@
 													</span>
 												{/each}
 											</div>
-										</td>
-										<td class="border-r border-slate-300 py-2.5 px-3 text-center">
+										</td>										<td class="border-r border-slate-300 py-2.5 px-3 text-center">
 											<button
 												class="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 rounded-lg transition-all text-teal-700 hover:text-teal-900 text-[10px] font-bold whitespace-nowrap border border-teal-200"
 												on:click|stopPropagation={() => processManages(claim)}
@@ -1235,7 +1361,7 @@
 										<td class="py-2.5 px-3 text-center">
 											<button
 												class="px-3 py-1.5 bg-violet-50 hover:bg-violet-100 rounded-lg transition-all text-violet-700 hover:text-violet-900 text-[10px] font-bold whitespace-nowrap"
-												on:click|stopPropagation={() => selectedEmployee = claim}
+												on:click|stopPropagation={() => selectEmployee(claim)}
 											>
 												{$locale === 'ar' ? 'عرض المنتجات' : 'View Products'}
 											</button>
