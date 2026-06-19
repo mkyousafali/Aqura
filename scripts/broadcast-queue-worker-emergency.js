@@ -12,8 +12,10 @@ import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
 
-const SUPABASE_URL = 'https://supabase.urbanaqura.com';
-const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3NjQ4NzU1MjcsImV4cCI6MjA4MDQ1MTUyN30.6mj0wiHW0ljpYNIEeYG-r--577LDNbxCLj7SZOghbv0';
+import 'dotenv/config';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+const SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY || '';
+if (!SERVICE_KEY) throw new Error('VITE_SUPABASE_SERVICE_KEY not set in .env');
 const GRAPH_API_VERSION = 'v22.0';
 const WORKER_ID = `emergency-${uuidv4().slice(0, 8)}`;
 
