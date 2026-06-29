@@ -1097,8 +1097,8 @@ async function tryAIReply(
       return;
     }
 
-    // Fetch Google API key: prefer DB (system_api_keys), fallback to env var
-    let GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") || "";
+    // Fetch Google API key from DB only (system_api_keys table)
+    let GOOGLE_API_KEY = "";
     try {
       const { data: keyRow } = await supabase
         .from("system_api_keys")
@@ -1109,11 +1109,11 @@ async function tryAIReply(
         .single();
       if (keyRow?.api_key) GOOGLE_API_KEY = keyRow.api_key;
     } catch (e) {
-      console.warn("[AI_BOT] Could not fetch Google key from DB, using env:", e);
+      console.warn("[AI_BOT] Could not fetch Gemini key from DB:", e);
     }
 
     if (!GOOGLE_API_KEY) {
-      console.error("[AI_BOT] GOOGLE_API_KEY not set in DB or env — AI bot cannot reply");
+      console.error("[AI_BOT] Gemini API key not found in system_api_keys (service_name=google_gemini) — AI bot cannot reply");
       return;
     }
     console.log("[AI_BOT] Google API key resolved, length:", GOOGLE_API_KEY.length);
