@@ -1103,7 +1103,7 @@ async function tryAIReply(
       const { data: keyRow } = await supabase
         .from("system_api_keys")
         .select("api_key")
-        .eq("service_name", "google")
+        .eq("service_name", "google_gemini")
         .eq("is_active", true)
         .limit(1)
         .single();

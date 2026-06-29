@@ -207,20 +207,28 @@
 				img.src = url;
 			});
 
-			// Get Google API key
-			const { data: keyRow } = await supabase
+			// Get Google API keys
+			const { data: visionKeyRow } = await supabase
 				.from('system_api_keys')
 				.select('api_key')
 				.eq('service_name', 'google')
 				.eq('is_active', true)
 				.limit(1)
 				.single();
-			const apiKey = keyRow?.api_key;
-			if (!apiKey) throw new Error('No API key');
+			const { data: geminiKeyRow } = await supabase
+				.from('system_api_keys')
+				.select('api_key')
+				.eq('service_name', 'google_gemini')
+				.eq('is_active', true)
+				.limit(1)
+				.single();
+			const visionKey = visionKeyRow?.api_key;
+			const geminiKey = geminiKeyRow?.api_key || visionKey;
+			if (!visionKey) throw new Error('No API key');
 
 			// Google Vision OCR
 			const visionRes = await fetch(
-				`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+				`https://vision.googleapis.com/v1/images:annotate?key=${visionKey}`,
 				{
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -237,7 +245,7 @@
 
 			// Gemini parse
 			const geminiRes = await fetch(
-				`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+				`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
 				{
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },

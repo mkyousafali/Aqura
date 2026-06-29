@@ -528,8 +528,9 @@
 				reader.readAsDataURL(file);
 			});
 
-			// Get Google API key from DB
-			let apiKey = '';
+			// Get Google API keys from DB
+			let visionKey = '';
+			let geminiKey = '';
 			try {
 				const { data: keyRow } = await supabase
 					.from('system_api_keys')
@@ -537,16 +538,24 @@
 					.eq('service_name', 'google')
 					.eq('is_active', true)
 					.single();
-				if (keyRow?.api_key) apiKey = keyRow.api_key;
+				if (keyRow?.api_key) visionKey = keyRow.api_key;
+				const { data: geminiRow } = await supabase
+					.from('system_api_keys')
+					.select('api_key')
+					.eq('service_name', 'google_gemini')
+					.eq('is_active', true)
+					.single();
+				if (geminiRow?.api_key) geminiKey = geminiRow.api_key;
 			} catch (_) { /* fallback */ }
-			if (!apiKey) {
+			if (!geminiKey) geminiKey = visionKey;
+			if (!visionKey) {
 				showToast($currentLocale === 'ar' ? 'لا يوجد مفتاح API' : 'No API key configured', 'error');
 				billDetecting = false;
 				return;
 			}
 
 			// Call Google Vision OCR
-			const visionRes = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+			const visionRes = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${visionKey}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -580,7 +589,7 @@
 			// Now use Gemini to parse the bill text
 
 			const geminiRes = await fetch(
-				`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+				`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
 				{
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },

@@ -11,7 +11,7 @@ async function getGeminiKey(): Promise<string | null> {
 		const { data } = await supabase
 			.from('system_api_keys')
 			.select('api_key')
-			.eq('service_name', 'google')
+				.eq('service_name', 'google_gemini')
 			.eq('is_active', true)
 			.maybeSingle();
 		if (data?.api_key) return data.api_key;

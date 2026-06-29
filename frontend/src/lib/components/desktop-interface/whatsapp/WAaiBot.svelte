@@ -71,7 +71,7 @@
             const { data: keyData, error: keyError } = await supabase
                 .from('system_api_keys')
                 .select('api_key')
-                .eq('service_name', 'google')
+                .eq('service_name', 'google_gemini')
                 .single();
             
             if (keyError || !keyData?.api_key) {

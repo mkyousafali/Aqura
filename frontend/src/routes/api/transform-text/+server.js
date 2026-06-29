@@ -10,7 +10,7 @@ async function getGeminiKey() {
       return null;
     }
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google&is_active=eq.true&select=api_key&limit=1`,
+      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key&limit=1`,
       { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
     );
     const rows = await res.json();
