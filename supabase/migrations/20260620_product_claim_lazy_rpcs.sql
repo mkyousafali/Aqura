@@ -25,6 +25,7 @@ AS $$
         WHERE managed_by IS NOT NULL
           AND managed_by != '[]'::JSONB
           AND e->>'employee_id' IS NOT NULL
+          AND e->>'branch_id' IS NOT NULL
     ),
     branch_agg AS (
         SELECT
