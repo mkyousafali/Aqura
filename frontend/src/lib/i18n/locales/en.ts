@@ -3819,6 +3819,7 @@ export const englishLocale: LocaleData = {
       previous: "Previous",
       continue: "Continue",
       finish: "Finish",
+      change: "Change",
     },
 
     // Icon Manager

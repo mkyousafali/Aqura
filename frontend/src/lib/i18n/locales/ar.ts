@@ -3838,6 +3838,7 @@ export const arabicLocale: LocaleData = {
       previous: "السابق",
       continue: "متابعة",
       finish: "إنهاء",
+      change: "تغيير",
     },
 
     // Icon Manager

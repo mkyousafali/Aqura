@@ -48,6 +48,8 @@
 	let editPunchTime = '';
 	let editPunchStatus = '';
 	let editDeductionPercent: number | string = '';
+	let editPunchDate = ''; // Editable date in YYYY-MM-DD format for the input
+	let dateEditMode = false;
 	let savingPunch = false;
 	let userCanAddPunches = false;
 	let permissionDeniedMessage = '';
@@ -408,6 +410,9 @@
 		editPunchTime = defaultTime;
 		editPunchStatus = defaultStatus;
 		editDeductionPercent = '';
+		// Convert DD-MM-YYYY to YYYY-MM-DD for the date input
+		editPunchDate = punchDate.split('-').reverse().join('-');
+		dateEditMode = false;
 		console.log('Setting showAddPunchModal to true', { modalData, editPunchTime, editPunchStatus });
 		showAddPunchModal = true;
 		console.log('showAddPunchModal is now:', showAddPunchModal);
@@ -663,7 +668,7 @@
 				center_id: employee.id,
 				employee_id: employee.id,
 				branch_id: employee.current_branch_id,
-				punch_date: modalData.punchDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+				punch_date: editPunchDate, // Already in YYYY-MM-DD format
 				punch_time: editPunchTime,
 				status: editPunchStatus,
 				processed_at: new Date().toISOString(),
@@ -2804,9 +2809,27 @@
 				<!-- Date Display -->
 				<div>
 					<div style="font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('common.date') || 'Date'}</div>
-					<div style="padding: 0.5rem 1rem; background-color: #f3f4f6; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #111827;">
-						{modalData.punchDate}
-					</div>
+					{#if dateEditMode}
+						<input 
+							type="date" 
+							bind:value={editPunchDate}
+							disabled={savingPunch}
+							style="padding: 0.5rem 1rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #111827; width: 100%;"
+						/>
+					{:else}
+						<div style="display: flex; align-items: center; gap: 0.5rem;">
+							<div style="padding: 0.5rem 1rem; background-color: #f3f4f6; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #111827; flex: 1;">
+								{modalData.punchDate}
+							</div>
+							<button 
+								on:click={() => dateEditMode = true}
+								disabled={savingPunch}
+								style="padding: 0.25rem 0.75rem; background-color: #2563eb; color: white; border: none; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 600; cursor: pointer;"
+							>
+								{$t('actions.change') || 'Change'}
+							</button>
+						</div>
+					{/if}
 				</div>
 
 				<!-- Punch Time Input - 12 Hour Format -->
