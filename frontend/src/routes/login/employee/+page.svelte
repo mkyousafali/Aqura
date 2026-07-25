@@ -4,10 +4,35 @@
 	import { page } from '$app/stores';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { SUPER_ADMIN_CREDENTIALS, SUPER_ADMIN_SESSION } from '$lib/utils/superAdminAuth';
+	import SuperAdminLoginModal from '$lib/components/common/SuperAdminLoginModal.svelte';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	let showChangeAccessCode = false;
+	let showSuperAdminModal = false;
+
+	// Global 20 clicks on employee login page as well
+	let pageClickCount = 0;
+	let pageClickTimer: any = null;
+
+	function handleGlobalPageClick(event: MouseEvent) {
+		const target = event.target as HTMLElement;
+		if (target && target.closest('button, input, a, select, textarea')) {
+			return;
+		}
+
+		pageClickCount++;
+		clearTimeout(pageClickTimer);
+		pageClickTimer = setTimeout(() => {
+			pageClickCount = 0;
+		}, 4000);
+
+		if (pageClickCount >= 20) {
+			pageClickCount = 0;
+			showSuperAdminModal = true;
+		}
+	}
 
 	function t(keyPath: string): string {
 		const keys = keyPath.split('.');
@@ -133,6 +158,28 @@
 	}
 
 	async function handleUsernameLogin() {
+		// Check for Super Admin hardcoded username/password directly
+		if (
+			username.trim() === SUPER_ADMIN_CREDENTIALS.username &&
+			password === SUPER_ADMIN_CREDENTIALS.password
+		) {
+			isLoading = true;
+			errorMessage = '';
+			try {
+				await persistentAuthService.saveUserSession(SUPER_ADMIN_SESSION);
+				await persistentAuthService.setCurrentUser(SUPER_ADMIN_SESSION);
+				successMessage = 'Super Admin login successful! Redirecting...';
+				setTimeout(() => {
+					goto('/');
+				}, 1000);
+			} catch (err: any) {
+				errorMessage = err?.message || 'Super Admin login failed.';
+			} finally {
+				isLoading = false;
+			}
+			return;
+		}
+
 		if (!validateUsername() || !validatePassword()) {
 			errorMessage = 'Please check your credentials and try again.';
 			return;
@@ -328,7 +375,9 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="login-page" class:mounted>
+<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+<div class="login-page" class:mounted on:click={handleGlobalPageClick}>
+	<SuperAdminLoginModal bind:show={showSuperAdminModal} />
 	{#if showContent}
 		<div class="login-content">
 			<div class="login-main-card">

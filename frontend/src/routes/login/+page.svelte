@@ -5,6 +5,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import AnnouncementBar from '$lib/components/common/AnnouncementBar.svelte';
+	import SuperAdminLoginModal from '$lib/components/common/SuperAdminLoginModal.svelte';
 
 	let mounted = false;
 	let showContent = false;
@@ -14,6 +15,30 @@
 	let isWhatsAppBrowser = false;
 	let giftWheelActive = false;
 	let surpriseBoxActive = false;
+	let showSuperAdminModal = false;
+
+	// Global click listener for hidden Super Admin trigger (20 clicks anywhere on login page)
+	let superAdminClicks = 0;
+	let superAdminClickTimer: any = null;
+
+	function handleGlobalPageClick(event: MouseEvent) {
+		// Ignore clicks on buttons/inputs/links to avoid interfering with normal interactions
+		const target = event.target as HTMLElement;
+		if (target && target.closest('button, input, a, select, textarea')) {
+			return;
+		}
+
+		superAdminClicks++;
+		clearTimeout(superAdminClickTimer);
+		superAdminClickTimer = setTimeout(() => {
+			superAdminClicks = 0;
+		}, 4000);
+
+		if (superAdminClicks >= 20) {
+			superAdminClicks = 0;
+			showSuperAdminModal = true;
+		}
+	}
 
 	// Secret dev unmask: click 15 times to dismiss
 	let maskClicks = 0;
@@ -154,7 +179,9 @@
 	<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet" />
 </svelte:head>
 
-<div class="login-page" class:mounted dir="ltr">
+<div class="login-page" class:mounted dir="ltr" on:click={handleGlobalPageClick}>
+	<SuperAdminLoginModal bind:show={showSuperAdminModal} />
+
 	{#if isWhatsAppBrowser}
 	<div class="wa-browser-banner" dir={isRTL ? 'rtl' : 'ltr'}>
 		<span>{isRTL ? '🌐 للحصول على أفضل تجربة، افتح في المتصفح' : '🌐 For the best experience, open in your browser'}</span>
