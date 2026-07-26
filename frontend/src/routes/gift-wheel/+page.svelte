@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { supabase } from '$lib/utils/supabase';
+	import { supabaseUrl } from '$lib/utils/supabase';
 	import { _, locale, switchLocale } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
@@ -667,10 +668,10 @@ ${fullText.substring(0, 900)}` }] }],
 		// Load logo and currency symbol
 		const logo = new Image();
 		logo.crossOrigin = 'anonymous';
-		logo.src = 'https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/logo.png';
+		logo.src = `${supabaseUrl}/storage/v1/object/public/app-icons/logo.png`;
 		const currImg = new Image();
 		currImg.crossOrigin = 'anonymous';
-		currImg.src = 'https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png';
+		currImg.src = `${supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png`;
 		await Promise.all([
 			new Promise<void>((r) => { logo.onload = () => r(); logo.onerror = () => r(); }),
 			new Promise<void>((r) => { currImg.onload = () => r(); currImg.onerror = () => r(); })
@@ -1373,7 +1374,7 @@ ${fullText.substring(0, 900)}` }] }],
 									{$locale === 'ar' ? `أقصى ${segment.max_discount}` : `max ${segment.max_discount}`}
 								</text>
 								<image
-									href="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png"
+									href="{supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png"
 									x={subX - 4}
 									y={subY + 2}
 									width="8"
@@ -1384,7 +1385,7 @@ ${fullText.substring(0, 900)}` }] }],
 						{/each}
 						<!-- Center circle -->
 						<circle cx="150" cy="150" r="22" fill="#ffffff" stroke="#13A538" stroke-width="3" />
-						<image href="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/logo.png" x="131" y="131" width="38" height="38" clip-path="url(#center-clip)" />
+						<image href="{supabaseUrl}/storage/v1/object/public/app-icons/logo.png" x="131" y="131" width="38" height="38" clip-path="url(#center-clip)" />
 					</svg>
 				{/if}
 			</div>
@@ -1439,7 +1440,7 @@ ${fullText.substring(0, 900)}` }] }],
 					</div>
 					<div class="ocr-detail">
 						<span class="ocr-label">{$locale === 'ar' ? 'المبلغ' : 'Amount'}</span>
-						<span class="ocr-value">{billAmount ? '' : '—'}{#if billAmount}<span class="currency-amount"><img src="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" />{billAmount}</span>{/if}</span>
+						<span class="ocr-value">{billAmount ? '' : '—'}{#if billAmount}<span class="currency-amount"><img src="{supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" />{billAmount}</span>{/if}</span>
 					</div>
 					{#if billDate}
 					<div class="ocr-detail">
@@ -1466,7 +1467,7 @@ ${fullText.substring(0, 900)}` }] }],
 						/>
 					</div>
 					<div class="field">
-						<label>{$locale === 'ar' ? 'مبلغ الفاتورة' : 'Bill Amount'} <img src="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" /></label>
+						<label>{$locale === 'ar' ? 'مبلغ الفاتورة' : 'Bill Amount'} <img src="{supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" /></label>
 						<input
 							type="number"
 							bind:value={billAmount}
@@ -1519,7 +1520,7 @@ ${fullText.substring(0, 900)}` }] }],
 							{$locale === 'ar'
 								? 'الحد الأدنى للفاتورة للدخول: '
 								: 'Minimum bill to spin: '}
-							<span class="remaining-count currency-amount"><img src="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png" alt="Currency" class="currency-icon" />{statusInfo.minimum_bill_amount}</span>
+							<span class="remaining-count currency-amount"><img src="{supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png" alt="Currency" class="currency-icon" />{statusInfo.minimum_bill_amount}</span>
 						</span>
 					</div>
 				{/if}
@@ -1547,7 +1548,7 @@ ${fullText.substring(0, 900)}` }] }],
 			<div class="ready-section">
 				<div class="bill-summary">
 					<p><strong>{$locale === 'ar' ? 'الفاتورة:' : 'Bill:'}</strong> #{billNumber}</p>
-					<p><strong>{$locale === 'ar' ? 'المبلغ:' : 'Amount:'}</strong> <span class="currency-amount"><img src="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" />{billAmount}</span></p>
+					<p><strong>{$locale === 'ar' ? 'المبلغ:' : 'Amount:'}</strong> <span class="currency-amount"><img src="{supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" />{billAmount}</span></p>
 					{#if billDate}
 						<p><strong>{$locale === 'ar' ? 'التاريخ:' : 'Date:'}</strong> {billDate}</p>
 					{/if}
@@ -1588,7 +1589,7 @@ ${fullText.substring(0, 900)}` }] }],
 					</div>
 						{#if spinResult.max_discount}
 							<p class="discount-note">
-								{$locale === 'ar' ? 'أو الحد الأقصى' : 'or maximum'} <span class="currency-amount"><img src="https://supabase.urbanaqura.com/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" />{spinResult.max_discount}</span> {$locale === 'ar' ? 'على الفاتورة التالية أيهما أقل' : 'on next bill which ever is lowest'}
+							{$locale === 'ar' ? 'أو الحد الأقصى' : 'or maximum'} <span class="currency-amount"><img src="{supabaseUrl}/storage/v1/object/public/app-icons/saudi-currency.png" alt="SAR" class="currency-icon" />{spinResult.max_discount}</span> {$locale === 'ar' ? 'على الفاتورة التالية أيهما أقل' : 'on next bill which ever is lowest'}
 							</p>
 						{/if}
 						<p class="expiry">

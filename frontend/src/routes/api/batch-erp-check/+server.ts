@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: 'phoneNumbers array is required' }, { status: 400 });
 		}
 
-		const supabaseUrl = env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+		const supabaseUrl = env.VITE_SUPABASE_URL || '';
 		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
 		const supabase = createClient(supabaseUrl, supabaseKey);
 

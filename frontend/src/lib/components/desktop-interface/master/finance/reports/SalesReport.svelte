@@ -177,7 +177,7 @@
 						console.log('🔍 Debugging info:');
 						console.log('  - Check if Realtime is enabled in Supabase Settings');
 						console.log('  - Verify JWT token in anon key is valid');
-						console.log('  - Check network connectivity to wss://supabase.urbanaqura.com');
+						console.log('  - Check network connectivity to your Supabase instance');
 					} else if (status === 'TIMED_OUT') {
 						console.warn('⏱️ Subscription timed out, retrying in 5 seconds...');
 						setTimeout(() => subscribeToSalesUpdates(), 5000);

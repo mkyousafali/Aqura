@@ -117,6 +117,7 @@
     };
 
     let supabase: any = null;
+    let supabaseUrl = '';
     let loading = true;
     let saving = false;
     let fetchingProfile = false;
@@ -151,6 +152,7 @@
     onMount(async () => {
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
+        supabaseUrl = mod.supabaseUrl || '';
         await loadAccounts();
     });
 
@@ -191,7 +193,7 @@
                 }
                 // Auto-populate webhook fields if empty
                 if (!settings!.webhook_url) {
-                    settings!.webhook_url = 'https://supabase.urbanaqura.com/functions/v1/whatsapp-webhook';
+                    settings!.webhook_url = `${supabaseUrl}/functions/v1/whatsapp-webhook`;
                 }
                 if (!settings!.webhook_verify_token) {
                     settings!.webhook_verify_token = 'aqura_wa_verify_2024';
@@ -834,7 +836,7 @@
                                     <tbody class="divide-y divide-emerald-100">
                                         <tr>
                                             <td class="py-2 text-xs font-bold text-emerald-600 w-[140px]">🔗 URL</td>
-                                            <td class="py-2"><code class="text-[11px] text-emerald-800 font-mono bg-emerald-100 px-2 py-1 rounded break-all">https://supabase.urbanaqura.com/functions/v1/whatsapp-webhook</code></td>
+                                            <td class="py-2"><code class="text-[11px] text-emerald-800 font-mono bg-emerald-100 px-2 py-1 rounded break-all">{supabaseUrl}/functions/v1/whatsapp-webhook</code></td>
                                         </tr>
                                         <tr>
                                             <td class="py-2 text-xs font-bold text-emerald-600">🔑 Verify Token</td>
@@ -892,7 +894,7 @@
                                 </tbody>
                             </table>
                             <div class="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-100">
-                                <p class="text-xs text-amber-700 font-semibold">ℹ️ Webhook URL should point to: <code class="bg-amber-100 px-1.5 py-0.5 rounded text-[10px]">https://supabase.urbanaqura.com/functions/v1/whatsapp-webhook</code></p>
+                                <p class="text-xs text-amber-700 font-semibold">ℹ️ Webhook URL should point to: <code class="bg-amber-100 px-1.5 py-0.5 rounded text-[10px]">{supabaseUrl}/functions/v1/whatsapp-webhook</code></p>
                             </div>
                             <div class="mt-6 flex justify-end gap-3">
                                 <button class="group flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-xl hover:bg-blue-100 transition-all border border-blue-200"

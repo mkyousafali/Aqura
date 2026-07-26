@@ -28,7 +28,7 @@ async function getSupabase() {
     if (!supabaseClient) {
         const mod = await import('$lib/utils/supabase');
         supabaseClient = mod.supabase;
-        supabaseUrl = mod.supabaseUrl || import.meta.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+        supabaseUrl = mod.supabaseUrl || import.meta.env.VITE_SUPABASE_URL || '';
     }
     return supabaseClient;
 }
@@ -36,7 +36,7 @@ async function getSupabase() {
 let cacheBuster = Date.now();
 
 function buildIconUrl(storagePath: string): string {
-    const url = supabaseUrl || import.meta.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+    const url = supabaseUrl || import.meta.env.VITE_SUPABASE_URL || '';
     return `${url}/storage/v1/object/public/app-icons/${encodeURIComponent(storagePath)}?t=${cacheBuster}`;
 }
 

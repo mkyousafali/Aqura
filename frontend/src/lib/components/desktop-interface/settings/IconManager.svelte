@@ -71,14 +71,14 @@
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
-		supabaseUrl = mod.supabaseUrl || import.meta.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+		supabaseUrl = mod.supabaseUrl || import.meta.env.VITE_SUPABASE_URL || '';
 		await loadIcons(true);
 	});
 
 	let cacheBuster = Date.now();
 
 	function buildUrl(storagePath: string): string {
-		const base = supabaseUrl || 'https://supabase.urbanaqura.com';
+		const base = supabaseUrl || import.meta.env.VITE_SUPABASE_URL || '';
 		return `${base}/storage/v1/object/public/app-icons/${encodeURIComponent(storagePath)}?t=${cacheBuster}`;
 	}
 

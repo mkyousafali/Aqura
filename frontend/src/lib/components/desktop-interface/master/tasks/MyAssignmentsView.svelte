@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseUrl } from '$lib/utils/supabase';
 	import { locale } from '$lib/i18n';
 
 	export let windowId: string = '';
@@ -185,7 +185,7 @@
 						
 						// For quick_task_completions, use photo_path field
 						if (completion.photo_path) {
-										const photoUrl = `https://supabase.urbanaqura.com/storage/v1/object/public/quick-task-files/${completion.photo_path}`;
+								const photoUrl = `${supabaseUrl}/storage/v1/object/public/quick-task-files/${completion.photo_path}`;
 							console.log('✅ Quick task completion photo found:', photoUrl);
 							allImages.push({
 								file_url: photoUrl,
@@ -235,7 +235,7 @@
 						
 						// Try photo_path first (newer structure)
 						if (completion.photo_path) {
-									const photoUrl = `https://supabase.urbanaqura.com/storage/v1/object/public/completion-photos/${completion.photo_path}`;
+								const photoUrl = `${supabaseUrl}/storage/v1/object/public/completion-photos/${completion.photo_path}`;
 							console.log('✅ Regular task completion photo found:', photoUrl);
 							allImages.push({
 								file_url: photoUrl,
