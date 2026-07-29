@@ -84,5 +84,22 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Denomination": "DENOMINATION",
   "Petty Cash": "PETTY_CASH",
   "Approval Center": "APPROVAL_CENTER",
-  "One Day Offer Manager": "ONE_DAY_OFFER_MANAGER"
+  "One Day Offer Manager": "ONE_DAY_OFFER_MANAGER",
+  // Email Module
+  "Email Dashboard": "EMAIL_DASHBOARD",
+  "Email Accounts": "EMAIL_ACCOUNTS",
+  "Email Templates": "EMAIL_TEMPLATES",
+  "Email Signatures": "EMAIL_SIGNATURES",
+  "Email Groups": "EMAIL_GROUPS",
+  "Email Settings": "EMAIL_SETTINGS",
+  "AI Email Settings": "EMAIL_AI_SETTINGS",
+  "Email Centre": "EMAIL_CENTRE",
+  "Compose Email": "EMAIL_COMPOSE",
+  "Broadcast Email": "EMAIL_BROADCAST",
+  "Email Queue": "EMAIL_QUEUE",
+  "Scheduled Emails": "EMAIL_SCHEDULED",
+  "Email Logs": "EMAIL_LOGS",
+  "Delivery Reports": "EMAIL_DELIVERY_REPORTS",
+  "Campaign Reports": "EMAIL_CAMPAIGN_REPORTS",
+  "Failed Emails": "EMAIL_FAILED"
 };

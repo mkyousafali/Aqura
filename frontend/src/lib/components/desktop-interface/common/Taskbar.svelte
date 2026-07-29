@@ -19,6 +19,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { supabase } from '$lib/utils/supabase';
 	import { initiateCall, sendTextMessage } from '$lib/stores/callStore';
 	import WALiveChat from '$lib/components/desktop-interface/whatsapp/WALiveChat.svelte';
+	import EmailCentre from '$lib/components/desktop-interface/email/EmailCentre.svelte';
 	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
 
 	// Event dispatcher for communicating with layout
@@ -590,6 +591,24 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		});
 	}
 
+	function openEmailCentreWindow() {
+		const windowId = generateWindowId('email-centre');
+		openWindow({
+			id: windowId,
+			title: 'Email Centre',
+			component: EmailCentre,
+			componentName: 'EmailCentre',
+			icon: '📬',
+			size: { width: 1400, height: 800 },
+			position: { x: 120 + (Math.random() * 80), y: 70 + (Math.random() * 80) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			popOutEnabled: true
+		});
+	}
+
 	function openQuickAnnouncements() {
 		const windowId = generateWindowId('quick-announcements');
 		
@@ -869,6 +888,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			{/if}
 		</button>
 		{/if}
+
+		<!-- Email Centre -->
+		<button 
+			class="quick-btn email-btn"
+			on:click={openEmailCentreWindow}
+			title="Email Centre"
+		>
+			<div class="quick-icon">✉️</div>
+		</button>
 
 		<!-- Call -->
 		<div class="call-popup-wrapper">

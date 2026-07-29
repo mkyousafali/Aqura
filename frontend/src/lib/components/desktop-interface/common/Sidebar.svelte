@@ -165,6 +165,25 @@
 	import WASettings from '$lib/components/desktop-interface/whatsapp/WASettings.svelte';
 	import WACatalog from '$lib/components/desktop-interface/whatsapp/WACatalog.svelte';
 
+	// Email Module Imports
+	import EmailDashboard from '$lib/components/desktop-interface/email/EmailDashboard.svelte';
+	import EmailAccounts from '$lib/components/desktop-interface/email/EmailAccounts.svelte';
+	import EmailTemplates from '$lib/components/desktop-interface/email/EmailTemplates.svelte';
+	import EmailSignatures from '$lib/components/desktop-interface/email/EmailSignatures.svelte';
+	import EmailGroups from '$lib/components/desktop-interface/email/EmailGroups.svelte';
+	import EmailSettings from '$lib/components/desktop-interface/email/EmailSettings.svelte';
+	import EmailAISettings from '$lib/components/desktop-interface/email/EmailAISettings.svelte';
+	import EmailCentre from '$lib/components/desktop-interface/email/EmailCentre.svelte';
+	import EmailCompose from '$lib/components/desktop-interface/email/EmailCompose.svelte';
+	import EmailBroadcast from '$lib/components/desktop-interface/email/EmailBroadcast.svelte';
+	import EmailQueue from '$lib/components/desktop-interface/email/EmailQueue.svelte';
+	import EmailScheduled from '$lib/components/desktop-interface/email/EmailScheduled.svelte';
+	import EmailLogs from '$lib/components/desktop-interface/email/EmailLogs.svelte';
+	import EmailDeliveryReports from '$lib/components/desktop-interface/email/EmailDeliveryReports.svelte';
+	import EmailCampaignReports from '$lib/components/desktop-interface/email/EmailCampaignReports.svelte';
+	import EmailFailed from '$lib/components/desktop-interface/email/EmailFailed.svelte';
+	import EmailSetupGuide from '$lib/components/desktop-interface/email/EmailSetupGuide.svelte';
+
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
 
@@ -220,6 +239,11 @@
 	let showWhatsAppManageSubmenu = false;
 	let showWhatsAppOperationsSubmenu = false;
 	let showWhatsAppReportsSubmenu = false;
+	let showEmailSubmenu = false;
+	let showEmailDashboardSubmenu = false;
+	let showEmailManageSubmenu = false;
+	let showEmailOperationsSubmenu = false;
+	let showEmailReportsSubmenu = false;
 	let showLoyaltySubmenu = false;
 	let showLoyaltyDashboardSubmenu = false;
 	let showLoyaltyManageSubmenu = false;
@@ -325,6 +349,23 @@
 		'WA_ACCOUNTS': 'nav.whatsappAccounts',
 		'WA_SETTINGS': 'nav.whatsappSettings',
 		'WA_CATALOG': 'nav.whatsappCatalog',
+		// Email Module
+		'EMAIL_DASHBOARD': 'nav.emailDashboard',
+		'EMAIL_ACCOUNTS': 'nav.emailAccounts',
+		'EMAIL_TEMPLATES': 'nav.emailTemplates',
+		'EMAIL_SIGNATURES': 'nav.emailSignatures',
+		'EMAIL_GROUPS': 'nav.emailGroups',
+		'EMAIL_SETTINGS': 'nav.emailSettings',
+		'EMAIL_AI_SETTINGS': 'nav.emailAISettings',
+		'EMAIL_CENTRE': 'nav.emailCentre',
+		'EMAIL_COMPOSE': 'nav.emailCompose',
+		'EMAIL_BROADCAST': 'nav.emailBroadcast',
+		'EMAIL_QUEUE': 'nav.emailQueue',
+		'EMAIL_SCHEDULED': 'nav.emailScheduled',
+		'EMAIL_LOGS': 'nav.emailLogs',
+		'EMAIL_DELIVERY_REPORTS': 'nav.emailDeliveryReports',
+		'EMAIL_CAMPAIGN_REPORTS': 'nav.emailCampaignReports',
+		'EMAIL_FAILED': 'nav.emailFailed',
 	};
 
 	/** Get translated button name from button_code */
@@ -362,12 +403,21 @@
 		// Listen for open-near-expiry-requests event from NearExpiryManager
 		const handleOpenNearExpiryRequests = () => openNearExpiryRequestsList();
 		window.addEventListener('open-near-expiry-requests', handleOpenNearExpiryRequests);
+
+		// Listen for email guide window open requests
+		const handleAquraOpenWindow = (e: any) => {
+			const type = e.detail?.type;
+			if (type === 'email-accounts') openEmailAccounts();
+			else if (type === 'email-centre') openEmailCentre();
+		};
+		window.addEventListener('aqura-open-window', handleAquraOpenWindow);
 		
 		// Cleanup on unmount
 		return () => {
 			window.removeEventListener('online', handleOnline);
 			window.removeEventListener('offline', handleOffline);
 			window.removeEventListener('open-near-expiry-requests', handleOpenNearExpiryRequests);
+			window.removeEventListener('aqura-open-window', handleAquraOpenWindow);
 		};
 	});
 
@@ -2270,6 +2320,10 @@ function openApprovalCenter() {
 		showWhatsAppManageSubmenu = false;
 		showWhatsAppOperationsSubmenu = false;
 		showWhatsAppReportsSubmenu = false;
+		showEmailDashboardSubmenu = false;
+		showEmailManageSubmenu = false;
+		showEmailOperationsSubmenu = false;
+		showEmailReportsSubmenu = false;
 		showLoyaltyDashboardSubmenu = false;
 		showLoyaltyManageSubmenu = false;
 		showLoyaltyOperationsSubmenu = false;
@@ -2286,6 +2340,7 @@ function openApprovalCenter() {
 		showTasksSubmenu = false;
 		showUserSubmenu = false;
 		showWhatsAppSubmenu = false;
+		showEmailSubmenu = false;
 		showLoyaltySubmenu = false;
 	}
 
@@ -2349,6 +2404,110 @@ function openApprovalCenter() {
 		const windowId = generateWindowId('wa-catalog');
 		const n = Math.floor(Math.random() * 1000) + 1;
 		openWindow({ id: windowId, title: `${t('nav.whatsappCatalog')} #${n}`, component: WACatalog, componentName: 'WACatalog', icon: '🛍️', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+
+	// ============ EMAIL MODULE WINDOW FUNCTIONS ============
+	function openEmailDashboard() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-dashboard');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Dashboard #${n}`, component: EmailDashboard, componentName: 'EmailDashboard', icon: '📊', size: { width: 1200, height: 700 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailAccounts() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-accounts');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Accounts #${n}`, component: EmailAccounts, componentName: 'EmailAccounts', icon: '📱', size: { width: 1200, height: 700 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailTemplates() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-templates');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Templates #${n}`, component: EmailTemplates, componentName: 'EmailTemplates', icon: '📝', size: { width: 1200, height: 700 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailSignatures() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-signatures');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Signatures #${n}`, component: EmailSignatures, componentName: 'EmailSignatures', icon: '✍️', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailGroups() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-groups');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Groups #${n}`, component: EmailGroups, componentName: 'EmailGroups', icon: '👥', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailSettings() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-settings');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Settings #${n}`, component: EmailSettings, componentName: 'EmailSettings', icon: '⚙️', size: { width: 900, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailAISettings() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-ai-settings');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `AI Email Settings #${n}`, component: EmailAISettings, componentName: 'EmailAISettings', icon: '🤖', size: { width: 1000, height: 700 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailCentre() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-centre');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Centre #${n}`, component: EmailCentre, componentName: 'EmailCentre', icon: '📬', size: { width: 1400, height: 800 }, position: { x: 120 + (Math.random() * 80), y: 70 + (Math.random() * 80) }, resizable: true, minimizable: true, maximizable: true, closable: true, popOutEnabled: true });
+	}
+	function openEmailCompose() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-compose');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Compose Email #${n}`, component: EmailCompose, componentName: 'EmailCompose', icon: '✉️', size: { width: 800, height: 650 }, position: { x: 200 + (Math.random() * 100), y: 100 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailBroadcast() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-broadcast');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Broadcast Email #${n}`, component: EmailBroadcast, componentName: 'EmailBroadcast', icon: '📣', size: { width: 1200, height: 700 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailQueue() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-queue');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Queue #${n}`, component: EmailQueue, componentName: 'EmailQueue', icon: '📋', size: { width: 1200, height: 700 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailScheduled() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-scheduled');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Scheduled Emails #${n}`, component: EmailScheduled, componentName: 'EmailScheduled', icon: '🕐', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailLogs() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-logs');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Logs #${n}`, component: EmailLogs, componentName: 'EmailLogs', icon: '📄', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailDeliveryReports() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-delivery-reports');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Delivery Reports #${n}`, component: EmailDeliveryReports, componentName: 'EmailDeliveryReports', icon: '✅', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailCampaignReports() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-campaign-reports');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Campaign Reports #${n}`, component: EmailCampaignReports, componentName: 'EmailCampaignReports', icon: '📈', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailFailed() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-failed');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Failed Emails #${n}`, component: EmailFailed, componentName: 'EmailFailed', icon: '❌', size: { width: 1100, height: 650 }, position: { x: 140 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openEmailSetupGuide() {
+		collapseAllMenus();
+		const windowId = generateWindowId('email-setup-guide');
+		const n = Math.floor(Math.random() * 1000) + 1;
+		openWindow({ id: windowId, title: `Email Setup Guide #${n}`, component: EmailSetupGuide, componentName: 'EmailSetupGuide', icon: '📖', size: { width: 900, height: 700 }, position: { x: 160 + (Math.random() * 80), y: 80 + (Math.random() * 80) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 
 	// Open ERP Products List window
@@ -6204,6 +6363,205 @@ function openApprovalCenter() {
 			{#if showWhatsAppReportsSubmenu}
 				<div class="submenu-subitem-container">
 					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- ============ ✉️ EMAIL SECTION ============ -->
+	<div class="menu-section">
+		<button class="section-button" on:click={() => showEmailSubmenu = !showEmailSubmenu}
+			title="Email">
+			<span class="section-icon">✉️</span>
+			<span class="section-text">Email</span>
+			<span class="arrow" class:expanded={showEmailSubmenu}>▼</span>
+		</button>
+	</div>
+	{#if showEmailSubmenu}
+		<div class="submenu-inline email-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only"
+					on:click={() => { showEmailDashboardSubmenu = !showEmailDashboardSubmenu; showEmailManageSubmenu = false; showEmailOperationsSubmenu = false; showEmailReportsSubmenu = false; }}
+					title="Dashboard">
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+			{#if showEmailDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('EMAIL_DASHBOARD')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailDashboard}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">Email Dashboard</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only"
+					on:click={() => { showEmailManageSubmenu = !showEmailManageSubmenu; showEmailDashboardSubmenu = false; showEmailOperationsSubmenu = false; showEmailReportsSubmenu = false; }}
+					title="Management">
+					<span class="menu-text">Management</span>
+				</button>
+			</div>
+			{#if showEmailManageSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('EMAIL_ACCOUNTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailAccounts}>
+								<span class="menu-icon">📱</span>
+								<span class="menu-text">Email Accounts</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_TEMPLATES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailTemplates}>
+								<span class="menu-icon">📝</span>
+								<span class="menu-text">Email Templates</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_SIGNATURES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailSignatures}>
+								<span class="menu-icon">✍️</span>
+								<span class="menu-text">Email Signatures</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_GROUPS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailGroups}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">Email Groups</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailSettings}>
+								<span class="menu-icon">⚙️</span>
+								<span class="menu-text">Email Settings</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_AI_SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailAISettings}>
+								<span class="menu-icon">🤖</span>
+								<span class="menu-text">AI Email Settings</span>
+							</button>
+						</div>
+					{/if}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openEmailSetupGuide}>
+							<span class="menu-icon">📖</span>
+							<span class="menu-text">Email Setup Guide</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only"
+					on:click={() => { showEmailOperationsSubmenu = !showEmailOperationsSubmenu; showEmailDashboardSubmenu = false; showEmailManageSubmenu = false; showEmailReportsSubmenu = false; }}
+					title="Operations">
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+			{#if showEmailOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('EMAIL_CENTRE')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailCentre}>
+								<span class="menu-icon">📬</span>
+								<span class="menu-text">Email Centre</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_COMPOSE')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailCompose}>
+								<span class="menu-icon">✉️</span>
+								<span class="menu-text">Compose Email</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_BROADCAST')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailBroadcast}>
+								<span class="menu-icon">📣</span>
+								<span class="menu-text">Broadcast Email</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_QUEUE')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailQueue}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">Email Queue</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_SCHEDULED')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailScheduled}>
+								<span class="menu-icon">🕐</span>
+								<span class="menu-text">Scheduled Emails</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only"
+					on:click={() => { showEmailReportsSubmenu = !showEmailReportsSubmenu; showEmailDashboardSubmenu = false; showEmailManageSubmenu = false; showEmailOperationsSubmenu = false; }}
+					title="Reports">
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+			{#if showEmailReportsSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('EMAIL_LOGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailLogs}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">Email Logs</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_DELIVERY_REPORTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailDeliveryReports}>
+								<span class="menu-icon">✅</span>
+								<span class="menu-text">Delivery Reports</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_CAMPAIGN_REPORTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailCampaignReports}>
+								<span class="menu-icon">📈</span>
+								<span class="menu-text">Campaign Reports</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EMAIL_FAILED')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailFailed}>
+								<span class="menu-icon">❌</span>
+								<span class="menu-text">Failed Emails</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

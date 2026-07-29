@@ -82,7 +82,24 @@
 		'WA_CATALOG': '📦',
 		'BREAK_REGISTER': '☕',
 		'STORAGE_MANAGER': '🗄️',
-		'API_KEYS_MANAGER': '🔑'
+		'API_KEYS_MANAGER': '🔑',
+		// Email Module
+		'EMAIL_DASHBOARD': '📊',
+		'EMAIL_ACCOUNTS': '📱',
+		'EMAIL_TEMPLATES': '📝',
+		'EMAIL_SIGNATURES': '✍️',
+		'EMAIL_GROUPS': '👥',
+		'EMAIL_SETTINGS': '⚙️',
+		'EMAIL_AI_SETTINGS': '🤖',
+		'EMAIL_CENTRE': '📬',
+		'EMAIL_COMPOSE': '✉️',
+		'EMAIL_BROADCAST': '📣',
+		'EMAIL_QUEUE': '📋',
+		'EMAIL_SCHEDULED': '🕐',
+		'EMAIL_LOGS': '📄',
+		'EMAIL_DELIVERY_REPORTS': '✅',
+		'EMAIL_CAMPAIGN_REPORTS': '📈',
+		'EMAIL_FAILED': '❌'
 	};
 
 	let mounted = false;
