@@ -985,10 +985,6 @@
           <span class="qa-icon">💳</span>
           <span class="qa-label">{currentLanguage === 'ar' ? 'رصيد النقاط' : 'Loyalty Balance'}</span>
         </button>
-        <a href="/follow-us" class="qa-btn qa-follow">
-          <span class="qa-icon">📱</span>
-          <span class="qa-label">{currentLanguage === 'ar' ? 'تابعنا' : 'Follow Us'}</span>
-        </a>
         <a href="/offers" class="qa-btn qa-offers">
           <span class="qa-icon">🏷️</span>
           <span class="qa-label">{currentLanguage === 'ar' ? 'العروض' : 'Offers'}</span>

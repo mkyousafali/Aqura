@@ -774,7 +774,8 @@
 			const isGiftWheelRoute = $page.url.pathname.startsWith('/gift-wheel');
 			const isSurpriseBoxRoute = $page.url.pathname.startsWith('/surprise-box');
 			const isLoyaltyRoute = $page.url.pathname.startsWith('/loyalty');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isPopoutMode) {
+			const isCareersAdminRoute = $page.url.pathname.startsWith('/careers-admin');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -814,7 +815,8 @@
 					const isLoginTestRouteTimeout = $page.url.pathname.startsWith('/logintest');
 					const isGiftWheelRouteTimeout = $page.url.pathname.startsWith('/gift-wheel');
 					const isLoyaltyRouteTimeout = $page.url.pathname.startsWith('/loyalty');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isPopoutMode) {
+					const isCareersAdminRouteTimeout = $page.url.pathname.startsWith('/careers-admin');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -1062,6 +1064,7 @@
 	$: isLoginTestPage = $page.url.pathname.startsWith('/logintest');
 	$: isGiftWheelPage = $page.url.pathname.startsWith('/gift-wheel');
 	$: isSurpriseBoxPage = $page.url.pathname.startsWith('/surprise-box');
+	$: isCareersAdminPage = $page.url.pathname.startsWith('/careers-admin');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
@@ -1086,7 +1089,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isLoginTestPage && !isGiftWheelPage && !isLoginPage}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isLoginTestPage && !isGiftWheelPage && !isLoginPage && !isCareersAdminPage}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">
@@ -1094,7 +1097,7 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isGiftWheelPage || isSurpriseBoxPage || isLoginPage}
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isGiftWheelPage || isSurpriseBoxPage || isLoginPage || isCareersAdminPage}
 	<!-- Mobile, cashier, customer, login, and login test routes get no desktop layout - completely independent -->
 	<slot />
 {:else}

@@ -1,5 +1,23 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { currentLocale, switchLocale } from '$lib/i18n';
+    import { supabase } from '$lib/utils/supabase';
+    import { formatPolicyContent } from '$lib/utils/formatPolicyContent';
+
+    let customContentEn = '';
+    let customContentAr = '';
+
+    onMount(async () => {
+        try {
+            const { data, error } = await supabase.rpc('get_login_layout');
+            if (!error && data?.privacy_policy) {
+                customContentEn = data.privacy_policy.en?.content ?? '';
+                customContentAr = data.privacy_policy.ar?.content ?? '';
+            }
+        } catch (e) {
+            console.error('Failed to load custom privacy policy content:', e);
+        }
+    });
 
     const companyName = "Urban Aqura";
     const companyNameAr = "ايربن ماركت أكورا";
@@ -16,6 +34,7 @@
     $: cn = isAr ? companyNameAr : companyName;
     $: an = isAr ? appNameAr : appName;
     $: lastUpdated = isAr ? lastUpdatedAr : lastUpdatedEn;
+    $: customContent = formatPolicyContent(isAr ? customContentAr : customContentEn);
 
     function toggleLang() {
         switchLocale(isAr ? 'en' : 'ar');
@@ -42,6 +61,11 @@
         <h1 class="text-3xl font-bold text-gray-900 mb-2">{isAr ? 'سياسة الخصوصية' : 'Privacy Policy'}</h1>
         <p class="text-sm text-gray-500 mb-8">{isAr ? 'آخر تحديث:' : 'Last updated:'} {lastUpdated}</p>
 
+        {#if customContent}
+            <div class="space-y-6 text-gray-700 leading-relaxed">
+                {@html customContent}
+            </div>
+        {:else}
         <div class="space-y-6 text-gray-700 leading-relaxed">
 
             <!-- Section 1: Introduction -->
@@ -431,6 +455,7 @@
                 </div>
             </section>
         </div>
+        {/if}
 
         <div class="mt-10 pt-6 border-t border-gray-200 text-center">
             <a href="/" class="text-blue-600 hover:underline text-sm">{isAr ? '← العودة إلى' : '← Back to'} {an}</a>

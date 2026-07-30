@@ -806,38 +806,6 @@
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
 
 			{#if !hideNavButtons}
-			<!-- Follow Us Button -->
-			<button type="button" class="follow-us-btn" on:click={goToFollowUs} disabled={isLoading} title={$_('customer.login.followUs') || 'Follow Us'}>
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-					<circle cx="9" cy="7" r="4"/>
-					<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-					<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-				</svg>
-				{$_('customer.login.followUs') || 'Follow Us'}
-			</button>
-
-			<!-- View Latest Offers Button -->
-			<button type="button" class="view-offers-btn" on:click={goToOffers} disabled={isLoading} title={$_('customer.login.viewLatestOffers') || 'View Latest Offers'}>
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M6 9l6-6 6 6"/>
-					<path d="M3 12h18"/>
-					<path d="M9 18H6a2 2 0 0 1-2-2v-5h14v5a2 2 0 0 1-2 2h-3"/>
-				</svg>
-				{$_('customer.login.viewLatestOffers') || 'View Latest Offers'}
-			</button>
-
-			<!-- Loyalty Member Login Button -->
-			<button type="button" class="loyalty-member-btn" on:click={switchToLoyalty} disabled={isLoading} title={$_('customer.login.loyaltyMemberLogin') || 'Loyalty Member Login'}>
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-					<path d="M9 10h.01"/>
-					<path d="M12 10h.01"/>
-					<path d="M15 10h.01"/>
-				</svg>
-				{$_('customer.login.loyaltyMemberLogin') || 'Loyalty Member Login'}
-			</button>
-
 			<div class="login-divider">
 				<span>{$_('common.or') || 'OR'}</span>
 			</div>
@@ -863,26 +831,8 @@
 					</div>
 				{/if}
 				
-				<div class="register-prompt-section">
-					<div class="register-prompt-divider">
-						<span>{$currentLocale === 'ar' ? 'تريد الانضمام لبرنامج أهل ايربن؟' : 'Looking to join Ahl Urban loyalty program?'}</span>
-					</div>
-					<button type="button" class="register-prompt-btn" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-							<circle cx="8.5" cy="7" r="4"></circle>
-							<line x1="20" y1="8" x2="20" y2="14"></line>
-							<line x1="23" y1="11" x2="17" y2="11"></line>
-						</svg>
-						{$currentLocale === 'ar' ? 'سجّل الآن' : 'Register Now'}
-					</button>
-				</div>
-
 				<div class="form-fields">
 					<div class="field-group">
-						<div class="already-member-divider">
-							<span>{$currentLocale === 'ar' ? 'عضو بالفعل؟' : 'Already a member?'}</span>
-						</div>
 						<p class="access-code-instruction">
 							{#if $currentLocale === 'ar'}
 								أدخل الرمز المُرسل إليك على واتساب
@@ -945,6 +895,21 @@
 					{/if}
 				</button>
 
+				<div class="register-prompt-section">
+					<div class="register-prompt-divider">
+						<span>{$currentLocale === 'ar' ? 'أو' : 'or'}</span>
+					</div>
+					<button type="button" class="register-prompt-btn" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+							<circle cx="8.5" cy="7" r="4"></circle>
+							<line x1="20" y1="8" x2="20" y2="14"></line>
+							<line x1="23" y1="11" x2="17" y2="11"></line>
+						</svg>
+						{$currentLocale === 'ar' ? 'سجّل الآن' : 'Register Now'}
+					</button>
+				</div>
+
 				<div class="form-footer-modern">
 					<button type="button" class="btn-footer-card" on:click={() => currentView = 'forgot'} disabled={isLoading || blockAccessCodeInput}>
 						<div class="icon-wrapper bg-blue">
@@ -960,19 +925,6 @@
 							<span class="desc">{$_('customer.login.forgotCredentials')}</span>
 						</div>
 					</button>
-
-					<a class="btn-footer-card" href="/privacy" target="_blank">
-						<div class="icon-wrapper bg-gray">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-								<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-								<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-							</svg>
-						</div>
-						<div class="card-text">
-							<span class="title">{$_('customer.login.privacyPolicy')}</span>
-							<span class="desc">{$_('customer.login.agreeToPrivacy')}</span>
-						</div>
-					</a>
 				</div>
 			</div>
 		</form>
@@ -1348,16 +1300,17 @@
 	}
 
 	.access-code-instruction {
-		font-size: 0.85rem;
-		color: #059669;
-		font-weight: 600;
-		margin: 0 0 0.5rem;
+		font-size: 0.78rem;
+		color: #0e7c3f;
+		font-weight: 700;
+		margin: 0 0 0.85rem;
 		text-align: center;
 		line-height: 1.4;
-		background: #ecfdf5;
-		border: 1px solid #6ee7b7;
-		border-radius: 8px;
-		padding: 0.4rem 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		background: none;
+		border: none;
+		padding: 0;
 	}
 
 	.field-group label {
@@ -1411,17 +1364,17 @@
 	}
 
 	.customer-digit-input {
-		width: 48px;
-		height: 48px;
-		border: 2px solid #E5E7EB;
-		border-radius: 8px;
+		width: 50px;
+		height: 56px;
+		border: 1.5px solid #E2E8F0;
+		border-radius: 12px;
 		text-align: center;
-		font-size: 1.25rem;
-		font-weight: 600;
+		font-size: 1.35rem;
+		font-weight: 700;
 		font-family: 'JetBrains Mono', 'Courier New', monospace;
 		background: #FFFFFF;
-		color: #1E293B;
-		transition: all 0.3s ease;
+		color: #14532D;
+		transition: all 0.2s ease;
 		box-sizing: border-box;
 		padding: 0;
 		-webkit-appearance: none;
@@ -1429,13 +1382,14 @@
 		appearance: none;
 		touch-action: manipulation;
 		direction: ltr;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 	}
 
 	.customer-digit-input:focus {
 		outline: none;
-		border-color: #8B5CF6;
-		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-		background: #F8FAFC;
+		border-color: #15A34A;
+		box-shadow: 0 0 0 4px rgba(21, 163, 74, 0.14);
+		background: #F5FBF7;
 	}
 
 	.customer-digit-input.error {
@@ -1512,14 +1466,14 @@
 	.checkbox-option input[type="checkbox"] {
 		width: 18px;
 		height: 18px;
-		accent-color: #8B5CF6;
+		accent-color: #15A34A;
 		margin: 0;
 	}
 
 	.customer-submit-btn {
 		width: 100%;
 		padding: 1rem 1.5rem;
-		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
+		background: linear-gradient(135deg, #0e7c3f 0%, #15A34A 100%);
 		color: white;
 		border: none;
 		border-radius: 12px;
@@ -1531,7 +1485,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.75rem;
-		box-shadow: 0 4px 14px rgba(139, 92, 246, 0.3);
+		box-shadow: 0 4px 14px rgba(14, 124, 63, 0.3);
 		text-transform: none;
 		touch-action: manipulation;
 		-webkit-tap-highlight-color: transparent;
@@ -1544,9 +1498,9 @@
 	}
 
 	.customer-submit-btn:hover:not(:disabled) {
-		background: linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%);
+		background: linear-gradient(135deg, #0a6934 0%, #0e7c3f 100%);
 		transform: translateY(-2px);
-		box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
+		box-shadow: 0 6px 20px rgba(14, 124, 63, 0.4);
 	}
 
 	.customer-submit-btn.register:hover:not(:disabled) {
@@ -1596,45 +1550,44 @@
 		content: '';
 		flex: 1;
 		height: 1px;
-		background: #6ee7b7;
+		background: #E2E8F0;
 	}
 
 	.register-prompt-divider span {
-		font-size: 0.82rem;
-		color: #059669;
+		font-size: 0.72rem;
+		color: #94A3B8;
 		white-space: nowrap;
 		font-weight: 600;
-		background: #ecfdf5;
-		border: 1px solid #6ee7b7;
-		border-radius: 20px;
-		padding: 0.3rem 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
 	}
 
 	.register-prompt-btn {
 		width: 100%;
 		padding: 0.85rem 1.5rem;
-		background: linear-gradient(135deg, #059669 0%, #10B981 100%);
-		color: white;
-		border: none;
+		background: #ffffff;
+		color: #0e7c3f;
+		border: 1.5px solid #a7d9b8;
 		border-radius: 12px;
 		font-size: 0.95rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.3s ease;
+		transition: all 0.2s ease;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		gap: 0.6rem;
-		box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+		box-shadow: none;
 		touch-action: manipulation;
 		-webkit-tap-highlight-color: transparent;
 		min-height: 48px;
 	}
 
 	.register-prompt-btn:hover:not(:disabled) {
-		background: linear-gradient(135deg, #047857 0%, #059669 100%);
+		background: #ecfdf5;
+		border-color: #0e7c3f;
 		transform: translateY(-2px);
-		box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+		box-shadow: 0 6px 16px rgba(14, 124, 63, 0.15);
 	}
 
 	.register-prompt-btn:disabled {

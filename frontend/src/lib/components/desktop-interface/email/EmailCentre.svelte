@@ -124,9 +124,11 @@
 		if (data) {
 			messages = data.threads || [];
 			totalMessages = data.total || 0;
+			isTrashView = data.is_trash || false;
 		}
 	}
 
+	let isTrashView = false;
 	let threadMessages: any[] = [];
 
 	async function selectMessage(msg: any) {
@@ -168,6 +170,25 @@
 		messages = messages.filter(m => (m.latest_message_id || m.id) !== msgId);
 		selectedMessage = null;
 		threadMessages = [];
+		await loadFolders(); // refresh folder counts
+	}
+
+	async function restoreMessage(msgId: string) {
+		if (!msgId) return;
+		await supabase.rpc('email_restore', { p_message_ids: [msgId] });
+		messages = messages.filter(m => (m.latest_message_id || m.id) !== msgId);
+		selectedMessage = null;
+		threadMessages = [];
+		await loadFolders();
+	}
+
+	async function permanentDeleteMessage(msgId: string) {
+		if (!msgId || !confirm('Permanently delete this email? This cannot be undone.')) return;
+		await supabase.rpc('email_permanent_delete', { p_message_ids: [msgId] });
+		messages = messages.filter(m => (m.latest_message_id || m.id) !== msgId);
+		selectedMessage = null;
+		threadMessages = [];
+		await loadFolders();
 	}
 
 	function selectFolder(folderId: string) {
@@ -409,10 +430,15 @@
 					<div class="thread-header">
 						<h4>{selectedMessage.subject || '(no subject)'}</h4>
 						<div class="msg-actions">
-							<button class="glass-btn" on:click={() => startReply('reply')}>↩️ Reply</button>
-							<button class="glass-btn" on:click={() => startReply('replyAll')}>↩️↩️ Reply All</button>
-							<button class="glass-btn" on:click={() => startReply('forward')}>↪️ Forward</button>
-							<button class="glass-btn danger" on:click={() => deleteMessage(selectedMessage.latest_message_id)}>🗑️ Delete</button>
+							{#if isTrashView}
+								<button class="glass-btn success" on:click={() => restoreMessage(selectedMessage.latest_message_id)}>♻️ Restore</button>
+								<button class="glass-btn danger" on:click={() => permanentDeleteMessage(selectedMessage.latest_message_id)}>🗑️ Delete Forever</button>
+							{:else}
+								<button class="glass-btn" on:click={() => startReply('reply')}>↩️ Reply</button>
+								<button class="glass-btn" on:click={() => startReply('replyAll')}>↩️↩️ Reply All</button>
+								<button class="glass-btn" on:click={() => startReply('forward')}>↪️ Forward</button>
+								<button class="glass-btn danger" on:click={() => deleteMessage(selectedMessage.latest_message_id)}>🗑️ Delete</button>
+							{/if}
 						</div>
 					</div>
 
@@ -563,4 +589,6 @@
 	.glass-btn.primary:hover { background: rgba(240,131,0,0.25); }
 	.glass-btn.danger { color: #dc2626; }
 	.glass-btn.danger:hover { background: #fee2e2; }
+	.glass-btn.success { color: #166534; background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.2); }
+	.glass-btn.success:hover { background: rgba(34,197,94,0.15); }
 </style>

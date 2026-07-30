@@ -111,6 +111,7 @@
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
+	import BrandingManager from '$lib/components/desktop-interface/settings/BrandingManager.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -1804,6 +1805,27 @@ function openApprovalCenter() {
 		});
 	}
 
+	function openBrandingManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('branding-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Branding #${instanceNumber}`,
+			component: BrandingManager,
+			componentName: "BrandingManager",
+			icon: '🎨',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 120 + (Math.random() * 100), 
+				y: 70 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
 
 
 	function openClearTables() {
@@ -6090,6 +6112,14 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openApiKeysManager}>
 							<span class="menu-icon">🔑</span>
 							<span class="menu-text">{t('nav.apiKeysManager') || 'API Keys Manager'}</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('BRANDING')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openBrandingManager}>
+							<span class="menu-icon">🎨</span>
+							<span class="menu-text">Branding</span>
 						</button>
 					</div>
 				{/if}

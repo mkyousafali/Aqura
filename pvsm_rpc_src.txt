@@ -1,3 +1,0 @@
-﻿ERROR:  column "get_pv_stock_manager_data" does not exist
-LINE 1: SELECT prosrc FROM pg_proc WHERE proname = get_pv_stock_mana...
-                                                   ^
