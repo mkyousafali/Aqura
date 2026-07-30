@@ -112,6 +112,7 @@
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
 	import BrandingManager from '$lib/components/desktop-interface/settings/BrandingManager.svelte';
+	import SupabaseSecretsManager from '$lib/components/desktop-interface/settings/SupabaseSecretsManager.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
@@ -1827,6 +1828,28 @@ function openApprovalCenter() {
 		});
 	}
 
+
+	function openSupabaseSecretsManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('supabase-secrets-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Supabase Secrets #${instanceNumber}`,
+			component: SupabaseSecretsManager,
+			componentName: "SupabaseSecretsManager",
+			icon: '🔐',
+			size: { width: 650, height: 700 },
+			position: { 
+				x: 130 + (Math.random() * 100), 
+				y: 75 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
 
 	function openClearTables() {
 		const windowId = generateWindowId('clear-tables');
@@ -6120,6 +6143,14 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openBrandingManager}>
 							<span class="menu-icon">🎨</span>
 							<span class="menu-text">Branding</span>
+						</button>
+					</div>
+				{/if}
+				{#if $currentUser?.isMasterAdmin}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openSupabaseSecretsManager}>
+							<span class="menu-icon">🔐</span>
+							<span class="menu-text">Supabase Secrets</span>
 						</button>
 					</div>
 				{/if}
