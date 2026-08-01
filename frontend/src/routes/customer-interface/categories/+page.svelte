@@ -11,6 +11,11 @@
   let categories = [];
   let loading = true;
 
+  // Company name — pulled from the same login_layout data BrandingManager edits.
+  let companyNameEn = '';
+  let companyNameAr = '';
+  $: companyName = (currentLanguage === 'ar' ? companyNameAr : companyNameEn) || (currentLanguage === 'ar' ? 'اسم شركتك' : 'Your Company Name');
+
   // Language texts
   $: texts = currentLanguage === 'ar' ? {
     title: 'الأقسام',
@@ -31,6 +36,13 @@
   onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) currentLanguage = savedLanguage;
+
+    supabase.rpc('get_login_layout').then(({ data, error }) => {
+      if (!error && data?.company) {
+        companyNameEn = data.company.name_en || '';
+        companyNameAr = data.company.name_ar || '';
+      }
+    });
 
     // Ensure branch is selected
     if (!flow?.branchId || !flow?.fulfillment) {
@@ -112,7 +124,7 @@
       </svg>
     </button>
     <div class="logo-container">
-      <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" class="hero-logo" />
+      <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt={companyName} class="hero-logo" />
     </div>
     <h1 class="hero-title">{texts.title}</h1>
     <p class="hero-subtitle">{texts.subtitle}</p>

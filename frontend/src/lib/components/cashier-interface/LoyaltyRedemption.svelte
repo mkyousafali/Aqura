@@ -1,13 +1,16 @@
 ﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { cashierUser } from '$lib/stores/cashierAuth';
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, currentLocale } from '$lib/i18n';
 
 	export let user: any;
 	export let branch: any;
 
 	let supabase: any = null;
 	let logoUrl = '';
+	let companyNameAr = '';
+	let companyNameEn = '';
+	$: companyNameDisplay = ($currentLocale === 'ar' ? companyNameAr : companyNameEn) || $t('coupon.loyaltyProgramName');
 
 	// ─── Section ────────────────────────────────────────────────────────
 	type Section = 'check' | 'redeem';
@@ -70,6 +73,13 @@
 			}
 		} catch {
 			/* logo optional */
+		}
+		try {
+			const { data: layout } = await supabase.rpc('get_login_layout');
+			companyNameAr = layout?.company?.name_ar || '';
+			companyNameEn = layout?.company?.name_en || '';
+		} catch {
+			/* company name optional */
 		}
 	});
 
@@ -357,15 +367,16 @@
 			day: 'numeric'
 		});
 		const timeStr = today.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+		const programName = companyNameAr || 'برنامج الولاء';
 		const logoTag = logoUrl
-			? `<img class="logo" src="${logoUrl}" alt="شعار أهل ايربن" />`
+			? `<img class="logo" src="${logoUrl}" alt="شعار ${programName}" />`
 			: '<div style="height:8mm"></div>';
 
 		const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>قسيمة الولاء — أهل ايربن</title>
+<title>قسيمة الولاء — ${programName}</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
@@ -410,7 +421,7 @@ body {
 <body>
 ${logoTag}
 <div class="prog-label">برنامج الولاء</div>
-<div class="prog-name">أهل ايربن</div>
+<div class="prog-name">${programName}</div>
 <hr class="divider-solid" />
 <div class="stars">⭐ ⭐ ⭐</div>
 <div class="badge">قسيمة استرداد نقاط</div>
@@ -430,12 +441,12 @@ ${logoTag}
 <div class="points-used">النقاط المستردة: ${Number(successData.points_redeemed).toFixed(2)} نقطة</div>
 <hr class="divider" />
 <div class="thanks">
-  شكراً جزيلاً على ولاءك لبرنامج أهل ايربن<br/>
+  شكراً جزيلاً على ولاءك لبرنامج ${programName}<br/>
   نقدّر ثقتك ونسعد بخدمتك دائماً
 </div>
 <hr class="divider" />
 <div class="datetime">${dateStr} — ${timeStr}</div>
-<div class="footer">أهل ايربن | Urban Aqura</div>
+<div class="footer">${programName} | Aqura</div>
 <div style="height:5mm"></div>
 </body>
 </html>`;
@@ -463,11 +474,11 @@ ${logoTag}
 	<nav class="lr-sidebar">
 		<div class="lr-logo-wrap">
 			{#if logoUrl}
-				<img src={logoUrl} alt={$t('coupon.loyaltyProgramName')} class="lr-logo" />
+				<img src={logoUrl} alt={companyNameDisplay} class="lr-logo" />
 			{:else}
 				<div class="lr-logo-placeholder">⭐</div>
 			{/if}
-			<div class="lr-program-name">{$t('coupon.loyaltyProgramName')}</div>
+			<div class="lr-program-name">{companyNameDisplay}</div>
 			<div class="lr-program-sub">{$t('coupon.loyaltyProgramLabel')}</div>
 		</div>
 		<div class="lr-nav-items">

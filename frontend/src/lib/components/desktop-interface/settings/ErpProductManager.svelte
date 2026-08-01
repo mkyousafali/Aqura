@@ -573,7 +573,7 @@
 							type="text"
 							class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
 							bind:value={settings.tunnelUrl}
-							placeholder="https://erp-branch3.urbanaqura.com"
+							placeholder="https://erp-branch3.example.com"
 						/>
 					</div>
 				</div>

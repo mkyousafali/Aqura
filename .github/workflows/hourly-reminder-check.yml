@@ -11,8 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Edge Function
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
         run: |
-          curl -X POST "https://supabase.urbanaqura.com/functions/v1/check-overdue-reminders" \
+          curl -X POST "${PUBLIC_SUPABASE_URL}/functions/v1/check-overdue-reminders" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/json"
       

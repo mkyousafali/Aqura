@@ -516,9 +516,11 @@
 	$: contactPhoneValid = contactPhoneRaw.length > 0;
 	$: contactPhoneHref = 'tel:' + contactPhoneRaw.replace(/[^\d+]/g, '');
 
+	$: companyName = layout?.company?.[isAr ? 'name_ar' : 'name_en'] || (isAr ? 'اسم شركتك' : 'Your Company Name');
+
 	$: footerCopyrightText =
 		layout?.footer?.[isAr ? 'ar' : 'en']?.copyright ??
-		(isAr ? '© 2026 يو مارت. جميع الحقوق محفوظة.' : '© 2026 Urban Market. All Rights Reserved.');
+		(isAr ? `© 2026 ${companyName}. جميع الحقوق محفوظة.` : `© 2026 ${companyName}. All Rights Reserved.`);
 	$: contactEmailsRaw = (
 		Array.isArray(layout?.contact?.emails) && layout.contact.emails.length
 			? layout.contact.emails
@@ -842,7 +844,7 @@
 <svelte:window on:click={handleWindowClickForBranchDropdown} />
 
 <svelte:head>
-	<title>Urban Market</title>
+	<title>{companyName}</title>
 </svelte:head>
 
 <div class="page" dir={isAr ? 'rtl' : 'ltr'} style={layout?.main_layout?.bg_color ? `background: ${layout.main_layout.bg_color}` : undefined}>
@@ -852,7 +854,7 @@
 			<div class="logo">
 				<div class="logo-badge">
 					{#if layout?.topbar?.logo_enabled !== false}
-						<img class="logo-icon-img" src={layout?.topbar?.logo_url || '/icons/logo.png'} alt="Urban Market logo" />
+						<img class="logo-icon-img" src={layout?.topbar?.logo_url || '/icons/logo.png'} alt={companyName + ' logo'} />
 					{/if}
 				</div>
 			</div>
@@ -928,7 +930,7 @@
 					<div class="hero-blob b1"></div>
 					<div class="hero-blob b2"></div>
 					<div class="hero-blob b3"></div>
-					<img class="hero-logo" src={layout?.main_layout?.hero_logo_url || '/icons/logo.png'} alt="Urban Market logo" />
+					<img class="hero-logo" src={layout?.main_layout?.hero_logo_url || '/icons/logo.png'} alt={companyName + ' logo'} />
 				</div>
 			{/if}
 		</div>

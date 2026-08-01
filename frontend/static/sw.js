@@ -273,8 +273,7 @@ self.addEventListener('fetch', (event) => {
 	// BYPASS: All Supabase requests (storage, REST, RPC, functions, auth) must never be cached
 	// IMPORTANT: Do NOT use event.respondWith(fetch(request)) here — re-fetching through the SW
 	// corrupts binary POST bodies (file uploads). Simply returning lets the browser handle it natively.
-	if (url.hostname.includes('supabase') || 
-	    url.hostname.includes('urbanaqura.com')) {
+	if (url.hostname.includes('supabase')) {
 		return;
 	}
 

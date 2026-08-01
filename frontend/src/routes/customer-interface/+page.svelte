@@ -13,6 +13,11 @@
   let videoContainer;
   let isMuted = true; // start muted — customer can tap to unmute
 
+  // Company name — pulled from the same login_layout data BrandingManager edits.
+  let companyNameEn = '';
+  let companyNameAr = '';
+  $: companyName = (currentLanguage === 'ar' ? companyNameAr : companyNameEn) || (currentLanguage === 'ar' ? 'اسم شركتك' : 'Your Company Name');
+
   function toggleMute() {
     isMuted = !isMuted;
     if (videoContainer) {
@@ -585,6 +590,14 @@
       currentLanguage = savedLanguage;
     }
 
+    // Load company name (non-blocking)
+    supabase.rpc('get_login_layout').then(({ data, error }) => {
+      if (!error && data?.company) {
+        companyNameEn = data.company.name_en || '';
+        companyNameAr = data.company.name_ar || '';
+      }
+    });
+
     // Check authentication and load user data
     const isAuthenticated = userActions.loadFromStorage();
     if (!isAuthenticated) {
@@ -807,7 +820,7 @@
 
   // Language texts
   $: texts = currentLanguage === 'ar' ? {
-    title: 'الرئيسية - ايربن ماركت',
+    title: `الرئيسية - ${companyName}`,
     greeting: `مرحباً ${userName}`,
     shopNow: 'ابدأ التسوق',
     support: 'الدعم والمساعدة',
@@ -817,7 +830,7 @@
     allProducts: 'جميع المنتجات',
     showAds: 'عرض الإعلانات',
   } : {
-    title: 'Home - Urban Market',
+    title: `Home - ${companyName}`,
     greeting: `Welcome ${userName}`,
     shopNow: 'Shop Now',
     support: 'Support',
@@ -908,7 +921,7 @@
     <!-- Hero Header with Logo -->
     <header class="hero-header">
       <div class="logo-container">
-        <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" class="hero-logo" />
+        <img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt={companyName} class="hero-logo" />
       </div>
       <h1 class="hero-title">{texts.greeting}</h1>
       <p class="hero-subtitle">{texts.startSubtitle}</p>

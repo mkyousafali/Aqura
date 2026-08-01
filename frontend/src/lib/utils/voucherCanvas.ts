@@ -1,5 +1,5 @@
 /**
- * Urban Market Surprise Box – Voucher Canvas Generator
+ * Surprise Box – Voucher Canvas Generator
  * Matches the official branded design: white left panel + green right panel.
  */
 

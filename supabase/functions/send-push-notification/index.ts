@@ -54,6 +54,10 @@ Deno.serve(async (req) => {
     // Create Supabase client with service role key
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+    // VAPID contact — pulled from branding config so it's per-deployment, not hardcoded
+    const { data: layoutRow } = await supabase.from('login_layout').select('contact').limit(1).maybeSingle()
+    const vapidContactEmail = layoutRow?.contact?.email || Deno.env.get('VAPID_CONTACT_EMAIL') || 'admin@example.com'
+
     // Parse request body
     const { notificationId, userIds, customerIds, payload } = await req.json() as {
       notificationId: string;
@@ -119,7 +123,7 @@ Deno.serve(async (req) => {
           
           // Set VAPID details
           webpush.setVapidDetails(
-            'mailto:admin@urbanaqura.com',
+            `mailto:${vapidContactEmail}`,
             vapidPublicKey,
             vapidPrivateKey
           )

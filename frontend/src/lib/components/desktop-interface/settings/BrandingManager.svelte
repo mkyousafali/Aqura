@@ -8,6 +8,11 @@
 
 	let activeTab: BrandingTab = 'login-page';
 
+	// Company name (bilingual) - the single source of truth used across the public login,
+	// customer login, mobile login and privacy pages instead of hardcoded brand strings.
+	let companyNameEn = '';
+	let companyNameAr = '';
+
 	const loginPageSections = [
 		{ id: 'topbar', icon: '🧭', label: 'Top Bar and Layouts' },
 		{ id: 'home', icon: '🏠', label: 'Home' },
@@ -60,6 +65,10 @@
 			const { data, error } = await supabase.rpc('get_login_layout');
 			if (error) throw error;
 			if (data) {
+				if (data.company) {
+					companyNameEn = data.company.name_en ?? companyNameEn;
+					companyNameAr = data.company.name_ar ?? companyNameAr;
+				}
 				if (data.topbar) {
 					topBarColor = data.topbar.bg_color ?? topBarColor;
 					topBarLogoEnabled = data.topbar.logo_enabled ?? topBarLogoEnabled;
@@ -351,6 +360,10 @@
 	}
 
 	function saveTopBarAndLayout() {
+		saveLoginLayoutSection('company', {
+			name_en: companyNameEn,
+			name_ar: companyNameAr
+		});
 		saveLoginLayoutSection('topbar', {
 			bg_color: topBarColor,
 			logo_enabled: topBarLogoEnabled,
@@ -1426,8 +1439,8 @@
 	let aboutBgColor = '#1f3d2f';
 	let contactBgColor = '#1f3d2f';
 	let footerBgColor = '#111111';
-	let footerCopyrightText = '© 2026 Urban Market. All Rights Reserved.';
-	let footerCopyrightTextAr = '© 2026 يو مارت. جميع الحقوق محفوظة.';
+	let footerCopyrightText = '© 2026 Your Company Name. All Rights Reserved.';
+	let footerCopyrightTextAr = '© 2026 اسم شركتك. جميع الحقوق محفوظة.';
 
 	// Privacy Policy page (separate standalone tab, falls back to hardcoded page content when empty)
 	let privacyPolicyContentEn = '';
@@ -1619,7 +1632,23 @@
 									<div class="mirror-card-grid">
 										<div class="mirror-block mirror-block-topbar">
 											<div class="mirror-block-header">
-												<span class="mirror-block-name">🎨 Top Bar Background</span>
+												<span class="mirror-block-name">� Company Name</span>
+											</div>
+											<p class="block-hint">Used everywhere the company name appears across the public login, customer login, mobile login, and privacy policy pages — instead of a hardcoded brand name.</p>
+											<div class="block-controls">
+												<label class="block-control">
+													<span>Company Name (English)</span>
+													<input type="text" bind:value={companyNameEn} placeholder="e.g. Your Company Name" />
+												</label>
+												<label class="block-control">
+													<span>Company Name (Arabic)</span>
+													<input type="text" dir="rtl" bind:value={companyNameAr} placeholder="مثلاً: اسم شركتك" />
+												</label>
+											</div>
+										</div>
+										<div class="mirror-block mirror-block-topbar">
+											<div class="mirror-block-header">
+												<span class="mirror-block-name">�🎨 Top Bar Background</span>
 												<div class="mirror-block-toolbar">
 													<button
 														class="edit-btn"
@@ -2001,7 +2030,7 @@
 												<div class="mirror-hero-blob b1"></div>
 												<div class="mirror-hero-blob b2"></div>
 												<div class="mirror-hero-blob b3"></div>
-												<img class="mirror-hero-logo" src={heroLogoUrl || '/icons/logo.png'} alt="Urban Market logo" />
+												<img class="mirror-hero-logo" src={heroLogoUrl || '/icons/logo.png'} alt="Company logo" />
 											</div>
 											<div class="block-controls">
 												<label class="block-control upload-control">
@@ -4536,6 +4565,13 @@
 		justify-content: space-between;
 		gap: 0.5rem;
 		margin-bottom: 0.4rem;
+	}
+
+	.block-hint {
+		font-size: 0.7rem;
+		color: #8a9690;
+		margin: 0 0 0.6rem;
+		line-height: 1.4;
 	}
 
 	.mirror-block-header .mirror-block-toolbar {

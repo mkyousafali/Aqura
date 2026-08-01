@@ -16,12 +16,25 @@
   // Google Maps Distance Matrix results: { [branch_id]: { distance: string, duration: string } }
   let branchDistances = {};
 
+  // Company name — pulled from the same login_layout data BrandingManager edits.
+  let companyNameEn = '';
+  let companyNameAr = '';
+  $: companyName = (currentLanguage === 'ar' ? companyNameAr : companyNameEn) || (currentLanguage === 'ar' ? 'اسم شركتك' : 'Your Company Name');
+
   $: deliveryBranches = branches.filter(b => b.delivery_service_enabled);
   $: pickupBranches = branches.filter(b => b.pickup_service_enabled);
 
   onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) currentLanguage = savedLanguage;
+
+    supabase.rpc('get_login_layout').then(({ data, error }) => {
+      if (!error && data?.company) {
+        companyNameEn = data.company.name_en || '';
+        companyNameAr = data.company.name_ar || '';
+      }
+    });
+
     // Load branches and get customer location in parallel
     await Promise.all([loadBranches(), getCustomerLocation()]);
     // After both are ready, calculate driving distances
@@ -241,7 +254,7 @@
   }
 
   $: texts = currentLanguage === 'ar' ? {
-    title: 'مرحبًا بك في ايربن ماركت',
+    title: `مرحبًا بك في ${companyName}`,
     subtitle: 'اختر طريقة الطلب والفرع الأقرب إليك',
     selectBranch: 'اختر الفرع',
     services: 'الخدمات المتاحة',
@@ -258,7 +271,7 @@
     deliveryDesc: 'نوصّل لباب بيتك',
     pickupDesc: 'جهّز طلبك واستلمه'
   } : {
-    title: 'Welcome to Urban Market',
+    title: `Welcome to ${companyName}`,
     subtitle: 'Choose your order method and nearest branch',
     selectBranch: 'Select Branch',
     services: 'Available Services',

@@ -42,6 +42,7 @@
 				.select('mobile, card_number')
 				.eq('card_number', cardNumber)
 				.not('mobile', 'is', null)
+				.neq('mobile', '')
 				.limit(1)
 				.maybeSingle();
 
@@ -57,6 +58,7 @@
 				.select('name, final_loyalty_point_balance, loyalty_total_purchases, updated_at, loyalty_tier_id, loyalty_tier_name, loyalty_tier_name_ar')
 				.eq('whatsapp_number', cardRow.mobile)
 				.eq('is_deleted', false)
+				.eq('registration_status', 'approved')
 				.maybeSingle();
 
 			if (custError) throw custError;

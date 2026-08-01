@@ -6,13 +6,15 @@ export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-// Cloud Supabase URL (hardcoded reference for URL rewriting)
-const CLOUD_SUPABASE_URL = "https://supabase.urbanaqura.com";
+// Cloud Supabase URL used for storage URL rewriting.
+// Configurable per deployment so the app can be resold to any instance.
+// Falls back to the current instance URL (making rewriting a no-op) when unset.
+const CLOUD_SUPABASE_URL = import.meta.env.VITE_CLOUD_SUPABASE_URL || supabaseUrl;
 
 /**
  * Resolves a storage URL to use the current Supabase instance URL.
  * On branch deployments where VITE_SUPABASE_URL points to the local Supabase,
- * this rewrites cloud URLs (https://supabase.urbanaqura.com/...) to use the local URL.
+ * this rewrites cloud URLs (from VITE_CLOUD_SUPABASE_URL) to use the local URL.
  * On cloud, this is a no-op since both URLs are the same.
  * 
  * Handles: full cloud URLs, relative paths (bucket/file), already-local URLs
@@ -25,7 +27,7 @@ export function resolveStorageUrl(url: string | null | undefined, bucket?: strin
   if (!url) return '';
   
   // If it's a full cloud URL, rewrite the domain to current supabaseUrl
-  if (url.includes('supabase.urbanaqura.com')) {
+  if (CLOUD_SUPABASE_URL && url.includes(CLOUD_SUPABASE_URL)) {
     return url.replace(CLOUD_SUPABASE_URL, supabaseUrl);
   }
   

@@ -19,8 +19,8 @@
 	let minimumBillAmount = 0;
 	let enforeBillDate = true;
 	let boxCount = 6;
-	const DEFAULT_TERMS_EN = `1. The campaign is valid for a limited period as determined by Urban Market management.
-2. Participation is allowed only using purchase receipts issued by Urban Market.
+	const DEFAULT_TERMS_EN = `1. The campaign is valid for a limited period as determined by the management.
+2. Participation is allowed only using purchase receipts issued by the store.
 3. The receipt must be issued on the same day of participation.
 4. A minimum bill amount may be required to qualify for participation.
 5. Each receipt can be used only once.
@@ -31,12 +31,12 @@
 10. Shopping vouchers are valid for future purchases only and cannot be used on the same bill.
 11. Each voucher has a specific expiry date and must be used before expiration.
 12. Vouchers may not be combined with certain promotions or discounts based on branch policy.
-13. Urban Market reserves the right to reject or cancel any participation suspected of misuse or fraud.
-14. Urban Market reserves the right to modify, suspend, or terminate the campaign and its terms at any time without prior notice.
+13. The management reserves the right to reject or cancel any participation suspected of misuse or fraud.
+14. The management reserves the right to modify, suspend, or terminate the campaign and its terms at any time without prior notice.
 15. Participation in the campaign confirms full acceptance of all terms and conditions.`;
 
-	const DEFAULT_TERMS_AR = `1. الحملة سارية لفترة محدودة يحددها إدارة أوربان ماركت.
-2. يُسمح بالمشاركة فقط باستخدام إيصالات الشراء الصادرة من أوربان ماركت.
+	const DEFAULT_TERMS_AR = `1. الحملة سارية لفترة محدودة تحددها الإدارة.
+2. يُسمح بالمشاركة فقط باستخدام إيصالات الشراء الصادرة من المتجر.
 3. يجب أن يكون الإيصال صادرًا في نفس يوم المشاركة.
 4. قد يُشترط حد أدنى لقيمة الفاتورة للتأهل للمشاركة.
 5. لا يمكن استخدام كل إيصال إلا مرة واحدة فقط.
@@ -47,8 +47,8 @@
 10. قسائم التسوق صالحة للمشتريات المستقبلية فقط ولا يمكن استخدامها على نفس الفاتورة.
 11. لكل قسيمة تاريخ انتهاء محدد ويجب استخدامها قبل انتهاء الصلاحية.
 12. قد لا تُدمج القسائم مع بعض العروض أو الخصومات وفقًا لسياسة الفرع.
-13. يحتفظ أوربان ماركت بالحق في رفض أو إلغاء أي مشاركة يُشتبه في إساءة استخدامها أو الاحتيال.
-14. يحتفظ أوربان ماركت بالحق في تعديل الحملة أو تعليقها أو إنهائها وشروطها في أي وقت دون إشعار مسبق.
+13. تحتفظ الإدارة بالحق في رفض أو إلغاء أي مشاركة يُشتبه في إساءة استخدامها أو الاحتيال.
+14. تحتفظ الإدارة بالحق في تعديل الحملة أو تعليقها أو إنهائها وشروطها في أي وقت دون إشعار مسبق.
 15. المشاركة في الحملة تعني الموافقة الكاملة على جميع الشروط والأحكام.`;
 
 	let termsEn = DEFAULT_TERMS_EN, termsAr = DEFAULT_TERMS_AR;

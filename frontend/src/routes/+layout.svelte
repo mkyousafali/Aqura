@@ -770,12 +770,11 @@
 			const isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
 			const isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRoute = $page.url.pathname.startsWith('/privacy');
-			const isLoginTestRoute = $page.url.pathname.startsWith('/logintest');
 			const isGiftWheelRoute = $page.url.pathname.startsWith('/gift-wheel');
 			const isSurpriseBoxRoute = $page.url.pathname.startsWith('/surprise-box');
 			const isLoyaltyRoute = $page.url.pathname.startsWith('/loyalty');
 			const isCareersAdminRoute = $page.url.pathname.startsWith('/careers-admin');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isLoginTestRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -812,11 +811,10 @@
 					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
 					const isCustomerLoginTimeout = $page.url.pathname.startsWith('/login/customer');
 					const isPrivacyRouteTimeout = $page.url.pathname.startsWith('/privacy');
-					const isLoginTestRouteTimeout = $page.url.pathname.startsWith('/logintest');
 					const isGiftWheelRouteTimeout = $page.url.pathname.startsWith('/gift-wheel');
 					const isLoyaltyRouteTimeout = $page.url.pathname.startsWith('/loyalty');
 					const isCareersAdminRouteTimeout = $page.url.pathname.startsWith('/careers-admin');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isLoginTestRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -845,9 +843,8 @@
 			const isCustomerRouteError = $page.url.pathname.startsWith('/customer-interface');
 			const isCustomerLoginError = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRouteError = $page.url.pathname.startsWith('/privacy');
-			const isLoginTestRouteError = $page.url.pathname.startsWith('/logintest');
 			const isGiftWheelRouteError = $page.url.pathname.startsWith('/gift-wheel');
-			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isLoginTestRouteError && !isGiftWheelRouteError && !isPopoutMode) {
+			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isGiftWheelRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -1061,7 +1058,6 @@
 	$: isCustomerInterfaceRoute = $page.url.pathname.startsWith('/customer-interface');
 	$: isCustomerLoginRoute = $page.url.pathname.startsWith('/login/customer');
 	$: isPrivacyPage = $page.url.pathname.startsWith('/privacy');
-	$: isLoginTestPage = $page.url.pathname.startsWith('/logintest');
 	$: isGiftWheelPage = $page.url.pathname.startsWith('/gift-wheel');
 	$: isSurpriseBoxPage = $page.url.pathname.startsWith('/surprise-box');
 	$: isCareersAdminPage = $page.url.pathname.startsWith('/careers-admin');
@@ -1089,7 +1085,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isLoginTestPage && !isGiftWheelPage && !isLoginPage && !isCareersAdminPage}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isGiftWheelPage && !isLoginPage && !isCareersAdminPage}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">
@@ -1097,8 +1093,8 @@
 			<p>{loadingMessages[msgIndex].ar}</p>
 		</div>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isLoginTestPage || isGiftWheelPage || isSurpriseBoxPage || isLoginPage || isCareersAdminPage}
-	<!-- Mobile, cashier, customer, login, and login test routes get no desktop layout - completely independent -->
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute || isCustomerInterfaceRoute || isCustomerLoginRoute || isPrivacyPage || isGiftWheelPage || isSurpriseBoxPage || isLoginPage || isCareersAdminPage}
+	<!-- Mobile, cashier, customer, and login routes get no desktop layout - completely independent -->
 	<slot />
 {:else}
 	<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>

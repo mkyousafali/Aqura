@@ -441,7 +441,7 @@
 						id="database_name"
 						type="text" 
 						bind:value={formData.database_name}
-						placeholder="URBAN2_2025"
+						placeholder="ERP_DB"
 						required
 					/>
 				</div>

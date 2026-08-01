@@ -13,8 +13,9 @@ import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
 
 import 'dotenv/config';
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://supabase.urbanaqura.com';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY || '';
+if (!SUPABASE_URL) throw new Error('VITE_SUPABASE_URL not set in .env');
 if (!SERVICE_KEY) throw new Error('VITE_SUPABASE_SERVICE_KEY not set in .env');
 const GRAPH_API_VERSION = 'v22.0';
 const WORKER_ID = `emergency-${uuidv4().slice(0, 8)}`;

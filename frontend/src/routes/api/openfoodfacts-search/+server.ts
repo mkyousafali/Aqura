@@ -1,6 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
+// Open Food Facts requires a descriptive User-Agent with a contact — configurable per deployment
+const OFF_USER_AGENT = `Aqura-ProductMaster/1.0 (${process.env.SUPPORT_CONTACT_EMAIL || 'admin@example.com'})`;
+
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const { barcode, productNameEn } = await request.json();
@@ -20,7 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`,
 				{
 					headers: {
-						'User-Agent': 'Aqura-ProductMaster/1.0 (contact@urbanaqura.com)'
+						'User-Agent': OFF_USER_AGENT
 					}
 				}
 			);
@@ -109,7 +112,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(productNameEn)}&search_simple=1&action=process&json=1&page_size=5`,
 					{
 						headers: {
-							'User-Agent': 'Aqura-ProductMaster/1.0 (contact@urbanaqura.com)'
+							'User-Agent': OFF_USER_AGENT
 						}
 					}
 				);

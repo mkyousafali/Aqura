@@ -35,6 +35,11 @@
 	let isLoading = true;
 	let dataLoaded = false;
 
+	// Company name — pulled from the same login_layout data BrandingManager edits.
+	let companyNameEn = '';
+	let companyNameAr = '';
+	$: companyName = ($currentLocale === 'ar' ? companyNameAr : companyNameEn) || ($currentLocale === 'ar' ? 'اسم شركتك' : 'Your Company Name');
+
 	const platformLabels = {
 		facebook: { en: 'Facebook', ar: 'فيسبوك' },
 		whatsapp: { en: 'WhatsApp', ar: 'واتس أب' },
@@ -156,6 +161,11 @@
 
 	onMount(async () => {
 		await loadData();
+		const { data, error } = await supabase.rpc('get_login_layout');
+		if (!error && data?.company) {
+			companyNameEn = data.company.name_en || '';
+			companyNameAr = data.company.name_ar || '';
+		}
 	});
 </script>
 
@@ -168,7 +178,7 @@
 <div class="follow-us-page">
 	<header class="follow-us-header" class:rtl={$currentLocale === 'ar'} dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 		<div class="top-bar">
-			<span class="top-bar-text">{$currentLocale === 'ar' ? 'مرحباً بكم في ايربن ماركت' : 'Welcome To Urban market'}</span>
+			<span class="top-bar-text">{$currentLocale === 'ar' ? `مرحبًا بكم في ${companyName}` : `Welcome To ${companyName}`}</span>
 			<button class="lang-btn" onclick={toggleLanguage} disabled={isLoading}>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<circle cx="12" cy="12" r="10"/>
@@ -188,7 +198,7 @@
 				<p class="thank-you-message">{$currentLocale === 'ar' ? 'شكراً على صبرك' : 'Thank you for patience'}</p>
 			</div>
 		{:else if dataLoaded}
-			<!-- Ahl Urban Header Style -->
+			<!-- Header Style -->
 			<section class="member-login-section">
 				<div class="member-login-card fade-in">
 					<div class="member-login-text" style="text-align: center;">

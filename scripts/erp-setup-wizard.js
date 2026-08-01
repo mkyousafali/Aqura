@@ -29,6 +29,8 @@ const INSTALL_DIR = 'C:\\erp-api';
 const CLOUDFLARED_PATH = 'C:\\cloudflared.exe';
 const BRIDGE_PORT = 3333;
 const API_SECRET = 'aqura-erp-bridge-2026';
+// Base domain the Cloudflare tunnel subdomains are routed under — change per deployment.
+const TUNNEL_BASE_DOMAIN = process.env.TUNNEL_BASE_DOMAIN || 'urbanaqura.com';
 
 // ============================================================
 // EMBEDDED HTML — Full Setup Wizard UI
@@ -159,7 +161,7 @@ const WIZARD_HTML = `<!DOCTYPE html>
       <div class="field-row">
         <div class="field">
           <label>Branch Name</label>
-          <input type="text" id="cfg-branch-name" placeholder="e.g. Urban Market 02" />
+          <input type="text" id="cfg-branch-name" placeholder="e.g. Main Branch 02" />
         </div>
         <div class="field">
           <label>App Branch ID</label>
@@ -175,7 +177,7 @@ const WIZARD_HTML = `<!DOCTYPE html>
         </div>
         <div class="field">
           <label>Database Name</label>
-          <input type="text" id="cfg-db-name" placeholder="e.g. URBAN2_2025" />
+          <input type="text" id="cfg-db-name" placeholder="e.g. ERP_DB_2025" />
         </div>
       </div>
       <div class="field-row">
@@ -418,7 +420,7 @@ async function runSetup() {
       statusCard('Port', cfg.port, 'green') +
       statusCard('Database', cfg.dbName, 'green');
     
-    const tunnelUrl = 'https://' + cfg.subdomain + '.urbanaqura.com';
+    const tunnelUrl = 'https://' + cfg.subdomain + '.${TUNNEL_BASE_DOMAIN}';
     const link = document.getElementById('test-url-link');
     link.href = tunnelUrl + '/health';
     link.textContent = tunnelUrl + '/health';
@@ -471,7 +473,7 @@ function freshSetup() {
       details.innerHTML =
         '<div>\ud83d\udccc <strong>Branch:</strong> ' + (existingConfig.branchName || 'N/A') + ' (ID: ' + (existingConfig.branchId || 'N/A') + ')</div>' +
         '<div>\ud83d\uddc4\ufe0f <strong>Database:</strong> ' + (existingConfig.dbName || 'N/A') + ' @ ' + (existingConfig.sqlServer || 'localhost') + '</div>' +
-        '<div>\ud83c\udf10 <strong>Subdomain:</strong> ' + (existingConfig.subdomain || 'N/A') + '.urbanaqura.com</div>' +
+        '<div>\ud83c\udf10 <strong>Subdomain:</strong> ' + (existingConfig.subdomain || 'N/A') + '.${TUNNEL_BASE_DOMAIN}</div>' +
         '<div>\ud83d\udd0c <strong>Port:</strong> ' + (existingConfig.port || 3333) + '</div>' +
         '<div>\ud83d\udcc5 <strong>Setup Date:</strong> ' + (existingConfig.setupDate || 'N/A') + '</div>' +
         '<div style="margin-top:6px;">' +

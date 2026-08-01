@@ -25,9 +25,10 @@
 	$: brandPrimaryColor = layout?.main_layout?.contact_btn_color || layout?.main_layout?.headline_text_color || '#1f3d2f';
 	$: brandAccentColor = layout?.main_layout?.headline_highlight_color || '#c8912f';
 	$: brandLogoUrl = (layout?.topbar?.logo_enabled !== false ? layout?.topbar?.logo_url : '') || $iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png';
+	$: companyName = layout?.company?.[$currentLocale === 'ar' ? 'name_ar' : 'name_en'] || ($currentLocale === 'ar' ? 'اسم شركتك' : 'Your Company Name');
 	$: footerCopyrightText =
 		layout?.footer?.[$currentLocale === 'ar' ? 'ar' : 'en']?.copyright ??
-		($currentLocale === 'ar' ? '© 2026 يو مارت. جميع الحقوق محفوظة.' : '© 2026 Urban Market. All Rights Reserved.');
+		($currentLocale === 'ar' ? `© 2026 ${companyName}. جميع الحقوق محفوظة.` : `© 2026 ${companyName}. All Rights Reserved.`);
 
 	function loadBrandingFromCache() {
 		if (typeof window === 'undefined') return;

@@ -10,6 +10,11 @@
   // Reactive RTL check
   $: isRTL = $currentLocale === 'ar';
 
+  // Company name — pulled from the same login_layout data BrandingManager edits.
+  let companyNameEn = '';
+  let companyNameAr = '';
+  $: companyName = (isRTL ? companyNameAr : companyNameEn) || (isRTL ? 'اسم شركتك' : 'Your Company Name');
+
   // Print settings - selected printer names stored per paper size (persisted in localStorage)
   let selectedA4Printer = '';
   let selectedThermalPrinter = '';
@@ -107,7 +112,7 @@
         </div>
         ${order.customer_notes ? `<div class="note"><strong>${isRTL ? 'ملاحظات:' : 'Notes:'}</strong> ${order.customer_notes}</div>` : ''}
         <div class="footer">
-          <p>Urban Market • ${isRTL ? 'ايربن ماركت' : 'Printed automatically'} • ${orderDate}</p>
+          <p>${companyName} • ${isRTL ? 'طباعة تلقائية' : 'Printed automatically'} • ${orderDate}</p>
         </div>
       </body></html>`);
     printWindow.document.close();
@@ -156,7 +161,7 @@
         <div class="box">
           <div class="size-label">${paperSize}</div>
           <h1>🖨️ ${title}</h1>
-          <p>Urban Market - Print Test</p>
+          <p>${companyName} - Print Test</p>
           <p>${new Date().toLocaleString()}</p>
           <p style="margin-top:15px">✅ If you can read this, your printer is working correctly</p>
         </div>
@@ -279,6 +284,11 @@
     await loadOrders();
     await loadStatistics();
     setupRealtimeSubscription();
+    const { data, error } = await supabase.rpc('get_login_layout');
+    if (!error && data?.company) {
+      companyNameEn = data.company.name_en || '';
+      companyNameAr = data.company.name_ar || '';
+    }
   });
 
   onDestroy(() => {

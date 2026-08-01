@@ -782,7 +782,7 @@
 		{#if popupWhatsappSent}
 			<div class="popup-whatsapp-sent">
 				<span>✅</span>
-				<span>{$currentLocale === 'ar' ? 'تم إرسال الرمز إلى واتساب الخاص بك — أنت الآن عضو كامل في برنامج أهل ايربن وتستمتع بجميع المزايا الحصرية!' : 'Code sent to your WhatsApp — you are now a full Ahl Urban member and enjoy all exclusive benefits!'}</span>
+				<span>{$currentLocale === 'ar' ? 'تم إرسال الرمز إلى واتساب الخاص بك — أنت الآن عضو كامل وتستمتع بجميع المزايا الحصرية!' : 'Code sent to your WhatsApp — you are now a full member and enjoy all exclusive benefits!'}</span>
 			</div>
 		{:else}
 			<div class="popup-no-whatsapp">

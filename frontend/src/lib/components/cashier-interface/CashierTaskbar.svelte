@@ -18,6 +18,10 @@
 	// Cashier interface version
 	let cashierVersion = 'AQ7';
 
+	// Loyalty program display name — pulled from the same login_layout data BrandingManager edits.
+	let loyaltyProgramName = '';
+	$: loyaltyProgramNameDisplay = loyaltyProgramName || $_('coupon.loyaltyProgramName');
+
 	// Use cashier user from store for authentication context
 	$: authenticatedUser = $cashierUser || user;
 
@@ -48,6 +52,13 @@
 		console.warn('⚠️ Task count monitoring disabled');
 		// taskCountService.initTaskCountMonitoring();
 		}
+
+		import('$lib/utils/supabase').then(({ supabase }) => {
+			supabase.rpc('get_login_layout').then(({ data }: any) => {
+				const name = $currentLocale === 'ar' ? data?.company?.name_ar : data?.company?.name_en;
+				if (name) loyaltyProgramName = name;
+			});
+		});
 		
 		// Refresh counts periodically
 		const notificationInterval = setInterval(() => {
@@ -178,7 +189,7 @@
 		import('$lib/components/cashier-interface/LoyaltyRedemption.svelte').then(({ default: LoyaltyRedemption }) => {
 			openWindow({
 				id: windowId,
-				title: t('coupon.loyaltyProgramName'),
+				title: loyaltyProgramNameDisplay,
 				component: LoyaltyRedemption,
 				props: { user, branch },
 				icon: '⭐',
@@ -278,7 +289,7 @@
 					</button>
 					<button class="menu-item" on:click={openLoyaltyRedemption}>
 						<span class="menu-item-icon">⭐</span>
-						<span class="menu-item-text">{$_('coupon.loyaltyProgramName')}</span>
+						<span class="menu-item-text">{loyaltyProgramNameDisplay}</span>
 					</button>
 					<div class="menu-divider"></div>
 
@@ -367,7 +378,7 @@
 			<button
 				class="quick-btn loyalty-btn"
 				on:click={openLoyaltyRedemption}
-				title={$_('coupon.loyaltyProgramName')}
+				title={loyaltyProgramNameDisplay}
 			>
 				<div class="quick-icon">⭐</div>
 			</button>

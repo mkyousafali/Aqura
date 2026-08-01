@@ -4482,8 +4482,8 @@ export const arabicLocale: LocaleData = {
       vipInvalidPhone: "يرجى إدخال رقم جوال صحيح (مثال: 0548357066).",
       vipNoPoster: "لم يتم رفع ملصق تعليمات VIP.",
 
-      // Loyalty Redemption — أهل ايربن
-      loyaltyProgramName: "أهل ايربن",
+      // Loyalty Redemption
+      loyaltyProgramName: "برنامج الولاء",
       loyaltyProgramLabel: "برنامج الولاء",
       loyaltySidebarCheck: "استعلام النقاط",
       loyaltySidebarRedeem: "استرداد النقاط",

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	export let cardType: string = 'total_tasks';
@@ -1341,56 +1341,6 @@
 		await sendReminders(Array.from(selectedTaskIds));
 	}
 
-	async function sendRemindersToAll() {
-		if (!confirm('Send automatic reminders for all overdue tasks?')) {
-			return;
-		}
-
-		isSendingReminders = true;
-		reminderStats = { sent: 0, failed: 0 };
-		showReminderStats = true;
-
-		try {
-			// Call the Edge Function
-			const response = await fetch(
-				getEdgeFunctionUrl('check-overdue-reminders'),
-				{
-					method: 'POST',
-					headers: {
-						'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-						'Content-Type': 'application/json'
-					}
-				}
-			);
-
-			if (!response.ok) {
-				throw new Error(`Failed to send reminders: ${response.statusText}`);
-			}
-
-			const result = await response.json();
-			
-			if (result.success) {
-				reminderStats.sent = result.reminders_sent || 0;
-				alert(`✅ ${result.message || `Successfully sent ${result.reminders_sent} reminders`}`);
-			} else {
-				throw new Error(result.error || 'Failed to send reminders');
-			}
-
-			// Refresh reminder count
-			await loadAutoReminderCount();
-
-			// Reload tasks to update the reminder status
-			await loadTasks();
-
-		} catch (error) {
-			console.error('Error sending reminders:', error);
-			reminderStats.failed = 1;
-			alert(`❌ Error sending reminders: ${error.message}`);
-		} finally {
-			isSendingReminders = false;
-		}
-	}
-
 	async function sendReminders(taskIds: string[]) {
 		isSendingReminders = true;
 		reminderStats = { sent: 0, failed: 0 };
@@ -1564,17 +1514,6 @@
 						</svg>
 						Send to Selected ({selectedTaskIds.size})
 					{/if}
-				</button>
-
-				<button 
-					class="btn-remind-all" 
-					on:click={sendRemindersToAll}
-					disabled={isSendingReminders}
-				>
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-					</svg>
-					Send to All Overdue
 				</button>
 			</div>
 		</div>

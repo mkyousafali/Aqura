@@ -11,6 +11,9 @@
     let isEnabled = false;
     let botRules = '';
     let instructions = '';
+    let botName = '';
+    let botNameAr = '';
+    let appLink = '';
 
     // Training Q&A pairs
     let trainingQA: Array<{ prompt: string; response: string }> = [];
@@ -83,7 +86,7 @@
             const geminiKey = keyData.api_key;
 
             // Prepare the message with context
-            const systemPrompt = `You are a helpful customer service bot for Urban Aqura.
+            const systemPrompt = `You are a helpful customer service bot for ${botName || 'this business'}.
 
 BOT RULES (Internal behavior):
 ${botRules}
@@ -163,6 +166,9 @@ ${instructions}`;
                 isEnabled = data.is_enabled ?? false;
                 botRules = data.bot_rules || '';
                 instructions = data.custom_instructions || '';
+                botName = data.bot_name || '';
+                botNameAr = data.bot_name_ar || '';
+                appLink = data.app_link || '';
                 trainingQA = Array.isArray(data.training_qa) ? data.training_qa : [];
                 tokensUsed = data.tokens_used ?? 0;
                 promptTokensUsed = data.prompt_tokens_used ?? 0;
@@ -185,6 +191,9 @@ ${instructions}`;
                 is_enabled: isEnabled,
                 bot_rules: botRules,
                 custom_instructions: instructions,
+                bot_name: botName,
+                bot_name_ar: botNameAr,
+                app_link: appLink,
                 training_qa: cleanQA,
                 human_support_enabled: humanSupportEnabled,
                 human_support_start_time: humanSupportStartTime + ':00',
@@ -376,6 +385,29 @@ ${instructions}`;
                 <!-- Bot Config Tab -->
                 {#if activeTab === 'Bot Config'}
                     <div class="space-y-4">
+                        <!-- Bot Identity -->
+                        <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm">
+                            <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-2">🤖 Bot Identity</h2>
+                            <p class="text-[11px] text-slate-500 mb-4">The name the bot introduces itself with, and the link shared as a button on offers/points replies.</p>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <label class="block">
+                                    <span class="text-[10px] font-bold text-slate-600 mb-1.5 block">Bot Name (English)</span>
+                                    <input type="text" bind:value={botName} placeholder="e.g. Your Assistant Name"
+                                        class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all" />
+                                </label>
+                                <label class="block">
+                                    <span class="text-[10px] font-bold text-slate-600 mb-1.5 block">Bot Name (Arabic)</span>
+                                    <input type="text" dir="rtl" bind:value={botNameAr} placeholder="مثلاً: مساعد المتجر"
+                                        class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all" />
+                                </label>
+                                <label class="block sm:col-span-2">
+                                    <span class="text-[10px] font-bold text-slate-600 mb-1.5 block">App / Offers Link (CTA Button)</span>
+                                    <input type="text" bind:value={appLink} placeholder="e.g. https://yourbrand.app/login"
+                                        class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all" />
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Bot Rules -->
                         <div class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm">
                             <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-2">⚙️ Bot Behavior Rules</h2>
@@ -401,16 +433,16 @@ ${instructions}`;
                             <p class="text-[11px] text-slate-500 mb-4">Knowledge base and response templates the bot uses in customer replies. Supports English and Arabic.</p>
                             <textarea bind:value={instructions} rows="12"
                                 placeholder="Examples:
-Urban Aqura - Fresh grocery delivery
+Your Business Name - Fresh grocery delivery
 Hours: 9 AM - 6 PM (Sunday to Thursday)
-Delivery areas: Riyadh, Eastern Province
-Offers portal: https://urbanaqura.com/offers
-Contact: support@urbanaqura.com
+Delivery areas: your service areas
+Offers portal: https://yourbrand.com/offers
+Contact: support@yourbrand.com
 
 أو بالعربية:
-حضر أكرا - توصيل المنتجات الطازجة
+اسم شركتك - توصيل المنتجات الطازجة
 الأوقات: 9 صباحاً - 6 مساءً
-مناطق التوصيل: الرياض والمنطقة الشرقية"
+مناطق التوصيل: مناطق التغطية لديك"
                                 dir={/[\u0600-\u06FF]/.test(instructions) ? 'rtl' : 'ltr'}
                                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y" />
                             <div class="text-[10px] text-slate-500 mt-2 text-right">{instructions.length} characters</div>
@@ -480,7 +512,7 @@ Contact: support@urbanaqura.com
                                 <div class="flex items-center gap-3">
                                     <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg">🤖</div>
                                     <div>
-                                        <div class="text-sm font-bold text-white">Urban Aqura Bot</div>
+                                        <div class="text-sm font-bold text-white">{botName || 'Bot'} Preview</div>
                                         <div class="text-xs text-emerald-100">Online</div>
                                     </div>
                                 </div>

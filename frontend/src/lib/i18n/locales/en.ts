@@ -4464,8 +4464,8 @@ export const englishLocale: LocaleData = {
       vipInvalidPhone: "Please enter a valid mobile number (e.g. 0548357066).",
       vipNoPoster: "No VIP instruction poster uploaded.",
 
-      // Loyalty Redemption — أهل ايربن
-      loyaltyProgramName: "Ahl Urban",
+      // Loyalty Redemption
+      loyaltyProgramName: "Loyalty Program",
       loyaltyProgramLabel: "Loyalty Program",
       loyaltySidebarCheck: "Points Inquiry",
       loyaltySidebarRedeem: "Redeem Points",
