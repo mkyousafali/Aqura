@@ -138,7 +138,7 @@
         assigned_employees?: string[];
     }
 
-    let activeTab = 'Leave (date-wise)';
+    let activeTab = 'Regular Shift';
     let employees: EmployeeShift[] = [];
     let employeesForDateWiseSelection: EmployeeForSelection[] = [];
     let allEmployeesForDateWise: EmployeeForSelection[] = [];
@@ -497,6 +497,10 @@
     } as RegularShiftData;
 
     $: tabs = [
+        { id: 'Regular Shift', label: $t('hr.shift.tabs.regular'), icon: '🕒', color: 'green' },
+        { id: 'Special Shift (weekday-wise)', label: $t('hr.shift.tabs.special_weekday'), icon: '📅', color: 'orange' },
+        { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
+        { id: 'Multi-Shift Setup', label: $t('hr.shift.multiShift.setup_title'), icon: '🔀', color: 'purple' },
         { id: 'Leave (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
         { id: 'Leave (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
         { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' },

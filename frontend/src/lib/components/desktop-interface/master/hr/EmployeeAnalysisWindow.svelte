@@ -118,58 +118,69 @@
 
 	async function loadEmployeeData() {
 		try {
-			// Load regular shift data
-			const { data: shiftData } = await supabase
-				.from('regular_shift')
-				.select('*')
-				.eq('id', employee.id)
-				.maybeSingle();
-			regularShift = shiftData;
+			const empIds = [employee.id];
 
-			// Get shift overlap flag from the shift data
-			if (shiftData?.is_shift_overlapping_next_day) {
-				isShiftOverlappingNextDay = true;
+			// Load all shift data via RPCs (server-side join)
+			const [{ data: regRows }, { data: wdRows }, { data: dwRows }] = await Promise.all([
+				supabase.rpc('get_hr_regular_shifts', { p_employee_ids: empIds }),
+				supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: empIds }),
+				supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: empIds })
+			]);
+
+			// Regular shifts: group by version_id to detect single vs multi-slot
+			const regByVersion = new Map<number, any[]>();
+			for (const r of regRows || []) { const l = regByVersion.get(r.version_id) || []; l.push(r); regByVersion.set(r.version_id, l); }
+			regularShift = null; multiShiftRegular = [];
+			for (const [, slots] of regByVersion) {
+				if (slots.length === 1) {
+					regularShift = { id: employee.id, ...slots[0] };
+					if (slots[0].is_shift_overlapping_next_day) isShiftOverlappingNextDay = true;
+				} else if (slots.length > 1) {
+					regularShift = { id: employee.id, ...slots[0] };
+					if (slots.some((s: any) => s.is_shift_overlapping_next_day)) isShiftOverlappingNextDay = true;
+					multiShiftRegular = slots.map((s: any) => ({ employee_id: employee.id, ...s }));
+				}
 			}
 
-			// Load day off weekday data
-			const { data: dayOffWData } = await supabase
-				.from('day_off_weekday')
-				.select('*')
-				.eq('employee_id', employee.id);
+			// Day off data (unchanged)
+			const { data: dayOffWData } = await supabase.from('day_off_weekday').select('*').eq('employee_id', employee.id);
 			dayOffWeekday = dayOffWData && dayOffWData.length > 0 ? dayOffWData[0] : null;
-
-			// Load day off dates
-			const { data: dayOffDatesData } = await supabase
-				.from('day_off')
-				.select('*, day_off_reasons(*)')
-				.eq('employee_id', employee.id);
+			const { data: dayOffDatesData } = await supabase.from('day_off').select('*, day_off_reasons(*)').eq('employee_id', employee.id);
 			dayOffDates = dayOffDatesData || [];
 
-			// Load special shift date-wise
-			const { data: specialDateData } = await supabase
-				.from('special_shift_date_wise')
-				.select('*')
-				.eq('employee_id', employee.id);
-			specialShiftDateWise = specialDateData || [];
-
-			// Check for shift overlap in special date-wise shifts
-			if (specialDateData?.some(s => s.is_shift_overlapping_next_day)) {
-				isShiftOverlappingNextDay = true;
+			// Date-wise shifts: group by version_id
+			const dwByVersion = new Map<number, { date_from: string; slots: any[] }>();
+			for (const r of dwRows || []) {
+				if (!dwByVersion.has(r.version_id)) dwByVersion.set(r.version_id, { date_from: r.date_from, slots: [] });
+				dwByVersion.get(r.version_id)!.slots.push(r);
+			}
+			specialShiftDateWise = []; multiShiftDateWise = [];
+			for (const [, v] of dwByVersion) {
+				if (v.slots.length === 1) {
+					specialShiftDateWise.push({ employee_id: employee.id, shift_date: v.date_from, ...v.slots[0] });
+					if (v.slots[0].is_shift_overlapping_next_day) isShiftOverlappingNextDay = true;
+				} else {
+					for (const s of v.slots) multiShiftDateWise.push({ employee_id: employee.id, date_from: v.date_from, date_to: v.date_from, ...s });
+				}
 			}
 
-			// Load special shift weekday
-			const { data: specialWeekdayData } = await supabase
-				.from('special_shift_weekday')
-				.select('*')
-				.eq('employee_id', employee.id);
-			specialShiftWeekday = specialWeekdayData || [];
-
-			// Check for shift overlap in special weekday shifts
-			if (specialWeekdayData?.some(s => s.is_shift_overlapping_next_day)) {
-				isShiftOverlappingNextDay = true;
+			// Weekday shifts: group by version_id
+			const wdByVersion = new Map<number, { weekday: number; slots: any[] }>();
+			for (const r of wdRows || []) {
+				if (!wdByVersion.has(r.version_id)) wdByVersion.set(r.version_id, { weekday: r.weekday, slots: [] });
+				wdByVersion.get(r.version_id)!.slots.push(r);
+			}
+			specialShiftWeekday = []; multiShiftWeekday = [];
+			for (const [, v] of wdByVersion) {
+				if (v.slots.length === 1) {
+					specialShiftWeekday.push({ employee_id: employee.id, weekday: v.weekday, ...v.slots[0] });
+					if (v.slots[0].is_shift_overlapping_next_day) isShiftOverlappingNextDay = true;
+				} else {
+					for (const s of v.slots) multiShiftWeekday.push({ employee_id: employee.id, weekday: v.weekday, ...s });
+				}
 			}
 
-			// Load official holidays assigned to this employee
+			// Official holidays
 			const { data: assignedHolidays } = await supabase
 				.from('employee_official_holidays')
 				.select('official_holiday_id, official_holidays (holiday_date, name_en, name_ar)')
@@ -180,31 +191,9 @@
 				name_ar: h.official_holidays?.name_ar || ''
 			})).filter((h: any) => h.holiday_date);
 
-			// Load overtime registrations
-			const { data: otData } = await supabase
-				.from('overtime_registrations')
-				.select('*')
-				.eq('employee_id', employee.id);
+			// Overtime
+			const { data: otData } = await supabase.from('overtime_registrations').select('*').eq('employee_id', employee.id);
 			overtimeRegistrations = otData || [];
-
-			// Load multi-shift data (all three categories)
-			const { data: msRegularData } = await supabase
-				.from('multi_shift_regular')
-				.select('*')
-				.eq('employee_id', employee.id);
-			multiShiftRegular = msRegularData || [];
-
-			const { data: msDateData } = await supabase
-				.from('multi_shift_date_wise')
-				.select('*')
-				.eq('employee_id', employee.id);
-			multiShiftDateWise = msDateData || [];
-
-			const { data: msDayData } = await supabase
-				.from('multi_shift_weekday')
-				.select('*')
-				.eq('employee_id', employee.id);
-			multiShiftWeekday = msDayData || [];
 		} catch (error) {
 			console.error('Error loading employee data:', error);
 		}

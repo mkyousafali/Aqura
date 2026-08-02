@@ -168,52 +168,47 @@
 
 	async function loadEmployeeData() {
 		try {
-			// Load regular shift data using the actual employee ID
-			const { data: shiftData } = await supabase
-				.from('regular_shift')
-				.select('*')
-				.eq('id', employeeId)
-				.single();
-			regularShift = shiftData;
+			const empIds = [employeeId];
 
-			if (shiftData?.is_shift_overlapping_next_day) {
-				isShiftOverlappingNextDay = true;
-			}
+			// Load all shift data via RPCs (server-side join)
+			const [{ data: regRows }, { data: wdRows }, { data: dwRows }] = await Promise.all([
+				supabase.rpc('get_hr_regular_shifts', { p_employee_ids: empIds }),
+				supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: empIds }),
+				supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: empIds })
+			]);
 
-			// Load day off weekday data
-			const { data: dayOffWData } = await supabase
-				.from('day_off_weekday')
-				.select('*')
-				.eq('employee_id', employeeId);
+			// Regular shift
+			if (regRows && regRows.length > 0) {
+				regularShift = { id: employeeId, ...regRows[0] };
+				if (regRows.some((s: any) => s.is_shift_overlapping_next_day)) isShiftOverlappingNextDay = true;
+			} else { regularShift = null; }
+
+			// Day off data (unchanged)
+			const { data: dayOffWData } = await supabase.from('day_off_weekday').select('*').eq('employee_id', employeeId);
 			dayOffWeekday = dayOffWData && dayOffWData.length > 0 ? dayOffWData[0] : null;
-
-			// Load day off dates
-			const { data: dayOffDatesData } = await supabase
-				.from('day_off')
-				.select('*, day_off_reasons(*)')
-				.eq('employee_id', employeeId);
+			const { data: dayOffDatesData } = await supabase.from('day_off').select('*, day_off_reasons(*)').eq('employee_id', employeeId);
 			dayOffDates = dayOffDatesData || [];
 
-			// Load special shift date-wise
-			const { data: specialDateData } = await supabase
-				.from('special_shift_date_wise')
-				.select('*')
-				.eq('employee_id', employeeId);
-			specialShiftDateWise = specialDateData || [];
-
-			if (specialDateData?.some(s => s.is_shift_overlapping_next_day)) {
-				isShiftOverlappingNextDay = true;
+			// Date-wise shifts
+			const seenDwVer = new Set<number>();
+			specialShiftDateWise = [];
+			for (const r of dwRows || []) {
+				if (!seenDwVer.has(r.version_id)) {
+					seenDwVer.add(r.version_id);
+					specialShiftDateWise.push({ employee_id: employeeId, shift_date: r.date_from, ...r });
+					if (r.is_shift_overlapping_next_day) isShiftOverlappingNextDay = true;
+				}
 			}
 
-			// Load special shift weekday
-			const { data: specialWeekdayData } = await supabase
-				.from('special_shift_weekday')
-				.select('*')
-				.eq('employee_id', employeeId);
-			specialShiftWeekday = specialWeekdayData || [];
-
-			if (specialWeekdayData?.some(s => s.is_shift_overlapping_next_day)) {
-				isShiftOverlappingNextDay = true;
+			// Weekday shifts
+			const seenWdVer = new Set<number>();
+			specialShiftWeekday = [];
+			for (const r of wdRows || []) {
+				if (!seenWdVer.has(r.version_id)) {
+					seenWdVer.add(r.version_id);
+					specialShiftWeekday.push({ employee_id: employeeId, weekday: r.weekday, ...r });
+					if (r.is_shift_overlapping_next_day) isShiftOverlappingNextDay = true;
+				}
 			}
 		} catch (error) {
 			console.error('Error loading employee data:', error);
@@ -232,8 +227,17 @@
 				{
 					event: '*',
 					schema: 'public',
-					table: 'regular_shift',
-					filter: `id=eq.${employeeId}`
+					table: 'hr_regular_shift_versions',
+					filter: `employee_id=eq.${employeeId}`
+				},
+				() => loadEmployeeData()
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'hr_regular_shift_slots'
 				},
 				() => loadEmployeeData()
 			)

@@ -124,6 +124,7 @@
 	import EmployeeFiles from '$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte';
 	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
+	import Shifts from '$lib/components/desktop-interface/master/hr/Shifts.svelte';
 	import LeavesAndVacations from '$lib/components/desktop-interface/master/hr/LeavesAndVacations.svelte';
 	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
 	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
@@ -303,7 +304,7 @@
 		'EMPLOYEE_MASTER': 'nav.employeeMaster',
 		'ASSIGN_POSITIONS': 'nav.assignPositions', 'LINK_ID': 'nav.linkID',
 		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
-		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
+		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFTS': 'nav.shifts', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
 		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
 		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'SECURITY_CODE': 'nav.securityCode', 'FINGERPRINT_DASHBOARD': 'nav.fingerprintDashboard', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
 		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
@@ -1060,6 +1061,30 @@
 		showHRSubmenu = false;
 	}
 
+	function openShifts() {
+		collapseAllMenus();
+		const windowId = generateWindowId('shifts');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `Shifts #${instanceNumber}`,
+			component: Shifts,
+			componentName: "Shifts",
+			icon: '⏰',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
 	function openShiftAndDayOff() {
 		collapseAllMenus();
 		const windowId = generateWindowId('shift-and-day-off');
@@ -1067,10 +1092,10 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Shift and Day Off #${instanceNumber}`,
+			title: `Day Off Manager #${instanceNumber}`,
 			component: ShiftAndDayOff,
 			componentName: "ShiftAndDayOff",
-			icon: '⌚',
+			icon: '🏖️',
 			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -2215,6 +2240,7 @@ function openApprovalCenter() {
 			'EMPLOYEE_FILES': openEmployeeFiles,
 			'PROCESS_FINGERPRINT': openProcessFingerprint,
 			'SALARY_AND_WAGE': openSalaryAndWage,
+			'SHIFTS': openShifts,
 			'SHIFT_AND_DAY_OFF': openShiftAndDayOff,
 			'DISCIPLINE': openDiscipline,
 			'INCIDENT_MANAGER': openIncidentManager,
@@ -5392,10 +5418,18 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					{#if isButtonAllowed('SHIFTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openShifts}>
+								<span class="menu-icon">⏰</span>
+								<span class="menu-text">{t('nav.shifts')}</span>
+							</button>
+						</div>
+					{/if}
 					{#if isButtonAllowed('SHIFT_AND_DAY_OFF')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openShiftAndDayOff}>
-								<span class="menu-icon">⌚</span>
+								<span class="menu-icon">🏖️</span>
 								<span class="menu-text">{t('nav.shiftAndLeave')}</span>
 							</button>
 						</div>

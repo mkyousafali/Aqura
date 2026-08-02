@@ -309,15 +309,25 @@
 				}
 			}
 
-			// Load multi-shift data and adjust underworked for multi-shift employees
-			const [msRegRes, msDateRes, msWeekRes] = await Promise.all([
-				supabase.from('multi_shift_regular').select('employee_id, working_hours'),
-				supabase.from('multi_shift_date_wise').select('employee_id, date_from, date_to, working_hours'),
-				supabase.from('multi_shift_weekday').select('employee_id, weekday, working_hours')
+			// Load multi-shift data via RPCs (server-side join, no URL length issue)
+			const empIds = [...new Set((rows || []).map((r: any) => String(r.employee_id)))];
+			const [{ data: regRows }, { data: wdRows }, { data: dwRows }] = await Promise.all([
+				supabase.rpc('get_hr_regular_shifts', { p_employee_ids: empIds }),
+				supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: empIds }),
+				supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: empIds })
 			]);
-			multiShiftRegularAll = msRegRes.data || [];
-			multiShiftDateWiseAll = msDateRes.data || [];
-			multiShiftWeekdayAll = msWeekRes.data || [];
+			// Group by version_id to find multi-slot versions (>1 slot = multi-shift)
+			const countSlots = (rows: any[]) => {
+				const counts = new Map<number, number>();
+				for (const r of rows) counts.set(r.version_id, (counts.get(r.version_id) || 0) + 1);
+				return counts;
+			};
+			const regCounts = countSlots(regRows || []);
+			const wdCounts = countSlots(wdRows || []);
+			const dwCounts = countSlots(dwRows || []);
+			multiShiftRegularAll = (regRows || []).filter((r: any) => (regCounts.get(r.version_id) || 0) > 1).map((r: any) => ({ employee_id: r.employee_id, working_hours: r.working_hours }));
+			multiShiftWeekdayAll = (wdRows || []).filter((r: any) => (wdCounts.get(r.version_id) || 0) > 1).map((r: any) => ({ employee_id: r.employee_id, weekday: r.weekday, working_hours: r.working_hours }));
+			multiShiftDateWiseAll = (dwRows || []).filter((r: any) => (dwCounts.get(r.version_id) || 0) > 1).map((r: any) => ({ employee_id: r.employee_id, date_from: r.date_from, date_to: r.date_to, working_hours: r.working_hours }));
 
 			// NOTE: underMins is computed by the edge function per shift slot.
 			// Multi-shift rows are already accumulated above — no additional adjustment needed.

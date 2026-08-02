@@ -2205,20 +2205,28 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				.subscribe();
 			subscriptions.push(fxnSub);
 
-			// Subscribe to regular_shift changes
+			// Subscribe to regular_shift changes (new versioned tables)
 			const shiftSub = supabase
-				.channel('regular_shift_changes')
+				.channel('hr_regular_shift_changes')
 				.on('postgres_changes', {
 					event: '*',
 					schema: 'public',
-					table: 'regular_shift'
+					table: 'hr_regular_shift_versions'
 				}, (payload) => {
-					console.log('📡 Shifts changed:', payload);
+					console.log('📡 Regular shift versions changed:', payload);
+					debouncedReload();
+				})
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'hr_regular_shift_slots'
+				}, (payload) => {
+					console.log('📡 Regular shift slots changed:', payload);
 					debouncedReload();
 				})
 				.on('subscribe', (status) => {
 					if (status === 'SUBSCRIBED') {
-						console.log('✅ Subscribed to regular_shift');
+						console.log('✅ Subscribed to hr_regular_shift_versions/slots');
 					}
 				})
 				.subscribe();
@@ -2243,39 +2251,55 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				.subscribe();
 			subscriptions.push(dayOffWeekdaySub);
 
-			// Subscribe to special_shift_date_wise changes
+			// Subscribe to special_shift_date_wise changes (new versioned tables)
 			const specialShiftDWSub = supabase
-				.channel('special_shift_date_wise_changes')
+				.channel('hr_special_shift_date_wise_changes')
 				.on('postgres_changes', {
 					event: '*',
 					schema: 'public',
-					table: 'special_shift_date_wise'
+					table: 'hr_special_shift_date_wise_versions'
 				}, (payload) => {
-					console.log('📡 Special shift date-wise changed:', payload);
+					console.log('📡 Special shift date-wise versions changed:', payload);
+					debouncedReload();
+				})
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'hr_special_shift_date_wise_slots'
+				}, (payload) => {
+					console.log('📡 Special shift date-wise slots changed:', payload);
 					debouncedReload();
 				})
 				.on('subscribe', (status) => {
 					if (status === 'SUBSCRIBED') {
-						console.log('✅ Subscribed to special_shift_date_wise');
+						console.log('✅ Subscribed to hr_special_shift_date_wise_versions/slots');
 					}
 				})
 				.subscribe();
 			subscriptions.push(specialShiftDWSub);
 
-			// Subscribe to special_shift_weekday changes
+			// Subscribe to special_shift_weekday changes (new versioned tables)
 			const specialShiftWDSub = supabase
-				.channel('special_shift_weekday_changes')
+				.channel('hr_special_shift_weekday_changes')
 				.on('postgres_changes', {
 					event: '*',
 					schema: 'public',
-					table: 'special_shift_weekday'
+					table: 'hr_special_shift_weekday_versions'
 				}, (payload) => {
-					console.log('📡 Special shift weekday changed:', payload);
+					console.log('📡 Special shift weekday versions changed:', payload);
+					debouncedReload();
+				})
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'hr_special_shift_weekday_slots'
+				}, (payload) => {
+					console.log('📡 Special shift weekday slots changed:', payload);
 					debouncedReload();
 				})
 				.on('subscribe', (status) => {
 					if (status === 'SUBSCRIBED') {
-						console.log('✅ Subscribed to special_shift_weekday');
+						console.log('✅ Subscribed to hr_special_shift_weekday_versions/slots');
 					}
 				})
 				.subscribe();

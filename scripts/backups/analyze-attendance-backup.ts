@@ -1,4 +1,4 @@
-// Supabase Edge Function: Analyze Attendance
+﻿// Supabase Edge Function: Analyze Attendance
 // Runs automatically via pg_cron (4x/day) or manually via HTTP
 // Analyzes all employees' attendance for a rolling 45-day window
 // Upserts results into hr_analysed_attendance_data table
@@ -56,33 +56,25 @@ function calculateWorkedMinutesRaw(checkInTime: string, checkOutTime: string): n
 }
 
 function calculateLateArrivalMinutes(punchTime: string, shift: any): number {
+  // Match EmployeeAnalysisWindow.svelte calculateEarlyLateForCheckIn logic
   if (!shift) return 0;
   const punchMinutes = timeToMinutes(punchTime);
   const shiftStartMinutes = timeToMinutes(shift.shift_start_time);
   const shiftEndMinutes = timeToMinutes(shift.shift_end_time);
   const isOvernight = shiftEndMinutes < shiftStartMinutes;
-  const grace = shift.allowed_late_start_minutes || 0;
 
-  let rawLate = 0;
   if (isOvernight) {
+    // For overnight shifts, check-in is only in the evening (>= shift_start)
     if (punchMinutes >= shiftStartMinutes) {
-      rawLate = punchMinutes - shiftStartMinutes;
+      // Late = how many minutes after shift start
+      return punchMinutes - shiftStartMinutes;
     }
-  } else {
-    rawLate = punchMinutes > shiftStartMinutes ? punchMinutes - shiftStartMinutes : 0;
+    // If punch is in the early morning (before shift_end), this is NOT a late check-in
+    // (it's either a confused punch or early ΓÇö treat as 0 late, matching EmployeeAnalysisWindow)
+    return 0;
   }
-  // Subtract grace period — only count minutes beyond the allowed grace
-  return Math.max(0, rawLate - grace);
-}
-
-function calculateEarlyLeavingMinutes(punchTime: string, shift: any): number {
-  if (!shift) return 0;
-  const punchMinutes = timeToMinutes(punchTime);
-  const shiftEndMinutes = timeToMinutes(shift.shift_end_time);
-  const grace = shift.allowed_early_end_minutes || 0;
-
-  const rawEarly = shiftEndMinutes > punchMinutes ? shiftEndMinutes - punchMinutes : 0;
-  return Math.max(0, rawEarly - grace);
+  // Normal shift: late only if after shift start
+  return punchMinutes > shiftStartMinutes ? punchMinutes - shiftStartMinutes : 0;
 }
 
 // ============ Main Analysis Logic ============
@@ -100,7 +92,7 @@ interface Employee {
 function getApplicableShift(
   empId: string,
   dateStr: string,
-  employeeShifts: Map<string, any[]>,
+  employeeShifts: Map<string, any>,
   employeeSpecialShiftsDateWise: Map<string, any[]>,
   employeeSpecialShiftsWeekday: Map<string, any[]>
 ) {
@@ -111,21 +103,12 @@ function getApplicableShift(
   const dateWise = employeeSpecialShiftsDateWise.get(sId)?.find(s => s.shift_date === dateStr);
   if (dateWise) return dateWise;
 
-  // Weekday special shift (check effective dates)
-  const weekdayShift = employeeSpecialShiftsWeekday.get(sId)?.find(s =>
-    s.weekday === dayNum &&
-    (!s.date_from || dateStr >= s.date_from) &&
-    (!s.date_to || dateStr <= s.date_to)
-  );
+  // Weekday special shift
+  const weekdayShift = employeeSpecialShiftsWeekday.get(sId)?.find(s => s.weekday === dayNum);
   if (weekdayShift) return weekdayShift;
 
-  // Regular shift — find the version whose date range covers this date
-  const regShifts = employeeShifts.get(sId) || [];
-  const regMatch = regShifts.find(s =>
-    (!s.date_from || dateStr >= s.date_from) &&
-    (!s.date_to || dateStr <= s.date_to)
-  );
-  return regMatch || null;
+  // Regular shift
+  return employeeShifts.get(sId);
 }
 
 function isOfficialDayOff(empId: string, dateStr: string, employeeDayOffs: Map<string, any>): boolean {
@@ -230,7 +213,7 @@ function classifyAgainstMultiShifts(
       };
     }
 
-    // After checkout window — if before the NEXT slot's check-in window, it's a late checkout
+    // After checkout window ΓÇö if before the NEXT slot's check-in window, it's a late checkout
     if (punchMinutes > checkOutEnd) {
       const nextMs = sorted[i + 1];
       const nextCheckInStart = nextMs
@@ -239,7 +222,7 @@ function classifyAgainstMultiShifts(
       if (punchMinutes < nextCheckInStart) {
         return { multiShiftKey: ms.shift_start_time, status: 'Check Out' };
       }
-      // Punch falls in next slot's zone — continue to next iteration
+      // Punch falls in next slot's zone ΓÇö continue to next iteration
     }
   }
   return null;
@@ -296,7 +279,7 @@ function analyzeEmployeeDays(
       } else if (employeeOfficialHolidays.get(String(emp.id))?.has(date)) {
         status = 'Official Holiday';
       } else if (emp.employment_status === 'Remote Job') {
-        // Remote employees have no fingerprint — treat no-punch days as Worked
+        // Remote employees have no fingerprint ΓÇö treat no-punch days as Worked
         status = 'Worked';
       } else {
         status = 'Absent';
@@ -381,7 +364,7 @@ function analyzeEmployeeDays(
         dedupedTransactions.push(...allCheckIns);
       } else if (allCheckIns.length > 0) {
         // Keep only the single best check-in (latest created_at).
-        // Grouping by calendarDate is NOT sufficient — duplicate punches from faulty
+        // Grouping by calendarDate is NOT sufficient ΓÇö duplicate punches from faulty
         // fingerprint machines can land on different punch_dates (e.g. 25th vs 26th),
         // causing both to pass dedup and creating a phantom "Check-In Missing" pair.
         const bestIn = allCheckIns.reduce((a: any, b: any) => new Date(a.created_at) >= new Date(b.created_at) ? a : b);
@@ -392,7 +375,7 @@ function analyzeEmployeeDays(
       if (allCheckOuts.length >= 2 && allCheckIns.length === 0) {
         dedupedTransactions.push(...allCheckOuts);
       } else if (allCheckOuts.length > 0) {
-        // Keep only the single best check-out (latest created_at) — same reason as above.
+        // Keep only the single best check-out (latest created_at) ΓÇö same reason as above.
         const bestOut = allCheckOuts.reduce((a: any, b: any) => new Date(a.created_at) >= new Date(b.created_at) ? a : b);
         dedupedTransactions.push(bestOut);
       }
@@ -614,7 +597,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`📊 [Analyze Attendance] Starting analysis. Rolling window: ${rollingDays} days`);
+    console.log(`≡ƒôè [Analyze Attendance] Starting analysis. Rolling window: ${rollingDays} days`);
 
     // ---- Calculate date range (Saudi timezone) ----
     const endDate = getSaudiDateStr(); // Today in Saudi Arabia
@@ -677,7 +660,7 @@ Deno.serve(async (req) => {
           }));
 
           if (extraEmps.length > 0) {
-            console.log(`📊 [Analyze Attendance] Including ${extraEmps.length} additional employee(s) with approved leave but changed status`);
+            console.log(`≡ƒôè [Analyze Attendance] Including ${extraEmps.length} additional employee(s) with approved leave but changed status`);
             employees.push(...extraEmps);
           }
         }
@@ -685,13 +668,13 @@ Deno.serve(async (req) => {
     }
 
     if (employees.length === 0) {
-      console.log('📊 [Analyze Attendance] No employees found');
+      console.log('≡ƒôè [Analyze Attendance] No employees found');
       return new Response(JSON.stringify({ success: true, message: 'No employees', analyzed: 0 }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`📊 [Analyze Attendance] Found ${employees.length} employees, ${datesInRange.length} dates`);
+    console.log(`≡ƒôè [Analyze Attendance] Found ${employees.length} employees, ${datesInRange.length} dates`);
 
     const empIds = employees.map(e => e.id);
 
@@ -702,98 +685,54 @@ Deno.serve(async (req) => {
     // ---- Bulk fetch all needed data ----
     const [
       { data: transactions },
+      { data: shifts },
       { data: dayOffWeekdays },
+      { data: specialShiftsDW },
+      { data: specialShiftsWD },
       { data: specificDayOffs },
       { data: officialHolidaysData },
       { data: overtimeData },
     ] = await Promise.all([
       supabase.from('processed_fingerprint_transactions').select('*').in('center_id', empIds).gte('punch_date', extStart).lte('punch_date', extEnd),
+      supabase.from('regular_shift').select('*').in('id', empIds),
       supabase.from('day_off_weekday').select('*').in('employee_id', empIds),
+      supabase.from('special_shift_date_wise').select('*').in('employee_id', empIds),
+      supabase.from('special_shift_weekday').select('*').in('employee_id', empIds),
       supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds),
       supabase.from('employee_official_holidays').select('employee_id, official_holidays(holiday_date)').in('employee_id', empIds),
       supabase.from('overtime_registrations').select('*').in('employee_id', empIds),
     ]);
 
-    // ---- Fetch shift data via RPCs (server-side join, no URL length issue) ----
+    // ---- Fetch multi-shift data ----
     const [
-      { data: regRows },
-      { data: wdRows },
-      { data: dwRows },
+      { data: msRegularData },
+      { data: msDateWiseData },
+      { data: msWeekdayData },
     ] = await Promise.all([
-      supabase.rpc('get_hr_regular_shifts', { p_employee_ids: empIds }),
-      supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: empIds }),
-      supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: empIds }),
+      supabase.from('multi_shift_regular').select('employee_id, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_date_wise').select('employee_id, date_from, date_to, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer, working_hours').in('employee_id', empIds),
+      supabase.from('multi_shift_weekday').select('employee_id, weekday, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer, working_hours').in('employee_id', empIds),
     ]);
 
-    console.log(`📊 [Analyze Attendance] Fetched: ${transactions?.length || 0} transactions, ${(regRows || []).length} regular slots, ${(dwRows || []).length} date-wise slots`);
+    console.log(`≡ƒôè [Analyze Attendance] Fetched: ${transactions?.length || 0} transactions, ${shifts?.length || 0} shifts`);
 
-    // ---- Build lookup maps (same structure as before for compatibility) ----
-    // Group RPC rows by version_id
-    const groupByVersion = (rows: any[]) => {
-      const m = new Map<number, any[]>();
-      for (const r of rows || []) { const list = m.get(r.version_id) || []; list.push(r); m.set(r.version_id, list); }
-      return m;
-    };
-
-    // Regular shifts: version with 1 slot → employeeShifts (list of versions), 2+ slots → multiShiftRegular
-    const regByVer = groupByVersion(regRows || []);
-    const employeeShifts = new Map<string, any[]>();
-    const multiShiftRegular = new Map<string, any[]>();
-    for (const [, slots] of regByVer) {
-      const empId = String(slots[0].employee_id);
-      if (slots.length === 1) {
-        const s = slots[0];
-        const list = employeeShifts.get(empId) || [];
-        list.push({ id: empId, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
-        employeeShifts.set(empId, list);
-      } else {
-        const list = multiShiftRegular.get(empId) || [];
-        for (const s of slots) list.push({ employee_id: empId, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
-        multiShiftRegular.set(empId, list);
-        const shiftList = employeeShifts.get(empId) || [];
-        const s = slots[0];
-        shiftList.push({ id: empId, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
-        employeeShifts.set(empId, shiftList);
-      }
-    }
-
-    // Weekday special shifts
-    const wdByVer = groupByVersion(wdRows || []);
-    const employeeSpecialShiftsWeekday = new Map<string, any[]>();
-    const multiShiftWeekday = new Map<string, any[]>();
-    for (const [, slots] of wdByVer) {
-      const empId = String(slots[0].employee_id);
-      if (slots.length === 1) {
-        const s = slots[0];
-        const list = employeeSpecialShiftsWeekday.get(empId) || [];
-        list.push({ employee_id: empId, weekday: s.weekday, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
-        employeeSpecialShiftsWeekday.set(empId, list);
-      } else {
-        const list = multiShiftWeekday.get(empId) || [];
-        for (const s of slots) list.push({ employee_id: empId, weekday: s.weekday, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
-        multiShiftWeekday.set(empId, list);
-      }
-    }
-
-    // Date-wise special shifts
-    const dwByVer = groupByVersion(dwRows || []);
-    const employeeSpecialShiftsDateWise = new Map<string, any[]>();
-    const multiShiftDateWise = new Map<string, any[]>();
-    for (const [, slots] of dwByVer) {
-      const empId = String(slots[0].employee_id);
-      if (slots.length === 1) {
-        const s = slots[0];
-        const list = employeeSpecialShiftsDateWise.get(empId) || [];
-        list.push({ employee_id: empId, shift_date: s.date_from, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours });
-        employeeSpecialShiftsDateWise.set(empId, list);
-      } else {
-        const list = multiShiftDateWise.get(empId) || [];
-        for (const s of slots) list.push({ employee_id: empId, date_from: s.date_from, date_to: s.date_to, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours });
-        multiShiftDateWise.set(empId, list);
-      }
-    }
-
+    // ---- Build lookup maps ----
+    const employeeShifts = new Map(shifts?.map((s: any) => [String(s.id), s]));
     const employeeDayOffs = new Map(dayOffWeekdays?.map((d: any) => [String(d.employee_id), d]));
+
+    const employeeSpecialShiftsDateWise = new Map<string, any[]>();
+    specialShiftsDW?.forEach((s: any) => {
+      const list = employeeSpecialShiftsDateWise.get(String(s.employee_id)) || [];
+      list.push(s);
+      employeeSpecialShiftsDateWise.set(String(s.employee_id), list);
+    });
+
+    const employeeSpecialShiftsWeekday = new Map<string, any[]>();
+    specialShiftsWD?.forEach((s: any) => {
+      const list = employeeSpecialShiftsWeekday.get(String(s.employee_id)) || [];
+      list.push(s);
+      employeeSpecialShiftsWeekday.set(String(s.employee_id), list);
+    });
 
     const employeeSpecificDayOffs = new Map<string, any[]>();
     specificDayOffs?.forEach((d: any) => {
@@ -802,16 +741,42 @@ Deno.serve(async (req) => {
       employeeSpecificDayOffs.set(String(d.employee_id), list);
     });
 
+    // Build official holidays lookup: employee_id -> Set of holiday dates
     const employeeOfficialHolidays = new Map<string, Set<string>>();
     officialHolidaysData?.forEach((row: any) => {
       const empId = String(row.employee_id);
       const holidayDate = row.official_holidays?.holiday_date;
       if (holidayDate) {
-        if (!employeeOfficialHolidays.has(empId)) employeeOfficialHolidays.set(empId, new Set());
+        if (!employeeOfficialHolidays.has(empId)) {
+          employeeOfficialHolidays.set(empId, new Set());
+        }
         employeeOfficialHolidays.get(empId)!.add(holidayDate);
       }
     });
 
+    // Build multi-shift lookup maps
+    const multiShiftRegular = new Map<string, any[]>();
+    msRegularData?.forEach((ms: any) => {
+      const list = multiShiftRegular.get(String(ms.employee_id)) || [];
+      list.push(ms);
+      multiShiftRegular.set(String(ms.employee_id), list);
+    });
+
+    const multiShiftDateWise = new Map<string, any[]>();
+    msDateWiseData?.forEach((ms: any) => {
+      const list = multiShiftDateWise.get(String(ms.employee_id)) || [];
+      list.push(ms);
+      multiShiftDateWise.set(String(ms.employee_id), list);
+    });
+
+    const multiShiftWeekday = new Map<string, any[]>();
+    msWeekdayData?.forEach((ms: any) => {
+      const list = multiShiftWeekday.get(String(ms.employee_id)) || [];
+      list.push(ms);
+      multiShiftWeekday.set(String(ms.employee_id), list);
+    });
+
+    // Build overtime lookup: employee_id -> Map<date, overtime_minutes>
     const employeeOvertime = new Map<string, Map<string, number>>();
     overtimeData?.forEach((o: any) => {
       const empId = String(o.employee_id);
@@ -876,7 +841,7 @@ Deno.serve(async (req) => {
               const adjustedCheckOutEnd = prevCheckOutEnd < 0 ? prevCheckOutEnd + (24 * 60) : prevCheckOutEnd;
 
               // Check if the previous shift's CHECK-IN window wraps past midnight
-              // E.g., shift starts at 23:59 with 3h buffer → check-in window extends to 02:59 next day
+              // E.g., shift starts at 23:59 with 3h buffer ΓåÆ check-in window extends to 02:59 next day
               const prevCheckInEnd = prevShiftStartMinutes + prevStartBufferMinutes;
               if (prevCheckInEnd > 24 * 60) {
                 const wrappedCheckInEnd = prevCheckInEnd - (24 * 60);
@@ -995,7 +960,7 @@ Deno.serve(async (req) => {
       totalAnalyzed += empResults.length;
     }
 
-    console.log(`📊 [Analyze Attendance] Analyzed ${totalAnalyzed} employee-days. Upserting...`);
+    console.log(`≡ƒôè [Analyze Attendance] Analyzed ${totalAnalyzed} employee-days. Upserting...`);
 
     // ---- Batch upsert results (in chunks of 500) ----
     const chunkSize = 500;
@@ -1009,14 +974,14 @@ Deno.serve(async (req) => {
         .upsert(chunk, { onConflict: 'employee_id,shift_date' });
 
       if (upsertError) {
-        console.error(`📊 [Analyze Attendance] Upsert error for chunk ${i}:`, upsertError);
+        console.error(`≡ƒôè [Analyze Attendance] Upsert error for chunk ${i}:`, upsertError);
         errorCount += chunk.length;
       } else {
         upsertedCount += chunk.length;
       }
     }
 
-    console.log(`📊 [Analyze Attendance] Complete! Upserted: ${upsertedCount}, Errors: ${errorCount}`);
+    console.log(`≡ƒôè [Analyze Attendance] Complete! Upserted: ${upsertedCount}, Errors: ${errorCount}`);
 
     return new Response(
       JSON.stringify({
@@ -1031,7 +996,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('❌ [Analyze Attendance] Error:', error);
+    console.error('Γ¥î [Analyze Attendance] Error:', error);
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

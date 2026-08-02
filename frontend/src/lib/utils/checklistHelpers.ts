@@ -273,37 +273,58 @@ export async function getShiftStartTime(
   try {
     // Priority 1: Check specific date override
     const { data: dateWise, error: dateError } = await supabase
-      .from('special_shift_date_wise')
-      .select('shift_start_time')
+      .from('hr_special_shift_date_wise_versions')
+      .select('id')
       .eq('employee_id', employeeId)
-      .eq('shift_date', dateString)
+      .eq('date_from', dateString)
       .maybeSingle();
 
     if (!dateError && dateWise) {
-      return dateWise.shift_start_time;
+      const { data: slot } = await supabase
+        .from('hr_special_shift_date_wise_slots')
+        .select('shift_start_time')
+        .eq('version_id', dateWise.id)
+        .order('slot_order')
+        .limit(1)
+        .maybeSingle();
+      if (slot) return slot.shift_start_time;
     }
 
     // Priority 2: Check weekly special shift
-    const { data: weekdayShift, error: weekError } = await supabase
-      .from('special_shift_weekday')
-      .select('shift_start_time')
+    const { data: weekdayVersion, error: weekError } = await supabase
+      .from('hr_special_shift_weekday_versions')
+      .select('id')
       .eq('employee_id', employeeId)
       .eq('weekday', dayOfWeek)
       .maybeSingle();
 
-    if (!weekError && weekdayShift) {
-      return weekdayShift.shift_start_time;
+    if (!weekError && weekdayVersion) {
+      const { data: slot } = await supabase
+        .from('hr_special_shift_weekday_slots')
+        .select('shift_start_time')
+        .eq('version_id', weekdayVersion.id)
+        .order('slot_order')
+        .limit(1)
+        .maybeSingle();
+      if (slot) return slot.shift_start_time;
     }
 
     // Priority 3: Get regular shift
-    const { data: regularShift, error: regError } = await supabase
-      .from('regular_shift')
-      .select('shift_start_time')
-      .eq('id', employeeId)
+    const { data: regVersion, error: regError } = await supabase
+      .from('hr_regular_shift_versions')
+      .select('id')
+      .eq('employee_id', employeeId)
       .maybeSingle();
 
-    if (!regError && regularShift) {
-      return regularShift.shift_start_time;
+    if (!regError && regVersion) {
+      const { data: slot } = await supabase
+        .from('hr_regular_shift_slots')
+        .select('shift_start_time')
+        .eq('version_id', regVersion.id)
+        .order('slot_order')
+        .limit(1)
+        .maybeSingle();
+      if (slot) return slot.shift_start_time;
     }
 
     return null;

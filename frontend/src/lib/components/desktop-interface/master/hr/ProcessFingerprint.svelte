@@ -71,76 +71,57 @@
 		if (!employeeIds || employeeIds.length === 0) return;
 		
 		try {
-			// Start with regular shifts as default for all employees
-			const { data: regularShifts, error: regularError } = await supabase
-				.from('regular_shift')
-				.select('id, shift_start_time, shift_end_time')
-				.in('id', employeeIds);
-			
-			if (regularError) {
-				console.warn('Error loading regular shifts:', regularError);
-				return;
-			}
-			
-			// Build shift data with regular shifts as base
+			// Load all shift data via RPCs (server-side join)
+			const [{ data: regRows }, { data: wdRows }, { data: dwRows }] = await Promise.all([
+				supabase.rpc('get_hr_regular_shifts', { p_employee_ids: employeeIds }),
+				supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: employeeIds }),
+				supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: employeeIds })
+			]);
+
 			const shiftsByEmployee: { [key: string]: any } = {};
-			if (regularShifts) {
-				for (const shift of regularShifts) {
-					shiftsByEmployee[shift.id] = {
-						checkInTime: shift.shift_start_time,
-						checkOutTime: shift.shift_end_time,
-						checkInBuffer: 3, // default 3 hours
-						checkOutBuffer: 3, // default 3 hours
+
+			// Regular shifts (lowest priority) — use first slot per version
+			const seenRegEmp = new Set<string>();
+			for (const r of regRows || []) {
+				if (!seenRegEmp.has(r.employee_id)) {
+					seenRegEmp.add(r.employee_id);
+					shiftsByEmployee[r.employee_id] = {
+						checkInTime: r.shift_start_time, checkOutTime: r.shift_end_time,
+						checkInBuffer: parseFloat(r.shift_start_buffer) || 3, checkOutBuffer: parseFloat(r.shift_end_buffer) || 3,
 						source: 'regular_shift'
 					};
 				}
 			}
-			
-			// Priority 2: Check special_shift_weekday (only if it matches the punch date's weekday)
+
+			// Weekday shifts (override regular if matching punch date's weekday)
 			if (punchDate) {
-				const { data: weekdayShifts, error: weekdayError } = await supabase
-					.from('special_shift_weekday')
-					.select('employee_id, weekday, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer')
-					.in('employee_id', employeeIds);
-				
-				if (!weekdayError && weekdayShifts) {
-					const punchDateObj = new Date(punchDate);
-					const punchWeekday = punchDateObj.getDay();
-					
-					for (const shift of weekdayShifts) {
-						if (shift.weekday === punchWeekday) {
-							shiftsByEmployee[shift.employee_id] = {
-								checkInTime: shift.shift_start_time,
-								checkOutTime: shift.shift_end_time,
-								checkInBuffer: parseFloat(shift.shift_start_buffer) || 3,
-								checkOutBuffer: parseFloat(shift.shift_end_buffer) || 3,
-								source: 'special_shift_weekday'
-							};
-						}
+				const punchWeekday = new Date(punchDate).getDay();
+				const seenWdEmp = new Set<string>();
+				for (const r of wdRows || []) {
+					if (r.weekday === punchWeekday && !seenWdEmp.has(r.employee_id)) {
+						seenWdEmp.add(r.employee_id);
+						shiftsByEmployee[r.employee_id] = {
+							checkInTime: r.shift_start_time, checkOutTime: r.shift_end_time,
+							checkInBuffer: parseFloat(r.shift_start_buffer) || 3, checkOutBuffer: parseFloat(r.shift_end_buffer) || 3,
+							source: 'special_shift_weekday'
+						};
 					}
 				}
-				
-				// Priority 1: Check special_shift_date_wise (highest priority - overrides both)
-				const { data: dateShifts, error: dateError } = await supabase
-					.from('special_shift_date_wise')
-					.select('employee_id, shift_start_time, shift_end_time, shift_start_buffer, shift_end_buffer')
-					.in('employee_id', employeeIds)
-					.eq('shift_date', punchDate);
-				
-				if (!dateError && dateShifts) {
-					for (const shift of dateShifts) {
-						shiftsByEmployee[shift.employee_id] = {
-							checkInTime: shift.shift_start_time,
-							checkOutTime: shift.shift_end_time,
-							checkInBuffer: parseFloat(shift.shift_start_buffer) || 3,
-							checkOutBuffer: parseFloat(shift.shift_end_buffer) || 3,
+
+				// Date-wise shifts (highest priority)
+				const seenDwEmp = new Set<string>();
+				for (const r of dwRows || []) {
+					if (r.date_from === punchDate && !seenDwEmp.has(r.employee_id)) {
+						seenDwEmp.add(r.employee_id);
+						shiftsByEmployee[r.employee_id] = {
+							checkInTime: r.shift_start_time, checkOutTime: r.shift_end_time,
+							checkInBuffer: parseFloat(r.shift_start_buffer) || 3, checkOutBuffer: parseFloat(r.shift_end_buffer) || 3,
 							source: 'special_shift_date_wise'
 						};
 					}
 				}
 			}
-			
-			// Store in cache with date key if provided
+
 			for (const empId of employeeIds) {
 				const key = getCacheKey(empId, punchDate);
 				shiftDataCache[key] = shiftsByEmployee[empId] || null;
@@ -152,39 +133,19 @@
 		}
 	}
 	
-	// Synchronous version - only works if data is pre-fetched
 	function getExpectedShiftTimesSync(employeeId: string, punchDate?: string): { checkInTime: string; checkOutTime: string; checkInBuffer: number; checkOutBuffer: number } | null {
 		const key = getCacheKey(employeeId, punchDate);
 		return shiftDataCache[key] || null;
 	}
 	
-	// Keep async version for backward compatibility
 	async function getExpectedShiftTimes(employeeId: string): Promise<{ checkInTime: string; checkOutTime: string; checkInBuffer: number; checkOutBuffer: number } | null> {
-		// Try cache first
-		if (shiftDataCache.hasOwnProperty(employeeId)) {
-			return shiftDataCache[employeeId];
-		}
+		if (shiftDataCache.hasOwnProperty(employeeId)) return shiftDataCache[employeeId];
 		
 		try {
-			const { data: shiftData, error: shiftError } = await supabase
-				.from('regular_shift')
-				.select('shift_start_time, shift_end_time')
-				.eq('id', employeeId)
-				.maybeSingle();
-			
-			if (shiftError) {
-				console.warn(`No shift data found for ${employeeId}:`, shiftError);
-				shiftDataCache[employeeId] = null;
-				return null;
-			}
-
-			if (shiftData) {
-				const result = {
-					checkInTime: shiftData.shift_start_time,
-					checkOutTime: shiftData.shift_end_time,
-					checkInBuffer: 3,
-					checkOutBuffer: 3
-				};
+			const { data: regRows } = await supabase.rpc('get_hr_regular_shifts', { p_employee_ids: [employeeId] });
+			if (regRows && regRows.length > 0) {
+				const s = regRows[0];
+				const result = { checkInTime: s.shift_start_time, checkOutTime: s.shift_end_time, checkInBuffer: 3, checkOutBuffer: 3 };
 				shiftDataCache[employeeId] = result;
 				return result;
 			}
