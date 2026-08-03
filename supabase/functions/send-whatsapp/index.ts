@@ -6,10 +6,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// WhatsApp Cloud API credentials
-const WHATSAPP_TOKEN = Deno.env.get("WHATSAPP_ACCESS_TOKEN") || "";
-const WHATSAPP_PHONE_ID = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || "";
 const GRAPH_API_VERSION = "v22.0";
+
+// Load WhatsApp credentials from wa_accounts table (default active account)
+async function getWaCredentials(supabase: any): Promise<{ token: string; phoneId: string }> {
+  const { data } = await supabase
+    .from("wa_accounts")
+    .select("access_token, phone_number_id")
+    .eq("is_active", true)
+    .eq("is_default", true)
+    .maybeSingle();
+  return { token: data?.access_token || "", phoneId: data?.phone_number_id || "" };
+}
 
 interface SendWhatsAppRequest {
   action: "send_access_code" | "send_loyalty_otp";
@@ -38,6 +46,8 @@ serve(async (req: Request) => {
     // Supabase client for logging
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { token: WHATSAPP_TOKEN, phoneId: WHATSAPP_PHONE_ID } = await getWaCredentials(supabase);
 
     const body: SendWhatsAppRequest = await req.json();
     const { action, phone_number, access_code, customer_name } = body;
@@ -135,7 +145,6 @@ serve(async (req: Request) => {
       };
 
       console.log(`Sending loyalty OTP to ${formattedPhone}`);
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
       const waResponse = await fetch(
         `https://graph.facebook.com/${GRAPH_API_VERSION}/${WHATSAPP_PHONE_ID}/messages`,
@@ -180,7 +189,6 @@ serve(async (req: Request) => {
     // Send in BOTH English and Arabic (bilingual)
     const languages = ["en", "ar"];
     let lastMessageId: string | null = null;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     for (const lang of languages) {
       console.log(`Sending WhatsApp access code to ${formattedPhone} (lang: ${lang})`);

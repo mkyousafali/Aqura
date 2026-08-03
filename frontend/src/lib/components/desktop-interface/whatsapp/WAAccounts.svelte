@@ -30,6 +30,7 @@
     let testingConnection = false;
     let testResult: { success: boolean; message: string } | null = null;
     let searchQuery = '';
+    let showFullGuide = false;
 
     // New account form
     let newAccount = {
@@ -565,18 +566,58 @@
                         </div>
                     </div>
 
-                    <!-- Info Card -->
+                    <!-- Full Setup Guide -->
                     <div class="mt-6 bg-blue-50/50 backdrop-blur-xl rounded-2xl border border-blue-100 p-6">
-                        <h4 class="font-bold text-blue-800 text-sm mb-3 flex items-center gap-2">
-                            <span>ℹ️</span> {$t('whatsapp.accounts.howToConnect')}
-                        </h4>
-                        <ol class="text-xs text-blue-700 space-y-2 list-decimal list-inside">
-                            <li>{$t('whatsapp.accounts.step1')}</li>
-                            <li>{$t('whatsapp.accounts.step2')}</li>
-                            <li>{$t('whatsapp.accounts.step3')}</li>
-                            <li>{$t('whatsapp.accounts.step4')}</li>
-                            <li>{$t('whatsapp.accounts.step5')}</li>
-                        </ol>
+                        <button type="button" class="w-full flex items-center justify-between gap-2 text-left" on:click={() => showFullGuide = !showFullGuide}>
+                            <div>
+                                <h4 class="font-bold text-blue-800 text-sm flex items-center gap-2">
+                                    <span>📘</span> {$t('whatsapp.accounts.fullGuideTitle')}
+                                </h4>
+                                <p class="text-[11px] text-blue-600 mt-1">{$t('whatsapp.accounts.fullGuideSubtitle')}</p>
+                            </div>
+                            <span class="text-blue-600 text-lg transition-transform duration-300 {showFullGuide ? 'rotate-180' : ''}">▾</span>
+                        </button>
+
+                        {#if showFullGuide}
+                            <div class="mt-5 space-y-5">
+                                <div>
+                                    <h5 class="text-xs font-black text-blue-900 uppercase tracking-wide mb-2">{$t('whatsapp.accounts.guidePhaseA')}</h5>
+                                    <ol class="text-xs text-blue-700 space-y-1.5 list-decimal list-inside">
+                                        <li>{$t('whatsapp.accounts.guideA1')}</li>
+                                        <li>{$t('whatsapp.accounts.guideA2')}</li>
+                                        <li>{$t('whatsapp.accounts.guideA3')}</li>
+                                        <li>{$t('whatsapp.accounts.guideA4')}</li>
+                                        <li>{$t('whatsapp.accounts.guideA5')}</li>
+                                        <li>{$t('whatsapp.accounts.guideA6')}</li>
+                                    </ol>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-black text-blue-900 uppercase tracking-wide mb-2">{$t('whatsapp.accounts.guidePhaseB')}</h5>
+                                    <ol class="text-xs text-blue-700 space-y-1.5 list-decimal list-inside">
+                                        <li>{$t('whatsapp.accounts.guideB1')}</li>
+                                        <li>{$t('whatsapp.accounts.guideB2')}</li>
+                                        <li>{$t('whatsapp.accounts.guideB3')}</li>
+                                    </ol>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-black text-blue-900 uppercase tracking-wide mb-2">{$t('whatsapp.accounts.guidePhaseC')}</h5>
+                                    <ol class="text-xs text-blue-700 space-y-1.5 list-decimal list-inside">
+                                        <li>{$t('whatsapp.accounts.guideC1')}</li>
+                                        <li>{$t('whatsapp.accounts.guideC2')}</li>
+                                        <li>{$t('whatsapp.accounts.guideC3')}</li>
+                                        <li>{$t('whatsapp.accounts.guideC4')}</li>
+                                        <li>{$t('whatsapp.accounts.guideC5')}</li>
+                                    </ol>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-black text-blue-900 uppercase tracking-wide mb-2">{$t('whatsapp.accounts.guidePhaseD')}</h5>
+                                    <ol class="text-xs text-blue-700 space-y-1.5 list-decimal list-inside">
+                                        <li>{$t('whatsapp.accounts.guideD1')}</li>
+                                        <li>{$t('whatsapp.accounts.guideD2')}</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        {/if}
                     </div>
                 </div>
             {/if}

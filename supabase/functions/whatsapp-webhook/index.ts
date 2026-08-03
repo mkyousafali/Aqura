@@ -6,10 +6,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const VERIFY_TOKEN = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN") || "aqura_wa_verify_2024";
-const WHATSAPP_TOKEN = Deno.env.get("WHATSAPP_ACCESS_TOKEN") || "";
-const WHATSAPP_PHONE_ID = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || "";
 const GRAPH_API_VERSION = "v22.0";
+
+// Load WhatsApp credentials from wa_accounts table by phone_number_id
+async function getWaCredentials(supabase: any, phoneNumberId?: string): Promise<{ token: string; phoneId: string }> {
+  let query = supabase.from("wa_accounts").select("access_token, phone_number_id").eq("is_active", true);
+  if (phoneNumberId) query = query.eq("phone_number_id", phoneNumberId);
+  else query = query.eq("is_default", true);
+  const { data } = await query.maybeSingle();
+  return { token: data?.access_token || "", phoneId: data?.phone_number_id || "" };
+}
+
+// Check wa_settings.webhook_active for the account matching this phone_number_id
+async function isWebhookActive(supabase: any, phoneNumberId?: string): Promise<boolean> {
+  if (!phoneNumberId) return true; // no account context — don't block
+  const { data: account } = await supabase
+    .from("wa_accounts")
+    .select("id")
+    .eq("phone_number_id", phoneNumberId)
+    .maybeSingle();
+  if (!account) return true; // unknown account — don't block, let downstream handle it
+  const { data: settings } = await supabase
+    .from("wa_settings")
+    .select("webhook_active")
+    .eq("wa_account_id", account.id)
+    .maybeSingle();
+  if (!settings) return true; // no settings row yet — default to active
+  return settings.webhook_active !== false;
+}
 
 serve(async (req: Request) => {
   // CORS preflight
@@ -28,7 +52,14 @@ serve(async (req: Request) => {
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
 
-    if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    // Verify token must match one stored in wa_settings (no env var fallback)
+    const { data: matchingSettings } = await supabase
+      .from("wa_settings")
+      .select("id")
+      .eq("webhook_verify_token", token)
+      .maybeSingle();
+
+    if (mode === "subscribe" && token && matchingSettings) {
       console.log("Webhook verified successfully");
       return new Response(challenge, { status: 200, headers: corsHeaders });
     }
@@ -55,6 +86,13 @@ serve(async (req: Request) => {
           const value = change.value;
           const metadata = value.metadata || {};
           const phoneNumberId = metadata.phone_number_id;
+
+          // Skip processing entirely if this account's webhook is marked inactive
+          const isActive = await isWebhookActive(supabase, phoneNumberId);
+          if (!isActive) {
+            console.log(`[Webhook] Skipping — webhook_active is false for phoneNumberId=${phoneNumberId}`);
+            continue;
+          }
 
           // ─── Handle Status Updates ───────────────────────
           const statuses = value.statuses || [];
@@ -196,6 +234,10 @@ async function handleIncomingMessage(
   phoneNumberId: string
 ) {
   try {
+    // Load WhatsApp credentials from DB for this account
+    const waCreds = await getWaCredentials(supabase, phoneNumberId);
+    const waToken = waCreds.token;
+
     const rawPhone = message.from; // e.g. "966567334726"
     const senderPhone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`; // normalize to +966...
     const senderName = contact.profile?.name || senderPhone;
@@ -315,28 +357,28 @@ async function handleIncomingMessage(
         break;
       case "image": {
         content = message.image?.caption || "[Image]";
-        const imgResult = await getMediaUrl(message.image?.id);
+        const imgResult = await getMediaUrl(message.image?.id, waToken);
         mediaUrl = imgResult.url;
         mediaMimeType = imgResult.mimeType;
         break;
       }
       case "video": {
         content = message.video?.caption || "[Video]";
-        const vidResult = await getMediaUrl(message.video?.id);
+        const vidResult = await getMediaUrl(message.video?.id, waToken);
         mediaUrl = vidResult.url;
         mediaMimeType = vidResult.mimeType;
         break;
       }
       case "audio": {
         content = "[Audio]";
-        const audResult = await getMediaUrl(message.audio?.id);
+        const audResult = await getMediaUrl(message.audio?.id, waToken);
         mediaUrl = audResult.url;
         mediaMimeType = audResult.mimeType;
         break;
       }
       case "document": {
         content = message.document?.caption || message.document?.filename || "[Document]";
-        const docResult = await getMediaUrl(message.document?.id);
+        const docResult = await getMediaUrl(message.document?.id, waToken);
         mediaUrl = docResult.url;
         mediaMimeType = docResult.mimeType;
         break;
@@ -349,7 +391,7 @@ async function handleIncomingMessage(
         break;
       case "sticker": {
         content = "[Sticker]";
-        const stkResult = await getMediaUrl(message.sticker?.id);
+        const stkResult = await getMediaUrl(message.sticker?.id, waToken);
         mediaUrl = stkResult.url;
         mediaMimeType = stkResult.mimeType;
         break;
@@ -417,12 +459,11 @@ async function handleIncomingMessage(
 }
 
 // ─── Get Media URL from WhatsApp ───────────────────────────────────
-async function getMediaUrl(mediaId: string | undefined): Promise<{ url: string | null; mimeType: string | null }> {
-  if (!mediaId || !WHATSAPP_TOKEN) return { url: null, mimeType: null };
+async function getMediaUrl(mediaId: string | undefined, waToken: string): Promise<{ url: string | null; mimeType: string | null }> {
+  if (!mediaId || !waToken) return { url: null, mimeType: null };
   try {
-    // Step 1: Get the temporary download URL from Meta
     const res = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      headers: { Authorization: `Bearer ${waToken}` },
     });
     const data = await res.json();
     const tempUrl = data.url;
@@ -430,9 +471,8 @@ async function getMediaUrl(mediaId: string | undefined): Promise<{ url: string |
 
     const mimeType = data.mime_type || "application/octet-stream";
 
-    // Step 2: Download the actual media binary
     const mediaRes = await fetch(tempUrl, {
-      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      headers: { Authorization: `Bearer ${waToken}` },
     });
     if (!mediaRes.ok) {
       console.error("Failed to download media:", mediaRes.status);
@@ -1507,9 +1547,9 @@ async function sendWhatsAppMessage(
   sentBy: string
 ): Promise<boolean> {
   try {
-    // Read credentials from DB (wa_accounts via conversation), fallback to env vars
-    let token = WHATSAPP_TOKEN;
-    let phoneId = WHATSAPP_PHONE_ID;
+    // Load credentials from wa_accounts table
+    let token = "";
+    let phoneId = "";
 
     const { data: conv } = await supabase
       .from("wa_conversations")
@@ -1529,7 +1569,13 @@ async function sendWhatsAppMessage(
     }
 
     if (!token || !phoneId) {
-      console.error("WhatsApp credentials not configured (no env var and no DB record)");
+      const creds = await getWaCredentials(supabase);
+      token = creds.token;
+      phoneId = creds.phoneId;
+    }
+
+    if (!token || !phoneId) {
+      console.error("WhatsApp credentials not found in wa_accounts table");
       return false;
     }
 

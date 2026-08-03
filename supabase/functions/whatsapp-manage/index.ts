@@ -60,9 +60,17 @@ serve(async (req: Request) => {
       phoneNumberId = account.phone_number_id;
       wabaId = account.waba_id || "";
     } else {
-      // Fallback to env vars
-      accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN") || "";
-      phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || "";
+      // No account_id given — use the default active account (DB only, no env var fallback)
+      const { data: defaultAccount } = await supabase
+        .from("wa_accounts")
+        .select("access_token, phone_number_id, waba_id")
+        .eq("is_active", true)
+        .eq("is_default", true)
+        .maybeSingle();
+
+      accessToken = defaultAccount?.access_token || "";
+      phoneNumberId = defaultAccount?.phone_number_id || "";
+      wabaId = defaultAccount?.waba_id || "";
     }
 
     if (!accessToken || !phoneNumberId) {
