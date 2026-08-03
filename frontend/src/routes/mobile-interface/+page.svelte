@@ -143,13 +143,13 @@
 		return status;
 	}
 
-	/** Convert HH:MM:SS or HH:MM to 12-hour format (locale-aware) */
+	/** Convert HH:MM:SS or HH:MM to 12-hour format (locale-aware). Times are already in Saudi TZ. */
 	function to12h(time: string | null): string {
 		if (!time) return '';
 		const [h, m] = time.split(':').map(Number);
-		const timeDate = new Date(2000, 0, 1, h, m);
+		const timeDate = new Date(Date.UTC(2000, 0, 1, h, m));
 		const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
-		return timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' });
+		return timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 	}
 
 	/** Format shift_date (YYYY-MM-DD) as "DayName DD-MM-YYYY" (locale-aware) */
@@ -310,9 +310,17 @@
 
 			console.log('✅ RPC result received:', result);
 
-			// Step 3: Map employee data
-			const employeeId = result.employee?.id;
-			const allEmployeeCodes: string[] = result.employee?.employee_codes || [];
+			// Check RPC-level success
+			if (result.success === false) {
+				console.warn('⚠️ RPC returned failure:', result.error);
+				punches = { records: [], loading: false, error: result.error || 'RPC failed' };
+				attendanceLoading = false;
+				return;
+			}
+
+			// Step 3: Map employee data (flat response)
+			const employeeId = result.employee_id;
+			const allEmployeeCodes: string[] = result.employee_codes || [];
 
 			if (!employeeId) {
 				punches = { records: [], loading: false, error: 'Employee record not found' };
@@ -320,30 +328,27 @@
 				return;
 			}
 
-			// Step 4: Map attendance data
-			attendanceToday = result.attendance?.today || null;
-			attendanceYesterday = result.attendance?.yesterday || null;
+			// Step 4: Map attendance data (flat keys)
+			attendanceToday = result.attendance_today || null;
+			attendanceYesterday = result.attendance_yesterday || null;
 			attendanceLoading = false;
 			console.log('📅 Attendance - Today:', attendanceToday, 'Yesterday:', attendanceYesterday);
 
 			// Step 5: Map shift info
-			if (result.shift_info) {
+			if (result.shift_info && result.shift_info !== null) {
 				todayShiftInfo = result.shift_info;
 				console.log('⏰ Shift info:', todayShiftInfo);
 			}
 
-			// Step 6: Map box operation counts
-			if (result.box_counts) {
-				stats.pendingToClose = result.box_counts.pending_close || 0;
-				stats.closedBoxes = result.box_counts.completed || 0;
-				stats.inUseBoxes = result.box_counts.in_use || 0;
-				console.log('📦 Box counts:', result.box_counts);
-			}
+			// Step 6: Map box operation counts (flat keys)
+			stats.pendingToClose = result.box_pending_close || 0;
+			stats.closedBoxes = result.box_completed || 0;
+			stats.inUseBoxes = result.box_in_use || 0;
 
-			// Step 7: Compute pending checklists from RPC data
+			// Step 7: Compute pending checklists from RPC data (flat keys)
 			computePendingChecklists(
-				result.checklists?.assignments || [],
-				result.checklists?.submissions_today || []
+				result.checklist_assignments || [],
+				result.checklist_submissions || []
 			);
 
 			// Step 8: Format and display punch records
@@ -460,12 +465,9 @@
 					}
 				});
 
-			// Step 13: Map break totals from RPC
-			if (result.break_totals) {
-				breakTotalToday = result.break_totals.today_seconds || 0;
-				breakTotalYesterday = result.break_totals.yesterday_seconds || 0;
-				console.log('☕ Break totals - Today:', breakTotalToday, 'Yesterday:', breakTotalYesterday);
-			}
+			// Step 13: Map break totals from RPC (returned in minutes, convert to seconds)
+			breakTotalToday = (result.break_total_today || 0) * 60;
+			breakTotalYesterday = (result.break_total_yesterday || 0) * 60;
 
 			stats.pendingTasks = result.pending_tasks || 0;
 			console.log('📋 Pending tasks:', stats.pendingTasks);
