@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import ExcelJS from 'exceljs';
 
 	let expenses: any[] = [];
 	let allCategories: { name: string; color: string }[] = [];
@@ -33,6 +34,11 @@
 	let showCustomPeriods = false;
 	let period1ExpensesByCategory: { category: string; amount: number; percentage: number; color: string }[] = [];
 	let period2ExpensesByCategory: { category: string; amount: number; percentage: number; color: string }[] = [];
+
+	// Section visibility toggles
+	let showTotalSection = true;
+	let showPreviousMonthSection = true;
+	let showCurrentMonthSection = true;
 
 	// Data for charts
 	let totalExpensesByCategory: { category: string; amount: number; percentage: number; color: string }[] = [];
@@ -562,6 +568,167 @@
 		const end = new Date(endDate);
 		return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 	}
+
+	// Returns all (branch-filtered) expenses belonging to the given period, across every category
+	function getPeriodExpenses(period: string): any[] {
+		const now = new Date();
+		const currentMonth = now.getMonth();
+		const currentYear = now.getFullYear();
+		const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+		const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+		let filteredExpenses = selectedBranch === 'all'
+			? expenses
+			: expenses.filter(exp => exp.branch_id === parseInt(selectedBranch));
+
+		if (period === 'previous') {
+			filteredExpenses = filteredExpenses.filter(exp => {
+				const expenseDate = new Date(exp.due_date || exp.bill_date || exp.created_at);
+				return expenseDate.getMonth() === previousMonth && expenseDate.getFullYear() === previousMonthYear;
+			});
+		} else if (period === 'current') {
+			filteredExpenses = filteredExpenses.filter(exp => {
+				const expenseDate = new Date(exp.due_date || exp.bill_date || exp.created_at);
+				return expenseDate.getMonth() === currentMonth && expenseDate.getFullYear() === currentYear;
+			});
+		} else if (period === 'period1') {
+			filteredExpenses = filteredExpenses.filter(exp => {
+				const expenseDate = new Date(exp.due_date || exp.bill_date || exp.created_at);
+				const startDate = new Date(period1StartDate);
+				const endDate = new Date(period1EndDate);
+				return expenseDate >= startDate && expenseDate <= endDate;
+			});
+		} else if (period === 'period2') {
+			filteredExpenses = filteredExpenses.filter(exp => {
+				const expenseDate = new Date(exp.due_date || exp.bill_date || exp.created_at);
+				const startDate = new Date(period2StartDate);
+				const endDate = new Date(period2EndDate);
+				return expenseDate >= startDate && expenseDate <= endDate;
+			});
+		}
+		// period === 'total' -> no additional date filter
+
+		return filteredExpenses.sort((a, b) =>
+			new Date(b.due_date || b.bill_date || b.created_at).getTime() - new Date(a.due_date || a.bill_date || a.created_at).getTime()
+		);
+	}
+
+	function styleHeaderRow(row: any) {
+		row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+		row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF667EEA' } };
+		row.alignment = { horizontal: 'center', vertical: 'middle' };
+	}
+
+	function applyBorders(sheet: any) {
+		sheet.eachRow((row: any) => {
+			row.eachCell((cell: any) => {
+				cell.border = {
+					top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+					left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+					bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+					right: { style: 'thin', color: { argb: 'FFD1D5DB' } }
+				};
+			});
+		});
+	}
+
+	async function exportPeriodToExcel(
+		period: string,
+		chartData: { category: string; amount: number; percentage: number; color: string }[],
+		periodLabel: string
+	) {
+		try {
+			const nonZero = chartData.filter(item => item.amount > 0);
+			if (nonZero.length === 0) {
+				alert('No data to export for this period');
+				return;
+			}
+
+			const workbook = new ExcelJS.Workbook();
+
+			// Summary sheet
+			const summarySheet = workbook.addWorksheet('Summary');
+			styleHeaderRow(summarySheet.addRow(['Category', 'Amount (SAR)', 'Percentage']));
+			summarySheet.columns = [
+				{ key: 'category', width: 32 },
+				{ key: 'amount', width: 18 },
+				{ key: 'percentage', width: 15 }
+			];
+
+			nonZero.forEach(item => {
+				const row = summarySheet.addRow([item.category, item.amount, item.percentage / 100]);
+				row.getCell(2).numFmt = '#,##0.00';
+				row.getCell(3).numFmt = '0.0%';
+			});
+
+			const total = nonZero.reduce((sum, item) => sum + item.amount, 0);
+			const totalRow = summarySheet.addRow(['Total', total, 1]);
+			totalRow.font = { bold: true };
+			totalRow.getCell(2).numFmt = '#,##0.00';
+			totalRow.getCell(3).numFmt = '0.0%';
+
+			applyBorders(summarySheet);
+			summarySheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+			// One detail sheet per category
+			const periodExpenses = getPeriodExpenses(period);
+			for (const item of nonZero) {
+				const categoryExpenses = periodExpenses.filter(exp => exp.expense_category_name_en === item.category);
+				if (categoryExpenses.length === 0) continue;
+
+				const sheetName = item.category.replace(/[\\/?*[\]:]/g, '').substring(0, 31) || 'Category';
+				const sheet = workbook.addWorksheet(sheetName);
+
+				styleHeaderRow(sheet.addRow(['Bill #', 'Branch', 'Date', 'Due Date', 'Amount (SAR)', 'Payment Method', 'Status', 'Description']));
+				sheet.columns = [
+					{ key: 'bill', width: 15 },
+					{ key: 'branch', width: 22 },
+					{ key: 'date', width: 14 },
+					{ key: 'dueDate', width: 14 },
+					{ key: 'amount', width: 16 },
+					{ key: 'payment', width: 16 },
+					{ key: 'status', width: 12 },
+					{ key: 'description', width: 35 }
+				];
+
+				categoryExpenses.forEach(exp => {
+					const row = sheet.addRow([
+						exp.bill_number || '-',
+						exp.branches?.name_en || '-',
+						formatDate(exp.bill_date || exp.created_at),
+						formatDate(exp.due_date),
+						Number(exp.amount || 0),
+						exp.payment_method || '-',
+						exp.is_paid ? 'Paid' : 'Unpaid',
+						exp.description || '-'
+					]);
+					row.getCell(5).numFmt = '#,##0.00';
+				});
+
+				const catTotal = categoryExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+				const catTotalRow = sheet.addRow(['', '', '', 'Total', catTotal, '', '', '']);
+				catTotalRow.font = { bold: true };
+				catTotalRow.getCell(5).numFmt = '#,##0.00';
+
+				applyBorders(sheet);
+				sheet.views = [{ state: 'frozen', ySplit: 1 }];
+			}
+
+			const buffer = await workbook.xlsx.writeBuffer();
+			const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `Expenses_${periodLabel.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			window.URL.revokeObjectURL(url);
+		} catch (err: any) {
+			console.error('❌ Error exporting to Excel:', err);
+			alert('Failed to export: ' + err.message);
+		}
+	}
 </script>
 
 <div class="comparison-window">
@@ -580,6 +747,21 @@
 		</div>
 	</div>
 
+	<div class="visibility-toggles">
+		<label class="toggle-item">
+			<input type="checkbox" bind:checked={showTotalSection} />
+			<span>Total</span>
+		</label>
+		<label class="toggle-item">
+			<input type="checkbox" bind:checked={showPreviousMonthSection} />
+			<span>Previous Month</span>
+		</label>
+		<label class="toggle-item">
+			<input type="checkbox" bind:checked={showCurrentMonthSection} />
+			<span>Current Month</span>
+		</label>
+	</div>
+
 	<div class="content-area">
 		{#if loading}
 			<div class="loading">
@@ -595,8 +777,12 @@
 		{:else}
 			<div class="charts-container">
 				<!-- Total Expenses Chart -->
+				{#if showTotalSection}
 				<div class="chart-section">
-					<h3>Total Expenses by Category</h3>
+					<div class="section-title-row">
+						<h3>Total Expenses by Category</h3>
+						<button class="export-btn" on:click={() => exportPeriodToExcel('total', totalExpensesByCategory, 'Total_Expenses')}>📥 Export</button>
+					</div>
 					<div class="total-section">
 						<div class="total-label">Total Amount:</div>
 						<div class="total-amount">{formatAmount(totalExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
@@ -623,10 +809,15 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 
 				<!-- Previous Month Chart -->
+				{#if showPreviousMonthSection}
 				<div class="chart-section">
-					<h3>Previous Month ({getPreviousMonthName()})</h3>
+					<div class="section-title-row">
+						<h3>Previous Month ({getPreviousMonthName()})</h3>
+						<button class="export-btn" on:click={() => exportPeriodToExcel('previous', previousMonthExpensesByCategory, `Previous_Month_${getPreviousMonthName()}`)}>📥 Export</button>
+					</div>
 					<div class="total-section">
 						<div class="total-label">Total Amount:</div>
 						<div class="total-amount">{formatAmount(previousMonthExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
@@ -653,10 +844,15 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 
 				<!-- Current Month Chart -->
+				{#if showCurrentMonthSection}
 				<div class="chart-section">
-					<h3>Current Month ({getCurrentMonthName()})</h3>
+					<div class="section-title-row">
+						<h3>Current Month ({getCurrentMonthName()})</h3>
+						<button class="export-btn" on:click={() => exportPeriodToExcel('current', currentMonthExpensesByCategory, `Current_Month_${getCurrentMonthName()}`)}>📥 Export</button>
+					</div>
 					<div class="total-section">
 						<div class="total-label">Total Amount:</div>
 						<div class="total-amount">{formatAmount(currentMonthExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
@@ -683,11 +879,15 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 
 				<!-- Custom Period 1 -->
 				{#if showCustomPeriods}
 				<div class="chart-section">
-					<h3>Period 1: {formatPeriodLabel(period1StartDate, period1EndDate)}</h3>
+					<div class="section-title-row">
+						<h3>Period 1: {formatPeriodLabel(period1StartDate, period1EndDate)}</h3>
+						<button class="export-btn" on:click={() => exportPeriodToExcel('period1', period1ExpensesByCategory, `Period1_${formatPeriodLabel(period1StartDate, period1EndDate)}`)}>📥 Export</button>
+					</div>
 					<div class="total-section">
 						<div class="total-label">Total Amount:</div>
 						<div class="total-amount">{formatAmount(period1ExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
@@ -717,7 +917,10 @@
 
 				<!-- Custom Period 2 -->
 				<div class="chart-section">
-					<h3>Period 2: {formatPeriodLabel(period2StartDate, period2EndDate)}</h3>
+					<div class="section-title-row">
+						<h3>Period 2: {formatPeriodLabel(period2StartDate, period2EndDate)}</h3>
+						<button class="export-btn" on:click={() => exportPeriodToExcel('period2', period2ExpensesByCategory, `Period2_${formatPeriodLabel(period2StartDate, period2EndDate)}`)}>📥 Export</button>
+					</div>
 					<div class="total-section">
 						<div class="total-label">Total Amount:</div>
 						<div class="total-amount">{formatAmount(period2ExpensesByCategory.reduce((sum, item) => sum + item.amount, 0))}</div>
@@ -1043,6 +1246,34 @@
 		align-items: center;
 	}
 
+	.visibility-toggles {
+		flex-shrink: 0;
+		display: flex;
+		gap: 20px;
+		align-items: center;
+		padding: 10px 20px;
+		background: white;
+		border-bottom: 1px solid #e9ecef;
+	}
+
+	.toggle-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #333;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.toggle-item input[type="checkbox"] {
+		width: 16px;
+		height: 16px;
+		cursor: pointer;
+		accent-color: #667eea;
+	}
+
 	.branch-filter {
 		padding: 10px 16px;
 		background: white;
@@ -1107,16 +1338,42 @@
 	}
 
 	.chart-section h3 {
+		margin: 0;
+		font-size: 18px;
+		font-weight: 600;
+		color: #333;
+		flex: 1;
+		text-align: center;
+	}
+
+	.section-title-row {
 		position: sticky;
 		top: 0;
 		z-index: 50;
 		background: white;
 		padding: 10px 0;
 		margin: 0 0 10px 0;
-		font-size: 18px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.export-btn {
+		flex-shrink: 0;
+		padding: 6px 12px;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 12px;
 		font-weight: 600;
-		color: #333;
-		text-align: center;
+		white-space: nowrap;
+		transition: background 0.2s;
+	}
+
+	.export-btn:hover {
+		background: #059669;
 	}
 
 	.total-section {

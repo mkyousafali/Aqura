@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
+	import ExcelJS from 'exceljs';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	let supabase: any = null;
 
@@ -48,6 +50,12 @@
 	let empHasMore = false;
 	let empExcludeStatuses: string[] = [];
 	let empBranchFilter: number | null = null;
+	let empExporting = false;
+
+	// Total salary / nationality per employee (master admin only)
+	$: isMasterAdmin = $currentUser?.isMasterAdmin === true;
+	let salaryTotals: Record<string, number> = {};
+	let nationalityMap: Record<string, { en: string; ar: string }> = {};
 
 	// ─── MODAL STATE ──────────────────────────────────────────────────────────
 	let modal: {
@@ -67,12 +75,46 @@
 		return lang === 'ar' ? (item?.[arKey] || item?.[enKey] || '') : (item?.[enKey] || item?.[arKey] || '');
 	}
 
+	// Reload salary totals / nationalities if master-admin status resolves after initial mount
+	$: if (isMasterAdmin && supabase && Object.keys(salaryTotals).length === 0) loadSalaryTotals();
+	$: if (isMasterAdmin && supabase && Object.keys(nationalityMap).length === 0) loadNationalities();
+
 	// ─── LIFECYCLE ────────────────────────────────────────────────────────────
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
 		await Promise.all([loadDropdowns(), loadEmployees()]);
+		if (isMasterAdmin) { loadSalaryTotals(); loadNationalities(); }
 	});
+
+	async function loadSalaryTotals() {
+		try {
+			const { data, error } = await supabase.from('hr_basic_salary').select('employee_id, total_salary');
+			if (error) throw error;
+			const map: Record<string, number> = {};
+			(data || []).forEach((row: any) => { map[row.employee_id] = Number(row.total_salary) || 0; });
+			salaryTotals = map;
+		} catch (e) {
+			console.error('Error loading salary totals:', e);
+		}
+	}
+
+	async function loadNationalities() {
+		try {
+			const { data, error } = await supabase
+				.from('hr_employee_master')
+				.select('id, nationalities(name_en, name_ar)');
+			if (error) throw error;
+			const map: Record<string, { en: string; ar: string }> = {};
+			(data || []).forEach((row: any) => {
+				const nat = row.nationalities;
+				map[row.id] = { en: nat?.name_en || '-', ar: nat?.name_ar || '-' };
+			});
+			nationalityMap = map;
+		} catch (e) {
+			console.error('Error loading nationalities:', e);
+		}
+	}
 
 	async function loadDropdowns() {
 		try {
@@ -232,6 +274,108 @@
 		}
 		node.addEventListener('scroll', onScroll, { passive: true });
 		return { destroy() { node.removeEventListener('scroll', onScroll); } };
+	}
+
+	// Exports every employee matching the current search/branch/status filters, not just the loaded page
+	async function exportEmployeesToExcel() {
+		empExporting = true;
+		try {
+			const allRows: any[] = [];
+			let page = 1;
+			const exportLimit = 500;
+			while (true) {
+				const args: any = {
+					p_search: empSearch.trim(),
+					p_page: page,
+					p_limit: exportLimit,
+					p_branch_filter: empBranchFilter || null,
+					p_exclude_statuses: empExcludeStatuses.length > 0 ? empExcludeStatuses : null
+				};
+				const { data, error } = await supabase.rpc('get_employee_master_list', args);
+				if (error) throw error;
+				const rows = data || [];
+				allRows.push(...rows);
+				const total = rows[0]?.total_count ?? allRows.length;
+				if (rows.length === 0 || allRows.length >= total) break;
+				page++;
+			}
+
+			if (allRows.length === 0) {
+				alert($t('employeeMaster.noEmployees'));
+				return;
+			}
+
+			const workbook = new ExcelJS.Workbook();
+			const sheet = workbook.addWorksheet('Employees');
+
+			const headers = ['#', 'ID', 'Name (EN)', 'Name (AR)', 'Branch', 'Position', 'Status', 'WhatsApp', 'Email'];
+			if (isMasterAdmin) headers.push('Nationality', 'Salary (SAR)');
+			const headerRow = sheet.addRow(headers);
+			headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+			headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF667EEA' } };
+			headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+
+			const columns = [
+				{ key: 'idx', width: 6 },
+				{ key: 'id', width: 14 },
+				{ key: 'name_en', width: 26 },
+				{ key: 'name_ar', width: 26 },
+				{ key: 'branch', width: 26 },
+				{ key: 'position', width: 26 },
+				{ key: 'status', width: 20 },
+				{ key: 'whatsapp', width: 18 },
+				{ key: 'email', width: 26 }
+			];
+			if (isMasterAdmin) columns.push({ key: 'nationality', width: 18 }, { key: 'salary', width: 16 });
+			sheet.columns = columns;
+
+			allRows.forEach((emp, i) => {
+				const rowValues: any[] = [
+					i + 1,
+					emp.id,
+					emp.name_en || '-',
+					emp.name_ar || '-',
+					emp.branch_name_en || emp.branch_name_ar || '-',
+					emp.position_title_en || emp.position_title_ar || '-',
+					emp.employment_status || '-',
+					emp.whatsapp_number || '-',
+					emp.email || '-'
+				];
+				if (isMasterAdmin) {
+					rowValues.push(nationalityMap[emp.id]?.en || nationalityMap[emp.id]?.ar || '-', salaryTotals[emp.id] ?? 0);
+				}
+				const row = sheet.addRow(rowValues);
+				if (isMasterAdmin) row.getCell(headers.length).numFmt = '#,##0.00';
+			});
+
+			sheet.eachRow((row) => {
+				row.eachCell((cell) => {
+					cell.border = {
+						top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+						left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+						bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+						right: { style: 'thin', color: { argb: 'FFD1D5DB' } }
+					};
+				});
+			});
+			sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+			const buffer = await workbook.xlsx.writeBuffer();
+			const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `Employees_${new Date().toISOString().slice(0, 10)}.xlsx`;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			window.URL.revokeObjectURL(url);
+		} catch (e: any) {
+			console.error('Error exporting employees:', e);
+			alert('Failed to export: ' + (e.message || 'Unknown error'));
+		} finally {
+			empExporting = false;
+		}
 	}
 
 	async function saveEmployee() {
@@ -673,7 +817,13 @@
 				<button class="em-btn-clear" on:click={() => { empSearch=''; empExcludeStatuses=[]; empBranchFilter=null; empPage=1; employees=[]; loadEmployees(); }}>
 					↺ {$t('employeeMaster.clearFilters')}
 				</button>
+				<button class="em-btn-export" disabled={empExporting} on:click={exportEmployeesToExcel}>
+					{#if empExporting}⏳{:else}📥{/if} Export to Excel
+				</button>
 				<span class="em-count">{empTotalCount} {$t('employeeMaster.employees')}</span>
+				{#if isMasterAdmin}
+					<span class="em-count em-salary-total">💰 {Object.values(salaryTotals).reduce((s, v) => s + (v || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</span>
+				{/if}
 			</div>
 			<!-- Status exclude checkboxes row -->
 			{#if (dropdowns.employment_statuses || []).length > 0}
@@ -726,6 +876,10 @@
 						<th style="min-width:140px">{$t('employeeMaster.cols.position')}</th>
 						<th style="min-width:130px">{$t('employeeMaster.cols.status')}</th>
 						<th style="min-width:160px">{$t('employeeMaster.cols.contact')}</th>
+						{#if isMasterAdmin}
+						<th style="min-width:120px">🌍 Nationality</th>
+						<th style="min-width:110px;text-align:right">💰 Salary</th>
+						{/if}
 						<th style="min-width:80px">{$t('employeeMaster.cols.actions')}</th>
 					</tr>
 				</thead>
@@ -754,6 +908,12 @@
 							{#if emp.email}<span class="em-email">✉️ {emp.email}</span>{/if}
 							{#if !emp.whatsapp_number && !emp.email}<span class="em-muted">—</span>{/if}
 						</td>
+						{#if isMasterAdmin}
+						<td>{(lang === 'ar' ? nationalityMap[emp.id]?.ar : nationalityMap[emp.id]?.en) || '—'}</td>
+						<td style="text-align:right;font-weight:700;color:#059669;white-space:nowrap">
+							{salaryTotals[emp.id] != null ? salaryTotals[emp.id].toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' SAR' : '—'}
+						</td>
+						{/if}
 						<td>
 							<button class="em-btn-edit" on:click={() => openEditEmp(emp)}>✏️ {$t('employeeMaster.edit')}</button>
 						</td>
@@ -1701,6 +1861,21 @@
 	cursor: pointer;
 }
 .em-btn-clear:hover { background: #f1f5f9; color: #334155; }
+.em-btn-export {
+	padding: 8px 14px;
+	background: #10b981;
+	color: white;
+	border: none;
+	border-radius: 8px;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: background 0.2s;
+}
+.em-btn-export:hover:not(:disabled) { background: #059669; }
+.em-btn-export:disabled { opacity: 0.6; cursor: not-allowed; }
+.em-salary-total { color: #059669; font-weight: 700; }
 .em-count {
 	margin-left: auto;
 	font-size: 12px;
