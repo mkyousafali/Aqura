@@ -35,6 +35,13 @@
 	let vendorTotalOverdueMap: Map<string, number> = new Map();
 	let vendorMaxDaysOverdueMap: Map<string, number> = new Map();
 
+	// Raw rows behind the maps above — kept so the branch filter can be applied
+	// client-side (recomputed reactively) without re-querying Supabase.
+	let rawBillsUnpaid: Array<{ vendor_id: any; final_bill_amount: number; branch_id: any }> = [];
+	let rawExpensesUnpaid: Array<{ vendor_id: any; amount: number; branch_id: any }> = [];
+	let rawBillsOverdue: Array<{ vendor_id: any; final_bill_amount: number; due_date: string; branch_id: any }> = [];
+	let rawExpensesOverdue: Array<{ vendor_id: any; amount: number; due_date: string; branch_id: any }> = [];
+
 	// Main window tab state
 	let activeTab: 'account' | 'summary' = 'account';
 
@@ -43,14 +50,15 @@
 	let vendorTableLimit = 50;
 
 	// ERP balance per vendor (vendor_id -> { netBalance, direction })
-	let erpBalanceMap: Map<string, { netBalance: number; direction: string }> = new Map();
 	let erpBalancesLoading = false;
 	let erpBalancesLoaded = false;
 	let erpFailedBranches: string[] = []; // branch names that failed
+	let erpBranchResults: Array<{ branch_id: number | null; rows: any[] }> = [];
+	let selectedErpBranchId = ''; // '' = all branches (list view balance filter)
 
 	async function loadAllErpBalances() {
 		erpBalancesLoading = true;
-		erpBalanceMap = new Map();
+		erpBranchResults = [];
 		erpFailedBranches = [];
 		try {
 			const { data: conns } = await supabase
@@ -71,10 +79,10 @@
 						body: JSON.stringify({ action: 'query', tunnelUrl: conn.tunnel_url, sql })
 					});
 					const data = await resp.json();
-					if (!data.success) return { rows: [], failed: conn.branch_name };
-					return { rows: data.recordset || [], failed: null };
+					if (!data.success) return { branch_id: conn.branch_id, rows: [], failed: conn.branch_name };
+					return { branch_id: conn.branch_id, rows: data.recordset || [], failed: null };
 				} catch (_) {
-					return { rows: [], failed: conn.branch_name };
+					return { branch_id: conn.branch_id, rows: [], failed: conn.branch_name };
 				}
 			}));
 
@@ -83,29 +91,88 @@
 				if (result.failed) failed.push(result.failed);
 			}
 			erpFailedBranches = failed;
-
-			// Sum across all branches per PartyCode
-			const totals: Map<string, { debit: number; credit: number }> = new Map();
-			for (const result of branchResults) {
-				for (const row of result.rows) {
-					const code = String(row.PartyCode);
-					const existing = totals.get(code) || { debit: 0, credit: 0 };
-					totals.set(code, {
-						debit: existing.debit + (parseFloat(row.TotalDebit) || 0),
-						credit: existing.credit + (parseFloat(row.TotalCredit) || 0)
-					});
-				}
-			}
-
-			const newMap = new Map<string, { netBalance: number; direction: string }>();
-			totals.forEach((v, code) => {
-				const net = v.debit - v.credit;
-				newMap.set(code, { netBalance: Math.abs(net), direction: net > 0 ? 'Dr' : net < 0 ? 'Cr' : 'Nil' });
-			});
-			erpBalanceMap = newMap;
+			erpBranchResults = branchResults.map(r => ({ branch_id: r.branch_id, rows: r.rows }));
 			erpBalancesLoaded = true;
 		} catch (_) {}
 		erpBalancesLoading = false;
+	}
+
+	// Sum ERP balances per PartyCode, restricted to the selected branch (or all branches if none selected)
+	$: erpBalanceMap = (() => {
+		const totals: Map<string, { debit: number; credit: number }> = new Map();
+		for (const result of erpBranchResults) {
+			if (selectedErpBranchId && String(result.branch_id) !== selectedErpBranchId) continue;
+			for (const row of result.rows) {
+				const code = String(row.PartyCode);
+				const existing = totals.get(code) || { debit: 0, credit: 0 };
+				totals.set(code, {
+					debit: existing.debit + (parseFloat(row.TotalDebit) || 0),
+					credit: existing.credit + (parseFloat(row.TotalCredit) || 0)
+				});
+			}
+		}
+		const newMap = new Map<string, { netBalance: number; direction: string }>();
+		totals.forEach((v, code) => {
+			const net = v.debit - v.credit;
+			newMap.set(code, { netBalance: Math.abs(net), direction: net > 0 ? 'Dr' : net < 0 ? 'Cr' : 'Nil' });
+		});
+		return newMap;
+	})();
+
+	// Derive the vendor-table maps (Bills/Expenses Unpaid & Overdue) from the raw rows,
+	// restricted to the selected branch — keeps every column in sync with the ERP Balance filter.
+	$: {
+		const billsUnpaidMap: Map<string, number> = new Map();
+		const expensesUnpaidMap: Map<string, number> = new Map();
+		const billsOverdueMap: Map<string, number> = new Map();
+		const expensesOverdueMap: Map<string, number> = new Map();
+		const maxDaysOverdueMap: Map<string, number> = new Map();
+		const todayMs = new Date().setHours(0, 0, 0, 0);
+		const branchMatches = (bid: any) => !selectedErpBranchId || String(bid) === selectedErpBranchId;
+
+		for (const item of rawBillsUnpaid) {
+			if (!item.vendor_id || !branchMatches(item.branch_id)) continue;
+			const vid = item.vendor_id.toString();
+			billsUnpaidMap.set(vid, (billsUnpaidMap.get(vid) || 0) + (item.final_bill_amount || 0));
+		}
+		for (const item of rawExpensesUnpaid) {
+			if (!item.vendor_id || !branchMatches(item.branch_id)) continue;
+			const vid = item.vendor_id.toString();
+			expensesUnpaidMap.set(vid, (expensesUnpaidMap.get(vid) || 0) + (item.amount || 0));
+		}
+		for (const item of rawBillsOverdue) {
+			if (!item.vendor_id || !branchMatches(item.branch_id)) continue;
+			const vid = item.vendor_id.toString();
+			billsOverdueMap.set(vid, (billsOverdueMap.get(vid) || 0) + (item.final_bill_amount || 0));
+			const days = Math.floor((todayMs - new Date(item.due_date).getTime()) / 86400000);
+			if (days > (maxDaysOverdueMap.get(vid) || 0)) maxDaysOverdueMap.set(vid, days);
+		}
+		for (const item of rawExpensesOverdue) {
+			if (!item.vendor_id || !branchMatches(item.branch_id)) continue;
+			const vid = item.vendor_id.toString();
+			expensesOverdueMap.set(vid, (expensesOverdueMap.get(vid) || 0) + (item.amount || 0));
+			const days = Math.floor((todayMs - new Date(item.due_date).getTime()) / 86400000);
+			if (days > (maxDaysOverdueMap.get(vid) || 0)) maxDaysOverdueMap.set(vid, days);
+		}
+
+		const unpaidMap: Map<string, number> = new Map();
+		const allIds = new Set([...billsUnpaidMap.keys(), ...expensesUnpaidMap.keys()]);
+		for (const vid of allIds) {
+			unpaidMap.set(vid, (billsUnpaidMap.get(vid) || 0) + (expensesUnpaidMap.get(vid) || 0));
+		}
+		const totalOverdueMap: Map<string, number> = new Map();
+		const allOverdueIds = new Set([...billsOverdueMap.keys(), ...expensesOverdueMap.keys()]);
+		for (const vid of allOverdueIds) {
+			totalOverdueMap.set(vid, (billsOverdueMap.get(vid) || 0) + (expensesOverdueMap.get(vid) || 0));
+		}
+
+		vendorBillsUnpaidMap = billsUnpaidMap;
+		vendorExpensesUnpaidMap = expensesUnpaidMap;
+		vendorUnpaidMap = unpaidMap;
+		vendorBillsOverdueMap = billsOverdueMap;
+		vendorExpensesOverdueMap = expensesOverdueMap;
+		vendorTotalOverdueMap = totalOverdueMap;
+		vendorMaxDaysOverdueMap = maxDaysOverdueMap;
 	}
 
 	// Pagination (detail view)
@@ -432,90 +499,34 @@
 			const [billsResult, expensesResult, billsOverdueResult, expensesOverdueResult] = await Promise.all([
 				supabase
 					.from('vendor_payment_schedule')
-					.select('vendor_id, final_bill_amount')
+					.select('vendor_id, final_bill_amount, branch_id')
 					.eq('is_paid', false),
 				supabase
 					.from('expense_scheduler')
-					.select('vendor_id, amount')
+					.select('vendor_id, amount, branch_id')
 					.eq('is_paid', false)
 					.not('vendor_id', 'is', null),
 				supabase
 					.from('vendor_payment_schedule')
-					.select('vendor_id, final_bill_amount, due_date')
+					.select('vendor_id, final_bill_amount, due_date, branch_id')
 					.eq('is_paid', false)
 					.not('due_date', 'is', null)
 					.lt('due_date', today),
 				supabase
 					.from('expense_scheduler')
-					.select('vendor_id, amount, due_date')
+					.select('vendor_id, amount, due_date, branch_id')
 					.eq('is_paid', false)
 					.not('vendor_id', 'is', null)
 					.not('due_date', 'is', null)
 					.lt('due_date', today)
 			]);
 
-			vendorBillsUnpaidMap.clear();
-			vendorExpensesUnpaidMap.clear();
-			vendorUnpaidMap.clear();
-			vendorBillsOverdueMap.clear();
-			vendorExpensesOverdueMap.clear();
-			vendorTotalOverdueMap.clear();
-			vendorMaxDaysOverdueMap.clear();
-			const todayMs = new Date().setHours(0, 0, 0, 0);
-
-			if (billsResult.data) {
-				for (const item of billsResult.data) {
-					if (!item.vendor_id) continue;
-					const vid = item.vendor_id.toString();
-					vendorBillsUnpaidMap.set(vid, (vendorBillsUnpaidMap.get(vid) || 0) + (item.final_bill_amount || 0));
-				}
-			}
-
-			if (expensesResult.data) {
-				for (const item of expensesResult.data) {
-					if (!item.vendor_id) continue;
-					const vid = item.vendor_id.toString();
-					vendorExpensesUnpaidMap.set(vid, (vendorExpensesUnpaidMap.get(vid) || 0) + (item.amount || 0));
-				}
-			}
-
-			if (billsOverdueResult.data) {
-				for (const item of billsOverdueResult.data) {
-					if (!item.vendor_id) continue;
-					const vid = item.vendor_id.toString();
-					vendorBillsOverdueMap.set(vid, (vendorBillsOverdueMap.get(vid) || 0) + (item.final_bill_amount || 0));
-					const days = Math.floor((todayMs - new Date(item.due_date).getTime()) / 86400000);
-					if (days > (vendorMaxDaysOverdueMap.get(vid) || 0)) vendorMaxDaysOverdueMap.set(vid, days);
-				}
-			}
-
-			if (expensesOverdueResult.data) {
-				for (const item of expensesOverdueResult.data) {
-					if (!item.vendor_id) continue;
-					const vid = item.vendor_id.toString();
-					vendorExpensesOverdueMap.set(vid, (vendorExpensesOverdueMap.get(vid) || 0) + (item.amount || 0));
-					const days = Math.floor((todayMs - new Date(item.due_date).getTime()) / 86400000);
-					if (days > (vendorMaxDaysOverdueMap.get(vid) || 0)) vendorMaxDaysOverdueMap.set(vid, days);
-				}
-			}
-
-			// Merge into total maps
-			const allIds = new Set([...vendorBillsUnpaidMap.keys(), ...vendorExpensesUnpaidMap.keys()]);
-			for (const vid of allIds) {
-				vendorUnpaidMap.set(vid, (vendorBillsUnpaidMap.get(vid) || 0) + (vendorExpensesUnpaidMap.get(vid) || 0));
-			}
-			const allOverdueIds = new Set([...vendorBillsOverdueMap.keys(), ...vendorExpensesOverdueMap.keys()]);
-			for (const vid of allOverdueIds) {
-				vendorTotalOverdueMap.set(vid, (vendorBillsOverdueMap.get(vid) || 0) + (vendorExpensesOverdueMap.get(vid) || 0));
-			}
-
-			vendorUnpaidMap = vendorUnpaidMap;
-			vendorBillsUnpaidMap = vendorBillsUnpaidMap;
-			vendorExpensesUnpaidMap = vendorExpensesUnpaidMap;
-			vendorBillsOverdueMap = vendorBillsOverdueMap;
-			vendorExpensesOverdueMap = vendorExpensesOverdueMap;
-			vendorTotalOverdueMap = vendorTotalOverdueMap;
-			vendorMaxDaysOverdueMap = vendorMaxDaysOverdueMap;
+			// Keep the raw rows — the maps below are derived reactively so the
+			// branch filter can be applied instantly without re-querying.
+			rawBillsUnpaid = billsResult.data || [];
+			rawExpensesUnpaid = expensesResult.data || [];
+			rawBillsOverdue = billsOverdueResult.data || [];
+			rawExpensesOverdue = expensesOverdueResult.data || [];
 		} catch (error) {
 			console.error('❌ Error loading vendor unpaid balances:', error);
 		}
@@ -1021,6 +1032,16 @@
 							</button>
 						{/if}
 					</div>
+					<select
+						bind:value={selectedErpBranchId}
+						class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-300 transition-all shadow-sm flex-shrink-0"
+						title="Filter balances by branch"
+					>
+						<option value="">{$t('vendorPaymentFilters.selectBranch') || 'All Branches'}</option>
+						{#each branches as branch}
+							<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
+						{/each}
+					</select>
 					<span class="text-xs text-slate-500 font-semibold flex-shrink-0">
 						{filteredTableVendors.length} vendor{filteredTableVendors.length !== 1 ? 's' : ''}{#if vendorTableSearch} found{/if}
 					</span>
