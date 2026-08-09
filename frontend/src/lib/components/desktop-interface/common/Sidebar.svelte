@@ -44,7 +44,6 @@
 	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
-	import BankReconciliation from '$lib/components/desktop-interface/master/finance/BankReconciliation.svelte';
 	import ManageReconciliations from '$lib/components/desktop-interface/master/finance/ManageReconciliations.svelte';
 	import AssetManager from '$lib/components/desktop-interface/master/finance/AssetManager.svelte';
 	import LeaseAndRent from '$lib/components/desktop-interface/master/finance/LeaseAndRent.svelte';
@@ -294,7 +293,7 @@
 		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
 		'VIP_CAMPAIGN': 'nav.vipCampaign',
 		'APPROVAL_CENTER': 'nav.approvalCenter', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
-		'BANK_RECONCILIATION': 'nav.bankReconciliation', 'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
+		'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
 		'DAY_BUDGET_PLANNER': 'nav.dayBudgetPlanner', 'MONTHLY_MANAGER': 'nav.monthlyManager',
 		'EXPENSE_MANAGER': 'nav.expenseManager', 'PAID_MANAGER': 'nav.paidManager',
 		'DENOMINATION': 'nav.denomination', 'PETTY_CASH': 'nav.pettyCash',
@@ -2220,7 +2219,6 @@ function openApprovalCenter() {
 			'VIP_CAMPAIGN': openVipCampaign,
 			'APPROVAL_CENTER': openApprovalCenter,
 			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
-			'BANK_RECONCILIATION': openBankReconciliation,
 			'MANAGE_RECONCILIATIONS': openManageReconciliations,
 			'MANUAL_SCHEDULING': openManualScheduling,
 			'DAY_BUDGET_PLANNER': openDayBudgetPlanner,
@@ -3065,30 +3063,6 @@ function openApprovalCenter() {
 			position: { 
 				x: 160 + (Math.random() * 100),
 				y: 160 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	// Open Bank Reconciliation window
-	function openBankReconciliation() {
-		collapseAllMenus();
-		const windowId = generateWindowId('bank-reconciliation');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Bank Reconciliation #${instanceNumber}`,
-			component: BankReconciliation,
-			componentName: "BankReconciliation",
-			icon: '🏦',
-			size: { width: 1200, height: 750 },
-			position: { 
-				x: 170 + (Math.random() * 100),
-				y: 170 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -5069,14 +5043,6 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openPurchaseVoucherManager}>
 								<span class="menu-icon">📄</span>
 								<span class="menu-text">{t('nav.purchaseVoucherManager')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('BANK_RECONCILIATION')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBankReconciliation}>
-								<span class="menu-icon">🏦</span>
-								<span class="menu-text">{t('nav.bankReconciliation')}</span>
 							</button>
 						</div>
 					{/if}

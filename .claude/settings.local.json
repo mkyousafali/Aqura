@@ -3,7 +3,11 @@
     "allow": [
       "Bash(Get-ChildItem -Path \"d:\\\\Aqura\" -Force)",
       "Bash(Select-Object -Property Name, FullName)",
-      "Bash(Format-Table -AutoSize)"
+      "Bash(Format-Table -AutoSize)",
+      "Bash(npx svelte-check *)",
+      "Bash(timeout 180 npx svelte-check --output human --tsconfig ./tsconfig.json)",
+      "Bash(grep -n \"handleBranchChange\\\\|\\\\\\\\$: if \\(selectedBranchId\\)\\\\|selectedBranchId &&\" \"/c/Aqura/frontend/src/lib/components/desktop-interface/master/finance/SingleBillScheduling.svelte\")",
+      "Bash(node -e ' *)"
     ]
   }
 }
