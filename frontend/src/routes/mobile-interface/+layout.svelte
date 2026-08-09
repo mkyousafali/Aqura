@@ -32,6 +32,7 @@
 	let hasLiveChatPermission = false;
 	let hasBreakRegisterPermission = false;
 	let hasExpenseManagerPermission = false;
+	let hasVendorPaymentsPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -589,6 +590,7 @@
 				hasLiveChatPermission = false;
 				hasBreakRegisterPermission = false;
 				hasExpenseManagerPermission = false;
+				hasVendorPaymentsPermission = false;
 				return;
 			}
 
@@ -609,6 +611,7 @@
 					hasLiveChatPermission = false;
 					hasBreakRegisterPermission = false;
 					hasExpenseManagerPermission = false;
+					hasVendorPaymentsPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
@@ -619,11 +622,13 @@
 					hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
 					hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
 					hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
+					hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
 
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
 						branchPerformance: hasBranchPerformancePermission,
 						expenseManager: hasExpenseManagerPermission,
+						vendorPayments: hasVendorPaymentsPermission,
 						allCodes: Array.from(buttonCodes)
 					});
 				}
@@ -633,6 +638,7 @@
 				hasLiveChatPermission = false;
 				hasBreakRegisterPermission = false;
 				hasExpenseManagerPermission = false;
+				hasVendorPaymentsPermission = false;
 			}
 
 			// Check for incident manager permission from approval_permissions
@@ -644,6 +650,7 @@
 			hasLiveChatPermission = false;
 			hasBreakRegisterPermission = false;
 			hasExpenseManagerPermission = false;
+			hasVendorPaymentsPermission = false;
 		}
 	}
 	
@@ -711,6 +718,7 @@
 		if (path === '/mobile-interface/break-register-log' || path === '/mobile-interface/break-register-log/') return locale === 'ar' ? 'سجل الاستراحات' : 'Break Log';
 		if (path === '/mobile-interface/request-generator' || path === '/mobile-interface/request-generator/') return locale === 'ar' ? 'مولد الطلبات' : 'Request Generator';
 		if (path === '/mobile-interface/scheduler' || path === '/mobile-interface/scheduler/') return locale === 'ar' ? 'الجدولة' : 'Scheduler';
+		if (path === '/mobile-interface/vendor-payments' || path === '/mobile-interface/vendor-payments/') return locale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1370,7 +1378,7 @@
 			<!-- Finance Menu Button -->
 			{#if hasExpenseManagerPermission}
 				<div class="nav-item-menu-container">
-					<button class="nav-item finance-btn" on:click={() => { showFinanceMenu = !showFinanceMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler')}>
+					<button class="nav-item finance-btn" on:click={() => { showFinanceMenu = !showFinanceMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler') || $page.url.pathname.startsWith('/mobile-interface/vendor-payments')}>
 						<div class="nav-icon">
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<rect x="2" y="5" width="20" height="14" rx="2"/>
@@ -1403,6 +1411,15 @@
 								</svg>
 								<span>{$currentLocale === 'ar' ? 'الجدولة' : 'Scheduler'}</span>
 							</a>
+							{#if hasVendorPaymentsPermission}
+								<a href="/mobile-interface/vendor-payments" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/vendor-payments')}>
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="1" y="4" width="22" height="16" rx="2"/>
+										<line x1="1" y1="10" x2="23" y2="10"/>
+									</svg>
+									<span>{$currentLocale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments'}</span>
+								</a>
+							{/if}
 						</div>
 					{/if}
 				</div>

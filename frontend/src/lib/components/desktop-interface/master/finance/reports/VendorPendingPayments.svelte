@@ -951,7 +951,7 @@
 		<!-- MAIN WINDOW: Account / Summary tab interface -->
 
 		<!-- Global summary strip -->
-		<div class="flex gap-3 px-5 py-3 bg-white border-b border-slate-200 flex-shrink-0">
+		<div class="hidden md:flex gap-3 px-5 py-3 bg-white border-b border-slate-200 flex-shrink-0">
 			<div class="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-sky-50 border border-sky-200 flex-1 min-w-0">
 				<div class="w-7 h-7 rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center flex-shrink-0">
 					<span class="text-sm">💰</span>
@@ -997,7 +997,7 @@
 		</div>
 
 		<!-- Tab bar -->
-		<div class="flex items-center gap-1 px-5 py-2 bg-white border-b border-slate-200 flex-shrink-0">
+		<div class="hidden md:flex items-center gap-1 px-5 py-2 bg-white border-b border-slate-200 flex-shrink-0">
 			<button
 				class="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all {activeTab === 'account' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}"
 				on:click={() => activeTab = 'account'}
@@ -1010,8 +1010,8 @@
 		{#if activeTab === 'account'}
 			<!-- Account tab: full vendor table with search + scroll-to-load-more -->
 			<div class="flex-1 flex flex-col overflow-hidden px-4 pt-3 pb-4">
-				<!-- Search bar + count -->
-				<div class="flex items-center gap-3 mb-3 flex-shrink-0">
+				<!-- Search bar + branch filter + count — search on its own line, filter+count together on a second line on mobile -->
+				<div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 mb-3 flex-shrink-0">
 					<div class="relative flex-1 max-w-md">
 						<div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
 							<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -1032,19 +1032,74 @@
 							</button>
 						{/if}
 					</div>
-					<select
-						bind:value={selectedErpBranchId}
-						class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-300 transition-all shadow-sm flex-shrink-0"
-						title="Filter balances by branch"
-					>
-						<option value="">{$t('vendorPaymentFilters.selectBranch') || 'All Branches'}</option>
-						{#each branches as branch}
-							<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
-						{/each}
-					</select>
-					<span class="text-xs text-slate-500 font-semibold flex-shrink-0">
-						{filteredTableVendors.length} vendor{filteredTableVendors.length !== 1 ? 's' : ''}{#if vendorTableSearch} found{/if}
-					</span>
+					<div class="flex items-center gap-3">
+						<select
+							bind:value={selectedErpBranchId}
+							class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-300 transition-all shadow-sm flex-1 md:flex-shrink-0 min-w-0"
+							title="Filter balances by branch"
+						>
+							<option value="">{$t('vendorPaymentFilters.selectBranch') || 'All Branches'}</option>
+							{#each branches as branch}
+								<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
+							{/each}
+						</select>
+						<span class="text-xs text-slate-500 font-semibold flex-shrink-0">
+							{filteredTableVendors.length} vendor{filteredTableVendors.length !== 1 ? 's' : ''}{#if vendorTableSearch} found{/if}
+						</span>
+					</div>
+				</div>
+
+				<!-- Mobile: Totals summary card (desktop shows the same totals in the table footer) -->
+				<div class="md:hidden mb-3 flex-shrink-0 bg-blue-600 rounded-xl shadow-sm p-3">
+					<div class="text-[10px] font-bold text-blue-100 uppercase tracking-wide mb-2">
+						Totals · {filteredTableVendors.length} vendor{filteredTableVendors.length !== 1 ? 's' : ''}
+					</div>
+					<div class="grid grid-cols-2 gap-2">
+						<div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">Bills Unpaid</div>
+							{#if tableTotalBillsUnpaid > 0}
+								<div class="text-sm font-black text-white flex items-center gap-1">
+									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-80" />
+									{tableTotalBillsUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+								</div>
+							{:else}
+								<div class="text-sm text-blue-200">—</div>
+							{/if}
+						</div>
+						<div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">Expenses Unpaid</div>
+							{#if tableTotalExpensesUnpaid > 0}
+								<div class="text-sm font-black text-white flex items-center gap-1">
+									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-80" />
+									{tableTotalExpensesUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+								</div>
+							{:else}
+								<div class="text-sm text-blue-200">—</div>
+							{/if}
+						</div>
+						<div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">Total Unpaid</div>
+							{#if tableTotalUnpaid > 0}
+								<div class="text-sm font-black text-white flex items-center gap-1">
+									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-90" />
+									{tableTotalUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+								</div>
+							{:else}
+								<div class="text-sm text-blue-200">—</div>
+							{/if}
+						</div>
+						<div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">Total Overdue</div>
+							{#if tableTotalOverdue > 0}
+								<div class="text-sm font-black text-orange-300 flex items-center gap-1">
+									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-90" />
+									{tableTotalOverdue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+								</div>
+							{:else}
+								<div class="text-sm text-blue-200">—</div>
+							{/if}
+						</div>
+					</div>
 				</div>
 
 				<!-- ERP tunnel warning -->
@@ -1060,7 +1115,7 @@
 					class="flex-1 overflow-auto bg-white/60 backdrop-blur-xl rounded-2xl border border-white/80 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)]"
 					on:scroll={handleVendorTableScroll}
 				>
-					<table class="w-full border-collapse">
+					<table class="w-full border-collapse hidden md:table">
 						<thead class="sticky top-0 z-10">
 							<tr class="bg-blue-600 text-white shadow-lg">
 								<th class="px-3 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30 w-10">#</th>
@@ -1232,6 +1287,104 @@
 							</tr>
 						</tfoot>
 					</table>
+
+					<!-- Mobile: vendor card list (desktop shows the table above instead) -->
+					<div class="md:hidden flex flex-col gap-2 p-2">
+						{#each visibleTableVendors as vendor, index}
+							<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+								<div class="flex items-start justify-between gap-2 mb-2.5">
+									<div class="min-w-0">
+										<div class="text-sm font-bold text-slate-800 truncate">{vendor.vendor_name}</div>
+										<span class="inline-block mt-1 px-2 py-0.5 bg-blue-100/70 text-blue-700 rounded-md text-[10px] font-bold">{vendor.vendor_id}</span>
+									</div>
+									<button
+										class="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[11px] font-bold hover:bg-blue-700 transition-all"
+										on:click={() => handleVendorSelect(vendor.vendor_id, vendor.vendor_name)}
+									>
+										<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+										Details
+									</button>
+								</div>
+								<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+									<div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">Bills Unpaid</div>
+										{#if getVendorBillsUnpaid(vendor.vendor_id) > 0}
+											<div class="font-bold text-red-600 flex items-center gap-1">
+												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" />
+												{getVendorBillsUnpaid(vendor.vendor_id).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+											</div>
+										{:else}
+											<div class="text-slate-300">—</div>
+										{/if}
+									</div>
+									<div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">Expenses Unpaid</div>
+										{#if getVendorExpensesUnpaid(vendor.vendor_id) > 0}
+											<div class="font-bold text-amber-600 flex items-center gap-1">
+												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" />
+												{getVendorExpensesUnpaid(vendor.vendor_id).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+											</div>
+										{:else}
+											<div class="text-slate-300">—</div>
+										{/if}
+									</div>
+									<div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">Total Unpaid</div>
+										{#if getVendorTotalUnpaid(vendor.vendor_id) > 0}
+											<div class="font-black text-red-700 flex items-center gap-1">
+												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-80" />
+												{getVendorTotalUnpaid(vendor.vendor_id).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+											</div>
+										{:else}
+											<span class="inline-block px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold">Cleared</span>
+										{/if}
+									</div>
+									<div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">Total Overdue</div>
+										{#if getVendorTotalOverdue(vendor.vendor_id) > 0}
+											<div class="font-black text-orange-700 flex items-center gap-1">
+												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-80" />
+												{getVendorTotalOverdue(vendor.vendor_id).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+											</div>
+										{:else}
+											<div class="text-slate-300">—</div>
+										{/if}
+									</div>
+								</div>
+								<div class="flex items-center justify-between gap-2 mt-2.5 pt-2.5 border-t border-slate-100">
+									<div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">ERP Balance</div>
+										{#if erpBalancesLoading}
+											<div class="text-indigo-300">⏳</div>
+										{:else if erpBalanceMap.has(vendor.vendor_id)}
+											{@const erb = erpBalanceMap.get(vendor.vendor_id)}
+											<div class="font-black flex items-center gap-1 {erb?.direction === 'Cr' ? 'text-emerald-700' : erb?.direction === 'Dr' ? 'text-red-600' : 'text-slate-400'}">
+												{erb?.netBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												<span class="text-[10px] font-bold opacity-70">{erb?.direction}</span>
+											</div>
+										{:else}
+											<div class="text-slate-300">—</div>
+										{/if}
+									</div>
+									{#if erpBalanceMap.has(vendor.vendor_id)}
+										{@const erb = erpBalanceMap.get(vendor.vendor_id)}
+										{@const overdue = getVendorTotalUnpaid(vendor.vendor_id)}
+										{@const erpVal = erb?.netBalance ?? 0}
+										{@const matched = Math.abs(overdue - erpVal) < 1}
+										<span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-black text-white {matched ? 'bg-emerald-600' : 'bg-red-600'}">
+											{matched ? '✓ Match' : '✗ Mismatch'}
+										</span>
+									{/if}
+								</div>
+							</div>
+						{/each}
+						{#if visibleTableVendors.length === 0}
+							<div class="text-center text-slate-400 text-sm py-14">
+								{vendorTableSearch ? `No vendors matching "${vendorTableSearch}"` : 'No vendors found.'}
+							</div>
+						{/if}
+					</div>
+
 					{#if visibleTableVendors.length < filteredTableVendors.length}
 						<div class="flex items-center justify-center py-4 gap-2 text-slate-400 text-xs border-t border-slate-100 bg-white/50">
 							<div class="w-3.5 h-3.5 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin"></div>
