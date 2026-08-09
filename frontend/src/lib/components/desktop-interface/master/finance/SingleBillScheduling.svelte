@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
+	import { currentLocale } from '$lib/i18n';
 
 	// Step management
 	let currentStep = 1;
@@ -62,6 +63,8 @@
 	let iban = '';
 	let billFile = null;
 	let billFileName = '';
+	let billFileInput;
+	let billCameraInput;
 	let uploading = false;
 	let saving = false;
 	let successMessage = '';
@@ -150,8 +153,9 @@
 				.from('users')
 				.select(`
 					*,
-					hr_employees (
-						name
+					hr_employee_master (
+						name_en,
+						name_ar
 					)
 				`)
 				.eq('status', 'active')
@@ -210,7 +214,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('users')
-				.select('*')
+				.select('*, hr_employee_master(name_en, name_ar)')
 				.or(`branch_id.eq.${selectedBranchId},user_type.eq.global`)
 				.eq('status', 'active')
 				.order('username');
@@ -324,6 +328,14 @@
 		selectedCategoryNameAr = category.name_ar;
 	}
 
+	function clearCategorySelection() {
+		selectedCategoryId = '';
+		selectedCategoryNameEn = '';
+		selectedCategoryNameAr = '';
+		categorySearchQuery = '';
+		filteredCategories = categories;
+	}
+
 	function selectRequest(request) {
 		selectedRequestId = request.id;
 		selectedRequestNumber = request.requisition_number;
@@ -346,9 +358,23 @@
 		selectedCoUserName = user.username;
 	}
 
+	function clearCoUserSelection() {
+		selectedCoUserId = '';
+		selectedCoUserName = '';
+		userSearchQuery = '';
+		filteredUsers = users;
+	}
+
 	function selectApprover(user) {
 		selectedApproverId = user.id;
 		selectedApproverName = user.username;
+	}
+
+	function clearApproverSelection() {
+		selectedApproverId = '';
+		selectedApproverName = '';
+		approverSearchQuery = '';
+		filteredApprovers = approvers;
 	}
 
 	function validateStep1() {
@@ -419,6 +445,16 @@
 
 	function handleBranchChange() {
 		selectedBranchName = branches.find((b) => b.id === parseInt(selectedBranchId))?.name_en || '';
+	}
+
+	function selectBranch(branch) {
+		selectedBranchId = branch.id;
+		handleBranchChange();
+	}
+
+	function clearBranchSelection() {
+		selectedBranchId = '';
+		selectedBranchName = '';
 	}
 
 	function handleBillFileChange(event) {
@@ -751,11 +787,6 @@
 </script>
 
 <div class="single-bill-scheduling">
-	<div class="header">
-		<h2 class="title">Single Bill Scheduling</h2>
-		<p class="subtitle">Schedule a one-time payment for a single bill</p>
-	</div>
-
 	<!-- Progress Steps -->
 	<div class="progress-steps">
 		<div class="step" class:active={currentStep === 1} class:completed={currentStep > 1}>
@@ -785,7 +816,7 @@
 					<label for="branch">Branch *</label>
 					<select
 						id="branch"
-						class="form-select"
+						class="form-select branch-select-desktop"
 						bind:value={selectedBranchId}
 						on:change={handleBranchChange}
 					>
@@ -794,6 +825,39 @@
 							<option value={branch.id}>{branch.name_en}</option>
 						{/each}
 					</select>
+
+					{#if selectedBranchId}
+						<div class="selected-info branch-selected-info">
+							<span>✓ Selected: <strong>{selectedBranchName}</strong></span>
+							<button type="button" class="btn-clear" on:click={clearBranchSelection}>Change</button>
+						</div>
+					{/if}
+
+					<!-- Mobile card view — branch name + location, collapses once selected. -->
+					{#if !selectedBranchId}
+						<div class="branch-selection-cards">
+							{#each branches as branch}
+								<div
+									class="branch-card"
+									class:selected={selectedBranchId === branch.id}
+									on:click={() => selectBranch(branch)}
+								>
+									<input
+										type="radio"
+										name="branch-mobile"
+										checked={selectedBranchId === branch.id}
+										on:change={() => selectBranch(branch)}
+									/>
+									<div class="branch-card-info">
+										<span class="branch-card-name">{branch.name_en}</span>
+										{#if branch.location_en}
+											<span class="branch-card-location">{branch.location_en}</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 
 				<!-- Category Selection -->
@@ -810,14 +874,17 @@
 
 					{#if selectedCategoryId}
 						<div class="selected-info">
-							✓ Selected: <strong>{selectedCategoryNameEn}</strong>
-							{#if selectedCategoryNameAr}
-								<span class="arabic">({selectedCategoryNameAr})</span>
-							{/if}
+							<span>
+								✓ Selected: <strong>{selectedCategoryNameEn}</strong>
+								{#if selectedCategoryNameAr}
+									<span class="arabic">({selectedCategoryNameAr})</span>
+								{/if}
+							</span>
+							<button type="button" class="btn-clear" on:click={clearCategorySelection}>Change</button>
 						</div>
 					{/if}
 
-					<div class="selection-table">
+					<div class="selection-table category-selection-table">
 						<table>
 							<thead>
 								<tr>
@@ -864,6 +931,35 @@
 							</tbody>
 						</table>
 					</div>
+
+					<!-- Mobile card view — checkbox + category name only, in the active app language.
+					     Collapses once a category is picked so the rest of the list doesn't force
+					     scrolling past it to reach Next; "Change" above reopens it. -->
+					{#if !selectedCategoryId}
+						<div class="category-selection-cards">
+							{#if filteredCategories.length > 0}
+								{#each filteredCategories as category}
+									<div
+										class="category-card"
+										class:selected={selectedCategoryId === category.id}
+										on:click={() => selectCategory(category)}
+									>
+										<input
+											type="radio"
+											name="category-mobile"
+											checked={selectedCategoryId === category.id}
+											on:change={() => selectCategory(category)}
+										/>
+										<span class="category-card-name" class:arabic={$currentLocale === 'ar'}>
+											{$currentLocale === 'ar' ? (category.name_ar || category.name_en) : category.name_en}
+										</span>
+									</div>
+								{/each}
+							{:else}
+								<div class="no-data-message">No categories found</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -887,11 +983,12 @@
 
 					{#if selectedCoUserId}
 						<div class="selected-info">
-							✓ Selected: <strong>{selectedCoUserName}</strong>
+							<span>✓ Selected: <strong>{selectedCoUserName}</strong></span>
+							<button type="button" class="btn-clear" on:click={clearCoUserSelection}>Change</button>
 						</div>
 					{/if}
 
-					<div class="selection-table">
+					<div class="selection-table co-user-selection-table">
 						<table>
 							<thead>
 								<tr>
@@ -938,6 +1035,35 @@
 							</tbody>
 						</table>
 					</div>
+
+					<!-- Mobile card view — checkbox + user name only (from hr_employee_master, active
+					     app language), collapses once selected so it doesn't bury the Next button. -->
+					{#if !selectedCoUserId}
+						<div class="user-selection-cards">
+							{#if filteredUsers.length > 0}
+								{#each filteredUsers as user}
+									{@const empName = $currentLocale === 'ar'
+										? (user.hr_employee_master?.name_ar || user.hr_employee_master?.name_en || user.username)
+										: (user.hr_employee_master?.name_en || user.username)}
+									<div
+										class="user-card"
+										class:selected={selectedCoUserId === user.id}
+										on:click={() => selectUser(user)}
+									>
+										<input
+											type="radio"
+											name="user-mobile"
+											checked={selectedCoUserId === user.id}
+											on:change={() => selectUser(user)}
+										/>
+										<span class="user-card-name" class:arabic={$currentLocale === 'ar'}>{empName}</span>
+									</div>
+								{/each}
+							{:else}
+								<div class="no-data-message">No users found</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -981,11 +1107,30 @@
 						<!-- Bill File Upload -->
 						<div class="form-group">
 							<label for="billFile">Upload Bill *</label>
+							<div class="bill-upload-actions">
+								<button type="button" class="upload-action-btn" on:click={() => billFileInput.click()}>
+									<span class="upload-action-icon">📁</span>
+									<span class="upload-action-label">Choose File</span>
+								</button>
+								<button type="button" class="upload-action-btn" on:click={() => billCameraInput.click()}>
+									<span class="upload-action-icon">📷</span>
+									<span class="upload-action-label">Take Photo</span>
+								</button>
+							</div>
 							<input
+								bind:this={billFileInput}
 								id="billFile"
 								type="file"
-								class="form-input"
+								class="hidden-file-input"
 								accept="image/*,.pdf"
+								on:change={handleBillFileChange}
+							/>
+							<input
+								bind:this={billCameraInput}
+								type="file"
+								class="hidden-file-input"
+								accept="image/*"
+								capture="environment"
 								on:change={handleBillFileChange}
 							/>
 						{#if billFileName}
@@ -1095,11 +1240,12 @@
 
 						{#if selectedApproverId}
 							<div class="selected-info">
-								✓ Selected Approver: <strong>{selectedApproverName}</strong>
+								<span>✓ Selected Approver: <strong>{selectedApproverName}</strong></span>
+								<button type="button" class="btn-clear" on:click={clearApproverSelection}>Change</button>
 							</div>
 						{/if}
 
-						<div class="selection-table">
+						<div class="selection-table approver-selection-table">
 							<table>
 								<thead>
 									<tr>
@@ -1157,6 +1303,46 @@
 								</tbody>
 							</table>
 						</div>
+
+						<!-- Mobile card view — checkbox + name + limit only (from hr_employee_master,
+						     active app language), collapses once selected. -->
+						{#if !selectedApproverId}
+							<div class="approver-selection-cards">
+								{#if filteredApprovers.length > 0}
+									{#each filteredApprovers as approver}
+										{@const billAmount = parseFloat(amount) || 0}
+										{@const isOverLimit = billAmount > 0 && approver.approval_amount_limit > 0 && approver.approval_amount_limit < billAmount}
+										{#if !isOverLimit}
+											{@const empName = $currentLocale === 'ar'
+												? (approver.hr_employee_master?.name_ar || approver.hr_employee_master?.name_en || approver.username)
+												: (approver.hr_employee_master?.name_en || approver.username)}
+											<div
+												class="approver-card"
+												class:selected={selectedApproverId === approver.id}
+												on:click={() => selectApprover(approver)}
+											>
+												<input
+													type="radio"
+													name="approver-mobile"
+													checked={selectedApproverId === approver.id}
+													on:change={() => selectApprover(approver)}
+												/>
+												<span class="approver-card-name" class:arabic={$currentLocale === 'ar'}>{empName}</span>
+												<span class="approver-card-limit">
+													{#if approver.approval_amount_limit && approver.approval_amount_limit > 0}
+														{approver.approval_amount_limit.toLocaleString()} SAR
+													{:else}
+														<span class="badge-unlimited">Unlimited</span>
+													{/if}
+												</span>
+											</div>
+										{/if}
+									{/each}
+								{:else}
+									<div class="no-data-message">No approvers found</div>
+								{/if}
+							</div>
+						{/if}
 					</div>
 
 				<!-- Success Message -->
@@ -1214,59 +1400,44 @@
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 	}
 
-	.header {
-		margin-bottom: 1.5rem;
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 700;
-		color: #1e293b;
-		margin: 0 0 0.5rem 0;
-	}
-
-	.subtitle {
-		font-size: 1rem;
-		color: #64748b;
-		margin: 0;
-	}
-
 	/* Progress Steps */
 	.progress-steps {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin-bottom: 2rem;
-		padding: 1.5rem;
+		margin-bottom: 1.25rem;
+		padding: 0.85rem 1.25rem;
 		background: white;
-		border-radius: 12px;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+		border-radius: 14px;
+		box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 	}
 
 	.step {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 	}
 
 	.step-number {
-		width: 40px;
-		height: 40px;
+		width: 28px;
+		height: 28px;
 		border-radius: 50%;
-		background: #e2e8f0;
-		color: #64748b;
+		background: #eef2f7;
+		color: #94a3b8;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-weight: 600;
-		font-size: 1rem;
-		transition: all 0.3s ease;
+		font-weight: 700;
+		font-size: 0.75rem;
+		transition: all 0.25s ease;
 	}
 
 	.step.active .step-number {
 		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 		color: white;
+		box-shadow: 0 3px 10px rgba(102, 126, 234, 0.35);
+		transform: scale(1.08);
 	}
 
 	.step.completed .step-number {
@@ -1275,22 +1446,30 @@
 	}
 
 	.step-label {
-		font-size: 0.875rem;
-		color: #64748b;
-		font-weight: 500;
+		font-size: 0.65rem;
+		color: #94a3b8;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
 	.step.active .step-label {
-		color: #1e293b;
-		font-weight: 600;
+		color: #4c1d95;
+	}
+
+	.step.completed .step-label {
+		color: #059669;
 	}
 
 	.step-line {
-		width: 80px;
+		width: 40px;
 		height: 2px;
 		background: #e2e8f0;
-		margin: 0 1rem;
+		margin: 0 0.5rem;
+		border-radius: 2px;
 		transition: all 0.3s ease;
+		align-self: flex-start;
+		margin-top: 13px;
 	}
 
 	.step-line.completed {
@@ -1415,6 +1594,49 @@
 		color: #475569;
 	}
 
+	.hidden-file-input {
+		display: none;
+	}
+
+	.bill-upload-actions {
+		display: flex;
+		gap: 0.75rem;
+	}
+
+	.upload-action-btn {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 1.1rem 0.75rem;
+		background: white;
+		border: 2px dashed #cbd5e1;
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.upload-action-btn:hover {
+		border-color: #3b82f6;
+		background: #f0f9ff;
+		transform: translateY(-2px);
+	}
+
+	.upload-action-btn:active {
+		transform: translateY(0);
+	}
+
+	.upload-action-icon {
+		font-size: 1.75rem;
+	}
+
+	.upload-action-label {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #475569;
+	}
+
 	.conditional-fields {
 		padding: 1rem;
 		background: #f8fafc;
@@ -1506,6 +1728,114 @@
 
 	.selection-table tbody tr.selected {
 		background: #ede9fe;
+	}
+
+	/* Card-based pickers (Category / C-O User / Approver / Branch) — now the only
+	   view on both desktop and mobile; the old tables/native select stay in the
+	   DOM (for their data-loading side effects) but are permanently hidden. */
+	.category-selection-table,
+	.co-user-selection-table,
+	.approver-selection-table,
+	.branch-select-desktop {
+		display: none;
+	}
+
+	.category-selection-cards,
+	.user-selection-cards,
+	.approver-selection-cards,
+	.branch-selection-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+		gap: 0.6rem;
+		margin-top: 0.5rem;
+		max-height: 420px;
+		overflow-y: auto;
+		align-content: start;
+		padding-right: 2px;
+	}
+
+	.category-card,
+	.user-card,
+	.approver-card,
+	.branch-card {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 14px;
+		background: white;
+		border: 1.5px solid #e2e8f0;
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.category-card:hover,
+	.user-card:hover,
+	.approver-card:hover,
+	.branch-card:hover {
+		border-color: #c4b5fd;
+		box-shadow: 0 4px 12px rgba(139, 92, 246, 0.12);
+		transform: translateY(-1px);
+	}
+
+	.category-card.selected,
+	.user-card.selected,
+	.approver-card.selected,
+	.branch-card.selected {
+		background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+		border-color: #8b5cf6;
+		box-shadow: 0 2px 8px rgba(139, 92, 246, 0.15);
+	}
+
+	.category-card input[type="radio"],
+	.user-card input[type="radio"],
+	.approver-card input[type="radio"],
+	.branch-card input[type="radio"] {
+		flex-shrink: 0;
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #8b5cf6;
+	}
+
+	.category-card-name,
+	.user-card-name,
+	.branch-card-name {
+		font-weight: 600;
+		font-size: 14px;
+		color: #1e293b;
+	}
+
+	.approver-card-name {
+		flex: 1;
+		font-weight: 600;
+		font-size: 14px;
+		color: #1e293b;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.approver-card-limit {
+		flex-shrink: 0;
+		font-size: 13px;
+		font-weight: 600;
+		color: #475569;
+	}
+
+	.branch-card-info {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		overflow: hidden;
+	}
+
+	.branch-card-location {
+		font-size: 12px;
+		color: #64748b;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.arabic {
@@ -1837,4 +2167,5 @@
 		color: #dc2626;
 		font-weight: 600;
 	}
+
 </style>

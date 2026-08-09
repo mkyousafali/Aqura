@@ -1240,6 +1240,46 @@
 							</tbody>
 						</table>
 					</div>
+
+					<!-- Mobile card view — same data/handlers as the table above, shown instead of it on narrow screens -->
+					<div class="selection-cards">
+						{#if filteredUsers.length === 0}
+							<div class="empty-state">
+								<span class="empty-icon">🔒</span>
+								<p>No users with approval permissions found.</p>
+								<p class="empty-hint">Please contact your administrator to set up approval permissions.</p>
+							</div>
+						{:else}
+							{#each filteredUsers as user}
+								{@const requestAmount = parseFloat(amount) || 0}
+								{@const isOverLimit = requestAmount > 0 && user.approval_amount_limit > 0 && user.approval_amount_limit < requestAmount}
+								<div
+									class="approver-card"
+									class:selected={selectedApproverId === user.id}
+									class:disabled={isOverLimit}
+									on:click={() => !isOverLimit && selectApprover(user)}
+								>
+									<input
+										type="radio"
+										checked={selectedApproverId === user.id}
+										disabled={isOverLimit}
+										on:click={() => !isOverLimit && selectApprover(user)}
+									/>
+									<span class="approver-card-name">{user.username}</span>
+									<span class="approver-card-limit">
+										{#if user.approval_amount_limit === 0}
+											<span class="unlimited-badge">♾️ Unlimited</span>
+										{:else if isOverLimit}
+											<span class="over-limit-badge">⚠️ {user.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</span>
+										{:else}
+											<span class="limit-amount">{user.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</span>
+										{/if}
+									</span>
+								</div>
+							{/each}
+						{/if}
+					</div>
+
 					{#if selectedApproverName}
 						<div class="selected-info">Selected: <strong>{selectedApproverName}</strong></div>
 					{/if}
@@ -2220,6 +2260,67 @@
 
 	.selection-table tbody tr.disabled input[type="radio"] {
 		cursor: not-allowed;
+	}
+
+	/* Approver card view — hidden by default, swapped in for .selection-table at mobile widths */
+	.selection-cards {
+		display: none;
+	}
+
+	.approver-card {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		margin-bottom: 8px;
+		cursor: pointer;
+		transition: background-color 0.2s ease;
+	}
+
+	.approver-card:last-child {
+		margin-bottom: 0;
+	}
+
+	.approver-card:hover {
+		background: #f9fafb;
+	}
+
+	.approver-card.selected {
+		background: #dbeafe;
+		border-color: #3b82f6;
+	}
+
+	.approver-card.disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		background: #fef2f2;
+	}
+
+	.approver-card input[type="radio"] {
+		flex-shrink: 0;
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+	}
+
+	.approver-card.disabled input[type="radio"] {
+		cursor: not-allowed;
+	}
+
+	.approver-card-name {
+		flex: 1;
+		font-weight: 600;
+		font-size: 14px;
+		color: #1e293b;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.approver-card-limit {
+		flex-shrink: 0;
 	}
 
 	.parent-badge {
@@ -3379,6 +3480,14 @@
 		
 		.summary-item {
 			font-size: 0.8rem;
+		}
+
+		.selection-table {
+			display: none;
+		}
+
+		.selection-cards {
+			display: block;
 		}
 	}
 </style>

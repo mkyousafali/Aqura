@@ -31,6 +31,7 @@
 	let hasIncidentManagerPermission = false;
 	let hasLiveChatPermission = false;
 	let hasBreakRegisterPermission = false;
+	let hasExpenseManagerPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -67,9 +68,12 @@
 	
 	// Stock Menu state
 	let showStockMenu = false;
-	
+
 	// Orders Menu state
 	let showOrdersMenu = false;
+
+	// Finance Menu state
+	let showFinanceMenu = false;
 	
 	// Orders count for badge
 	let newOrdersCount = 0;
@@ -566,6 +570,7 @@
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
 			hasBreakRegisterPermission = false;
+			hasExpenseManagerPermission = false;
 			return;
 		}
 
@@ -583,6 +588,7 @@
 				hasBranchPerformancePermission = false;
 				hasLiveChatPermission = false;
 				hasBreakRegisterPermission = false;
+				hasExpenseManagerPermission = false;
 				return;
 			}
 
@@ -602,19 +608,22 @@
 					hasBranchPerformancePermission = false;
 					hasLiveChatPermission = false;
 					hasBreakRegisterPermission = false;
+					hasExpenseManagerPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
-					
+
 					// Check for specific button permissions
 					hasReportsPermission = buttonCodes.has('SALES_REPORT');
 					hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
 					hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
 					hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
-					
+					hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
+
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
 						branchPerformance: hasBranchPerformancePermission,
+						expenseManager: hasExpenseManagerPermission,
 						allCodes: Array.from(buttonCodes)
 					});
 				}
@@ -623,8 +632,9 @@
 				hasBranchPerformancePermission = false;
 				hasLiveChatPermission = false;
 				hasBreakRegisterPermission = false;
+				hasExpenseManagerPermission = false;
 			}
-			
+
 			// Check for incident manager permission from approval_permissions
 			await loadIncidentManagerPermission();
 		} catch (err) {
@@ -633,6 +643,7 @@
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
 			hasBreakRegisterPermission = false;
+			hasExpenseManagerPermission = false;
 		}
 	}
 	
@@ -698,6 +709,8 @@
 		if (path === '/mobile-interface/support' || path === '/mobile-interface/support/') return locale === 'ar' ? 'الدعم' : 'Support';
 		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
 		if (path === '/mobile-interface/break-register-log' || path === '/mobile-interface/break-register-log/') return locale === 'ar' ? 'سجل الاستراحات' : 'Break Log';
+		if (path === '/mobile-interface/request-generator' || path === '/mobile-interface/request-generator/') return locale === 'ar' ? 'مولد الطلبات' : 'Request Generator';
+		if (path === '/mobile-interface/scheduler' || path === '/mobile-interface/scheduler/') return locale === 'ar' ? 'الجدولة' : 'Scheduler';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1077,7 +1090,7 @@
 		<nav class="bottom-nav">
 			<!-- Orders / Delivery Menu Button (FIRST) -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item orders-btn" on:click={() => { showOrdersMenu = !showOrdersMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showOrdersMenu || $page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
+				<button class="nav-item orders-btn" on:click={() => { showOrdersMenu = !showOrdersMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showOrdersMenu || $page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
 					{#if newOrdersCount > 0}
 						<span class="nav-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
 					{/if}
@@ -1116,7 +1129,7 @@
 
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showOrdersMenu = false; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance') || $page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
+				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showOrdersMenu = false; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance') || $page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
 					{#if taskCount > 0}
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
@@ -1181,7 +1194,7 @@
 
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/support')}>
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/support')}>
 					{#if incidentCount > 0}
 						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
 					{/if}
@@ -1250,7 +1263,7 @@
 
 			<!-- Human Resources Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -1288,7 +1301,7 @@
 
 			<!-- Stock Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') }>
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showFinanceMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') }>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -1349,14 +1362,54 @@
 							</svg>
 							<span>{$currentLocale === 'ar' ? 'بدء الاستلام' : 'Start Receiving'}</span>
 						</a>
-	
+
 					</div>
 				{/if}
 			</div>
 
+			<!-- Finance Menu Button -->
+			{#if hasExpenseManagerPermission}
+				<div class="nav-item-menu-container">
+					<button class="nav-item finance-btn" on:click={() => { showFinanceMenu = !showFinanceMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler')}>
+						<div class="nav-icon">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<rect x="2" y="5" width="20" height="14" rx="2"/>
+								<line x1="2" y1="10" x2="22" y2="10"/>
+								<line x1="6" y1="15" x2="10" y2="15"/>
+							</svg>
+						</div>
+						<span class="nav-label">{$currentLocale === 'ar' ? 'المالية' : 'Finance'}</span>
+					</button>
+
+					<!-- Finance Submenu -->
+					{#if showFinanceMenu}
+						<div class="finance-submenu-overlay" on:click={() => showFinanceMenu = false}></div>
+						<div class="finance-submenu">
+							<a href="/mobile-interface/request-generator" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/request-generator')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+									<polyline points="14 2 14 8 20 8"/>
+									<line x1="12" y1="18" x2="12" y2="12"/>
+									<line x1="9" y1="15" x2="15" y2="15"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'مولد الطلبات' : 'Request Generator'}</span>
+							</a>
+							<a href="/mobile-interface/scheduler" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/scheduler')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+									<line x1="16" y1="2" x2="16" y2="6"/>
+									<line x1="8" y1="2" x2="8" y2="6"/>
+									<line x1="3" y1="10" x2="21" y2="10"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'الجدولة' : 'Scheduler'}</span>
+							</a>
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Call & Message Button -->
-			<a href="/mobile-interface/communication" class="nav-item communication-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/communication')} on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
+			<a href="/mobile-interface/communication" class="nav-item communication-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/communication')} on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }}>
 				<div class="nav-icon">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
@@ -2693,6 +2746,103 @@
 
 	.nav-item.stock-menu-btn.active .nav-icon {
 		color: #F59E0B;
+	}
+
+	/* Finance Menu Styles */
+	.nav-item.finance-btn {
+		border: none;
+		background: none;
+		cursor: pointer;
+		color: #059669;
+	}
+
+	.nav-item.finance-btn:hover {
+		color: #047857;
+		background: rgba(5, 150, 105, 0.05);
+	}
+
+	.nav-item.finance-btn.active {
+		color: #059669;
+	}
+
+	.nav-item.finance-btn.active .nav-icon {
+		background: rgba(5, 150, 105, 0.1);
+		color: #059669;
+	}
+
+	.nav-item.finance-btn .nav-icon {
+		color: #059669;
+	}
+
+	.nav-item.finance-btn .nav-label {
+		font-weight: 600;
+		color: #059669;
+	}
+
+	.finance-submenu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 95;
+	}
+
+	.finance-submenu {
+		position: fixed;
+		bottom: 3.8rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 -2px 16px rgba(5, 150, 105, 0.2);
+		min-width: 180px;
+		max-width: calc(100vw - 32px);
+		z-index: 100;
+		overflow: hidden;
+		animation: slideUp 0.2s ease;
+		border: 1px solid rgba(5, 150, 105, 0.2);
+	}
+
+	:global([dir="rtl"]) .finance-submenu {
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.finance-submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		color: #374151;
+		text-decoration: none;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		width: 100%;
+		text-align: left;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.finance-submenu-item:last-child {
+		border-bottom: none;
+	}
+
+	.finance-submenu-item:hover {
+		background: rgba(5, 150, 105, 0.05);
+		color: #059669;
+	}
+
+	.finance-submenu-item.active {
+		background: rgba(5, 150, 105, 0.1);
+		color: #059669;
+		font-weight: 600;
+	}
+
+	.finance-submenu-item svg {
+		flex-shrink: 0;
+		color: #059669;
 	}
 
 	.mobile-error {
