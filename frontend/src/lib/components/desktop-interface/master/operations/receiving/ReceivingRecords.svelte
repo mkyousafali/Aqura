@@ -52,6 +52,16 @@
 	let erpReferenceValue = '';
 	let updatingErp = false;
 
+	// Record edit popup state (Master Admin only)
+	let showEditPopup = false;
+	let editingRecord = null;
+	let editForm = null;
+	let savingEdit = false;
+	let editError = '';
+	let editScheduleCount = 0;
+
+	const PAYMENT_METHODS = ['Cash on Delivery', 'Bank on Delivery', 'Cash Credit', 'Bank Credit'];
+
 	onMount(() => {
 		loadBranches();
 		loadReceivingRecords();
@@ -1094,6 +1104,153 @@
 		closeCertificateModal();
 	}
 
+	// ---- Master Admin record editing ----
+
+	// Dates come back as ISO/timestamp strings; <input type="date"> needs yyyy-mm-dd
+	function toDateInput(value) {
+		if (!value) return '';
+		const d = new Date(value);
+		if (isNaN(d.getTime())) return '';
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+
+	async function openEditPopup(record) {
+		if (!isMasterAdmin) return;
+
+		editingRecord = record;
+		editError = '';
+		editScheduleCount = 0;
+		editForm = {
+			bill_number: record.bill_number || '',
+			bill_date: toDateInput(record.bill_date),
+			branch_id: record.branch_id || '',
+			payment_method: record.payment_method || '',
+			credit_period: record.credit_period ?? '',
+			due_date: toDateInput(record.due_date),
+			bill_amount: record.bill_amount ?? '',
+			final_bill_amount: record.final_bill_amount ?? '',
+			bank_name: record.bank_name || '',
+			iban: record.iban || ''
+		};
+		showEditPopup = true;
+
+		// A split payment has several schedule rows; the amount must not be
+		// copied onto each of them, so find out how many are linked first.
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select('id, is_paid')
+				.eq('receiving_record_id', record.id);
+			if (!error && data) {
+				editScheduleCount = data.filter(s => !s.is_paid).length;
+			}
+		} catch (err) {
+			console.error('Error loading linked payment schedules:', err);
+		}
+	}
+
+	function closeEditPopup() {
+		if (savingEdit) return;
+		showEditPopup = false;
+		editingRecord = null;
+		editForm = null;
+		editError = '';
+	}
+
+	async function saveRecordEdit() {
+		if (!isMasterAdmin || !editingRecord || !editForm) return;
+
+		const billAmount = parseFloat(editForm.bill_amount);
+		const finalAmount = parseFloat(editForm.final_bill_amount);
+
+		if (!editForm.bill_number?.trim()) {
+			editError = tFn('receiving.records.editBillNumberRequired');
+			return;
+		}
+		if (!editForm.branch_id) {
+			editError = tFn('receiving.records.editBranchRequired');
+			return;
+		}
+		if (isNaN(billAmount) || billAmount < 0 || isNaN(finalAmount) || finalAmount < 0) {
+			editError = tFn('receiving.records.editAmountInvalid');
+			return;
+		}
+
+		try {
+			savingEdit = true;
+			editError = '';
+			const { supabase } = await import('$lib/utils/supabase');
+
+			const creditPeriod = editForm.credit_period === '' ? null : parseInt(editForm.credit_period);
+
+			const recordUpdate = {
+				bill_number: editForm.bill_number.trim(),
+				bill_date: editForm.bill_date || null,
+				branch_id: editForm.branch_id,
+				payment_method: editForm.payment_method || null,
+				credit_period: isNaN(creditPeriod) ? null : creditPeriod,
+				due_date: editForm.due_date || null,
+				bill_amount: billAmount,
+				final_bill_amount: finalAmount,
+				bank_name: editForm.bank_name?.trim() || null,
+				iban: editForm.iban?.trim() || null
+			};
+
+			const { error: recordError } = await supabase
+				.from('receiving_records')
+				.update(recordUpdate)
+				.eq('id', editingRecord.id);
+
+			if (recordError) throw recordError;
+
+			// Keep unpaid payment schedules in step with the record. Paid ones are
+			// left alone so settled history is not rewritten.
+			const scheduleUpdate = {
+				bill_number: recordUpdate.bill_number,
+				bill_date: recordUpdate.bill_date,
+				branch_id: recordUpdate.branch_id,
+				payment_method: recordUpdate.payment_method,
+				bank_name: recordUpdate.bank_name,
+				iban: recordUpdate.iban
+			};
+
+			// Only push the amount down when a single schedule covers the whole
+			// bill — with a split the per-row amounts are intentionally different.
+			if (editScheduleCount === 1) {
+				scheduleUpdate.bill_amount = billAmount;
+				scheduleUpdate.final_bill_amount = finalAmount;
+			}
+
+			const { error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.update(scheduleUpdate)
+				.eq('receiving_record_id', editingRecord.id)
+				.eq('is_paid', false);
+
+			if (scheduleError) {
+				console.error('Record saved but payment schedule sync failed:', scheduleError);
+			}
+
+			// Reflect the change locally without a full reload
+			const applyEdit = (r) => (r.id === editingRecord.id ? { ...r, ...recordUpdate } : r);
+			receivingRecords = receivingRecords.map(applyEdit);
+			allLoadedRecords = allLoadedRecords.map(applyEdit);
+			archivedRecords = archivedRecords.map(applyEdit);
+			updatePaginatedRecords();
+
+			showEditPopup = false;
+			editingRecord = null;
+			editForm = null;
+			alert(tFn('receiving.records.editSuccess'));
+		} catch (error) {
+			console.error('Error updating receiving record:', error);
+			editError = tFn('receiving.records.editFailed', { error: error.message });
+		} finally {
+			savingEdit = false;
+		}
+	}
+
 	async function deleteReceivingRecord(recordId) {
 		if (!isMasterAdmin) {
 			alert(tFn('receiving.records.onlyMasterAdmin'));
@@ -1460,13 +1617,22 @@
 										<small>{$t('receiving.records.deleting')}</small>
 									</div>
 								{:else}
-									<button 
-										class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-										on:click={() => deleteReceivingRecord(record.id)}
-										title="Delete this receiving record (Master Admin only)"
-									>
-										🗑️
-									</button>
+									<div class="inline-flex items-center gap-1.5">
+										<button
+											class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+											on:click={() => openEditPopup(record)}
+											title={$t('receiving.records.editRecordTooltip')}
+										>
+											✏️
+										</button>
+										<button
+											class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+											on:click={() => deleteReceivingRecord(record.id)}
+											title="Delete this receiving record (Master Admin only)"
+										>
+											🗑️
+										</button>
+									</div>
 								{/if}
 							</td>
 						{/if}
@@ -1552,6 +1718,110 @@
 						{$t('receiving.records.updating')}
 					{:else}
 						{$t('receiving.records.saveReference')}
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Edit Record Popup (Master Admin only) -->
+{#if showEditPopup && editForm}
+	<div class="erp-popup-overlay" on:click={closeEditPopup}>
+		<div class="erp-popup-modal edit-popup-modal" on:click|stopPropagation>
+			<div class="erp-popup-header">
+				<h3>{$t('receiving.records.editRecordTitle')}</h3>
+				<button class="erp-popup-close" on:click={closeEditPopup}>&times;</button>
+			</div>
+			<div class="erp-popup-content">
+				<p>{$t('receiving.records.vendorLabel')} {editingRecord?.vendors?.vendor_name || $t('receiving.records.naText')}</p>
+
+				<div class="edit-section-title">{$t('receiving.records.colBillInfo')}</div>
+				<div class="edit-grid">
+					<div class="erp-input-group">
+						<label for="edit-bill-number">{$t('receiving.records.editBillNumber')}</label>
+						<input id="edit-bill-number" type="text" class="erp-input" bind:value={editForm.bill_number} disabled={savingEdit} />
+					</div>
+					<div class="erp-input-group">
+						<label for="edit-bill-date">{$t('receiving.records.editBillDate')}</label>
+						<input id="edit-bill-date" type="date" class="erp-input" bind:value={editForm.bill_date} disabled={savingEdit} />
+					</div>
+				</div>
+
+				<div class="edit-section-title">{$t('receiving.records.colBranch')}</div>
+				<div class="erp-input-group">
+					<label for="edit-branch">{$t('receiving.records.editBranch')}</label>
+					<select id="edit-branch" class="erp-input" bind:value={editForm.branch_id} disabled={savingEdit}>
+						{#each branches as branch}
+							<option value={branch.id}>
+								{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
+								{#if branch.location_en} - {$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en}{/if}
+							</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="edit-section-title">{$t('receiving.records.colPaymentInfo')}</div>
+				<div class="edit-grid">
+					<div class="erp-input-group">
+						<label for="edit-payment-method">{$t('receiving.records.editPaymentMethod')}</label>
+						<select id="edit-payment-method" class="erp-input" bind:value={editForm.payment_method} disabled={savingEdit}>
+							<option value="">{$t('receiving.records.naText')}</option>
+							{#each PAYMENT_METHODS as method}
+								<option value={method}>{translatePaymentMethod(method)}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="erp-input-group">
+						<label for="edit-credit-period">{$t('receiving.records.editCreditPeriod')}</label>
+						<input id="edit-credit-period" type="number" min="0" class="erp-input" bind:value={editForm.credit_period} disabled={savingEdit} />
+					</div>
+					<div class="erp-input-group">
+						<label for="edit-due-date">{$t('receiving.records.editDueDate')}</label>
+						<input id="edit-due-date" type="date" class="erp-input" bind:value={editForm.due_date} disabled={savingEdit} />
+					</div>
+					<div class="erp-input-group">
+						<label for="edit-bank-name">{$t('receiving.records.editBankName')}</label>
+						<input id="edit-bank-name" type="text" class="erp-input" bind:value={editForm.bank_name} disabled={savingEdit} />
+					</div>
+					<div class="erp-input-group edit-span-2">
+						<label for="edit-iban">{$t('receiving.records.editIban')}</label>
+						<input id="edit-iban" type="text" class="erp-input" bind:value={editForm.iban} disabled={savingEdit} />
+					</div>
+				</div>
+
+				<div class="edit-section-title">{$t('receiving.records.colAmounts')}</div>
+				<div class="edit-grid">
+					<div class="erp-input-group">
+						<label for="edit-bill-amount">{$t('receiving.records.editBillAmount')}</label>
+						<input id="edit-bill-amount" type="number" step="0.01" min="0" class="erp-input" bind:value={editForm.bill_amount} disabled={savingEdit} />
+					</div>
+					<div class="erp-input-group">
+						<label for="edit-final-amount">{$t('receiving.records.editFinalAmount')}</label>
+						<input id="edit-final-amount" type="number" step="0.01" min="0" class="erp-input" bind:value={editForm.final_bill_amount} disabled={savingEdit} />
+					</div>
+				</div>
+
+				{#if editScheduleCount > 1}
+					<div class="edit-note">{$t('receiving.records.editSplitNote')}</div>
+				{:else if editScheduleCount === 0}
+					<div class="edit-note">{$t('receiving.records.editNoScheduleNote')}</div>
+				{/if}
+
+				{#if editError}
+					<div class="edit-error">{editError}</div>
+				{/if}
+			</div>
+			<div class="erp-popup-actions">
+				<button class="erp-btn-cancel" on:click={closeEditPopup} disabled={savingEdit}>
+					{$t('receiving.records.cancel')}
+				</button>
+				<button class="erp-btn-save" on:click={saveRecordEdit} disabled={savingEdit}>
+					{#if savingEdit}
+						<div class="spinner-small"></div>
+						{$t('receiving.records.updating')}
+					{:else}
+						{$t('receiving.records.editSave')}
 					{/if}
 				</button>
 			</div>
@@ -1805,6 +2075,57 @@
 		padding: 20px 24px;
 		border-top: 1px solid #e5e7eb;
 		background: #f9fafb;
+	}
+
+	/* Edit Record popup - wider, scrollable, two-column form */
+	.edit-popup-modal {
+		max-width: 640px;
+	}
+
+	.edit-popup-modal .erp-popup-content {
+		max-height: 62vh;
+		overflow-y: auto;
+	}
+
+	.edit-section-title {
+		margin-top: 20px;
+		padding-bottom: 6px;
+		border-bottom: 1px solid #e5e7eb;
+		color: #047857;
+		font-size: 12px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.edit-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0 16px;
+	}
+
+	.edit-span-2 {
+		grid-column: 1 / -1;
+	}
+
+	.edit-note {
+		margin-top: 16px;
+		padding: 10px 12px;
+		border-radius: 8px;
+		background: #fffbeb;
+		border: 1px solid #fde68a;
+		color: #92400e;
+		font-size: 13px;
+	}
+
+	.edit-error {
+		margin-top: 16px;
+		padding: 10px 12px;
+		border-radius: 8px;
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
+		font-size: 13px;
 	}
 
 	.erp-btn-cancel,

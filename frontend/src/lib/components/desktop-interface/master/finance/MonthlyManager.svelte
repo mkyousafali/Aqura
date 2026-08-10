@@ -6,6 +6,9 @@
 	import ApprovalMask from '$lib/components/desktop-interface/master/finance/ApprovalMask.svelte';
 	import ApproverListModal from '$lib/components/desktop-interface/master/finance/ApproverListModal.svelte';
 	import RequestClosureManager from '$lib/components/desktop-interface/master/finance/RequestClosureManager.svelte';
+	import { iconUrlMap } from '$lib/stores/iconStore';
+
+	$: currencySymbolUrl = $iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png';
 
 	export let onRefresh = null;
 	export let setRefreshCallback = null;
@@ -88,9 +91,10 @@
 	let pendingApprovalPayment = null;
 
 	// Helper to format currency
+	// Amounts render as a plain number; the currency symbol is the DB-managed icon
 	function formatCurrency(amount) {
-		if (amount === null || amount === undefined || isNaN(amount)) return 'SAR 0.00';
-		return `SAR ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+		if (amount === null || amount === undefined || isNaN(amount)) return '0.00';
+		return Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 	}
 
 	// Helper to format date as dd/mm/yyyy
@@ -108,10 +112,17 @@
 		}
 	}
 
-	// Get branch name
+	// Get branch name + location as separate parts (rendered on two lines)
+	function getBranchInfo(branchId) {
+		const branch = branchId ? branchMap[branchId] : null;
+		if (!branch) return { name: 'N/A', location: '' };
+		return branch;
+	}
+
+	// Get branch name as a single line (name - location)
 	function getBranchName(branchId) {
-		if (!branchId) return 'N/A';
-		return branchMap[branchId] || 'N/A';
+		const { name, location } = getBranchInfo(branchId);
+		return location ? `${name} - ${location}` : name;
 	}
 
 	// Load branches
@@ -132,8 +143,7 @@
 			branches = data || [];
 			branchMap = {};
 			branches.forEach(branch => {
-				const display = branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en;
-				branchMap[branch.id] = display;
+				branchMap[branch.id] = { name: branch.name_en || 'N/A', location: branch.location_en || '' };
 			});
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -723,7 +733,7 @@
 	{/if}
 	
 	<div class="header-section">
-		<div class="top-controls">
+		<div class="controls-row">
 			<div class="month-selector">
 				<label for="month-select">Choose Month:</label>
 				<select id="month-select" bind:value={selectedMonth}>
@@ -757,10 +767,8 @@
 					{/if}
 				</button>
 			</div>
-		</div>
 
-		<!-- Filters -->
-		<div class="filters-section">
+			<!-- Filters -->
 			<div class="filter-group">
 				<label for="filter-branch">Branch:</label>
 				<select id="filter-branch" bind:value={filterBranch}>
@@ -782,6 +790,7 @@
 		</div>
 	</div>
 
+
 	<!-- Vendor Payments Section -->
 	<div class="payment-section">
 		<div class="section-header">
@@ -792,9 +801,9 @@
 					{@const paidAmount = filteredPayments.filter(p => p.is_paid).reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
 					{@const unpaidAmount = filteredPayments.filter(p => !p.is_paid).reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
 					<span>{filteredPayments.length} payment{filteredPayments.length !== 1 ? 's' : ''}</span>
-					<span>Total: {formatCurrency(totalAmount)}</span>
-					<span style="color: #059669;">Paid: {formatCurrency(paidAmount)}</span>
-					<span style="color: #dc2626;">Unpaid: {formatCurrency(unpaidAmount)}</span>
+					<span>Total: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(totalAmount)}</span>
+					<span style="color: #059669;">Paid: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(paidAmount)}</span>
+					<span style="color: #dc2626;">Unpaid: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(unpaidAmount)}</span>
 				{/if}
 			</div>
 		</div>
@@ -803,48 +812,81 @@
 			<table class="simple-payments-table">
 				<thead>
 					<tr>
-						<th>Bill #</th>
+						<th class="serial-col">#</th>
 						<th>Vendor</th>
 						<th>Amount</th>
 						<th>Bill Date</th>
 						<th>Branch</th>
-						<th>Payment</th>
-						<th>Bank</th>
-						<th>IBAN</th>
 						<th>Status</th>
 						<th>Mark Paid</th>
 						<th>Approval</th>
-						<th>Edit Method</th>
-						<th>Reschedule</th>
-						<th>Split</th>
-						<th>Edit Amount</th>
 						<th>Delete</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#if filteredPayments.length > 0}
-						{#each filteredPayments as payment}
+						{#each filteredPayments as payment, index}
 							<tr>
-								<td>
-									<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
-								</td>
-								<td style="text-align: left; font-weight: 500;">
+								<td class="serial-col">{index + 1}</td>
+								<td class="vendor-cell" title={payment.vendor_name || 'N/A'}>
 									{payment.vendor_name || 'N/A'}
 								</td>
-								<td style="text-align: right; font-weight: 600; color: #059669;">
-									{formatCurrency(payment.final_bill_amount)}
+								<td class="amount-cell">
+									<div class="amount-value">
+										<img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(payment.final_bill_amount)}
+									</div>
+									<div class="amount-method">
+										<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
+									</div>
 								</td>
-								<td>{formatDate(payment.bill_date)}</td>
-								<td>{getBranchName(payment.branch_id)}</td>
-								<td>
-									<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
+								<td class="bill-date-cell">
+									<div class="bill-date-value">{formatDate(payment.bill_date)}</div>
+									<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
 								</td>
-								<td>{payment.bank_name || 'N/A'}</td>
-								<td>{payment.iban || 'N/A'}</td>
-								<td>
-									<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
-										{payment.is_paid ? 'Paid' : 'Scheduled'}
-									</span>
+								<td class="branch-cell">
+									<div class="branch-name">{getBranchInfo(payment.branch_id).name}</div>
+									{#if getBranchInfo(payment.branch_id).location}
+										<div class="branch-location">{getBranchInfo(payment.branch_id).location}</div>
+									{/if}
+								</td>
+								<td class="status-cell">
+									<div class="status-value">
+										<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
+											{payment.is_paid ? 'Paid' : 'Scheduled'}
+										</span>
+									</div>
+									{#if !payment.is_paid && !needsApproval(payment)}
+										<div class="row-actions">
+											<button
+												class="edit-payment-method-btn"
+												on:click|stopPropagation={() => openPaymentMethodEdit(payment)}
+												title="Edit payment method"
+											>
+												✏️
+											</button>
+											<button
+												class="reschedule-btn"
+												on:click|stopPropagation={() => openRescheduleModal(payment)}
+												title="Reschedule Payment"
+											>
+												📅
+											</button>
+											<button
+												class="split-btn"
+												on:click|stopPropagation={() => openSplitModal(payment)}
+												title="Split Payment"
+											>
+												✂️
+											</button>
+											<button
+												class="edit-amount-btn"
+												on:click|stopPropagation={() => openEditAmountModal(payment)}
+												title="Edit Amount (Discount/GRR/PRI)"
+											>
+												💰
+											</button>
+										</div>
+									{/if}
 								</td>
 								<td>
 									{#if !needsApproval(payment)}
@@ -871,50 +913,6 @@
 									{/if}
 								</td>
 								<td>
-									{#if !payment.is_paid && !needsApproval(payment)}
-										<button 
-											class="edit-payment-method-btn"
-											on:click={() => openPaymentMethodEdit(payment)}
-											title="Edit payment method"
-										>
-											✏️
-										</button>
-									{/if}
-								</td>
-								<td>
-									{#if !payment.is_paid && !needsApproval(payment)}
-										<button 
-											class="reschedule-btn"
-											on:click|stopPropagation={() => openRescheduleModal(payment)}
-											title="Reschedule Payment"
-										>
-											📅
-										</button>
-									{/if}
-								</td>
-								<td>
-									{#if !payment.is_paid && !needsApproval(payment)}
-										<button 
-											class="split-btn"
-											on:click|stopPropagation={() => openSplitModal(payment)}
-											title="Split Payment"
-										>
-											✂️
-										</button>
-									{/if}
-								</td>
-								<td>
-									{#if !payment.is_paid && !needsApproval(payment)}
-										<button 
-											class="edit-amount-btn"
-											on:click|stopPropagation={() => openEditAmountModal(payment)}
-											title="Edit Amount (Discount/GRR/PRI)"
-										>
-											💰
-										</button>
-									{/if}
-								</td>
-								<td>
 									{#if isMasterAdmin && !needsApproval(payment)}
 										<button 
 											class="delete-btn"
@@ -929,7 +927,7 @@
 						{/each}
 					{:else}
 						<tr>
-							<td colspan="16" class="empty-payments-row">
+							<td colspan="9" class="empty-payments-row">
 								<div class="empty-message">No vendor payments scheduled for this date</div>
 							</td>
 						</tr>
@@ -949,9 +947,9 @@
 					{@const paidExpenses = filteredExpensePayments.filter(p => p.is_paid).reduce((sum, p) => sum + (p.amount || 0), 0)}
 					{@const unpaidExpenses = filteredExpensePayments.filter(p => !p.is_paid).reduce((sum, p) => sum + (p.amount || 0), 0)}
 					<span>{filteredExpensePayments.length} payment{filteredExpensePayments.length !== 1 ? 's' : ''}</span>
-					<span>Total: {formatCurrency(totalExpenses)}</span>
-					<span style="color: #059669;">Paid: {formatCurrency(paidExpenses)}</span>
-					<span style="color: #dc2626;">Unpaid: {formatCurrency(unpaidExpenses)}</span>
+					<span>Total: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(totalExpenses)}</span>
+					<span style="color: #059669;">Paid: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(paidExpenses)}</span>
+					<span style="color: #dc2626;">Unpaid: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(unpaidExpenses)}</span>
 				{/if}
 			</div>
 		</div>
@@ -960,28 +958,24 @@
 			<table class="simple-payments-table">
 				<thead>
 					<tr>
-						<th>Voucher Number</th>
+						<th class="serial-col">#</th>
 						<th>Sub-Category</th>
 						<th>Requester</th>
 						<th>Branch</th>
-						<th>Payment Method</th>
 						<th>Amount</th>
 						<th>Paid Date</th>
 						<th>Created By</th>
 						<th>Description</th>
 						<th>Status</th>
 						<th>Mark Paid</th>
-						<th>Reschedule</th>
 						<th>Delete</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#if filteredExpensePayments.length > 0}
-						{#each filteredExpensePayments as payment}
+						{#each filteredExpensePayments as payment, index}
 							<tr class={payment.is_paid ? 'paid-row' : ''}>
-								<td>
-									<span class="bill-number-badge">#{payment.id || 'N/A'}</span>
-								</td>
+								<td class="serial-col">{index + 1}</td>
 								<td style="text-align: left;">
 									{#if payment.expense_category_name_en || payment.expense_category_name_ar}
 										{payment.expense_category_name_en || payment.expense_category_name_ar}
@@ -998,30 +992,62 @@
 										<span style="color: #94a3b8;">{payment.creator?.username || '—'}</span>
 									{/if}
 								</td>
-								<td style="text-align: left;">{getBranchName(payment.branch_id)}</td>
-								<td>
-									<span class="payment-method-badge">
-										{payment.payment_method || 'Expense'}
-									</span>
-								</td>
-								<td style="text-align: right; font-weight: 600; color: {payment.is_paid ? '#059669' : '#dc2626'};">
-									{formatCurrency(payment.amount || 0)}
-								</td>
-								<td>
-									{#if payment.is_paid && payment.paid_date}
-										<span style="color: #059669; font-weight: 500;">{formatDate(payment.paid_date)}</span>
-									{:else}
-										<span style="color: #94a3b8;">—</span>
+								<td class="branch-cell" style="text-align: left;">
+									<div class="branch-name">{getBranchInfo(payment.branch_id).name}</div>
+									{#if getBranchInfo(payment.branch_id).location}
+										<div class="branch-location">{getBranchInfo(payment.branch_id).location}</div>
 									{/if}
+								</td>
+								<td class="amount-cell">
+									<div class="amount-value" style="color: {payment.is_paid ? '#14663f' : '#b91c1c'};">
+										<img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(payment.amount || 0)}
+									</div>
+									<div class="amount-method">
+										<span class="payment-method-badge">
+											{payment.payment_method || 'Expense'}
+										</span>
+									</div>
+								</td>
+								<td class="bill-date-cell">
+									<div class="bill-date-value">
+										{#if payment.is_paid && payment.paid_date}
+											<span style="color: #14663f; font-weight: 500;">{formatDate(payment.paid_date)}</span>
+										{:else}
+											<span style="color: var(--text-muted);">—</span>
+										{/if}
+									</div>
+									<span class="bill-number-badge">#{payment.id || 'N/A'}</span>
 								</td>
 								<td>{payment.creator?.username || 'Unknown'}</td>
 								<td style="text-align: left; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{payment.description || ''}">
 									{payment.description || 'N/A'}
 								</td>
-								<td>
-									<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
-										{payment.is_paid ? 'Paid' : payment.status || 'Pending'}
-									</span>
+								<td class="status-cell">
+									<div class="status-value">
+										<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
+											{payment.is_paid ? 'Paid' : payment.status || 'Pending'}
+										</span>
+									</div>
+									{#if !payment.is_paid}
+										<div class="row-actions">
+											<button
+												class="reschedule-btn"
+												on:click|stopPropagation={() => openExpenseRescheduleModal(payment)}
+												title="Reschedule Payment"
+											>
+												📅
+											</button>
+											{#if payment.requisition_id}
+												<button
+													class="close-request-btn"
+													on:click|stopPropagation={() => openRequestClosureModal(payment)}
+													title="Close Request"
+												>
+													🔒
+												</button>
+											{/if}
+										</div>
+									{/if}
 								</td>
 								<td>
 									{#if payment.schedule_type === 'expense_requisition'}
@@ -1042,26 +1068,6 @@
 									{/if}
 								</td>
 								<td>
-									{#if !payment.is_paid}
-										<button 
-											class="reschedule-btn"
-											on:click|stopPropagation={() => openExpenseRescheduleModal(payment)}
-											title="Reschedule Payment"
-										>
-											📅
-										</button>
-										{#if payment.requisition_id}
-											<button 
-												class="close-request-btn"
-												on:click|stopPropagation={() => openRequestClosureModal(payment)}
-												title="Close Request"
-											>
-												🔒
-											</button>
-										{/if}
-									{/if}
-								</td>
-								<td>
 									{#if isMasterAdmin}
 										<button 
 											class="delete-btn"
@@ -1076,7 +1082,7 @@
 						{/each}
 					{:else}
 						<tr>
-							<td colspan="12" class="empty-payments-row">
+							<td colspan="11" class="empty-payments-row">
 								<div class="empty-message">No expense payments scheduled for this date</div>
 							</td>
 						</tr>
@@ -1095,7 +1101,7 @@
 			<div class="modal-body">
 				<div class="form-group">
 					<label>Vendor: {reschedulingPayment.vendor_name}</label>
-					<label>Amount: {formatCurrency(reschedulingPayment.final_bill_amount)}</label>
+					<label>Amount: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(reschedulingPayment.final_bill_amount)}</label>
 				</div>
 				<div class="form-group">
 					<label for="reschedule-date">New Date:</label>
@@ -1122,7 +1128,7 @@
 			<div class="modal-body">
 				<div class="form-group">
 					<label>Vendor: {splitPayment.vendor_name}</label>
-					<label>Original Amount: {formatCurrency(splitPayment.final_bill_amount)}</label>
+					<label>Original Amount: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(splitPayment.final_bill_amount)}</label>
 				</div>
 				<div class="form-group">
 					<label for="split-amount">Split Amount:</label>
@@ -1180,7 +1186,7 @@
 			<div class="modal-header">Edit Payment Amount</div>
 			<div class="modal-body">
 				<div class="form-group">
-					<label style="font-weight: 600; color: #1e293b;">Bill Amount (Base): {formatCurrency(editingAmountPayment.bill_amount || editingAmountPayment.final_bill_amount)}</label>
+					<label style="font-weight: 600; color: #1e293b;">Bill Amount (Base): <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(editingAmountPayment.bill_amount || editingAmountPayment.final_bill_amount)}</label>
 				</div>
 				<hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
 				<div class="form-group">
@@ -1217,7 +1223,7 @@
 				</div>
 				<hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
 				<div class="form-group">
-					<label style="font-weight: 600; color: #059669; font-size: 16px;">Final Amount (Calculated): {formatCurrency(calculatedFinalAmount)}</label>
+					<label style="font-weight: 600; color: #059669; font-size: 16px;">Final Amount (Calculated): <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(calculatedFinalAmount)}</label>
 				</div>
 			</div>
 			<div class="modal-actions">
@@ -1235,7 +1241,7 @@
 			<div class="modal-header">Reschedule Expense Payment</div>
 			<div class="modal-body">
 				<div class="form-group">
-					<label>Original Amount: {formatCurrency(reschedulingExpensePayment.amount)}</label>
+					<label>Original Amount: <img src={currencySymbolUrl} alt="" class="currency-icon" />{formatCurrency(reschedulingExpensePayment.amount)}</label>
 				</div>
 				<div class="form-group">
 					<label for="expense-split-amount">Split Amount (leave 0 to just reschedule):</label>
@@ -1266,69 +1272,103 @@
 {/if}
 
 <style>
+	/* Glassmorphic light-green theme tokens */
 	.monthly-manager-container {
+		--glass-surface: rgba(255, 255, 255, 0.55);
+		--glass-surface-strong: rgba(255, 255, 255, 0.72);
+		--glass-border: rgba(134, 199, 160, 0.38);
+		--glass-shadow: 0 8px 32px rgba(22, 101, 62, 0.12);
+		--glass-blur: blur(14px) saturate(150%);
+		--green-deep: #14663f;
+		--green-mid: #16a34a;
+		--green-soft: rgba(134, 239, 172, 0.28);
+		--text-main: #14342a;
+		--text-muted: #4b7a63;
+		--page-bg: #e3f5ea;
+
+		box-sizing: border-box;
 		width: 100%;
 		height: 100%;
+		min-height: 100%;
 		padding: 24px;
-		background: #f8fafc;
+		background: var(--page-bg);
+		color: var(--text-main);
 		overflow-y: auto;
+		overflow-x: hidden;
+	}
+
+	.monthly-manager-container :global(*) {
+		box-sizing: border-box;
+	}
+
+	/* The shared window shell paints white behind the content; tint it the exact
+	   same flat green so no seam or white edge shows through. Scoped with :has()
+	   so only windows hosting this component are affected. */
+	:global(.window-content:has(.monthly-manager-container)) {
+		background: #e3f5ea;
 	}
 
 	.header-section {
 		margin-bottom: 24px;
 		padding: 16px;
-		background: white;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		background: var(--glass-surface);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
+		border: 1px solid var(--glass-border);
+		border-radius: 14px;
+		box-shadow: var(--glass-shadow);
 	}
 
-	.top-controls {
+	/* Single row: date pickers + refresh + branch/payment-method filters */
+	.controls-row {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
+		flex-wrap: wrap;
+		gap: 10px 18px;
 	}
 
 	.month-selector {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		margin-bottom: 16px;
+		gap: 10px;
 	}
 
 	.month-selector label {
 		font-weight: 600;
-		color: #1e293b;
+		color: var(--green-deep);
 		font-size: 14px;
+		white-space: nowrap;
 	}
 
 	.month-selector select {
 		padding: 8px 12px;
-		border: 1px solid #cbd5e1;
-		border-radius: 6px;
-		background: white;
+		border: 1px solid var(--glass-border);
+		border-radius: 8px;
+		background: var(--glass-surface-strong);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
 		font-size: 14px;
-		color: #1e293b;
+		color: var(--text-main);
 		cursor: pointer;
 		outline: none;
-		transition: border-color 0.2s;
+		transition: border-color 0.2s, box-shadow 0.2s;
 	}
 
 	.month-selector select:hover {
-		border-color: #3b82f6;
+		border-color: var(--green-mid);
 	}
 
 	.month-selector select:focus {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+		border-color: var(--green-mid);
+		box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 	}
 
 	.refresh-btn {
 		padding: 8px 16px;
-		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		background: linear-gradient(135deg, rgba(52, 211, 153, 0.92) 0%, rgba(22, 163, 74, 0.92) 100%);
 		color: white;
-		border: none;
-		border-radius: 6px;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 8px;
 		font-size: 14px;
 		font-weight: 600;
 		cursor: pointer;
@@ -1336,18 +1376,18 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+		box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
 	}
 
 	.refresh-btn:hover:not(:disabled) {
-		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+		background: linear-gradient(135deg, rgba(22, 163, 74, 0.95) 0%, rgba(21, 128, 61, 0.95) 100%);
+		box-shadow: 0 6px 16px rgba(22, 163, 74, 0.35);
 		transform: translateY(-1px);
 	}
 
 	.refresh-btn:active:not(:disabled) {
 		transform: translateY(0);
-		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+		box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
 	}
 
 	.refresh-btn:disabled {
@@ -1355,45 +1395,50 @@
 		cursor: not-allowed;
 	}
 
-	.filters-section {
-		display: flex;
-		gap: 16px;
-		align-items: center;
-	}
-
 	.filter-group {
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		min-width: 0;
 	}
 
 	.filter-group label {
 		font-size: 14px;
-		color: #64748b;
+		color: var(--text-muted);
 		font-weight: 500;
+		white-space: nowrap;
 	}
 
 	.filter-group select {
+		max-width: 220px;
 		padding: 6px 10px;
-		border: 1px solid #cbd5e1;
-		border-radius: 4px;
-		background: white;
+		border: 1px solid var(--glass-border);
+		border-radius: 6px;
+		background: var(--glass-surface-strong);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
 		font-size: 13px;
-		color: #1e293b;
+		color: var(--text-main);
 		cursor: pointer;
 	}
 
 	.payment-section {
 		margin-bottom: 24px;
-		background: white;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		background: var(--glass-surface);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
+		border: 1px solid var(--glass-border);
+		border-radius: 14px;
+		box-shadow: var(--glass-shadow);
 		overflow: hidden;
 	}
 
 	.section-header {
 		padding: 16px;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		background: linear-gradient(135deg, rgba(52, 211, 153, 0.85) 0%, rgba(16, 133, 88, 0.85) 100%);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
+		border-bottom: 1px solid var(--glass-border);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -1414,9 +1459,10 @@
 	}
 
 	.section-summary span {
-		padding: 4px 8px;
-		background: rgba(255, 255, 255, 0.2);
-		border-radius: 4px;
+		padding: 4px 10px;
+		background: rgba(255, 255, 255, 0.25);
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 999px;
 	}
 
 	.simple-table-container {
@@ -1435,51 +1481,168 @@
 		position: sticky;
 		top: 0;
 		z-index: 110;
-		background: #f1f5f9;
+		background: rgba(220, 245, 230, 0.85);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
 	}
 
+	/* Borders on a sticky thead are dropped under border-collapse: collapse,
+	   so the header's column/bottom lines are drawn with inset shadows. */
 	.simple-payments-table th {
 		padding: 12px 8px;
 		text-align: left;
 		font-weight: 600;
-		color: #475569;
-		border-bottom: 2px solid #e2e8f0;
+		color: var(--green-deep);
+		box-shadow:
+			inset -1px 0 0 rgba(134, 199, 160, 0.45),
+			inset 0 -2px 0 rgba(134, 199, 160, 0.55);
 	}
 
 	.simple-payments-table td {
 		padding: 12px 8px;
-		border-bottom: 1px solid #f1f5f9;
-		color: #1e293b;
+		border-bottom: 1px solid rgba(134, 199, 160, 0.22);
+		border-right: 1px solid rgba(134, 199, 160, 0.22);
+		color: var(--text-main);
+	}
+
+	/* No trailing line on the last column */
+	.simple-payments-table td:last-child {
+		border-right: none;
+	}
+
+	.simple-payments-table th:last-child {
+		box-shadow: inset 0 -2px 0 rgba(134, 199, 160, 0.55);
 	}
 
 	.simple-payments-table tbody tr:hover {
-		background: #f8fafc;
+		background: var(--green-soft);
 	}
 
 	.bill-number-badge {
-		background: #e0e7ff;
-		color: #4338ca;
+		background: rgba(209, 250, 229, 0.85);
+		color: #0f5132;
+		border: 1px solid rgba(134, 199, 160, 0.45);
 		padding: 4px 8px;
-		border-radius: 4px;
+		border-radius: 6px;
 		font-weight: 600;
 		font-size: 11px;
 	}
 
+	.currency-icon {
+		height: 0.72em;
+		width: auto;
+		display: inline-block;
+		vertical-align: baseline;
+		opacity: 0.85;
+		margin-inline-end: 3px;
+	}
+
+	.simple-payments-table .serial-col {
+		width: 44px;
+		text-align: center;
+		color: var(--text-muted);
+		font-weight: 600;
+	}
+
+	.vendor-cell {
+		text-align: left;
+		font-weight: 500;
+		max-width: 190px;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		line-height: 1.35;
+	}
+
+	.amount-cell {
+		text-align: right;
+		white-space: nowrap;
+	}
+
+	.amount-cell .amount-value {
+		font-weight: 700;
+		color: var(--green-deep);
+		margin-bottom: 3px;
+	}
+
+	.amount-cell .amount-method {
+		margin-bottom: 0;
+	}
+
+	.status-cell {
+		white-space: nowrap;
+	}
+
+	.status-cell .status-value {
+		display: block;
+	}
+
+	/* Card holding the 4 row actions (edit method / reschedule / split / edit amount) */
+	.status-cell .row-actions {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 2px;
+		margin-top: 6px;
+		padding: 2px 5px;
+		background: var(--glass-surface-strong);
+		backdrop-filter: var(--glass-blur);
+		-webkit-backdrop-filter: var(--glass-blur);
+		border: 1px solid var(--glass-border);
+		border-radius: 8px;
+		box-shadow: 0 2px 6px rgba(22, 101, 62, 0.1);
+	}
+
+	.status-cell .row-actions button {
+		font-size: 14px;
+		padding: 2px;
+		margin: 0;
+	}
+
+	.branch-cell {
+		white-space: nowrap;
+	}
+
+	.branch-cell .branch-name {
+		font-weight: 500;
+	}
+
+	.branch-cell .branch-location {
+		font-size: 11px;
+		color: var(--text-muted);
+		margin-top: 2px;
+	}
+
+	.bill-date-cell {
+		white-space: nowrap;
+	}
+
+	.bill-date-cell .bill-date-value {
+		margin-bottom: 3px;
+	}
+
+	.bill-date-cell .bill-number-badge {
+		display: inline-block;
+		padding: 2px 6px;
+	}
+
 	.payment-method {
-		background: #fef3c7;
-		color: #92400e;
+		display: inline-block;
+		background: rgba(236, 252, 243, 0.8);
+		color: #15803d;
+		border: 1px solid rgba(134, 199, 160, 0.45);
 		padding: 4px 8px;
-		border-radius: 4px;
+		border-radius: 999px;
 		font-size: 11px;
 		font-weight: 500;
 	}
 
 	.payment-method-badge {
-		background: #fee2e2;
-		color: #991b1b;
+		background: rgba(236, 252, 243, 0.8);
+		color: #15803d;
+		border: 1px solid rgba(134, 199, 160, 0.45);
 		font-size: 11px;
 		padding: 4px 8px;
-		border-radius: 4px;
+		border-radius: 999px;
 		font-weight: 500;
 	}
 
@@ -1507,20 +1670,23 @@
 	}
 
 	.status-badge {
-		padding: 4px 8px;
-		border-radius: 4px;
+		padding: 4px 10px;
+		border-radius: 999px;
 		font-size: 11px;
 		font-weight: 600;
 		text-transform: uppercase;
+		border: 1px solid transparent;
 	}
 
 	.status-paid {
-		background: #d1fae5;
+		background: rgba(167, 243, 208, 0.75);
+		border-color: rgba(16, 185, 129, 0.4);
 		color: #065f46;
 	}
 
 	.status-scheduled {
-		background: #fee2e2;
+		background: rgba(254, 226, 226, 0.75);
+		border-color: rgba(239, 68, 68, 0.35);
 		color: #991b1b;
 	}
 
@@ -1528,6 +1694,7 @@
 		width: 18px;
 		height: 18px;
 		cursor: pointer;
+		accent-color: var(--green-mid);
 	}
 
 	.empty-payments-row {
@@ -1536,13 +1703,13 @@
 	}
 
 	.empty-message {
-		color: #94a3b8;
+		color: var(--text-muted);
 		font-size: 14px;
 		font-style: italic;
 	}
 
 	.paid-row {
-		background: #f0fdf4;
+		background: rgba(240, 253, 244, 0.7);
 	}
 
 	.edit-payment-method-btn,
@@ -1576,7 +1743,9 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(12, 46, 32, 0.35);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1584,9 +1753,13 @@
 	}
 
 	.modal-content {
-		background: white;
+		background: linear-gradient(160deg, rgba(255, 255, 255, 0.85) 0%, rgba(236, 252, 243, 0.85) 100%);
+		backdrop-filter: blur(18px) saturate(150%);
+		-webkit-backdrop-filter: blur(18px) saturate(150%);
+		border: 1px solid rgba(134, 199, 160, 0.45);
 		padding: 24px;
-		border-radius: 8px;
+		border-radius: 16px;
+		box-shadow: 0 20px 50px rgba(20, 83, 45, 0.25);
 		max-width: 500px;
 		width: 90%;
 		max-height: 80vh;
@@ -1597,7 +1770,7 @@
 		font-size: 20px;
 		font-weight: 600;
 		margin-bottom: 16px;
-		color: #1e293b;
+		color: #14663f;
 	}
 
 	.modal-body {
@@ -1612,7 +1785,7 @@
 		display: block;
 		margin-bottom: 8px;
 		font-weight: 500;
-		color: #475569;
+		color: #2f6b4f;
 	}
 
 	.form-group input,
@@ -1620,9 +1793,20 @@
 	.form-group textarea {
 		width: 100%;
 		padding: 8px 12px;
-		border: 1px solid #cbd5e1;
-		border-radius: 6px;
+		border: 1px solid rgba(134, 199, 160, 0.55);
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.75);
+		color: #14342a;
 		font-size: 14px;
+		outline: none;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.form-group input:focus,
+	.form-group select:focus,
+	.form-group textarea:focus {
+		border-color: #16a34a;
+		box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 	}
 
 	.form-group textarea {
@@ -1638,8 +1822,8 @@
 
 	.btn {
 		padding: 8px 16px;
-		border: none;
-		border-radius: 6px;
+		border: 1px solid transparent;
+		border-radius: 8px;
 		font-size: 14px;
 		font-weight: 500;
 		cursor: pointer;
@@ -1647,21 +1831,24 @@
 	}
 
 	.btn-primary {
-		background: #3b82f6;
+		background: linear-gradient(135deg, rgba(52, 211, 153, 0.95) 0%, rgba(22, 163, 74, 0.95) 100%);
+		border-color: rgba(255, 255, 255, 0.35);
 		color: white;
+		box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
 	}
 
 	.btn-primary:hover {
-		background: #2563eb;
+		background: linear-gradient(135deg, rgba(22, 163, 74, 0.95) 0%, rgba(21, 128, 61, 0.95) 100%);
 	}
 
 	.btn-secondary {
-		background: #e2e8f0;
-		color: #475569;
+		background: rgba(255, 255, 255, 0.6);
+		border-color: rgba(134, 199, 160, 0.5);
+		color: #2f6b4f;
 	}
 
 	.btn-secondary:hover {
-		background: #cbd5e1;
+		background: rgba(236, 252, 243, 0.9);
 	}
 
 	/* Success Popup - Bottle/Container Style */
@@ -1744,13 +1931,14 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: rgba(255, 255, 255, 0.95);
+		background: rgba(233, 248, 239, 0.82);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		z-index: 9999;
-		backdrop-filter: blur(4px);
+		backdrop-filter: blur(10px) saturate(150%);
+		-webkit-backdrop-filter: blur(10px) saturate(150%);
 	}
 
 	.loading-content {
@@ -1763,8 +1951,8 @@
 	.loading-spinner {
 		width: 60px;
 		height: 60px;
-		border: 6px solid #e2e8f0;
-		border-top-color: #3b82f6;
+		border: 6px solid rgba(134, 199, 160, 0.35);
+		border-top-color: #16a34a;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 	}
@@ -1775,28 +1963,29 @@
 
 	.loading-text {
 		font-size: 18px;
-		color: #475569;
+		color: #14663f;
 		font-weight: 600;
 	}
 
 	.progress-bar {
 		width: 300px;
 		height: 8px;
-		background: #e2e8f0;
+		background: rgba(255, 255, 255, 0.6);
+		border: 1px solid rgba(134, 199, 160, 0.45);
 		border-radius: 10px;
 		overflow: hidden;
 	}
 
 	.progress-fill {
 		height: 100%;
-		background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+		background: linear-gradient(90deg, #34d399 0%, #16a34a 100%);
 		transition: width 0.3s ease;
 		border-radius: 10px;
 	}
 
 	.progress-text {
 		font-size: 16px;
-		color: #64748b;
+		color: #4b7a63;
 		font-weight: 600;
 	}
 
