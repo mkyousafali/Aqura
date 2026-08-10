@@ -617,7 +617,9 @@
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
 
 					// Check for specific button permissions
-					hasReportsPermission = buttonCodes.has('SALES_REPORT');
+					// Master admins pass regardless of rows, matching the desktop
+					// sidebar's isButtonAllowed() so both interfaces agree.
+					hasReportsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SALES_REPORT');
 					hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
 					hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
 					hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
@@ -639,6 +641,11 @@
 				hasBreakRegisterPermission = false;
 				hasExpenseManagerPermission = false;
 				hasVendorPaymentsPermission = false;
+			}
+
+			// Master admin always keeps Sales Report, even with no permission rows
+			if (currentUserData?.isMasterAdmin) {
+				hasReportsPermission = true;
 			}
 
 			// Check for incident manager permission from approval_permissions

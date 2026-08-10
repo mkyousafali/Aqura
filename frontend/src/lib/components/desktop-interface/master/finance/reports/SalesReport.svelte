@@ -5,6 +5,12 @@
 	import { _ as t, currentLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import * as XLSX from 'xlsx';
+	import MobileBarList from './MobileBarList.svelte';
+
+	// Mobile mode: the wide pivot table is unusable on a phone, so the detailed
+	// report renders one stacked card per branch, and the quick-report column
+	// charts become horizontal bar lists.
+	export let mobile = false;
 
 	interface DailySales {
 		date: string;
@@ -1296,6 +1302,16 @@
 				{/if}
 			</div>
 
+			{#if mobile}
+				<MobileBarList
+					items={salesData.map(day => ({
+						label: formatDate(day.date),
+						amount: day.total_amount,
+						bills: day.total_bills,
+						totalReturn: day.total_return
+					}))}
+				/>
+			{:else}
 			<div class="chart-container">
 				{#each salesData as day}
 					<div class="sale-item">
@@ -1320,6 +1336,7 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -1336,6 +1353,19 @@
 		{#if loadingBranch}
 			<div class="loading">{$t('common.loading')}</div>
 		{:else}
+			{#if mobile}
+				<MobileBarList
+					showAverages={true}
+					items={branchSalesData.map(branch => ({
+						label: branch.branch_name,
+						amount: branch.total_amount,
+						bills: branch.total_bills,
+						totalReturn: branch.total_return,
+						previousAvg: branch.previousMonthAvg ?? null,
+						currentAvg: branch.currentMonthAvg ?? null
+					}))}
+				/>
+			{:else}
 			<div class="chart-container">
 				{#each branchSalesData as branch}
 					<div class="sale-item">
@@ -1382,6 +1412,7 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -1398,6 +1429,19 @@
 		{#if loadingYesterdayBranch}
 			<div class="loading">{$t('common.loading')}</div>
 		{:else}
+			{#if mobile}
+				<MobileBarList
+					showAverages={true}
+					items={yesterdayBranchSalesData.map(branch => ({
+						label: branch.branch_name,
+						amount: branch.total_amount,
+						bills: branch.total_bills,
+						totalReturn: branch.total_return,
+						previousAvg: branch.previousMonthAvg ?? null,
+						currentAvg: branch.currentMonthAvg ?? null
+					}))}
+				/>
+			{:else}
 			<div class="chart-container">
 				{#each yesterdayBranchSalesData as branch}
 					<div class="sale-item">
@@ -1422,6 +1466,7 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -1438,6 +1483,15 @@
 		{#if loadingTodayCollection}
 			<div class="loading">{$t('common.loading')}</div>
 		{:else}
+			{#if mobile}
+				<MobileBarList
+					showDetails={false}
+					items={todayCollectionData.map(branch => ({
+						label: branch.branch_name,
+						amount: branch.total_amount
+					}))}
+				/>
+			{:else}
 			<div class="chart-container">
 				{#each todayCollectionData as branch}
 					<div class="sale-item">
@@ -1454,6 +1508,7 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -1470,6 +1525,15 @@
 		{#if loadingYesterdayCollection}
 			<div class="loading">{$t('common.loading')}</div>
 		{:else}
+			{#if mobile}
+				<MobileBarList
+					showDetails={false}
+					items={yesterdayCollectionData.map(branch => ({
+						label: branch.branch_name,
+						amount: branch.total_amount
+					}))}
+				/>
+			{:else}
 			<div class="chart-container">
 				{#each yesterdayCollectionData as branch}
 					<div class="sale-item">
@@ -1486,6 +1550,7 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -1523,14 +1588,16 @@
 		<button class="run-btn" on:click={loadDetailedReport} disabled={loadingDetail}>
 			{loadingDetail ? 'Loading…' : 'Load Report'}
 		</button>
-		<div class="export-bar">
-			<button class="export-btn export-en" on:click={() => exportDetailExcel('en')} disabled={detailRows.length === 0}>
-				↓ Export Excel (EN)
-			</button>
-			<button class="export-btn export-ar" on:click={() => exportDetailExcel('ar')} disabled={detailRows.length === 0}>
-				↓ تصدير Excel
-			</button>
-		</div>
+		{#if !mobile}
+			<div class="export-bar">
+				<button class="export-btn export-en" on:click={() => exportDetailExcel('en')} disabled={detailRows.length === 0}>
+					↓ Export Excel (EN)
+				</button>
+				<button class="export-btn export-ar" on:click={() => exportDetailExcel('ar')} disabled={detailRows.length === 0}>
+					↓ تصدير Excel
+				</button>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Summary badges -->
@@ -1579,6 +1646,113 @@
 				<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
 			</svg>
 			<p>Select a period above and click <strong>Load Report</strong>.</p>
+		</div>
+	{:else if mobile}
+		<!-- Mobile: one card per branch, stacked, instead of the wide pivot table -->
+		<div class="branch-cards">
+			{#each detailBranches as branch}
+				{@const colSales = detailDates.reduce((s, d) => s + (detailPivotMap.get(`${d}|${branch.id}`)?.net_amount ?? 0), 0)}
+				{@const colBills = detailDates.reduce((s, d) => s + (detailPivotMap.get(`${d}|${branch.id}`)?.net_bills ?? 0), 0)}
+				{@const days = detailDates.length || 1}
+				<div class="branch-card">
+					<div class="bc-head">
+						<span class="bc-name">{branch.name}</span>
+						<span class="bc-total">
+							<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
+							{formatCurrency(colSales)}
+						</span>
+					</div>
+					<div class="bc-stats">
+						<div class="bc-stat">
+							<span class="bc-stat-label">Bills</span>
+							<span class="bc-stat-value">{colBills.toLocaleString()}</span>
+						</div>
+						<div class="bc-stat">
+							<span class="bc-stat-label">Avg Basket</span>
+							<span class="bc-stat-value">{formatCurrency(colBills > 0 ? colSales / colBills : 0)}</span>
+						</div>
+						<div class="bc-stat">
+							<span class="bc-stat-label">Avg / Day</span>
+							<span class="bc-stat-value">{formatCurrency(colSales / days)}</span>
+						</div>
+					</div>
+					<div class="bc-rows">
+						<div class="bc-row bc-row-head">
+							<span class="bc-date">Date</span>
+							<span class="bc-num">Sales</span>
+							<span class="bc-num">Bills</span>
+							<span class="bc-num">Avg</span>
+							<span class="bc-trend"></span>
+						</div>
+						{#each detailDates as date, idx}
+							{@const cell = detailPivotMap.get(`${date}|${branch.id}`)}
+							{@const prevDate = detailDates[idx - 1] ?? null}
+							{@const prevCell = prevDate ? detailPivotMap.get(`${prevDate}|${branch.id}`) : null}
+							{@const bDiff = (cell?.net_amount ?? null) != null && (prevCell?.net_amount ?? null) != null ? (cell?.net_amount ?? 0) - (prevCell?.net_amount ?? 0) : null}
+							{@const bTrend = bDiff == null ? 'neutral' : bDiff > 0 ? 'up' : bDiff < 0 ? 'down' : 'neutral'}
+							<div class="bc-row" class:alt-row={idx % 2 === 1}>
+								<span class="bc-date">{date}</span>
+								<span class="bc-num">{cell ? formatCurrency(cell.net_amount) : '—'}</span>
+								<span class="bc-num">{cell ? cell.net_bills.toLocaleString() : '—'}</span>
+								<span class="bc-num">{cell ? formatCurrency(cell.avg_basket) : '—'}</span>
+								<span class="bc-trend">
+									{#if bTrend === 'up'}<span class="t-up">↑</span>{:else if bTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
+								</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
+
+			<!-- All-branches totals -->
+			<div class="branch-card bc-grand">
+				<div class="bc-head">
+					<span class="bc-name">All Branches</span>
+					<span class="bc-total">
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
+						{formatCurrency(detailTotalSales)}
+					</span>
+				</div>
+				<div class="bc-stats">
+					<div class="bc-stat">
+						<span class="bc-stat-label">Bills</span>
+						<span class="bc-stat-value">{detailTotalBills.toLocaleString()}</span>
+					</div>
+					<div class="bc-stat">
+						<span class="bc-stat-label">Avg Basket</span>
+						<span class="bc-stat-value">{formatCurrency(detailAvgBasket)}</span>
+					</div>
+					<div class="bc-stat">
+						<span class="bc-stat-label">Avg / Day</span>
+						<span class="bc-stat-value">{formatCurrency(detailAvgPerDay)}</span>
+					</div>
+				</div>
+				<div class="bc-rows">
+					<div class="bc-row bc-row-head">
+						<span class="bc-date">Date</span>
+						<span class="bc-num">Sales</span>
+						<span class="bc-num">Bills</span>
+						<span class="bc-num">Avg</span>
+						<span class="bc-trend"></span>
+					</div>
+					{#each detailDates as date, idx}
+						{@const prevDate = detailDates[idx - 1] ?? null}
+						{@const rowSales = detailBranches.reduce((s, b) => s + (detailPivotMap.get(`${date}|${b.id}`)?.net_amount ?? 0), 0)}
+						{@const rowBills = detailBranches.reduce((s, b) => s + (detailPivotMap.get(`${date}|${b.id}`)?.net_bills ?? 0), 0)}
+						{@const prevRowSales = prevDate ? detailBranches.reduce((s, b) => s + (detailPivotMap.get(`${prevDate}|${b.id}`)?.net_amount ?? 0), 0) : null}
+						{@const rowTrend = prevRowSales == null ? 'neutral' : rowSales > prevRowSales ? 'up' : rowSales < prevRowSales ? 'down' : 'neutral'}
+						<div class="bc-row" class:alt-row={idx % 2 === 1}>
+							<span class="bc-date">{date}</span>
+							<span class="bc-num">{formatCurrency(rowSales)}</span>
+							<span class="bc-num">{rowBills.toLocaleString()}</span>
+							<span class="bc-num">{formatCurrency(rowBills > 0 ? rowSales / rowBills : 0)}</span>
+							<span class="bc-trend">
+								{#if rowTrend === 'up'}<span class="t-up">↑</span>{:else if rowTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
+							</span>
+						</div>
+					{/each}
+				</div>
+			</div>
 		</div>
 	{:else}
 		<div class="table-wrapper">
@@ -1703,14 +1877,16 @@
 		<button class="run-btn" on:click={loadMonthlySummary} disabled={loadingMonthly}>
 			{loadingMonthly ? 'Loading…' : 'Load Report'}
 		</button>
-		<div class="export-bar">
-			<button class="export-btn export-en" on:click={() => exportMonthlyExcel('en')} disabled={monthlyMonths.length === 0}>
-				↓ Export Excel (EN)
-			</button>
-			<button class="export-btn export-ar" on:click={() => exportMonthlyExcel('ar')} disabled={monthlyMonths.length === 0}>
-				↓ تصدير Excel
-			</button>
-		</div>
+		{#if !mobile}
+			<div class="export-bar">
+				<button class="export-btn export-en" on:click={() => exportMonthlyExcel('en')} disabled={monthlyMonths.length === 0}>
+					↓ Export Excel (EN)
+				</button>
+				<button class="export-btn export-ar" on:click={() => exportMonthlyExcel('ar')} disabled={monthlyMonths.length === 0}>
+					↓ تصدير Excel
+				</button>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Summary badges -->
@@ -1752,6 +1928,113 @@
 				<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
 			</svg>
 			<p>Select a period above and click <strong>Load Report</strong>.</p>
+		</div>
+	{:else if mobile}
+		<!-- Mobile: one card per branch, stacked, instead of the wide pivot table -->
+		<div class="branch-cards">
+			{#each monthlyBranches as branch}
+				{@const cs = monthlyMonths.reduce((s, m) => s + (monthlyPivotMap.get(`${m}|${branch.id}`)?.net_amount ?? 0), 0)}
+				{@const cb = monthlyMonths.reduce((s, m) => s + (monthlyPivotMap.get(`${m}|${branch.id}`)?.net_bills ?? 0), 0)}
+				{@const n = monthlyMonths.length || 1}
+				<div class="branch-card">
+					<div class="bc-head">
+						<span class="bc-name">{branch.name}</span>
+						<span class="bc-total">
+							<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
+							{formatCurrency(cs)}
+						</span>
+					</div>
+					<div class="bc-stats">
+						<div class="bc-stat">
+							<span class="bc-stat-label">Bills</span>
+							<span class="bc-stat-value">{cb.toLocaleString()}</span>
+						</div>
+						<div class="bc-stat">
+							<span class="bc-stat-label">Avg Basket</span>
+							<span class="bc-stat-value">{formatCurrency(cb > 0 ? cs / cb : 0)}</span>
+						</div>
+						<div class="bc-stat">
+							<span class="bc-stat-label">Avg / Month</span>
+							<span class="bc-stat-value">{formatCurrency(cs / n)}</span>
+						</div>
+					</div>
+					<div class="bc-rows">
+						<div class="bc-row bc-row-head">
+							<span class="bc-date">Month</span>
+							<span class="bc-num">Sales</span>
+							<span class="bc-num">Bills</span>
+							<span class="bc-num">Avg</span>
+							<span class="bc-trend"></span>
+						</div>
+						{#each monthlyMonths as ym, idx}
+							{@const cell = monthlyPivotMap.get(`${ym}|${branch.id}`)}
+							{@const prevYm = monthlyMonths[idx - 1] ?? null}
+							{@const prevCell = prevYm ? monthlyPivotMap.get(`${prevYm}|${branch.id}`) : null}
+							{@const bDiff = cell && prevCell ? cell.net_amount - prevCell.net_amount : null}
+							{@const bTrend = bDiff == null ? 'neutral' : bDiff > 0 ? 'up' : bDiff < 0 ? 'down' : 'neutral'}
+							<div class="bc-row" class:alt-row={idx % 2 === 1}>
+								<span class="bc-date">{ym}</span>
+								<span class="bc-num">{cell ? formatCurrency(cell.net_amount) : '—'}</span>
+								<span class="bc-num">{cell ? cell.net_bills.toLocaleString() : '—'}</span>
+								<span class="bc-num">{cell ? formatCurrency(cell.avg_basket) : '—'}</span>
+								<span class="bc-trend">
+									{#if bTrend === 'up'}<span class="t-up">↑</span>{:else if bTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
+								</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
+
+			<!-- All-branches totals -->
+			<div class="branch-card bc-grand">
+				<div class="bc-head">
+					<span class="bc-name">All Branches</span>
+					<span class="bc-total">
+						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
+						{formatCurrency(monthlyTotalSales)}
+					</span>
+				</div>
+				<div class="bc-stats">
+					<div class="bc-stat">
+						<span class="bc-stat-label">Bills</span>
+						<span class="bc-stat-value">{monthlyTotalBills.toLocaleString()}</span>
+					</div>
+					<div class="bc-stat">
+						<span class="bc-stat-label">Avg Basket</span>
+						<span class="bc-stat-value">{formatCurrency(monthlyAvgBasket)}</span>
+					</div>
+					<div class="bc-stat">
+						<span class="bc-stat-label">Avg / Month</span>
+						<span class="bc-stat-value">{formatCurrency(monthlyAvgPerMonth)}</span>
+					</div>
+				</div>
+				<div class="bc-rows">
+					<div class="bc-row bc-row-head">
+						<span class="bc-date">Month</span>
+						<span class="bc-num">Sales</span>
+						<span class="bc-num">Bills</span>
+						<span class="bc-num">Avg</span>
+						<span class="bc-trend"></span>
+					</div>
+					{#each monthlyMonths as ym, idx}
+						{@const prevYm = monthlyMonths[idx - 1] ?? null}
+						{@const rowSales = monthlyBranches.reduce((s, b) => s + (monthlyPivotMap.get(`${ym}|${b.id}`)?.net_amount ?? 0), 0)}
+						{@const rowBills = monthlyBranches.reduce((s, b) => s + (monthlyPivotMap.get(`${ym}|${b.id}`)?.net_bills ?? 0), 0)}
+						{@const prevRowSales = prevYm ? monthlyBranches.reduce((s, b) => s + (monthlyPivotMap.get(`${prevYm}|${b.id}`)?.net_amount ?? 0), 0) : null}
+						{@const rowTrend = prevRowSales == null ? 'neutral' : rowSales > prevRowSales ? 'up' : rowSales < prevRowSales ? 'down' : 'neutral'}
+						<div class="bc-row" class:alt-row={idx % 2 === 1}>
+							<span class="bc-date">{ym}</span>
+							<span class="bc-num">{formatCurrency(rowSales)}</span>
+							<span class="bc-num">{rowBills.toLocaleString()}</span>
+							<span class="bc-num">{formatCurrency(rowBills > 0 ? rowSales / rowBills : 0)}</span>
+							<span class="bc-trend">
+								{#if rowTrend === 'up'}<span class="t-up">↑</span>{:else if rowTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
+							</span>
+						</div>
+					{/each}
+				</div>
+			</div>
 		</div>
 	{:else}
 		<div class="table-wrapper">
@@ -2324,6 +2607,135 @@
 		border-radius: 12px;
 		box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 		border: 1px solid #e5e7eb;
+	}
+
+	/* ── Mobile branch cards (detailed report, mobile={true}) ───────────────── */
+	.branch-cards {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.branch-card {
+		background: white;
+		border-radius: 12px;
+		border: 1px solid #e5e7eb;
+		border-left: 4px solid #10b981;
+		box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+		overflow: hidden;
+	}
+
+	.branch-card.bc-grand {
+		border-left-color: #374151;
+	}
+
+	.bc-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.65rem 0.75rem;
+		background: #ecfdf5;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.bc-grand .bc-head {
+		background: #f3f4f6;
+	}
+
+	.bc-name {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #111;
+	}
+
+	.bc-total {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #047857;
+		white-space: nowrap;
+	}
+
+	.bc-grand .bc-total {
+		color: #111;
+	}
+
+	.bc-stats {
+		display: flex;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.bc-stat {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.5rem 0.6rem;
+		border-right: 1px solid #f3f4f6;
+	}
+
+	.bc-stat:last-child {
+		border-right: none;
+	}
+
+	.bc-stat-label {
+		font-size: 0.6rem;
+		font-weight: 600;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+	}
+
+	.bc-stat-value {
+		font-size: 0.8rem;
+		font-weight: 700;
+		color: #111;
+	}
+
+	.bc-rows {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.bc-row {
+		display: grid;
+		grid-template-columns: 1.4fr 1.3fr 0.8fr 1.1fr 0.5fr;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.4rem 0.6rem;
+		font-size: 0.72rem;
+		color: #111;
+	}
+
+	.bc-row.alt-row {
+		background: #fafafa;
+	}
+
+	.bc-row-head {
+		background: #f9fafb;
+		font-size: 0.62rem;
+		font-weight: 700;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.bc-date {
+		white-space: nowrap;
+	}
+
+	.bc-num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+
+	.bc-trend {
+		text-align: center;
 	}
 
 	.detail-table {
