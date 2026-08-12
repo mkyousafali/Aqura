@@ -62,6 +62,13 @@
         buttons?: any[] | null;
     }
 
+    // Responsive: narrow (mobile / small window) switches to single-panel navigation
+    let rootEl: HTMLElement;
+    let containerWidth = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    let mobileShowChat = false;
+    $: narrow = containerWidth > 0 && containerWidth <= 720;
+
     let supabase: any = null;
     let conversations: Conversation[] = [];
     let filteredConversations: Conversation[] = [];
@@ -199,6 +206,14 @@
     let waProfilePicUrl = '';
 
     onMount(async () => {
+        // Track own width so the layout adapts inside a desktop window as well as on a phone
+        if (rootEl && typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver((entries) => {
+                containerWidth = entries[0]?.contentRect?.width || 0;
+            });
+            resizeObserver.observe(rootEl);
+            containerWidth = rootEl.getBoundingClientRect().width;
+        }
         const mod = await import('$lib/utils/supabase');
         supabase = mod.supabase;
         await loadAccount();
@@ -208,6 +223,8 @@
 
     onDestroy(() => {
         if (refreshInterval) clearInterval(refreshInterval);
+        if (recordingTimer) clearInterval(recordingTimer);
+        if (resizeObserver) resizeObserver.disconnect();
         if (convSubscription) convSubscription.unsubscribe();
         if (msgSubscription) msgSubscription.unsubscribe();
     });
@@ -369,6 +386,7 @@
 
     async function selectConversation(conv: Conversation) {
         selectedConv = conv;
+        mobileShowChat = true;
         await loadMessages(conv.id);
         // Subscribe to realtime messages for this conversation
         subscribeToMessages(conv.id);
@@ -378,6 +396,15 @@
             conv.unread_count = 0;
             conversations = [...conversations];
         }
+    }
+
+    // Narrow layout only — return to the conversation list
+    function backToList() {
+        mobileShowChat = false;
+        showAttachMenu = false;
+        showTemplatePicker = false;
+        showOfferModal = false;
+        selectedOffer = null;
     }
 
     async function loadMessages(convId: string, silent = false) {
@@ -512,7 +539,7 @@
                 return {
                     ...offer,
                     offer_name: (offer.offer_name || '').trim().replace(/[\n\r]/g, ' '),
-                    branch_name: branchInfo?.name || 'Unknown Branch',
+                    branch_name: branchInfo?.name || ($locale === 'ar' ? 'فرع غير معروف' : 'Unknown Branch'),
                     branch_location: branchInfo?.location || ''
                 };
             });
@@ -751,13 +778,13 @@
         // Validate all values filled
         for (const i of pendingBodyVars) {
             if (!bodyVarValues[String(i)] || !bodyVarValues[String(i)].trim()) {
-                alert(`Please fill body variable {{${i}}}`);
+                alert($locale === 'ar' ? `يرجى ملء المتغير {{${i}}}` : `Please fill body variable {{${i}}}`);
                 return;
             }
         }
         for (const b of pendingUrlButtons) {
             if (!urlBtnValues[String(b.idx)] || !urlBtnValues[String(b.idx)].trim()) {
-                alert(`Please fill button "${b.text}" parameter`);
+                alert($locale === 'ar' ? `يرجى ملء معامل الزر "${b.text}"` : `Please fill button "${b.text}" parameter`);
                 return;
             }
         }
@@ -850,7 +877,7 @@
             scrollToBottom();
         } catch (e: any) {
             console.error('Send template error:', e);
-            alert('Failed to send template: ' + (e?.message || 'Unknown error'));
+            alert(($locale === 'ar' ? 'فشل إرسال القالب: ' : 'Failed to send template: ') + (e?.message || ($locale === 'ar' ? 'خطأ غير معروف' : 'Unknown error')));
         } finally {
             sending = false;
         }
@@ -919,11 +946,12 @@
         const now = new Date();
         const diffMs = now.getTime() - d.getTime();
         const diffMins = Math.floor(diffMs / 60000);
-        if (diffMins < 1) return 'now';
-        if (diffMins < 60) return `${diffMins}m`;
+        const isAr = $locale === 'ar';
+        if (diffMins < 1) return isAr ? 'الآن' : 'now';
+        if (diffMins < 60) return isAr ? `${diffMins} د` : `${diffMins}m`;
         const diffHrs = Math.floor(diffMs / 3600000);
-        if (diffHrs < 24) return `${diffHrs}h`;
-        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        if (diffHrs < 24) return isAr ? `${diffHrs} س` : `${diffHrs}h`;
+        return d.toLocaleDateString(isAr ? 'ar' : [], { month: 'short', day: 'numeric' });
     }
 
     function formatMsgTime(dateStr: string) {
@@ -1248,9 +1276,13 @@
     }
 </script>
 
-<div class="wa-live-chat absolute inset-0 flex overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+<div class="wa-live-chat absolute inset-0 flex overflow-hidden font-sans"
+    class:narrow
+    class:chat-open={mobileShowChat}
+    bind:this={rootEl}
+    dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Left Panel: Conversation List -->
-    <div class="w-[300px] flex flex-col border-r border-slate-200/80 bg-gradient-to-b from-orange-50/40 via-white to-orange-50/20">
+    <div class="left-panel w-[300px] flex flex-col border-r border-slate-200/80 bg-gradient-to-b from-orange-50/40 via-white to-orange-50/20">
         <!-- Brand Header -->
         <!-- Account Header -->
         <div class="left-panel-header">
@@ -1261,8 +1293,8 @@
                     <div class="w-9 h-9 rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">💬</div>
                 {/if}
                 <div class="flex-1 min-w-0">
-                    <h2 class="text-slate-800 font-semibold text-[13px] truncate">{waAccountName || 'Live Chat'}</h2>
-                    <p class="text-slate-400 text-[10px]">WhatsApp Business</p>
+                    <h2 class="text-slate-800 font-semibold text-[13px] truncate">{waAccountName || ($locale === 'ar' ? 'الدردشة المباشرة' : 'Live Chat')}</h2>
+                    <p class="text-slate-400 text-[10px]">{$locale === 'ar' ? 'واتساب للأعمال' : 'WhatsApp Business'}</p>
                 </div>
             </div>
         </div>
@@ -1270,13 +1302,14 @@
         <div class="px-3 py-2 border-b border-slate-100">
             <div class="relative">
                 <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
-                <input type="text" bind:value={searchQuery} placeholder="Search conversations..."
+                <input type="text" bind:value={searchQuery} placeholder={$locale === 'ar' ? 'ابحث في المحادثات...' : 'Search conversations...'}
                     class="w-full pl-8 pr-3 py-1.5 bg-slate-50 text-slate-700 placeholder-slate-400 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-orange-300 focus:border-orange-300 transition-all" />
             </div>
-            <div class="flex gap-1 mt-2">
+            <div class="flex flex-wrap gap-1 mt-2">
                 {#each [
-                    { id: 'all', label: 'All' },
-                    { id: 'unread', label: 'Unread' }
+                    { id: 'all', label: $locale === 'ar' ? 'الكل' : 'All' },
+                    { id: 'unread', label: $locale === 'ar' ? 'غير مقروء' : 'Unread' },
+                    { id: 'human', label: $locale === 'ar' ? 'الرد التلقائي معطّل' : 'Auto Reply Off' }
                 ] as f}
                     <button class="px-3 py-1 text-[10px] font-medium rounded-md transition-all
                         {chatFilter === f.id ? 'bg-orange-500 text-white' : 'text-slate-500 hover:bg-slate-100'}"
@@ -1326,10 +1359,10 @@
                                         <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
                                         <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
                                     </div>
-                                    <div class="flex items-center justify-between mt-0.5">
-                                        <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
-                                        <div class="flex items-center gap-1 flex-shrink-0">
-                                            <span role="button" tabindex="0" class="conv-badge badge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)} title={$locale === 'ar' ? 'إلغاء SOS' : 'Remove SOS'}>SOS</span>
+                                    <div class="conv-meta-row flex items-center justify-between mt-0.5">
+                                        <p class="conv-preview text-[11px] text-slate-500 truncate">{conv.last_message_preview || ($locale === 'ar' ? 'لا توجد رسائل' : 'No messages')}</p>
+                                        <div class="conv-badges flex items-center gap-1 flex-shrink-0">
+                                            <span role="button" tabindex="0" class="conv-badge badge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)} title={$locale === 'ar' ? 'إلغاء SOS' : 'Remove SOS'}>{$locale === 'ar' ? 'استغاثة' : 'SOS'}</span>
                                             {#if conv.unread_count > 0}
                                                 <span class="unread-badge">{conv.unread_count}</span>
                                             {/if}
@@ -1364,9 +1397,9 @@
                                         <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
                                         <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
                                     </div>
-                                    <div class="flex items-center justify-between mt-0.5">
-                                        <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
-                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                    <div class="conv-meta-row flex items-center justify-between mt-0.5">
+                                        <p class="conv-preview text-[11px] text-slate-500 truncate">{conv.last_message_preview || ($locale === 'ar' ? 'لا توجد رسائل' : 'No messages')}</p>
+                                        <div class="conv-badges flex items-center gap-1 flex-shrink-0">
                                             <span role="button" tabindex="0" class="conv-badge badge-needshelp" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)} title={$locale === 'ar' ? 'حل وإعادة الذكاء' : 'Resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'حل' : 'Resolve'}</span>
                                             {#if conv.unread_count > 0}
                                                 <span class="unread-badge">{conv.unread_count}</span>
@@ -1390,7 +1423,7 @@
                 {#if filteredConversations.length === 0 && priorityConversations.length === 0}
                     <div class="text-center py-12 text-slate-400">
                         <div class="text-4xl mb-3 opacity-40">💬</div>
-                        <p class="text-xs font-medium">No conversations yet</p>
+                        <p class="text-xs font-medium">{$locale === 'ar' ? 'لا توجد محادثات بعد' : 'No conversations yet'}</p>
                     </div>
                 {/if}
                 {#each filteredConversations as conv}
@@ -1408,14 +1441,10 @@
                         </div>
                         <!-- Info -->
                         <div class="flex-1 min-w-0">
-                            <div class="flex items-center justify-between">
+                            <div class="flex items-center justify-between gap-1.5">
                                 <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
-                                <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
-                            </div>
-                            <div class="flex items-center justify-between mt-0.5">
-                                <p class="text-[11px] text-slate-500 truncate">{conv.last_message_preview || 'No messages'}</p>
                                 <div class="flex items-center gap-1 flex-shrink-0">
-                                    <!-- Badge 1: Last handler -->
+                                    <!-- Badge 1: Who is handling now -->
                                     {#if (conv as any).handled_by === 'human'}
                                         <span class="conv-badge badge-human">👤 {$locale === 'ar' ? 'بشري' : 'Human'}</span>
                                     {:else if (conv as any).handled_by === 'auto_reply'}
@@ -1431,13 +1460,19 @@
                                     {:else}
                                         <span role="button" tabindex="0" class="conv-badge badge-aioff" on:click|stopPropagation={() => toggleAI(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleAI(conv)} title={$locale === 'ar' ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴 {$locale === 'ar' ? 'معطّل' : 'Off'}</span>
                                     {/if}
+                                    <span class="text-[10px] text-slate-400">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
+                                </div>
+                            </div>
+                            <div class="conv-meta-row flex items-center justify-between mt-0.5">
+                                <p class="conv-preview text-[11px] text-slate-500 truncate">{conv.last_message_preview || ($locale === 'ar' ? 'لا توجد رسائل' : 'No messages')}</p>
+                                <div class="conv-badges flex items-center gap-1 flex-shrink-0">
                                     <!-- Badge 3: Needs human (clickable = resolve) -->
                                     {#if conv.needs_human}
                                         <span role="button" tabindex="0" class="conv-badge badge-needshelp" on:click|stopPropagation={() => resolveHelp(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && resolveHelp(conv)} title={$locale === 'ar' ? 'اضغط لتأكيد الحل وإعادة الذكاء' : 'Click to resolve & re-enable AI'}>🆘 {$locale === 'ar' ? 'يحتاج مساعدة' : 'Needs Help'}</span>
                                     {/if}
                                     <!-- Badge 4: SOS Mode (clickable = toggle SOS) -->
                                     {#if conv.is_sos}
-                                        <span role="button" tabindex="0" class="conv-badge badge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)} title={$locale === 'ar' ? 'اضغط لإلغاء وضع SOS' : 'Click to remove SOS mode'}>SOS</span>
+                                        <span role="button" tabindex="0" class="conv-badge badge-sos-active" on:click|stopPropagation={() => toggleSOS(conv)} on:keydown|stopPropagation={(e) => e.key === 'Enter' && toggleSOS(conv)} title={$locale === 'ar' ? 'اضغط لإلغاء وضع SOS' : 'Click to remove SOS mode'}>{$locale === 'ar' ? 'استغاثة' : 'SOS'}</span>
                                     {/if}
                                     {#if conv.unread_count > 0}
                                         <span class="unread-badge">{conv.unread_count}</span>
@@ -1454,7 +1489,7 @@
                 {:else if conversations.length < convTotalCount}
                     <button class="w-full py-2 text-xs text-orange-500 font-medium hover:bg-orange-50 rounded-lg transition-colors"
                         on:click={loadMoreConversations}>
-                        Load more ({convTotalCount - conversations.length} remaining)
+                        {$locale === 'ar' ? `تحميل المزيد (${convTotalCount - conversations.length} متبقي)` : `Load more (${convTotalCount - conversations.length} remaining)`}
                     </button>
                 {/if}
             {/if}
@@ -1462,38 +1497,81 @@
     </div>
 
     <!-- Right Panel: Chat Area -->
-    <div class="flex-1 flex flex-col bg-slate-50 min-h-0 overflow-hidden">
+    <div class="right-panel flex-1 flex flex-col bg-slate-50 min-h-0 overflow-hidden">
         {#if selectedConv}
             <!-- Chat Header -->
             <div class="chat-header">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm" style="background:{avatarColor(selectedConv.customer_name || selectedConv.customer_phone)}">
+                <div class="chat-header-identity flex items-center gap-3 min-w-0">
+                    {#if narrow}
+                        <button class="back-btn" on:click={backToList} aria-label={$locale === 'ar' ? 'رجوع' : 'Back'}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                {#if $locale === 'ar'}<path d="M9 18l6-6-6-6"/>{:else}<path d="M15 18l-6-6 6-6"/>{/if}
+                            </svg>
+                        </button>
+                    {/if}
+                    <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm flex-shrink-0" style="background:{avatarColor(selectedConv.customer_name || selectedConv.customer_phone)}">
                         {(selectedConv.customer_name || '?')[0].toUpperCase()}
                     </div>
-                    <div>
-                        <h3 class="font-semibold text-sm text-slate-800">{selectedConv.customer_name || 'Unknown'}</h3>
-                        <p class="text-slate-400 text-[11px] font-mono">{selectedConv.customer_phone}</p>
+                    <div class="min-w-0">
+                        <h3 class="font-semibold text-sm text-slate-800 truncate">{selectedConv.customer_name || ($locale === 'ar' ? 'غير معروف' : 'Unknown')}</h3>
+                        <p class="text-slate-400 text-[11px] font-mono truncate">{selectedConv.customer_phone}</p>
                     </div>
+                    {#if narrow}
+                        <!-- 24hr window + who is handling now — pinned to the far side, opposite the back button -->
+                        <div class="handler-badge-top ms-auto flex-shrink-0 flex items-center gap-1.5">
+                            <span class="window-status inline-flex items-center {selectedConv.is_inside_24hr ? 'text-green-600' : 'text-red-500'}"
+                                title={selectedConv.is_inside_24hr
+                                    ? ($locale === 'ar' ? 'داخل نافذة 24 ساعة' : 'Inside 24-hour window')
+                                    : ($locale === 'ar' ? 'خارج نافذة 24 ساعة — القوالب فقط' : 'Outside 24-hour window — templates only')}>
+                                <svg class="window-clock" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"/>
+                                    <path d="M12 7v5l3 2"/>
+                                </svg>
+                            </span>
+                            {#if (selectedConv as any).handled_by === 'human'}
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200 whitespace-nowrap">👤 {$locale === 'ar' ? 'وكيل بشري' : 'Human'}</span>
+                            {:else if (selectedConv as any).handled_by === 'auto_reply'}
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200 whitespace-nowrap">🔧 {$locale === 'ar' ? 'رد تلقائي' : 'Auto Reply'}</span>
+                            {:else if (selectedConv as any).handled_by === 'flow'}
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200 whitespace-nowrap">🌊 {$locale === 'ar' ? 'تدفق بوت' : 'Bot Flow'}</span>
+                            {:else if (selectedConv as any).handled_by === 'bot' || (selectedConv as any).handled_by === 'ai_bot'}
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-600 border border-violet-200 whitespace-nowrap">🤖 {$locale === 'ar' ? 'بوت ذكاء' : 'AI Bot'}</span>
+                            {/if}
+                        </div>
+                    {/if}
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold {selectedConv.is_inside_24hr ? 'bg-green-50 text-green-600 border border-green-200' : 'bg-red-50 text-red-500 border border-red-200'}">
-                        {selectedConv.is_inside_24hr ? '● 24hr Window' : '● Templates Only'}
-                    </span>
-                    <!-- Badge 1: Last handler -->
-                    {#if (selectedConv as any).handled_by === 'human'}
-                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">👤 {$locale === 'ar' ? 'وكيل بشري' : 'Human'}</span>
-                    {:else if (selectedConv as any).handled_by === 'auto_reply'}
-                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">🔧 {$locale === 'ar' ? 'رد تلقائي' : 'Auto Reply'}</span>
-                    {:else if (selectedConv as any).handled_by === 'flow'}
-                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200">🌊 {$locale === 'ar' ? 'تدفق بوت' : 'Bot Flow'}</span>
-                    {:else if (selectedConv as any).handled_by === 'bot' || (selectedConv as any).handled_by === 'ai_bot'}
-                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-600 border border-violet-200">🤖 {$locale === 'ar' ? 'بوت ذكاء' : 'AI Bot'}</span>
+                <div class="chat-header-actions flex items-center gap-2">
+                    <!-- 24-hour window status — clock icon (green = inside, red = outside).
+                         Moves to the header top row on narrow screens. -->
+                    {#if !narrow}
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold inline-flex items-center gap-1.5 {selectedConv.is_inside_24hr ? 'bg-green-50 text-green-600 border border-green-200' : 'bg-red-50 text-red-500 border border-red-200'}"
+                            title={selectedConv.is_inside_24hr
+                                ? ($locale === 'ar' ? 'داخل نافذة 24 ساعة' : 'Inside 24-hour window')
+                                : ($locale === 'ar' ? 'خارج نافذة 24 ساعة — القوالب فقط' : 'Outside 24-hour window — templates only')}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path d="M12 7v5l3 2"/>
+                            </svg>
+                            {selectedConv.is_inside_24hr ? '24hr Window' : 'Templates Only'}
+                        </span>
+                    {/if}
+                    <!-- Badge 1: Last handler (moves to the header top row on narrow screens) -->
+                    {#if !narrow}
+                        {#if (selectedConv as any).handled_by === 'human'}
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">👤 {$locale === 'ar' ? 'وكيل بشري' : 'Human'}</span>
+                        {:else if (selectedConv as any).handled_by === 'auto_reply'}
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">🔧 {$locale === 'ar' ? 'رد تلقائي' : 'Auto Reply'}</span>
+                        {:else if (selectedConv as any).handled_by === 'flow'}
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200">🌊 {$locale === 'ar' ? 'تدفق بوت' : 'Bot Flow'}</span>
+                        {:else if (selectedConv as any).handled_by === 'bot' || (selectedConv as any).handled_by === 'ai_bot'}
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-600 border border-violet-200">🤖 {$locale === 'ar' ? 'بوت ذكاء' : 'AI Bot'}</span>
+                        {/if}
                     {/if}
                     <!-- Badge 2: AI on/off (clickable) -->
                     {#if selectedConv.is_bot_handling}
-                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-300 hover:bg-violet-200 transition-colors cursor-pointer" on:click={() => toggleAI(selectedConv)} title={$locale === 'ar' ? 'إيقاف الذكاء مؤقتاً' : 'Pause AI'}>🤖🟢 {$locale === 'ar' ? 'ذكاء مفعّل' : 'AI On'}</button>
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-300 hover:bg-violet-200 transition-colors cursor-pointer" on:click={() => toggleAI(selectedConv)} title={$locale === 'ar' ? 'إيقاف الذكاء مؤقتاً' : 'Pause AI'}>🤖🟢 <span class="ai-toggle-label">{$locale === 'ar' ? 'ذكاء مفعّل' : 'AI On'}</span><span class="ai-toggle-action">{$locale === 'ar' ? 'تعطيل' : 'Disable'}</span></button>
                     {:else}
-                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-400 border border-slate-200 hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200 transition-colors cursor-pointer" on:click={() => toggleAI(selectedConv)} title={$locale === 'ar' ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴 {$locale === 'ar' ? 'ذكاء معطّل' : 'AI Off'}</button>
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-400 border border-slate-200 hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200 transition-colors cursor-pointer" on:click={() => toggleAI(selectedConv)} title={$locale === 'ar' ? 'تفعيل الذكاء' : 'Enable AI'}>🤖🔴 <span class="ai-toggle-label">{$locale === 'ar' ? 'ذكاء معطّل' : 'AI Off'}</span><span class="ai-toggle-action">{$locale === 'ar' ? 'تفعيل' : 'Enable'}</span></button>
                     {/if}
                     <!-- Badge 3: Needs human help (clickable = resolve) -->
                     {#if selectedConv.needs_human}
@@ -1501,19 +1579,19 @@
                     {/if}
                     <!-- Badge 4: SOS Toggle -->
                     {#if selectedConv.is_sos}
-                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer animate-pulse" on:click={() => toggleSOS(selectedConv)} title={$locale === 'ar' ? 'اضغط لإزالة وضع SOS وتشغيل الذكاء' : 'Click to remove SOS & enable AI'}>� {$locale === 'ar' ? 'وضع SOS' : 'SOS Mode'}</button>
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer animate-pulse" on:click={() => toggleSOS(selectedConv)} title={$locale === 'ar' ? 'اضغط لإزالة وضع SOS وتشغيل الذكاء' : 'Click to remove SOS & enable AI'}><span class="sos-toggle-full">🚨 {$locale === 'ar' ? 'وضع SOS' : 'SOS Mode'}</span><span class="sos-toggle-short">🚨 {$locale === 'ar' ? 'استغاثة' : 'SOS'}</span></button>
                     {:else}
-                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-red-100 hover:text-red-700 hover:border-red-300 transition-colors cursor-pointer" on:click={() => toggleSOS(selectedConv)} title={$locale === 'ar' ? 'اضغط لتفعيل وضع SOS' : 'Click to enable SOS mode'}>🛑 {$locale === 'ar' ? 'تفعيل SOS' : 'Enable SOS'}</button>
+                        <button class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-red-100 hover:text-red-700 hover:border-red-300 transition-colors cursor-pointer" on:click={() => toggleSOS(selectedConv)} title={$locale === 'ar' ? 'اضغط لتفعيل وضع SOS' : 'Click to enable SOS mode'}><span class="sos-toggle-full">🛑 {$locale === 'ar' ? 'تفعيل SOS' : 'Enable SOS'}</span><span class="sos-toggle-short">🚨 {$locale === 'ar' ? 'استغاثة' : 'SOS'}</span></button>
                     {/if}
-                    <button class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
+                    <button class="incident-btn w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-colors text-sm"
                         on:click={() => showIncidentPopup = true}
-                        title="Report Incident">
-                        🚨
+                        title={$locale === 'ar' ? 'الإبلاغ عن حادثة' : 'Report Incident'}>
+                        ⚠️<span class="incident-btn-label">{$locale === 'ar' ? 'إبلاغ' : 'Report'}</span>
                     </button>
                     {#if selectedConv.is_bot_handling}
                         <button class="px-3 py-1.5 bg-orange-50 text-orange-600 text-[11px] font-medium rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors"
                             on:click={takeOverFromBot}>
-                            👤 Take Over
+                            👤 {$locale === 'ar' ? 'تولّي المحادثة' : 'Take Over'}
                         </button>
                     {/if}
                 </div>
@@ -1538,14 +1616,14 @@
                             <div class="animate-spin w-5 h-5 border-2 border-orange-200 border-t-orange-500 rounded-full"></div>
                         {:else}
                             <button class="px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-500 border border-slate-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-all shadow-sm"
-                                on:click={loadOlderMessages}>⬆️ Load older messages</button>
+                                on:click={loadOlderMessages}>⬆️ {$locale === 'ar' ? 'تحميل الرسائل الأقدم' : 'Load older messages'}</button>
                         {/if}
                     </div>
                 {/if}
                 {#if messages.length === 0}
                     <div class="text-center py-16">
                         <div class="text-5xl mb-3 opacity-30">💬</div>
-                        <p class="text-slate-400 text-sm font-medium">No messages in this conversation</p>
+                        <p class="text-slate-400 text-sm font-medium">{$locale === 'ar' ? 'لا توجد رسائل في هذه المحادثة' : 'No messages in this conversation'}</p>
                     </div>
                 {:else}
                     {#each messages as msg, idx}
@@ -1583,13 +1661,13 @@
                                 {#if (msg.message_type === 'audio' || msg.message_type === 'voice') && msg.media_url}
                                     <audio controls preload="metadata" class="max-w-[250px] h-10 mb-1">
                                         <source src={msg.media_url} type={msg.media_mime_type || 'audio/ogg'} />
-                                        Your browser does not support audio.
+                                        {$locale === 'ar' ? 'متصفحك لا يدعم الصوت.' : 'Your browser does not support audio.'}
                                     </audio>
                                 {/if}
                                 {#if msg.message_type === 'video' && msg.media_url}
                                     <video controls preload="metadata" class="rounded-lg max-w-[280px] max-h-[200px] mb-1">
                                         <source src={msg.media_url} type={msg.media_mime_type || 'video/mp4'} />
-                                        Your browser does not support video.
+                                        {$locale === 'ar' ? 'متصفحك لا يدعم الفيديو.' : 'Your browser does not support video.'}
                                     </video>
                                 {/if}
                                 {#if msg.message_type === 'sticker' && msg.media_url}
@@ -1598,7 +1676,7 @@
                                 {#if msg.message_type === 'document' && msg.media_url}
                                     <div class="bg-slate-100 rounded-lg p-2 flex items-center gap-2 mb-1">
                                         <span>📎</span>
-                                        <a href={msg.media_url} target="_blank" class="text-blue-600 text-xs underline">Document</a>
+                                        <a href={msg.media_url} target="_blank" class="text-blue-600 text-xs underline">{$locale === 'ar' ? 'مستند' : 'Document'}</a>
                                     </div>
                                 {/if}
                                 {#if msg.content && !(['image','audio','voice','video','sticker'].includes(msg.message_type) && msg.media_url && /^\[.+\]$/.test(msg.content.trim()))}
@@ -1661,11 +1739,11 @@
             <div class="input-area">
                 {#if !selectedConv.is_inside_24hr}
                     <!-- Outside 24hr — Templates only -->
-                    <div class="flex items-center gap-3">
-                        <p class="text-xs text-red-500 font-semibold">● Outside 24-hour window. Templates only.</p>
-                        <button class="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-xs font-bold rounded-xl hover:from-orange-600 hover:to-orange-700 shadow-sm transition-all"
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <p class="text-xs text-red-500 font-semibold">● {$locale === 'ar' ? 'خارج نافذة 24 ساعة. القوالب فقط.' : 'Outside 24-hour window. Templates only.'}</p>
+                        <button class="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-xs font-bold rounded-xl hover:from-orange-600 hover:to-orange-700 shadow-sm transition-all whitespace-nowrap"
                             on:click={() => showTemplatePicker = !showTemplatePicker}>
-                            📝 Send Template
+                            📝 {$locale === 'ar' ? 'إرسال قالب' : 'Send Template'}
                         </button>
                     </div>
                 {:else}
@@ -1673,44 +1751,44 @@
                         <!-- Recording UI -->
                         <div class="flex items-center gap-3">
                             <button class="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors"
-                                on:click={cancelRecording} title="Cancel">
+                                on:click={cancelRecording} title={$locale === 'ar' ? 'إلغاء' : 'Cancel'}>
                                 🗑️
                             </button>
                             <div class="flex-1 flex items-center gap-2 bg-red-50 border border-red-200 rounded-2xl px-4 py-2.5">
                                 <span class="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></span>
                                 <span class="text-sm text-red-600 font-mono">{formatRecordTime(recordingDuration)}</span>
-                                <span class="text-xs text-red-400">Recording...</span>
+                                <span class="text-xs text-red-400">{$locale === 'ar' ? 'جاري التسجيل...' : 'Recording...'}</span>
                             </div>
                             <button class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full flex items-center justify-center hover:from-green-600 hover:to-green-700 shadow-md transition-all"
-                                on:click={stopRecording} title="Send voice message">
+                                on:click={stopRecording} title={$locale === 'ar' ? 'إرسال رسالة صوتية' : 'Send voice message'}>
                                 ➤
                             </button>
                         </div>
                     {:else}
-                        <div class="flex items-center gap-2">
+                        <div class="input-row flex items-center gap-2">
                             <!-- Hidden file inputs -->
                             <input type="file" accept="image/*" capture="environment" class="hidden" bind:this={imageInput} on:change={handleImageSelect} />
                             <input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar" class="hidden" bind:this={fileInput} on:change={handleFileSelect} />
 
                             <!-- Attach menu -->
-                            <div class="relative">
-                                <button class="w-10 h-10 bg-orange-50 border border-orange-200/60 rounded-full flex items-center justify-center text-lg hover:bg-orange-100 transition-all"
-                                    on:click={() => showAttachMenu = !showAttachMenu} title="Attach">
+                            <div class="relative flex-shrink-0">
+                                <button class="action-btn w-10 h-10 bg-orange-50 border border-orange-200/60 rounded-full flex items-center justify-center text-lg hover:bg-orange-100 transition-all"
+                                    on:click={() => showAttachMenu = !showAttachMenu} title={$locale === 'ar' ? 'إرفاق' : 'Attach'}>
                                     📎
                                 </button>
                                 {#if showAttachMenu}
                                     <div class="attach-menu">
                                         <button class="attach-menu-item"
                                             on:click={() => { imageInput.click(); showAttachMenu = false; }}>
-                                            <span class="text-base">📷</span> <span>Photo</span>
+                                            <span class="text-base">📷</span> <span>{$locale === 'ar' ? 'صورة' : 'Photo'}</span>
                                         </button>
                                         <button class="attach-menu-item"
                                             on:click={() => { fileInput.click(); showAttachMenu = false; }}>
-                                            <span class="text-base">📄</span> <span>Document / Video</span>
+                                            <span class="text-base">📄</span> <span>{$locale === 'ar' ? 'مستند / فيديو' : 'Document / Video'}</span>
                                         </button>
                                         <button class="attach-menu-item"
                                             on:click={() => { showTemplatePicker = !showTemplatePicker; showAttachMenu = false; }}>
-                                            <span class="text-base">📝</span> <span>Template</span>
+                                            <span class="text-base">📝</span> <span>{$locale === 'ar' ? 'قالب' : 'Template'}</span>
                                         </button>
                                     </div>
                                 {/if}
@@ -1718,22 +1796,22 @@
 
                             <!-- Send Current Offer (inside 24h window only) -->
                             <button
-                                class="px-3 h-10 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold rounded-full flex items-center gap-1.5 hover:from-pink-600 hover:to-rose-600 shadow-sm transition-all whitespace-nowrap"
+                                class="offer-btn px-3 h-10 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold rounded-full flex items-center gap-1.5 hover:from-pink-600 hover:to-rose-600 shadow-sm transition-all whitespace-nowrap flex-shrink-0"
                                 on:click={sendCurrentOffer}
                                 title={$locale === 'ar' ? 'إرسال العرض الحالي' : 'Send Current Offer'}
                             >
-                                🎁 <span>{$locale === 'ar' ? 'إرسال العرض' : 'Send Offer'}</span>
+                                🎁 <span class="offer-btn-label">{$locale === 'ar' ? 'إرسال العرض' : 'Send Offer'}</span>
                             </button>
 
                             <textarea bind:value={messageInput} rows="1"
-                                placeholder="Type a message..."
-                                class="flex-1 px-4 py-2.5 bg-white/80 border border-orange-300 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 resize-none max-h-24 backdrop-blur-sm transition-all"
+                                placeholder={$locale === 'ar' ? 'اكتب رسالة...' : 'Type a message...'}
+                                class="msg-textarea flex-1 min-w-0 px-4 py-2.5 bg-white/80 border border-orange-300 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 resize-none max-h-24 backdrop-blur-sm transition-all"
                                 on:keydown={handleKeydown}
                                 on:input={autoResize}></textarea>
                             {#if messageInput.trim()}
                                 <!-- Transform button (fix grammar/spelling) -->
                                 <button
-                                    class="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all {isInputTransforming ? 'bg-purple-100 border border-purple-300 animate-pulse' : 'bg-purple-50 border border-purple-200/60 hover:bg-purple-100'}"
+                                    class="action-btn flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all {isInputTransforming ? 'bg-purple-100 border border-purple-300 animate-pulse' : 'bg-purple-50 border border-purple-200/60 hover:bg-purple-100'}"
                                     on:click={transformInputText}
                                     disabled={isInputTransforming}
                                     title={$locale === 'ar' ? 'إصلاح القواعد والإملاء' : 'Fix grammar & spelling'}
@@ -1742,20 +1820,20 @@
                                 </button>
                                 <!-- Translate button -->
                                 <button
-                                    class="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all {isInputTranslating ? 'bg-blue-100 border border-blue-300 animate-pulse' : 'bg-blue-50 border border-blue-200/60 hover:bg-blue-100'}"
+                                    class="action-btn flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all {isInputTranslating ? 'bg-blue-100 border border-blue-300 animate-pulse' : 'bg-blue-50 border border-blue-200/60 hover:bg-blue-100'}"
                                     on:click={() => { inputTranslateLangSearch = ''; showInputTranslatePicker = true; }}
                                     disabled={isInputTranslating}
                                     title={$locale === 'ar' ? 'ترجمة النص' : 'Translate text'}
                                 >
                                     {isInputTranslating ? '⏳' : '🌐'}
                                 </button>
-                                <button class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full flex items-center justify-center hover:from-green-600 hover:to-green-700 shadow-md transition-all disabled:opacity-50"
+                                <button class="action-btn flex-shrink-0 w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-full flex items-center justify-center hover:from-green-600 hover:to-green-700 shadow-md transition-all disabled:opacity-50"
                                     on:click={sendMessage} disabled={sending}>
                                     {sending ? '⏳' : '➤'}
                                 </button>
                             {:else}
-                                <button class="w-10 h-10 bg-orange-50 border border-orange-200/60 rounded-full flex items-center justify-center text-lg hover:bg-orange-100 transition-all"
-                                    on:click={startRecording} title="Record voice message">
+                                <button class="action-btn flex-shrink-0 w-10 h-10 bg-orange-50 border border-orange-200/60 rounded-full flex items-center justify-center text-lg hover:bg-orange-100 transition-all"
+                                    on:click={startRecording} title={$locale === 'ar' ? 'تسجيل رسالة صوتية' : 'Record voice message'}>
                                     🎤
                                 </button>
                             {/if}
@@ -1767,11 +1845,11 @@
                 {#if showTemplatePicker}
                     <div class="template-picker">
                         <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-xs font-bold text-orange-600 uppercase tracking-wider">Select Template</h4>
+                            <h4 class="text-xs font-bold text-orange-600 uppercase tracking-wider">{$locale === 'ar' ? 'اختر قالباً' : 'Select Template'}</h4>
                             <button class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 text-xs transition-colors" on:click={() => showTemplatePicker = false}>✕</button>
                         </div>
                         {#if templates.length === 0}
-                            <p class="text-xs text-slate-400 text-center py-4">No approved templates available</p>
+                            <p class="text-xs text-slate-400 text-center py-4">{$locale === 'ar' ? 'لا توجد قوالب معتمدة متاحة' : 'No approved templates available'}</p>
                         {:else}
                             <div class="space-y-1.5">
                                 {#each templates as tmpl}
@@ -1811,7 +1889,7 @@
                                     >
                                         <p class="text-sm font-bold text-slate-800">{offer.offer_name}</p>
                                         <p class="text-[11px] text-slate-600 mt-1 flex items-center gap-2">
-                                            <span>🏪 {offer.branch_name || 'Unknown Branch'}</span>
+                                            <span>🏪 {offer.branch_name || ($locale === 'ar' ? 'فرع غير معروف' : 'Unknown Branch')}</span>
                                             {#if offer.branch_location}
                                                 <span class="text-slate-500">📍 {offer.branch_location}</span>
                                             {/if}
@@ -1829,7 +1907,7 @@
                                                     on:click|stopPropagation={sendOfferPDF}
                                                     disabled={sending}
                                                 >
-                                                    {sending ? '⏳' : '✓ Send'}
+                                                    {sending ? '⏳' : ($locale === 'ar' ? '✓ إرسال' : '✓ Send')}
                                                 </button>
                                                 <button
                                                     class="flex-1 px-3 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-all"
@@ -1853,8 +1931,8 @@
                     <div class="w-20 h-20 mx-auto rounded-2xl bg-orange-50 flex items-center justify-center mb-4 border border-orange-100">
                         <span class="text-3xl">💬</span>
                     </div>
-                    <h3 class="text-base font-semibold text-slate-700">WhatsApp Live Chat</h3>
-                    <p class="text-sm text-slate-400 mt-1">Select a conversation to start chatting</p>
+                    <h3 class="text-base font-semibold text-slate-700">{$locale === 'ar' ? 'دردشة واتساب المباشرة' : 'WhatsApp Live Chat'}</h3>
+                    <p class="text-sm text-slate-400 mt-1">{$locale === 'ar' ? 'اختر محادثة لبدء الدردشة' : 'Select a conversation to start chatting'}</p>
                 </div>
             </div>
         {/if}
@@ -1917,14 +1995,14 @@
     <!-- Report Incident Popup -->
     {#if showIncidentPopup}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div class="fixed inset-0 bg-black/60 flex items-center justify-center p-6" style="z-index: 99999;" on:click={() => showIncidentPopup = false}>
+        <div class="fixed inset-0 bg-black/60 flex items-center justify-center p-3 sm:p-6" style="z-index: 99999;" on:click={() => showIncidentPopup = false}>
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-            <div class="bg-white rounded-2xl w-[520px] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative" on:click|stopPropagation>
+            <div class="incident-popup bg-white rounded-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative" on:click|stopPropagation>
                 <!-- Header -->
                 <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-red-600 to-orange-500 flex-shrink-0">
                     <div class="flex items-center gap-2">
-                        <span class="text-lg">🚨</span>
-                        <h3 class="text-white font-bold text-sm">Report Incident</h3>
+                        <span class="text-lg">⚠️</span>
+                        <h3 class="text-white font-bold text-sm">{$locale === 'ar' ? 'الإبلاغ عن حادثة' : 'Report Incident'}</h3>
                         {#if selectedConv}
                             <span class="text-white/70 text-xs">— {selectedConv.customer_name || selectedConv.customer_phone}</span>
                         {/if}
@@ -1945,13 +2023,13 @@
     <!-- Template Variables Modal -->
     {#if showTemplateVarsModal && pendingTemplate}
         <div class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm" on:click={cancelTemplateVars} on:keydown={(e) => e.key === 'Escape' && cancelTemplateVars()} role="presentation">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" on:click|stopPropagation on:keydown|stopPropagation role="dialog" tabindex="-1" aria-modal="true" aria-label="Fill template variables">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" on:click|stopPropagation on:keydown|stopPropagation role="dialog" tabindex="-1" aria-modal="true" aria-label={$locale === 'ar' ? 'املأ متغيرات القالب' : 'Fill template variables'}>
                 <div class="px-5 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white flex items-center justify-between">
                     <div>
-                        <div class="text-base font-semibold">📝 Fill template variables</div>
+                        <div class="text-base font-semibold">📝 {$locale === 'ar' ? 'املأ متغيرات القالب' : 'Fill template variables'}</div>
                         <div class="text-xs text-emerald-100 mt-0.5">{pendingTemplate.name}</div>
                     </div>
-                    <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white" on:click={cancelTemplateVars} aria-label="Close">✕</button>
+                    <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white" on:click={cancelTemplateVars} aria-label={$locale === 'ar' ? 'إغلاق' : 'Close'}>✕</button>
                 </div>
 
                 <div class="p-5 max-h-[60vh] overflow-y-auto space-y-4">
@@ -1962,18 +2040,18 @@
 
                     {#if pendingBodyVars.length > 0}
                         <div class="space-y-3">
-                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Body variables</div>
+                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{$locale === 'ar' ? 'متغيرات النص' : 'Body variables'}</div>
                             {#each pendingBodyVars as varIdx}
                                 <div>
                                     <label class="block text-sm font-medium text-slate-700 mb-1" for="bodyvar-{varIdx}">
-                                        Variable <span class="font-mono text-emerald-700">{`{{${varIdx}}}`}</span>
+                                        {$locale === 'ar' ? 'متغير' : 'Variable'} <span class="font-mono text-emerald-700">{`{{${varIdx}}}`}</span>
                                     </label>
                                     <input
                                         id="bodyvar-{varIdx}"
                                         type="text"
                                         bind:value={bodyVarValues[String(varIdx)]}
                                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm"
-                                        placeholder="Enter value..."
+                                        placeholder={$locale === 'ar' ? 'أدخل القيمة...' : 'Enter value...'}
                                         autocomplete="off"
                                     />
                                 </div>
@@ -1983,11 +2061,11 @@
 
                     {#if pendingUrlButtons.length > 0}
                         <div class="space-y-3">
-                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">URL button parameters</div>
+                            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{$locale === 'ar' ? 'معاملات أزرار الروابط' : 'URL button parameters'}</div>
                             {#each pendingUrlButtons as btn}
                                 <div>
                                     <label class="block text-sm font-medium text-slate-700 mb-1" for="urlbtn-{btn.idx}">
-                                        Button "{btn.text}"
+                                        {$locale === 'ar' ? 'زر' : 'Button'} "{btn.text}"
                                         <span class="block text-xs text-slate-400 font-normal mt-0.5 truncate">{btn.url}</span>
                                     </label>
                                     <input
@@ -1995,7 +2073,7 @@
                                         type="text"
                                         bind:value={urlBtnValues[String(btn.idx)]}
                                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm"
-                                        placeholder="Enter URL parameter..."
+                                        placeholder={$locale === 'ar' ? 'أدخل معامل الرابط...' : 'Enter URL parameter...'}
                                         autocomplete="off"
                                     />
                                 </div>
@@ -2005,9 +2083,9 @@
                 </div>
 
                 <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
-                    <button class="px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-sm font-medium" on:click={cancelTemplateVars}>Cancel</button>
+                    <button class="px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-sm font-medium" on:click={cancelTemplateVars}>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
                     <button class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50" on:click={confirmTemplateVars} disabled={sending}>
-                        {sending ? 'Sending...' : 'Send Template'}
+                        {sending ? ($locale === 'ar' ? 'جاري الإرسال...' : 'Sending...') : ($locale === 'ar' ? 'إرسال القالب' : 'Send Template')}
                     </button>
                 </div>
             </div>
@@ -2373,8 +2451,8 @@
         border-radius: 16px;
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
         padding: 16px;
-        width: 340px;
-        max-height: 440px;
+        width: min(340px, calc(100vw - 32px));
+        max-height: min(440px, calc(100dvh - 48px));
         display: flex;
         flex-direction: column;
     }
@@ -2393,5 +2471,206 @@
         background: #eff6ff;
         border-color: #bfdbfe;
         transform: scale(1.02);
+    }
+
+    /* --- Incident Popup Shell --- */
+    .incident-popup {
+        width: min(520px, calc(100vw - 24px));
+    }
+
+    /* ==========================================================
+       NARROW LAYOUT (phones / small desktop windows, <= 720px)
+       One panel at a time: conversation list <-> chat thread
+       ========================================================== */
+    .wa-live-chat.narrow {
+        flex-direction: column;
+    }
+
+    .wa-live-chat.narrow .left-panel {
+        width: 100% !important;
+        border-right: none;
+        border-inline-end: none;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .wa-live-chat.narrow .right-panel {
+        width: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    /* Only one panel visible at a time */
+    .wa-live-chat.narrow:not(.chat-open) .right-panel { display: none; }
+    .wa-live-chat.narrow.chat-open .left-panel { display: none; }
+
+    /* --- Back button (narrow only) --- */
+    .back-btn {
+        width: 34px;
+        height: 34px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        border: 1px solid #e2e8f0;
+        background: white;
+        color: #475569;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .back-btn:active,
+    .back-btn:hover {
+        background: #fff7ed;
+        border-color: #fed7aa;
+        color: #ea580c;
+    }
+
+    /* --- Chat header wraps onto two rows --- */
+    .wa-live-chat.narrow .chat-header {
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 10px;
+        position: sticky;
+        top: 0;
+        z-index: 20;
+    }
+    .wa-live-chat.narrow .chat-header-identity {
+        flex: 1 1 100%;
+    }
+    .wa-live-chat.narrow .chat-header-actions {
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 2px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .wa-live-chat.narrow .chat-header-actions::-webkit-scrollbar { height: 0; }
+    .wa-live-chat.narrow .chat-header-actions > * {
+        flex-shrink: 0;
+    }
+
+    /* 24-hour window status sits in the header top row as a bare green/red clock */
+    .wa-live-chat.narrow .window-status {
+        flex-shrink: 0;
+    }
+    .wa-live-chat.narrow .window-clock {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* AI toggle: desktop shows the current state, narrow shows the action it performs */
+    .ai-toggle-action {
+        display: none;
+    }
+    .wa-live-chat.narrow .ai-toggle-label {
+        display: none;
+    }
+    .wa-live-chat.narrow .ai-toggle-action {
+        display: inline;
+        margin-inline-start: 3px;
+    }
+
+    /* Incident button gains a "Report" label on narrow screens */
+    .incident-btn-label {
+        display: none;
+    }
+    .wa-live-chat.narrow .incident-btn {
+        width: auto;
+        height: 30px;
+        padding: 0 10px;
+        gap: 4px;
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #b91c1c;
+        white-space: nowrap;
+    }
+    .wa-live-chat.narrow .incident-btn-label {
+        display: inline;
+    }
+
+    /* SOS toggle shows just "SOS" on narrow screens */
+    .sos-toggle-short {
+        display: none;
+    }
+    .wa-live-chat.narrow .sos-toggle-full {
+        display: none;
+    }
+    .wa-live-chat.narrow .sos-toggle-short {
+        display: inline;
+    }
+
+    /* --- Messages: wider bubbles, tighter padding --- */
+    .wa-live-chat.narrow .chat-messages-area {
+        padding: 12px 10px;
+    }
+    .wa-live-chat.narrow .msg-bubble {
+        max-width: 85% !important;
+    }
+    .wa-live-chat.narrow .msg-bubble :global(img),
+    .wa-live-chat.narrow .msg-bubble :global(video) {
+        max-width: 100% !important;
+    }
+    .wa-live-chat.narrow .msg-bubble :global(audio) {
+        max-width: 100% !important;
+        width: 200px;
+    }
+
+    /* --- Input area --- */
+    .wa-live-chat.narrow .input-area {
+        padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    }
+    .wa-live-chat.narrow .input-row {
+        gap: 6px;
+    }
+    .wa-live-chat.narrow .offer-btn {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    /* Icon-only offer button on narrow screens to keep the composer usable */
+    .wa-live-chat.narrow .offer-btn-label {
+        display: none;
+    }
+    .wa-live-chat.narrow .msg-textarea {
+        font-size: 16px; /* prevents iOS zoom-on-focus */
+    }
+    .wa-live-chat.narrow .action-btn {
+        width: 38px;
+        height: 38px;
+    }
+
+    /* --- Conversation cards: let badges wrap to their own line --- */
+    .wa-live-chat.narrow .conv-meta-row {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .wa-live-chat.narrow .conv-preview {
+        flex: 1 1 100%;
+    }
+    .wa-live-chat.narrow .conv-badges {
+        flex-wrap: wrap;
+    }
+    .wa-live-chat.narrow .conv-card {
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+
+    /* --- Popups anchored to the panel --- */
+    .wa-live-chat.narrow .attach-menu {
+        bottom: 46px;
+    }
+    .wa-live-chat.narrow .template-picker,
+    .wa-live-chat.narrow .offer-modal {
+        max-height: 45vh;
+    }
+
+    /* --- Touch scrolling --- */
+    .wa-live-chat.narrow :global(.overflow-y-auto) {
+        -webkit-overflow-scrolling: touch;
     }
 </style>

@@ -1114,6 +1114,19 @@ async function walkNode(
   }
 }
 
+// Normalizes Arabic text for keyword comparison: unifies teh-marbuta/heh (ة ↔ ه),
+// alef variants, and strips diacritics/tatweel, so admin-entered keyword spelling
+// variants (e.g. "خدمة" vs "خدمه") still match each other reliably.
+function normalizeForMatch(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u0652\u0640]/g, "") // strip Arabic diacritics + tatweel
+    .replace(/ة/g, "ه")
+    .replace(/[إأآا]/g, "ا")
+    .replace(/ى/g, "ي");
+}
+
 // ─── AI Bot Reply Logic ────────────────────────────────────────────
 async function tryAIReply(
   supabase: any,
@@ -1126,14 +1139,19 @@ async function tryAIReply(
   try {
     console.log("[AI_BOT] tryAIReply called for", senderPhone);
 
-    // Skip AI bot if a human agent has taken over this conversation
+    // Skip AI bot if a human agent has taken over, OR if AI has been explicitly turned off
+    // for this conversation (manual toggle in Live Chat, or an escalation match).
     const { data: convCheck } = await supabase
       .from("wa_conversations")
-      .select("handled_by")
+      .select("handled_by, is_bot_handling")
       .eq("id", conversationId)
       .single();
     if (convCheck?.handled_by === "human") {
       console.log("[AI_BOT] Conversation is human-handled, AI bot skipped");
+      return;
+    }
+    if (convCheck?.is_bot_handling === false) {
+      console.log("[AI_BOT] AI reply is turned off for this conversation, AI bot skipped");
       return;
     }
 
@@ -1170,154 +1188,176 @@ async function tryAIReply(
 
     if (!config) { console.log("[AI_BOT] No config found, aborting"); return; }
 
-    // ─── Escalation intent detection (smart, phrase-based) ─────────────────────
-    const lowerText = messageText.toLowerCase().trim();
+    // ─── Custom DB-driven escalation keywords (exact match, any language) ──────
+    // Admin-managed list from wa_ai_bot_config.escalation_keywords (AI Reply → Escalation Keywords card).
+    // Exact whole-message match only. Takes priority over the hardcoded phrase-based detection below.
+    const customEscalationKeywords: string[] = Array.isArray(config.escalation_keywords) ? config.escalation_keywords : [];
+    const trimmedMsg = normalizeForMatch(messageText);
+    const customKeywordMatch = customEscalationKeywords.some((w: string) => typeof w === "string" && normalizeForMatch(w) === trimmedMsg);
 
-    // Words that signal an INFORMATIONAL question — suppress escalation even if
-    // an escalation keyword is present (e.g. "help me understand the offer")
-    const informationalSuppressors = [
-      "understand", "calculate", "explain", "price", "offer", "offers",
-      "points", "balance", "hours", "working", "location", "branch",
-      "menu", "product", "catalogue", "catalog", "how much", "how do",
-      "what is", "what are", "when is", "where is", "can you tell",
-      "tell me about", "information about", "سعر", "فرع", "ساعات",
-      "عرض", "عروض", "نقاط", "رصيد", "منيو", "منتج", "كيف", "متى", "أين",
-      "ما هو", "ما هي", "اخبرني", "وضح لي"
-    ];
-    const isInformational = informationalSuppressors.some(s => lowerText.includes(s));
+    if (customKeywordMatch && config.escalation_ack_message) {
+      console.log(`[AI_BOT] Custom escalation keyword matched: "${messageText}"`);
 
-    // Phrases that ask for context FIRST before escalating
-    const contextGatheringPhrases = [
-      // Arabic — help requests that need context gathering
-      "أحتاج مساعدة", "أحتاج للمساعدة", "احتاج مساعدة",
-      "أحتاج ألي مساعدة", "احتاج الي مساعدة",
-      "انا بحاجة الى مساعدة", "ابي مساعدة", "اريد مساعدة",
-      // English — help requests that need context gathering
-      "i need help", "i want help", "i need support", "i want support",
-      "i need assistance", "someone help me"
-    ];
+      // Turn off AI reply and flag SOS immediately — before the translation/send network calls below,
+      // so the Live Chat UI reflects the escalation as soon as possible instead of waiting on Gemini/WhatsApp.
+      await supabase.from("wa_conversations").update({ is_bot_handling: false, is_sos: true }).eq("id", conversationId);
 
-    // Multi-word / phrase-level escalation triggers (high precision)
-    const escalationPhrases = [
-      // English — direct requests
-      "i need human", "i want human", "i need a human", "i want a human",
-      "connect me to", "live agent", "customer service",
-      "technical support", "real person", "talk to someone",
-      "speak to representative", "speak to an agent", "speak to a person",
-      "let me talk to staff", "let me speak to", "escalate this",
-      "transfer me", "this is urgent", "this is serious",
-      "i need immediate help", "can i talk to someone", "i want to complain", "complaint department",
-      "not satisfied", "i'm not satisfied", "im not satisfied",
-      "bot is not helping", "stop bot", "enough bot",
-      "i don't want ai", "i dont want ai", "no more bot",
-      "i want manager", "i want a manager", "supervisor please",
-      "speak to manager", "get me manager",
-      // Arabic — direct requests
-      "اريد خدمة", "ابي خدمة", "خدمة العملاء",
-      "الدعم الفني", "اريد التحدث مع موظف", "اريد التحدث مع شخص",
-      "اريد شخص حقيقي", "اريد انسان", "ابغى موظف", "ابغى مساعدة",
-      "حولني لموظف", "حولني للدعم", "حولني لشخص",
-      "ابي موظف", "ابي مسؤول", "ابي مدير", "ابي مشرف",
-      "اريد تقديم شكوى", "غير راضي", "مو راضي",
-      "البوت ما يفيد", "البوت ما يفهم", "اوقف البوت",
-      "لا اريد بوت", "بدي اتكلم مع شخص",
-      // Mixed language
-      "i need مساعدة", "help me لو سمحت", "i want خدمة",
-      "connect me لموظف", "human support ابي", "bot مو فاهم"
-    ];
+      let ackReply = config.escalation_ack_message;
 
-    // Single-word exact-match escalation (only trigger if word IS the whole message
-    // or the whole message is clearly a short escalation command)
-    const exactWordEscalations = [
-      "خدمة", "خدمه", "مساعدة", "مساعده", "شكوى", "sos",
-      "موظف", "مشرف", "مدير", "مسؤول",
-      // English single-word escalation commands
-      "help", "agent", "human", "staff", "supervisor", "manager", "complaint"
-    ];
+      // Only adapt language if the customer's message is in a different language/script than the
+      // configured message (simple Arabic-script heuristic). Same language → send EXACTLY as configured,
+      // no AI rewrite, so the admin's wording is never altered or shortened.
+      const ackIsArabic = /[\u0600-\u06FF]/.test(config.escalation_ack_message);
+      const customerIsArabic = /[\u0600-\u06FF]/.test(messageText);
 
-    // Short escalation phrases (2-3 words) that didn't fit in the main phrase list
-    const shortPhrases = [
-      "help me", "please help", "help please", "need help", "want help",
-      "need support", "want support", "need human", "want human",
-      "help!", "help!!", "help!!!", "anybody help", "anyone help",
-      "ساعدني", "ساعدوني", "النجدة", "الرجاء المساعدة",
-      "اريد موظف", "ابغى موظف", "اريد مدير", "ابغى مدير"
-    ];
+      if (ackIsArabic !== customerIsArabic) {
+        const langKey = customerIsArabic ? "ar" : "en";
+        const cachedTranslations: Record<string, string> = (config.escalation_ack_translations && typeof config.escalation_ack_translations === "object") ? config.escalation_ack_translations : {};
 
-    // Frustration signals (caps spam, repeated punctuation, word repetition)
-    const hasAggressiveCaps = messageText.replace(/\s/g, "").length > 4 &&
-      messageText.replace(/[^a-zA-Z]/g, "") === messageText.replace(/[^a-zA-Z]/g, "").toUpperCase() &&
-      messageText.replace(/[^a-zA-Z]/g, "").length > 3;
-    const hasRepeatedPunct = /[!?]{3,}/.test(messageText);
-    const words = lowerText.split(/\s+/);
-    const wordCounts: Record<string, number> = {};
-    words.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
-    const hasRepeatedWords = Object.values(wordCounts).some(c => c >= 3);
-
-    // Escalation phrases that, combined with frustration, escalate even without explicit request
-    const frustrationPhrases = [
-      "not working", "doesn't work", "doesn't help", "useless", "terrible",
-      "awful", "disgusting", "horrible", "waste", "scam", "fraud",
-      "ما يشتغل", "ما يفيد", "ما ينفع", "سيء", "كارثي", "احتيال", "نصب"
-    ];
-
-    const contextGatheringMatch = !isInformational && contextGatheringPhrases.some(p => lowerText.includes(p));
-    
-    // Simple help request detection: "help/support/assist" + "need/want/احتاج/ابي/اريد"
-    const isSimpleHelpRequest = !isInformational && 
-      (lowerText.includes("help") || lowerText.includes("support") || lowerText.includes("assist") || lowerText.includes("مساعدة")) &&
-      (lowerText.includes("need") || lowerText.includes("want") || lowerText.includes("احتاج") || lowerText.includes("أحتاج") || lowerText.includes("ابي") || lowerText.includes("اريد") || lowerText.includes("بحاجة"));
-    
-    const phraseMatch = !isInformational && escalationPhrases.some(p => lowerText.includes(p));
-    const shortPhraseMatch = !isInformational && shortPhrases.some(p => lowerText.includes(p));
-    const exactMatch = exactWordEscalations.some(w => lowerText === w || new RegExp(`(^|\\s)${w}(\\s|$|!|\\?)`).test(lowerText));
-    const frustrationEscalation = !isInformational && (hasAggressiveCaps || hasRepeatedPunct || hasRepeatedWords) &&
-      frustrationPhrases.some(p => lowerText.includes(p));
-
-    // Context gathering takes priority (ask for topic first)
-    const isContextGatheringRequest = contextGatheringMatch || isSimpleHelpRequest || (exactMatch && (lowerText === "خدمة" || lowerText === "خدمه"));
-    const isEscalationRequest = isContextGatheringRequest || phraseMatch || shortPhraseMatch || frustrationEscalation;
-
-    if (isEscalationRequest) {
-      console.log(`[AI_BOT] Escalation detected (contextGathering=${isContextGatheringRequest}, phrase=${phraseMatch}, short=${shortPhraseMatch}, exact=${exactMatch}, frustration=${frustrationEscalation}): "${messageText}"`);
-
-      // Stop bot and flag conversation as needing human attention for ALL escalations
-      await supabase
-        .from("wa_conversations")
-        .update({ handled_by: "human", is_bot_handling: false, needs_human: true })
-        .eq("id", conversationId);
-
-      // Language-aware escalation reply
-      const isArabicMsg = /[\u0600-\u06FF]/.test(messageText);
-      
-      let escalationReply: string;
-      if (isContextGatheringRequest) {
-        // Ask for topic first (from training manual) before full escalation
-        if (isArabicMsg) {
-          escalationReply = `🤖 بكل سرور! لتساعدنا على فهم احتياجاتك بشكل أفضل، يرجى إخبارنا:
-- ما الموضوع الذي تحتاج مساعدة فيه؟ (مثال: سؤال عن منتج، شكوى، استفسار عن عرض، إلخ)
-
-سيتواصل معك أحد موظفينا الكرام خلال 12-24 ساعة بعد فهمنا لطلبك. شكرًا لاختيارك لنا. 🇸🇦💚`;
+        if (cachedTranslations[langKey]) {
+          // Reuse the previously generated translation — guarantees identical wording every time
+          ackReply = cachedTranslations[langKey];
+          console.log(`[AI_BOT] Using cached escalation ack translation for lang=${langKey}`);
         } else {
-          escalationReply = `🤖 We're happy to help! To better understand your needs, please tell us:
-- What topic do you need help with? (Example: product question, complaint, special offer inquiry, etc.)
-
-Our team will contact you within 12-24 hours after understanding your request. Thank you for choosing us! 🇸🇦💚`;
+          try {
+            const translateResp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_API_KEY}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [{
+                      text: `Translate the following message into the SAME language as the customer's message below, so it reads naturally and native (not a stiff literal translation). Preserve the FULL meaning and EVERY detail — do not omit, shorten, or summarize any part of it (e.g. response times, specific facts). Reply with ONLY the translated message text — no quotes, no explanation, no extra commentary.\n\nCustomer message: "${messageText}"\n\nMessage to translate:\n"""\n${config.escalation_ack_message}\n"""`
+                    }]
+                  }],
+                  generationConfig: { maxOutputTokens: 500, temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+                }),
+              }
+            );
+            const translateResult = await translateResp.json();
+            const translated = translateResult.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (translated) {
+              ackReply = translated;
+              // Cache it so every future customer in this language gets the exact same wording
+              const updatedTranslations = { ...cachedTranslations, [langKey]: translated };
+              await supabase.from("wa_ai_bot_config").update({ escalation_ack_translations: updatedTranslations }).eq("id", config.id);
+            }
+          } catch (e) {
+            console.warn("[AI_BOT] Escalation acknowledgement translation failed, sending as configured:", e);
+          }
         }
-      } else {
-        // Immediate escalation for other escalation types
-        escalationReply = isArabicMsg
-          ? "شكرًا لك. سيتم تحويلك إلى فريق الدعم الآن. 🙏 🇸🇦💚"
-          : "Thank you. I'm connecting you to our support team now. 🙏 🇸🇦💚";
       }
 
       await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
         type: "text",
-        text: { body: escalationReply },
+        text: { body: ackReply },
       }, "ai_bot");
+
       return;
     }
-    // ─── End escalation detection ────────────────────────────────────────────
+    // ─── End custom escalation keywords ─────────────────────────────────────────
+
+    // ─── AI-judged escalation (non-keyword rules) ───────────────────────────────
+    // Admin writes free-text instructions (wa_ai_bot_config.escalation_rules_instructions).
+    // The AI itself judges the message against those instructions and decides whether to
+    // escalate — no fixed keyword/phrase lists, no hardcoded content.
+    if (config.escalation_rules_instructions && config.escalation_rules_instructions.trim()) {
+      try {
+        // Pull a little recent history so the AI judges intent using conversation context, not just one message in isolation.
+        // Only the CUSTOMER's own past messages are used here — excluding the bot's own past replies (including prior
+        // escalation acknowledgements) avoids a feedback loop where an earlier escalation reply biases future decisions.
+        const { data: decisionHistoryRaw } = await supabase
+          .from("wa_messages")
+          .select("direction, content")
+          .eq("conversation_id", conversationId)
+          .eq("direction", "inbound")
+          .order("created_at", { ascending: false })
+          .limit(4);
+        const decisionHistory = decisionHistoryRaw ? [...decisionHistoryRaw].reverse() : [];
+        const historyText = decisionHistory.length > 0
+          ? decisionHistory.map((m: any) => `Customer: ${m.content}`).join("\n")
+          : "(no prior customer messages)";
+
+        // Give the decision step the SAME knowledge the AI reply would use, so it doesn't
+        // escalate questions that are already answerable from the knowledge base.
+        const knowledgeParts = [config.custom_instructions, config.services_information, config.problem_handling_info]
+          .filter((s: any) => typeof s === "string" && s.trim())
+          .join("\n\n");
+        const knowledgeText = knowledgeParts || "(no knowledge base configured)";
+
+        const decisionResp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: `You are deciding whether to escalate a WhatsApp conversation to a human agent, based on the rules below written by the business admin.
+
+IMPORTANT: Do NOT escalate if the customer's question is already answerable using the KNOWLEDGE BASE below (e.g. branch names, hours, services, Wi-Fi, loyalty program, general policies). Only escalate for information that is genuinely NOT covered by the knowledge base, or when the customer is frustrated/explicitly requesting a human regardless of what info is known.
+
+Judge PRIMARILY by the customer's LATEST message. The recent customer messages below are provided only to disambiguate a short or vague latest message (e.g. resolve "yes"/"that one") — do NOT escalate just because an earlier message in this list seemed like a complaint; only the latest message's intent matters.
+
+Understand meaning and intent, not exact keyword matching — indirect wording, spelling mistakes, slang, abbreviations, and any language (not just English/Arabic).
+
+KNOWLEDGE BASE:
+${knowledgeText}
+
+ESCALATION RULES:
+${config.escalation_rules_instructions}
+
+RECENT CUSTOMER MESSAGES (oldest to newest, context only):
+${historyText}
+
+Customer's latest message: "${messageText}"
+
+If this should be escalated, classify it into ONE of these two categories:
+- GENERAL: the customer is asking about something the AI cannot reliably confirm AND that is NOT covered by the knowledge base above (price, stock/availability, job openings, order/refund/complaint details, or any info requiring human verification), with NO sign of frustration or dissatisfaction.
+- COMPLAINT: the customer is frustrated, upset, dissatisfied, repeating themselves without a satisfying answer, explicitly asking for a human/manager/supervisor out of frustration, or says the issue is unresolved.
+
+Reply with ONLY one word: "GENERAL", "COMPLAINT", or "CONTINUE" (if it does not match the escalation rules, or if the knowledge base already answers it). No punctuation, no explanation.`
+                }]
+              }],
+              generationConfig: { maxOutputTokens: 10, temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+            }),
+          }
+        );
+        const decisionResult = await decisionResp.json();
+        const decisionText = (decisionResult.candidates?.[0]?.content?.parts?.[0]?.text || "").trim().toUpperCase();
+        const isComplaint = decisionText.includes("COMPLAINT");
+        const isGeneral = !isComplaint && decisionText.includes("GENERAL");
+        const shouldEscalate = isComplaint || isGeneral;
+
+        console.log(`[AI_BOT] Escalation rules decision: "${decisionText}" for message: "${messageText}"`);
+
+        if (shouldEscalate) {
+          // Stop bot, flag SOS, and mark conversation as needing human attention — turned off immediately
+          await supabase
+            .from("wa_conversations")
+            .update({ handled_by: "human", is_bot_handling: false, needs_human: true, is_sos: true })
+            .eq("id", conversationId);
+
+          // Language- and category-aware escalation reply — DB-driven (wa_ai_bot_config), no hardcoded fallback
+          const isArabicMsg = /[\u0600-\u06FF]/.test(messageText);
+          const escalationReply = isComplaint
+            ? (isArabicMsg ? (config.escalation_complaint_reply_ar || "") : (config.escalation_complaint_reply_en || ""))
+            : (isArabicMsg ? (config.escalation_context_gathering_reply_ar || "") : (config.escalation_context_gathering_reply_en || ""));
+
+          if (escalationReply) {
+            await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+              type: "text",
+              text: { body: escalationReply },
+            }, "ai_bot");
+          }
+          return;
+        }
+      } catch (e) {
+        console.warn("[AI_BOT] Escalation rules decision call failed, continuing with normal AI reply:", e);
+      }
+    }
+    // ─── End AI-judged escalation ────────────────────────────────────────────────
 
     // Get conversation history for context (last 6 messages, newest first then reversed)
     const { data: historyRaw } = await supabase
@@ -1346,6 +1386,26 @@ Our team will contact you within 12-24 hours after understanding your request. T
     
     const infoSection = config.custom_instructions
       ? `\nREFERENCE INFORMATION:\n${config.custom_instructions}`
+      : "";
+
+    // Services info — DB-driven (wa_ai_bot_config.services_information), no hardcoded fallback
+    const servicesSection = config.services_information
+      ? `\nSERVICES OFFERED:\n${config.services_information}\n`
+      : "";
+
+    // Problem/issue handling — DB-driven (wa_ai_bot_config.problem_handling_info), no hardcoded fallback
+    const problemHandlingSection = config.problem_handling_info
+      ? `\nPROBLEM & ISSUE HANDLING:\n${config.problem_handling_info}\n`
+      : "";
+
+    // Tone — DB-driven (wa_ai_bot_config.tone), no hardcoded fallback
+    const toneSection = config.tone
+      ? `\nTONE: Reply using a ${config.tone} tone in every message.\n`
+      : "";
+
+    // Language rules — DB-driven (wa_ai_bot_config.language_rules), no hardcoded fallback
+    const languageRulesSection = config.language_rules
+      ? `\nLANGUAGE RULES:\n${config.language_rules}\n`
       : "";
 
     // Bot identity — admin-configurable via Bot Config tab, falls back to existing defaults
@@ -1409,7 +1469,7 @@ DO NOT treat as escalation (answer normally):
   - "help me calculate my points" → informational, answer it
   - Any question about price, product, hours, location, offers, points, or general info even if it contains "help"
   Only escalate when the customer is CLEARLY asking for a human agent, not just asking a question.
-${rulesSection}${infoSection}${trainingContext}`;
+${toneSection}${languageRulesSection}${rulesSection}${infoSection}${servicesSection}${problemHandlingSection}${trainingContext}`;
 
     // Build Gemini contents array from conversation history
     const geminiContents: any[] = [];
