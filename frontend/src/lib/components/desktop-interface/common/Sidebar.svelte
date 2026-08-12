@@ -90,6 +90,7 @@
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
 	import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
+	import ReceivingTasksManager from '$lib/components/desktop-interface/master/vendor/ReceivingTasksManager.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
 	import ViewOfferManager from '$lib/components/desktop-interface/marketing/coupon/ViewOfferManager.svelte';
@@ -2177,16 +2178,17 @@ function openApprovalCenter() {
 
 	function openDefaultPositions() {
 		collapseAllMenus();
-		const windowId = generateWindowId('default-positions');
+		const windowId = generateWindowId('receiving-tasks-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		const title = $currentLocale === 'ar' ? 'مدير مهام الاستلام' : 'Receiving Tasks Manager';
 		
 		openWindow({
 			id: windowId,
-			title: `${t('defaultPositions.title')} #${instanceNumber}`,
-			component: DefaultPositions,
-			componentName: "DefaultPositions",
-			icon: '👥',
-			size: { width: 900, height: 700 },
+			title: `${title} #${instanceNumber}`,
+			component: ReceivingTasksManager,
+			componentName: "ReceivingTasksManager",
+			icon: '📋',
+			size: { width: 950, height: 750 },
 			position: { 
 				x: 100 + (Math.random() * 100),
 				y: 100 + (Math.random() * 100) 
@@ -4353,8 +4355,8 @@ function openApprovalCenter() {
 					{#if isButtonAllowed('DEFAULT_POSITIONS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDefaultPositions}>
-								<span class="menu-icon">👥</span>
-								<span class="menu-text">{t('defaultPositions.title') || 'Default Positions'}</span>
+								<span class="menu-icon">�</span>
+								<span class="menu-text">{$currentLocale === 'ar' ? 'مدير مهام الاستلام' : 'Receiving Tasks Manager'}</span>
 							</button>
 						</div>
 					{/if}
