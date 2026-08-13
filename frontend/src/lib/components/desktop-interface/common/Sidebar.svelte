@@ -164,7 +164,6 @@
 	import WATemplates from '$lib/components/desktop-interface/whatsapp/WATemplates.svelte';
 	import WAContacts from '$lib/components/desktop-interface/whatsapp/WAContacts.svelte';
 	import WAAutoReplyBot from '$lib/components/desktop-interface/whatsapp/WAAutoReplyBot.svelte';
-	import WAaiBot from '$lib/components/desktop-interface/whatsapp/WAaiBot.svelte';
 	import AIReply from '$lib/components/desktop-interface/whatsapp/AIReply.svelte';
 	import WAAccounts from '$lib/components/desktop-interface/whatsapp/WAAccounts.svelte';
 	import WASettings from '$lib/components/desktop-interface/whatsapp/WASettings.svelte';
@@ -2335,7 +2334,6 @@ function openApprovalCenter() {
 			'WA_TEMPLATES': openWATemplates,
 			'WA_CONTACTS': openWAContacts,
 			'WA_AUTO_REPLY': openWAAutoReplyBot,
-			'WA_AI_BOT': openWAAIBot,
 			'WA_ACCOUNTS': openWAAccounts,
 			'WA_SETTINGS': openWASettings,
 			'WA_CATALOG': openWACatalog,
@@ -2497,12 +2495,6 @@ function openApprovalCenter() {
 		const windowId = generateWindowId('wa-auto-reply');
 		const n = Math.floor(Math.random() * 1000) + 1;
 		openWindow({ id: windowId, title: `${t('nav.whatsappAutoReply')} #${n}`, component: WAAutoReplyBot, componentName: 'WAAutoReplyBot', icon: '🔧', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
-	}
-	function openWAAIBot() {
-		collapseAllMenus();
-		const windowId = generateWindowId('wa-ai-bot');
-		const n = Math.floor(Math.random() * 1000) + 1;
-		openWindow({ id: windowId, title: `${t('nav.whatsappAIBot')} #${n}`, component: WAaiBot, componentName: 'WAaiBot', icon: '🤖', size: { width: 1200, height: 700 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
 	}
 	function openWAAccounts() {
 		collapseAllMenus();
@@ -6449,19 +6441,14 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
+					<!-- AI Reply owns the whole bot config; it inherits the WA_AI_BOT
+					     permission from the retired AI Bot window so existing holders
+					     keep their access. -->
 					{#if isButtonAllowed('WA_AI_BOT')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openWAAIBot}>
-								<span class="menu-icon">🤖</span>
-								<span class="menu-text">{t('nav.whatsappAIBot')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if $currentUser?.isMasterAdmin}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openAIReply}>
 								<span class="menu-icon">💬</span>
-								<span class="menu-text">AI Reply</span>
+								<span class="menu-text">{t('nav.whatsappAIBot')}</span>
 							</button>
 						</div>
 					{/if}

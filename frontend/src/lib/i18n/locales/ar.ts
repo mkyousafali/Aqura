@@ -536,7 +536,7 @@ export const arabicLocale: LocaleData = {
       whatsappTemplates: "القوالب",
       whatsappContacts: "جهات الاتصال",
       whatsappAutoReply: "بوت الرد التلقائي",
-      whatsappAIBot: "بوت الذكاء الاصطناعي",
+      whatsappAIBot: "الرد الذكي",
       whatsappAccounts: "الحسابات",
       whatsappSettings: "الإعدادات",
       whatsappCatalog: "الكتالوج والمبيعات",

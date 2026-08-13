@@ -261,6 +261,106 @@
 		}
 	}
 
+	// ===== Edit — change every field of a schedule =====
+	// Jump stays as the one-click way to only move the date; this is the full
+	// editor, opened in a panel above the list so one set of inputs serves both
+	// the desktop table and the mobile cards.
+	let editingRow: any = null;
+	let editDate = '';
+	let editAmount: number | '' = '';
+	let editNotes = '';
+	let editDescription = '';
+	let editVendor: any = null;
+	let editVendorSearch = '';
+	let savingEdit = false;
+
+	$: filteredEditVendors = schedVendorList.filter(v =>
+		v.vendor_name?.toLowerCase().includes(editVendorSearch.toLowerCase()) ||
+		String(v.erp_vendor_id).includes(editVendorSearch)
+	);
+
+	function startEdit(s: any) {
+		cancelJump();
+		showScheduleForm = false;
+		editingRow = s;
+		editDate = s.schedule_date;
+		editAmount = Number(s.amount) || '';
+		editNotes = s.notes || '';
+		editDescription = s.description || '';
+		editVendor = s.vendor_id ? { erp_vendor_id: s.vendor_id, vendor_name: s.vendor_name } : null;
+		editVendorSearch = '';
+	}
+
+	function cancelEdit() {
+		editingRow = null;
+		editVendorSearch = '';
+	}
+
+	async function saveEdit() {
+		if (!editingRow || !editDate || !editAmount || Number(editAmount) <= 0) return;
+		savingEdit = true;
+		try {
+			const payload: Record<string, any> = {
+				schedule_date: editDate,
+				amount: Number(editAmount),
+				notes: editNotes || null
+			};
+			if (editingRow.type === 'vendor') {
+				payload.vendor_id = String(editVendor?.erp_vendor_id ?? editingRow.vendor_id);
+				payload.vendor_name = editVendor?.vendor_name ?? editingRow.vendor_name;
+			} else {
+				payload.description = editDescription;
+			}
+
+			const { error } = await supabase
+				.from('daily_temp_schedules')
+				.update(payload)
+				.eq('id', editingRow.id);
+			if (!error) {
+				cancelEdit();
+				await loadSchedules();
+			}
+		} catch (e) {
+			console.error('Error updating schedule:', e);
+		}
+		savingEdit = false;
+	}
+
+	// ===== Jump — move a schedule to a different date =====
+	let jumpId: string | null = null;
+	let jumpDate = '';
+	let savingJump = false;
+
+	function startJump(s: any) {
+		jumpId = s.id;
+		jumpDate = s.schedule_date;
+	}
+
+	function cancelJump() {
+		jumpId = null;
+		jumpDate = '';
+	}
+
+	async function saveJump() {
+		if (!jumpId || !jumpDate) return;
+		savingJump = true;
+		try {
+			const { error } = await supabase
+				.from('daily_temp_schedules')
+				.update({ schedule_date: jumpDate })
+				.eq('id', jumpId);
+			if (!error) {
+				cancelJump();
+				// Reload rather than patch in place: the new date may fall outside
+				// the active date filter, and the list is ordered by date.
+				await loadSchedules();
+			}
+		} catch (e) {
+			console.error('Error moving schedule:', e);
+		}
+		savingJump = false;
+	}
+
 	async function deleteSchedule(id: string) {
 		try {
 			await supabase.from('daily_temp_schedules').delete().eq('id', id);
@@ -302,9 +402,27 @@
 		})
 		.sort(oldestFirst);
 
+	// Rows grouped by schedule date, each with its own total. The lists are
+	// already ordered oldest-first, so the groups come out in date order.
+	function groupByDate(rows: any[]) {
+		const groups: { date: string; rows: any[]; total: number }[] = [];
+		for (const r of rows) {
+			let g = groups.find((x) => x.date === r.schedule_date);
+			if (!g) {
+				g = { date: r.schedule_date, rows: [], total: 0 };
+				groups.push(g);
+			}
+			g.rows.push(r);
+			g.total += Number(r.amount) || 0;
+		}
+		return groups;
+	}
+
 	// Totals for the currently filtered list
 	$: vendorSchedTotal = vendorSchedules.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
 	$: expenseSchedTotal = expenseSchedules.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+	$: vendorGroups = groupByDate(vendorSchedules);
+	$: expenseGroups = groupByDate(expenseSchedules);
 </script>
 
 <!-- Daily Temp Schedules — inline -->
@@ -389,7 +507,52 @@
 					</div>
 				{/if}
 
-				<!-- Vendor schedule search + add + date filter -->
+							{#if editingRow && editingRow.type === 'vendor'}
+				<div class="sched-form sched-edit-form">
+					<div class="sched-form-title">✏️ Edit Vendor Schedule</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-vendor">Vendor</label>
+						{#if editVendor}
+							<div class="sched-selected-vendor">
+								<span>{editVendor.vendor_name}</span>
+								<button on:click={() => { editVendor = null; editVendorSearch = ''; }}>✕</button>
+							</div>
+						{:else}
+							<input id="{paymentMode}-edit-vendor" type="text" placeholder="Search vendors..." bind:value={editVendorSearch} class="sched-input" />
+							<div class="sched-vendor-dropdown">
+								{#each filteredEditVendors as v}
+									<button class="sched-vendor-option" on:click={() => { editVendor = v; editVendorSearch = ''; }}>
+										<span class="vendor-name">{v.vendor_name}</span>
+										<span class="vendor-id">{v.salesman_name || 'N/A'}</span>
+									</button>
+								{:else}
+									<div class="sched-no-results">No vendors found</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-date">Schedule Date</label>
+						<input id="{paymentMode}-edit-date" type="date" bind:value={editDate} class="sched-input" />
+					</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-amount">Amount (<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />)</label>
+						<input id="{paymentMode}-edit-amount" type="number" min="0" step="0.01" placeholder="0.00" bind:value={editAmount} class="sched-input" />
+					</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-notes">Notes <span class="optional">(optional)</span></label>
+						<input id="{paymentMode}-edit-notes" type="text" placeholder="Add a note..." bind:value={editNotes} class="sched-input" />
+					</div>
+					<div class="sched-form-actions">
+						<button class="sched-cancel-btn" on:click={cancelEdit}>Cancel</button>
+						<button class="sched-save-btn" on:click={saveEdit} disabled={!editDate || !editAmount || savingEdit}>
+							{savingEdit ? 'Saving...' : 'Save Changes'}
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Vendor schedule search + add + date filter -->
 				<div class="sched-filter-row">
 					<input
 						type="text"
@@ -455,6 +618,72 @@
 				{:else if vendorSchedules.length === 0}
 					<div class="sched-empty">{schedVendorListSearch || schedVendorListDate ? 'No vendor schedules match your filters' : 'No vendor schedules yet'}</div>
 				{:else}
+					{#if mobile}
+						<div class="sched-cards">
+							{#each vendorGroups as g (g.date)}
+								<div class="sched-date-head">
+									<span class="sched-date-head-date">{formatShortDate(g.date)}</span>
+									<span class="sched-date-head-total">
+										<img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {g.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									</span>
+								</div>
+								{#each g.rows as s}
+								<div class="sched-card">
+									<div class="sched-card-head">
+										<span class="sched-card-name">{s.vendor_name}</span>
+										<span class="sched-card-amount"><img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {Number(s.amount).toLocaleString()}</span>
+									</div>
+									<div class="sched-card-meta">
+										{#if jumpId === s.id}
+											<input type="date" bind:value={jumpDate} class="sched-jump-input" />
+										{:else}
+											<span class="sched-card-date">{formatShortDate(s.schedule_date)}</span>
+										{/if}
+										{#if isAllBranches}
+											<span class="sched-card-branch">
+												{branchNameById.get(s.branch_id) || s.branch_id}{#if branchLocationById.get(s.branch_id)} · {branchLocationById.get(s.branch_id)}{/if}
+											</span>
+										{/if}
+									</div>
+									{#if s.notes}
+										<div class="sched-card-notes">{s.notes}</div>
+									{/if}
+									<div class="sched-card-actions">
+										{#if jumpId === s.id}
+											<button class="sched-jump-save" on:click={saveJump} disabled={savingJump || !jumpDate}>
+												{savingJump ? '…' : '✓ Save'}
+											</button>
+											<button class="sched-jump-cancel" on:click={cancelJump}>Cancel</button>
+										{:else}
+											<button class="sched-edit-btn" on:click={() => startEdit(s)} title="Edit — change vendor, amount, notes or date" aria-label="Edit schedule">
+												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<path d="M12 20h9" />
+													<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+												</svg>
+											</button>
+											<button class="sched-jump-btn" on:click={() => startJump(s)} title="Jump — move this schedule to another date" aria-label="Change date">
+												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<rect x="3" y="4" width="18" height="18" rx="2" />
+													<line x1="16" y1="2" x2="16" y2="6" />
+													<line x1="8" y1="2" x2="8" y2="6" />
+													<line x1="3" y1="10" x2="21" y2="10" />
+												</svg>
+											</button>
+											<button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)} title="Delete this schedule" aria-label="Delete schedule">
+												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<polyline points="3 6 5 6 21 6" />
+													<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+													<path d="M10 11v6M14 11v6" />
+													<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+												</svg>
+											</button>
+										{/if}
+									</div>
+								</div>
+							{/each}
+							{/each}
+						</div>
+					{:else}
 					<div class="sched-table-wrap">
 						<table class="sched-table">
 							<thead>
@@ -468,9 +697,26 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each vendorSchedules as s}
+								{#each vendorGroups as g (g.date)}
+									<tr class="sched-date-row">
+										<td colspan={isAllBranches ? 6 : 5}>
+											<div class="sched-date-row-inner">
+												<span class="sched-date-head-date">{formatShortDate(g.date)}</span>
+												<span class="sched-date-head-total">
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {g.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+										</td>
+									</tr>
+									{#each g.rows as s}
 									<tr>
-										<td class="sched-col-date">{formatShortDate(s.schedule_date)}</td>
+										<td class="sched-col-date">
+											{#if jumpId === s.id}
+												<input type="date" bind:value={jumpDate} class="sched-jump-input" />
+											{:else}
+												{formatShortDate(s.schedule_date)}
+											{/if}
+										</td>
 										{#if isAllBranches}
 										<td class="sched-col-branch">
 											<span class="branch-name">{branchNameById.get(s.branch_id) || s.branch_id}</span>
@@ -482,12 +728,46 @@
 										<td class="sched-col-name">{s.vendor_name}</td>
 										<td class="sched-col-amount"><img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {Number(s.amount).toLocaleString()}</td>
 										<td class="sched-col-notes">{s.notes || '—'}</td>
-										<td><button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)}>×</button></td>
+										<td>
+											<div class="sched-row-actions">
+												{#if jumpId === s.id}
+													<button class="sched-jump-save" on:click={saveJump} disabled={savingJump || !jumpDate} title="Save new date">
+														{savingJump ? '…' : '✓ Save'}
+													</button>
+													<button class="sched-jump-cancel" on:click={cancelJump} title="Cancel">Cancel</button>
+												{:else}
+													<button class="sched-edit-btn" on:click={() => startEdit(s)} title="Edit — change vendor, amount, notes or date" aria-label="Edit schedule">
+												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<path d="M12 20h9" />
+													<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+												</svg>
+											</button>
+											<button class="sched-jump-btn" on:click={() => startJump(s)} title="Jump — move this schedule to another date">
+														<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+															<rect x="3" y="4" width="18" height="18" rx="2" />
+															<line x1="16" y1="2" x2="16" y2="6" />
+															<line x1="8" y1="2" x2="8" y2="6" />
+															<line x1="3" y1="10" x2="21" y2="10" />
+														</svg>
+													</button>
+													<button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)} title="Delete this schedule" aria-label="Delete schedule">
+														<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+															<polyline points="3 6 5 6 21 6" />
+															<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+															<path d="M10 11v6M14 11v6" />
+															<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+														</svg>
+													</button>
+												{/if}
+											</div>
+										</td>
 									</tr>
+								{/each}
 								{/each}
 							</tbody>
 						</table>
 					</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -527,7 +807,35 @@
 					</div>
 				{/if}
 
-				<!-- Expense schedule search + add + date filter -->
+							{#if editingRow && editingRow.type === 'expense'}
+				<div class="sched-form sched-edit-form">
+					<div class="sched-form-title">✏️ Edit Expense Schedule</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-desc">Description</label>
+						<input id="{paymentMode}-edit-desc" type="text" placeholder="Expense description..." bind:value={editDescription} class="sched-input" />
+					</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-date">Schedule Date</label>
+						<input id="{paymentMode}-edit-date" type="date" bind:value={editDate} class="sched-input" />
+					</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-amount">Amount (<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />)</label>
+						<input id="{paymentMode}-edit-amount" type="number" min="0" step="0.01" placeholder="0.00" bind:value={editAmount} class="sched-input" />
+					</div>
+					<div class="sched-form-field">
+						<label for="{paymentMode}-edit-notes">Notes <span class="optional">(optional)</span></label>
+						<input id="{paymentMode}-edit-notes" type="text" placeholder="Add a note..." bind:value={editNotes} class="sched-input" />
+					</div>
+					<div class="sched-form-actions">
+						<button class="sched-cancel-btn" on:click={cancelEdit}>Cancel</button>
+						<button class="sched-save-btn" on:click={saveEdit} disabled={!editDate || !editAmount || savingEdit}>
+							{savingEdit ? 'Saving...' : 'Save Changes'}
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Expense schedule search + add + date filter -->
 				<div class="sched-filter-row">
 					<input
 						type="text"
@@ -593,6 +901,72 @@
 				{:else if expenseSchedules.length === 0}
 					<div class="sched-empty">{schedExpenseListSearch || schedExpenseListDate ? 'No expense schedules match your filters' : 'No expense schedules yet'}</div>
 				{:else}
+					{#if mobile}
+						<div class="sched-cards">
+							{#each expenseGroups as g (g.date)}
+								<div class="sched-date-head">
+									<span class="sched-date-head-date">{formatShortDate(g.date)}</span>
+									<span class="sched-date-head-total">
+										<img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {g.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									</span>
+								</div>
+								{#each g.rows as s}
+								<div class="sched-card">
+									<div class="sched-card-head">
+										<span class="sched-card-name">{s.description}</span>
+										<span class="sched-card-amount"><img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {Number(s.amount).toLocaleString()}</span>
+									</div>
+									<div class="sched-card-meta">
+										{#if jumpId === s.id}
+											<input type="date" bind:value={jumpDate} class="sched-jump-input" />
+										{:else}
+											<span class="sched-card-date">{formatShortDate(s.schedule_date)}</span>
+										{/if}
+										{#if isAllBranches}
+											<span class="sched-card-branch">
+												{branchNameById.get(s.branch_id) || s.branch_id}{#if branchLocationById.get(s.branch_id)} · {branchLocationById.get(s.branch_id)}{/if}
+											</span>
+										{/if}
+									</div>
+									{#if s.notes}
+										<div class="sched-card-notes">{s.notes}</div>
+									{/if}
+									<div class="sched-card-actions">
+										{#if jumpId === s.id}
+											<button class="sched-jump-save" on:click={saveJump} disabled={savingJump || !jumpDate}>
+												{savingJump ? '…' : '✓ Save'}
+											</button>
+											<button class="sched-jump-cancel" on:click={cancelJump}>Cancel</button>
+										{:else}
+											<button class="sched-edit-btn" on:click={() => startEdit(s)} title="Edit — change vendor, amount, notes or date" aria-label="Edit schedule">
+												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<path d="M12 20h9" />
+													<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+												</svg>
+											</button>
+											<button class="sched-jump-btn" on:click={() => startJump(s)} title="Jump — move this schedule to another date" aria-label="Change date">
+												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<rect x="3" y="4" width="18" height="18" rx="2" />
+													<line x1="16" y1="2" x2="16" y2="6" />
+													<line x1="8" y1="2" x2="8" y2="6" />
+													<line x1="3" y1="10" x2="21" y2="10" />
+												</svg>
+											</button>
+											<button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)} title="Delete this schedule" aria-label="Delete schedule">
+												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<polyline points="3 6 5 6 21 6" />
+													<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+													<path d="M10 11v6M14 11v6" />
+													<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+												</svg>
+											</button>
+										{/if}
+									</div>
+								</div>
+							{/each}
+							{/each}
+						</div>
+					{:else}
 					<div class="sched-table-wrap">
 						<table class="sched-table">
 							<thead>
@@ -606,9 +980,26 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each expenseSchedules as s}
+								{#each expenseGroups as g (g.date)}
+									<tr class="sched-date-row">
+										<td colspan={isAllBranches ? 6 : 5}>
+											<div class="sched-date-row-inner">
+												<span class="sched-date-head-date">{formatShortDate(g.date)}</span>
+												<span class="sched-date-head-total">
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {g.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+										</td>
+									</tr>
+									{#each g.rows as s}
 									<tr>
-										<td class="sched-col-date">{formatShortDate(s.schedule_date)}</td>
+										<td class="sched-col-date">
+											{#if jumpId === s.id}
+												<input type="date" bind:value={jumpDate} class="sched-jump-input" />
+											{:else}
+												{formatShortDate(s.schedule_date)}
+											{/if}
+										</td>
 										{#if isAllBranches}
 										<td class="sched-col-branch">
 											<span class="branch-name">{branchNameById.get(s.branch_id) || s.branch_id}</span>
@@ -620,12 +1011,46 @@
 										<td class="sched-col-name">{s.description}</td>
 										<td class="sched-col-amount"><img src={currencySymbolUrl} alt="SAR" class="currency-icon" /> {Number(s.amount).toLocaleString()}</td>
 										<td class="sched-col-notes">{s.notes || '—'}</td>
-										<td><button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)}>×</button></td>
+										<td>
+											<div class="sched-row-actions">
+												{#if jumpId === s.id}
+													<button class="sched-jump-save" on:click={saveJump} disabled={savingJump || !jumpDate} title="Save new date">
+														{savingJump ? '…' : '✓ Save'}
+													</button>
+													<button class="sched-jump-cancel" on:click={cancelJump} title="Cancel">Cancel</button>
+												{:else}
+													<button class="sched-edit-btn" on:click={() => startEdit(s)} title="Edit — change vendor, amount, notes or date" aria-label="Edit schedule">
+												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+													<path d="M12 20h9" />
+													<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+												</svg>
+											</button>
+											<button class="sched-jump-btn" on:click={() => startJump(s)} title="Jump — move this schedule to another date">
+														<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+															<rect x="3" y="4" width="18" height="18" rx="2" />
+															<line x1="16" y1="2" x2="16" y2="6" />
+															<line x1="8" y1="2" x2="8" y2="6" />
+															<line x1="3" y1="10" x2="21" y2="10" />
+														</svg>
+													</button>
+													<button class="sched-delete-btn" on:click={() => deleteSchedule(s.id)} title="Delete this schedule" aria-label="Delete schedule">
+														<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+															<polyline points="3 6 5 6 21 6" />
+															<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+															<path d="M10 11v6M14 11v6" />
+															<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+														</svg>
+													</button>
+												{/if}
+											</div>
+										</td>
 									</tr>
+								{/each}
 								{/each}
 							</tbody>
 						</table>
 					</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -809,11 +1234,22 @@
 		color: #94a3b8;
 	}
 
+	/* Stays put while the list scrolls, so search, total, add and the date
+	   filter are always reachable. Sticks to whichever ancestor scrolls:
+	   .sched-section-body on desktop, the page itself on mobile. */
 	.sched-filter-row {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin: 4px 0 10px;
+		position: sticky;
+		top: 0;
+		z-index: 15;
+		background: rgba(248, 250, 252, 0.97);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		padding: 8px 0;
+		margin: -4px 0 6px;
+		border-bottom: 1px solid rgba(203, 213, 225, 0.55);
 	}
 
 	.sched-filter-search {
@@ -1162,22 +1598,244 @@
 		padding: 28px 0;
 	}
 
+	.sched-row-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		white-space: nowrap;
+	}
+
+	/* ===== Per-date grouping: one header carrying that date's total ===== */
+	.sched-date-row td {
+		padding: 0;
+		background: rgba(241, 245, 249, 0.95);
+		border-top: 1px solid rgba(203, 213, 225, 0.9);
+		border-bottom: 1px solid rgba(203, 213, 225, 0.9);
+	}
+
+	.sched-date-row-inner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 6px 12px;
+	}
+
+	.sched-date-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		background: rgba(241, 245, 249, 0.95);
+		border: 1px solid rgba(203, 213, 225, 0.9);
+		border-radius: 8px;
+		padding: 6px 10px;
+		margin-top: 4px;
+	}
+
+	.sched-date-head:first-child {
+		margin-top: 0;
+	}
+
+	.sched-date-head-date {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #334155;
+		letter-spacing: 0.02em;
+	}
+
+	.sched-date-head-total {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #059669;
+		white-space: nowrap;
+	}
+
 	.sched-delete-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: none;
 		border: none;
 		cursor: pointer;
-		font-size: 0.85rem;
-		font-weight: 700;
 		color: #ef4444;
-		opacity: 0.6;
-		transition: opacity 0.2s;
-		padding: 2px 6px;
-		border-radius: 4px;
+		opacity: 0.7;
+		transition: opacity 0.2s, background 0.2s;
+		padding: 7px;
+		border-radius: 8px;
+		line-height: 0;
 	}
 
 	.sched-delete-btn:hover {
 		opacity: 1;
 		background: rgba(239, 68, 68, 0.1);
+	}
+
+	/* Jump — move a schedule to another date */
+	.sched-jump-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: none;
+		border-radius: 6px;
+		color: #475569;
+		opacity: 0.7;
+		padding: 7px;
+		line-height: 0;
+		cursor: pointer;
+		transition: opacity 0.2s, background 0.2s;
+	}
+
+	.sched-jump-btn:hover {
+		opacity: 1;
+		background: rgba(100, 116, 139, 0.12);
+	}
+
+	/* Edit — full editor for the whole row */
+	.sched-edit-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: none;
+		border-radius: 8px;
+		color: #475569;
+		opacity: 0.7;
+		padding: 7px;
+		line-height: 0;
+		cursor: pointer;
+		transition: opacity 0.2s, background 0.2s;
+	}
+
+	.sched-edit-btn:hover {
+		opacity: 1;
+		background: rgba(100, 116, 139, 0.12);
+	}
+
+	.sched-edit-form {
+		border: 1px solid rgba(100, 116, 139, 0.5);
+		box-shadow: 0 2px 14px rgba(100, 116, 139, 0.14);
+	}
+
+	.sched-jump-input {
+		background: #ffffff;
+		border: 1px solid #475569;
+		border-radius: 6px;
+		padding: 3px 6px;
+		font-size: 0.75rem;
+		color: #1e293b;
+		outline: none;
+	}
+
+	.sched-jump-save {
+		background: #475569;
+		border: none;
+		border-radius: 6px;
+		color: #fff;
+		font-size: 0.7rem;
+		font-weight: 700;
+		padding: 4px 9px;
+		cursor: pointer;
+	}
+
+	.sched-jump-save:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.sched-jump-cancel {
+		background: none;
+		border: none;
+		color: #94a3b8;
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 4px 4px;
+		cursor: pointer;
+	}
+
+	.sched-jump-cancel:hover {
+		color: #475569;
+	}
+
+	/* ===== Mobile card list (replaces the table, which cannot fit a phone) ===== */
+	.sched-cards {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.sched-card {
+		background: rgba(255, 255, 255, 0.85);
+		border: 1px solid rgba(203, 213, 225, 0.8);
+		border-left: 3px solid #475569;
+		border-radius: 10px;
+		padding: 10px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
+	}
+
+	.sched-card-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 10px;
+	}
+
+	.sched-card-name {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #1e293b;
+		line-height: 1.25;
+		word-break: break-word;
+	}
+
+	.sched-card-amount {
+		white-space: nowrap;
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #059669;
+		flex-shrink: 0;
+	}
+
+	.sched-card-meta {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px 10px;
+	}
+
+	.sched-card-date {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #475569;
+		background: rgba(241, 245, 249, 0.9);
+		border-radius: 5px;
+		padding: 2px 7px;
+	}
+
+	.sched-card-branch {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #94a3b8;
+	}
+
+	.sched-card-notes {
+		font-size: 0.75rem;
+		color: #64748b;
+		line-height: 1.35;
+		word-break: break-word;
+	}
+
+	.sched-card-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		border-top: 1px solid rgba(226, 232, 240, 0.9);
+		padding-top: 6px;
 	}
 
 	/* Schedules table */

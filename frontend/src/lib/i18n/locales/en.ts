@@ -529,7 +529,7 @@ export const englishLocale: LocaleData = {
       whatsappTemplates: "Templates",
       whatsappContacts: "Contacts",
       whatsappAutoReply: "Auto-Reply Bot",
-      whatsappAIBot: "AI Bot",
+      whatsappAIBot: "AI Reply",
       whatsappAccounts: "Accounts",
       whatsappSettings: "Settings",
       whatsappCatalog: "Catalog & Sales",

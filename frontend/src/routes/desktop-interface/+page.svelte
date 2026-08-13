@@ -76,7 +76,7 @@
 		'WA_TEMPLATES': '📝',
 		'WA_CONTACTS': '👥',
 		'WA_AUTO_REPLY': '🔧',
-		'WA_AI_BOT': '🤖',
+		'WA_AI_BOT': '💬',
 		'WA_ACCOUNTS': '📱',
 		'WA_SETTINGS': '⚙️',
 		'WA_CATALOG': '📦',

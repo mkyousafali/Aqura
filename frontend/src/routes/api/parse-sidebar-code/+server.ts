@@ -24,7 +24,7 @@ function prettyButtonName(code: string): string {
 		API_KEYS_MANAGER: 'API Keys Manager',
 		HR_SERVICES: 'HR Services',
 		EMPLOYEE_MASTER: 'Employee Master',
-		WA_AI_BOT: 'WhatsApp AI Bot',
+		WA_AI_BOT: 'AI Reply',
 		WA_AUTO_REPLY: 'WhatsApp Auto Reply',
 		WA_LIVE_CHAT: 'WhatsApp Live Chat',
 		WA_BROADCASTS: 'WhatsApp Broadcasts',

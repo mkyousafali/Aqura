@@ -10,6 +10,76 @@
 	let botNameEn = '';
 	let botNameAr = '';
 
+	// Dashboard — bot switch and usage counters
+	let isEnabled = false;
+	let togglingBot = false;
+	let refreshingStats = false;
+	let tokensUsed = 0;
+	let promptTokensUsed = 0;
+	let completionTokensUsed = 0;
+	let totalRequests = 0;
+	// Gemini pay-as-you-go rate per token, converted to SAR
+	$: estimatedCostSar = tokensUsed * 0.00000024 * 3.75;
+
+	// Links — each has its own URL and its own CTA button wording per language.
+	// The webhook picks one of these per reply; nothing is hardcoded there.
+	interface LinkConfig {
+		key: 'app' | 'offers' | 'promotions';
+		title: string;
+		hint: string;
+		urlField: string;
+		enField: string;
+		arField: string;
+		url: string;
+		labelEn: string;
+		labelAr: string;
+	}
+	let links: LinkConfig[] = [
+		{
+			key: 'app', title: '📱 Business App Link',
+			hint: 'Default button. Used when the reply is not about offers or promotions, and as the fallback when the other links are empty.',
+			urlField: 'app_link', enField: 'app_link_button_en', arField: 'app_link_button_ar',
+			url: '', labelEn: '', labelAr: ''
+		},
+		{
+			key: 'offers', title: '🛍️ Offers Link',
+			hint: 'Used when the customer asks about offers, prices or points. Falls back to the Business App link if left empty.',
+			urlField: 'offers_link', enField: 'offers_link_button_en', arField: 'offers_link_button_ar',
+			url: '', labelEn: '', labelAr: ''
+		},
+		{
+			key: 'promotions', title: '🎁 Promotions Link',
+			hint: 'Used when the customer asks about promotions, campaigns or giveaways. Falls back to the Business App link if left empty.',
+			urlField: 'promotions_link', enField: 'promotions_link_button_en', arField: 'promotions_link_button_ar',
+			url: '', labelEn: '', labelAr: ''
+		}
+	];
+	let savingLink: string | null = null;
+	let savedLinkKey: string | null = null;
+
+	// Offers: send the branch's active offer PDFs instead of the link
+	let offersSendPdf = false;
+	let savingOffersPdf = false;
+	let offersPdfSaved = false;
+
+	// Behavior Rules (bot_rules)
+	let savedBotRules = '';
+	let botRulesDraft = '';
+	let savingBotRules = false;
+	const botRulesExample = `Behaviour the AI must follow that isn't covered by the other sections, e.g.:
+
+- Rate/price enquiries: what to offer, and whether to ask permission before transferring
+- Whether the AI may transfer to a human on its own, or only with the customer's consent
+- Human support hours to quote to customers
+- Formatting limits: how many emojis, how many lines per reply
+- How to close a conversation politely`;
+
+	// Training Q&A pairs
+	interface QAPair { prompt: string; response: string; }
+	let trainingQA: QAPair[] = [];
+	let savingTraining = false;
+	let trainingSaved = false;
+
 	// Edit state (view vs edit mode per field)
 	let editingEn = false;
 	let editingAr = false;
@@ -116,7 +186,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 		try {
 			const { data } = await supabase
 				.from('wa_ai_bot_config')
-				.select('id, bot_name, bot_name_ar, tone, language_rules, custom_instructions, services_information, problem_handling_info, escalation_keywords, escalation_ack_message, escalation_rules_instructions, escalation_context_gathering_reply_en, escalation_context_gathering_reply_ar, escalation_complaint_reply_en, escalation_complaint_reply_ar')
+				.select('id, bot_name, bot_name_ar, tone, language_rules, custom_instructions, services_information, problem_handling_info, escalation_keywords, escalation_ack_message, escalation_rules_instructions, escalation_context_gathering_reply_en, escalation_context_gathering_reply_ar, escalation_complaint_reply_en, escalation_complaint_reply_ar, is_enabled, app_link, app_link_button_en, app_link_button_ar, offers_link, offers_link_button_en, offers_link_button_ar, promotions_link, promotions_link_button_en, promotions_link_button_ar, offers_send_pdf_enabled, bot_rules, training_qa, tokens_used, prompt_tokens_used, completion_tokens_used, total_requests')
 				.order('created_at', { ascending: true })
 				.limit(1)
 				.maybeSingle();
@@ -146,6 +216,22 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 				contextGatheringReplyAr = data.escalation_context_gathering_reply_ar || '';
 				complaintReplyEn = data.escalation_complaint_reply_en || '';
 				complaintReplyAr = data.escalation_complaint_reply_ar || '';
+
+				isEnabled = data.is_enabled ?? false;
+				offersSendPdf = data.offers_send_pdf_enabled ?? false;
+				links = links.map((l) => ({
+					...l,
+					url: data[l.urlField] || '',
+					labelEn: data[l.enField] || '',
+					labelAr: data[l.arField] || ''
+				}));
+				savedBotRules = data.bot_rules || '';
+				botRulesDraft = savedBotRules;
+				trainingQA = Array.isArray(data.training_qa) ? data.training_qa : [];
+				tokensUsed = data.tokens_used ?? 0;
+				promptTokensUsed = data.prompt_tokens_used ?? 0;
+				completionTokensUsed = data.completion_tokens_used ?? 0;
+				totalRequests = data.total_requests ?? 0;
 
 				escalationHasSavedData = savedEscalationKeywords.length > 0 || !!savedAckMessage ||
 					!!savedNonKeywordRules ||
@@ -285,6 +371,115 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 		savingProblemHandling = false;
 	}
 
+	// Single patch helper for the sections migrated from the old AI Bot window.
+	// Patches one field group at a time so two sections can never overwrite
+	// each other the way the old window's whole-payload save did.
+	async function persist(payload: Record<string, any>) {
+		if (configId) {
+			const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
+			if (error) throw error;
+		} else {
+			const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+			if (error) throw error;
+			configId = data.id;
+		}
+	}
+
+	async function toggleBot() {
+		togglingBot = true;
+		const next = !isEnabled;
+		try {
+			await persist({ is_enabled: next });
+			isEnabled = next;
+		} catch (err) {
+			console.error('Error toggling bot:', err);
+		}
+		togglingBot = false;
+	}
+
+	async function refreshStats() {
+		refreshingStats = true;
+		try {
+			const { data } = await supabase
+				.from('wa_ai_bot_config')
+				.select('tokens_used, prompt_tokens_used, completion_tokens_used, total_requests')
+				.eq('id', configId)
+				.maybeSingle();
+			if (data) {
+				tokensUsed = data.tokens_used ?? 0;
+				promptTokensUsed = data.prompt_tokens_used ?? 0;
+				completionTokensUsed = data.completion_tokens_used ?? 0;
+				totalRequests = data.total_requests ?? 0;
+			}
+		} catch (err) {
+			console.error('Error refreshing usage stats:', err);
+		}
+		refreshingStats = false;
+	}
+
+	async function saveOffersSendPdf() {
+		savingOffersPdf = true;
+		try {
+			await persist({ offers_send_pdf_enabled: offersSendPdf });
+			offersPdfSaved = true;
+			setTimeout(() => (offersPdfSaved = false), 2500);
+		} catch (err) {
+			console.error('Error saving offers PDF setting:', err);
+		}
+		savingOffersPdf = false;
+	}
+
+	async function saveLink(link: LinkConfig) {
+		savingLink = link.key;
+		try {
+			await persist({
+				[link.urlField]: link.url,
+				[link.enField]: link.labelEn,
+				[link.arField]: link.labelAr
+			});
+			savedLinkKey = link.key;
+			setTimeout(() => {
+				if (savedLinkKey === link.key) savedLinkKey = null;
+			}, 2500);
+		} catch (err) {
+			console.error('Error saving link:', err);
+		}
+		savingLink = null;
+	}
+
+	async function saveBotRules() {
+		savingBotRules = true;
+		try {
+			await persist({ bot_rules: botRulesDraft });
+			savedBotRules = botRulesDraft;
+		} catch (err) {
+			console.error('Error saving behavior rules:', err);
+		}
+		savingBotRules = false;
+	}
+
+	function addQAPair() {
+		trainingQA = [...trainingQA, { prompt: '', response: '' }];
+	}
+
+	function removeQAPair(idx: number) {
+		trainingQA = trainingQA.filter((_, i) => i !== idx);
+	}
+
+	async function saveTrainingQA() {
+		savingTraining = true;
+		try {
+			const clean = trainingQA.filter((qa) => qa.prompt.trim() || qa.response.trim());
+			await persist({ training_qa: clean });
+			trainingQA = clean;
+			trainingSaved = true;
+			setTimeout(() => (trainingSaved = false), 2500);
+		} catch (err) {
+			console.error('Error saving training examples:', err);
+		}
+		savingTraining = false;
+	}
+
 	function addEscalationKeyword() {
 		const word = escalationKeywordInput.trim();
 		if (!word) return;
@@ -354,11 +549,21 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 				<span class="text-2xl">💬</span>
 				<h1 class="text-lg font-black text-slate-800 uppercase tracking-wide">AI Reply</h1>
 			</div>
-			<div class="flex items-center gap-2">
+			<div class="flex items-center gap-2 flex-wrap justify-end">
+				<button
+					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+					on:click={() => scrollToSection('card-dashboard')}>
+					📊 Dashboard
+				</button>
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
 					on:click={() => scrollToSection('card-who-am-i')}>
 					🙋 Who am I
+				</button>
+				<button
+					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+					on:click={() => scrollToSection('card-links')}>
+					🔗 Links
 				</button>
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
@@ -385,6 +590,16 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 					on:click={() => scrollToSection('card-problem-handling')}>
 					🛠️ Problem Handling
 				</button>
+				<button
+					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+					on:click={() => scrollToSection('card-behavior-rules')}>
+					📋 Behavior Rules
+				</button>
+				<button
+					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+					on:click={() => scrollToSection('card-training')}>
+					🎓 Training
+				</button>
 			</div>
 		</div>
 	</div>
@@ -396,6 +611,64 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 gap-4">
+				<!-- Dashboard — status and usage, one compact row -->
+				<div id="card-dashboard" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-4 shadow-sm">
+					<div class="flex items-center justify-between mb-2.5">
+						<h2 class="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wide">
+							<span class="text-sm">📊</span>
+							Dashboard
+						</h2>
+						<button on:click={refreshStats} disabled={refreshingStats}
+							class="text-[10px] text-slate-600 hover:text-emerald-600 font-bold bg-slate-100 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-all disabled:opacity-50"
+							title="Refresh stats">
+							<span class:animate-spin={refreshingStats}>🔄</span> Refresh
+						</button>
+					</div>
+
+					<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+						<!-- Bot switch -->
+						<div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-col justify-between">
+							<div class="text-[9px] font-bold text-slate-500 uppercase leading-tight">Bot Status</div>
+							<div class="text-sm font-black {isEnabled ? 'text-emerald-600' : 'text-slate-400'} leading-tight my-0.5">
+								{isEnabled ? '🟢 Active' : '⚪ Off'}
+							</div>
+							<button
+								class="w-full px-2 py-1 rounded text-[10px] font-bold transition-all disabled:opacity-50 {isEnabled ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-emerald-600 text-white hover:bg-emerald-700'}"
+								on:click={toggleBot} disabled={togglingBot}>
+								{togglingBot ? '...' : (isEnabled ? 'Turn Off' : 'Turn On')}
+							</button>
+						</div>
+
+						<div class="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-lg p-2.5 border border-blue-200/50">
+							<div class="text-[9px] font-bold text-blue-600 uppercase leading-tight">Total Tokens</div>
+							<div class="text-base font-black text-blue-700 leading-tight mt-1 truncate" title={tokensUsed.toLocaleString()}>{tokensUsed.toLocaleString()}</div>
+							<div class="text-[9px] text-blue-600/70">Lifetime</div>
+						</div>
+						<div class="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-lg p-2.5 border border-purple-200/50">
+							<div class="text-[9px] font-bold text-purple-600 uppercase leading-tight">Input Tokens</div>
+							<div class="text-base font-black text-purple-700 leading-tight mt-1 truncate" title={promptTokensUsed.toLocaleString()}>{promptTokensUsed.toLocaleString()}</div>
+							<div class="text-[9px] text-purple-600/70">Prompts</div>
+						</div>
+						<div class="bg-gradient-to-br from-amber-50 to-amber-100/50 rounded-lg p-2.5 border border-amber-200/50">
+							<div class="text-[9px] font-bold text-amber-600 uppercase leading-tight">Output Tokens</div>
+							<div class="text-base font-black text-amber-700 leading-tight mt-1 truncate" title={completionTokensUsed.toLocaleString()}>{completionTokensUsed.toLocaleString()}</div>
+							<div class="text-[9px] text-amber-600/70">Replies</div>
+						</div>
+						<div class="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-lg p-2.5 border border-emerald-200/50">
+							<div class="text-[9px] font-bold text-emerald-600 uppercase leading-tight">API Calls</div>
+							<div class="text-base font-black text-emerald-700 leading-tight mt-1 truncate" title={totalRequests.toLocaleString()}>{totalRequests.toLocaleString()}</div>
+							<div class="text-[9px] text-emerald-600/70">Messages</div>
+						</div>
+						<div class="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-2.5 border border-slate-200">
+							<div class="text-[9px] font-bold text-slate-600 uppercase leading-tight">Est. Cost</div>
+							<div class="text-base font-black text-slate-800 leading-tight mt-1 truncate">
+								{estimatedCostSar.toFixed(4)}<span class="text-[10px] text-slate-600 ml-1">SAR</span>
+							</div>
+							<div class="text-[9px] text-slate-500">Pay-as-you-go</div>
+						</div>
+					</div>
+				</div>
+
 				<div id="card-who-am-i" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
 						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">1</span>
@@ -464,12 +737,79 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 							<p class="text-[10px] text-slate-400 mt-2">Current: <span class="capitalize font-bold text-slate-600">{savedTone}</span></p>
 						{/if}
 					</div>
+
+					</div>
+
+				<!-- Card 2 — Links & CTA Buttons -->
+				<div id="card-links" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm">
+					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-1">
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">2</span>
+						🔗 Links & CTA Buttons
+					</h2>
+					<p class="text-[10px] text-slate-400 mb-4">Every AI reply carries one CTA button. The AI picks which link fits the customer's question, and the button wording below is what the customer sees — nothing is hardcoded in the bot.</p>
+
+					<div class="space-y-4">
+						{#each links as link (link.key)}
+							<div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+								<span class="text-xs font-bold text-slate-700 block mb-1">{link.title}</span>
+								<p class="text-[10px] text-slate-400 mb-2">{link.hint}</p>
+
+								<span class="text-[10px] font-bold text-slate-500 uppercase mb-1 block">URL</span>
+								<input type="text" bind:value={link.url} placeholder="e.g. https://yourbrand.app/login"
+									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-3" />
+
+								<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+									<div>
+										<span class="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Button Text (English)</span>
+										<input type="text" bind:value={link.labelEn} placeholder="e.g. Browse Offers 🛍️"
+											class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+									</div>
+									<div>
+										<span class="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Button Text (Arabic)</span>
+										<input type="text" dir="rtl" bind:value={link.labelAr} placeholder="مثلاً: تصفح العروض 🛍️"
+											class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+									</div>
+								</div>
+
+								<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+									on:click={() => saveLink(link)} disabled={savingLink === link.key}>
+									{savingLink === link.key ? '...' : (savedLinkKey === link.key ? '✓ Saved' : 'Save')}
+								</button>
+
+								{#if link.key === 'offers'}
+								<div class="mt-3 pt-3 border-t border-slate-200">
+									<label class="flex items-start gap-2 cursor-pointer">
+										<input type="checkbox" bind:checked={offersSendPdf} on:change={saveOffersSendPdf}
+											disabled={savingOffersPdf} class="accent-emerald-600 mt-0.5" />
+										<span>
+											<span class="text-xs font-bold text-slate-700">
+												Send the offer PDF instead of this link
+												{#if savingOffersPdf}<span class="text-slate-400 font-normal">saving…</span>
+												{:else if offersPdfSaved}<span class="text-emerald-600 font-normal">✓ saved</span>{/if}
+											</span>
+											<span class="block text-[10px] text-slate-400 mt-0.5">
+												When ticked, an offers question replies with branch buttons — listing only branches whose offers are valid at that moment (start and end date/time checked) — and sends that branch's offer PDF as soon as the customer picks one. The link above is used only as a fallback when nothing is currently running.
+											</span>
+										</span>
+									</label>
+								</div>
+							{/if}
+
+							{#if link.key === 'app' && !link.url.trim()}
+									<p class="text-[10px] text-rose-600 mt-2">⚠️ The Business App link is the fallback for every reply. With it empty and no other link set, replies are sent as plain text with no button.</p>
+								{/if}
+								{#if link.url.trim() && !(link.labelEn.trim() && link.labelAr.trim())}
+									<p class="text-[10px] text-amber-600 mt-2">⚠️ Set both English and Arabic button text — the missing one leaves the button blank for customers writing in that language.</p>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				</div>
 
 				<!-- Card 2 — Escalation Keywords -->
 				<div id="card-escalation" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">2</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">3</span>
 						🆘 Escalation Rules
 					</h2>
 
@@ -553,7 +893,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 				<!-- Card 3 — Language Rules -->
 				<div id="card-language-rules" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">3</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">4</span>
 						🌐 Language Rules
 					</h2>
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Rules the AI must follow for language handling</span>
@@ -568,7 +908,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 				<!-- Card 4 — Business Information -->
 				<div id="card-business-info" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">4</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">5</span>
 						📚 Business Information
 					</h2>
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Knowledge base the AI references when replying to customers</span>
@@ -583,7 +923,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 				<!-- Card 5 — Services -->
 				<div id="card-services" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">5</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">6</span>
 						🛎️ Services
 					</h2>
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Services offered, by branch — the AI references this when replying to customers</span>
@@ -598,7 +938,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 				<!-- Card 6 — Problem & Issue Handling -->
 				<div id="card-problem-handling" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">6</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">7</span>
 						🛠️ Problem & Issue Handling
 					</h2>
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">How the AI should handle complaints, defects, price/stock questions, and other issues it can't resolve itself</span>
@@ -608,6 +948,59 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 						on:click={saveProblemHandling} disabled={savingProblemHandling}>
 						{savingProblemHandling ? '...' : (savedProblemHandling ? 'Change' : 'Save')}
 					</button>
+				</div>
+
+				<!-- Card 7 — Behavior Rules -->
+				<div id="card-behavior-rules" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
+					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">8</span>
+						📋 Behavior Rules
+					</h2>
+					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Behaviour not covered by the sections above</span>
+					<p class="text-[10px] text-slate-400 mb-2">Keep this short. Anything about language, escalation, tone, services, business info or problem handling belongs in its own section above — repeating it here sends the AI the same instruction twice and the two copies drift apart.</p>
+					<textarea bind:value={botRulesDraft} rows="12" placeholder={botRulesExample}
+						class="w-full flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y mb-3"></textarea>
+					<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+						on:click={saveBotRules} disabled={savingBotRules}>
+						{savingBotRules ? '...' : (savedBotRules ? 'Change' : 'Save')}
+					</button>
+				</div>
+
+				<!-- Card 8 — Training Examples -->
+				<div id="card-training" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
+					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">9</span>
+						🎓 Training Examples
+					</h2>
+					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Sample customer messages and the reply the AI should model</span>
+					<p class="text-[10px] text-slate-400 mb-3">Sent to the AI as <b>Customer / Bot</b> example pairs. Empty rows are dropped on save.</p>
+
+					<div class="space-y-3 mb-3">
+						{#each trainingQA as qa, idx}
+							<div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+								<div class="flex items-center justify-between mb-2">
+									<span class="text-[10px] font-bold text-slate-500 uppercase">Example {idx + 1}</span>
+									<button class="text-xs font-bold text-rose-500 hover:text-rose-600" on:click={() => removeQAPair(idx)}>✕ Remove</button>
+								</div>
+								<input type="text" bind:value={qa.prompt} placeholder="Customer says…"
+									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-2" />
+								<textarea bind:value={qa.response} rows="2" placeholder="Bot should reply…"
+									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-y"></textarea>
+							</div>
+						{:else}
+							<p class="text-xs text-slate-400 text-center py-4">No training examples yet.</p>
+						{/each}
+					</div>
+
+					<div class="flex gap-2">
+						<button class="px-3 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200" on:click={addQAPair}>
+							+ Add Example
+						</button>
+						<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+							on:click={saveTrainingQA} disabled={savingTraining}>
+							{savingTraining ? '...' : (trainingSaved ? '✓ Saved' : 'Save')}
+						</button>
+					</div>
 				</div>
 			</div>
 		{/if}
