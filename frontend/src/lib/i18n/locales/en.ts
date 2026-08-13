@@ -447,6 +447,7 @@ export const englishLocale: LocaleData = {
       surpriseBox: "Surprise Box",
       surpriseBoxRedemption: "Surprise Box Redemption",
       approvalCenter: "Approval Center",
+      lcPlanner: "LC Planner",
       categoryManager: "Category Manager",
       assetManager: "Asset Manager",
       leaseAndRent: "Lease and Rent",

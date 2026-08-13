@@ -7,7 +7,27 @@
       "Bash(npx svelte-check *)",
       "Bash(timeout 180 npx svelte-check --output human --tsconfig ./tsconfig.json)",
       "Bash(grep -n \"handleBranchChange\\\\|\\\\\\\\$: if \\(selectedBranchId\\)\\\\|selectedBranchId &&\" \"/c/Aqura/frontend/src/lib/components/desktop-interface/master/finance/SingleBillScheduling.svelte\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(grep -n '$locale\\\\|currentLocale\\\\|isRTL' src/lib/components/desktop-interface/master/finance/Denomination.svelte)",
+      "Bash(timeout 40 bash -c 'until curl -sf http://localhost:5173 >/dev/null; do sleep 1; done')",
+      "Bash(npx --no-install chromium-cli --version)",
+      "Bash(node -e \"console.log\\(require.resolve\\('playwright'\\)\\)\")",
+      "Bash(ls \"/c/Users/ME/AppData/Local/ms-playwright\" 2>/dev/null && echo \"FOUND\" || echo \"NOT FOUND\")",
+      "Read(//c/Users/ME/AppData/Local/ms-playwright/**)",
+      "Bash(mkdir -p \"C:/Users/ME/AppData/Local/Temp/claude/d--Aqura/e2068ed0-9b5f-48de-be40-0841e4e2226f/scratchpad/pw\")",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(grep -n \"\\\\.btn-cancel,\\\\|\\\\.btn-cancel {\\\\|\\\\.btn-save {\\\\|\\\\.btn-save:hover\\\\|\\\\.btn-save:disabled\\\\|\\\\.btn-cancel:hover\" src/lib/components/desktop-interface/master/finance/Denomination.svelte)",
+      "Read(//c/Users/ME/.ssh/**)",
+      "Bash(ls -a | head -40; echo \"=== env files ===\"; ls -a frontend/ | grep -i env; echo \"=== supabase dir ===\"; ls supabase 2>/dev/null | head; echo \"=== known_hosts ===\"; cut -d' ' -f1 ~/.ssh/known_hosts 2>/dev/null | sort -u | head -20)",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec supabase-db psql -U postgres -d postgres -c \\\\\"SELECT p.proname, pg_get_function_identity_arguments\\(p.oid\\) AS args, p.prosecdef AS sec_definer, array_to_string\\(p.proacl,' | '\\) AS grants FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname ILIKE '%daily_temp%';\\\\\"\")",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -\")",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec supabase-db psql -U postgres -d postgres -c \\\\\"SELECT tableowner FROM pg_tables WHERE tablename='daily_temp_schedules'; SELECT current_user;\\\\\"\")",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec -i supabase-db psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f -\")",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec supabase-db psql -U postgres -d postgres -c \\\\\"SELECT payment_mode, count\\(*\\) FROM public.daily_temp_schedules GROUP BY 1;\\\\\" -c \\\\\"SELECT count\\(*\\) AS cash_rows FROM public.get_daily_temp_schedules\\(1\\);\\\\\" -c \\\\\"SELECT count\\(*\\) AS bank_rows FROM public.get_daily_temp_schedules\\(1,'bank'\\);\\\\\"\")",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec supabase-db psql -U postgres -d postgres -c \\\\\"SELECT branch_id, count\\(*\\) FROM public.daily_temp_schedules GROUP BY 1;\\\\\" -c \\\\\"SELECT branch_id, payment_mode, count\\(*\\) FROM public.get_daily_temp_schedules\\(\\(SELECT branch_id FROM public.daily_temp_schedules LIMIT 1\\)\\) GROUP BY 1,2;\\\\\"\")",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_ed25519_nopass root@8.213.42.21 \"docker exec supabase-db psql -U postgres -d postgres -c \\\\\"SELECT count\\(*\\) AS all_branches FROM public.get_daily_temp_schedules\\(NULL\\);\\\\\" -c \\\\\"SELECT count\\(*\\) AS branch3 FROM public.get_daily_temp_schedules\\(3\\);\\\\\"\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\('rows:',j.length\\)}\\)\")"
     ]
   }
 }

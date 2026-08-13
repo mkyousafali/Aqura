@@ -29,6 +29,7 @@
 	import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
 	import UploadVendor from '$lib/components/desktop-interface/master/vendor/UploadVendor.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
+	import LCPlanner from '$lib/components/desktop-interface/master/finance/LCPlanner.svelte';
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
 	import ApprovalPermissionsManager from '$lib/components/desktop-interface/settings/ApprovalPermissionsManager.svelte';
@@ -294,7 +295,7 @@
 		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
 		'PRODUCT_MANAGER_PROMO': 'nav.manageProducts', 'COUPON_REPORTS': 'nav.reportsAndStats',
 		'VIP_CAMPAIGN': 'nav.vipCampaign',
-		'APPROVAL_CENTER': 'nav.approvalCenter', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
+		'APPROVAL_CENTER': 'nav.approvalCenter', 'LC_PLANNER': 'nav.lcPlanner', 'PURCHASE_VOUCHER_MANAGER': 'nav.purchaseVoucherManager',
 		'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
 		'DAY_BUDGET_PLANNER': 'nav.dayBudgetPlanner', 'MONTHLY_MANAGER': 'nav.monthlyManager',
 		'EXPENSE_MANAGER': 'nav.expenseManager', 'PAID_MANAGER': 'nav.paidManager',
@@ -1668,6 +1669,27 @@ function openApprovalCenter() {
 		});
 	}
 
+	function openLCPlanner() {
+		const windowId = generateWindowId('lc-planner');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.lcPlanner') || 'LC Planner'} #${instanceNumber}`,
+			component: LCPlanner,
+			componentName: 'LCPlanner',
+			icon: '📑',
+			size: { width: 1200, height: 700 },
+			position: {
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function showComingSoon(section: string) {
 		// You can implement a toast notification or modal here
 		alert(`${section} - ${t('status.pending') || 'pending'}...`);
@@ -2243,6 +2265,7 @@ function openApprovalCenter() {
 			'SURPRISE_BOX_MANAGER': openSurpriseBoxManager,
 			'VIP_CAMPAIGN': openVipCampaign,
 			'APPROVAL_CENTER': openApprovalCenter,
+			'LC_PLANNER': openLCPlanner,
 			'PURCHASE_VOUCHER_MANAGER': openPurchaseVoucherManager,
 			'MANAGE_RECONCILIATIONS': openManageReconciliations,
 			'MANUAL_SCHEDULING': openManualScheduling,
@@ -5027,6 +5050,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openApprovalCenter}>
 								<span class="menu-icon">✓</span>
 								<span class="menu-text">{t('nav.approvalCenter')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('LC_PLANNER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLCPlanner}>
+								<span class="menu-icon">📑</span>
+								<span class="menu-text">{t('nav.lcPlanner')}</span>
 							</button>
 						</div>
 					{/if}

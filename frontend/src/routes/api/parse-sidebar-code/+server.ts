@@ -33,7 +33,8 @@ function prettyButtonName(code: string): string {
 		WA_SETTINGS: 'WhatsApp Settings',
 		WA_CATALOG: 'WhatsApp Catalog',
 		WA_ACCOUNTS: 'WhatsApp Accounts',
-		WA_DASHBOARD: 'WhatsApp Dashboard'
+		WA_DASHBOARD: 'WhatsApp Dashboard',
+		LC_PLANNER: 'LC Planner'
 	};
 	if (specialNames[code]) return specialNames[code];
 
@@ -101,7 +102,7 @@ export const GET: RequestHandler = async () => {
 				REPORTS: ['COUPON_REPORTS']
 			},
 			FINANCE: {
-				DASHBOARD: ['APPROVAL_CENTER'],
+				DASHBOARD: ['APPROVAL_CENTER', 'LC_PLANNER'],
 				MANAGE: ['CATEGORY_MANAGER', 'PURCHASE_VOUCHER_MANAGER', 'MANAGE_RECONCILIATIONS', 'ASSET_MANAGER', 'LEASE_AND_RENT'],
 				OPERATIONS: ['MANUAL_SCHEDULING', 'DAY_BUDGET_PLANNER', 'MONTHLY_MANAGER', 'EXPENSE_MANAGER', 'PAID_MANAGER', 'DENOMINATION', 'PETTY_CASH'],
 				REPORTS: ['EXPENSE_TRACKER', 'SALES_REPORT', 'MONTHLY_BREAKDOWN', 'OVERDUES_REPORT', 'VENDOR_PAYMENTS', 'POS_REPORT']

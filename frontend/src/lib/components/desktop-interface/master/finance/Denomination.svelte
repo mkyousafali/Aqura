@@ -91,6 +91,61 @@
 	let isSavingSchedule = false;
 	let showScheduleForm = false;
 
+	// Schedule list search + date filter (separate per tab)
+	let schedVendorListSearch = '';
+	let schedVendorListDate = '';
+	let schedExpenseListSearch = '';
+	let schedExpenseListDate = '';
+
+	// Custom date-filter calendars — highlight days that have a schedule
+	let showVendorDateCal = false;
+	let vendorCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+	let showExpenseDateCal = false;
+	let expenseCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+	function getCalendarWeeks(monthDate: Date) {
+		const year = monthDate.getFullYear();
+		const month = monthDate.getMonth();
+		const startWeekday = new Date(year, month, 1).getDay();
+		const daysInMonth = new Date(year, month + 1, 0).getDate();
+		const cells: ({ day: number; dateStr: string } | null)[] = [];
+		for (let i = 0; i < startWeekday; i++) cells.push(null);
+		for (let d = 1; d <= daysInMonth; d++) {
+			cells.push({ day: d, dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+		}
+		while (cells.length % 7 !== 0) cells.push(null);
+		const weeks = [];
+		for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+		return weeks;
+	}
+
+	function closeScheduleCalendars() {
+		showVendorDateCal = false;
+		showExpenseDateCal = false;
+	}
+
+	function openVendorCal() {
+		if (showVendorDateCal) { showVendorDateCal = false; return; }
+		const base = schedVendorListDate ? new Date(schedVendorListDate + 'T00:00:00') : new Date();
+		vendorCalMonth = new Date(base.getFullYear(), base.getMonth(), 1);
+		showVendorDateCal = true;
+		showExpenseDateCal = false;
+	}
+	function vendorCalPrevMonth() { vendorCalMonth = new Date(vendorCalMonth.getFullYear(), vendorCalMonth.getMonth() - 1, 1); }
+	function vendorCalNextMonth() { vendorCalMonth = new Date(vendorCalMonth.getFullYear(), vendorCalMonth.getMonth() + 1, 1); }
+	function selectVendorCalDate(dateStr: string) { schedVendorListDate = dateStr; showVendorDateCal = false; }
+
+	function openExpenseCal() {
+		if (showExpenseDateCal) { showExpenseDateCal = false; return; }
+		const base = schedExpenseListDate ? new Date(schedExpenseListDate + 'T00:00:00') : new Date();
+		expenseCalMonth = new Date(base.getFullYear(), base.getMonth(), 1);
+		showExpenseDateCal = true;
+		showVendorDateCal = false;
+	}
+	function expenseCalPrevMonth() { expenseCalMonth = new Date(expenseCalMonth.getFullYear(), expenseCalMonth.getMonth() - 1, 1); }
+	function expenseCalNextMonth() { expenseCalMonth = new Date(expenseCalMonth.getFullYear(), expenseCalMonth.getMonth() + 1, 1); }
+	function selectExpenseCalDate(dateStr: string) { schedExpenseListDate = dateStr; showExpenseDateCal = false; }
+
 	// Denomination permissions
 	let userPerm: any = undefined;
 	$: isMasterAdmin = $currentUser?.isMasterAdmin ?? false;
@@ -136,6 +191,7 @@
 		if (selectedBranch) {
 			await loadExistingRecords();
 			await fetchBoxOperations();
+			await loadSchedules();
 			setupRealtimeSubscription();
 		}
 	});
@@ -184,6 +240,7 @@
 		await fetchBoxOperations();
 		await loadOrCreatePettyCashBox();
 		await loadSavedTransactions();
+		await loadSchedules();
 		setupRealtimeSubscription();
 	}
 
@@ -1000,6 +1057,11 @@
 		showSchedulesPopup = true;
 		schedulesTab = 'vendor';
 		showScheduleForm = false;
+		schedVendorListSearch = '';
+		schedVendorListDate = '';
+		schedExpenseListSearch = '';
+		schedExpenseListDate = '';
+		closeScheduleCalendars();
 		await loadSchedules();
 		if (schedVendorList.length === 0) {
 			await loadScheduleVendors();
@@ -1010,6 +1072,11 @@
 		showSchedulesPopup = false;
 		showScheduleForm = false;
 		resetScheduleForm();
+		schedVendorListSearch = '';
+		schedVendorListDate = '';
+		schedExpenseListSearch = '';
+		schedExpenseListDate = '';
+		closeScheduleCalendars();
 	}
 
 	async function loadScheduleVendors() {
@@ -1121,8 +1188,28 @@
 		}
 	}
 
-	$: vendorSchedules = schedules.filter(s => s.type === 'vendor');
-	$: expenseSchedules = schedules.filter(s => s.type === 'expense');
+	// Dates that have at least one schedule — drives the red highlight in each calendar
+	$: vendorScheduleDateSet = new Set(schedules.filter(s => s.type === 'vendor').map(s => s.schedule_date));
+	$: expenseScheduleDateSet = new Set(schedules.filter(s => s.type === 'expense').map(s => s.schedule_date));
+	$: vendorCalWeeks = getCalendarWeeks(vendorCalMonth);
+	$: expenseCalWeeks = getCalendarWeeks(expenseCalMonth);
+
+	$: vendorSchedules = schedules
+		.filter(s => s.type === 'vendor')
+		.filter(s => !schedVendorListDate || s.schedule_date === schedVendorListDate)
+		.filter(s => {
+			if (!schedVendorListSearch.trim()) return true;
+			const q = schedVendorListSearch.toLowerCase();
+			return (s.vendor_name || '').toLowerCase().includes(q) || (s.notes || '').toLowerCase().includes(q);
+		});
+	$: expenseSchedules = schedules
+		.filter(s => s.type === 'expense')
+		.filter(s => !schedExpenseListDate || s.schedule_date === schedExpenseListDate)
+		.filter(s => {
+			if (!schedExpenseListSearch.trim()) return true;
+			const q = schedExpenseListSearch.toLowerCase();
+			return (s.description || '').toLowerCase().includes(q) || (s.notes || '').toLowerCase().includes(q);
+		});
 	const todayStr = new Date().toISOString().split('T')[0];
 	$: schedTotalCount = schedules.length;
 	$: schedTotalAmount = schedules.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
@@ -1386,6 +1473,16 @@
 		currentSection = section;
 		showOtherModal = true;
 		particulars = '';
+	}
+
+	// Paid / Received header — single "+" button opens a small menu to
+	// pick which entry type to add, instead of 3-4 separate buttons.
+	let showAddMenu: 'paid' | 'received' | null = null;
+	function toggleAddMenu(section: 'paid' | 'received') {
+		showAddMenu = showAddMenu === section ? null : section;
+	}
+	function closeAddMenu() {
+		showAddMenu = null;
 	}
 
 	function closeAllModals() {
@@ -2028,7 +2125,7 @@
 <!-- Vendor Modal -->
 {#if showVendorModal}
 <div class="modal-overlay" on:click={closeAllModals}>
-	<div class="modal-content" on:click|stopPropagation>
+	<div class="modal-content {currentSection}" on:click|stopPropagation>
 		<div class="modal-header">
 			<h2>Add Vendor ({currentSection === 'paid' ? 'Paid' : 'Received'})</h2>
 			<button class="modal-close" on:click={closeAllModals}>✕</button>
@@ -2108,7 +2205,7 @@
 <!-- Expenses Modal (Paid Section Only) -->
 {#if showExpensesModal}
 <div class="modal-overlay" on:click={closeAllModals}>
-	<div class="modal-content" on:click|stopPropagation>
+	<div class="modal-content {currentSection}" on:click|stopPropagation>
 		<div class="modal-header">
 			<h2>Add Expenses (Paid)</h2>
 			<button class="modal-close" on:click={closeAllModals}>✕</button>
@@ -2191,7 +2288,7 @@
 <!-- User Modal -->
 {#if showUserModal}
 <div class="modal-overlay" on:click={closeAllModals}>
-	<div class="modal-content" on:click|stopPropagation>
+	<div class="modal-content {currentSection}" on:click|stopPropagation>
 		<div class="modal-header">
 			<h2>Add User ({currentSection === 'paid' ? 'Paid' : 'Received'})</h2>
 			<button class="modal-close" on:click={closeAllModals}>✕</button>
@@ -2271,7 +2368,7 @@
 <!-- Other Modal -->
 {#if showOtherModal}
 <div class="modal-overlay" on:click={closeAllModals}>
-	<div class="modal-content" on:click|stopPropagation>
+	<div class="modal-content {currentSection}" on:click|stopPropagation>
 		<div class="modal-header">
 			<h2>Add Other ({currentSection === 'paid' ? 'Paid' : 'Received'})</h2>
 			<button class="modal-close" on:click={closeAllModals}>✕</button>
@@ -2433,7 +2530,8 @@
 					</div>
 				</div>
 				
-				<div class="card-body suspends-body suspends-body-second">
+				<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+				<div class="card-body suspends-body suspends-body-second" on:click={closeAddMenu}>
 					<!-- Paid Section -->
 					<div class="suspends-section">
 						<div class="suspends-section-header paid">
@@ -2448,14 +2546,19 @@
 									<span class="total-item grand-total">Total: <span class="amount">{savedTransactions.filter(t => t.section === 'paid').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
 								</div>
 							</div>
-									{#if denomCanEdit}
-								<div class="action-buttons-group">
-									<button class="action-btn vendor-btn" on:click={() => openVendorModal('paid')}>Vendor</button>
-									<button class="action-btn expenses-btn" on:click={() => openExpensesModal('paid')}>Expenses</button>
-									<button class="action-btn user-btn" on:click={() => openUserModal('paid')}>User</button>
-									<button class="action-btn other-btn" on:click={() => openOtherModal('paid')}>Other</button>
-								</div>
+							{#if denomCanEdit}
+							<div class="add-menu-wrap add-menu-paid">
+								<button class="add-menu-btn" on:click|stopPropagation={() => toggleAddMenu('paid')} title="Add transaction">+</button>
+								{#if showAddMenu === 'paid'}
+									<div class="add-menu-dropdown" on:click|stopPropagation>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openVendorModal('paid'); }}><span class="add-menu-item-icon">🏢</span> Vendor</button>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openExpensesModal('paid'); }}><span class="add-menu-item-icon">🧾</span> Expenses</button>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openUserModal('paid'); }}><span class="add-menu-item-icon">👤</span> User</button>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openOtherModal('paid'); }}><span class="add-menu-item-icon">📝</span> Other</button>
+									</div>
 								{/if}
+							</div>
+							{/if}
 						</div>
 						<!-- Paid Transactions Table -->
 						<div class="transactions-table-container">
@@ -2518,13 +2621,18 @@
 									<span class="total-item grand-total">Total: <span class="amount">{savedTransactions.filter(t => t.section === 'received').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
 								</div>
 							</div>
-								{#if denomCanEdit}
-								<div class="action-buttons-group">
-									<button class="action-btn vendor-btn" on:click={() => openVendorModal('received')}>Vendor</button>
-									<button class="action-btn user-btn" on:click={() => openUserModal('received')}>User</button>
-									<button class="action-btn other-btn" on:click={() => openOtherModal('received')}>Other</button>
-								</div>
+							{#if denomCanEdit}
+							<div class="add-menu-wrap add-menu-received">
+								<button class="add-menu-btn" on:click|stopPropagation={() => toggleAddMenu('received')} title="Add transaction">+</button>
+								{#if showAddMenu === 'received'}
+									<div class="add-menu-dropdown" on:click|stopPropagation>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openVendorModal('received'); }}><span class="add-menu-item-icon">🏢</span> Vendor</button>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openUserModal('received'); }}><span class="add-menu-item-icon">👤</span> User</button>
+										<button class="add-menu-item" on:click={() => { closeAddMenu(); openOtherModal('received'); }}><span class="add-menu-item-icon">📝</span> Other</button>
+									</div>
 								{/if}
+							</div>
+							{/if}
 						</div>
 						<!-- Received Transactions Table -->
 						<div class="transactions-table-container">
@@ -2801,7 +2909,7 @@
 <!-- Daily Temp Schedules Popup -->
 {#if showSchedulesPopup}
 <div class="popup-overlay" on:click={closeSchedulesPopup} on:keydown={(e) => e.key === 'Escape' && closeSchedulesPopup()} role="dialog" aria-modal="true" tabindex="-1">
-	<div class="schedules-popup" on:click|stopPropagation>
+	<div class="schedules-popup" on:click|stopPropagation={closeScheduleCalendars}>
 		<!-- Header -->
 		<div class="schedules-popup-header">
 			<span>📅 Daily Temp Schedules</span>
@@ -2824,9 +2932,7 @@
 			<!-- VENDOR TAB -->
 			{#if schedulesTab === 'vendor'}
 				<div class="sched-tab-content">
-					{#if !showScheduleForm}
-						<button class="sched-add-btn" on:click={() => showScheduleForm = true}>+ Add Vendor Schedule</button>
-					{:else}
+					{#if showScheduleForm}
 						<div class="sched-form">
 							<div class="sched-form-title">New Vendor Schedule</div>
 							<!-- Vendor search -->
@@ -2880,11 +2986,66 @@
 					</div>
 				{/if}
 
+				<!-- Vendor schedule search + add + date filter -->
+				<div class="sched-filter-row">
+					<input
+						type="text"
+						placeholder="Search vendor or notes..."
+						bind:value={schedVendorListSearch}
+						class="sched-input sched-filter-search"
+					/>
+					<button type="button" class="sched-add-icon-btn" on:click={() => showScheduleForm = true} title="Add vendor schedule">+</button>
+					<div class="sched-date-filter-wrap">
+						<button type="button" class="sched-input sched-filter-date-btn" on:click|stopPropagation={openVendorCal}>
+							<span>{schedVendorListDate || 'Any date'}</span>
+							<span class="sched-cal-icon">📅</span>
+						</button>
+						{#if showVendorDateCal}
+							<div class="sched-cal-popup" on:click|stopPropagation>
+								<div class="sched-cal-header">
+									<button type="button" class="sched-cal-nav" on:click={vendorCalPrevMonth}>‹</button>
+									<span class="sched-cal-title">{vendorCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+									<button type="button" class="sched-cal-nav" on:click={vendorCalNextMonth}>›</button>
+								</div>
+								<div class="sched-cal-weekdays">
+									{#each ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as wd}<span>{wd}</span>{/each}
+								</div>
+								{#each vendorCalWeeks as week}
+									<div class="sched-cal-week">
+										{#each week as cell}
+											{#if cell}
+												<button type="button"
+													class="sched-cal-day"
+													class:has-schedule={vendorScheduleDateSet.has(cell.dateStr)}
+													class:selected={schedVendorListDate === cell.dateStr}
+													on:click={() => selectVendorCalDate(cell.dateStr)}>
+													{cell.day}
+												</button>
+											{:else}
+												<span class="sched-cal-day empty"></span>
+											{/if}
+										{/each}
+									</div>
+								{/each}
+								<div class="sched-cal-footer">
+									<button type="button" class="sched-cal-today" on:click={() => selectVendorCalDate(new Date().toISOString().split('T')[0])}>Today</button>
+									{#if schedVendorListDate}
+										<button type="button" class="sched-cal-clear-date" on:click={() => { schedVendorListDate = ''; showVendorDateCal = false; }}>Clear date</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					</div>
+					{#if schedVendorListSearch || schedVendorListDate}
+						<button class="sched-filter-clear" on:click={() => { schedVendorListSearch = ''; schedVendorListDate = ''; }} title="Clear filters">✕</button>
+					{/if}
+				</div>
+
 				<!-- Vendor schedule table -->
 				{#if isLoadingSchedules}
 					<div class="sched-loading">Loading...</div>
 				{:else if vendorSchedules.length === 0}
-					<div class="sched-empty">No vendor schedules yet</div>
+					<div class="sched-empty">{schedVendorListSearch || schedVendorListDate ? 'No vendor schedules match your filters' : 'No vendor schedules yet'}</div>
 				{:else}
 					<div class="sched-table-wrap">
 						<table class="sched-table">
@@ -2917,9 +3078,7 @@
 			<!-- EXPENSE TAB -->
 			{#if schedulesTab === 'expense'}
 				<div class="sched-tab-content">
-					{#if !showScheduleForm}
-						<button class="sched-add-btn" on:click={() => showScheduleForm = true}>+ Add Expense Schedule</button>
-					{:else}
+					{#if showScheduleForm}
 						<div class="sched-form">
 							<div class="sched-form-title">New Expense Schedule</div>
 							<!-- Schedule Date -->
@@ -2951,11 +3110,66 @@
 						</div>
 					{/if}
 
+					<!-- Expense schedule search + add + date filter -->
+					<div class="sched-filter-row">
+						<input
+							type="text"
+							placeholder="Search description or notes..."
+							bind:value={schedExpenseListSearch}
+							class="sched-input sched-filter-search"
+						/>
+						<button type="button" class="sched-add-icon-btn" on:click={() => showScheduleForm = true} title="Add expense schedule">+</button>
+						<div class="sched-date-filter-wrap">
+							<button type="button" class="sched-input sched-filter-date-btn" on:click|stopPropagation={openExpenseCal}>
+								<span>{schedExpenseListDate || 'Any date'}</span>
+								<span class="sched-cal-icon">📅</span>
+							</button>
+							{#if showExpenseDateCal}
+								<div class="sched-cal-popup" on:click|stopPropagation>
+									<div class="sched-cal-header">
+										<button type="button" class="sched-cal-nav" on:click={expenseCalPrevMonth}>‹</button>
+										<span class="sched-cal-title">{expenseCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+										<button type="button" class="sched-cal-nav" on:click={expenseCalNextMonth}>›</button>
+									</div>
+									<div class="sched-cal-weekdays">
+										{#each ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as wd}<span>{wd}</span>{/each}
+									</div>
+									{#each expenseCalWeeks as week}
+										<div class="sched-cal-week">
+											{#each week as cell}
+												{#if cell}
+													<button type="button"
+														class="sched-cal-day"
+														class:has-schedule={expenseScheduleDateSet.has(cell.dateStr)}
+														class:selected={schedExpenseListDate === cell.dateStr}
+														on:click={() => selectExpenseCalDate(cell.dateStr)}>
+														{cell.day}
+													</button>
+												{:else}
+													<span class="sched-cal-day empty"></span>
+												{/if}
+											{/each}
+										</div>
+									{/each}
+									<div class="sched-cal-footer">
+										<button type="button" class="sched-cal-today" on:click={() => selectExpenseCalDate(new Date().toISOString().split('T')[0])}>Today</button>
+										{#if schedExpenseListDate}
+											<button type="button" class="sched-cal-clear-date" on:click={() => { schedExpenseListDate = ''; showExpenseDateCal = false; }}>Clear date</button>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						</div>
+						{#if schedExpenseListSearch || schedExpenseListDate}
+							<button class="sched-filter-clear" on:click={() => { schedExpenseListSearch = ''; schedExpenseListDate = ''; }} title="Clear filters">✕</button>
+						{/if}
+					</div>
+
 					<!-- Expense schedule table -->
 					{#if isLoadingSchedules}
 						<div class="sched-loading">Loading...</div>
 					{:else if expenseSchedules.length === 0}
-						<div class="sched-empty">No expense schedules yet</div>
+						<div class="sched-empty">{schedExpenseListSearch || schedExpenseListDate ? 'No expense schedules match your filters' : 'No expense schedules yet'}</div>
 					{:else}
 						<div class="sched-table-wrap">
 							<table class="sched-table">
@@ -3940,21 +4154,26 @@
 		gap: 14px;
 	}
 
-	.sched-add-btn {
+	.sched-add-icon-btn {
+		flex-shrink: 0;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		background: linear-gradient(135deg, #6366f1, #818cf8);
 		color: #fff;
 		border: none;
-		padding: 10px 18px;
-		border-radius: 10px;
-		font-size: 0.875rem;
+		border-radius: 8px;
+		font-size: 1.1rem;
+		line-height: 1;
 		font-weight: 600;
 		cursor: pointer;
-		align-self: flex-start;
 		transition: all 0.2s;
 		box-shadow: 0 2px 8px rgba(99,102,241,0.3);
 	}
 
-	.sched-add-btn:hover {
+	.sched-add-icon-btn:hover {
 		transform: translateY(-1px);
 		box-shadow: 0 4px 14px rgba(99,102,241,0.4);
 	}
@@ -4017,6 +4236,189 @@
 
 	.sched-input::placeholder {
 		color: #94a3b8;
+	}
+
+	.sched-filter-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 4px 0 10px;
+	}
+
+	.sched-filter-search {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.sched-date-filter-wrap {
+		position: relative;
+		flex-shrink: 0;
+	}
+
+	.sched-filter-date-btn {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		width: 155px;
+		cursor: pointer;
+		text-align: left;
+		color: #1e293b;
+	}
+
+	.sched-filter-date-btn span:first-child {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.sched-cal-icon {
+		font-size: 0.8rem;
+		flex-shrink: 0;
+	}
+
+	.sched-cal-popup {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		z-index: 20;
+		width: 240px;
+		background: #ffffff;
+		border: 1px solid rgba(203, 213, 225, 0.9);
+		border-radius: 10px;
+		box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
+		padding: 10px;
+	}
+
+	.sched-cal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 8px;
+	}
+
+	.sched-cal-title {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #1e293b;
+	}
+
+	.sched-cal-nav {
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(241, 245, 249, 0.9);
+		border: 1px solid rgba(203, 213, 225, 0.8);
+		border-radius: 6px;
+		color: #475569;
+		font-size: 0.95rem;
+		cursor: pointer;
+		line-height: 1;
+	}
+	.sched-cal-nav:hover {
+		background: rgba(226, 232, 240, 0.9);
+	}
+
+	.sched-cal-weekdays {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		margin-bottom: 2px;
+	}
+	.sched-cal-weekdays span {
+		text-align: center;
+		font-size: 0.65rem;
+		font-weight: 600;
+		color: #94a3b8;
+	}
+
+	.sched-cal-week {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+	}
+
+	.sched-cal-day {
+		width: 100%;
+		aspect-ratio: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		color: #334155;
+		cursor: pointer;
+	}
+	.sched-cal-day:hover {
+		background: rgba(226, 232, 240, 0.8);
+	}
+	.sched-cal-day.empty {
+		cursor: default;
+	}
+
+	/* Dates that already have a schedule — highlighted in red */
+	.sched-cal-day.has-schedule {
+		background: rgba(239, 68, 68, 0.15);
+		color: #b91c1c;
+		font-weight: 700;
+		box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.4);
+	}
+	.sched-cal-day.has-schedule:hover {
+		background: rgba(239, 68, 68, 0.28);
+	}
+
+	.sched-cal-day.selected {
+		background: #6366f1 !important;
+		color: #ffffff !important;
+		box-shadow: none;
+	}
+
+	.sched-cal-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 8px;
+		padding-top: 8px;
+		border-top: 1px solid rgba(226, 232, 240, 0.9);
+	}
+
+	.sched-cal-today,
+	.sched-cal-clear-date {
+		background: none;
+		border: none;
+		font-size: 0.7rem;
+		font-weight: 600;
+		cursor: pointer;
+		padding: 2px 4px;
+	}
+	.sched-cal-today {
+		color: #6366f1;
+	}
+	.sched-cal-clear-date {
+		color: #dc2626;
+	}
+
+	.sched-filter-clear {
+		flex-shrink: 0;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(241, 245, 249, 0.9);
+		border: 1px solid rgba(203, 213, 225, 0.8);
+		border-radius: 8px;
+		color: #64748b;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.sched-filter-clear:hover {
+		background: rgba(254, 226, 226, 0.9);
+		border-color: rgba(252, 165, 165, 0.9);
+		color: #dc2626;
 	}
 
 	.sched-selected-vendor {
@@ -4561,44 +4963,60 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
+		flex-wrap: nowrap;
+		gap: 0.75rem;
 		padding: 0.4rem 0.75rem;
 		border-radius: 8px;
 		font-weight: 600;
 		font-size: 0.8rem;
 		color: white;
+		/* No overflow here on purpose — it would clip the "+" dropdown menu
+		   (a descendant via .add-menu-wrap). The pills scroll internally
+		   instead, see .header-total below. */
 	}
 
 	.header-left {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		flex-shrink: 0;
 	}
 
 	.header-total {
-		flex: 1;
+		flex: 1 1 auto;
+		min-width: 0;
 		text-align: center;
 		font-size: 0.9rem;
 		font-weight: 700;
 	}
 
+	/* Scrolls internally if the pills don't fit — contained to this box only,
+	   so it can never spill into the label or the "+" menu next to it, and
+	   (unlike overflow on the header itself) never clips the dropdown menu. */
 	.total-breakdown {
 		display: flex;
-		gap: 1rem;
+		gap: 0.5rem;
 		justify-content: center;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+		padding-bottom: 1px;
 	}
+	.total-breakdown::-webkit-scrollbar { height: 0; }
 
 	.total-item {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
 		background: rgba(255, 255, 255, 0.15);
-		padding: 0.3rem 0.8rem;
+		padding: 0.3rem 0.7rem;
 		border-radius: 6px;
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 		font-weight: 600;
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
 	.total-item.applied {
@@ -4629,38 +5047,103 @@
 		margin-left: 0.5rem;
 	}
 
-	.action-buttons-group {
+	/* Paid / Received header — single "+" trigger + glass dropdown, replacing
+	   the 4 separate Vendor/Expenses/User/Other buttons to free up row space.
+	   Themed per section: Paid = light red glass, Received = light green glass. */
+	.add-menu-wrap {
+		position: relative;
+		flex-shrink: 0;
+	}
+
+	.add-menu-btn {
+		width: 27px;
+		height: 27px;
 		display: flex;
-		gap: 0.4rem;
 		align-items: center;
-	}
-
-	.action-btn {
-		background: rgba(255, 255, 255, 0.25);
-		border: 1px solid rgba(255, 255, 255, 0.4);
+		justify-content: center;
+		background: rgba(255, 255, 255, 0.22);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+		border: 1px solid rgba(255, 255, 255, 0.45);
 		color: white;
-		font-size: 0.65rem;
-		font-weight: 600;
-		padding: 0.3rem 0.6rem;
-		border-radius: 5px;
+		font-size: 1.05rem;
+		line-height: 1;
+		font-weight: 700;
+		border-radius: 50%;
 		cursor: pointer;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 		transition: all 0.2s ease;
-		white-space: nowrap;
 	}
 
-	.action-btn:hover {
-		background: rgba(255, 255, 255, 0.4);
-		transform: translateY(-1px);
+	.add-menu-btn:hover {
+		background: rgba(255, 255, 255, 0.38);
+		transform: translateY(-1px) scale(1.05);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
 	}
 
-	.action-btn:active {
-		transform: translateY(0);
+	.add-menu-dropdown {
+		position: absolute;
+		top: calc(100% + 8px);
+		right: 0;
+		z-index: 30;
+		min-width: 150px;
+		backdrop-filter: blur(20px) saturate(180%);
+		-webkit-backdrop-filter: blur(20px) saturate(180%);
+		border-radius: 14px;
+		padding: 6px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		animation: add-menu-pop 0.15s ease-out;
 	}
 
-	.action-btn.vendor-btn { }
-	.action-btn.expenses-btn { }
-	.action-btn.user-btn { }
-	.action-btn.other-btn { }
+	@keyframes add-menu-pop {
+		from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+		to { opacity: 1; transform: translateY(0) scale(1); }
+	}
+
+	/* Light red glass — Paid */
+	.add-menu-paid .add-menu-dropdown {
+		background: rgba(254, 242, 242, 0.75);
+		border: 1px solid rgba(248, 113, 113, 0.35);
+		box-shadow: 0 12px 32px rgba(239, 68, 68, 0.2), 0 2px 8px rgba(0, 0, 0, 0.06);
+	}
+	.add-menu-paid .add-menu-item:hover {
+		background: rgba(239, 68, 68, 0.14);
+		color: #b91c1c;
+	}
+
+	/* Light green glass — Received */
+	.add-menu-received .add-menu-dropdown {
+		background: rgba(240, 253, 244, 0.75);
+		border: 1px solid rgba(74, 222, 128, 0.35);
+		box-shadow: 0 12px 32px rgba(34, 197, 94, 0.2), 0 2px 8px rgba(0, 0, 0, 0.06);
+	}
+	.add-menu-received .add-menu-item:hover {
+		background: rgba(34, 197, 94, 0.14);
+		color: #15803d;
+	}
+
+	.add-menu-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		background: rgba(255, 255, 255, 0.5);
+		border: none;
+		color: #334155;
+		font-size: 0.78rem;
+		font-weight: 600;
+		text-align: left;
+		padding: 8px 10px;
+		border-radius: 9px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.add-menu-item-icon {
+		font-size: 0.85rem;
+		line-height: 1;
+	}
 
 	.suspends-section-header.paid {
 		background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
@@ -5223,7 +5706,9 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(15, 23, 42, 0.45);
+		backdrop-filter: blur(3px);
+		-webkit-backdrop-filter: blur(3px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -5231,38 +5716,65 @@
 	}
 
 	.modal-content {
-		background: white;
-		border-radius: 12px;
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+		background: rgba(255, 255, 255, 0.75);
+		backdrop-filter: blur(24px) saturate(180%);
+		-webkit-backdrop-filter: blur(24px) saturate(180%);
+		border: 1px solid rgba(255, 255, 255, 0.6);
+		border-radius: 20px;
+		box-shadow: 0 20px 60px rgba(99, 102, 241, 0.22), 0 2px 10px rgba(0, 0, 0, 0.08);
 		max-width: 600px;
 		width: 90%;
 		max-height: 85vh;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
+		animation: modal-pop 0.18s ease-out;
+	}
+
+	.modal-content.paid {
+		box-shadow: 0 20px 60px rgba(239, 68, 68, 0.2), 0 2px 10px rgba(0, 0, 0, 0.08);
+	}
+	.modal-content.received {
+		box-shadow: 0 20px 60px rgba(34, 197, 94, 0.2), 0 2px 10px rgba(0, 0, 0, 0.08);
+	}
+
+	@keyframes modal-pop {
+		from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+		to { opacity: 1; transform: translateY(0) scale(1); }
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 1.5rem;
-		border-bottom: 1px solid #e2e8f0;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		padding: 1.35rem 1.5rem;
+		background: linear-gradient(135deg, rgba(99, 102, 241, 0.92) 0%, rgba(139, 92, 246, 0.92) 100%);
+		backdrop-filter: blur(8px);
 		color: white;
-		border-radius: 12px 12px 0 0;
+		border-radius: 20px 20px 0 0;
+	}
+
+	/* Header + accent color follow the section the modal was opened from —
+	   red for Paid, green for Received — instead of a fixed purple. */
+	.modal-content.paid .modal-header {
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.92) 0%, rgba(248, 113, 113, 0.92) 100%);
+	}
+	.modal-content.received .modal-header {
+		background: linear-gradient(135deg, rgba(34, 197, 94, 0.92) 0%, rgba(74, 222, 128, 0.92) 100%);
 	}
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.2rem;
+		font-size: 1.15rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
 	}
 
 	.modal-close {
-		background: none;
-		border: none;
+		background: rgba(255, 255, 255, 0.18);
+		border: 1px solid rgba(255, 255, 255, 0.3);
 		color: white;
-		font-size: 1.5rem;
+		font-size: 1.1rem;
 		cursor: pointer;
 		padding: 0;
 		width: 30px;
@@ -5270,12 +5782,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
-		transition: background 0.2s;
+		border-radius: 50%;
+		transition: all 0.2s;
 	}
 
 	.modal-close:hover {
-		background: rgba(255, 255, 255, 0.2);
+		background: rgba(255, 255, 255, 0.32);
+		transform: rotate(90deg);
 	}
 
 	.modal-body {
@@ -5286,11 +5799,11 @@
 
 	.modal-footer {
 		display: flex;
-		gap: 1rem;
-		padding: 1.5rem;
-		border-top: 1px solid #e2e8f0;
-		background: #f8fafc;
-		border-radius: 0 0 12px 12px;
+		gap: 0.75rem;
+		padding: 1.25rem 1.5rem;
+		border-top: 1px solid rgba(226, 232, 240, 0.7);
+		background: rgba(248, 250, 252, 0.6);
+		border-radius: 0 0 20px 20px;
 	}
 
 	.form-group {
@@ -5300,24 +5813,68 @@
 	.form-group label {
 		display: block;
 		margin-bottom: 0.5rem;
-		font-weight: 600;
-		color: #1e293b;
-		font-size: 0.9rem;
+		font-weight: 700;
+		color: #4338ca;
+		font-size: 0.75rem;
+		letter-spacing: 0.04em;
 	}
 
 	.form-input {
 		width: 100%;
-		padding: 0.75rem;
-		border: 1px solid #cbd5e1;
-		border-radius: 6px;
+		padding: 0.7rem 0.85rem;
+		background: rgba(255, 255, 255, 0.8);
+		border: 1px solid rgba(203, 213, 225, 0.9);
+		border-radius: 10px;
 		font-size: 0.9rem;
 		font-family: inherit;
+		color: #1e293b;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.form-input::placeholder {
+		color: #94a3b8;
 	}
 
 	.form-input:focus {
 		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+		border-color: #818cf8;
+		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+	}
+
+	.modal-content.paid .form-group label {
+		color: #b91c1c;
+	}
+	.modal-content.paid .form-input:focus {
+		border-color: #f87171;
+		box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+	}
+	.modal-content.paid .dropdown-item:hover {
+		background: rgba(239, 68, 68, 0.08);
+	}
+	.modal-content.paid .dropdown-item.selected {
+		background: rgba(239, 68, 68, 0.12);
+		box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.35);
+	}
+	.modal-content.paid .dropdown-item.selected .item-name {
+		color: #b91c1c;
+	}
+
+	.modal-content.received .form-group label {
+		color: #15803d;
+	}
+	.modal-content.received .form-input:focus {
+		border-color: #4ade80;
+		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+	}
+	.modal-content.received .dropdown-item:hover {
+		background: rgba(34, 197, 94, 0.08);
+	}
+	.modal-content.received .dropdown-item.selected {
+		background: rgba(34, 197, 94, 0.12);
+		box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.35);
+	}
+	.modal-content.received .dropdown-item.selected .item-name {
+		color: #15803d;
 	}
 
 	textarea.form-input {
@@ -5326,40 +5883,45 @@
 	}
 
 	.dropdown-list {
-		margin-top: 0.5rem;
-		border: 1px solid #cbd5e1;
-		border-radius: 6px;
+		margin-top: 0.6rem;
+		border: 1px solid rgba(203, 213, 225, 0.8);
+		border-radius: 12px;
 		max-height: 200px;
 		overflow-y: auto;
-		background: white;
+		background: rgba(255, 255, 255, 0.6);
+		padding: 4px;
 	}
 
 	.dropdown-item {
-		padding: 0.75rem;
+		padding: 0.7rem 0.75rem;
 		cursor: pointer;
-		border-bottom: 1px solid #e2e8f0;
-		transition: background 0.2s;
+		border-radius: 8px;
+		transition: all 0.15s;
 	}
 
 	.dropdown-item:hover {
-		background: #f0f4f8;
+		background: rgba(99, 102, 241, 0.08);
 	}
 
 	.dropdown-item.selected {
-		background: #e0e7ff;
-		color: #667eea;
-		font-weight: 600;
+		background: rgba(99, 102, 241, 0.14);
+		box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.35);
+	}
+
+	.dropdown-item.selected .item-name {
+		color: #4338ca;
 	}
 
 	.item-name {
-		font-weight: 600;
+		font-weight: 700;
 		color: #1e293b;
+		font-size: 0.88rem;
 	}
 
 	.item-code {
-		font-size: 0.8rem;
+		font-size: 0.78rem;
 		color: #64748b;
-		margin-top: 0.25rem;
+		margin-top: 0.2rem;
 	}
 
 	.dropdown-actions {
@@ -5368,26 +5930,30 @@
 
 	.btn-create-new {
 		width: 100%;
-		padding: 0.75rem;
-		background: #10b981;
+		padding: 0.7rem;
+		background: linear-gradient(135deg, #10b981, #34d399);
 		color: white;
 		border: none;
-		border-radius: 6px;
-		font-weight: 600;
+		border-radius: 10px;
+		font-weight: 700;
+		font-size: 0.85rem;
 		cursor: pointer;
-		transition: background 0.2s;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+		transition: all 0.2s;
 	}
 
 	.btn-create-new:hover {
-		background: #059669;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
 	}
 
 	.checkbox-label {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.6rem;
 		cursor: pointer;
-		font-weight: normal;
+		font-weight: 500;
+		color: #334155;
 		margin-bottom: 0;
 	}
 
@@ -5395,19 +5961,23 @@
 		cursor: pointer;
 		width: 18px;
 		height: 18px;
+		accent-color: #6366f1;
 	}
 
 	.denomination-grid {
-		background: #f8fafc;
+		background: rgba(248, 250, 252, 0.7);
 		padding: 1rem;
-		border-radius: 6px;
-		border: 1px solid #cbd5e1;
+		border-radius: 12px;
+		border: 1px solid rgba(203, 213, 225, 0.8);
 	}
 
 	.denomination-grid h4 {
 		margin-top: 0;
 		margin-bottom: 1rem;
-		color: #1e293b;
+		color: #4338ca;
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.denom-field {
@@ -5437,38 +6007,58 @@
 		text-align: right;
 	}
 
-	.btn-cancel,
-	.btn-save {
+	/* Scoped to .modal-footer — .btn-cancel is also used, with different
+	   styling, by the unrelated delete-confirmation popup's .confirm-actions.
+	   The extra ancestor class keeps the two from fighting over the cascade. */
+	.modal-footer .btn-cancel,
+	.modal-footer .btn-save {
 		padding: 0.75rem 1.5rem;
 		border: none;
-		border-radius: 6px;
-		font-weight: 600;
+		border-radius: 10px;
+		font-weight: 700;
 		cursor: pointer;
 		transition: all 0.2s;
 		flex: 1;
 		font-size: 0.9rem;
 	}
 
-	.btn-cancel {
-		background: #e2e8f0;
-		color: #64748b;
+	.modal-footer .btn-cancel {
+		background: rgba(226, 232, 240, 0.9);
+		color: #475569;
 	}
 
-	.btn-cancel:hover {
-		background: #cbd5e1;
+	.modal-footer .btn-cancel:hover {
+		background: rgba(203, 213, 225, 0.95);
 	}
 
-	.btn-save {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	.modal-footer .btn-save {
+		background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
 		color: white;
+		box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
 	}
 
-	.btn-save:hover:not(:disabled) {
+	.modal-content.paid .modal-footer .btn-save {
+		background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
+		box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
+	}
+	.modal-content.paid .modal-footer .btn-save:hover:not(:disabled) {
+		box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+	}
+
+	.modal-content.received .modal-footer .btn-save {
+		background: linear-gradient(135deg, #22c55e 0%, #4ade80 100%);
+		box-shadow: 0 2px 10px rgba(34, 197, 94, 0.3);
+	}
+	.modal-content.received .modal-footer .btn-save:hover:not(:disabled) {
+		box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
+	}
+
+	.modal-footer .btn-save:hover:not(:disabled) {
 		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+		box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
 	}
 
-	.btn-save:disabled {
+	.modal-footer .btn-save:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}

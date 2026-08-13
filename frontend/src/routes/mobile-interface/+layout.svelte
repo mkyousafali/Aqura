@@ -33,6 +33,7 @@
 	let hasBreakRegisterPermission = false;
 	let hasExpenseManagerPermission = false;
 	let hasVendorPaymentsPermission = false;
+	let hasLCPlannerPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -591,6 +592,7 @@
 				hasBreakRegisterPermission = false;
 				hasExpenseManagerPermission = false;
 				hasVendorPaymentsPermission = false;
+				hasLCPlannerPermission = false;
 				return;
 			}
 
@@ -612,6 +614,7 @@
 					hasBreakRegisterPermission = false;
 					hasExpenseManagerPermission = false;
 					hasVendorPaymentsPermission = false;
+					hasLCPlannerPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
@@ -625,6 +628,7 @@
 					hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
 					hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
 					hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
+					hasLCPlannerPermission = currentUserData?.isMasterAdmin || buttonCodes.has('LC_PLANNER');
 
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
@@ -641,11 +645,14 @@
 				hasBreakRegisterPermission = false;
 				hasExpenseManagerPermission = false;
 				hasVendorPaymentsPermission = false;
+				hasLCPlannerPermission = false;
 			}
 
-			// Master admin always keeps Sales Report, even with no permission rows
+			// Master admin always keeps Sales Report and LC Planner, even with no
+			// permission rows
 			if (currentUserData?.isMasterAdmin) {
 				hasReportsPermission = true;
+				hasLCPlannerPermission = true;
 			}
 
 			// Check for incident manager permission from approval_permissions
@@ -658,6 +665,7 @@
 			hasBreakRegisterPermission = false;
 			hasExpenseManagerPermission = false;
 			hasVendorPaymentsPermission = false;
+			hasLCPlannerPermission = false;
 		}
 	}
 	
@@ -726,6 +734,7 @@
 		if (path === '/mobile-interface/request-generator' || path === '/mobile-interface/request-generator/') return locale === 'ar' ? 'مولد الطلبات' : 'Request Generator';
 		if (path === '/mobile-interface/scheduler' || path === '/mobile-interface/scheduler/') return locale === 'ar' ? 'الجدولة' : 'Scheduler';
 		if (path === '/mobile-interface/vendor-payments' || path === '/mobile-interface/vendor-payments/') return locale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments';
+		if (path === '/mobile-interface/planner' || path === '/mobile-interface/planner/') return locale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -1383,9 +1392,9 @@
 			</div>
 
 			<!-- Finance Menu Button -->
-			{#if hasExpenseManagerPermission}
+			{#if hasExpenseManagerPermission || hasLCPlannerPermission}
 				<div class="nav-item-menu-container">
-					<button class="nav-item finance-btn" on:click={() => { showFinanceMenu = !showFinanceMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler') || $page.url.pathname.startsWith('/mobile-interface/vendor-payments')}>
+					<button class="nav-item finance-btn" on:click={() => { showFinanceMenu = !showFinanceMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler') || $page.url.pathname.startsWith('/mobile-interface/vendor-payments') || $page.url.pathname.startsWith('/mobile-interface/planner')}>
 						<div class="nav-icon">
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<rect x="2" y="5" width="20" height="14" rx="2"/>
@@ -1400,6 +1409,7 @@
 					{#if showFinanceMenu}
 						<div class="finance-submenu-overlay" on:click={() => showFinanceMenu = false}></div>
 						<div class="finance-submenu">
+							{#if hasExpenseManagerPermission}
 							<a href="/mobile-interface/request-generator" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/request-generator')}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -1418,6 +1428,7 @@
 								</svg>
 								<span>{$currentLocale === 'ar' ? 'الجدولة' : 'Scheduler'}</span>
 							</a>
+							{/if}
 							{#if hasVendorPaymentsPermission}
 								<a href="/mobile-interface/vendor-payments" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/vendor-payments')}>
 									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1425,6 +1436,17 @@
 										<line x1="1" y1="10" x2="23" y2="10"/>
 									</svg>
 									<span>{$currentLocale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments'}</span>
+								</a>
+							{/if}
+							{#if hasLCPlannerPermission}
+								<a href="/mobile-interface/planner" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/planner')}>
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+										<polyline points="14 2 14 8 20 8"/>
+										<line x1="8" y1="13" x2="16" y2="13"/>
+										<line x1="8" y1="17" x2="13" y2="17"/>
+									</svg>
+									<span>{$currentLocale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner'}</span>
 								</a>
 							{/if}
 						</div>

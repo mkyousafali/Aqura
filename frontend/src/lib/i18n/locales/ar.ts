@@ -449,6 +449,7 @@ export const arabicLocale: LocaleData = {
       surpriseBox: "صندوق المفاجآت",
       surpriseBoxRedemption: "استبدال صندوق المفاجآت",
       approvalCenter: "مركز الموافقات",
+      lcPlanner: "مخطط الاعتماد المستندي",
       categoryManager: "مدير الفئات",
       assetManager: "مدير الأصول",
       leaseAndRent: "الإيجار والتأجير",

@@ -523,6 +523,9 @@ CREATE INDEX idx_daily_temp_schedules_branch_id ON public.daily_temp_schedules U
 -- INDEX: idx_daily_temp_schedules_created_at ON daily_temp_schedules
 CREATE INDEX idx_daily_temp_schedules_created_at ON public.daily_temp_schedules USING btree (created_at DESC);
 
+-- INDEX: idx_daily_temp_schedules_payment_mode ON daily_temp_schedules
+CREATE INDEX idx_daily_temp_schedules_payment_mode ON public.daily_temp_schedules USING btree (payment_mode);
+
 -- INDEX: idx_daily_temp_schedules_schedule_date ON daily_temp_schedules
 CREATE INDEX idx_daily_temp_schedules_schedule_date ON public.daily_temp_schedules USING btree (schedule_date DESC);
 
