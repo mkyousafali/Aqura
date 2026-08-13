@@ -883,6 +883,16 @@
 				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'English' : 'العربية'}</button>
 			</nav>
 			<button
+				type="button"
+				class="mobile-lang-toggle"
+				on:click={toggleSiteLanguage}
+				aria-label={isAr ? 'Switch language to English' : 'تغيير اللغة إلى العربية'}
+				title={isAr ? 'Switch to English' : 'التبديل إلى العربية'}
+			>
+				<span aria-hidden="true">🌐</span>
+				<span>{isAr ? 'English' : 'العربية'}</span>
+			</button>
+			<button
 				class="menu-toggle"
 				aria-label="Toggle menu"
 				on:click={() => (mobileMenuOpen = !mobileMenuOpen)}
@@ -1643,6 +1653,22 @@
 
 	.lang-toggle-btn:hover {
 		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.mobile-lang-toggle {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1.5px solid rgba(255, 255, 255, 0.35);
+		border-radius: 8px;
+		color: #ffffff;
+		font-size: 0.85rem;
+		font-weight: 600;
+		padding: 0.5rem 0.75rem;
+		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	.menu-toggle {
@@ -2794,6 +2820,11 @@
 			display: flex;
 		}
 
+		.mobile-lang-toggle {
+			display: inline-flex;
+			margin-inline-start: auto;
+		}
+
 		.nav {
 			display: none;
 			position: absolute;
@@ -2811,6 +2842,10 @@
 
 		.nav.open {
 			display: flex;
+		}
+
+		.nav .lang-toggle-btn {
+			display: none;
 		}
 
 		.nav a {
