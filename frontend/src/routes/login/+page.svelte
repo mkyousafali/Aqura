@@ -880,24 +880,24 @@
 				{#if contactNavVisible}
 					<a href="#contact" style={contactNavColor ? `color: ${contactNavColor}` : undefined} on:click={closeMobileMenu}>{contactNavText}</a>
 				{/if}
-				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'English' : 'العربية'}</button>
+				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'الإنجليزية' : 'العربية'}</button>
 			</nav>
 			<button
 				type="button"
 				class="mobile-lang-toggle"
 				on:click={toggleSiteLanguage}
-				aria-label={isAr ? 'Switch language to English' : 'تغيير اللغة إلى العربية'}
-				title={isAr ? 'Switch to English' : 'التبديل إلى العربية'}
+				aria-label={isAr ? 'التبديل إلى الإنجليزية' : 'تغيير اللغة إلى العربية'}
+				title={isAr ? 'التبديل إلى الإنجليزية' : 'التبديل إلى العربية'}
 			>
 				<span aria-hidden="true">🌐</span>
-				<span>{isAr ? 'English' : 'العربية'}</span>
+				<span>{isAr ? 'الإنجليزية' : 'العربية'}</span>
 			</button>
 			<button
 				class="menu-toggle"
-				aria-label="Toggle menu"
+				aria-label={isAr ? 'فتح أو إغلاق القائمة' : 'Toggle menu'}
 				on:click={() => (mobileMenuOpen = !mobileMenuOpen)}
 			>
-				{mobileMenuOpen ? 'Close' : 'Menu'}
+				{mobileMenuOpen ? (isAr ? 'إغلاق' : 'Close') : (isAr ? 'القائمة' : 'Menu')}
 			</button>
 		</div>
 	</header>
@@ -1174,7 +1174,14 @@
 								📍 {getOfferBranchName(offer)}
 								{#if getOfferBranchLocation(offer)}<span> · {getOfferBranchLocation(offer)}</span>{/if}
 								{#if offer.branch.location_url}
-									<a href={offer.branch.location_url} target="_blank" rel="noopener noreferrer" class="offer-branch-link">🗺️</a>
+									<a
+										href={offer.branch.location_url}
+										target="_blank"
+										rel="noopener noreferrer"
+										class="offer-branch-link"
+										aria-label={isAr ? 'فتح موقع العرض على الخريطة' : 'Open offer location on map'}
+										title={isAr ? 'فتح موقع العرض على الخريطة' : 'Open offer location on map'}
+									>🗺️</a>
 								{/if}
 							</p>
 						{/if}
@@ -1283,7 +1290,7 @@
 							hidden
 						/>
 						<div class="cv-upload-row">
-							<button type="button" class="cv-upload-btn" title="Choose document" aria-label="Choose document" on:click={triggerCvFilePicker}>
+							<button type="button" class="cv-upload-btn" title={isAr ? 'اختيار مستند' : 'Choose document'} aria-label={isAr ? 'اختيار مستند' : 'Choose document'} on:click={triggerCvFilePicker}>
 								<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
 									<path d="M14 2v6h6" />
@@ -1292,7 +1299,7 @@
 									<line x1="10" y1="9" x2="8" y2="9" />
 								</svg>
 							</button>
-							<button type="button" class="cv-upload-btn" title="Take photo" aria-label="Take photo" on:click={triggerCvCameraPicker}>
+							<button type="button" class="cv-upload-btn" title={isAr ? 'التقاط صورة' : 'Take photo'} aria-label={isAr ? 'التقاط صورة' : 'Take photo'} on:click={triggerCvCameraPicker}>
 								<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 									<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
 									<circle cx="12" cy="13" r="4" />
@@ -1476,7 +1483,7 @@
 		<div class="footer-bottom">
 			<span>{footerCopyrightText}</span>
 			<div>
-				<a href="/privacy">Privacy Policy</a>
+				<a href="/privacy">{isAr ? 'سياسة الخصوصية' : 'Privacy Policy'}</a>
 			</div>
 		</div>
 	</footer>
@@ -1487,8 +1494,8 @@
 			href={whatsappLink}
 			target="_blank"
 			rel="noopener noreferrer"
-			aria-label="Chat with us on WhatsApp"
-			title="Chat with us on WhatsApp"
+			aria-label={isAr ? 'تواصل معنا عبر واتساب' : 'Chat with us on WhatsApp'}
+			title={isAr ? 'تواصل معنا عبر واتساب' : 'Chat with us on WhatsApp'}
 		>
 			<svg viewBox="0 0 24 24" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
 				<path
