@@ -126,7 +126,11 @@
         _dayCount?: number;
     }
 
-    let activeTab: 'regular' | 'weekday' | 'date' = 'regular';
+    interface CurrentShiftRow extends Omit<RegularRow, 'allVersions'> {
+        source: 'date' | 'weekday' | 'regular' | 'none';
+    }
+
+    let activeTab: 'regular' | 'weekday' | 'date' | 'current' = 'current';
     let supabase: any;
     let realtimeChannel: any;
     let loading = false;
@@ -135,6 +139,7 @@
     let regularRows: RegularRow[] = [];
     let weekdayRows: WeekdayRow[] = [];
     let dateWiseRows: DateWiseRow[] = [];
+    let currentRows: CurrentShiftRow[] = [];
 
     let availableBranches: Branch[] = [];
     let availableNationalities: Nationality[] = [];
@@ -144,6 +149,7 @@
     let statusFilter = '';
     let dateFilterStart = '';
     let dateFilterEnd = '';
+    let currentShiftDate = formatLocalDate(new Date());
 
     let allEmployees: EmployeeForSelection[] = [];
     let showEmployeeSelectModal = false;
@@ -177,8 +183,9 @@
 
     const tabs = [
         { id: 'regular', label: 'Regular Shifts', icon: '🕒' },
-        { id: 'weekday', label: 'Day-Wise Shifts', icon: '📅' },
-        { id: 'date', label: 'Date-Wise Shifts', icon: '📆' }
+        { id: 'weekday', label: 'Day-Wise Shifts', icon: '🔁' },
+        { id: 'date', label: 'Date-Wise Shifts', icon: '📅' },
+        { id: 'current', label: 'Current Shifts', icon: '✅' }
     ];
 
     $: weekdayNames = [
@@ -200,6 +207,7 @@
     $: filteredRegular = filterRows(regularRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
     $: filteredWeekday = filterRows(weekdayRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
     $: filteredDateWise = filterRows(dateWiseRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
+    $: filteredCurrent = filterRows(currentRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
 
     $: activeWeekdays = (() => {
         const days: { index: number; name: string }[] = [];
@@ -322,6 +330,10 @@
             .subscribe();
     }
 
+    function formatLocalDate(date: Date): string {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
     function resetFilters() {
         searchQuery = ''; branchFilter = ''; nationalityFilter = ''; statusFilter = '';
         if (activeTab === 'date') {
@@ -336,6 +348,7 @@
         if (activeTab === 'regular') await loadRegular();
         else if (activeTab === 'weekday') await loadWeekday();
         else if (activeTab === 'date') await loadDateWise();
+        else if (activeTab === 'current') await loadCurrentShifts();
     }
 
     async function handleTabChange(tabId: string) {
@@ -377,6 +390,81 @@
             nationality_id: emp.nationality_id, nationality_name_en: nat?.name_en || 'N/A', nationality_name_ar: nat?.name_ar || 'N/A',
             sponsorship_status: emp.sponsorship_status, employment_status: emp.employment_status,
         };
+    }
+
+    // ---- EFFECTIVE SHIFTS FOR A SELECTED DATE ----
+
+    async function loadCurrentShifts() {
+        loading = true; error = null;
+        try {
+            await initSupabase();
+            const { employees, branchMap, natMap } = await loadEmployeeBase();
+            const selectedDate = currentShiftDate || formatLocalDate(new Date());
+            const weekday = new Date(`${selectedDate}T12:00:00`).getDay();
+
+            const [regularRes, weekdayRes, dateRes] = await Promise.all([
+                supabase.from('hr_regular_shift_versions').select('id, employee_id, date_from, date_to').lte('date_from', selectedDate).or(`date_to.is.null,date_to.gte.${selectedDate}`),
+                supabase.from('hr_special_shift_weekday_versions').select('id, employee_id, date_from, date_to').eq('weekday', weekday).lte('date_from', selectedDate).or(`date_to.is.null,date_to.gte.${selectedDate}`),
+                supabase.from('hr_special_shift_date_wise_versions').select('id, employee_id, date_from, date_to').lte('date_from', selectedDate).gte('date_to', selectedDate)
+            ]);
+            if (regularRes.error) throw regularRes.error;
+            if (weekdayRes.error) throw weekdayRes.error;
+            if (dateRes.error) throw dateRes.error;
+
+            const regularVersions = regularRes.data || [];
+            const weekdayVersions = weekdayRes.data || [];
+            const dateVersions = dateRes.data || [];
+            const versionIds = [...regularVersions, ...weekdayVersions, ...dateVersions].map((v: any) => v.id);
+            const slotsByVersion = new Map<string, ShiftSlot[]>();
+
+            if (versionIds.length > 0) {
+                const fetchSlots = (table: string, versions: any[]) => versions.length > 0
+                    ? supabase.from(table).select('*').in('version_id', versions.map((v: any) => v.id)).order('slot_order')
+                    : Promise.resolve({ data: [], error: null });
+                const [regularSlots, weekdaySlots, dateSlots] = await Promise.all([
+                    fetchSlots('hr_regular_shift_slots', regularVersions),
+                    fetchSlots('hr_special_shift_weekday_slots', weekdayVersions),
+                    fetchSlots('hr_special_shift_date_wise_slots', dateVersions)
+                ]);
+                for (const [source, result] of [['regular', regularSlots], ['weekday', weekdaySlots], ['date', dateSlots]] as const) {
+                    if (result.error) throw result.error;
+                    for (const slot of result.data || []) {
+                        const key = `${source}:${slot.version_id}`;
+                        if (!slotsByVersion.has(key)) slotsByVersion.set(key, []);
+                        slotsByVersion.get(key)!.push(slot);
+                    }
+                }
+            }
+
+            const latestForEmployee = (versions: any[]) => {
+                const map = new Map<string, any>();
+                for (const version of versions) {
+                    const previous = map.get(String(version.employee_id));
+                    if (!previous || String(version.date_from) > String(previous.date_from)) map.set(String(version.employee_id), version);
+                }
+                return map;
+            };
+            const regularMap = latestForEmployee(regularVersions);
+            const weekdayMap = latestForEmployee(weekdayVersions);
+            const dateMap = latestForEmployee(dateVersions);
+
+            currentRows = employees.map(emp => {
+                const employeeId = String(emp.id);
+                const version = dateMap.get(employeeId) || weekdayMap.get(employeeId) || regularMap.get(employeeId);
+                const source: CurrentShiftRow['source'] = dateMap.has(employeeId) ? 'date' : weekdayMap.has(employeeId) ? 'weekday' : regularMap.has(employeeId) ? 'regular' : 'none';
+                return {
+                    ...buildRow(emp, branchMap, natMap),
+                    version_id: version?.id,
+                    date_from: version?.date_from,
+                    date_to: version?.date_to,
+                    slots: version ? (slotsByVersion.get(`${source}:${version.id}`) || []) : [],
+                    source
+                } as CurrentShiftRow;
+            });
+        } catch (err: any) {
+            console.error('Error loading current shifts:', err);
+            error = err.message || 'Failed to load current shifts';
+        } finally { loading = false; }
     }
 
     // ---- REGULAR SHIFTS ----
@@ -431,7 +519,7 @@
                 const { data } = await supabase.from('hr_special_shift_weekday_slots').select('*').in('version_id', versionIds).order('slot_order');
                 slots = data || [];
             }
-            const empWeekdayMap = new Map<string, { [weekday: number]: { version_id: number; slots: ShiftSlot[] } }>();
+            const empWeekdayMap = new Map<string, { [weekday: number]: { version_id: number; date_from?: string; date_to?: string | null; slots: ShiftSlot[] } }>();
             for (const v of (versions || [])) {
                 if (!empWeekdayMap.has(v.employee_id)) empWeekdayMap.set(v.employee_id, {});
                 empWeekdayMap.get(v.employee_id)![v.weekday] = { version_id: v.id, date_from: v.date_from, date_to: v.date_to, slots: [] };
@@ -764,16 +852,16 @@
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Tab Bar -->
-    <div class="bg-white border-b border-slate-200 {mobile ? 'px-3 py-3' : 'px-6 py-4'} flex items-center justify-end shadow-sm">
-        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner {mobile ? 'w-full' : ''}">
+    <div class="bg-white border-b border-slate-200 {mobile ? 'px-2 py-2' : 'px-6 py-4'} flex items-center justify-end shadow-sm">
+        <div class="flex {mobile ? 'gap-1 p-1 w-full' : 'gap-2 p-1.5'} bg-slate-100 rounded-2xl border border-slate-200/50 shadow-inner">
             {#each tabs as tab}
                 <button
-                    class="group relative flex items-center justify-center gap-1.5 {mobile ? 'flex-1 px-2 py-2 text-[10px]' : 'px-6 py-2.5 text-xs'} font-black uppercase tracking-wide transition-all duration-300 rounded-xl
+                    class="group relative flex items-center justify-center {mobile ? 'flex-1 gap-0.5 px-1 py-1.5 text-[9px]' : 'gap-1.5 px-6 py-2.5 text-xs'} font-black uppercase tracking-wide transition-all duration-300 rounded-xl
                     {activeTab === tab.id ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
                     on:click={() => handleTabChange(tab.id)}
                 >
-                    <span class="text-base">{tab.icon}</span>
-                    <span>{tab.label}</span>
+                    <span class="{mobile ? 'text-sm' : 'text-base'}">{tab.icon}</span>
+                    <span>{mobile ? tab.label.replace(/\s+Shifts?$/i, '') : tab.label}</span>
                 </button>
             {/each}
         </div>
@@ -796,38 +884,40 @@
         {:else}
             <!-- Filters -->
             <div class="mb-4 flex gap-3 flex-wrap {mobile ? 'flex-col' : ''}">
-                <div class="flex-1 min-w-[150px]">
-                    <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_branch')}</label>
-                    <select bind:value={branchFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
-                        <option value="">{$t('hr.shift.all_branches')}</option>
-                        {#each availableBranches as branch}
-                            <option value={branch.id}>{$locale === 'ar' ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}` : `${branch.name_en || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class="flex-1 min-w-[150px]">
-                    <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_nationality')}</label>
-                    <select bind:value={nationalityFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
-                        <option value="">{$t('hr.shift.all_nationalities')}</option>
-                        {#each availableNationalities as nat}
-                            <option value={nat.id}>{$locale === 'ar' ? (nat.name_ar || nat.name_en) : (nat.name_en || 'Unnamed')}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class="flex-1 min-w-[150px]">
-                    <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeFiles.employmentStatus')}</label>
-                    <select bind:value={statusFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
-                        <option value="">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
-                        {#each availableEmploymentStatuses as s}
-                            <option value={s.id}>{statusDisplay(s.id).text}</option>
-                        {/each}
-                    </select>
-                </div>
+                {#if !mobile}
+                    <div class="flex-1 min-w-[150px]">
+                        <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_branch')}</label>
+                        <select bind:value={branchFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                            <option value="">{$t('hr.shift.all_branches')}</option>
+                            {#each availableBranches as branch}
+                                <option value={branch.id}>{$locale === 'ar' ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}` : `${branch.name_en || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[150px]">
+                        <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_nationality')}</label>
+                        <select bind:value={nationalityFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                            <option value="">{$t('hr.shift.all_nationalities')}</option>
+                            {#each availableNationalities as nat}
+                                <option value={nat.id}>{$locale === 'ar' ? (nat.name_ar || nat.name_en) : (nat.name_en || 'Unnamed')}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[150px]">
+                        <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeFiles.employmentStatus')}</label>
+                        <select bind:value={statusFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                            <option value="">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                            {#each availableEmploymentStatuses as s}
+                                <option value={s.id}>{statusDisplay(s.id).text}</option>
+                            {/each}
+                        </select>
+                    </div>
+                {/if}
                 <div class="flex-1 min-w-[150px]">
                     <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.search_employee')}</label>
                     <input type="text" bind:value={searchQuery} placeholder={$t('hr.shift.search_placeholder')} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
-                {#if activeTab === 'date'}
+                {#if !mobile && activeTab === 'date'}
                     <div class="flex-1 min-w-[130px]">
                         <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.start_date') || 'Start Date'}</label>
                         <input type="date" bind:value={dateFilterStart} on:change={loadDateWise} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -839,12 +929,22 @@
                 {/if}
             </div>
 
+            {#if activeTab === 'current'}
+                <div class="mb-4 flex items-end gap-3 {mobile ? 'flex-col items-stretch' : ''}">
+                    <div class="{mobile ? 'w-full' : 'w-56'}">
+                        <label for="current-shift-date" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$locale === 'ar' ? 'تاريخ الوردية' : 'Shift Date'}</label>
+                        <input id="current-shift-date" type="date" bind:value={currentShiftDate} on:change={loadCurrentShifts} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    </div>
+                    <p class="text-xs text-slate-500 pb-2">{$locale === 'ar' ? 'الأولوية: حسب التاريخ، ثم حسب اليوم، ثم الوردية العادية' : 'Priority: Date-Wise, then Day-Wise, then Regular'}</p>
+                </div>
+            {/if}
+
             {#if activeTab === 'weekday'}
                 <div class="mb-4"><button class="{mobile ? 'w-full' : ''} px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {$t('hr.shift.add_special_shift') || 'Add Weekday Shift'}</button></div>
             {:else if activeTab === 'date'}
-                <div class="mb-4 flex gap-3 {mobile ? 'flex-col' : ''}">
-                    <button class="{mobile ? 'w-full' : ''} px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {$t('hr.shift.add_special_shift_date') || 'Add Single Date Shift'}</button>
-                    <button class="{mobile ? 'w-full' : ''} px-5 py-2.5 bg-orange-600 text-white rounded-xl text-sm font-bold hover:bg-orange-700 transition shadow-lg" on:click={() => openEmployeeSelect(true)}>📅 {$t('hr.shift.add_special_range') || 'Add Date Range'}</button>
+                <div class="mb-4 flex gap-2">
+                    <button class="{mobile ? 'flex-1 min-w-0 px-2 text-xs' : 'px-5 text-sm'} py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {mobile ? ($locale === 'ar' ? 'إضافة يوم واحد' : 'Add One Day') : ($t('hr.shift.add_special_shift_date') || 'Add Single Date Shift')}</button>
+                    <button class="{mobile ? 'flex-1 min-w-0 px-2 text-xs' : 'px-5 text-sm'} py-2.5 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition shadow-lg" on:click={() => openEmployeeSelect(true)}>📅 {mobile ? ($locale === 'ar' ? 'إضافة عدة أيام' : 'Add Multiple Days') : ($t('hr.shift.add_special_range') || 'Add Date Range')}</button>
                 </div>
             {/if}
 
@@ -858,12 +958,14 @@
                         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
                             <div class="flex items-start justify-between gap-2">
                                 <div class="min-w-0">
-                                    <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
-                                    <p class="text-xs text-slate-400">{row.employee_id}</p>
+                                    <div class="flex items-baseline gap-2 min-w-0">
+                                        <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                        <p class="text-xs text-slate-400 flex-shrink-0">{row.employee_id}</p>
+                                    </div>
                                 </div>
                                 {#if slot}
                                     <div class="flex gap-1 flex-shrink-0">
-                                        <button class="px-2.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition" on:click={() => openRegularModal(row)}>🔄</button>
+                                        <button class="px-2.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition whitespace-nowrap" on:click={() => openRegularModal(row)}>🔄 {$locale === 'ar' ? 'تغيير' : 'Change'}</button>
                                         <button class="px-2.5 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition" on:click={() => openDeletePicker(row)}>🗑</button>
                                     </div>
                                 {:else}
@@ -874,7 +976,6 @@
                             <div class="mt-2 flex flex-wrap items-center gap-1 text-xs text-slate-500">
                                 <span class="px-1.5 py-0.5 bg-slate-100 rounded">{branchDisplay(row)}</span>
                                 <span class="px-1.5 py-0.5 bg-slate-100 rounded">{natName(row)}</span>
-                                <span class="px-1.5 py-0.5 rounded {sponsorDisplay(row.sponsorship_status).color}">{sponsorDisplay(row.sponsorship_status).text}</span>
                             </div>
 
                             <div class="mt-2 text-xs text-slate-500">
@@ -890,6 +991,9 @@
                                                 <span class="text-[10px] bg-purple-100 text-purple-700 px-1 rounded flex-shrink-0">Slot {si+1}</span>
                                             {/if}
                                             <span class="font-mono text-slate-700">{fmt12(s.shift_start_time)} – {fmt12(s.shift_end_time)}</span>
+                                            {#if row.slots.length === 1}
+                                                <span class="px-1.5 py-0.5 rounded-full text-[9px] font-black whitespace-nowrap {s.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">{$t('hr.shift.overlaps')}: {s.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}</span>
+                                            {/if}
                                             <span class="font-bold text-emerald-700">{s.working_hours?.toFixed(2) || '—'}h</span>
                                         </div>
                                     {/each}
@@ -898,8 +1002,6 @@
                                             <span class="font-black text-emerald-800">{$t('hr.shift.working_hours')}</span>
                                             <span class="font-black text-emerald-800">Σ {row.slots.reduce((sum, sl) => sum + (sl.working_hours || 0), 0).toFixed(2)}h</span>
                                         </div>
-                                    {:else}
-                                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black {slot?.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">{$t('hr.shift.overlaps')}: {slot?.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}</span>
                                     {/if}
                                 </div>
                             {/if}
@@ -1002,10 +1104,12 @@
                             <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
                                 <div class="flex items-center justify-between gap-2 mb-2">
                                     <div class="min-w-0">
-                                        <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
-                                        <p class="text-xs text-slate-400">{row.employee_id}</p>
+                                        <div class="flex items-baseline gap-2 min-w-0">
+                                            <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                            <p class="text-xs text-slate-400 flex-shrink-0">{row.employee_id}</p>
+                                        </div>
                                     </div>
-                                    <button class="px-2.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition flex-shrink-0" on:click={() => openWeekdayModal(row)}>🔄 {$locale === 'ar' ? 'تغيير' : 'Change'}</button>
+                                    <button class="w-8 h-8 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition flex-shrink-0" on:click={() => openWeekdayModal(row)} aria-label={$locale === 'ar' ? 'تغيير الوردية' : 'Change shift'} title={$locale === 'ar' ? 'تغيير الوردية' : 'Change shift'}>🔄</button>
                                 </div>
                                 <div class="space-y-1.5">
                                     {#each activeWeekdays as day}
@@ -1086,8 +1190,11 @@
                         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
                             <div class="flex items-start justify-between gap-2">
                                 <div class="min-w-0">
-                                    <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
-                                    <p class="text-xs text-slate-400">{row.employee_id} · {branchDisplay(row)}</p>
+                                    <div class="flex items-baseline gap-2 min-w-0">
+                                        <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                        <p class="text-xs text-slate-400 flex-shrink-0">{row.employee_id}</p>
+                                    </div>
+                                    <p class="text-xs text-slate-400 truncate">{branchDisplay(row)}</p>
                                 </div>
                                 {#if row._grouped && row._allVersionIds}
                                     <button class="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition flex-shrink-0" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete all?')) deleteGroupedDateWise(row._allVersionIds || []); }}>🗑 ({row._dayCount})</button>
@@ -1162,6 +1269,71 @@
                         </table>
                     </div>
                     <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">{$t('hr.shift.showing_employees', { count: filteredDateWise.length })} {$t('common.records') || 'records'}</div>
+                </div>
+              {/if}
+
+            <!-- ===================== CURRENT / EFFECTIVE SHIFTS ===================== -->
+            {:else if activeTab === 'current'}
+              {#if mobile}
+                <div class="space-y-2">
+                    {#each filteredCurrent as row}
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <div class="flex items-baseline gap-2 min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                    <p class="text-xs text-slate-400 flex-shrink-0">{row.employee_id}</p>
+                                </div>
+                                <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase flex-shrink-0 {row.source === 'date' ? 'bg-indigo-100 text-indigo-700' : row.source === 'weekday' ? 'bg-purple-100 text-purple-700' : row.source === 'regular' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
+                                    {row.source === 'date' ? 'Date-Wise' : row.source === 'weekday' ? 'Day-Wise' : row.source === 'regular' ? 'Regular' : 'No Shift'}
+                                </span>
+                            </div>
+                            <p class="mt-1 text-xs text-slate-400 truncate">{branchDisplay(row)}</p>
+                            {#if row.slots.length > 0}
+                                <div class="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                                    {#each row.slots as slot, index}
+                                        <div class="flex items-center justify-between gap-2 text-xs">
+                                            {#if row.slots.length > 1}<span class="text-[9px] text-purple-700 font-bold">Slot {index + 1}</span>{/if}
+                                            <span class="font-mono text-slate-700">{fmt12(slot.shift_start_time)} – {fmt12(slot.shift_end_time)}</span>
+                                            <span class="font-bold text-emerald-700">{slot.working_hours?.toFixed(2) || '—'}h</span>
+                                        </div>
+                                    {/each}
+                                </div>
+                            {:else}
+                                <p class="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-400">{$locale === 'ar' ? 'لا توجد وردية لهذا التاريخ' : 'No shift for this date'}</p>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+                <p class="mt-3 text-center text-xs text-slate-500 font-semibold">{$t('hr.shift.showing_employees', { count: filteredCurrent.length })}</p>
+              {:else}
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse">
+                            <thead class="bg-emerald-600 text-white">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-black uppercase">{$t('hr.fullName')}</th>
+                                    <th class="px-4 py-3 text-left text-xs font-black uppercase">{$t('hr.branch')}</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase">{$locale === 'ar' ? 'المصدر' : 'Source'}</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase">{$t('hr.shift.start')}</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase">{$t('hr.shift.end')}</th>
+                                    <th class="px-4 py-3 text-center text-xs font-black uppercase">{$t('hr.shift.working_hours')}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200">
+                                {#each filteredCurrent as row}
+                                    <tr class="hover:bg-emerald-50/30">
+                                        <td class="px-4 py-3 text-sm"><span class="font-semibold text-slate-800">{empName(row)}</span> <span class="text-xs text-slate-400">{row.employee_id}</span></td>
+                                        <td class="px-4 py-3 text-sm text-slate-600">{branchDisplay(row)}</td>
+                                        <td class="px-4 py-3 text-center text-xs font-bold">{row.source === 'date' ? 'Date-Wise' : row.source === 'weekday' ? 'Day-Wise' : row.source === 'regular' ? 'Regular' : 'No Shift'}</td>
+                                        <td class="px-4 py-3 text-center text-sm font-mono">{row.slots.map(slot => fmt12(slot.shift_start_time)).join(', ') || '—'}</td>
+                                        <td class="px-4 py-3 text-center text-sm font-mono">{row.slots.map(slot => fmt12(slot.shift_end_time)).join(', ') || '—'}</td>
+                                        <td class="px-4 py-3 text-center text-sm font-bold text-emerald-700">{row.slots.length ? `${row.slots.reduce((sum, slot) => sum + (slot.working_hours || 0), 0).toFixed(2)}h` : '—'}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="px-6 py-3 bg-slate-50 border-t text-xs text-slate-600 font-semibold">{$t('hr.shift.showing_employees', { count: filteredCurrent.length })}</div>
                 </div>
               {/if}
             {/if}
@@ -1261,17 +1433,17 @@
 
 <!-- Shift Form Modal -->
 {#if showModal}
-    <div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-        <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
-            <div class="bg-gradient-to-r from-emerald-600 to-emerald-500 px-6 py-4">
+    <div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" class:mobile-shift-overlay={mobile}>
+        <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden" class:mobile-shift-modal={mobile}>
+            <div class="bg-gradient-to-r from-emerald-600 to-emerald-500 px-6 py-4" class:mobile-shift-header={mobile}>
                 <h3 class="text-xl font-black text-white">
                     {activeTab === 'regular' ? ($t('hr.shift.configure_regular_shift') || 'Configure Regular Shift') : activeTab === 'weekday' ? ($t('hr.shift.configure_special_shift_weekday') || 'Configure Weekday Shift') : ($t('hr.shift.configure_special_shift_date') || 'Configure Date-Wise Shift')}
                 </h3>
                 <p class="text-emerald-100 text-sm mt-1">{$t('hr.employeeId')}: {selectedEmployeeId}</p>
             </div>
-            <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto" class:mobile-shift-body={mobile}>
                 {#if activeTab === 'regular' || activeTab === 'weekday'}
-                    <div class="grid grid-cols-2 gap-3">
+                    <div class="grid grid-cols-2 gap-3" class:mobile-date-grid={mobile}>
                         <div>
                             <label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date') || 'Effective From'}</label>
                             <input type="date" bind:value={modalDateFrom} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -1293,7 +1465,7 @@
                 {/if}
                 {#if activeTab === 'date'}
                     {#if isRangeMode}
-                        <div class="grid grid-cols-2 gap-3">
+                        <div class="grid grid-cols-2 gap-3" class:mobile-date-grid={mobile}>
                             <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date') || 'Start Date'}</label><input type="date" bind:value={modalDateFrom} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
                             <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_date') || 'End Date'}</label><input type="date" bind:value={modalDateTo} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
                         </div>
@@ -1312,7 +1484,7 @@
                         {/if}
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$t('hr.shift.shift_start_time')}</label>
-                            <div class="flex gap-2">
+                            <div class="flex gap-2 mobile-time-row">
                                 <select bind:value={slotTime12[si].startHour} on:change={() => updateSlotStartTime(si)} class="field-border flex-1 px-2 py-2 border border-slate-300 rounded-lg">
                                     {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}<option value={h}>{h}</option>{/each}
                                 </select>
@@ -1334,7 +1506,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$t('hr.shift.shift_end_time')}</label>
-                            <div class="flex gap-2">
+                            <div class="flex gap-2 mobile-time-row">
                                 <select bind:value={slotTime12[si].endHour} on:change={() => updateSlotEndTime(si)} class="field-border flex-1 px-2 py-2 border border-slate-300 rounded-lg">
                                     {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}<option value={h}>{h}</option>{/each}
                                 </select>
@@ -1369,7 +1541,7 @@
                     <div class="text-right font-black text-emerald-800">Total: {totalHours.toFixed(2)} {$t('common.hrs')}</div>
                 {/if}
             </div>
-            <div class="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3">
+            <div class="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3" class:mobile-shift-footer={mobile}>
                 <button class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:text-slate-800 rounded-xl hover:bg-slate-200 transition" on:click={closeModal}>{$t('common.cancel') || 'Cancel'}</button>
                 <button class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg disabled:opacity-50" disabled={isSaving} on:click={saveShift}>
                     {#if isSaving}<span class="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></span>{/if}
@@ -1393,5 +1565,52 @@
     .field-border {
         border-width: 1px !important;
         border-style: solid !important;
+    }
+
+    .mobile-shift-overlay {
+        align-items: flex-end;
+        padding: 0.75rem 0.75rem max(0.75rem, env(safe-area-inset-bottom));
+        /* The mobile app header and bottom navigation use z-indexes of 100
+           and 1000. Keep the modal (including its actions) above both. */
+        z-index: 1100;
+    }
+
+    .mobile-shift-modal {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-height: calc(100dvh - 1.5rem - env(safe-area-inset-bottom));
+        margin: 0;
+        border-radius: 1.25rem;
+    }
+
+    .mobile-shift-header {
+        flex-shrink: 0;
+        padding: 1rem 1.25rem;
+    }
+
+    .mobile-shift-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none;
+        padding: 1rem;
+        overscroll-behavior: contain;
+    }
+
+    .mobile-date-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mobile-shift-modal :global(.mobile-time-row > select) {
+        min-width: 0;
+    }
+
+    .mobile-shift-footer {
+        flex-shrink: 0;
+        padding: 0.75rem 1rem;
+    }
+
+    .mobile-shift-footer button {
+        flex: 1;
     }
 </style>
