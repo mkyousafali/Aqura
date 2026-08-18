@@ -35,6 +35,7 @@
 	let hasVendorPaymentsPermission = false;
 	let hasLCPlannerPermission = false;
 	let hasOfferSelectorPermission = false;
+	let hasShiftsPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -575,6 +576,7 @@
 			hasBreakRegisterPermission = false;
 			hasExpenseManagerPermission = false;
 			hasOfferSelectorPermission = false;
+			hasShiftsPermission = false;
 			return;
 		}
 
@@ -596,6 +598,7 @@
 				hasVendorPaymentsPermission = false;
 				hasLCPlannerPermission = false;
 				hasOfferSelectorPermission = false;
+				hasShiftsPermission = false;
 				return;
 			}
 
@@ -619,6 +622,7 @@
 					hasVendorPaymentsPermission = false;
 					hasLCPlannerPermission = false;
 					hasOfferSelectorPermission = false;
+					hasShiftsPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
@@ -634,6 +638,7 @@
 					hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
 					hasLCPlannerPermission = currentUserData?.isMasterAdmin || buttonCodes.has('LC_PLANNER');
 					hasOfferSelectorPermission = currentUserData?.isMasterAdmin || buttonCodes.has('OFFER_PRODUCT_EDITOR');
+					hasShiftsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SHIFTS');
 
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
@@ -641,6 +646,7 @@
 						expenseManager: hasExpenseManagerPermission,
 						vendorPayments: hasVendorPaymentsPermission,
 						offerSelector: hasOfferSelectorPermission,
+						shifts: hasShiftsPermission,
 						allCodes: Array.from(buttonCodes)
 					});
 				}
@@ -653,14 +659,16 @@
 				hasVendorPaymentsPermission = false;
 				hasLCPlannerPermission = false;
 				hasOfferSelectorPermission = false;
+				hasShiftsPermission = false;
 			}
 
-			// Master admin always keeps Sales Report, LC Planner and Offer
-			// Selector, even with no permission rows
+			// Master admin always keeps Sales Report, LC Planner, Offer
+			// Selector and Shifts, even with no permission rows
 			if (currentUserData?.isMasterAdmin) {
 				hasReportsPermission = true;
 				hasLCPlannerPermission = true;
 				hasOfferSelectorPermission = true;
+				hasShiftsPermission = true;
 			}
 
 			// Check for incident manager permission from approval_permissions
@@ -675,9 +683,10 @@
 			hasVendorPaymentsPermission = false;
 			hasLCPlannerPermission = false;
 			hasOfferSelectorPermission = false;
+			hasShiftsPermission = false;
 		}
 	}
-	
+
 	async function loadIncidentManagerPermission() {
 		if (!currentUserData?.id) {
 			hasIncidentManagerPermission = false;
@@ -1296,7 +1305,7 @@
 
 			<!-- Human Resources Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request') || $page.url.pathname.startsWith('/mobile-interface/shifts')}>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -1328,6 +1337,15 @@
 							</svg>
 							<span>{getTranslation('mobile.fingerprintAnalysis')}</span>
 						</a>
+						{#if hasShiftsPermission}
+							<a href="/mobile-interface/shifts" class="hr-submenu-item" on:click={() => showHRMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/shifts')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<circle cx="12" cy="12" r="10"/>
+									<polyline points="12 6 12 12 16 14"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'الورديات' : 'Shifts'}</span>
+							</a>
+						{/if}
 					</div>
 				{/if}
 			</div>

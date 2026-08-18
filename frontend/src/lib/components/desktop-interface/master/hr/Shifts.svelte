@@ -2,6 +2,11 @@
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
 
+    // When true, renders card layouts for all three tabs instead of the
+    // wide tables — used by the mobile Shifts page. Desktop windows leave
+    // this false.
+    export let mobile = false;
+
     interface Branch {
         id: string;
         name_en: string;
@@ -759,11 +764,11 @@
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Tab Bar -->
-    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end shadow-sm">
-        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+    <div class="bg-white border-b border-slate-200 {mobile ? 'px-3 py-3' : 'px-6 py-4'} flex items-center justify-end shadow-sm">
+        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner {mobile ? 'w-full' : ''}">
             {#each tabs as tab}
                 <button
-                    class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-wide transition-all duration-300 rounded-xl
+                    class="group relative flex items-center justify-center gap-1.5 {mobile ? 'flex-1 px-2 py-2 text-[10px]' : 'px-6 py-2.5 text-xs'} font-black uppercase tracking-wide transition-all duration-300 rounded-xl
                     {activeTab === tab.id ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]' : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
                     on:click={() => handleTabChange(tab.id)}
                 >
@@ -775,7 +780,7 @@
     </div>
 
     <!-- Content Area -->
-    <div class="flex-1 min-h-0 p-6 overflow-y-auto">
+    <div class="flex-1 min-h-0 {mobile ? 'p-3' : 'p-6'} overflow-y-auto">
         {#if loading}
             <div class="flex items-center justify-center h-full">
                 <div class="text-center">
@@ -790,10 +795,10 @@
             </div>
         {:else}
             <!-- Filters -->
-            <div class="mb-4 flex gap-3 flex-wrap">
+            <div class="mb-4 flex gap-3 flex-wrap {mobile ? 'flex-col' : ''}">
                 <div class="flex-1 min-w-[150px]">
                     <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_branch')}</label>
-                    <select bind:value={branchFilter} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                    <select bind:value={branchFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
                         <option value="">{$t('hr.shift.all_branches')}</option>
                         {#each availableBranches as branch}
                             <option value={branch.id}>{$locale === 'ar' ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}` : `${branch.name_en || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}</option>
@@ -802,7 +807,7 @@
                 </div>
                 <div class="flex-1 min-w-[150px]">
                     <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_nationality')}</label>
-                    <select bind:value={nationalityFilter} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                    <select bind:value={nationalityFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
                         <option value="">{$t('hr.shift.all_nationalities')}</option>
                         {#each availableNationalities as nat}
                             <option value={nat.id}>{$locale === 'ar' ? (nat.name_ar || nat.name_en) : (nat.name_en || 'Unnamed')}</option>
@@ -811,7 +816,7 @@
                 </div>
                 <div class="flex-1 min-w-[150px]">
                     <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeFiles.employmentStatus')}</label>
-                    <select bind:value={statusFilter} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                    <select bind:value={statusFilter} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
                         <option value="">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
                         {#each availableEmploymentStatuses as s}
                             <option value={s.id}>{statusDisplay(s.id).text}</option>
@@ -820,31 +825,89 @@
                 </div>
                 <div class="flex-1 min-w-[150px]">
                     <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.search_employee')}</label>
-                    <input type="text" bind:value={searchQuery} placeholder={$t('hr.shift.search_placeholder')} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    <input type="text" bind:value={searchQuery} placeholder={$t('hr.shift.search_placeholder')} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
                 {#if activeTab === 'date'}
                     <div class="flex-1 min-w-[130px]">
                         <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.start_date') || 'Start Date'}</label>
-                        <input type="date" bind:value={dateFilterStart} on:change={loadDateWise} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                        <input type="date" bind:value={dateFilterStart} on:change={loadDateWise} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
                     <div class="flex-1 min-w-[130px]">
                         <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.end_date') || 'End Date'}</label>
-                        <input type="date" bind:value={dateFilterEnd} on:change={loadDateWise} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                        <input type="date" bind:value={dateFilterEnd} on:change={loadDateWise} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
                 {/if}
             </div>
 
             {#if activeTab === 'weekday'}
-                <div class="mb-4"><button class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {$t('hr.shift.add_special_shift') || 'Add Weekday Shift'}</button></div>
+                <div class="mb-4"><button class="{mobile ? 'w-full' : ''} px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {$t('hr.shift.add_special_shift') || 'Add Weekday Shift'}</button></div>
             {:else if activeTab === 'date'}
-                <div class="mb-4 flex gap-3">
-                    <button class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {$t('hr.shift.add_special_shift_date') || 'Add Single Date Shift'}</button>
-                    <button class="px-5 py-2.5 bg-orange-600 text-white rounded-xl text-sm font-bold hover:bg-orange-700 transition shadow-lg" on:click={() => openEmployeeSelect(true)}>📅 {$t('hr.shift.add_special_range') || 'Add Date Range'}</button>
+                <div class="mb-4 flex gap-3 {mobile ? 'flex-col' : ''}">
+                    <button class="{mobile ? 'w-full' : ''} px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition shadow-lg" on:click={() => openEmployeeSelect(false)}>➕ {$t('hr.shift.add_special_shift_date') || 'Add Single Date Shift'}</button>
+                    <button class="{mobile ? 'w-full' : ''} px-5 py-2.5 bg-orange-600 text-white rounded-xl text-sm font-bold hover:bg-orange-700 transition shadow-lg" on:click={() => openEmployeeSelect(true)}>📅 {$t('hr.shift.add_special_range') || 'Add Date Range'}</button>
                 </div>
             {/if}
 
             <!-- ===================== REGULAR SHIFTS TABLE ===================== -->
             {#if activeTab === 'regular'}
+              {#if mobile}
+                <!-- Mobile: one card per employee -->
+                <div class="space-y-2">
+                    {#each filteredRegular as row}
+                        {@const slot = row.slots[0]}
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                    <p class="text-xs text-slate-400">{row.employee_id}</p>
+                                </div>
+                                {#if slot}
+                                    <div class="flex gap-1 flex-shrink-0">
+                                        <button class="px-2.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition" on:click={() => openRegularModal(row)}>🔄</button>
+                                        <button class="px-2.5 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition" on:click={() => openDeletePicker(row)}>🗑</button>
+                                    </div>
+                                {:else}
+                                    <button class="w-8 h-8 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition flex-shrink-0" on:click={() => openRegularModal(row)}>+</button>
+                                {/if}
+                            </div>
+
+                            <div class="mt-2 flex flex-wrap items-center gap-1 text-xs text-slate-500">
+                                <span class="px-1.5 py-0.5 bg-slate-100 rounded">{branchDisplay(row)}</span>
+                                <span class="px-1.5 py-0.5 bg-slate-100 rounded">{natName(row)}</span>
+                                <span class="px-1.5 py-0.5 rounded {sponsorDisplay(row.sponsorship_status).color}">{sponsorDisplay(row.sponsorship_status).text}</span>
+                            </div>
+
+                            <div class="mt-2 text-xs text-slate-500">
+                                {$locale === 'ar' ? 'تاريخ السريان' : 'Effective'}: <span class="font-semibold text-slate-700">{formatDateDisplay(row.date_from || '')}</span>
+                                → <span class="font-semibold text-slate-700">{row.date_to ? formatDateDisplay(row.date_to) : ($locale === 'ar' ? 'مفتوح' : 'Open-ended')}</span>
+                            </div>
+
+                            {#if slot}
+                                <div class="mt-2 pt-2 border-t border-slate-100 space-y-1.5">
+                                    {#each row.slots as s, si}
+                                        <div class="flex items-center justify-between text-xs">
+                                            {#if row.slots.length > 1}
+                                                <span class="text-[10px] bg-purple-100 text-purple-700 px-1 rounded flex-shrink-0">Slot {si+1}</span>
+                                            {/if}
+                                            <span class="font-mono text-slate-700">{fmt12(s.shift_start_time)} – {fmt12(s.shift_end_time)}</span>
+                                            <span class="font-bold text-emerald-700">{s.working_hours?.toFixed(2) || '—'}h</span>
+                                        </div>
+                                    {/each}
+                                    {#if row.slots.length > 1}
+                                        <div class="flex items-center justify-between text-xs pt-1 border-t border-emerald-200">
+                                            <span class="font-black text-emerald-800">{$t('hr.shift.working_hours')}</span>
+                                            <span class="font-black text-emerald-800">Σ {row.slots.reduce((sum, sl) => sum + (sl.working_hours || 0), 0).toFixed(2)}h</span>
+                                        </div>
+                                    {:else}
+                                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black {slot?.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">{$t('hr.shift.overlaps')}: {slot?.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}</span>
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+                <p class="mt-3 text-center text-xs text-slate-500 font-semibold">{$t('hr.shift.showing_employees', { count: filteredRegular.length })}</p>
+              {:else}
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                     <div class="overflow-x-auto flex-1">
                         <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
@@ -927,9 +990,46 @@
                     </div>
                     <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">{$t('hr.shift.showing_employees', { count: filteredRegular.length })}</div>
                 </div>
+              {/if}
 
             <!-- ===================== WEEKDAY SHIFTS TABLE ===================== -->
             {:else if activeTab === 'weekday'}
+              {#if mobile}
+                <!-- Mobile: one card per employee, each active weekday as a row -->
+                <div class="space-y-2">
+                    {#each filteredWeekday as row}
+                        {#if Object.values(row.weekdaySlots).some(v => v != null)}
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
+                                <div class="flex items-center justify-between gap-2 mb-2">
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                        <p class="text-xs text-slate-400">{row.employee_id}</p>
+                                    </div>
+                                    <button class="px-2.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition flex-shrink-0" on:click={() => openWeekdayModal(row)}>🔄 {$locale === 'ar' ? 'تغيير' : 'Change'}</button>
+                                </div>
+                                <div class="space-y-1.5">
+                                    {#each activeWeekdays as day}
+                                        {@const entry = row.weekdaySlots[day.index]}
+                                        {#if entry}
+                                            {@const s = entry.slots[0]}
+                                            <div class="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-2 py-1.5">
+                                                <span class="font-bold text-slate-700 w-16 flex-shrink-0">{day.name}</span>
+                                                <span class="font-mono text-slate-600">{fmt12(s?.shift_start_time)} – {fmt12(s?.shift_end_time)}</span>
+                                                <span class="font-bold text-emerald-700">{s?.working_hours?.toFixed(1) || '—'}h</span>
+                                                <div class="flex gap-1 flex-shrink-0">
+                                                    <button class="px-1.5 py-0.5 rounded bg-orange-500 text-white text-[10px] font-bold hover:bg-orange-600" on:click={() => openWeekdayModal(row, day.index)}>🔄</button>
+                                                    <button class="px-1.5 py-0.5 rounded bg-red-400 text-white text-[10px] font-bold hover:bg-red-500" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete?')) deleteVersion(entry.version_id, 'weekday'); }}>🗑</button>
+                                                </div>
+                                            </div>
+                                        {/if}
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
+                    {/each}
+                </div>
+                <p class="mt-3 text-center text-xs text-slate-500 font-semibold">{$t('hr.shift.showing_employees', { count: filteredWeekday.filter(r => Object.values(r.weekdaySlots).some(v => v != null)).length })}</p>
+              {:else}
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                     <div class="overflow-x-auto flex-1">
                         <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
@@ -974,9 +1074,46 @@
                     </div>
                     <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">{$t('hr.shift.showing_employees', { count: filteredWeekday.filter(r => Object.values(r.weekdaySlots).some(v => v != null)).length })}</div>
                 </div>
+              {/if}
 
             <!-- ===================== DATE-WISE SHIFTS TABLE ===================== -->
             {:else if activeTab === 'date'}
+              {#if mobile}
+                <!-- Mobile: one card per date-wise entry -->
+                <div class="space-y-2">
+                    {#each filteredDateWise as row}
+                        {@const slot = row.slots[0]}
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">{empName(row)}</p>
+                                    <p class="text-xs text-slate-400">{row.employee_id} · {branchDisplay(row)}</p>
+                                </div>
+                                {#if row._grouped && row._allVersionIds}
+                                    <button class="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition flex-shrink-0" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete all?')) deleteGroupedDateWise(row._allVersionIds || []); }}>🗑 ({row._dayCount})</button>
+                                {:else}
+                                    <button class="px-2.5 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition flex-shrink-0" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete?')) deleteVersion(row.version_id, 'date'); }}>🗑</button>
+                                {/if}
+                            </div>
+
+                            <div class="mt-2 text-xs text-slate-500">
+                                {#if row._grouped}
+                                    <span class="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-bold">{row._dayCount} days</span>
+                                    <span class="ml-1">{formatDateDisplay(row._dateFrom || '')} → {formatDateDisplay(row._dateTo || '')}</span>
+                                {:else}
+                                    <span class="font-semibold text-slate-700">{formatDateDisplay(row.date_from)}</span>
+                                {/if}
+                            </div>
+
+                            <div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                                <span class="font-mono text-slate-700">{fmt12(slot?.shift_start_time)} – {fmt12(slot?.shift_end_time)}</span>
+                                <span class="font-bold text-emerald-700">{slot?.working_hours ? slot.working_hours.toFixed(2) : '—'} {$t('common.hrs')}</span>
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+                <p class="mt-3 text-center text-xs text-slate-500 font-semibold">{$t('hr.shift.showing_employees', { count: filteredDateWise.length })} {$t('common.records') || 'records'}</p>
+              {:else}
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                     <div class="overflow-x-auto flex-1">
                         <table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
@@ -1026,6 +1163,7 @@
                     </div>
                     <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">{$t('hr.shift.showing_employees', { count: filteredDateWise.length })} {$t('common.records') || 'records'}</div>
                 </div>
+              {/if}
             {/if}
         {/if}
     </div>
@@ -1047,7 +1185,7 @@
                 <p class="text-emerald-100 text-sm mt-1">{isRangeMode ? ($t('hr.shift.add_special_range') || 'Date Range Mode') : ($t('hr.shift.add_special_shift_date') || 'Single Date Mode')}</p>
             </div>
             <div class="p-4">
-                <input type="text" bind:value={employeeSearchQuery} placeholder={$t('hr.shift.search_placeholder') || 'Search...'} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <input type="text" bind:value={employeeSearchQuery} placeholder={$t('hr.shift.search_placeholder') || 'Search...'} class="field-border w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 <div class="max-h-80 overflow-y-auto space-y-1">
                     {#each filteredEmployeesForSelect as emp}
                         <button class="w-full text-left px-4 py-3 rounded-xl hover:bg-emerald-50 transition flex justify-between items-center" on:click={() => openDateWiseAddModal(emp)}>
@@ -1136,11 +1274,11 @@
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date') || 'Effective From'}</label>
-                            <input type="date" bind:value={modalDateFrom} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                            <input type="date" bind:value={modalDateFrom} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_date') || 'Effective To'}</label>
-                            <input type="date" bind:value={modalDateTo} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                            <input type="date" bind:value={modalDateTo} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                             <p class="text-xs text-slate-400 mt-1">{$locale === 'ar' ? 'اتركه فارغاً إذا كان مفتوحاً' : 'Leave empty if open-ended'}</p>
                         </div>
                     </div>
@@ -1148,7 +1286,7 @@
                 {#if activeTab === 'weekday'}
                     <div>
                         <label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.select_weekday')}</label>
-                        <select bind:value={modalWeekday} class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
+                        <select bind:value={modalWeekday} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" style="color:#000!important;background:#fff!important;">
                             {#each weekdayNames as day, i}<option value={i}>{day}</option>{/each}
                         </select>
                     </div>
@@ -1156,11 +1294,11 @@
                 {#if activeTab === 'date'}
                     {#if isRangeMode}
                         <div class="grid grid-cols-2 gap-3">
-                            <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date') || 'Start Date'}</label><input type="date" bind:value={modalDateFrom} class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
-                            <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_date') || 'End Date'}</label><input type="date" bind:value={modalDateTo} class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+                            <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date') || 'Start Date'}</label><input type="date" bind:value={modalDateFrom} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+                            <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_date') || 'End Date'}</label><input type="date" bind:value={modalDateTo} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
                         </div>
                     {:else}
-                        <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_date') || 'Date'}</label><input type="date" bind:value={modalDateFrom} class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+                        <div><label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_date') || 'Date'}</label><input type="date" bind:value={modalDateFrom} class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
                     {/if}
                 {/if}
 
@@ -1175,46 +1313,46 @@
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$t('hr.shift.shift_start_time')}</label>
                             <div class="flex gap-2">
-                                <select bind:value={slotTime12[si].startHour} on:change={() => updateSlotStartTime(si)} class="flex-1 px-2 py-2 border border-slate-300 rounded-lg">
+                                <select bind:value={slotTime12[si].startHour} on:change={() => updateSlotStartTime(si)} class="field-border flex-1 px-2 py-2 border border-slate-300 rounded-lg">
                                     {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}<option value={h}>{h}</option>{/each}
                                 </select>
-                                <select bind:value={slotTime12[si].startMinute} on:change={() => updateSlotStartTime(si)} class="flex-1 px-2 py-2 border border-slate-300 rounded-lg">
+                                <select bind:value={slotTime12[si].startMinute} on:change={() => updateSlotStartTime(si)} class="field-border flex-1 px-2 py-2 border border-slate-300 rounded-lg">
                                     {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}<option value={m}>{m}</option>{/each}
                                 </select>
-                                <select bind:value={slotTime12[si].startPeriod} on:change={() => updateSlotStartTime(si)} class="w-20 px-2 py-2 border border-slate-300 rounded-lg">
+                                <select bind:value={slotTime12[si].startPeriod} on:change={() => updateSlotStartTime(si)} class="field-border w-20 px-2 py-2 border border-slate-300 rounded-lg">
                                     <option value="AM">{$t('common.am') || 'AM'}</option><option value="PM">{$t('common.pm') || 'PM'}</option>
                                 </select>
                             </div>
                         </div>
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$t('hr.shift.start_buffer_hours')}</label>
-                            <input type="number" bind:value={slot.shift_start_buffer} step="0.5" min="0" max="24" class="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                            <input type="number" bind:value={slot.shift_start_buffer} step="0.5" min="0" max="24" class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" />
                         </div>
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$locale === 'ar' ? 'التأخير المسموح (دقائق)' : 'Allowed Late Start (min)'}</label>
-                            <input type="number" bind:value={slot.allowed_late_start_minutes} min="0" max="120" class="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="0" />
+                            <input type="number" bind:value={slot.allowed_late_start_minutes} min="0" max="120" class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="0" />
                         </div>
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$t('hr.shift.shift_end_time')}</label>
                             <div class="flex gap-2">
-                                <select bind:value={slotTime12[si].endHour} on:change={() => updateSlotEndTime(si)} class="flex-1 px-2 py-2 border border-slate-300 rounded-lg">
+                                <select bind:value={slotTime12[si].endHour} on:change={() => updateSlotEndTime(si)} class="field-border flex-1 px-2 py-2 border border-slate-300 rounded-lg">
                                     {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}<option value={h}>{h}</option>{/each}
                                 </select>
-                                <select bind:value={slotTime12[si].endMinute} on:change={() => updateSlotEndTime(si)} class="flex-1 px-2 py-2 border border-slate-300 rounded-lg">
+                                <select bind:value={slotTime12[si].endMinute} on:change={() => updateSlotEndTime(si)} class="field-border flex-1 px-2 py-2 border border-slate-300 rounded-lg">
                                     {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}<option value={m}>{m}</option>{/each}
                                 </select>
-                                <select bind:value={slotTime12[si].endPeriod} on:change={() => updateSlotEndTime(si)} class="w-20 px-2 py-2 border border-slate-300 rounded-lg">
+                                <select bind:value={slotTime12[si].endPeriod} on:change={() => updateSlotEndTime(si)} class="field-border w-20 px-2 py-2 border border-slate-300 rounded-lg">
                                     <option value="AM">{$t('common.am') || 'AM'}</option><option value="PM">{$t('common.pm') || 'PM'}</option>
                                 </select>
                             </div>
                         </div>
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$t('hr.shift.end_buffer_hours')}</label>
-                            <input type="number" bind:value={slot.shift_end_buffer} step="0.5" min="0" max="24" class="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                            <input type="number" bind:value={slot.shift_end_buffer} step="0.5" min="0" max="24" class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" />
                         </div>
                         <div class="mb-3">
                             <label class="block text-sm font-bold text-slate-700 mb-1">{$locale === 'ar' ? 'الانصراف المبكر المسموح (دقائق)' : 'Allowed Early End (min)'}</label>
-                            <input type="number" bind:value={slot.allowed_early_end_minutes} min="0" max="120" class="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="0" />
+                            <input type="number" bind:value={slot.allowed_early_end_minutes} min="0" max="120" class="field-border w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="0" />
                         </div>
                         <div class="flex items-center gap-3">
                             <input type="checkbox" bind:checked={slot.is_shift_overlapping_next_day} on:change={() => recalcSlotHours(si)} class="w-5 h-5 rounded" id="overlap-{si}" />
@@ -1241,3 +1379,19 @@
         </div>
     </div>
 {/if}
+
+<style>
+    /* mobile-interface/+layout.svelte has an app-wide, unlayered
+       `:global(input), :global(select) { border: none }` reset. Because
+       it's unlayered, it beats Tailwind's border-* utilities (those live
+       in @layer utilities — any unlayered CSS wins over layered CSS
+       regardless of selector specificity), so every filter/select/input
+       here loses its border when rendered inside the mobile route.
+       !important is the only thing that reliably wins that fight. Width/
+       style only, so each element's existing border-{color} utility still
+       controls the color. */
+    .field-border {
+        border-width: 1px !important;
+        border-style: solid !important;
+    }
+</style>
