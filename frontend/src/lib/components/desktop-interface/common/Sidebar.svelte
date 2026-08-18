@@ -3454,6 +3454,11 @@ function openApprovalCenter() {
 			title: `Offer Product Editor #${instanceNumber}`,
 			component: OfferTemplates,
 			componentName: "OfferTemplates",
+			// Shares the mobile Offer Selector's RPC-paginated loading, camera
+			// scan, and inline Create Product + AI name button — but keeps the
+			// wide table (not the card list) for the product listing itself,
+			// since desktop windows have the width for it.
+			props: { mobile: true, useCardLayout: false },
 			icon: '✅',
 			size: { width: 1400, height: 900 },
 			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },

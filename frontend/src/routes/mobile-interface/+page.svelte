@@ -29,6 +29,7 @@
 			// silent — ERP card simply won't appear
 		}
 	}
+
 	let stats = {
 		pendingTasks: 0,
 		pendingToClose: 0,
@@ -199,7 +200,6 @@
 		if (currentUserData) {
 			// Load dashboard data from Go backend (combines tasks + punches)
 			await loadDashboardData();
-
 		}
 		isLoading = false;
 		

@@ -28,7 +28,12 @@ async function callGemini(systemPrompt: string, userPrompt: string, geminiKey: s
 			body: JSON.stringify({
 				systemInstruction: { parts: [{ text: systemPrompt }] },
 				contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-				generationConfig: { temperature: 0.3, maxOutputTokens: 200 }
+				// thinkingBudget: 0 turns off Gemini 2.5's internal "thinking" pass —
+				// without it, thinking tokens were eating most of maxOutputTokens
+				// (verified: a 200-token budget left ~8 tokens for the actual answer,
+				// silently truncating short replies mid-word). These are short,
+				// single-step text tasks that don't benefit from extra reasoning.
+				generationConfig: { temperature: 0.3, maxOutputTokens: 500, thinkingConfig: { thinkingBudget: 0 } }
 			})
 		}
 	);
@@ -80,5 +85,46 @@ export async function correctSpelling(text: string): Promise<string> {
 		return corrected || text;
 	} catch {
 		return text;
+	}
+}
+
+export interface CorrectedProductName {
+	en: string;
+	ar: string;
+}
+
+// Dedicated to product names (not shared with correctSpelling, which is used
+// by checklist text and has different rules). A store employee typing fast
+// often gets both the spelling AND the word order wrong (e.g. "apple amerca"
+// meant as "American Apple") — so unlike correctSpelling, this one is
+// explicitly allowed to reorder into natural product-name grammar, but must
+// not invent or drop any of the meaningful words the user actually typed.
+export async function correctAndTranslateProductName(text: string): Promise<CorrectedProductName> {
+	const trimmed = (text || '').trim();
+	if (!trimmed) return { en: '', ar: '' };
+
+	const geminiKey = await getGeminiKey();
+	if (!geminiKey) throw new Error('No AI translation provider configured. Add a Google API key in API Keys Manager.');
+
+	const systemPrompt = `You correct retail product names typed quickly by a store employee, who may type the words in the wrong order and/or misspell them.
+1. Rewrite the text as a clean, natural, properly-ordered English product name — put descriptive/origin adjectives before the noun, the way real product names read (e.g. "American Apple", "Turkish Delight", "Saudi Dates"). Fix any spelling mistakes. Keep every meaningful word the user typed — do not add new descriptive words and do not drop any.
+2. Translate that corrected name into natural, commonly-used Arabic, in standard Arabic grammar order (noun then adjective, e.g. تفاح أمريكي), the way it would appear on a product label in a Middle Eastern grocery store.
+
+Respond with ONLY a JSON object, no markdown formatting, no code fences, in exactly this shape:
+{"corrected_en": "...", "arabic": "..."}`;
+
+	const raw = await callGemini(systemPrompt, trimmed, geminiKey);
+	const jsonText = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+
+	try {
+		const parsed = JSON.parse(jsonText);
+		return {
+			en: (parsed.corrected_en || trimmed).toString().trim(),
+			ar: (parsed.arabic || '').toString().trim()
+		};
+	} catch {
+		// If the model didn't return valid JSON, fall back to treating the raw
+		// reply as the corrected English and leave Arabic for the user to fill in.
+		return { en: raw || trimmed, ar: '' };
 	}
 }

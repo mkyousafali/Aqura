@@ -34,6 +34,7 @@
 	let hasExpenseManagerPermission = false;
 	let hasVendorPaymentsPermission = false;
 	let hasLCPlannerPermission = false;
+	let hasOfferSelectorPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -573,6 +574,7 @@
 			hasLiveChatPermission = false;
 			hasBreakRegisterPermission = false;
 			hasExpenseManagerPermission = false;
+			hasOfferSelectorPermission = false;
 			return;
 		}
 
@@ -593,6 +595,7 @@
 				hasExpenseManagerPermission = false;
 				hasVendorPaymentsPermission = false;
 				hasLCPlannerPermission = false;
+				hasOfferSelectorPermission = false;
 				return;
 			}
 
@@ -615,6 +618,7 @@
 					hasExpenseManagerPermission = false;
 					hasVendorPaymentsPermission = false;
 					hasLCPlannerPermission = false;
+					hasOfferSelectorPermission = false;
 				} else if (buttons) {
 					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
 					const buttonCodes = new Set(buttons.map(b => b.button_code));
@@ -629,12 +633,14 @@
 					hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
 					hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
 					hasLCPlannerPermission = currentUserData?.isMasterAdmin || buttonCodes.has('LC_PLANNER');
+					hasOfferSelectorPermission = currentUserData?.isMasterAdmin || buttonCodes.has('OFFER_PRODUCT_EDITOR');
 
 					console.log('✅ Mobile button permissions:', {
 						reports: hasReportsPermission,
 						branchPerformance: hasBranchPerformancePermission,
 						expenseManager: hasExpenseManagerPermission,
 						vendorPayments: hasVendorPaymentsPermission,
+						offerSelector: hasOfferSelectorPermission,
 						allCodes: Array.from(buttonCodes)
 					});
 				}
@@ -646,13 +652,15 @@
 				hasExpenseManagerPermission = false;
 				hasVendorPaymentsPermission = false;
 				hasLCPlannerPermission = false;
+				hasOfferSelectorPermission = false;
 			}
 
-			// Master admin always keeps Sales Report and LC Planner, even with no
-			// permission rows
+			// Master admin always keeps Sales Report, LC Planner and Offer
+			// Selector, even with no permission rows
 			if (currentUserData?.isMasterAdmin) {
 				hasReportsPermission = true;
 				hasLCPlannerPermission = true;
+				hasOfferSelectorPermission = true;
 			}
 
 			// Check for incident manager permission from approval_permissions
@@ -666,6 +674,7 @@
 			hasExpenseManagerPermission = false;
 			hasVendorPaymentsPermission = false;
 			hasLCPlannerPermission = false;
+			hasOfferSelectorPermission = false;
 		}
 	}
 	
@@ -1325,7 +1334,7 @@
 
 			<!-- Stock Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showFinanceMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') }>
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showFinanceMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') || $page.url.pathname.startsWith('/mobile-interface/offer-selector') }>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -1386,6 +1395,16 @@
 							</svg>
 							<span>{$currentLocale === 'ar' ? 'بدء الاستلام' : 'Start Receiving'}</span>
 						</a>
+						{#if hasOfferSelectorPermission}
+							<a href="/mobile-interface/offer-selector" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/offer-selector')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+									<path d="M9 9h.01"/>
+									<path d="M9 15l6-6"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'محدد العروض' : 'Offer Selector'}</span>
+							</a>
+						{/if}
 
 					</div>
 				{/if}
