@@ -164,6 +164,7 @@
     let modalDateTo = '';
     let modalWeekday = 0;
     let editingVersionId: number | null = null;
+    let editingDateVersionIds: number[] = [];
 
     let slotTime12: Array<{
         startHour: string; startMinute: string; startPeriod: string;
@@ -645,6 +646,7 @@
 
     function openRegularModal(row: RegularRow) {
         selectedEmployeeId = row.employee_id;
+        editingDateVersionIds = [];
         // "Change" always creates a new version (auto-closes old); never edits in-place
         editingVersionId = null;
         modalDateFrom = new Date().toISOString().split('T')[0];
@@ -656,6 +658,7 @@
 
     function openWeekdayModal(row: WeekdayRow, weekday?: number) {
         selectedEmployeeId = row.employee_id; modalWeekday = weekday ?? 0;
+        editingDateVersionIds = [];
         // Always create new version (auto-closes old), never edit in-place
         editingVersionId = null;
         modalDateFrom = new Date().toISOString().split('T')[0];
@@ -667,13 +670,25 @@
     }
 
     function openDateWiseAddModal(emp: EmployeeForSelection) {
-        selectedEmployeeId = emp.id; editingVersionId = null;
+        selectedEmployeeId = emp.id; editingVersionId = null; editingDateVersionIds = [];
         const today = new Date().toISOString().split('T')[0]; modalDateFrom = today; modalDateTo = today;
         modalSlots = [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
         syncSlotTimeTo12h(); showEmployeeSelectModal = false; showModal = true;
     }
 
-    function closeModal() { showModal = false; selectedEmployeeId = null; editingVersionId = null; modalSlots = []; slotTime12 = []; }
+    function openDateWiseEditModal(row: DateWiseRow) {
+        selectedEmployeeId = row.employee_id;
+        editingDateVersionIds = row._grouped ? [...(row._allVersionIds || [])] : [row.version_id];
+        editingVersionId = row._grouped ? null : row.version_id;
+        isRangeMode = Boolean(row._grouped);
+        modalDateFrom = row._grouped ? (row._dateFrom || row.date_from) : row.date_from;
+        modalDateTo = row._grouped ? (row._dateTo || row.date_to) : (row.date_to || row.date_from);
+        modalSlots = row.slots.length > 0 ? row.slots.map(slot => ({ ...slot })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
+        syncSlotTimeTo12h();
+        showModal = true;
+    }
+
+    function closeModal() { showModal = false; selectedEmployeeId = null; editingVersionId = null; editingDateVersionIds = []; modalSlots = []; slotTime12 = []; }
 
     // ---- SAVE ----
 
@@ -749,7 +764,44 @@
     }
 
     async function saveDateWiseShift() {
-        if (isRangeMode && modalDateFrom && modalDateTo) {
+        if (editingDateVersionIds.length > 1) {
+            const start = new Date(`${modalDateFrom}T00:00:00Z`);
+            const end = new Date(`${modalDateTo}T00:00:00Z`);
+            if (!modalDateFrom || !modalDateTo || start > end) throw new Error('Start date cannot be after end date');
+
+            const dates: string[] = [];
+            for (let date = new Date(start); date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
+                dates.push(date.toISOString().split('T')[0]);
+            }
+
+            // Reuse existing versions first so changing a grouped range does
+            // not leave stale days behind or create duplicate dates.
+            const reusableCount = Math.min(editingDateVersionIds.length, dates.length);
+            for (let index = 0; index < reusableCount; index++) {
+                const versionId = editingDateVersionIds[index];
+                const { error: versionError } = await supabase.from('hr_special_shift_date_wise_versions').update({ date_from: dates[index], date_to: dates[index] }).eq('id', versionId);
+                if (versionError) throw versionError;
+                const { error: deleteSlotsError } = await supabase.from('hr_special_shift_date_wise_slots').delete().eq('version_id', versionId);
+                if (deleteSlotsError) throw deleteSlotsError;
+                const payloads = modalSlots.map((s, i) => ({ version_id: versionId, slot_order: i + 1, shift_start_time: s.shift_start_time, shift_start_buffer: s.shift_start_buffer, shift_end_time: s.shift_end_time, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 }));
+                const { error } = await supabase.from('hr_special_shift_date_wise_slots').insert(payloads);
+                if (error) throw error;
+            }
+
+            if (editingDateVersionIds.length > dates.length) {
+                const obsoleteIds = editingDateVersionIds.slice(dates.length);
+                const { error: deleteError } = await supabase.from('hr_special_shift_date_wise_versions').delete().in('id', obsoleteIds);
+                if (deleteError) throw deleteError;
+            }
+
+            for (let index = editingDateVersionIds.length; index < dates.length; index++) {
+                const { data: version, error: versionError } = await supabase.from('hr_special_shift_date_wise_versions').insert({ employee_id: selectedEmployeeId, date_from: dates[index], date_to: dates[index] }).select('id').single();
+                if (versionError) throw versionError;
+                const payloads = modalSlots.map((s, i) => ({ version_id: version.id, slot_order: i + 1, shift_start_time: s.shift_start_time, shift_start_buffer: s.shift_start_buffer, shift_end_time: s.shift_end_time, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 }));
+                const { error } = await supabase.from('hr_special_shift_date_wise_slots').insert(payloads);
+                if (error) throw error;
+            }
+        } else if (isRangeMode && modalDateFrom && modalDateTo) {
             const start = new Date(modalDateFrom); const end = new Date(modalDateTo);
             if (start > end) { showError('Start date cannot be after end date'); return; }
             const dates: string[] = []; let dt = new Date(start);
@@ -1196,11 +1248,14 @@
                                     </div>
                                     <p class="text-xs text-slate-400 truncate">{branchDisplay(row)}</p>
                                 </div>
-                                {#if row._grouped && row._allVersionIds}
-                                    <button class="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition flex-shrink-0" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete all?')) deleteGroupedDateWise(row._allVersionIds || []); }}>🗑 ({row._dayCount})</button>
-                                {:else}
-                                    <button class="px-2.5 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition flex-shrink-0" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete?')) deleteVersion(row.version_id, 'date'); }}>🗑</button>
-                                {/if}
+                                <div class="flex gap-1 flex-shrink-0">
+                                    <button class="px-2.5 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition whitespace-nowrap" on:click={() => openDateWiseEditModal(row)}>✏️ {$locale === 'ar' ? 'تعديل' : 'Edit'}</button>
+                                    {#if row._grouped && row._allVersionIds}
+                                        <button class="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete all?')) deleteGroupedDateWise(row._allVersionIds || []); }}>🗑 ({row._dayCount})</button>
+                                    {:else}
+                                        <button class="px-2.5 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete?')) deleteVersion(row.version_id, 'date'); }}>🗑</button>
+                                    {/if}
+                                </div>
                             </div>
 
                             <div class="mt-2 text-xs text-slate-500">
@@ -1257,11 +1312,14 @@
                                         </td>
                                         <td class="px-4 py-3 text-sm text-center"><div class="font-bold text-emerald-700">{slot?.working_hours ? slot.working_hours.toFixed(2) : '—'} {$t('common.hrs')}</div></td>
                                         <td class="px-4 py-3 text-sm text-center">
-                                            {#if row._grouped && row._allVersionIds}
-                                                <button class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete all?')) deleteGroupedDateWise(row._allVersionIds || []); }}>🗑 {$t('common.delete')} ({row._dayCount})</button>
-                                            {:else}
-                                                <button class="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete?')) deleteVersion(row.version_id, 'date'); }}>🗑 {$t('common.delete')}</button>
-                                            {/if}
+                                            <div class="flex gap-1 justify-center">
+                                                <button class="px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition" on:click={() => openDateWiseEditModal(row)}>✏️ {$locale === 'ar' ? 'تعديل' : 'Edit'}</button>
+                                                {#if row._grouped && row._allVersionIds}
+                                                    <button class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete all?')) deleteGroupedDateWise(row._allVersionIds || []); }}>🗑 {$t('common.delete')} ({row._dayCount})</button>
+                                                {:else}
+                                                    <button class="px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition" on:click={() => { if (confirm($t('hr.shift.confirm_delete_shift') || 'Delete?')) deleteVersion(row.version_id, 'date'); }}>🗑 {$t('common.delete')}</button>
+                                                {/if}
+                                            </div>
                                         </td>
                                     </tr>
                                 {/each}
