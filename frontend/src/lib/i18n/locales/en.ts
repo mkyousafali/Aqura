@@ -461,6 +461,8 @@ export const englishLocale: LocaleData = {
       pos: "POS",
       posReport: "POS Report",
       centralPerformance: "Central Performance",
+      userActionReports: "User Action Reports",
+      drawerActionMonitor: "Drawer Action Monitor",
       usersList: "Users",
       createUser: "Create User",
       manageAdminUsers: "Manage Admin Users",

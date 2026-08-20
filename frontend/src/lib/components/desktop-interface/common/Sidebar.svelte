@@ -111,6 +111,8 @@
 	import SidebarAnimationManager from '$lib/components/desktop-interface/settings/SidebarAnimationManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
+	import UserActionReports from '$lib/components/desktop-interface/settings/UserActionReports.svelte';
+	import DrawerActionMonitor from '$lib/components/desktop-interface/settings/DrawerActionMonitor.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
 	import BrandingManager from '$lib/components/desktop-interface/settings/BrandingManager.svelte';
 	import SupabaseSecretsManager from '$lib/components/desktop-interface/settings/SupabaseSecretsManager.svelte';
@@ -322,6 +324,8 @@
 		'BUTTON_GENERATOR': 'nav.buttonGenerator',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
 		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
+		'USER_ACTION_REPORTS': 'nav.userActionReports',
+		'DRAWER_ACTION_MONITOR': 'nav.drawerActionMonitor',
 		// Additional DB button codes (aliases / alternate codes)
 		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees', 'WARNING_MASTER': 'nav.warningMaster',
 		'SALARY_WAGE_MANAGEMENT': 'hr.masterSalaryManagement', 'CONTACT_MANAGEMENT': 'hr.masterContactManagement',
@@ -2321,6 +2325,8 @@ function openApprovalCenter() {
 			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
+			'USER_ACTION_REPORTS': openUserActionReports,
+			'DRAWER_ACTION_MONITOR': openDrawerActionMonitor,
 			'STORAGE_MANAGER': openStorageManager,
 			'ICON_MANAGER': openIconManager,
 			'API_KEYS_MANAGER': openApiKeysManager,
@@ -3295,6 +3301,46 @@ function openApprovalCenter() {
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
 			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// Open User Action Reports window (master admin only)
+	function openUserActionReports() {
+		collapseAllMenus();
+		const windowId = generateWindowId('user-action-reports');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.userActionReports') || 'User Action Reports'} #${instanceNumber}`,
+			component: UserActionReports,
+			componentName: 'UserActionReports',
+			icon: '🕵️',
+			size: { width: 1400, height: 800 },
+			position: { x: 80 + Math.random() * 80, y: 60 + Math.random() * 60 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// Open Drawer Action Monitor window (master admin only)
+	function openDrawerActionMonitor() {
+		collapseAllMenus();
+		const windowId = generateWindowId('drawer-action-monitor');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.drawerActionMonitor') || 'Drawer Action Monitor'} #${instanceNumber}`,
+			component: DrawerActionMonitor,
+			componentName: 'DrawerActionMonitor',
+			icon: '🚨',
+			size: { width: 1300, height: 800 },
+			position: { x: 90 + Math.random() * 80, y: 70 + Math.random() * 60 },
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
@@ -6292,6 +6338,20 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openCentralPerformance}>
 								<span class="menu-icon">📊</span>
 								<span class="menu-text">{t('nav.centralPerformance')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if $currentUser?.isMasterAdmin}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openUserActionReports}>
+								<span class="menu-icon">🕵️</span>
+								<span class="menu-text">{t('nav.userActionReports') || 'User Action Reports'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDrawerActionMonitor}>
+								<span class="menu-icon">🚨</span>
+								<span class="menu-text">{t('nav.drawerActionMonitor') || 'Drawer Action Monitor'}</span>
 							</button>
 						</div>
 					{/if}

@@ -464,6 +464,8 @@ export const arabicLocale: LocaleData = {
       pos: "نقاط البيع",
       posReport: "تقرير نقاط البيع",
       centralPerformance: "الأداء المركزي",
+      userActionReports: "تقارير إجراءات المستخدم",
+      drawerActionMonitor: "مراقب فتح الدرج",
       usersList: "المستخدمون",
       createUser: "إنشاء مستخدم",
       manageAdminUsers: "إدارة مستخدمي الإدارة",

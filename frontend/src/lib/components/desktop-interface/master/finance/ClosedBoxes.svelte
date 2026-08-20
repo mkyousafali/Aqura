@@ -473,8 +473,10 @@ async function loadBranches() {
 		completedBoxes = filtered;
 	}
 
-	// Watch for branch changes (only after mount to avoid duplicate initial load)
-	$: if (mounted && selectedBranch && supabase) {
+	// Triggered explicitly by branch <select> on:change (not a reactive statement) so that
+	// editing dateFromInput/dateToInput does NOT also re-trigger this reset.
+	function handleBranchChange() {
+		if (!mounted || !selectedBranch || !supabase) return;
 		// Reset to 7-day default
 		dateFromInput = getSevenDaysAgo();
 		dateToInput = getTodayStr();
@@ -609,7 +611,7 @@ async function loadBranches() {
 					<label for="branch-select">
 						{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}
 					</label>
-					<select id="branch-select" bind:value={selectedBranch} class="branch-select">
+					<select id="branch-select" bind:value={selectedBranch} on:change={handleBranchChange} class="branch-select">
 						<option value="all">
 							{$currentLocale === 'ar' ? '🌍 جميع الفروع' : '🌍 All Branches'}
 						</option>
