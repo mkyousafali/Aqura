@@ -113,6 +113,7 @@
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
 	import UserActionReports from '$lib/components/desktop-interface/settings/UserActionReports.svelte';
 	import DrawerActionMonitor from '$lib/components/desktop-interface/settings/DrawerActionMonitor.svelte';
+	import PCLockGuard from '$lib/components/desktop-interface/settings/PCLockGuard.svelte';
 	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
 	import BrandingManager from '$lib/components/desktop-interface/settings/BrandingManager.svelte';
 	import SupabaseSecretsManager from '$lib/components/desktop-interface/settings/SupabaseSecretsManager.svelte';
@@ -3348,6 +3349,25 @@ function openApprovalCenter() {
 		});
 	}
 
+	function openPCLockGuard() {
+		collapseAllMenus();
+		const windowId = generateWindowId('pc-lock-guard');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `PC Lock Guard #${instanceNumber}`,
+			component: PCLockGuard,
+			componentName: 'PCLockGuard',
+			icon: '🛡️',
+			size: { width: 1200, height: 750 },
+			position: { x: 100 + Math.random() * 80, y: 80 + Math.random() * 60 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	// Open Central Performance Dashboard (master admin only)
 	function openCentralPerformance() {
 		collapseAllMenus();
@@ -6352,6 +6372,12 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openDrawerActionMonitor}>
 								<span class="menu-icon">🚨</span>
 								<span class="menu-text">{t('nav.drawerActionMonitor') || 'Drawer Action Monitor'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPCLockGuard}>
+								<span class="menu-icon">🛡️</span>
+								<span class="menu-text">PC Lock Guard</span>
 							</button>
 						</div>
 					{/if}
