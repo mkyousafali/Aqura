@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { t } from '$lib/i18n';
 
 	interface BranchOption {
 		id: number;
@@ -25,6 +24,19 @@
 		matched_user_name: string | null;
 		seconds_to_match: number | null;
 		is_flagged: boolean;
+	}
+
+	// Secondary check, run only against flagged (is_flagged) rows, on top of the primary Print-match
+	// flagging (which stays untouched) — a nearby Authorize action (manager override, price change,
+	// etc.) within a wide ±30 minute window can explain an otherwise-unexplained drawer event even
+	// though it wasn't a matching Print.
+	interface AuthMatch {
+		date_time_of_action: string;
+		user_name: string | null;
+		action_performed: string | null;
+		action_form: string | null;
+		voucher_number: string | null;
+		secondsDiff: number;
 	}
 
 	// User Actions tab — same shape/derivation as the live User Action Reports window,
@@ -92,6 +104,10 @@
 	// Of those ERP Print actions, how many have NO corresponding local spooler event — the reverse
 	// direction of "Flagged (No Match)" below, which only flags local events missing an ERP match.
 	let erpUnmatchedCount: number | null = null;
+	// Secondary Authorize-action check, keyed by flagged event id — populated only for flagged rows,
+	// never touches is_flagged/matched_* or any of the primary flagging counts/pills above.
+	let authMatches = new Map<number, AuthMatch>();
+	let expandedAuthRows = new Set<number>();
 
 	let selectedStatus: 'flagged' | 'matched' | null = null;
 	// Shared by both the POS Counter dropdown and the breakdown cards below — two affordances
@@ -341,9 +357,12 @@
 
 			lcResults = flaggedEvents.map((e) => {
 				const eventMs = naiveMs(e.event_time);
-				// +/-10s tolerance, counter-scoped when the flagged event has an erp_counter_id
-				// recorded (falls back to branch-wide time-only matching for events captured
-				// before the till's counter was configured).
+				// +10s tolerance ONLY (not symmetric), same as the main Flagger's DB-side matching —
+				// the spooler-captured print event is what triggers the ERP's own Print log entry (the
+				// DB write happens after the physical print job runs), so the ERP action can only
+				// follow that event, never precede it. Counter-scoped when the flagged event has an
+				// erp_counter_id recorded (falls back to branch-wide time-only matching for events
+				// captured before the till's counter was configured).
 				const toleranceMs = 10000;
 				let best: any = null;
 				let bestDiffSec: number | null = null;
@@ -352,8 +371,9 @@
 					// while erp_counter_id from Supabase is a number — compare as strings so the
 					// type mismatch doesn't silently exclude every row.
 					if (e.erp_counter_id != null && String(p.CounterID) !== String(e.erp_counter_id)) continue;
-					const diffSec = Math.abs(naiveMs(p.DateTimeOfAction) - eventMs) / 1000;
-					if (diffSec > toleranceMs / 1000) continue;
+					const diffMs = naiveMs(p.DateTimeOfAction) - eventMs; // only >=0: ERP print must be at or after the event
+					if (diffMs < 0 || diffMs > toleranceMs) continue;
+					const diffSec = diffMs / 1000;
 					if (best === null || diffSec < bestDiffSec!) {
 						best = p;
 						bestDiffSec = diffSec;
@@ -469,6 +489,12 @@
 		if (uaExpandedGroups.has(key)) uaExpandedGroups.delete(key);
 		else uaExpandedGroups.add(key);
 		uaExpandedGroups = uaExpandedGroups;
+	}
+
+	function toggleAuthRow(id: number) {
+		if (expandedAuthRows.has(id)) expandedAuthRows.delete(id);
+		else expandedAuthRows.add(id);
+		expandedAuthRows = expandedAuthRows;
 	}
 
 	$: uaTotalItems = uaFilteredEntries.length;
@@ -601,6 +627,8 @@
 		selectedMatchedUser = null;
 		erpPrintActionCount = null;
 		erpUnmatchedCount = null;
+		authMatches = new Map();
+		expandedAuthRows = new Set();
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data, error } = await supabase.rpc('get_flagged_drawer_events', {
@@ -649,6 +677,62 @@
 					.map((e) => String(e.matched_voucher_number))
 			);
 			erpUnmatchedCount = filteredPrintRows.filter((r: any) => !matchedVouchers.has(String(r.voucher_number))).length;
+
+			// Secondary check, flagged rows only: does an Authorize action shortly BEFORE this drawer
+			// event (manager override, price change, etc.) explain it even though it never matched a
+			// Print? One-directional (-30 min only, not +30) — the authorization is what would have
+			// led to the print, so it can only precede it, never follow it. Deliberately does NOT
+			// touch is_flagged, the primary counts, or the pills above — this only adds an extra
+			// per-row annotation for display.
+			const flaggedForAuth = timeFilteredLocalEvents.filter((e) => e.is_flagged);
+			if (flaggedForAuth.length > 0) {
+				const authWindowMs = 30 * 60 * 1000;
+				const flaggedTimes = flaggedForAuth.map((e) => naiveMs(e.event_time));
+				const authMinTime = new Date(Math.min(...flaggedTimes) - authWindowMs).toISOString().slice(0, 19);
+				const authMaxTime = new Date(Math.max(...flaggedTimes)).toISOString().slice(0, 19);
+				let authQuery = supabase
+					.from('erp_user_actions')
+					.select('branch_id, counter_id, date_time_of_action, user_name, action_performed, action_form, voucher_number')
+					.eq('action_name', 'Authorize')
+					.gte('date_time_of_action', authMinTime)
+					.lte('date_time_of_action', authMaxTime)
+					.limit(20000);
+				if (selectedBranchId) authQuery = authQuery.eq('branch_id', selectedBranchId);
+				const { data: authRows, error: authErr } = await authQuery;
+				if (authErr) throw authErr;
+
+				const newAuthMatches = new Map<number, AuthMatch>();
+				for (const e of flaggedForAuth) {
+					const eventMs = naiveMs(e.event_time);
+					let best: any = null;
+					let bestDiffMs = Infinity;
+					for (const a of authRows || []) {
+						if (a.branch_id !== e.branch_id) continue;
+						// Excludes counter shift open/close authorizations — same action_form 'COUNTER SH'
+						// determinant UserActionReports.svelte uses for its "Counter Open/Close" grouping.
+						// Closing a shift doesn't explain an unmatched print, so it shouldn't count as a
+						// match (checked client-side, not via a query .neq(), since Postgres' NULL
+						// comparison semantics would silently also exclude every row with no action_form).
+						if (a.action_form === 'COUNTER SH') continue;
+						if (e.erp_counter_id != null && a.counter_id !== e.erp_counter_id) continue;
+						const diffMs = eventMs - naiveMs(a.date_time_of_action); // only >=0: auth must be at or before the event
+						if (diffMs < 0 || diffMs > authWindowMs || diffMs >= bestDiffMs) continue;
+						bestDiffMs = diffMs;
+						best = a;
+					}
+					if (best) {
+						newAuthMatches.set(e.id, {
+							date_time_of_action: best.date_time_of_action,
+							user_name: best.user_name,
+							action_performed: best.action_performed,
+							action_form: best.action_form,
+							voucher_number: best.voucher_number ? String(best.voucher_number) : null,
+							secondsDiff: bestDiffMs / 1000
+						});
+					}
+				}
+				authMatches = newAuthMatches;
+			}
 		} catch (err: any) {
 			console.error('Error loading flagged drawer events:', err);
 			errorMessage = err.message || 'Failed to load report';
@@ -696,6 +780,17 @@
 	function formatSeconds(n: number | null): string {
 		if (n === null || n === undefined) return '-';
 		return `${Math.abs(n).toFixed(1)}s`;
+	}
+
+	// For the Authorize secondary check's much wider (-30 min) window — a raw "1219.8s" isn't
+	// easily readable at a glance the way it is for the primary ±10s Print-match diffs above.
+	function formatDuration(n: number | null): string {
+		if (n === null || n === undefined) return '-';
+		const totalSec = Math.abs(n);
+		if (totalSec < 60) return `${totalSec.toFixed(1)}s`;
+		const mins = Math.floor(totalSec / 60);
+		const secs = Math.round(totalSec % 60);
+		return `${mins}m ${secs}s`;
 	}
 
 	function formatBytes(n: number | null): string {
@@ -862,16 +957,6 @@
 <div class="drawer-monitor">
 	<div class="bg-blob blob-1"></div>
 	<div class="bg-blob blob-2"></div>
-
-	<div class="header">
-		<div class="header-left">
-			<span class="header-icon">🚨</span>
-			<div>
-				<h2 class="header-title">{t('nav.drawerActionMonitor') || 'Drawer Action Monitor'}</h2>
-				<p class="header-subtitle">User actions &amp; cash-drawer events — live from Supabase, synced from Aqura Action Sync</p>
-			</div>
-		</div>
-	</div>
 
 	<div class="tab-bar">
 		<button class="tab-btn" class:active={activeTab === 'useractions'} on:click={() => (activeTab = 'useractions')}>👤 User Actions</button>
@@ -1157,9 +1242,13 @@
 						</thead>
 						<tbody>
 							{#each filteredEvents as e}
-								<tr class:flagged-row={e.is_flagged}>
+								<tr class:flagged-row={e.is_flagged && !authMatches.has(e.id)}>
 									<td>
-										{#if e.is_flagged}
+										{#if e.is_flagged && authMatches.has(e.id)}
+											<button type="button" class="status-badge auth-matched" on:click={() => toggleAuthRow(e.id)}>
+												🔏 Matched with Authorization Action {expandedAuthRows.has(e.id) ? '▲' : '▼'}
+											</button>
+										{:else if e.is_flagged}
 											<span class="status-badge flagged">🚨 Unexplained</span>
 										{:else}
 											<span class="status-badge ok">✅ Matched</span>
@@ -1178,6 +1267,18 @@
 									<td>{e.matched_user_name || '-'}</td>
 									<td>{formatSeconds(e.seconds_to_match)}</td>
 								</tr>
+								{#if e.is_flagged && authMatches.has(e.id) && expandedAuthRows.has(e.id)}
+									{@const auth = authMatches.get(e.id)}
+									<tr class="detail-row">
+										<td colspan="10" class="auth-detail-cell">
+											↳ Authorization by <strong>{auth.user_name || 'Unknown'}</strong> at {formatTime(auth.date_time_of_action)}
+											({formatDuration(auth.secondsDiff)} before this event)
+											{#if auth.action_performed}<br />"{auth.action_performed}"{/if}
+											{#if auth.action_form}<span class="dim"> · form: {auth.action_form}</span>{/if}
+											{#if auth.voucher_number}<span class="dim"> · voucher #{auth.voucher_number}</span>{/if}
+										</td>
+									</tr>
+								{/if}
 							{/each}
 						</tbody>
 					</table>
@@ -1488,10 +1589,10 @@
 		gap: 1rem;
 	}
 
-	/* Header + tab bar stay fixed in place. .tab-content itself no longer scrolls — it's bounded to
-	   the remaining viewport height, and each tab splits into a fixed .sticky-top (filters/summary/
+	/* Tab bar stays fixed in place. .tab-content itself no longer scrolls — it's bounded to the
+	   remaining viewport height, and each tab splits into a fixed .sticky-top (filters/summary/
 	   status-pills) plus a .scroll-area that alone owns the scrollbar for that tab's table data. */
-	.header, .tab-bar { flex-shrink: 0; }
+	.tab-bar { flex-shrink: 0; }
 	.tab-content {
 		flex: 1 1 auto;
 		min-height: 0;
@@ -1535,27 +1636,10 @@
 	.blob-1 { width: 300px; height: 300px; background: rgba(239, 68, 68, 0.25); top: -80px; right: -60px; }
 	.blob-2 { width: 260px; height: 260px; background: rgba(252, 165, 165, 0.3); bottom: -60px; left: -60px; }
 
-	.header, .filters-panel, .summary-cards, .section-block, .error-banner, .empty-state {
+	.filters-panel, .summary-cards, .section-block, .error-banner, .empty-state {
 		position: relative;
 		z-index: 1;
 	}
-
-	.header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem 1.25rem;
-		background: rgba(255, 255, 255, 0.55);
-		backdrop-filter: blur(16px);
-		-webkit-backdrop-filter: blur(16px);
-		border: 1px solid rgba(254, 202, 202, 0.7);
-		border-radius: 16px;
-		box-shadow: 0 8px 24px rgba(220, 38, 38, 0.08);
-	}
-	.header-left { display: flex; align-items: center; gap: 0.75rem; }
-	.header-icon { font-size: 2rem; }
-	.header-title { margin: 0; font-size: 1.2rem; font-weight: 700; color: #7f1d1d; }
-	.header-subtitle { margin: 0.2rem 0 0; font-size: 0.8rem; color: #991b1b; opacity: 0.75; }
 
 	.tab-bar { position: relative; z-index: 1; display: flex; gap: 0.6rem; }
 	.tab-btn {
@@ -1689,6 +1773,13 @@
 	.status-badge { padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
 	.status-badge.flagged { background: rgba(220, 38, 38, 0.18); color: #b91c1c; }
 	.status-badge.ok { background: rgba(34, 197, 94, 0.15); color: #15803d; }
+	/* Rendered as a <button> so it's keyboard/click accessible — resets button defaults back to badge look. */
+	.status-badge.auth-matched {
+		background: rgba(234, 179, 8, 0.18); color: #92400e; border: none; font-family: inherit; cursor: pointer;
+	}
+	.status-badge.auth-matched:hover { background: rgba(234, 179, 8, 0.3); }
+	.auth-detail-cell { background: rgba(254, 243, 199, 0.4); color: #92400e; font-size: 0.8rem; line-height: 1.5; }
+	.auth-detail-cell .dim { opacity: 0.75; }
 
 	.small-print-badge {
 		margin-left: 6px; padding: 0.1rem 0.4rem; border-radius: 6px; font-size: 0.62rem; font-weight: 700;

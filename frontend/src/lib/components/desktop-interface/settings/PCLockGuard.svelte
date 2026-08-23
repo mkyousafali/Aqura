@@ -34,6 +34,14 @@
 	let selectedDevice: LockGuardDevice | null = null;
 	let loading = true;
 	let activeTab: 'overview' | 'devices' | 'events' | 'apps' | 'actions' = 'overview';
+	let selectedBranchFilter: string = 'all';
+
+	$: filteredDevices = selectedBranchFilter === 'all' 
+		? devices 
+		: devices.filter(d => String(d.branch_id) === selectedBranchFilter);
+
+	$: branches = [...new Map(devices.filter(d => d.branches).map(d => [d.branch_id, d.branches])).entries()]
+		.map(([id, b]: [any, any]) => ({ id, name: b.name_en }));
 
 	// Stats
 	let stats = {
@@ -57,7 +65,7 @@
 	async function loadDevices() {
 		let { data, error } = await supabase
 			.from('lockguard_devices')
-			.select('*, branches(name_en, name_ar)')
+			.select('*, branches(name_en, name_ar, location_en, location_ar)')
 			.order('last_seen', { ascending: false });
 
 		// Fallback without join if relationship query fails
@@ -116,6 +124,16 @@
 		}
 
 		stats.critical = events.filter(e => e.severity === 'CRITICAL').length;
+	}
+
+	function getDeviceLabel(deviceId: string): string {
+		const dev = devices.find(d => d.device_id === deviceId);
+		if (!dev) return deviceId;
+		const parts = [];
+		if (dev.branches?.name_en) parts.push(dev.branches.name_en);
+		if (dev.counter_name) parts.push(dev.counter_name);
+		if (dev.device_name) parts.push(dev.device_name);
+		return parts.length ? parts.join(' / ') : deviceId;
 	}
 
 	function getStateColor(state: string): string {
@@ -231,6 +249,7 @@
 					{#each events.filter(e => e.severity === 'CRITICAL' || e.severity === 'HIGH').slice(0, 10) as event}
 						<div class="lg-event-item lg-event-{event.severity.toLowerCase()}">
 							<span class="lg-event-badge {event.severity.toLowerCase()}">{event.severity}</span>
+							<span class="lg-event-device">{getDeviceLabel(event.device_id)}</span>
 							<span class="lg-event-time">{timeSince(event.timestamp)}</span>
 							<span class="lg-event-msg">{event.message}</span>
 						</div>
@@ -242,6 +261,14 @@
 
 	<!-- Devices Tab -->
 	{#if activeTab === 'devices'}
+		<div class="lg-filter-bar">
+			<select class="lg-filter-select" bind:value={selectedBranchFilter}>
+				<option value="all">All Branches</option>
+				{#each branches as branch}
+					<option value={String(branch.id)}>{branch.name}</option>
+				{/each}
+			</select>
+		</div>
 		<div class="lg-devices-layout">
 			<div class="lg-device-list">
 				<table class="lg-table">
@@ -256,9 +283,9 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each devices as device}
+						{#each filteredDevices as device}
 							<tr class="lg-device-row" class:selected={selectedDevice?.id === device.id} on:click={() => selectDevice(device)}>
-								<td>{device.branches?.name_en || '—'}</td>
+								<td>{device.branches?.name_en || '—'}{#if device.branches?.location_en} <span style="color:#94a3b8;font-size:11px">({device.branches.location_en})</span>{/if}</td>
 								<td>{device.counter_name || '—'}</td>
 								<td>{device.device_name || '—'}</td>
 								<td><span style="color: {getStateColor(device.protection_state)}">{getStateBadge(device.protection_state)}</span></td>
@@ -311,6 +338,7 @@
 			{#each events as event}
 				<div class="lg-event-item">
 					<span class="lg-event-badge {event.severity.toLowerCase()}">{event.severity}</span>
+					<span class="lg-event-device">{getDeviceLabel(event.device_id)}</span>
 					<span class="lg-event-cat">{event.category}</span>
 					<span class="lg-event-time">{new Date(event.timestamp).toLocaleString()}</span>
 					<span class="lg-event-msg">{event.message}</span>
@@ -376,6 +404,21 @@
 	.lg-loading { text-align: center; padding: 40px; color: #64748b; }
 	.lg-empty { text-align: center; padding: 40px; color: #64748b; }
 
+	.lg-filter-bar {
+		display: flex;
+		gap: 10px;
+		margin-bottom: 12px;
+	}
+
+	.lg-filter-select {
+		padding: 6px 12px;
+		background: #1e293b;
+		border: 1px solid #334155;
+		border-radius: 6px;
+		color: #f1f5f9;
+		font-size: 12px;
+	}
+
 	.lg-stats-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -432,9 +475,10 @@
 	.lg-event-badge.high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
 	.lg-event-badge.critical { background: rgba(220, 38, 38, 0.3); color: #dc2626; }
 
-	.lg-event-time { color: #64748b; flex-shrink: 0; width: 80px; }
+	.lg-event-time { color: #64748b; flex-shrink: 0; width: 120px; }
 	.lg-event-cat { color: #94a3b8; flex-shrink: 0; width: 80px; }
-	.lg-event-msg { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.lg-event-device { color: #3b82f6; flex-shrink: 0; min-width: 180px; font-size: 11px; }
+	.lg-event-msg { color: #cbd5e1; flex: 1; }
 
 	.lg-devices-layout {
 		display: flex;
