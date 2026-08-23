@@ -94,7 +94,10 @@
 	let erpUnmatchedCount: number | null = null;
 
 	let selectedStatus: 'flagged' | 'matched' | null = null;
-	let selectedCounter: string | null = null;
+	// Shared by both the POS Counter dropdown and the breakdown cards below — two affordances
+	// (quick-jump dropdown, visual overview with counts) driving the same underlying filter.
+	let selectedPosCounter: string | null = null;
+	let selectedMatchedUser: string | null = null; // dropdown filter against matched_user_name (the ERP-side matched user)
 
 	// Time window applies before the status/counter pill filters, so flagged/matched counts,
 	// the counter breakdown, and the table all recompute against the narrowed window too.
@@ -109,16 +112,25 @@
 		{ status: 'matched' as const, label: '✅ Matched', count: timeFilteredEvents.filter((e) => !e.is_flagged).length }
 	];
 
+	// Distinct POS Counter labels present in the loaded date range, for the dropdown filter.
+	$: posCounterOptions = Array.from(new Set(timeFilteredEvents.map((e) => posCounterLabel(e, reportCounterNames)))).sort();
+	// Distinct matched ERP users present in the loaded date range, for the dropdown filter.
+	$: matchedUserOptions = Array.from(new Set(timeFilteredEvents.map((e) => e.matched_user_name).filter((u): u is string => !!u))).sort();
+
 	$: filteredEvents = timeFilteredEvents.filter(
 		(e) =>
 			(!selectedStatus || (selectedStatus === 'flagged' ? e.is_flagged : !e.is_flagged)) &&
-			(!selectedCounter || (e.printer_name || e.counter_name || 'Unknown') === selectedCounter)
+			(!selectedPosCounter || posCounterLabel(e, reportCounterNames) === selectedPosCounter) &&
+			(!selectedMatchedUser || e.matched_user_name === selectedMatchedUser)
 	);
 
+	// Grouped by the actual POS Counter (erp_counter_id, via the synced erp_counters name lookup) —
+	// not printer_name (two different tills can share the exact same printer model name, e.g. two
+	// "EPSON TM-T20III Receipt" units, which conflated separate counters into one row).
 	$: counterBreakdown = Array.from(
 		filteredEvents
 			.reduce((map, e) => {
-				const key = e.printer_name || e.counter_name || 'Unknown';
+				const key = posCounterLabel(e, reportCounterNames);
 				const entry = map.get(key) || { name: key, total: 0, flagged: 0 };
 				entry.total += 1;
 				if (e.is_flagged) entry.flagged += 1;
@@ -132,19 +144,10 @@
 	$: flaggedCount = filteredEvents.filter((e) => e.is_flagged).length;
 	$: flagRate = totalEvents > 0 ? ((flaggedCount / totalEvents) * 100).toFixed(1) : '0.0';
 
-	// --- Standalone "Drawer Flagger" quick-check widget — its own date + run button,
-	// independent of the main report above (always runs flagged-only, for one day). ---
-	let flaggerDate = today;
-	let flaggerTimeFrom = ''; // optional HH:MM, narrows the day down to a specific window
-	let flaggerTimeTo = ''; // optional HH:MM
-	let flaggerLoading = false;
-	let flaggerHasRun = false;
-	let flaggerError = '';
-	let flaggerResults: FlaggedEvent[] = [];
 	// erp_counter_id only identifies the till, not its human-readable name — and the name
 	// alone isn't reliably unique either (two counters have been seen sharing the name
 	// "Primary" on the same branch). Rather than resolving this live over the branch's
-	// tunnel on every flagger run (slow, and blank whenever that branch's tunnel happens to
+	// tunnel on every report run (slow, and blank whenever that branch's tunnel happens to
 	// be down), it's looked up from `erp_counters` — a Supabase table pre-populated by the
 	// "Sync ERP Counters" button on the ERP Counters tab (see syncErpCounters()), which also
 	// carries each counter's last-seen SystemName (Windows hostname) as the actual per-PC
@@ -153,9 +156,10 @@
 		name: string;
 		systemName: string | null;
 	}
-	let flaggerCounterNames = new Map<string, CounterInfo>();
-	// Same lookup, kept separate for the main report table below (independent branch/date scope).
+	// Kept separate for the main report table below (independent branch/date scope).
 	let reportCounterNames = new Map<string, CounterInfo>();
+	// Same lookup again, kept separate for the Live ERP Check tab (independent branch/date scope).
+	let lcCounterNames = new Map<string, CounterInfo>();
 
 	// Takes the map explicitly (rather than closing over the module-level variable) so Svelte's
 	// template dependency tracking — which only sees identifiers referenced directly in the
@@ -189,39 +193,6 @@
 		}
 	}
 
-	async function runFlagger() {
-		flaggerLoading = true;
-		flaggerError = '';
-		flaggerResults = [];
-		flaggerCounterNames = new Map();
-		try {
-			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase.rpc('get_flagged_drawer_events', {
-				p_branch_id: selectedBranchId,
-				p_date_from: flaggerDate,
-				p_date_to: flaggerDate,
-				p_flagged_only: true
-			});
-			if (error) throw error;
-			let results: FlaggedEvent[] = data || [];
-			// Optional HH:MM narrowing within the picked day — the RPC itself is date-only, so this
-			// trims to a specific window client-side (same digit-extraction as formatTime, to compare
-			// against the event's recorded wall-clock time rather than a browser-shifted one).
-			if (flaggerTimeFrom) results = results.filter((e) => timeOfDay(e.event_time) >= flaggerTimeFrom);
-			if (flaggerTimeTo) results = results.filter((e) => timeOfDay(e.event_time) <= flaggerTimeTo);
-			flaggerResults = results;
-			// Reads from the erp_counters cache table — no tunnel call here, so this still
-			// works when a branch's tunnel is offline (see loadCounterNamesFor above).
-			flaggerCounterNames = await loadCounterNamesFor(flaggerResults);
-		} catch (err: any) {
-			console.error('Error running flagger:', err);
-			flaggerError = err.message || 'Failed to run flagger';
-		} finally {
-			flaggerLoading = false;
-			flaggerHasRun = true;
-		}
-	}
-
 	// --- Live ERP Check tab — re-verifies flagged events against a LIVE query of the branch's
 	// own SQL Server (via tunnel), instead of the Supabase-synced copy which lags behind by
 	// whatever the Auto Sync interval is. Only checks for a matching 'Print' UserActions row
@@ -252,6 +223,31 @@
 	let lcHasRun = false;
 	let lcError = '';
 	let lcResults: LiveCheckResult[] = [];
+	// Shared by both the POS Counter dropdown and the breakdown cards — same pattern as the Run
+	// Report tab above (selectedPosCounter/counterBreakdown).
+	let lcSelectedPosCounter: string | null = null;
+
+	// Distinct POS Counter labels present in the current results, for the dropdown filter.
+	$: lcPosCounterOptions = Array.from(new Set(lcResults.map((r) => posCounterLabel(r.event, lcCounterNames)))).sort();
+
+	$: lcFilteredResults = lcResults.filter(
+		(r) => !lcSelectedPosCounter || posCounterLabel(r.event, lcCounterNames) === lcSelectedPosCounter
+	);
+
+	// Grouped by the actual POS Counter — "flagged" here means still no live match, same red-flag
+	// meaning as the Run Report's counterBreakdown even though the underlying field name differs.
+	$: lcCounterBreakdown = Array.from(
+		lcFilteredResults
+			.reduce((map, r) => {
+				const key = posCounterLabel(r.event, lcCounterNames);
+				const entry = map.get(key) || { name: key, total: 0, flagged: 0 };
+				entry.total += 1;
+				if (!r.liveMatchFound) entry.flagged += 1;
+				map.set(key, entry);
+				return map;
+			}, new Map<string, { name: string; total: number; flagged: number }>())
+			.values()
+	).sort((a, b) => b.flagged - a.flagged || b.total - a.total);
 
 	async function loadErpConnections() {
 		try {
@@ -284,6 +280,7 @@
 	async function runLiveCheck() {
 		lcError = '';
 		lcResults = [];
+		lcSelectedPosCounter = null;
 		if (!lcSelectedBranchId) {
 			lcError = "Pick a specific branch — live ERP check needs a single branch's SQL Server connection.";
 			lcHasRun = true;
@@ -303,10 +300,12 @@
 				p_branch_id: lcSelectedBranchId,
 				p_date_from: lcDate,
 				p_date_to: lcDate,
-				p_flagged_only: true
+				p_flagged_only: false
 			});
 			if (error) throw error;
 			let flaggedEvents: FlaggedEvent[] = flagged || [];
+			// Reads from the erp_counters cache table — no tunnel call here (see loadCounterNamesFor).
+			lcCounterNames = await loadCounterNamesFor(flaggedEvents);
 
 			// Optional HH:MM narrowing within the picked day — the RPC itself is date-only, so this
 			// trims to a specific window client-side (same digit-extraction approach as formatTime,
@@ -321,7 +320,7 @@
 
 			// One padded-window query covers every flagged event's time in a single round trip;
 			// matching against each event happens client-side afterward.
-			const times = flaggedEvents.map((e) => new Date(e.event_time).getTime());
+			const times = flaggedEvents.map((e) => naiveMs(e.event_time));
 			const padMs = LIVE_MATCH_QUERY_PAD_SECONDS * 1000;
 			const minTime = new Date(Math.min(...times) - padMs).toISOString().slice(0, 19).replace('T', ' ');
 			const maxTime = new Date(Math.max(...times) + padMs).toISOString().slice(0, 19).replace('T', ' ');
@@ -341,31 +340,34 @@
 			const livePrints = await runLiveErpQuery(sql, conn.tunnel_url);
 
 			lcResults = flaggedEvents.map((e) => {
-				const eventMs = new Date(e.event_time).getTime();
-				// Match is purely on COUNT of Print actions for the same counter, within the query's
-				// padded window — no per-event time tolerance is applied. Counter-scoped when the
-				// flagged event has an erp_counter_id recorded, else falls back branch-wide.
-				const matches = livePrints.filter(
-					(p: any) => e.erp_counter_id == null || p.CounterID === e.erp_counter_id
-				);
-				// Closest-in-time match is still picked out of that count, for display only
-				// (voucher/user/time-diff columns) — it does not affect the match/no-match verdict.
-				let closest: any = null;
-				let closestDiffSec: number | null = null;
-				for (const p of matches) {
-					const diffSec = Math.abs(new Date(p.DateTimeOfAction).getTime() - eventMs) / 1000;
-					if (closest === null || diffSec < closestDiffSec!) {
-						closest = p;
-						closestDiffSec = diffSec;
+				const eventMs = naiveMs(e.event_time);
+				// +/-10s tolerance, counter-scoped when the flagged event has an erp_counter_id
+				// recorded (falls back to branch-wide time-only matching for events captured
+				// before the till's counter was configured).
+				const toleranceMs = 10000;
+				let best: any = null;
+				let bestDiffSec: number | null = null;
+				for (const p of livePrints) {
+					// CounterID comes back from the live SQL Server bridge as a string (e.g. "15"),
+					// while erp_counter_id from Supabase is a number — compare as strings so the
+					// type mismatch doesn't silently exclude every row.
+					if (e.erp_counter_id != null && String(p.CounterID) !== String(e.erp_counter_id)) continue;
+					const diffSec = Math.abs(naiveMs(p.DateTimeOfAction) - eventMs) / 1000;
+					if (diffSec > toleranceMs / 1000) continue;
+					if (best === null || diffSec < bestDiffSec!) {
+						best = p;
+						bestDiffSec = diffSec;
 					}
 				}
 				return {
 					event: e,
-					liveMatchFound: matches.length > 0,
-					liveMatchCount: matches.length,
-					liveVoucherNumber: closest?.VoucherNumber ? String(closest.VoucherNumber) : null,
-					liveUserName: closest?.UserName || null,
-					liveSecondsDiff: closest ? closestDiffSec : null
+					liveMatchFound: !!best,
+					liveMatchCount: livePrints.filter(
+						(p: any) => e.erp_counter_id == null || String(p.CounterID) === String(e.erp_counter_id)
+					).length,
+					liveVoucherNumber: best?.VoucherNumber ? String(best.VoucherNumber) : null,
+					liveUserName: best?.UserName || null,
+					liveSecondsDiff: best ? bestDiffSec : null
 				};
 			});
 		} catch (err: any) {
@@ -595,7 +597,8 @@
 		events = [];
 		reportCounterNames = new Map();
 		selectedStatus = null;
-		selectedCounter = null;
+		selectedPosCounter = null;
+		selectedMatchedUser = null;
 		erpPrintActionCount = null;
 		erpUnmatchedCount = null;
 		try {
@@ -674,6 +677,20 @@
 	function timeOfDay(iso: string): string {
 		const match = /T(\d{2}):(\d{2})/.exec(iso || '');
 		return match ? `${match[1]}:${match[2]}` : '';
+	}
+
+	// Live ERP Check matches two naive branch-local wall-clock timestamps: the RPC's event_time
+	// (no timezone marker) and the live SQL Server bridge's DateTimeOfAction (bogusly tagged with
+	// a trailing 'Z', even though the digits are still naive branch-local, not real UTC). Passing
+	// either through `new Date(str)` directly reinterprets it per that marker — no-marker as the
+	// runtime's local timezone, 'Z' as UTC — silently shifting one or both by the host's UTC offset
+	// and pushing every diff outside tolerance regardless of how generous it is. Extract the digits
+	// and anchor them to UTC ourselves so only the actual wall-clock values are ever compared.
+	function naiveMs(iso: string): number {
+		const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/.exec(iso || '');
+		if (!m) return NaN;
+		const [, y, mo, d, h, mi, s, ms] = m;
+		return Date.UTC(+y, +mo - 1, +d, +h, +mi, +s, ms ? +ms.padEnd(3, '0').slice(0, 3) : 0);
 	}
 
 	function formatSeconds(n: number | null): string {
@@ -864,7 +881,9 @@
 		<button class="tab-btn" class:active={activeTab === 'erpcounters'} on:click={() => { activeTab = 'erpcounters'; loadErpCountersTable(); }}>🔢 ERP Counters</button>
 	</div>
 
+	<div class="tab-content">
 	{#if activeTab === 'useractions'}
+	<div class="sticky-top">
 	<div class="filters-panel">
 		<div class="filter-field">
 			<label for="ua-branch-select">Branch</label>
@@ -944,7 +963,9 @@
 			</div>
 		</div>
 	{/if}
+	</div>
 
+	<div class="scroll-area">
 	{#if uaGroupedRows.length > 0}
 		<div class="content-split">
 			<div class="table-column section-block">
@@ -1010,9 +1031,11 @@
 	{:else if !uaLoading && !uaHasRun && !uaError}
 		<div class="empty-state">No data yet — select a branch and date range, then click Run Report.</div>
 	{/if}
+	</div>
 	{/if}
 
 	{#if activeTab === 'flagger'}
+	<div class="sticky-top">
 	<div class="filters-panel">
 		<div class="filter-field">
 			<label for="branch-select">Branch</label>
@@ -1038,6 +1061,24 @@
 		<div class="filter-field">
 			<label for="report-time-to">To time (optional)</label>
 			<input id="report-time-to" type="time" bind:value={reportTimeTo} />
+		</div>
+		<div class="filter-field">
+			<label for="matched-user-filter">Matched ERP User</label>
+			<select id="matched-user-filter" bind:value={selectedMatchedUser}>
+				<option value={null}>All Users</option>
+				{#each matchedUserOptions as u}
+					<option value={u}>{u}</option>
+				{/each}
+			</select>
+		</div>
+		<div class="filter-field">
+			<label for="pos-counter-filter">POS Counter</label>
+			<select id="pos-counter-filter" bind:value={selectedPosCounter}>
+				<option value={null}>All Counters</option>
+				{#each posCounterOptions as c}
+					<option value={c}>{c}</option>
+				{/each}
+			</select>
 		</div>
 		<button class="run-btn" on:click={loadReport} disabled={loading}>
 			{loading ? '⏳ Loading...' : '🔍 Run Report'}
@@ -1091,7 +1132,9 @@
 			</div>
 		</div>
 	{/if}
+	</div>
 
+	<div class="scroll-area">
 	{#if filteredEvents.length > 0}
 		<div class="content-split">
 			<div class="table-column section-block">
@@ -1106,8 +1149,9 @@
 								<th>POS Counter</th>
 								<th>Printer</th>
 								<th>Size</th>
-								<th>User</th>
+								<th>User (local)</th>
 								<th>Matched Action</th>
+								<th>Matched ERP User</th>
 								<th>Time Diff</th>
 							</tr>
 						</thead>
@@ -1131,6 +1175,7 @@
 									</td>
 									<td>{e.user_name || '-'}</td>
 									<td>{e.matched_action_name ? `${e.matched_action_name}${e.matched_voucher_number ? ' #' + e.matched_voucher_number : ''}` : '-'}</td>
+									<td>{e.matched_user_name || '-'}</td>
 									<td>{formatSeconds(e.seconds_to_match)}</td>
 								</tr>
 							{/each}
@@ -1140,10 +1185,10 @@
 			</div>
 
 			<div class="cashier-column section-block">
-				<h3 class="section-title">Printer Breakdown</h3>
+				<h3 class="section-title">Counter Breakdown</h3>
 				<div class="cashier-card-list">
 					{#each counterBreakdown as c}
-						<div class="cashier-mini-card" class:active={selectedCounter === c.name} on:click={() => (selectedCounter = selectedCounter === c.name ? null : c.name)}>
+						<div class="cashier-mini-card" class:active={selectedPosCounter === c.name} on:click={() => (selectedPosCounter = selectedPosCounter === c.name ? null : c.name)}>
 							<div class="cashier-mini-name">{c.name}</div>
 							<div class="cashier-mini-stats">
 								<span class="cashier-mini-items">{c.total} event{c.total === 1 ? '' : 's'}</span>
@@ -1159,67 +1204,12 @@
 	{:else if !loading && !hasRun && !errorMessage}
 		<div class="empty-state">No data yet — select a branch and date range, then click Run Report. Data populates once Aqura Action Sync (Print mode) is running on POS tills.</div>
 	{/if}
-
-	<div class="section-block flagger-block">
-		<h3 class="section-title">🚩 Drawer Flagger — Quick Check</h3>
-		<p class="flagger-desc">Pick a single day and run the flagger to see only unexplained drawer/print events for that day, independent of the report above.</p>
-		<div class="flagger-controls">
-			<div class="filter-field">
-				<label for="flagger-date">Flag Date</label>
-				<input id="flagger-date" type="date" bind:value={flaggerDate} />
-			</div>
-			<div class="filter-field">
-				<label for="flagger-time-from">From time (optional)</label>
-				<input id="flagger-time-from" type="time" bind:value={flaggerTimeFrom} />
-			</div>
-			<div class="filter-field">
-				<label for="flagger-time-to">To time (optional)</label>
-				<input id="flagger-time-to" type="time" bind:value={flaggerTimeTo} />
-			</div>
-			<button class="run-btn flagger-btn" on:click={runFlagger} disabled={flaggerLoading}>
-				{flaggerLoading ? '⏳ Running...' : '🚩 Run Flagger'}
-			</button>
-		</div>
-
-		{#if flaggerError}
-			<div class="error-banner">⚠️ {flaggerError}</div>
-		{:else if flaggerHasRun}
-			{#if flaggerResults.length > 0}
-				<div class="flagger-summary">🚨 {flaggerResults.length} flagged event{flaggerResults.length === 1 ? '' : 's'} found on {flaggerDate}{#if flaggerTimeFrom || flaggerTimeTo} ({flaggerTimeFrom || '00:00'}–{flaggerTimeTo || '23:59'}){/if}</div>
-				<div class="table-wrapper">
-					<table>
-						<thead>
-							<tr>
-								<th>Time</th>
-								<th>Branch</th>
-								<th>POS Counter</th>
-								<th>Printer</th>
-								<th>Size</th>
-								<th>User</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each flaggerResults as e}
-								<tr class="flagged-row">
-									<td>{formatTime(e.event_time)}</td>
-									<td>{e.branch_name || '-'}</td>
-									<td>{posCounterLabel(e, flaggerCounterNames)}</td>
-									<td>{e.printer_name || e.counter_name || '-'}</td>
-									<td>{formatBytes(e.byte_size)}{#if e.is_small_print}<span class="small-print-badge">kick?</span>{/if}</td>
-									<td>{e.user_name || '-'}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{:else}
-				<div class="flagger-summary ok">✅ No unexplained events found on {flaggerDate}{#if flaggerTimeFrom || flaggerTimeTo} ({flaggerTimeFrom || '00:00'}–{flaggerTimeTo || '23:59'}){/if}.</div>
-			{/if}
-		{/if}
 	</div>
+
 	{/if}
 
 	{#if activeTab === 'livecheck'}
+	<div class="sticky-top">
 	<div class="filters-panel">
 		<div class="filter-field">
 			<label for="lc-branch-select">Branch</label>
@@ -1241,66 +1231,109 @@
 			<label for="lc-time-to">To time (optional)</label>
 			<input id="lc-time-to" type="time" bind:value={lcTimeTo} />
 		</div>
+		<div class="filter-field">
+			<label for="lc-pos-counter-filter">POS Counter</label>
+			<select id="lc-pos-counter-filter" bind:value={lcSelectedPosCounter}>
+				<option value={null}>All Counters</option>
+				{#each lcPosCounterOptions as c}
+					<option value={c}>{c}</option>
+				{/each}
+			</select>
+		</div>
 		<button class="run-btn" on:click={runLiveCheck} disabled={lcLoading || !lcSelectedBranchId}>
 			{lcLoading ? '⏳ Checking ERP live...' : '🔴 Run Live Check'}
 		</button>
 	</div>
-	<p class="flagger-desc">Re-checks each flagged (unmatched) event directly against this branch's live SQL Server via tunnel — bypasses the Supabase sync delay, useful right after a drawer-kick to confirm nothing was actually printed/invoiced around that time.</p>
+	<p class="flagger-desc">Re-checks every drawer/print event for this branch/day directly against the live SQL Server via tunnel — bypasses the Supabase sync delay, useful right after a drawer-kick to confirm nothing was actually printed/invoiced around that time. Shows every event (matched and flagged) so you can compare Supabase's status against live.</p>
+	</div>
 
+	<div class="scroll-area">
 	{#if lcError}
 		<div class="error-banner">⚠️ {lcError}</div>
 	{:else if lcHasRun}
 		{#if lcResults.length > 0}
-			<div class="table-wrapper">
-				<table>
-					<thead>
-						<tr>
-							<th>Time</th>
-							<th>Printer</th>
-							<th>Size</th>
-							<th>User (local)</th>
-							<th>Live ERP Match</th>
-							<th>Match Count</th>
-							<th>Closest Voucher</th>
-							<th>Closest ERP User</th>
-							<th>Closest Time Diff</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each lcResults as r}
-							<tr class:flagged-row={!r.liveMatchFound}>
-								<td>{formatTime(r.event.event_time)}</td>
-								<td>{r.event.printer_name || r.event.counter_name || '-'}</td>
-								<td>
-									{formatBytes(r.event.byte_size)}
-									{#if r.event.is_small_print}<span class="small-print-badge">kick?</span>{/if}
-								</td>
-								<td>{r.event.user_name || '-'}</td>
-								<td>
-									{#if r.liveMatchFound}
-										<span class="status-badge ok">✅ Found live</span>
-									{:else}
-										<span class="status-badge flagged">🚨 Still no match</span>
-									{/if}
-								</td>
-								<td>{r.liveMatchCount}</td>
-								<td>{r.liveVoucherNumber || '-'}</td>
-								<td>{r.liveUserName || '-'}</td>
-								<td>{formatSeconds(r.liveSecondsDiff)}</td>
-							</tr>
+			<div class="content-split">
+				<div class="table-column section-block">
+					<h3 class="section-title">Event Detail</h3>
+					<div class="table-wrapper">
+						<table>
+							<thead>
+								<tr>
+									<th>Time</th>
+									<th>POS Counter</th>
+									<th>Printer</th>
+									<th>Size</th>
+									<th>User (local)</th>
+									<th>Supabase Status</th>
+									<th>Live ERP Match</th>
+									<th>Match Count</th>
+									<th>Closest Voucher</th>
+									<th>Closest ERP User</th>
+									<th>Closest Time Diff</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each lcFilteredResults as r}
+									<tr class:flagged-row={!r.liveMatchFound}>
+										<td>{formatTime(r.event.event_time)}</td>
+										<td>{posCounterLabel(r.event, lcCounterNames)}</td>
+										<td>{r.event.printer_name || r.event.counter_name || '-'}</td>
+										<td>
+											{formatBytes(r.event.byte_size)}
+											{#if r.event.is_small_print}<span class="small-print-badge">kick?</span>{/if}
+										</td>
+										<td>{r.event.user_name || '-'}</td>
+										<td>
+											{#if r.event.is_flagged}
+												<span class="status-badge flagged">🚨 Flagged</span>
+											{:else}
+												<span class="status-badge ok">✅ Matched</span>
+											{/if}
+										</td>
+										<td>
+											{#if r.liveMatchFound}
+												<span class="status-badge ok">✅ Found live</span>
+											{:else}
+												<span class="status-badge flagged">🚨 Still no match</span>
+											{/if}
+										</td>
+										<td>{r.liveMatchCount}</td>
+										<td>{r.liveVoucherNumber || '-'}</td>
+										<td>{r.liveUserName || '-'}</td>
+										<td>{formatSeconds(r.liveSecondsDiff)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
+
+				<div class="cashier-column section-block">
+					<h3 class="section-title">Counter Breakdown</h3>
+					<div class="cashier-card-list">
+						{#each lcCounterBreakdown as c}
+							<div class="cashier-mini-card" class:active={lcSelectedPosCounter === c.name} on:click={() => (lcSelectedPosCounter = lcSelectedPosCounter === c.name ? null : c.name)}>
+								<div class="cashier-mini-name">{c.name}</div>
+								<div class="cashier-mini-stats">
+									<span class="cashier-mini-items">{c.total} event{c.total === 1 ? '' : 's'}</span>
+									<span class="cashier-mini-amount" class:flagged-text={c.flagged > 0}>{c.flagged} no match</span>
+								</div>
+							</div>
 						{/each}
-					</tbody>
-				</table>
+					</div>
+				</div>
 			</div>
 		{:else}
-			<div class="empty-state">✅ No flagged events for this branch/day{#if lcTimeFrom || lcTimeTo}/time window{/if} — nothing to live-check.</div>
+			<div class="empty-state">✅ No events for this branch/day{#if lcTimeFrom || lcTimeTo}/time window{/if} — nothing to live-check.</div>
 		{/if}
 	{:else}
 		<div class="empty-state">Pick a branch and date, then click Run Live Check.</div>
 	{/if}
+	</div>
 	{/if}
 
 	{#if activeTab === 'syncstatus'}
+	<div class="sticky-top">
 	<div class="filters-panel">
 		<button class="run-btn" on:click={loadSyncStatuses} disabled={syncStatusLoading}>
 			{syncStatusLoading ? '⏳ Loading...' : '🔄 Refresh'}
@@ -1330,8 +1363,12 @@
 				<div class="summary-value">{syncStatuses.filter(s => !s.is_online && !s.is_flagged).length}</div>
 			</div>
 		</div>
+	{/if}
+	</div>
 
-		<div class="section-block">
+	<div class="scroll-area">
+	{#if syncStatuses.length > 0}
+		<div class="section-block table-section">
 			<h3 class="section-title">Installed Sync Apps</h3>
 			<div class="table-wrapper">
 				<table>
@@ -1377,9 +1414,11 @@
 	{:else if !syncStatusLoading}
 		<div class="empty-state">No Sync App devices found. Install the Sync App on branch machines to see their status here.</div>
 	{/if}
+	</div>
 	{/if}
 
 	{#if activeTab === 'erpcounters'}
+	<div class="sticky-top">
 	<div class="filters-panel">
 		<button class="run-btn" on:click={syncErpCounters} disabled={counterSyncLoading}>
 			{counterSyncLoading ? '⏳ Syncing...' : '🔄 Sync ERP Counters'}
@@ -1397,9 +1436,11 @@
 	{#if counterSyncError}
 		<div class="error-banner">{counterSyncError}</div>
 	{/if}
+	</div>
 
+	<div class="scroll-area">
 	{#if erpCounters.length > 0}
-		<div class="section-block">
+		<div class="section-block table-section">
 			<h3 class="section-title">Synced POS Counters</h3>
 			<div class="table-wrapper">
 				<table>
@@ -1429,7 +1470,9 @@
 	{:else if !counterSyncLoading}
 		<div class="empty-state">No counters synced yet — click "Sync ERP Counters" to pull them from each branch.</div>
 	{/if}
+	</div>
 	{/if}
+	</div>
 </div>
 
 <style>
@@ -1437,13 +1480,49 @@
 		position: relative;
 		width: 100%;
 		height: 100%;
-		overflow-y: auto;
+		overflow: hidden;
 		padding: 1.25rem;
 		background: linear-gradient(135deg, #fff5f5 0%, #fff0f0 50%, #fef2f2 100%);
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
 	}
+
+	/* Header + tab bar stay fixed in place. .tab-content itself no longer scrolls — it's bounded to
+	   the remaining viewport height, and each tab splits into a fixed .sticky-top (filters/summary/
+	   status-pills) plus a .scroll-area that alone owns the scrollbar for that tab's table data. */
+	.header, .tab-bar { flex-shrink: 0; }
+	.tab-content {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.sticky-top {
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	/* Owns the scrollbar for everything below .sticky-top in a tab — table headers inside stay
+	   sticky to the top of THIS box (not fighting with .sticky-top for the same scroll offset). */
+	.scroll-area {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	/* For a lone table section (no side breakdown panel) inside .scroll-area — lets its .table-wrapper
+	   claim the section's full height so the table itself scrolls with a sticky header, rather than
+	   growing to fit all rows and pushing the scroll down to .scroll-area's outer edge. */
+	.table-section { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 
 	.bg-blob {
 		position: fixed;
@@ -1502,7 +1581,7 @@
 	}
 	.filter-field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 140px; }
 	.filter-field label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: #b91c1c; }
-	.filter-field select, .filter-field input[type="date"] {
+	.filter-field select, .filter-field input[type="date"], .filter-field input[type="time"] {
 		padding: 0.5rem 0.7rem; border-radius: 10px; border: 1px solid rgba(252, 165, 165, 0.7);
 		background: rgba(255, 255, 255, 0.8); font-size: 0.85rem; color: #7f1d1d;
 	}
@@ -1564,11 +1643,13 @@
 	.pill-name { color: #991b1b; font-weight: 600; }
 	.pill-count { background: #dc2626; color: #fff; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.75rem; font-weight: 700; }
 
-	.content-split { display: flex; gap: 1rem; align-items: flex-start; }
-	.table-column { flex: 0 0 70%; max-width: 70%; min-width: 0; }
-	.cashier-column { flex: 0 0 30%; max-width: 30%; min-width: 0; }
+	/* flex:1/min-height:0 so this fills whatever height .scroll-area has available, rather than
+	   growing to fit every row — that's what lets both columns below scroll independently. */
+	.content-split { display: flex; gap: 1rem; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+	.table-column { flex: 0 0 70%; max-width: 70%; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+	.cashier-column { flex: 0 0 30%; max-width: 30%; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 
-	.cashier-card-list { display: flex; flex-direction: column; gap: 0.6rem; max-height: 560px; overflow-y: auto; }
+	.cashier-card-list { display: flex; flex-direction: column; gap: 0.6rem; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 	.cashier-mini-card {
 		padding: 0.6rem 0.8rem; background: rgba(254, 226, 226, 0.5); border: 1px solid rgba(252, 165, 165, 0.6);
 		border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s;
@@ -1582,11 +1663,11 @@
 	.cashier-mini-amount { font-size: 0.9rem; font-weight: 700; color: #991b1b; }
 	.cashier-mini-amount.flagged-text { color: #dc2626; }
 
-	.table-wrapper { overflow-x: auto; border-radius: 12px; }
+	.table-wrapper { overflow: auto; border-radius: 12px; flex: 1 1 auto; min-height: 0; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 	thead th {
-		text-align: left; padding: 0.55rem 0.7rem; background: rgba(254, 226, 226, 0.6); color: #991b1b;
-		font-weight: 700; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.3px; position: sticky; top: 0;
+		text-align: left; padding: 0.55rem 0.7rem; background: #fde2e2; color: #991b1b;
+		font-weight: 700; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.3px; position: sticky; top: 0; z-index: 1;
 	}
 	tbody td { padding: 0.5rem 0.7rem; border-bottom: 1px solid rgba(254, 202, 202, 0.4); color: #7f1d1d; }
 	tbody tr.flagged-row { background: rgba(220, 38, 38, 0.08); }
@@ -1619,10 +1700,7 @@
 		background: rgba(255, 255, 255, 0.4); border-radius: 16px; border: 1px dashed rgba(252, 165, 165, 0.6);
 	}
 
-	.flagger-block { border: 1px dashed rgba(220, 38, 38, 0.5); background: rgba(254, 242, 242, 0.6); }
 	.flagger-desc { margin: 0 0 0.75rem; font-size: 0.8rem; color: #991b1b; opacity: 0.8; }
-	.flagger-controls { display: flex; align-items: flex-end; gap: 0.85rem; margin-bottom: 0.85rem; }
-	.flagger-btn { padding: 0.6rem 1.2rem; }
 	.flagger-summary { margin-bottom: 0.75rem; font-weight: 700; color: #b91c1c; font-size: 0.85rem; }
 	.flagger-summary.ok { color: #15803d; }
 </style>
