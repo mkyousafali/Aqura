@@ -161,6 +161,7 @@
 	import OfferCostManager from '$lib/components/desktop-interface/master/stock/OfferCostManager.svelte';
 	import ProductClaimManager from '$lib/components/desktop-interface/master/stock/ProductClaimManager.svelte';
 	import ExpiryControl from '$lib/components/desktop-interface/master/stock/ExpiryControl.svelte';
+	import ActionFollowUps from '$lib/components/desktop-interface/master/vendor/ActionFollowUps.svelte';
 	import WADashboard from '$lib/components/desktop-interface/whatsapp/WADashboard.svelte';
 	import WALiveChat from '$lib/components/desktop-interface/whatsapp/WALiveChat.svelte';
 	import WABroadcasts from '$lib/components/desktop-interface/whatsapp/WABroadcasts.svelte';
@@ -348,6 +349,7 @@
 		'STOCK_ERP_PRODUCTS': 'nav.erpProducts',
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
 		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl',
+		'ACTION_FOLLOW_UPS': 'nav.actionFollowUps',
 		'WA_DASHBOARD': 'nav.whatsappDashboard',
 		'WA_LIVE_CHAT': 'nav.whatsappLiveChat',
 		'WA_BROADCASTS': 'nav.whatsappBroadcasts',
@@ -2335,6 +2337,7 @@ function openApprovalCenter() {
 			'STOCK_ERP_PRODUCTS': openStockErpProducts,
 			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
 			'STOCK_EXPIRY_CONTROL': openExpiryControl,
+			'ACTION_FOLLOW_UPS': openActionFollowUps,
 			'WA_DASHBOARD': openWADashboard,
 			'WA_LIVE_CHAT': openWALiveChat,
 			'WA_BROADCASTS': openWABroadcasts,
@@ -2849,6 +2852,28 @@ function openApprovalCenter() {
 			position: { 
 				x: 230 + (Math.random() * 100),
 				y: 230 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openActionFollowUps() {
+		collapseAllMenus();
+		const windowId = generateWindowId('action-follow-ups');
+		
+		openWindow({
+			id: windowId,
+			title: t('nav.actionFollowUps'),
+			component: ActionFollowUps,
+			componentName: "ActionFollowUps",
+			icon: '📌',
+			size: { width: 1100, height: 700 },
+			position: { 
+				x: 180 + (Math.random() * 100),
+				y: 120 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -4564,6 +4589,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openExpiryControl}>
 								<span class="menu-icon">📅</span>
 								<span class="menu-text">{t('nav.expiryControl') || 'Expiry Control'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ACTION_FOLLOW_UPS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openActionFollowUps}>
+								<span class="menu-icon">📌</span>
+								<span class="menu-text">{t('nav.actionFollowUps') || 'Action Follow-Ups'}</span>
 							</button>
 						</div>
 					{/if}

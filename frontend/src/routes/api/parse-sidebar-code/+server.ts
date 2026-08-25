@@ -35,7 +35,8 @@ function prettyButtonName(code: string): string {
 		WA_ACCOUNTS: 'WhatsApp Accounts',
 		WA_DASHBOARD: 'WhatsApp Dashboard',
 		LC_PLANNER: 'LC Planner',
-		USER_ACTION_REPORTS: 'User Action Reports'
+		USER_ACTION_REPORTS: 'User Action Reports',
+		ACTION_FOLLOW_UPS: 'Action Follow-Ups'
 	};
 	if (specialNames[code]) return specialNames[code];
 
@@ -69,7 +70,7 @@ export const GET: RequestHandler = async () => {
 			VENDOR: {
 				DASHBOARD: ['RECEIVING'],
 				MANAGE: ['UPLOAD_VENDOR', 'CREATE_VENDOR', 'MANAGE_VENDOR', 'DEFAULT_POSITIONS'],
-				OPERATIONS: ['START_RECEIVING', 'RECEIVING_RECORDS'],
+				OPERATIONS: ['START_RECEIVING', 'RECEIVING_RECORDS', 'ACTION_FOLLOW_UPS'],
 				REPORTS: ['VENDOR_RECORDS']
 			},
 			MEDIA: {

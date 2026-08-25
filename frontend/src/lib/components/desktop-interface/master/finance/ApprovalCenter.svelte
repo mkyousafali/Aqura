@@ -13,6 +13,7 @@
 	let purchaseVouchers = []; // Purchase vouchers requiring approval
 	let boxEditRequests = []; // Box edit requests requiring approval
 	let myBoxEditRequests = []; // Box edit requests created by current user
+	let poFollowupApprovals = []; // PO follow-up requests requiring approval
 	let approvedPaymentSchedules = []; // Approved payment schedules from expense_scheduler
 	let rejectedPaymentSchedules = []; // Rejected payment schedules
 	let myCreatedRequisitions = []; // Requisitions created by current user
@@ -246,6 +247,10 @@
 	myBoxEditRequests = rpcResult.my_box_edit_requests || [];
 	console.log('✅ Loaded box edit requests:', boxEditRequests.length);
 
+	// PO follow-up approvals (loaded separately)
+	await loadPoFollowupApprovals();
+	if (poFollowupApprovals.length > 0) userCanApprove = true;
+
 	// My created items
 	myCreatedRequisitions = rpcResult.my_requisitions || [];
 	myCreatedSchedules = rpcResult.my_schedules || [];
@@ -261,7 +266,7 @@
 	rejectedPaymentSchedules = [];
 
 	// Calculate stats (only pending for now, historical loads on demand)
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length + boxEditRequests.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length + boxEditRequests.length + poFollowupApprovals.length;
 	stats.approved = 0;
 	stats.rejected = 0;
 	stats.total = stats.pending;
@@ -285,6 +290,17 @@
 		loading = false;
 	}
 }
+
+async function loadPoFollowupApprovals() {
+	if (!$currentUser?.id) return;
+	try {
+		const { data, error } = await supabase.rpc('get_pending_po_approvals', { p_user_id: $currentUser.id });
+		if (error) throw error;
+		poFollowupApprovals = data?.success ? (data.data || []) : [];
+		console.log('✅ Loaded PO follow-up approvals:', poFollowupApprovals.length);
+	} catch (err) { console.error('Error loading PO follow-up approvals:', err); poFollowupApprovals = []; }
+}
+
 async function loadHistoricalData() {
 	if (historicalDataLoaded || !$currentUser?.id) return;
 	
@@ -555,6 +571,11 @@ async function loadHistoricalData() {
 				...(selectedStatus === 'pending' || selectedStatus === 'all' ? boxEditRequests.map(b => ({
 					...b,
 					item_type: 'box_edit'
+				})) : []),
+				// Add PO follow-up approvals (only show in pending tab)
+				...(selectedStatus === 'pending' || selectedStatus === 'all' ? poFollowupApprovals.map(p => ({
+					...p,
+					item_type: 'po_followup'
 				})) : [])
 			];
 			
@@ -1490,6 +1511,43 @@ async function loadHistoricalData() {
 		}
 	}
 
+	// PO Follow-Up: Approve
+	async function approvePoFollowup(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			const empName = currentUserEmployee?.name_en || '';
+			const { data, error } = await supabase.rpc('approve_action_followup_po', {
+				p_po_id: req.id, p_approver_id: $currentUser.id, p_approver_name: empName
+			});
+			if (error) throw error;
+			notifications.add({ type: 'success', message: 'PO Follow-Up approved' });
+			poFollowupApprovals = poFollowupApprovals.filter(p => p.id !== req.id);
+			filterRequisitions();
+		} catch (err) {
+			notifications.add({ type: 'error', message: 'Error approving: ' + err.message });
+		} finally { isProcessing = false; }
+	}
+
+	// PO Follow-Up: Reject
+	async function rejectPoFollowup(req) {
+		if (isProcessing) return;
+		const reason = prompt('Rejection reason (optional):');
+		isProcessing = true;
+		try {
+			const empName = currentUserEmployee?.name_en || '';
+			const { data, error } = await supabase.rpc('reject_action_followup_po', {
+				p_po_id: req.id, p_approver_id: $currentUser.id, p_approver_name: empName, p_reason: reason || null
+			});
+			if (error) throw error;
+			notifications.add({ type: 'success', message: 'PO Follow-Up rejected' });
+			poFollowupApprovals = poFollowupApprovals.filter(p => p.id !== req.id);
+			filterRequisitions();
+		} catch (err) {
+			notifications.add({ type: 'error', message: 'Error rejecting: ' + err.message });
+		} finally { isProcessing = false; }
+	}
+
 	// Box Edit Request: Approve
 	async function approveBoxEditRequest(req) {
 		if (isProcessing) return;
@@ -2028,6 +2086,46 @@ async function loadHistoricalData() {
 												✅
 											</button>
 											<button class="btn-reject-inline" on:click={() => rejectBoxEditRequest(req)} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
+									</td>
+								{:else if req.item_type === 'po_followup'}
+									<!-- PO Follow-Up Approval Row -->
+									<td class="req-number">
+										<span class="schedule-badge" style="background:#dbeafe;color:#1e40af;">📌 PO Follow-Up</span>
+									</td>
+									<td>{req.branch_name || '-'}</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">👤 {req.created_by_name || '-'}</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">{req.vendor_name || '-'}</div>
+											{#if req.vendor_erp_id}<div class="requester-contact">ID: {req.vendor_erp_id}</div>{/if}
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											<div>PO Action / متابعة أمر شراء</div>
+											<div style="font-size:11px;color:#64748b">{req.payment_mode === 'spot' ? 'Spot' : 'Credit'}{req.credit_period ? ' (' + req.credit_period + ' days)' : ''}</div>
+										</div>
+									</td>
+									<td class="amount">{parseFloat(req.po_amount || 0).toFixed(2)}</td>
+									<td class="payment-type">{req.payment_mode === 'spot' ? 'Spot' : 'Credit'}</td>
+									<td>
+										<span class="status-badge status-pending">Pending</span>
+									</td>
+									<td class="date">{req.expected_delivery_date || '-'}</td>
+									<td class="date">{req.created_at ? formatDate(req.created_at) : '-'}</td>
+									<td class="action-buttons">
+										{#if activeSection === 'approvals'}
+											<button class="btn-approve-inline" on:click={() => approvePoFollowup(req)} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => rejectPoFollowup(req)} disabled={isProcessing}>
 												❌
 											</button>
 										{/if}

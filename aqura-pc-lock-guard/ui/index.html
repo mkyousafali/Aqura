@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';">
+	<title>Aqura PC Lock Guard</title>
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+	<!-- Auth Screen -->
+	<div id="auth-screen" class="screen active">
+		<div class="auth-container">
+			<div class="auth-logo">🛡️</div>
+			<h1>Aqura PC Lock Guard</h1>
+			<p class="auth-subtitle">Enter your 6-digit Access Code</p>
+
+			<div id="access-code-step">
+				<div class="digit-inputs" id="code-digits">
+					<input type="text" maxlength="1" class="digit" data-index="0" autofocus>
+					<input type="text" maxlength="1" class="digit" data-index="1">
+					<input type="text" maxlength="1" class="digit" data-index="2">
+					<input type="text" maxlength="1" class="digit" data-index="3">
+					<input type="text" maxlength="1" class="digit" data-index="4">
+					<input type="text" maxlength="1" class="digit" data-index="5">
+				</div>
+				<div id="code-error" class="error-msg"></div>
+				<div id="code-loading" class="loading hidden">Verifying...</div>
+			</div>
+
+			<div id="otp-step" class="hidden">
+				<p class="otp-info">OTP sent to <span id="masked-email">***</span></p>
+				<div class="digit-inputs" id="otp-digits">
+					<input type="text" maxlength="1" class="digit" data-index="0">
+					<input type="text" maxlength="1" class="digit" data-index="1">
+					<input type="text" maxlength="1" class="digit" data-index="2">
+					<input type="text" maxlength="1" class="digit" data-index="3">
+					<input type="text" maxlength="1" class="digit" data-index="4">
+					<input type="text" maxlength="1" class="digit" data-index="5">
+				</div>
+				<div id="otp-error" class="error-msg"></div>
+				<div id="otp-loading" class="loading hidden">Verifying OTP...</div>
+				<div id="otp-countdown" class="countdown"></div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Setup Wizard -->
+	<div id="wizard-screen" class="screen">
+		<div class="wizard-container">
+			<div class="wizard-progress">
+				<div class="progress-step active" data-step="0">Welcome</div>
+				<div class="progress-step" data-step="1">Branch</div>
+				<div class="progress-step" data-step="2">Device</div>
+				<div class="progress-step" data-step="3">Review</div>
+			</div>
+
+			<!-- Step 0: Welcome -->
+			<div class="wizard-step active" id="wizard-step-0">
+				<div class="step-icon">🚀</div>
+				<h2>Get Started</h2>
+				<p>Aqura PC Lock Guard protects this POS/counter PC from unauthorized changes, printer manipulation, and application tampering.</p>
+				<p>After setup, this machine will be continuously monitored and protected through the Aqura cloud.</p>
+				<button class="btn btn-primary" onclick="wizardNext()">Continue →</button>
+			</div>
+
+			<!-- Step 1: Branch -->
+			<div class="wizard-step" id="wizard-step-1">
+				<div class="step-icon">🏢</div>
+				<h2>Select Branch</h2>
+				<p>Choose the branch this PC belongs to:</p>
+				<select id="branch-select" class="select-input">
+					<option value="">Loading branches...</option>
+				</select>
+				<div id="branch-error" class="error-msg"></div>
+				<div class="wizard-buttons">
+					<button class="btn btn-secondary" onclick="wizardPrev()">← Back</button>
+					<button class="btn btn-primary" onclick="wizardNext()" id="branch-next-btn" disabled>Continue →</button>
+				</div>
+			</div>
+
+			<!-- Step 2: Device Identification -->
+			<div class="wizard-step" id="wizard-step-2">
+				<div class="step-icon">🏷️</div>
+				<h2>Device Identification</h2>
+				<p>Enter the counter/POS name for this machine:</p>
+				<input type="text" id="counter-name-input" class="text-input" placeholder="e.g. POS-1, Cashier 03, Main Office" maxlength="50">
+				<p class="info-text">This identifies which physical counter this PC is in the Aqura dashboard.</p>
+				<label style="margin-top:16px;display:block;color:var(--text-secondary);font-size:13px;">Device friendly name (optional):</label>
+				<input type="text" id="device-name-input" class="text-input" placeholder="e.g. Front Cashier - Main Hall" maxlength="50">
+				<div id="device-id-error" class="error-msg"></div>
+				<div class="wizard-buttons">
+					<button class="btn btn-secondary" onclick="wizardPrev()">← Back</button>
+					<button class="btn btn-primary" onclick="wizardNext()" id="device-next-btn">Continue →</button>
+				</div>
+			</div>
+
+			<!-- Step 3: Review -->
+			<div class="wizard-step" id="wizard-step-3">
+				<div class="step-icon">✅</div>
+				<h2>Review & Activate</h2>
+				<div class="review-grid">
+					<div class="review-item"><label>Branch:</label><span id="review-branch">—</span></div>
+					<div class="review-item"><label>Counter:</label><span id="review-counter">—</span></div>
+					<div class="review-item"><label>Device Name:</label><span id="review-device-name">—</span></div>
+					<div class="review-item"><label>Aqura Cloud:</label><span class="status-ok">Connected</span></div>
+				</div>
+				<button class="btn btn-activate" onclick="activateProtection()">🛡️ Activate Protection</button>
+			</div>
+
+			<!-- Step 4: Complete -->
+			<div class="wizard-step" id="wizard-step-4">
+				<div class="step-icon">🎉</div>
+				<h2>Aqura PC Lock Guard is Ready</h2>
+				<p class="complete-info"><span id="complete-branch">—</span> • <span id="complete-counter">—</span> • <strong>PROTECTED</strong></p>
+				<button class="btn btn-primary" onclick="showDashboard()">Open Dashboard</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Admin Warning Banner -->
+	<div id="admin-warning" class="admin-warning hidden">
+		⚠️ Not running as Administrator — protection policies cannot be enforced. Right-click the app and select "Run as administrator".
+	</div>
+
+	<!-- Dashboard -->
+	<div id="dashboard-screen" class="screen">
+		<div class="dashboard-container">
+			<!-- Sidebar -->
+			<nav class="sidebar">
+				<div class="sidebar-header">
+					<span class="sidebar-logo">🛡️</span>
+					<span class="sidebar-title">Lock Guard</span>
+				</div>
+				<div class="sidebar-nav">
+					<button class="nav-item active" data-section="dashboard" onclick="switchSection('dashboard')">📊 Dashboard</button>
+					<button class="nav-item" data-section="protection" onclick="switchSection('protection')">🔒 Protection</button>
+					<button class="nav-item" data-section="apps" onclick="switchSection('apps')">📦 App Management</button>
+					<button class="nav-item" data-section="printers" onclick="switchSection('printers')">🖨️ Printer Protection</button>
+					<button class="nav-item" data-section="maintenance" onclick="switchSection('maintenance')">🔧 Maintenance</button>
+					<button class="nav-item" data-section="events" onclick="switchSection('events')">📋 Events & Logs</button>
+					<button class="nav-item" data-section="connection" onclick="switchSection('connection')">🌐 Connection</button>
+					<button class="nav-item" data-section="settings" onclick="switchSection('settings')">⚙️ Settings</button>
+				</div>
+				<div class="sidebar-footer">
+					<button class="btn btn-lock" onclick="lockUI()">🔒 Lock</button>
+				</div>
+			</nav>
+
+			<!-- Main Content -->
+			<main class="main-content">
+				<!-- Dashboard Section -->
+				<section id="section-dashboard" class="section active">
+					<h2>Dashboard</h2>
+					<div id="protection-badge" class="protection-badge protected">
+						<span class="badge-icon">🛡️</span>
+						<span class="badge-text">PROTECTED</span>
+					</div>
+					<div class="status-grid">
+						<div class="status-card">
+							<div class="card-label">Branch</div>
+							<div class="card-value" id="dash-branch">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">Counter</div>
+							<div class="card-value" id="dash-counter">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">Cloud Connection</div>
+							<div class="card-value" id="dash-cloud">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">SQL Connection</div>
+							<div class="card-value" id="dash-sql">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">Main Service</div>
+							<div class="card-value" id="dash-main-service">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">Watchdog</div>
+							<div class="card-value" id="dash-watchdog">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">Recovery Agent</div>
+							<div class="card-value" id="dash-recovery">—</div>
+						</div>
+						<div class="status-card">
+							<div class="card-label">Last Heartbeat</div>
+							<div class="card-value" id="dash-heartbeat">—</div>
+						</div>
+					</div>
+				</section>
+
+				<!-- Protection Section -->
+				<section id="section-protection" class="section">
+					<h2>Windows Protection</h2>
+					<div class="policy-list" id="policy-list">
+						<!-- Populated by JS -->
+					</div>
+					<div class="protection-actions">
+						<button class="btn btn-primary" onclick="verifyProtection()">✓ Verify All</button>
+						<button class="btn btn-warning" onclick="repairProtection()">🔧 Repair</button>
+					</div>
+				</section>
+
+				<!-- App Management Section -->
+				<section id="section-apps" class="section">
+					<h2>Application Management</h2>
+					<div class="section-toolbar">
+						<button class="btn btn-primary" onclick="scanApps()">🔍 Scan Applications</button>
+						<select id="app-control-mode" onchange="setAppControlMode(this.value)">
+							<option value="audit">Audit Mode</option>
+							<option value="enforcement">Enforcement Mode</option>
+						</select>
+					</div>
+					<div class="app-list" id="app-list">
+						<p class="empty-state">Click "Scan Applications" to build inventory</p>
+					</div>
+				</section>
+
+				<!-- Printer Section -->
+				<section id="section-printers" class="section">
+					<h2>Printer Protection</h2>
+					<button class="btn btn-primary" onclick="scanPrinters()">🔍 Scan Printers</button>
+					<div class="printer-list" id="printer-list">
+						<p class="empty-state">Click "Scan Printers" to detect printers</p>
+					</div>
+				</section>
+
+				<!-- Maintenance Section -->
+				<section id="section-maintenance" class="section">
+					<h2>Maintenance Mode</h2>
+					<div id="maintenance-active" class="maintenance-banner hidden">
+						<div class="maintenance-timer">
+							<span class="timer-icon">⚠️</span>
+							<span>MAINTENANCE MODE — <span id="maintenance-countdown">00:00</span> REMAINING</span>
+						</div>
+						<button class="btn btn-danger" onclick="endMaintenanceNow()">End Maintenance & Protect Now</button>
+					</div>
+					<div id="maintenance-form">
+						<label>Reason:</label>
+						<select id="maintenance-reason" class="select-input">
+							<option value="Printer Installation">Printer Installation</option>
+							<option value="ERP Update">ERP Update</option>
+							<option value="Network Maintenance">Network Maintenance</option>
+							<option value="Windows Maintenance">Windows Maintenance</option>
+							<option value="Hardware Maintenance">Hardware Maintenance</option>
+							<option value="Other">Other</option>
+						</select>
+						<label>Duration (minutes):</label>
+						<input type="number" id="maintenance-duration" class="text-input" value="30" min="5" max="480">
+						<button class="btn btn-warning" onclick="startMaintenanceMode()">🔧 Start Maintenance Mode</button>
+						<p class="info-text">Requires Email OTP verification</p>
+					</div>
+				</section>
+
+				<!-- Events Section -->
+				<section id="section-events" class="section">
+					<h2>Events & Logs</h2>
+					<div class="section-toolbar">
+						<button class="btn btn-primary" onclick="refreshEvents()">🔄 Refresh</button>
+						<select id="event-filter" onchange="filterEvents(this.value)">
+							<option value="all">All Severities</option>
+							<option value="CRITICAL">Critical</option>
+							<option value="HIGH">High</option>
+							<option value="WARNING">Warning</option>
+							<option value="INFO">Info</option>
+						</select>
+					</div>
+					<div class="event-list" id="event-list">
+						<p class="empty-state">No events recorded</p>
+					</div>
+				</section>
+
+				<!-- Connection Section -->
+				<section id="section-connection" class="section">
+					<h2>Connection Status</h2>
+					<div class="connection-grid">
+						<div class="connection-card">
+							<h3>☁️ Aqura Cloud</h3>
+							<div id="conn-cloud-status" class="conn-status">Checking...</div>
+							<button class="btn btn-sm" onclick="testCloudConnection()">Test</button>
+						</div>
+						<div class="connection-card">
+							<h3>🗄️ SQL Server</h3>
+							<div id="conn-sql-status" class="conn-status">Checking...</div>
+							<button class="btn btn-sm" onclick="testSqlConnectionDash()">Test</button>
+						</div>
+					</div>
+				</section>
+
+				<!-- Settings Section -->
+				<section id="section-settings" class="section">
+					<h2>Settings</h2>
+					<div class="settings-group">
+						<h3>Device Information</h3>
+						<div class="info-grid">
+							<div class="info-item"><label>Device ID:</label><span id="settings-device-id">-</span></div>
+							<div class="info-item"><label>Branch:</label><span id="settings-branch">-</span></div>
+							<div class="info-item"><label>Counter:</label><span id="settings-counter">-</span></div>
+							<div class="info-item"><label>Device Name:</label><span id="settings-device-name">-</span></div>
+						</div>
+					</div>
+					<div class="settings-group">
+						<h3>Advanced</h3>
+						<button class="btn btn-danger" onclick="reconfigureDevice()">Reconfigure Device</button>
+					</div>
+				</section>
+			</main>
+		</div>
+	</div>
+
+	<script src="app.js"></script>
+</body>
+</html>

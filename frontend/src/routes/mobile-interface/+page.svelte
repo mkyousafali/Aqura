@@ -930,6 +930,22 @@
 					<p>{getTranslation('mobile.productRequest')}</p>
 				</div>
 			</div>
+
+			<!-- Follow-Ups (permission checked via master admin) -->
+			{#if currentUserData?.isMasterAdmin}
+			<div class="stat-card blank clickable followups-card" on:click={() => goto('/mobile-interface/follow-ups')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+						<rect x="9" y="3" width="6" height="4" rx="1"/>
+						<path d="M9 14l2 2 4-4"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<p>{$localeData.code === 'ar' ? 'المتابعات' : 'Follow-Ups'}</p>
+				</div>
+			</div>
+			{/if}
 		</div>
 	</section>
 	{/if}
@@ -1403,6 +1419,23 @@
 	}
 
 	/* Product Request - Cyan */
+	/* Follow-Ups - Glassmorphic */
+	.followups-card {
+		background: linear-gradient(135deg, rgba(255,255,255,0.7), rgba(240,244,255,0.6)) !important;
+		backdrop-filter: blur(12px) !important;
+		-webkit-backdrop-filter: blur(12px) !important;
+		border: 1px solid rgba(59, 130, 246, 0.2) !important;
+		box-shadow: 0 4px 16px rgba(59, 130, 246, 0.12) !important;
+	}
+	.followups-card .stat-icon {
+		background: rgba(59, 130, 246, 0.15) !important;
+		color: #3B82F6 !important;
+	}
+	.followups-card .stat-info p {
+		font-weight: 600 !important;
+		color: #1e40af !important;
+	}
+
 	.product-request-card {
 		background: white !important;
 	}
