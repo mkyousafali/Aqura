@@ -714,7 +714,7 @@
 				<div class="animate-spin inline-block">
 					<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
 				</div>
-				<p class="mt-4 text-slate-600 font-semibold">Loading vendors...</p>
+				<p class="mt-4 text-slate-600 font-semibold">{$t('vendorPaymentFilters.loadingVendors')}</p>
 				{#if loadingProgress > 0}
 					<div class="w-64 mx-auto mt-3 h-2 bg-slate-200 rounded-full overflow-hidden">
 						<div class="h-full bg-blue-500 transition-all duration-300" style="width: {loadingProgress}%"></div>
@@ -765,19 +765,19 @@
 		{#if !loadingPayments}
 			<div class="flex gap-3 px-4 py-2.5 flex-shrink-0">
 				<div class="flex-1 flex items-center justify-between px-4 py-2 rounded-lg bg-sky-50 border border-sky-200">
-					<span class="text-[10px] font-bold text-slate-500 uppercase">Total</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase">{$t('vendorPaymentFilters.total')}</span>
 					<span class="text-sm font-black text-sky-700 flex items-center gap-1">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-85" /> {summaryGrandTotal.toLocaleString()}
 					</span>
 				</div>
 				<div class="flex-1 flex items-center justify-between px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
-					<span class="text-[10px] font-bold text-slate-500 uppercase">Paid</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase">{$t('vendorPaymentFilters.paid')}</span>
 					<span class="text-sm font-black text-emerald-700 flex items-center gap-1">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-85" /> {summaryTotalPaid.toLocaleString()}
 					</span>
 				</div>
 				<div class="flex-1 flex items-center justify-between px-4 py-2 rounded-lg bg-red-50 border border-red-200">
-					<span class="text-[10px] font-bold text-slate-500 uppercase">Unpaid</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase">{$t('vendorPaymentFilters.unpaid')}</span>
 					<span class="text-sm font-black text-red-600 flex items-center gap-1">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-85" /> {summaryTotalUnpaid.toLocaleString()}
 					</span>
@@ -792,7 +792,7 @@
 						<div class="animate-spin inline-block">
 							<div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
 						</div>
-						<p class="mt-3 text-slate-500 text-sm">Loading payments...</p>
+						<p class="mt-3 text-slate-500 text-sm">{$t('vendorPaymentFilters.loadingPayments')}</p>
 					</div>
 				</div>
 			{:else}
@@ -802,17 +802,17 @@
 						<div class="mb-3 flex items-center gap-4 px-4 py-2.5 rounded-xl bg-blue-600 text-white shadow-lg text-xs font-bold">
 							<span class="flex items-center gap-1.5">
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-								{combinedCheckedCount} selected
+								{combinedCheckedCount} {$t('vendorPaymentFilters.selected')}
 								{#if checkedCount > 0 && checkedExpenseCount > 0}
-									<span class="font-normal opacity-75">({checkedCount} payments + {checkedExpenseCount} expenses)</span>
+									<span class="font-normal opacity-75">({checkedCount} {$t('vendorPaymentFilters.payments')} + {checkedExpenseCount} {$t('vendorPaymentFilters.expenses')})</span>
 								{/if}
 							</span>
 							<span class="flex items-center gap-1">
-								Total:
+								{$t('vendorPaymentFilters.total')}:
 								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.7em] opacity-80 inline mx-0.5" />
 								<span class="text-sm font-black">{combinedCheckedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 							</span>
-							<button class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all" on:click={() => { checkedPaymentIds = new Set(); checkedExpenseIds = new Set(); }}>Clear All</button>
+							<button class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all" on:click={() => { checkedPaymentIds = new Set(); checkedExpenseIds = new Set(); }}>{$t('vendorPaymentFilters.clearAll')}</button>
 						</div>
 					{/if}
 					<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden mb-4">
@@ -823,14 +823,14 @@
 										<th class="px-2 py-2.5 text-center text-[11px] font-black uppercase border-b-2 border-blue-400 w-8">
 											<input type="checkbox" checked={allPageChecked} on:change={toggleAllPage} class="w-3.5 h-3.5 rounded cursor-pointer accent-white" />
 										</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Branch</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Bill Date</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Due Date</th>
-										<th class="px-3 py-2.5 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Amount</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Method</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Invoice #</th>
-										<th class="px-3 py-2.5 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
-										<th class="px-3 py-2.5 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.branch')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.billDate')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.dueDate')}</th>
+										<th class="px-3 py-2.5 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.amount')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.method')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.invoiceNumber')}</th>
+										<th class="px-3 py-2.5 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.status')}</th>
+										<th class="px-3 py-2.5 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.action')}</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
@@ -847,31 +847,31 @@
 											<td class="px-3 py-2 text-xs text-slate-700">{payment.bill_number || '-'}</td>
 											<td class="px-3 py-2 text-xs text-center">
 												<span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black {payment.is_paid ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">
-													{payment.is_paid ? 'Paid' : 'Unpaid'}
-												</span>
-											</td>
-											<td class="px-3 py-2 text-xs text-center">
-												<button class="inline-flex items-center px-3 py-1 rounded-lg bg-blue-600 text-white text-[10px] font-bold hover:bg-blue-700 transition-all" on:click={() => openEditModal(payment)}>✏️ Edit</button>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-						<div class="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-							<span>Showing {startRecord}-{endRecord} of {totalRecords} records · Total: <strong class="text-emerald-700">{totalAmount.toLocaleString()}</strong></span>
-							{#if totalPages > 1}
-								<div class="flex items-center gap-2">
-									<button class="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all" on:click={previousPage} disabled={currentPage === 1}>← Prev</button>
-									<span class="text-slate-600 font-semibold">Page {currentPage} / {totalPages}</span>
-									<button class="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all" on:click={nextPage} disabled={currentPage === totalPages}>Next →</button>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{:else}
-					<div class="bg-white/40 rounded-2xl border border-slate-200 p-8 text-center mb-4">
-						<p class="text-slate-400 text-sm">No payments found {selectedBranchId || selectedPaymentMethod ? 'matching the selected filters' : 'for this vendor'}.</p>
+{payment.is_paid ? $t('vendorPaymentFilters.paid') : $t('vendorPaymentFilters.unpaid')}
+																	</span>
+																</td>
+																<td class="px-3 py-2 text-xs text-center">
+																	<button class="inline-flex items-center px-3 py-1 rounded-lg bg-blue-600 text-white text-[10px] font-bold hover:bg-blue-700 transition-all" on:click={() => openEditModal(payment)}>✏️ {$t('vendorPaymentFilters.edit')}</button>
+																</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											</div>
+											<div class="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+												<span>{$t('vendorPaymentFilters.showing')} {startRecord}-{endRecord} {$t('vendorPaymentFilters.of')} {totalRecords} {$t('vendorPaymentFilters.records')} · {$t('vendorPaymentFilters.total')}: <strong class="text-emerald-700">{totalAmount.toLocaleString()}</strong></span>
+												{#if totalPages > 1}
+													<div class="flex items-center gap-2">
+														<button class="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all" on:click={previousPage} disabled={currentPage === 1}>← {$t('vendorPaymentFilters.prev')}</button>
+														<span class="text-slate-600 font-semibold">{$t('vendorPaymentFilters.page')} {currentPage} / {totalPages}</span>
+														<button class="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all" on:click={nextPage} disabled={currentPage === totalPages}>{$t('vendorPaymentFilters.next')} →</button>
+													</div>
+												{/if}
+											</div>
+										</div>
+									{:else}
+										<div class="bg-white/40 rounded-2xl border border-slate-200 p-8 text-center mb-4">
+											<p class="text-slate-400 text-sm">{$t('vendorPaymentFilters.noPaymentsFound')} {selectedBranchId || selectedPaymentMethod ? $t('vendorPaymentFilters.matchingFilters') : $t('vendorPaymentFilters.forThisVendor')}.</p>
 					</div>
 				{/if}
 
@@ -881,14 +881,14 @@
 						<div class="mb-3 flex items-center gap-4 px-4 py-2.5 rounded-xl bg-amber-600 text-white shadow-lg text-xs font-bold">
 							<span class="flex items-center gap-1.5">
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-								{checkedExpenseCount} expense{checkedExpenseCount !== 1 ? 's' : ''} selected
+								{checkedExpenseCount} {$t('vendorPaymentFilters.expenses')} {$t('vendorPaymentFilters.selected')}
 							</span>
 							<span class="flex items-center gap-1">
-								Total:
+								{$t('vendorPaymentFilters.total')}:
 								<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.7em] opacity-80 inline mx-0.5" />
 								<span class="text-sm font-black">{checkedExpenseTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 							</span>
-							<button class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all" on:click={() => { checkedExpenseIds = new Set(); }}>Clear</button>
+							<button class="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg transition-all" on:click={() => { checkedExpenseIds = new Set(); }}>{$t('vendorPaymentFilters.clear')}</button>
 						</div>
 					{/if}
 					<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
@@ -899,15 +899,15 @@
 										<th class="px-2 py-2.5 text-center text-[11px] font-black uppercase border-b-2 border-amber-400 w-8">
 											<input type="checkbox" checked={allExpensesChecked} on:change={toggleAllExpenses} class="w-3.5 h-3.5 rounded cursor-pointer accent-white" />
 										</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Req #</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Category</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Branch</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Due Date</th>
-										<th class="px-3 py-2.5 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Amount</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Method</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Requester</th>
-										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Description</th>
-										<th class="px-3 py-2.5 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">Status</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.reqNumber')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.category')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.branch')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.dueDate')}</th>
+										<th class="px-3 py-2.5 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.amount')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.method')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.requester')}</th>
+										<th class="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.description')}</th>
+										<th class="px-3 py-2.5 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-amber-400">{$t('vendorPaymentFilters.status')}</th>
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-200">
@@ -957,7 +957,7 @@
 					<span class="text-sm">💰</span>
 				</div>
 				<div class="min-w-0">
-					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">Grand Total</div>
+					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">{$t('vendorPaymentFilters.grandTotal')}</div>
 					<div class="text-sm font-black text-sky-700 flex items-center gap-0.5">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" /> {globalGrandTotal.toLocaleString()}
 					</div>
@@ -968,7 +968,7 @@
 					<span class="text-sm">✅</span>
 				</div>
 				<div class="min-w-0">
-					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">Paid</div>
+					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">{$t('vendorPaymentFilters.paid')}</div>
 					<div class="text-sm font-black text-emerald-700 flex items-center gap-0.5">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" /> {globalTotalPaid.toLocaleString()}
 					</div>
@@ -979,7 +979,7 @@
 					<span class="text-sm">⏳</span>
 				</div>
 				<div class="min-w-0">
-					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">Unpaid</div>
+					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">{$t('vendorPaymentFilters.unpaid')}</div>
 					<div class="text-sm font-black text-red-600 flex items-center gap-0.5">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" /> {globalTotalUnpaid.toLocaleString()}
 					</div>
@@ -990,7 +990,7 @@
 					<span class="text-sm">🏢</span>
 				</div>
 				<div class="min-w-0">
-					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">Vendors</div>
+					<div class="text-[9px] font-black text-slate-400 uppercase tracking-wider">{$t('vendorPaymentFilters.vendors')}</div>
 					<div class="text-sm font-black text-purple-700">{totalVendorCount}</div>
 				</div>
 			</div>
@@ -1003,7 +1003,7 @@
 				on:click={() => activeTab = 'account'}
 			>
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-				Account
+				{$t('vendorPaymentFilters.account')}
 			</button>
 		</div>
 
@@ -1018,7 +1018,7 @@
 						</div>
 						<input
 							type="text"
-							placeholder="Search vendors by name or ID..."
+							placeholder={$t('vendorPaymentFilters.searchVendors')}
 							bind:value={vendorTableSearch}
 							class="w-full pl-10 pr-9 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-300 transition-all shadow-sm"
 						/>
@@ -1044,7 +1044,7 @@
 							{/each}
 						</select>
 						<span class="text-xs text-slate-500 font-semibold flex-shrink-0">
-							{filteredTableVendors.length} vendor{filteredTableVendors.length !== 1 ? 's' : ''}{#if vendorTableSearch} found{/if}
+							{filteredTableVendors.length} {filteredTableVendors.length !== 1 ? $t('vendorPaymentFilters.vendorsCount') : $t('vendorPaymentFilters.vendorCount')}{#if vendorTableSearch} {$t('vendorPaymentFilters.found')}{/if}
 						</span>
 					</div>
 				</div>
@@ -1052,11 +1052,11 @@
 				<!-- Mobile: Totals summary card (desktop shows the same totals in the table footer) -->
 				<div class="md:hidden mb-3 flex-shrink-0 bg-blue-600 rounded-xl shadow-sm p-3">
 					<div class="text-[10px] font-bold text-blue-100 uppercase tracking-wide mb-2">
-						Totals · {filteredTableVendors.length} vendor{filteredTableVendors.length !== 1 ? 's' : ''}
+						{$t('vendorPaymentFilters.totals')} · {filteredTableVendors.length} {filteredTableVendors.length !== 1 ? $t('vendorPaymentFilters.vendorsCount') : $t('vendorPaymentFilters.vendorCount')}
 					</div>
 					<div class="grid grid-cols-2 gap-2">
 						<div>
-							<div class="text-[10px] text-blue-200 font-semibold uppercase">Bills Unpaid</div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">{$t('vendorPaymentFilters.billsUnpaid')}</div>
 							{#if tableTotalBillsUnpaid > 0}
 								<div class="text-sm font-black text-white flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-80" />
@@ -1067,7 +1067,7 @@
 							{/if}
 						</div>
 						<div>
-							<div class="text-[10px] text-blue-200 font-semibold uppercase">Expenses Unpaid</div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">{$t('vendorPaymentFilters.expensesUnpaid')}</div>
 							{#if tableTotalExpensesUnpaid > 0}
 								<div class="text-sm font-black text-white flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-80" />
@@ -1078,7 +1078,7 @@
 							{/if}
 						</div>
 						<div>
-							<div class="text-[10px] text-blue-200 font-semibold uppercase">Total Unpaid</div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">{$t('vendorPaymentFilters.totalUnpaid')}</div>
 							{#if tableTotalUnpaid > 0}
 								<div class="text-sm font-black text-white flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-90" />
@@ -1089,7 +1089,7 @@
 							{/if}
 						</div>
 						<div>
-							<div class="text-[10px] text-blue-200 font-semibold uppercase">Total Overdue</div>
+							<div class="text-[10px] text-blue-200 font-semibold uppercase">{$t('vendorPaymentFilters.totalOverdue')}</div>
 							{#if tableTotalOverdue > 0}
 								<div class="text-sm font-black text-orange-300 flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-90" />
@@ -1119,15 +1119,15 @@
 						<thead class="sticky top-0 z-10">
 							<tr class="bg-blue-600 text-white shadow-lg">
 								<th class="px-3 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30 w-10">#</th>
-								<th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Vendor Name</th>
-								<th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Vendor ID</th>
-								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Bills Unpaid</th>
-								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Expenses Unpaid</th>
-								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">Total Unpaid</th>
-								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-orange-400 border-r border-orange-500/30 bg-orange-600">Total Overdue</th>
+								<th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">{$t('vendorPaymentFilters.vendorName')}</th>
+								<th class="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">{$t('vendorPaymentFilters.vendorId')}</th>
+								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">{$t('vendorPaymentFilters.billsUnpaid')}</th>
+								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">{$t('vendorPaymentFilters.expensesUnpaid')}</th>
+								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400 border-r border-blue-500/30">{$t('vendorPaymentFilters.totalUnpaid')}</th>
+								<th class="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-orange-400 border-r border-orange-500/30 bg-orange-600">{$t('vendorPaymentFilters.totalOverdue')}</th>
 								<th class="px-3 py-2 text-right text-[11px] font-black uppercase tracking-wider border-b-2 border-indigo-400 bg-indigo-600 border-r border-indigo-500/30">
 									<div class="flex items-center justify-end gap-1.5">
-										<span>ERP Balance</span>
+										<span>{$t('vendorPaymentFilters.erpBalance')}</span>
 										{#if erpBalancesLoading}
 											<span class="text-[10px] opacity-70">⏳</span>
 										{:else}
@@ -1135,8 +1135,8 @@
 										{/if}
 									</div>
 								</th>
-								<th class="px-4 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-slate-400 bg-slate-600 border-r border-slate-500/30">Match</th>
-								<th class="px-4 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
+								<th class="px-4 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-slate-400 bg-slate-600 border-r border-slate-500/30">{$t('vendorPaymentFilters.match')}</th>
+								<th class="px-4 py-3 text-center text-[11px] font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('vendorPaymentFilters.action')}</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-slate-100">
@@ -1219,7 +1219,7 @@
 											on:click={() => handleVendorSelect(vendor.vendor_id, vendor.vendor_name)}
 										>
 											<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-											Details
+											{$t('vendorPaymentFilters.details')}
 										</button>
 									</td>
 								</tr>
@@ -1228,7 +1228,7 @@
 								<tr>
 									<td colspan="10" class="px-4 py-14 text-center">
 										<div class="text-slate-400 text-sm">
-											{vendorTableSearch ? `No vendors matching "${vendorTableSearch}"` : 'No vendors found.'}
+											{vendorTableSearch ? `${$t('vendorPaymentFilters.noVendorsMatching')} "${vendorTableSearch}"` : $t('vendorPaymentFilters.noVendorsFound')}
 										</div>
 									</td>
 								</tr>
@@ -1302,12 +1302,12 @@
 										on:click={() => handleVendorSelect(vendor.vendor_id, vendor.vendor_name)}
 									>
 										<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-										Details
+										{$t('vendorPaymentFilters.details')}
 									</button>
 								</div>
 								<div class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
 									<div>
-										<div class="text-[10px] text-slate-400 font-semibold uppercase">Bills Unpaid</div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">{$t('vendorPaymentFilters.billsUnpaid')}</div>
 										{#if getVendorBillsUnpaid(vendor.vendor_id) > 0}
 											<div class="font-bold text-red-600 flex items-center gap-1">
 												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" />
@@ -1318,7 +1318,7 @@
 										{/if}
 									</div>
 									<div>
-										<div class="text-[10px] text-slate-400 font-semibold uppercase">Expenses Unpaid</div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">{$t('vendorPaymentFilters.expensesUnpaid')}</div>
 										{#if getVendorExpensesUnpaid(vendor.vendor_id) > 0}
 											<div class="font-bold text-amber-600 flex items-center gap-1">
 												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-70" />
@@ -1329,18 +1329,18 @@
 										{/if}
 									</div>
 									<div>
-										<div class="text-[10px] text-slate-400 font-semibold uppercase">Total Unpaid</div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">{$t('vendorPaymentFilters.totalUnpaid')}</div>
 										{#if getVendorTotalUnpaid(vendor.vendor_id) > 0}
 											<div class="font-black text-red-700 flex items-center gap-1">
 												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-80" />
 												{getVendorTotalUnpaid(vendor.vendor_id).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 											</div>
 										{:else}
-											<span class="inline-block px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold">Cleared</span>
+											<span class="inline-block px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold">{$t('vendorPaymentFilters.cleared')}</span>
 										{/if}
 									</div>
 									<div>
-										<div class="text-[10px] text-slate-400 font-semibold uppercase">Total Overdue</div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">{$t('vendorPaymentFilters.totalOverdue')}</div>
 										{#if getVendorTotalOverdue(vendor.vendor_id) > 0}
 											<div class="font-black text-orange-700 flex items-center gap-1">
 												<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-80" />
@@ -1353,7 +1353,7 @@
 								</div>
 								<div class="flex items-center justify-between gap-2 mt-2.5 pt-2.5 border-t border-slate-100">
 									<div>
-										<div class="text-[10px] text-slate-400 font-semibold uppercase">ERP Balance</div>
+										<div class="text-[10px] text-slate-400 font-semibold uppercase">{$t('vendorPaymentFilters.erpBalance')}</div>
 										{#if erpBalancesLoading}
 											<div class="text-indigo-300">⏳</div>
 										{:else if erpBalanceMap.has(vendor.vendor_id)}
@@ -1372,7 +1372,7 @@
 										{@const erpVal = erb?.netBalance ?? 0}
 										{@const matched = Math.abs(overdue - erpVal) < 1}
 										<span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-black text-white {matched ? 'bg-emerald-600' : 'bg-red-600'}">
-											{matched ? '✓ Match' : '✗ Mismatch'}
+											{matched ? `✓ ${$t('vendorPaymentFilters.matchText')}` : `✗ ${$t('vendorPaymentFilters.mismatchText')}`}
 										</span>
 									{/if}
 								</div>
@@ -1380,7 +1380,7 @@
 						{/each}
 						{#if visibleTableVendors.length === 0}
 							<div class="text-center text-slate-400 text-sm py-14">
-								{vendorTableSearch ? `No vendors matching "${vendorTableSearch}"` : 'No vendors found.'}
+								{vendorTableSearch ? `${$t('vendorPaymentFilters.noVendorsMatching')} "${vendorTableSearch}"` : $t('vendorPaymentFilters.noVendorsFound')}
 							</div>
 						{/if}
 					</div>
@@ -1388,7 +1388,7 @@
 					{#if visibleTableVendors.length < filteredTableVendors.length}
 						<div class="flex items-center justify-center py-4 gap-2 text-slate-400 text-xs border-t border-slate-100 bg-white/50">
 							<div class="w-3.5 h-3.5 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin"></div>
-							<span>Scroll to load more · {visibleTableVendors.length} of {filteredTableVendors.length} shown</span>
+							<span>{$t('vendorPaymentFilters.scrollToLoadMore')} · {visibleTableVendors.length} {$t('vendorPaymentFilters.of')} {filteredTableVendors.length} {$t('vendorPaymentFilters.shown')}</span>
 						</div>
 					{/if}
 				</div>
@@ -1420,16 +1420,16 @@
 			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 			<div class="bg-white rounded-2xl shadow-2xl w-[90%] max-w-md" on:click|stopPropagation={() => {}} role="document">
 				<div class="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-					<h2 class="text-base font-bold text-slate-800">Edit Payment Details</h2>
+					<h2 class="text-base font-bold text-slate-800">{$t('vendorPaymentFilters.editPaymentDetails')}</h2>
 					<button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-800 transition" on:click={closeEditModal}>✕</button>
 				</div>
 				<div class="p-5 flex flex-col gap-4">
 					<div class="flex flex-col gap-1">
-						<label for="edit-due-date" class="text-xs font-bold text-slate-600 uppercase">Due Date</label>
+						<label for="edit-due-date" class="text-xs font-bold text-slate-600 uppercase">{$t('vendorPaymentFilters.dueDate')}</label>
 						<input id="edit-due-date" type="date" bind:value={editFormData.due_date} class="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 					</div>
 					<div class="flex flex-col gap-1">
-						<label for="edit-branch" class="text-xs font-bold text-slate-600 uppercase">Branch</label>
+						<label for="edit-branch" class="text-xs font-bold text-slate-600 uppercase">{$t('vendorPaymentFilters.branch')}</label>
 						<select id="edit-branch" bind:value={editFormData.branch_id} class="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
 							<option value="">{$t('vendorPaymentFilters.selectBranch') || 'Select Branch'}</option>
 							{#each branches as branch}
@@ -1438,9 +1438,9 @@
 						</select>
 					</div>
 					<div class="flex flex-col gap-1">
-						<label for="edit-method" class="text-xs font-bold text-slate-600 uppercase">Payment Method</label>
+						<label for="edit-method" class="text-xs font-bold text-slate-600 uppercase">{$t('vendorPaymentFilters.paymentMethod')}</label>
 						<select id="edit-method" bind:value={editFormData.payment_method} class="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-							<option value="">Select Payment Method</option>
+							<option value="">{$t('vendorPaymentFilters.selectMethod')}</option>
 							{#each paymentMethods as method}
 								<option value={method}>{method}</option>
 							{/each}
@@ -1448,8 +1448,8 @@
 					</div>
 				</div>
 				<div class="flex justify-end gap-2 px-5 py-4 border-t border-slate-200">
-					<button class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200 transition disabled:opacity-50" on:click={closeEditModal} disabled={savingEdit}>Cancel</button>
-					<button class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-50" on:click={saveEdit} disabled={savingEdit}>{savingEdit ? 'Saving...' : 'Save Changes'}</button>
+					<button class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200 transition disabled:opacity-50" on:click={closeEditModal} disabled={savingEdit}>{$t('vendorPaymentFilters.cancel')}</button>
+					<button class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-50" on:click={saveEdit} disabled={savingEdit}>{savingEdit ? $t('vendorPaymentFilters.saving') : $t('vendorPaymentFilters.saveChanges')}</button>
 				</div>
 			</div>
 		</div>
