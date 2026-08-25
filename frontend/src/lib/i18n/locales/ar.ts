@@ -1246,6 +1246,13 @@ export const arabicLocale: LocaleData = {
         taskType_regular: "مهمة عادية",
         taskType_quick: "مهمة سريعة",
         taskType_receiving: "مهمة استلام",
+        quickTaskNotFound: "المهمة السريعة غير موجودة",
+        quickTaskNotFoundDesc: "هذه المهمة السريعة غير موجودة أو لا يمكنك الوصول إليها.",
+        completeQuickTask: "إكمال المهمة السريعة",
+        quickTaskCompletedSuccess: "تم إكمال المهمة السريعة بنجاح!",
+        uploadPhotosRequired: "📷 رفع صور (مطلوب)",
+        chooseFiles: "اختر ملفات",
+        unknownUser: "مستخدم غير معروف",
       },
 
       // Notifications Page Content

@@ -5,6 +5,29 @@
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db, getStoragePublicUrl } from '$lib/utils/supabase';
 	import { notifications } from '$lib/stores/notifications';
+	import { locale, getTranslation } from '$lib/i18n';
+
+	const t = (key: string) => getTranslation(`mobile.taskCompletionPage.${key}`);
+
+	// Get localized title from bilingual string (format: "English | Arabic" or "Arabic | English")
+	function getLocalizedTitle(title: string | null | undefined): string {
+		if (!title) return '';
+		// Check if title contains a pipe separator for bilingual content
+		if (title.includes('|')) {
+			const parts = title.split('|').map(p => p.trim());
+			if (parts.length >= 2) {
+				// Detect which part is Arabic by checking for Arabic characters
+				const hasArabic = (str: string) => /[\u0600-\u06FF]/.test(str);
+				const [part1, part2] = parts;
+				if ($locale === 'ar') {
+					return hasArabic(part1) ? part1 : part2;
+				} else {
+					return hasArabic(part1) ? part2 : part1;
+				}
+			}
+		}
+		return title;
+	}
 
 	// Get task ID from URL params
 	let taskId = '';
@@ -177,18 +200,18 @@
 							if (employeeResult.data && employeeResult.data.name) {
 								assignedByUserName = employeeResult.data.name;
 							} else {
-								assignedByUserName = assignedByResult.data.username || 'Unknown User';
+								assignedByUserName = assignedByResult.data.username || t('unknownUser');
 							}
 						} else {
-							assignedByUserName = assignedByResult.data.username || 'Unknown User';
+							assignedByUserName = assignedByResult.data.username || t('unknownUser');
 						}
 					} else {
-						assignedByUserName = 'Unknown User';
+						assignedByUserName = t('unknownUser');
 					}
 				}
 				
 				// Set assigned to user name
-				assignedToUserName = currentUserData.username || 'Unknown User';
+				assignedToUserName = currentUserData.username || t('unknownUser');
 				
 				// Start the live countdown timer
 				startCountdownTimer();
@@ -202,7 +225,7 @@
 			
 		} catch (error) {
 			console.error('Error loading task details:', error);
-			errorMessage = 'Failed to load task details';
+			errorMessage = t('failedToLoad');
 		} finally {
 			isLoading = false;
 		}
@@ -210,23 +233,23 @@
 
 	// Date and time utility functions
 	function formatDate(dateString: string): string {
-		if (!dateString) return 'Not set';
+		if (!dateString) return t('notSet');
 		try {
-			return new Date(dateString).toLocaleDateString('en-US', {
+			return new Date(dateString).toLocaleDateString($locale === 'ar' ? 'ar-SA' : 'en-US', {
 				year: 'numeric',
 				month: 'short',
 				day: 'numeric',
 				timeZone: 'Asia/Riyadh'
 			});
 		} catch {
-			return 'Invalid date';
+			return t('invalidDate');
 		}
 	}
 
 	function formatTime(datetimeString: string): string {
 		if (!datetimeString) return '';
 		try {
-			return new Date(datetimeString).toLocaleTimeString('en-US', {
+			return new Date(datetimeString).toLocaleTimeString($locale === 'ar' ? 'ar-SA' : 'en-US', {
 				hour: '2-digit',
 				minute: '2-digit',
 				timeZone: 'Asia/Riyadh'
@@ -255,12 +278,12 @@
 			const diffDays = Math.floor(diffHours / 24);
 			
 			if (diffDays > 0) {
-				return `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+				return `${diffDays} ${diffDays !== 1 ? t('days') : t('day')}`;
 			} else {
-				return `${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
+				return `${diffHours} ${diffHours !== 1 ? t('hours') : t('hour')}`;
 			}
 		} catch {
-			return 'Unknown';
+			return '';
 		}
 	}
 
@@ -272,7 +295,7 @@
 			const diffMs = deadline.getTime() - now.getTime();
 			
 			if (diffMs <= 0) {
-				return 'Overdue';
+				return t('overdueBy');
 			}
 			
 			const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -281,20 +304,20 @@
 			
 			let timeString = '';
 			if (days > 0) {
-				timeString += `${days} day${days !== 1 ? 's' : ''}`;
+				timeString += `${days} ${days !== 1 ? t('days') : t('day')}`;
 			}
 			if (hours > 0) {
 				if (timeString) timeString += ', ';
-				timeString += `${hours} hour${hours !== 1 ? 's' : ''}`;
+				timeString += `${hours} ${hours !== 1 ? t('hours') : t('hour')}`;
 			}
 			if (minutes > 0 || timeString === '') {
 				if (timeString) timeString += ', ';
-				timeString += `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+				timeString += `${minutes} ${minutes !== 1 ? t('minutes') : t('minute')}`;
 			}
 			
 			return timeString;
 		} catch {
-			return 'Unknown';
+			return '';
 		}
 	}
 
@@ -600,11 +623,11 @@
 				throw completionError;
 			}
 			
-			successMessage = 'Quick Task completed successfully! / تم إكمال المهمة السريعة بنجاح!';
+			successMessage = t('quickTaskCompletedSuccess');
 			
 			notifications.add({
 				type: 'success',
-				message: 'Quick Task completed successfully! / تم إكمال المهمة السريعة بنجاح!',
+				message: t('quickTaskCompletedSuccess'),
 				duration: 3000
 			});
 			
@@ -614,11 +637,11 @@
 			
 		} catch (error) {
 			console.error('Error submitting completion:', error);
-			errorMessage = error.message || 'Failed to complete task / فشل إكمال المهمة';
+			errorMessage = error.message || t('failedMessage');
 			
 			notifications.add({
 				type: 'error',
-				message: 'Failed to complete task. Please try again. / فشل إكمال المهمة. يرجى المحاولة مرة أخرى.',
+				message: t('failedMessage'),
 				duration: 4000
 			});
 		} finally {
@@ -628,14 +651,14 @@
 </script>
 
 <svelte:head>
-	<title>Complete Quick Task - Aqura Mobile</title>
+	<title>{t('pageTitle')}</title>
 </svelte:head>
 
 <div class="mobile-task-completion">
 	{#if isLoading}
 		<div class="loading-state">
 			<div class="loading-spinner"></div>
-			<p>Loading task details...</p>
+			<p>{t('loading')}</p>
 		</div>
 	{:else if !taskDetails}
 		<div class="error-state">
@@ -646,8 +669,8 @@
 					<line x1="12" y1="16" x2="12.01" y2="16"/>
 				</svg>
 			</div>
-			<h2>Quick Task Not Found</h2>
-			<p>This quick task doesn't exist or you don't have access to it.</p>
+			<h2>{t('quickTaskNotFound')}</h2>
+			<p>{t('quickTaskNotFoundDesc')}</p>
 		</div>
 	{:else if !assignmentDetails || assignmentDetails.assigned_to_user_id !== currentUserData?.id}
 		<div class="error-state">
@@ -656,44 +679,41 @@
 					<path d="M18.364 5.636L12 12m0 0l-6.364 6.364M12 12l6.364 6.364M12 12L5.636 5.636"/>
 				</svg>
 			</div>
-			<h2>Access Denied</h2>
-			<p>This quick task is not assigned to you. Only assigned users can complete tasks.</p>
+			<h2>{t('accessDenied')}</h2>
+			<p>{t('accessDeniedDesc')}</p>
 			<div class="error-actions">
 				<button class="back-btn" on:click={() => goto('/mobile-interface/tasks')}>
-					← Back to Tasks
+					{t('backToTasks')}
 				</button>
 			</div>
 		</div>
 	{:else}
 		<!-- Compact Task Info Bar -->
 		<div class="task-info-bar">
-			<div class="info-bar-title">{taskDetails.title}</div>
+			<div class="info-bar-title">{getLocalizedTitle(taskDetails.title)}</div>
 			<div class="info-bar-row">
 				<span class="priority-badge {getPriorityColor(taskDetails.priority)}">
-					{taskDetails.priority?.toUpperCase() || 'MEDIUM'}
+					{getTranslation(`mobile.assignmentsContent.priorities.${taskDetails.priority?.toLowerCase() || 'medium'}`)}
 				</span>
-				{#if taskDetails.issue_type}
-					<span class="info-chip">{formatIssueType(taskDetails.issue_type)}</span>
-				{/if}
 				{#if taskDetails.deadline_datetime}
 					<span class="info-chip {isOverdue(taskDetails.deadline_datetime) ? 'overdue' : 'on-time'}">
 						{#if isOverdue(taskDetails.deadline_datetime)}
-							Overdue by {getOverdueTime(taskDetails.deadline_datetime)}
+							{t('overdueBy')} {getOverdueTime(taskDetails.deadline_datetime)}
 						{:else}
-							{liveCountdown} remaining
+							{liveCountdown} {t('remaining')}
 						{/if}
 					</span>
 				{/if}
 			</div>
 			{#if assignedByUserName}
-				<div class="info-bar-assigned">👤 Assigned by: {assignedByUserName}</div>
+				<div class="info-bar-assigned">👤 {t('assignedByLabel')} {assignedByUserName}</div>
 			{/if}
 		</div>
 
 		<!-- Progress Bar -->
 		<div class="progress-section">
 			<div class="progress-label">
-				Completion Progress: {completionProgress}%
+				{t('completionProgress')}: {completionProgress}%
 			</div>
 			<div class="progress-bar">
 				<div class="progress-fill" style="width: {completionProgress}%"></div>
@@ -717,12 +737,12 @@
 
 		<!-- Completion Requirements -->
 		<div class="requirements-section">
-			<h4>Completion Requirements:</h4>
+			<h4>{t('completionRequirements')}</h4>
 			
 			{#if resolvedRequireTaskFinished}
 				<div class="requirement-item">
 					<div class="requirement-header">
-						<span class="requirement-label required">Task Finished (Required)</span>
+						<span class="requirement-label required">{t('taskFinishedRequired')}</span>
 						<input
 							type="checkbox"
 							bind:checked={completionData.task_finished_completed}
@@ -736,7 +756,7 @@
 			{#if resolvedRequirePhotoUpload}
 				<div class="requirement-item">
 					<div class="requirement-header">
-						<span class="requirement-label required">📷 Upload Photos (Required)</span>
+						<span class="requirement-label required">{t('uploadPhotosRequired')}</span>
 					</div>
 					
 					<div class="upload-section">
@@ -755,7 +775,7 @@
 								<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
 								<circle cx="12" cy="13" r="4"/>
 							</svg>
-							Take Photo
+							{t('takePhoto')}
 						</label>
 
 						<!-- File chooser button -->
@@ -772,7 +792,7 @@
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
 							</svg>
-							Choose Files ({photoFiles.length})
+							{t('chooseFiles')} ({photoFiles.length})
 						</label>
 					</div>
 
@@ -796,7 +816,7 @@
 			{#if resolvedRequireErpReference}
 				<div class="requirement-item">
 					<div class="requirement-header">
-						<span class="requirement-label required">🔢 ERP Reference (Required)</span>
+						<span class="requirement-label required">{t('erpReferenceRequired')}</span>
 					</div>
 					
 					<div class="input-section">
@@ -807,7 +827,7 @@
 								// Auto-check completion when user enters ERP reference
 								completionData.erp_reference_completed = !!completionData.erp_reference_number?.trim();
 							}}
-							placeholder="Enter ERP reference number"
+							placeholder={t('erpReferencePlaceholder')}
 							disabled={isSubmitting}
 							class="erp-input"
 							required
@@ -818,13 +838,13 @@
 			
 			<div class="requirement-item">
 				<div class="requirement-header">
-					<span class="requirement-label">📝 Additional Notes (Optional)</span>
+					<span class="requirement-label">{t('additionalNotesOptional')}</span>
 				</div>
 				
 				<div class="input-section">
 					<textarea
 						bind:value={completionData.completion_notes}
-						placeholder="Add any additional notes about the task completion..."
+						placeholder={t('notesPlaceholder')}
 						disabled={isSubmitting}
 						class="notes-textarea"
 					></textarea>
@@ -835,7 +855,7 @@
 		<!-- Actions -->
 		<div class="actions">
 			<button class="cancel-btn" on:click={() => goto('/mobile-interface/tasks')} disabled={isSubmitting}>
-				Cancel
+				{t('cancel')}
 			</button>
 			<button 
 				class="complete-btn" 
@@ -845,9 +865,9 @@
 			>
 				{#if isSubmitting}
 					<div class="btn-spinner"></div>
-					Completing...
+					{t('completing')}
 				{:else}
-					Complete Quick Task
+					{t('completeQuickTask')}
 				{/if}
 			</button>
 		</div>

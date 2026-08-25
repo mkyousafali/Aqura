@@ -1238,6 +1238,13 @@ export const englishLocale: LocaleData = {
         taskType_regular: "Regular Task",
         taskType_quick: "Quick Task",
         taskType_receiving: "Receiving Task",
+        quickTaskNotFound: "Quick Task Not Found",
+        quickTaskNotFoundDesc: "This quick task doesn't exist or you don't have access to it.",
+        completeQuickTask: "Complete Quick Task",
+        quickTaskCompletedSuccess: "Quick Task completed successfully!",
+        uploadPhotosRequired: "📷 Upload Photos (Required)",
+        chooseFiles: "Choose Files",
+        unknownUser: "Unknown User",
       },
 
       // Notifications Page Content
