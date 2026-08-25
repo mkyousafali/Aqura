@@ -277,14 +277,11 @@
 			// Check PV Manager permission
 			const { data: pvPermissions } = await supabase
 				.from('button_permissions')
-				.select(`
-					button_id,
-					sidebar_buttons!inner(button_code)
-				`)
+				.select('button_code')
 				.eq('user_id', currentUserData.id)
 				.eq('is_enabled', true)
-				.eq('sidebar_buttons.button_code', 'PURCHASE_VOUCHER_MANAGER');
-			
+				.eq('button_code', 'PURCHASE_VOUCHER_MANAGER');
+
 			hasPVPermission = currentUserData.isMasterAdmin || (pvPermissions && pvPermissions.length > 0);
 
 			// Parallel loading for better performance
@@ -582,10 +579,11 @@
 		}
 
 		try {
-			// Load button permissions from database
+			// button_permissions stores button_code directly — no sidebar_buttons
+			// join needed. See [[button-permission-system-rewrite]].
 			const { data: permissions, error } = await supabase
 				.from('button_permissions')
-				.select('button_id, is_enabled')
+				.select('button_code')
 				.eq('user_id', currentUserData.id)
 				.eq('is_enabled', true);
 
@@ -603,75 +601,21 @@
 				return;
 			}
 
-			if (permissions && permissions.length > 0) {
-				const buttonIds = permissions.map(p => p.button_id);
-				console.log('ðŸ“‹ Mobile: Button IDs from permissions:', buttonIds);
+			const buttonCodes = new Set((permissions || []).map(p => p.button_code));
 
-				// Fetch button codes for enabled buttons
-				const { data: buttons, error: btnError } = await supabase
-					.from('sidebar_buttons')
-					.select('id, button_code')
-					.in('id', buttonIds);
-
-				if (btnError) {
-					console.error('Error fetching button codes:', btnError);
-					hasReportsPermission = false;
-					hasBranchPerformancePermission = false;
-					hasLiveChatPermission = false;
-					hasBreakRegisterPermission = false;
-					hasExpenseManagerPermission = false;
-					hasVendorPaymentsPermission = false;
-					hasLCPlannerPermission = false;
-					hasOfferSelectorPermission = false;
-					hasShiftsPermission = false;
-				} else if (buttons) {
-					console.log('ðŸ“‹ Mobile: All button codes from database:', buttons.map(b => b.button_code));
-					const buttonCodes = new Set(buttons.map(b => b.button_code));
-
-					// Check for specific button permissions
-					// Master admins pass regardless of rows, matching the desktop
-					// sidebar's isButtonAllowed() so both interfaces agree.
-					hasReportsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SALES_REPORT');
-					hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
-					hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
-					hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
-					hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
-					hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
-					hasLCPlannerPermission = currentUserData?.isMasterAdmin || buttonCodes.has('LC_PLANNER');
-					hasOfferSelectorPermission = currentUserData?.isMasterAdmin || buttonCodes.has('OFFER_PRODUCT_EDITOR');
-					hasShiftsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SHIFTS');
-					hasFollowUpsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('ACTION_FOLLOW_UPS');
-
-					console.log('âœ… Mobile button permissions:', {
-						reports: hasReportsPermission,
-						branchPerformance: hasBranchPerformancePermission,
-						expenseManager: hasExpenseManagerPermission,
-						vendorPayments: hasVendorPaymentsPermission,
-						offerSelector: hasOfferSelectorPermission,
-						shifts: hasShiftsPermission,
-						allCodes: Array.from(buttonCodes)
-					});
-				}
-			} else {
-				hasReportsPermission = false;
-				hasBranchPerformancePermission = false;
-				hasLiveChatPermission = false;
-				hasBreakRegisterPermission = false;
-				hasExpenseManagerPermission = false;
-				hasVendorPaymentsPermission = false;
-				hasLCPlannerPermission = false;
-				hasOfferSelectorPermission = false;
-				hasShiftsPermission = false;
-			}
-
-			// Master admin always keeps Sales Report, LC Planner, Offer
-			// Selector and Shifts, even with no permission rows
-			if (currentUserData?.isMasterAdmin) {
-				hasReportsPermission = true;
-				hasLCPlannerPermission = true;
-				hasOfferSelectorPermission = true;
-				hasShiftsPermission = true;
-			}
+			// Check for specific button permissions
+			// Master admins pass regardless of rows, matching the desktop
+			// sidebar's isButtonAllowed() so both interfaces agree.
+			hasReportsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SALES_REPORT');
+			hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
+			hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
+			hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
+			hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
+			hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
+			hasLCPlannerPermission = currentUserData?.isMasterAdmin || buttonCodes.has('LC_PLANNER');
+			hasOfferSelectorPermission = currentUserData?.isMasterAdmin || buttonCodes.has('OFFER_PRODUCT_EDITOR');
+			hasShiftsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SHIFTS');
+			hasFollowUpsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('ACTION_FOLLOW_UPS');
 
 			// Check for incident manager permission from approval_permissions
 			await loadIncidentManagerPermission();

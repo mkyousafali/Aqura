@@ -75,14 +75,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	async function loadButtonPermissions() {
 		if (!$currentUser?.id) { allowedButtonCodes = new Set(); buttonPermissionsLoaded = false; return; }
 		try {
-			const { data: permissions } = await supabase.from('button_permissions').select('button_id').eq('user_id', $currentUser.id).eq('is_enabled', true);
-			if (permissions && permissions.length > 0) {
-				const buttonIds = permissions.map((p: any) => p.button_id);
-				const { data: buttons } = await supabase.from('sidebar_buttons').select('id, button_code').in('id', buttonIds);
-				if (buttons) allowedButtonCodes = new Set(buttons.map((b: any) => b.button_code));
-			} else {
-				allowedButtonCodes = new Set();
-			}
+			const { data: permissions } = await supabase.from('button_permissions').select('button_code').eq('user_id', $currentUser.id).eq('is_enabled', true);
+			allowedButtonCodes = new Set((permissions || []).map((p: any) => p.button_code));
 			buttonPermissionsLoaded = true;
 		} catch { allowedButtonCodes = new Set(); buttonPermissionsLoaded = true; }
 	}

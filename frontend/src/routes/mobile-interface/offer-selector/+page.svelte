@@ -36,20 +36,14 @@
 		try {
 			const { data: permissions, error } = await supabase
 				.from('button_permissions')
-				.select('button_id')
-				.eq('user_id', $currentUser.id)
-				.eq('is_enabled', true);
-
-			if (error || !permissions?.length) return false;
-
-			const { data: buttons, error: btnError } = await supabase
-				.from('sidebar_buttons')
 				.select('button_code')
-				.in('id', permissions.map(p => p.button_id));
+				.eq('user_id', $currentUser.id)
+				.eq('is_enabled', true)
+				.eq('button_code', 'OFFER_PRODUCT_EDITOR');
 
-			if (btnError || !buttons) return false;
+			if (error) return false;
 
-			return buttons.some(b => b.button_code === 'OFFER_PRODUCT_EDITOR');
+			return (permissions?.length ?? 0) > 0;
 		} catch (err) {
 			console.error('Error checking offer product editor permission:', err);
 			return false;

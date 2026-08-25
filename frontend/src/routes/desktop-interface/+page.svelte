@@ -50,7 +50,7 @@
 		'MANAGE_ADMIN_USERS': '👥', 'MANAGE_MASTER_ADMIN': '🔐',
 		'INTERFACE_ACCESS_MANAGER': '🔧', 'APPROVAL_PERMISSIONS': '🔐',
 		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
-		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'BUTTON_GENERATOR': '🔨', 'THEME_MANAGER': '🎨',
+		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'THEME_MANAGER': '🎨',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
 		'ERP_PRODUCT_MANAGER': '🏭',
 		// Additional DB button codes
@@ -204,7 +204,6 @@
 		'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables',
 		'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
-		'BUTTON_GENERATOR': 'nav.buttonGenerator',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
 		'THEME_MANAGER': 'nav.themeManager',
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
@@ -364,52 +363,45 @@
 		if (!$currentUser) return;
 		loadingButtons = true;
 		try {
-			let buttonIds: string[] = [];
+			// Catalog is the button/section source of truth — see
+			// [[button-permission-system-rewrite]].
+			const catalogRes = await fetch('/api/parse-sidebar');
+			const catalog = await catalogRes.json();
+			const catalogButtons: Array<{ code: string; name: string; section: string }> = [];
+			for (const section of catalog.sections || []) {
+				for (const subsection of section.subsections || []) {
+					for (const button of subsection.buttons || []) {
+						catalogButtons.push({ code: button.code, name: button.name, section: section.name });
+					}
+				}
+			}
 
+			let allowedCodes: Set<string>;
 			if ($currentUser.isMasterAdmin) {
-				// Master admin gets all buttons
-				const { data: allButtons } = await supabase
-					.from('sidebar_buttons')
-					.select('id');
-				buttonIds = allButtons?.map(b => b.id) || [];
+				// Master admin gets every button in the catalog
+				allowedCodes = new Set(catalogButtons.map(b => b.code));
 			} else {
-				// Regular user: get enabled permissions
 				const { data: permissions } = await supabase
 					.from('button_permissions')
-					.select('button_id')
+					.select('button_code')
 					.eq('user_id', $currentUser.id)
 					.eq('is_enabled', true);
-				buttonIds = permissions?.map(p => p.button_id) || [];
+				allowedCodes = new Set((permissions || []).map(p => p.button_code));
 			}
 
-			if (buttonIds.length > 0) {
-				const { data: buttons } = await supabase
-					.from('sidebar_buttons')
-					.select('id, button_code, button_name_en, main_section_id')
-					.in('id', buttonIds);
+			// Pre-check buttons that are already favorites
+			const favCodes = $favoriteButtonCodes;
 
-				// Get section names
-				const sectionIds = [...new Set(buttons?.map(b => b.main_section_id).filter(Boolean) || [])];
-				let sectionMap: Record<string, string> = {};
-				if (sectionIds.length > 0) {
-					const { data: sections } = await supabase
-						.from('button_main_sections')
-						.select('id, section_name_en')
-						.in('id', sectionIds);
-					sectionMap = Object.fromEntries(sections?.map(s => [s.id, s.section_name_en]) || []);
-				}
-
-				// Pre-check buttons that are already favorites
-				const favCodes = $favoriteButtonCodes;
-
-				permittedButtons = (buttons || []).map(b => ({
-					id: b.id,
-					button_code: b.button_code,
-					button_name_en: b.button_name_en,
-					section_name: sectionMap[b.main_section_id] || 'Other',
-					checked: favCodes.has(b.button_code)
-				})).sort((a, b) => a.section_name.localeCompare(b.section_name) || a.button_name_en.localeCompare(b.button_name_en));
-			}
+			permittedButtons = catalogButtons
+				.filter(b => allowedCodes.has(b.code))
+				.map(b => ({
+					id: b.code,
+					button_code: b.code,
+					button_name_en: b.name,
+					section_name: b.section,
+					checked: favCodes.has(b.code)
+				}))
+				.sort((a, b) => a.section_name.localeCompare(b.section_name) || a.button_name_en.localeCompare(b.button_name_en));
 		} catch (err) {
 			console.error('Error loading permitted buttons:', err);
 		} finally {

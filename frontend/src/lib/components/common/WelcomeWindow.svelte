@@ -199,7 +199,7 @@
 				<div>• {t('welcome.adminItems.permissions') || 'Approval Permissions'} • {t('welcome.adminItems.buttonAccessControl') || 'Button Access Control'}</div>
 				<div>• {t('welcome.adminItems.storage') || 'Storage Manager'} • {t('welcome.adminItems.apiKeys') || 'API Keys Management'}</div>
 				<div>• {t('welcome.adminItems.theme') || 'Theme Manager'} • {t('welcome.adminItems.iconManager') || 'Icon Manager'}</div>
-				<div>• {t('welcome.adminItems.buttonGenerator') || 'Button Generator'} • {t('welcome.adminItems.aiGuide') || 'AI Chat Guide'}</div>
+				<div>• {t('welcome.adminItems.aiGuide') || 'AI Chat Guide'}</div>
 				<div>• {t('welcome.adminItems.erpConnections') || 'ERP Connections & Product Sync'} • {t('welcome.adminItems.clearTables') || 'Data Management'}</div>
 			</div>
 		</div>

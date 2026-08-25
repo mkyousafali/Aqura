@@ -24,7 +24,6 @@
 	// Component imports
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/desktop-interface/master/TaskMaster.svelte';
-	import OperationsMaster from '$lib/components/desktop-interface/master/OperationsMaster.svelte';
 	import ManageVendor from '$lib/components/desktop-interface/master/vendor/ManageVendor.svelte';
 	import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
 	import UploadVendor from '$lib/components/desktop-interface/master/vendor/UploadVendor.svelte';
@@ -104,7 +103,6 @@
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
-	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
 	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
@@ -129,7 +127,6 @@
 	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
 	import Shifts from '$lib/components/desktop-interface/master/hr/Shifts.svelte';
-	import LeavesAndVacations from '$lib/components/desktop-interface/master/hr/LeavesAndVacations.svelte';
 	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
 	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
 	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
@@ -139,7 +136,6 @@
 	// NOTE: EmployeeDashboard merged into EmployeeMaster tabs
 	import AnalyzeAllWindow from '$lib/components/desktop-interface/master/hr/AnalyzeAllWindow.svelte';
 	import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
-	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
 	import HRServices from '$lib/components/desktop-interface/master/hr/HRServices.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
@@ -323,7 +319,6 @@
 		'APPROVAL_PERMISSIONS': 'nav.approvalPermissions', 'BRANCHES': 'admin.branchesMaster',
 		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
-		'BUTTON_GENERATOR': 'nav.buttonGenerator',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
 		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
 		'USER_ACTION_REPORTS': 'nav.userActionReports',
@@ -481,7 +476,9 @@
 	let allowedButtonCodes: Set<string> = new Set();
 	let buttonPermissionsLoaded = false;
 
-	// Load button permissions for current user
+	// Load button permissions for current user.
+	// button_permissions now stores button_code directly (no sidebar_buttons
+	// join needed) — see [[button-permission-system-rewrite]].
 	async function loadButtonPermissions() {
 		if (!$currentUser?.id) {
 			allowedButtonCodes = new Set();
@@ -489,39 +486,19 @@
 			return;
 		}
 
-		console.log('🔍 [Sidebar] Loading button permissions for user:', $currentUser.id);
-
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data: permissions, error } = await supabase
 				.from('button_permissions')
-				.select('button_id')
+				.select('button_code')
 				.eq('user_id', $currentUser.id)
 				.eq('is_enabled', true);
-
-			console.log('🔍 [Sidebar] Button permissions:', permissions?.length, 'enabled');
 
 			if (error) {
 				console.error('❌ [Sidebar] Error fetching button permissions:', error);
 				allowedButtonCodes = new Set();
-			} else if (permissions && permissions.length > 0) {
-				// Map button_ids to button codes
-				const buttonIds = permissions.map(p => p.button_id);
-				const { data: buttons, error: btnError } = await supabase
-					.from('sidebar_buttons')
-					.select('id, button_code')
-					.in('id', buttonIds);
-
-				if (btnError) {
-					console.error('❌ [Sidebar] Error fetching button codes:', btnError);
-					allowedButtonCodes = new Set();
-				} else if (buttons) {
-					allowedButtonCodes = new Set(buttons.map(b => b.button_code));
-					console.log('✅ [Sidebar] Loaded', allowedButtonCodes.size, 'allowed button codes');
-				}
 			} else {
-				console.warn('⚠️  [Sidebar] No button permissions found');
-				allowedButtonCodes = new Set();
+				allowedButtonCodes = new Set((permissions || []).map(p => p.button_code));
 			}
 			buttonPermissionsLoaded = true;
 		} catch (err) {
@@ -535,16 +512,105 @@
 	function isButtonAllowed(buttonCode: string): boolean {
 		// If permissions not loaded yet, don't show buttons (wait for loading)
 		if (!buttonPermissionsLoaded) return false;
-		
+
 		// If master admin, show all buttons
 		if ($currentUser?.isMasterAdmin) return true;
-		
+
 		// If permissions loaded but set is empty, user has no permissions
 		if (allowedButtonCodes.size === 0) return false;
-		
+
 		// Check if button code is in allowed set
 		return allowedButtonCodes.has(buttonCode);
 	}
+
+	// ── Section/subsection visibility rollup ──
+	// A main section or subsection is hidden entirely when none of the
+	// button codes rendered inside it are currently allowed. These code
+	// lists mirror what's actually gated in the template below (not the
+	// admin-facing /api/parse-sidebar catalog, whose grouping is for Button
+	// Access Control's display only and doesn't match this nav's nesting
+	// 1:1 — e.g. STOCK_* codes render under Vendor, not a "Stock" section).
+	const SUBSECTION_CODES: Record<string, string[]> = {
+		DeliveryDashboard: [],
+		DeliveryManage: ["CUSTOMER_MASTER","AD_MANAGER","PRODUCTS_MANAGER","DELIVERY_MANAGE_PRODUCTS","DELIVERY_SETTINGS"],
+		DeliveryOperations: ["ORDERS_MANAGER","OFFER_MANAGEMENT"],
+		DeliveryReports: [],
+		VendorDashboard: ["RECEIVING"],
+		VendorManager: ["UPLOAD_VENDOR","CREATE_VENDOR","MANAGE_VENDOR","DEFAULT_POSITIONS","STOCK_PO_REQUESTS","STOCK_STOCK_REQUESTS","STOCK_BT_REQUESTS","STOCK_NEAR_EXPIRY_REQUESTS","STOCK_CUSTOMER_PRODUCT_REQUESTS","STOCK_OFFER_COST_MANAGER"],
+		VendorOperations: ["START_RECEIVING","RECEIVING_RECORDS","STOCK_PRODUCT_REQUEST","STOCK_ERP_PRODUCTS","STOCK_PRODUCT_CLAIM_MANAGER","STOCK_EXPIRY_CONTROL","ACTION_FOLLOW_UPS"],
+		VendorReports: ["VENDOR_RECORDS"],
+		MediaDashboard: [],
+		MediaManage: ["PRODUCT_MASTER","VARIATION_MANAGER","OFFER_MANAGER","FLYER_TEMPLATES","FLYER_SETTINGS","NORMAL_PAPER_MANAGER","ONE_DAY_OFFER_MANAGER","SOCIAL_LINK_MANAGER","SHELF_PAPER_TEMPLATE_DESIGNER"],
+		MediaOperations: ["OFFER_PRODUCT_EDITOR","CREATE_NEW_OFFER","PRICING_MANAGER","ERP_ENTRY_MANAGER","GENERATE_FLYERS","SHELF_PAPER_MANAGER","NEAR_EXPIRY_MANAGER"],
+		MediaReports: [],
+		PromoDashboard: ["COUPON_DASHBOARD_PROMO","COMMUNICATION_CENTER"],
+		PromoManage: ["CAMPAIGN_MANAGER","GIFT_WHEEL_MANAGER","SURPRISE_BOX_MANAGER","VIP_CAMPAIGN"],
+		PromoOperations: ["VIEW_OFFER_MANAGER","CUSTOMER_IMPORTER","PRODUCT_MANAGER_PROMO","CREATE_NOTIFICATION","PUSH_NOTIFICATION_SETTINGS"],
+		PromoReports: ["COUPON_REPORTS"],
+		FinanceDashboard: ["APPROVAL_CENTER","LC_PLANNER"],
+		FinanceManage: ["CATEGORY_MANAGER","PURCHASE_VOUCHER_MANAGER","MANAGE_RECONCILIATIONS","ASSET_MANAGER","LEASE_AND_RENT"],
+		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH"],
+		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
+		HRDashboard: ["SECURITY_CODE","FINGERPRINT_DASHBOARD","QUICK_DASHBOARD"],
+		HRManage: ["EMPLOYEE_MASTER","LINK_ID","HR_SERVICES"],
+		HROperations: ["EMPLOYEE_FILES","PROCESS_FINGERPRINT","SALARY_AND_WAGE","SHIFTS","SHIFT_AND_DAY_OFF","DISCIPLINE","INCIDENT_MANAGER","REPORT_INCIDENT","DAILY_CHECKLIST_MANAGER","BREAK_REGISTER"],
+		HRReports: ["FINGERPRINT_TRANSACTIONS","EXPORT_BIOMETRIC_DATA"],
+		TasksDashboard: ["TASK_MASTER"],
+		TasksManage: ["CREATE_TASK","VIEW_TASKS"],
+		TasksOperations: ["ASSIGN_TASKS","MY_DAILY_CHECKLIST"],
+		TasksReports: ["VIEW_MY_TASKS","VIEW_MY_ASSIGNMENTS","TASK_STATUS","BRANCH_PERFORMANCE"],
+		UserDashboard: ["USER_MANAGEMENT"],
+		UserManage: ["CREATE_USER","MANAGE_ADMIN_USERS","MANAGE_MASTER_ADMIN","INTERFACE_ACCESS_MANAGER","APPROVAL_PERMISSIONS"],
+		UserOperations: [],
+		UserReports: [],
+		LoyaltyDashboard: ["LOYALTY_DASHBOARD","CUSTOMER_APP"],
+		LoyaltyManage: ["MANAGE_TIERS"],
+		LoyaltyOperations: [],
+		LoyaltyReports: [],
+		ControlsDashboard: [],
+		ControlsManage: ["BRANCHES","SETTINGS","E_R_P_CONNECTIONS","CLEAR_TABLES","BUTTON_ACCESS_CONTROL","THEME_MANAGER","AI_CHAT_GUIDE","ERP_PRODUCT_MANAGER","STORAGE_MANAGER","ICON_MANAGER","API_KEYS_MANAGER","BRANDING","SUPABASE_SECRETS"],
+		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE","HELPER_APPS","SIDEBAR_ANIMATION"],
+		ControlsReports: ["CENTRAL_PERFORMANCE","USER_ACTION_REPORTS","DRAWER_ACTION_MONITOR","PC_LOCK_GUARD"],
+		WhatsAppDashboard: ["WA_DASHBOARD"],
+		WhatsAppManage: ["WA_ACCOUNTS","WA_TEMPLATES","WA_CONTACTS","WA_CATALOG","WA_SETTINGS"],
+		WhatsAppOperations: ["WA_LIVE_CHAT","WA_BROADCASTS","WA_AUTO_REPLY","WA_AI_BOT"],
+		WhatsAppReports: [],
+		EmailDashboard: ["EMAIL_DASHBOARD"],
+		EmailManage: ["EMAIL_ACCOUNTS","EMAIL_TEMPLATES","EMAIL_SIGNATURES","EMAIL_GROUPS","EMAIL_SETTINGS","EMAIL_AI_SETTINGS","EMAIL_SETUP_GUIDE"],
+		EmailOperations: ["EMAIL_CENTRE","EMAIL_COMPOSE","EMAIL_BROADCAST","EMAIL_QUEUE","EMAIL_SCHEDULED"],
+		EmailReports: ["EMAIL_LOGS","EMAIL_DELIVERY_REPORTS","EMAIL_CAMPAIGN_REPORTS","EMAIL_FAILED"],
+	};
+
+	const SECTIONS: Record<string, string[]> = {
+		Delivery: ["DeliveryDashboard","DeliveryManage","DeliveryOperations","DeliveryReports"],
+		Vendor: ["VendorDashboard","VendorManager","VendorOperations","VendorReports"],
+		Media: ["MediaDashboard","MediaManage","MediaOperations","MediaReports"],
+		Promo: ["PromoDashboard","PromoManage","PromoOperations","PromoReports"],
+		Finance: ["FinanceDashboard","FinanceManage","FinanceOperations","FinanceReports"],
+		HR: ["HRDashboard","HRManage","HROperations","HRReports"],
+		Tasks: ["TasksDashboard","TasksManage","TasksOperations","TasksReports"],
+		User: ["UserDashboard","UserManage","UserOperations","UserReports"],
+		Loyalty: ["LoyaltyDashboard","LoyaltyManage","LoyaltyOperations","LoyaltyReports"],
+		Controls: ["ControlsDashboard","ControlsManage","ControlsOperations","ControlsReports"],
+		WhatsApp: ["WhatsAppDashboard","WhatsAppManage","WhatsAppOperations","WhatsAppReports"],
+		Email: ["EmailDashboard","EmailManage","EmailOperations","EmailReports"],
+	};
+
+	// Explicit dependency reads (buttonPermissionsLoaded/$currentUser/allowedButtonCodes)
+	// so Svelte's auto-subscription tracks them — calling isButtonAllowed() alone
+	// inside a reactive block wouldn't register as a dependency.
+	$: subsectionVisible = Object.fromEntries(
+		Object.entries(SUBSECTION_CODES).map(([key, codes]) => [
+			key,
+			buttonPermissionsLoaded && ($currentUser?.isMasterAdmin || codes.some(c => allowedButtonCodes.has(c)))
+		])
+	);
+	$: sectionVisible = Object.fromEntries(
+		Object.entries(SECTIONS).map(([name, subKeys]) => [
+			name,
+			subKeys.some(k => subsectionVisible[k])
+		])
+	);
 
 	// Switch to mobile interface
 	function switchToMobileInterface() {
@@ -1117,30 +1183,6 @@
 		showHRSubmenu = false;
 	}
 
-	function openLeavesAndVacations() {
-		collapseAllMenus();
-		const windowId = generateWindowId('leaves-and-vacations');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Leaves and Vacations #${instanceNumber}`,
-			component: LeavesAndVacations,
-			componentName: "LeavesAndVacations",
-			icon: '🌴',
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
 	function openDiscipline() {
 		collapseAllMenus();
 		const windowId = generateWindowId('discipline');
@@ -1338,53 +1380,6 @@
 		showHRSubmenu = false;
 	}
 
-	function openLeaveRequest() {
-		collapseAllMenus();
-		const windowId = generateWindowId('leave-request');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Leave Request #${instanceNumber}`,
-			component: LeaveRequest,
-			componentName: "LeaveRequest",
-			icon: '📋',
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openOperationsMaster() {
-		const windowId = generateWindowId('operations-master');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Operations Master #${instanceNumber}`,
-			component: OperationsMaster,
-			componentName: "OperationsMaster",
-			icon: '⚙️',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100), // Slightly offset each new window
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showMasterSubmenu = false;
-	}
-
 	function openManageVendor() {
 		collapseAllMenus();
 		const windowId = generateWindowId('manage-vendor');
@@ -1570,29 +1565,6 @@
 		openWindow({
 			id: windowId,
 			title: `Products Manager #${instanceNumber}`,
-			component: ProductsManager,
-			componentName: 'ProductsManager',
-			icon: '🛍️',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showDeliveryManageSubmenu = false;
-	}
-
-	function openProductsManagerNew() {
-		const windowId = generateWindowId('products-manager-new');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Products Manager New #${instanceNumber}`,
 			component: ProductsManager,
 			componentName: 'ProductsManager',
 			icon: '🛍️',
@@ -2064,30 +2036,6 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 	}
 
-	function openButtonGenerator() {
-		const windowId = generateWindowId('button-generator');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Button Generator #${instanceNumber}`,
-			component: ButtonGenerator,
-			componentName: "ButtonGenerator",
-			icon: '🔨',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 150 + (Math.random() * 100), 
-				y: 80 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showControlsSubmenu = false;
-		showControlsManageSubmenu = false;
-	}
-
 	function openThemeManager() {
 		const windowId = generateWindowId('theme-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2324,7 +2272,6 @@ function openApprovalCenter() {
 			'E_R_P_CONNECTIONS': openERPConnections,
 			'CLEAR_TABLES': openClearTables,
 			'BUTTON_ACCESS_CONTROL': openButtonAccessControl,
-			'BUTTON_GENERATOR': openButtonGenerator,
 			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
@@ -3808,29 +3755,6 @@ function openApprovalCenter() {
 		showMediaSubmenu = false;
 	}
 
-	function openCouponManagement() {
-		const windowId = generateWindowId('coupon-management');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Coupon Management #${instanceNumber}`,
-			component: CouponDashboard,
-			componentName: "CouponDashboard",
-			icon: '🎁',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-
-	}
-
 	// Promo section functions
 	function openCouponDashboardPromo() {
 		const windowId = generateWindowId('coupon-dashboard-promo');
@@ -4026,27 +3950,6 @@ function openApprovalCenter() {
 		showSettingsSubmenu = false;
 	}
 
-	// User Section Functions (Placeholder)
-	function openUserDashboard() {
-		collapseAllMenus();
-		// TODO: Add User Dashboard component
-	}
-
-	function openUserManage() {
-		collapseAllMenus();
-		// TODO: Add User Management component
-	}
-
-	function openUserOperations() {
-		collapseAllMenus();
-		// TODO: Add User Operations component
-	}
-
-	function openUserReports() {
-		collapseAllMenus();
-		// TODO: Add User Reports component
-	}
-
 	// User Management - Create User
 	function openCreateUser() {
 		collapseAllMenus();
@@ -4195,6 +4098,7 @@ function openApprovalCenter() {
 	{#if sidebarViewMode === 'standard'}
 	<!-- ============ STANDARD SIDEBAR ============ -->
 	<!-- Delivery Section -->
+	{#if sectionVisible['Delivery']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -4205,11 +4109,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showDeliverySubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Delivery Submenu - Inline below Delivery button -->
 	{#if showDeliverySubmenu}
 		<div class="submenu-inline delivery-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['DeliveryDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4227,6 +4133,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showDeliveryDashboardSubmenu}
@@ -4236,6 +4143,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['DeliveryManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4253,6 +4161,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manage Subsection Items -->
 			{#if showDeliveryManageSubmenu}
@@ -4301,6 +4210,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['DeliveryOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4318,6 +4228,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showDeliveryOperationsSubmenu}
@@ -4342,6 +4253,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['DeliveryReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4359,6 +4271,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showDeliveryReportsSubmenu}
@@ -4370,6 +4283,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- Vendor Section -->
+	{#if sectionVisible['Vendor']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -4380,11 +4294,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showVendorSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Vendor Submenu - Inline below Vendor button -->
 	{#if showVendorSubmenu}
 		<div class="submenu-inline vendor-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['VendorDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4402,6 +4318,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showVendorDashboardSubmenu}
@@ -4418,6 +4335,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['VendorManager']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4435,6 +4353,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manager Subsection Items -->
 			{#if showVendorManagerSubmenu}
@@ -4523,6 +4442,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['VendorOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4540,6 +4460,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showVendorOperationsSubmenu}
@@ -4604,6 +4525,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['VendorReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4621,6 +4543,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showVendorReportsSubmenu}
@@ -4639,6 +4562,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- Media Section -->
+	{#if sectionVisible['Media']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -4649,11 +4573,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showMediaSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Media Submenu - Inline below Media button -->
 	{#if showMediaSubmenu}
 		<div class="submenu-inline media-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['MediaDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4671,6 +4597,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 		<!-- Dashboard Subsection Items -->
 		<!-- FLYER_MASTER and PRODUCTS_DASHBOARD removed from Media > Dashboard -->
@@ -4694,6 +4621,7 @@ function openApprovalCenter() {
 				{/if}
 			</div>
 		{/if} -->			<!-- Manage Subsection -->
+			{#if subsectionVisible['MediaManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4711,6 +4639,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manager Subsection Items -->
 			{#if showMediaManageSubmenu}
@@ -4791,6 +4720,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['MediaOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4808,6 +4738,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showMediaOperationsSubmenu}
@@ -4872,6 +4803,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['MediaReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4889,10 +4821,12 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 		</div>
 	{/if}
 
 	<!-- Promo Section -->
+	{#if sectionVisible['Promo']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -4903,11 +4837,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showPromoSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Promo Submenu - Inline below Promo button -->
 	{#if showPromoSubmenu}
 		<div class="submenu-inline promo-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['PromoDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -4926,6 +4862,7 @@ function openApprovalCenter() {
 				<span class="menu-text">{t('nav.dashboard')}</span>
 			</button>
 		</div>
+			{/if}
 
 		<!-- Dashboard Subsection Items -->
 		{#if showPromoDashboardSubmenu}
@@ -4950,6 +4887,7 @@ function openApprovalCenter() {
 		{/if}
 
 		<!-- Manage Subsection -->
+		{#if subsectionVisible['PromoManage']}
 		<div class="submenu-item-container">
 			<button 
 				class="submenu-subsection-button icon-only"
@@ -4967,6 +4905,7 @@ function openApprovalCenter() {
 				<span class="menu-text">{t('nav.manage')}</span>
 			</button>
 		</div>
+		{/if}
 
 		<!-- Manage Subsection Items -->
 		{#if showPromoManageSubmenu}
@@ -5007,6 +4946,7 @@ function openApprovalCenter() {
 		{/if}
 
 		<!-- Operations Subsection -->
+		{#if subsectionVisible['PromoOperations']}
 		<div class="submenu-item-container">
 			<button 
 				class="submenu-subsection-button icon-only"
@@ -5024,6 +4964,7 @@ function openApprovalCenter() {
 				<span class="menu-text">{t('nav.operations')}</span>
 			</button>
 		</div>
+		{/if}
 
 		<!-- Operations Subsection Items -->
 		{#if showPromoOperationsSubmenu}
@@ -5072,6 +5013,7 @@ function openApprovalCenter() {
 		{/if}
 
 		<!-- Reports Subsection -->
+		{#if subsectionVisible['PromoReports']}
 		<div class="submenu-item-container">
 			<button 
 				class="submenu-subsection-button icon-only"
@@ -5089,6 +5031,7 @@ function openApprovalCenter() {
 				<span class="menu-text">{t('nav.reports')}</span>
 			</button>
 		</div>
+		{/if}
 
 		<!-- Reports Subsection Items -->
 		{#if showPromoReportsSubmenu}
@@ -5105,6 +5048,7 @@ function openApprovalCenter() {
 		{/if}
 	</div>
 {/if}	<!-- Finance Section -->
+	{#if sectionVisible['Finance']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -5115,11 +5059,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showFinanceSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Finance Submenu - Inline below Finance button -->
 	{#if showFinanceSubmenu}
 		<div class="submenu-inline finance-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['FinanceDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5137,6 +5083,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showFinanceDashboardSubmenu}
@@ -5161,6 +5108,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['FinanceManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5178,6 +5126,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manage Subsection Items -->
 			{#if showFinanceManageSubmenu}
@@ -5226,6 +5175,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['FinanceOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5243,6 +5193,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showFinanceOperationsSubmenu}
@@ -5307,6 +5258,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['FinanceReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5320,6 +5272,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showFinanceReportsSubmenu}
@@ -5378,6 +5331,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- HR Section -->
+	{#if sectionVisible['HR']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -5388,11 +5342,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showHRSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- HR Submenu - Inline below HR button -->
 	{#if showHRSubmenu}
 		<div class="submenu-inline hr-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['HRDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5410,6 +5366,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showHRDashboardSubmenu}
@@ -5430,7 +5387,7 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if $currentUser?.isMasterAdmin}
+					{#if isButtonAllowed('QUICK_DASHBOARD')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openQuickDashboardWindow}>
 								<span class="menu-icon">📊</span>
@@ -5442,6 +5399,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['HRManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5459,6 +5417,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manage Subsection Items -->
 			{#if showHRManageSubmenu}
@@ -5491,6 +5450,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['HROperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5508,6 +5468,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showHROperationsSubmenu}
@@ -5596,6 +5557,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['HRReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5613,6 +5575,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showHRReportsSubmenu}
@@ -5639,6 +5602,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- Tasks Section -->
+	{#if sectionVisible['Tasks']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -5649,11 +5613,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showTasksSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Tasks Submenu - Inline below Tasks button -->
 	{#if showTasksSubmenu}
 		<div class="submenu-inline tasks-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['TasksDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5671,6 +5637,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 		<!-- Dashboard Subsection Items -->
 		{#if showTasksDashboardSubmenu}
@@ -5685,6 +5652,7 @@ function openApprovalCenter() {
 				{/if}
 			</div>
 		{/if}			<!-- Manage Subsection -->
+			{#if subsectionVisible['TasksManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5702,6 +5670,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manage Subsection Items -->
 			{#if showTasksManageSubmenu}
@@ -5726,6 +5695,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['TasksOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5743,6 +5713,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showTasksOperationsSubmenu}
@@ -5767,6 +5738,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['TasksReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5780,6 +5752,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showTasksReportsSubmenu}
@@ -5822,6 +5795,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- User Section -->
+	{#if sectionVisible['User']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -5832,11 +5806,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showUserSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- User Submenu - Inline below User button -->
 	{#if showUserSubmenu}
 		<div class="submenu-inline user-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['UserDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5854,6 +5830,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showUserDashboardSubmenu}
@@ -5870,6 +5847,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['UserManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5887,6 +5865,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manager Subsection Items -->
 			{#if showUserManageSubmenu}
@@ -5935,6 +5914,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['UserOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5952,6 +5932,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showUserOperationsSubmenu}
@@ -5961,6 +5942,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['UserReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -5978,6 +5960,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showUserReportsSubmenu}
@@ -5989,6 +5972,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- ============ 🏆 LOYALTY PROGRAM SECTION ============ -->
+	{#if sectionVisible['Loyalty']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -5999,11 +5983,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showLoyaltySubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Loyalty Program Submenu - Inline below Loyalty Program button -->
 	{#if showLoyaltySubmenu}
 		<div class="submenu-inline loyalty-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['LoyaltyDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6021,6 +6007,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showLoyaltyDashboardSubmenu}
@@ -6045,6 +6032,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['LoyaltyManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6062,6 +6050,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manage Subsection Items -->
 			{#if showLoyaltyManageSubmenu}
@@ -6078,6 +6067,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['LoyaltyOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6095,6 +6085,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showLoyaltyOperationsSubmenu}
@@ -6104,6 +6095,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['LoyaltyReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6121,6 +6113,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showLoyaltyReportsSubmenu}
@@ -6132,6 +6125,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- Controls Section -->
+	{#if sectionVisible['Controls']}
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -6142,11 +6136,13 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showControlsSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 
 	<!-- Controls Submenu - Inline below Controls button -->
 	{#if showControlsSubmenu}
 		<div class="submenu-inline controls-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['ControlsDashboard']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6164,6 +6160,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Dashboard Subsection Items -->
 			{#if showControlsDashboardSubmenu}
@@ -6173,6 +6170,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['ControlsManage']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6190,6 +6188,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Manage Subsection Items -->
 			{#if showControlsManageSubmenu}
@@ -6234,14 +6233,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-				{#if isButtonAllowed('BUTTON_GENERATOR')}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openButtonGenerator}>
-							<span class="menu-icon">🔨</span>
-							<span class="menu-text">{t('nav.buttonGenerator')}</span>
-						</button>
-					</div>
-				{/if}
 				{#if isButtonAllowed('THEME_MANAGER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openThemeManager}>
@@ -6298,7 +6289,7 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
-				{#if $currentUser?.isMasterAdmin}
+				{#if isButtonAllowed('SUPABASE_SECRETS')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openSupabaseSecretsManager}>
 							<span class="menu-icon">🔐</span>
@@ -6308,6 +6299,7 @@ function openApprovalCenter() {
 				{/if}
 			</div>
 		{/if}			<!-- Operations Subsection -->
+			{#if subsectionVisible['ControlsOperations']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6325,6 +6317,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Operations Subsection Items -->
 			{#if showControlsOperationsSubmenu}
@@ -6365,6 +6358,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['ControlsReports']}
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -6382,6 +6376,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 
 			<!-- Reports Subsection Items -->
 			{#if showControlsReportsSubmenu}
@@ -6394,19 +6389,23 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if $currentUser?.isMasterAdmin}
+					{#if isButtonAllowed('USER_ACTION_REPORTS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openUserActionReports}>
 								<span class="menu-icon">🕵️</span>
 								<span class="menu-text">{t('nav.userActionReports') || 'User Action Reports'}</span>
 							</button>
 						</div>
+					{/if}
+					{#if isButtonAllowed('DRAWER_ACTION_MONITOR')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDrawerActionMonitor}>
 								<span class="menu-icon">🚨</span>
 								<span class="menu-text">{t('nav.drawerActionMonitor') || 'Drawer Action Monitor'}</span>
 							</button>
 						</div>
+					{/if}
+					{#if isButtonAllowed('PC_LOCK_GUARD')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPCLockGuard}>
 								<span class="menu-icon">🛡️</span>
@@ -6420,6 +6419,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- ============ 📱 WHATSAPP SECTION ============ -->
+	{#if sectionVisible['WhatsApp']}
 	<div class="menu-section">
 		<button class="section-button" on:click={() => showWhatsAppSubmenu = !showWhatsAppSubmenu}
 			title={t('nav.whatsapp')}>
@@ -6428,9 +6428,11 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showWhatsAppSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 	{#if showWhatsAppSubmenu}
 		<div class="submenu-inline whatsapp-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['WhatsAppDashboard']}
 			<div class="submenu-item-container">
 				<button
 					class="submenu-subsection-button icon-only"
@@ -6447,6 +6449,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
+			{/if}
 			{#if showWhatsAppDashboardSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('WA_DASHBOARD')}
@@ -6461,6 +6464,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['WhatsAppManage']}
 			<div class="submenu-item-container">
 				<button
 					class="submenu-subsection-button icon-only"
@@ -6477,6 +6481,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
+			{/if}
 			{#if showWhatsAppManageSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('WA_ACCOUNTS')}
@@ -6523,6 +6528,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['WhatsAppOperations']}
 			<div class="submenu-item-container">
 				<button
 					class="submenu-subsection-button icon-only"
@@ -6539,6 +6545,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
+			{/if}
 			{#if showWhatsAppOperationsSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('WA_LIVE_CHAT')}
@@ -6580,6 +6587,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['WhatsAppReports']}
 			<div class="submenu-item-container">
 				<button
 					class="submenu-subsection-button icon-only"
@@ -6596,6 +6604,7 @@ function openApprovalCenter() {
 					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
+			{/if}
 			{#if showWhatsAppReportsSubmenu}
 				<div class="submenu-subitem-container">
 					<!-- Reports items will be added here -->
@@ -6605,6 +6614,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- ============ ✉️ EMAIL SECTION ============ -->
+	{#if sectionVisible['Email']}
 	<div class="menu-section">
 		<button class="section-button" on:click={() => showEmailSubmenu = !showEmailSubmenu}
 			title="Email">
@@ -6613,9 +6623,11 @@ function openApprovalCenter() {
 			<span class="arrow" class:expanded={showEmailSubmenu}>▼</span>
 		</button>
 	</div>
+	{/if}
 	{#if showEmailSubmenu}
 		<div class="submenu-inline email-submenu">
 			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['EmailDashboard']}
 			<div class="submenu-item-container">
 				<button class="submenu-subsection-button icon-only"
 					on:click={() => { showEmailDashboardSubmenu = !showEmailDashboardSubmenu; showEmailManageSubmenu = false; showEmailOperationsSubmenu = false; showEmailReportsSubmenu = false; }}
@@ -6623,6 +6635,7 @@ function openApprovalCenter() {
 					<span class="menu-text">Dashboard</span>
 				</button>
 			</div>
+			{/if}
 			{#if showEmailDashboardSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('EMAIL_DASHBOARD')}
@@ -6637,6 +6650,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Manage Subsection -->
+			{#if subsectionVisible['EmailManage']}
 			<div class="submenu-item-container">
 				<button class="submenu-subsection-button icon-only"
 					on:click={() => { showEmailManageSubmenu = !showEmailManageSubmenu; showEmailDashboardSubmenu = false; showEmailOperationsSubmenu = false; showEmailReportsSubmenu = false; }}
@@ -6644,6 +6658,7 @@ function openApprovalCenter() {
 					<span class="menu-text">Management</span>
 				</button>
 			</div>
+			{/if}
 			{#if showEmailManageSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('EMAIL_ACCOUNTS')}
@@ -6694,16 +6709,19 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openEmailSetupGuide}>
-							<span class="menu-icon">📖</span>
-							<span class="menu-text">Email Setup Guide</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('EMAIL_SETUP_GUIDE')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmailSetupGuide}>
+								<span class="menu-icon">📖</span>
+								<span class="menu-text">Email Setup Guide</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
 			<!-- Operations Subsection -->
+			{#if subsectionVisible['EmailOperations']}
 			<div class="submenu-item-container">
 				<button class="submenu-subsection-button icon-only"
 					on:click={() => { showEmailOperationsSubmenu = !showEmailOperationsSubmenu; showEmailDashboardSubmenu = false; showEmailManageSubmenu = false; showEmailReportsSubmenu = false; }}
@@ -6711,6 +6729,7 @@ function openApprovalCenter() {
 					<span class="menu-text">Operations</span>
 				</button>
 			</div>
+			{/if}
 			{#if showEmailOperationsSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('EMAIL_CENTRE')}
@@ -6757,6 +6776,7 @@ function openApprovalCenter() {
 			{/if}
 
 			<!-- Reports Subsection -->
+			{#if subsectionVisible['EmailReports']}
 			<div class="submenu-item-container">
 				<button class="submenu-subsection-button icon-only"
 					on:click={() => { showEmailReportsSubmenu = !showEmailReportsSubmenu; showEmailDashboardSubmenu = false; showEmailManageSubmenu = false; showEmailOperationsSubmenu = false; }}
@@ -6764,6 +6784,7 @@ function openApprovalCenter() {
 					<span class="menu-text">Reports</span>
 				</button>
 			</div>
+			{/if}
 			{#if showEmailReportsSubmenu}
 				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('EMAIL_LOGS')}

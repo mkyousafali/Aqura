@@ -23,7 +23,6 @@
 	let allButtons: any[] = [];
 	let permissionMap: Map<string, boolean> = new Map(); // code → enabled
 	let buttonsLoading = false;
-	let buttonCodeToIdMap: Map<string, number> = new Map();
 	let buttonSearchQuery = '';
 	let buttonSectionFilter = '';
 	let availableSections: string[] = [];
@@ -258,23 +257,23 @@
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 
-			const [btnRes, secRes, subRes] = await Promise.all([
-				supabase.from('sidebar_buttons').select('id, button_code, button_name_en, main_section_id, subsection_id').order('button_code'),
-				supabase.from('button_main_sections').select('id, section_name_en'),
-				supabase.from('button_sub_sections').select('id, subsection_name_en')
-			]);
+			// Catalog is the button/section source of truth — see
+			// [[button-permission-system-rewrite]]. Re-fetched each time in
+			// case it changed; cheap and keeps this screen always current.
+			const catalogRes = await fetch('/api/parse-sidebar');
+			const catalog = await catalogRes.json();
+			const flatButtons: Array<{ code: string; name: string; section: string; subsection: string }> = [];
+			for (const section of catalog.sections || []) {
+				for (const subsection of section.subsections || []) {
+					for (const button of subsection.buttons || []) {
+						flatButtons.push({ code: button.code, name: button.name, section: section.name, subsection: subsection.name });
+					}
+				}
+			}
 
-			const mainMap = new Map(secRes.data?.map((s: any) => [s.id, s.section_name_en]) || []);
-			const subMap = new Map(subRes.data?.map((s: any) => [s.id, s.subsection_name_en]) || []);
+			if (!flatButtons.length) return;
 
-			if (btnRes.error || !btnRes.data?.length) return;
-
-			allButtons = btnRes.data.map((btn: any) => ({
-				code: btn.button_code,
-				name: btn.button_name_en,
-				section: mainMap.get(btn.main_section_id) || 'Unknown',
-				subsection: subMap.get(btn.subsection_id) || 'Unknown'
-			})).sort((a: any, b: any) => {
+			allButtons = flatButtons.sort((a, b) => {
 				const sr = sectionRank(a.section) - sectionRank(b.section);
 				if (sr !== 0) return sr;
 				const sc = a.section.localeCompare(b.section);
@@ -291,21 +290,17 @@
 				return sr !== 0 ? sr : a.localeCompare(b);
 			});
 
-			buttonCodeToIdMap.clear();
-			btnRes.data.forEach((btn: any) => { buttonCodeToIdMap.set(btn.button_code, btn.id); });
-
 			const { data: perms } = await supabase
 				.from('button_permissions')
-				.select('button_id, is_enabled')
+				.select('button_code, is_enabled')
 				.eq('user_id', selectedUserId);
 
-			const enabledIds = new Set<number>();
-			perms?.forEach((p: any) => { if (p.is_enabled) enabledIds.add(p.button_id); });
+			const enabledCodes = new Set<string>();
+			perms?.forEach((p: any) => { if (p.is_enabled) enabledCodes.add(p.button_code); });
 
 			permissionMap = new Map();
 			allButtons.forEach((btn: any) => {
-				const id = buttonCodeToIdMap.get(btn.code);
-				permissionMap.set(btn.code, id ? enabledIds.has(id) : false);
+				permissionMap.set(btn.code, enabledCodes.has(btn.code));
 			});
 			permissionMap = permissionMap; // trigger reactivity
 		} catch (err) {
@@ -354,15 +349,13 @@
 			const { supabase } = await import('$lib/utils/supabase');
 			const upserts: any[] = [];
 			for (const [code, enabled] of pendingChanges) {
-				const buttonId = buttonCodeToIdMap.get(code);
-				if (!buttonId) continue;
-				upserts.push({ user_id: selectedUserId, button_id: buttonId, is_enabled: enabled });
+				upserts.push({ user_id: selectedUserId, button_code: code, is_enabled: enabled, updated_at: new Date().toISOString() });
 			}
 
 			if (upserts.length > 0) {
 				const { error } = await supabase
 					.from('button_permissions')
-					.upsert(upserts, { onConflict: 'user_id,button_id' });
+					.upsert(upserts, { onConflict: 'user_id,button_code' });
 				if (error) throw error;
 			}
 
