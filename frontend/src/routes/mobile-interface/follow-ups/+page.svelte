@@ -284,16 +284,27 @@
 	function formatDateTime(d: string) { return d ? new Date(d).toLocaleString() : '—'; }
 
 	function formatRecurrence(rec: any): string {
-		if (rec.schedule_type === 'single') return 'Single';
+		if (rec.schedule_type === 'single') return $currentLocale === 'ar' ? 'مرة واحدة' : 'Single';
 		let str = rec.recurrence_type || '';
+		if ($currentLocale === 'ar') {
+			if (str === 'daily') str = 'يومي';
+			else if (str === 'weekly') str = 'أسبوعي';
+			else if (str === 'monthly') str = 'شهري';
+		}
 		if (rec.recurrence_time) str += ' @ ' + rec.recurrence_time.substring(0, 5);
 		return str;
 	}
 
 	function formatMyTaskSchedule(task: any): string {
-		if (task.timeline_type === 'no_timeline') return 'No Timeline';
+		if (task.timeline_type === 'no_timeline') return $currentLocale === 'ar' ? 'بدون جدول زمني' : 'No Timeline';
 		if (task.timeline_type === 'with_timeline_single') return (task.due_date || '') + (task.due_time ? ' @ ' + task.due_time.substring(0, 5) : '');
-		return task.recurrence_type || '';
+		let str = task.recurrence_type || '';
+		if ($currentLocale === 'ar') {
+			if (str === 'daily') str = 'يومي';
+			else if (str === 'weekly') str = 'أسبوعي';
+			else if (str === 'monthly') str = 'شهري';
+		}
+		return str;
 	}
 
 	function getDeliveryStatus(rec: any): { text: string; cls: string } {
@@ -313,7 +324,7 @@
 <div class="followups-mobile">
 	<!-- Tabs -->
 	<div class="mobile-tabs">
-		<button class="mtab" class:active={activeTab === 'po'} on:click={() => activeTab = 'po'}>PO</button>
+		<button class="mtab" class:active={activeTab === 'po'} on:click={() => activeTab = 'po'}>{$currentLocale === 'ar' ? 'أوامر شراء' : 'PO'}</button>
 		<button class="mtab" class:active={activeTab === 'other'} on:click={() => activeTab = 'other'}>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</button>
 		<button class="mtab" class:active={activeTab === 'mytasks'} on:click={() => activeTab = 'mytasks'}>{$currentLocale === 'ar' ? 'مهامي' : 'My Tasks'}</button>
 	</div>
@@ -323,22 +334,22 @@
 		<div class="tab-body">
 			<button class="fab-btn" on:click={openCreateModal}>+</button>
 			{#if recordsLoading}
-				<p class="loading-text">Loading...</p>
+				<p class="loading-text">{$currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
 			{:else if records.filter(r => !r.is_finished).length === 0}
-				<p class="empty-text">No PO follow-ups yet.</p>
+				<p class="empty-text">{$currentLocale === 'ar' ? 'لا توجد متابعات أوامر شراء بعد' : 'No PO follow-ups yet.'}</p>
 			{:else}
 				{#each records.filter(r => !r.is_finished) as rec}
 					<div class="card">
 						<div class="card-top">
 							{#if rec.approval_status === 'approved'}
-								<input type="checkbox" class="check" on:change={() => markPoFinished(rec.id)} title="Mark as delivered" />
+								<input type="checkbox" class="check" on:change={() => markPoFinished(rec.id)} title={$currentLocale === 'ar' ? 'تحديد كمستلم' : 'Mark as delivered'} />
 							{/if}
 							<span class="card-vendor">{rec.vendor_name}</span>
 							<span class="card-amount">{parseFloat(rec.po_amount).toFixed(2)}</span>
 						</div>
 						<div class="card-mid">
 							<span>{rec.branch_name}</span>
-							<span class="badge" class:pending={rec.approval_status === 'pending'} class:approved={rec.approval_status === 'approved'} class:rejected={rec.approval_status === 'rejected'}>{rec.approval_status}</span>
+							<span class="badge" class:pending={rec.approval_status === 'pending'} class:approved={rec.approval_status === 'approved'} class:rejected={rec.approval_status === 'rejected'}>{rec.approval_status === 'pending' ? ($currentLocale === 'ar' ? 'قيد الانتظار' : 'pending') : rec.approval_status === 'approved' ? ($currentLocale === 'ar' ? 'موافق عليه' : 'approved') : ($currentLocale === 'ar' ? 'مرفوض' : 'rejected')}</span>
 						</div>
 						<div class="card-bot">
 							<span class="delivery-status {getDeliveryStatus(rec).cls}">{getDeliveryStatus(rec).text}</span>
@@ -355,9 +366,9 @@
 		<div class="tab-body">
 			<button class="fab-btn" on:click={openOtherModal}>+</button>
 			{#if otherRecordsLoading}
-				<p class="loading-text">Loading...</p>
+				<p class="loading-text">{$currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
 			{:else if otherRecords.filter(r => !r.is_finished && r.schedule_type === 'single').length === 0 && occurrences.filter(o => !o.is_finished).length === 0}
-				<p class="empty-text">No follow-ups yet.</p>
+				<p class="empty-text">{$currentLocale === 'ar' ? 'لا توجد متابعات بعد' : 'No follow-ups yet.'}</p>
 			{:else}
 				{#each otherRecords.filter(r => !r.is_finished && r.schedule_type === 'single') as rec}
 					<div class="card">
@@ -386,9 +397,9 @@
 		<div class="tab-body">
 			<button class="fab-btn" on:click={openMyTaskModal}>+</button>
 			{#if myTasksLoading}
-				<p class="loading-text">Loading...</p>
+				<p class="loading-text">{$currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</p>
 			{:else if myTasks.filter(t => !t.is_finished).length === 0}
-				<p class="empty-text">No tasks yet. Add one!</p>
+				<p class="empty-text">{$currentLocale === 'ar' ? 'لا توجد مهام بعد. أضف واحدة!' : 'No tasks yet. Add one!'}</p>
 			{:else}
 				{#each myTasks.filter(t => !t.is_finished) as task}
 					<div class="card task-card">
@@ -404,7 +415,7 @@
 			{/if}
 			{#if myTasks.filter(t => t.is_finished).length > 0}
 				<details class="done-section">
-					<summary>Completed ({myTasks.filter(t => t.is_finished).length})</summary>
+					<summary>{$currentLocale === 'ar' ? 'مكتملة' : 'Completed'} ({myTasks.filter(t => t.is_finished).length})</summary>
 					{#each myTasks.filter(t => t.is_finished) as task}
 						<div class="card task-card done">
 							<input type="checkbox" class="check" checked on:change={() => unfinishMyTask(task.id)} />
@@ -421,29 +432,30 @@
 {#if showCreateModal}
 <div class="modal-bg" on:click|self={() => showCreateModal = false}>
 	<div class="modal">
-		<h3>New PO Follow-Up</h3>
+		<h3>{$currentLocale === 'ar' ? 'متابعة أمر شراء جديد' : 'New PO Follow-Up'}</h3>
 		<select bind:value={selectedBranchId} on:change={() => { selectedVendor = null; if (selectedBranchId) loadVendors(); }} class="input">
-			<option value="">Select Branch</option>
-			{#each branches as b}<option value={b.id.toString()}>{b.name_en}</option>{/each}
+			<option value="">{$currentLocale === 'ar' ? 'اختر الفرع' : 'Select Branch'}</option>
+			{#each branches as b}<option value={b.id.toString()}>{$currentLocale === 'ar' ? (b.name_ar || b.name_en) : b.name_en}</option>{/each}
 		</select>
 		{#if selectedVendor}
 			<div class="selected-item">{selectedVendor.vendor_name} <button on:click={() => selectedVendor = null}>×</button></div>
 		{:else if selectedBranchId}
-			<input bind:value={vendorSearchQuery} placeholder="Search vendor..." class="input" />
+			<input bind:value={vendorSearchQuery} placeholder={$currentLocale === 'ar' ? 'بحث عن مورد...' : 'Search vendor...'} class="input" />
 			<div class="list">{#each filteredVendors.slice(0, 20) as v}<button class="list-item" on:click={() => selectedVendor = v}>{v.erp_vendor_id} - {v.vendor_name}</button>{/each}</div>
 		{/if}
 		<select bind:value={paymentMode} class="input">
-			<option value="">Payment Mode</option><option value="spot">Spot</option><option value="credit">Credit</option>
+			<option value="">{$currentLocale === 'ar' ? 'طريقة الدفع' : 'Payment Mode'}</option><option value="spot">{$currentLocale === 'ar' ? 'فوري' : 'Spot'}</option><option value="credit">{$currentLocale === 'ar' ? 'آجل' : 'Credit'}</option>
 		</select>
-		{#if paymentMode === 'credit'}<input bind:value={creditPeriod} type="number" placeholder="Credit period (days)" class="input" />{/if}
-		<input bind:value={poAmount} type="number" placeholder="PO Amount" class="input" />
-		<input bind:value={salesmanName} placeholder="Salesman Name" class="input" />
-		<input bind:value={salesmanContact} placeholder="Contact Number" class="input" />
+		{#if paymentMode === 'credit'}<input bind:value={creditPeriod} type="number" placeholder={$currentLocale === 'ar' ? 'فترة الائتمان (أيام)' : 'Credit period (days)'} class="input" />{/if}
+		<input bind:value={poAmount} type="number" placeholder={$currentLocale === 'ar' ? 'مبلغ أمر الشراء' : 'PO Amount'} class="input" />
+		<input bind:value={salesmanName} placeholder={$currentLocale === 'ar' ? 'اسم المندوب' : 'Salesman Name'} class="input" />
+		<input bind:value={salesmanContact} placeholder={$currentLocale === 'ar' ? 'رقم التواصل' : 'Contact Number'} class="input" />
+		<label class="input-label">{$currentLocale === 'ar' ? 'تاريخ التسليم المتوقع' : 'Expected Delivery Date'}</label>
 		<input bind:value={expectedDeliveryDate} type="date" class="input" />
 		{#if saveError}<p class="error">{saveError}</p>{/if}
 		<div class="modal-actions">
-			<button class="btn-cancel" on:click={() => showCreateModal = false}>Cancel</button>
-			<button class="btn-save" on:click={handleSave} disabled={saving}>{saving ? '...' : 'Save'}</button>
+			<button class="btn-cancel" on:click={() => showCreateModal = false}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+			<button class="btn-save" on:click={handleSave} disabled={saving}>{saving ? '...' : ($currentLocale === 'ar' ? 'حفظ' : 'Save')}</button>
 		</div>
 	</div>
 </div>
@@ -453,33 +465,33 @@
 {#if showOtherModal}
 <div class="modal-bg" on:click|self={() => showOtherModal = false}>
 	<div class="modal">
-		<h3>New Follow-Up</h3>
+		<h3>{$currentLocale === 'ar' ? 'متابعة جديدة' : 'New Follow-Up'}</h3>
 		<select bind:value={otherBranchId} on:change={() => { if (otherBranchId) loadOtherUsers(); }} class="input">
-			<option value="">Select Branch</option>
-			{#each branches as b}<option value={b.id.toString()}>{b.name_en}</option>{/each}
+			<option value="">{$currentLocale === 'ar' ? 'اختر الفرع' : 'Select Branch'}</option>
+			{#each branches as b}<option value={b.id.toString()}>{$currentLocale === 'ar' ? (b.name_ar || b.name_en) : b.name_en}</option>{/each}
 		</select>
-		<textarea bind:value={otherDescription} placeholder="Description" rows="3" class="input"></textarea>
+		<textarea bind:value={otherDescription} placeholder={$currentLocale === 'ar' ? 'الوصف' : 'Description'} rows="3" class="input"></textarea>
 		<select bind:value={otherScheduleType} class="input">
-			<option value="">Schedule Type</option><option value="single">Single</option><option value="recurring">Recurring</option>
+			<option value="">{$currentLocale === 'ar' ? 'نوع الجدولة' : 'Schedule Type'}</option><option value="single">{$currentLocale === 'ar' ? 'مرة واحدة' : 'Single'}</option><option value="recurring">{$currentLocale === 'ar' ? 'متكرر' : 'Recurring'}</option>
 		</select>
 		{#if otherScheduleType === 'recurring'}
 			<select bind:value={otherRecurrenceType} class="input">
-				<option value="">Recurrence</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+				<option value="">{$currentLocale === 'ar' ? 'التكرار' : 'Recurrence'}</option><option value="daily">{$currentLocale === 'ar' ? 'يومي' : 'Daily'}</option><option value="weekly">{$currentLocale === 'ar' ? 'أسبوعي' : 'Weekly'}</option><option value="monthly">{$currentLocale === 'ar' ? 'شهري' : 'Monthly'}</option>
 			</select>
-			{#if otherRecurrenceType === 'weekly'}<select bind:value={otherDayOfWeek} class="input"><option value="">Day</option>{#each dayNames as d, i}<option value={i.toString()}>{d}</option>{/each}</select>{/if}
-			{#if otherRecurrenceType === 'monthly'}<select bind:value={otherDayOfMonth} class="input"><option value="">Day of month</option>{#each Array.from({length:31},(_,i)=>i+1) as d}<option value={d.toString()}>{d}</option>{/each}</select>{/if}
+			{#if otherRecurrenceType === 'weekly'}<select bind:value={otherDayOfWeek} class="input"><option value="">{$currentLocale === 'ar' ? 'اليوم' : 'Day'}</option>{#each dayNames as d, i}<option value={i.toString()}>{d}</option>{/each}</select>{/if}
+			{#if otherRecurrenceType === 'monthly'}<select bind:value={otherDayOfMonth} class="input"><option value="">{$currentLocale === 'ar' ? 'يوم الشهر' : 'Day of month'}</option>{#each Array.from({length:31},(_,i)=>i+1) as d}<option value={d.toString()}>{d}</option>{/each}</select>{/if}
 			<input bind:value={otherTime} type="time" class="input" />
 		{/if}
 		{#if otherSelectedUser}
 			<div class="selected-item">{otherSelectedUser.name_en} <button on:click={() => otherSelectedUser = null}>×</button></div>
 		{:else if otherBranchId}
-			<input bind:value={otherUserSearch} placeholder="Search user..." class="input" />
+			<input bind:value={otherUserSearch} placeholder={$currentLocale === 'ar' ? 'بحث عن مستخدم...' : 'Search user...'} class="input" />
 			<div class="list">{#each otherFilteredUsers.slice(0, 15) as u}<button class="list-item" on:click={() => otherSelectedUser = u}>{u.id} - {u.name_en}</button>{/each}</div>
 		{/if}
 		{#if otherError}<p class="error">{otherError}</p>{/if}
 		<div class="modal-actions">
-			<button class="btn-cancel" on:click={() => showOtherModal = false}>Cancel</button>
-			<button class="btn-save" on:click={handleOtherSave} disabled={otherSaving}>{otherSaving ? '...' : 'Save'}</button>
+			<button class="btn-cancel" on:click={() => showOtherModal = false}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+			<button class="btn-save" on:click={handleOtherSave} disabled={otherSaving}>{otherSaving ? '...' : ($currentLocale === 'ar' ? 'حفظ' : 'Save')}</button>
 		</div>
 	</div>
 </div>
@@ -489,11 +501,11 @@
 {#if showMyTaskModal}
 <div class="modal-bg" on:click|self={() => showMyTaskModal = false}>
 	<div class="modal">
-		<h3>New Task</h3>
-		<input bind:value={myTaskTitle} placeholder="Task title" class="input" />
-		<textarea bind:value={myTaskDescription} placeholder="Notes (optional)" rows="2" class="input"></textarea>
+		<h3>{$currentLocale === 'ar' ? 'مهمة جديدة' : 'New Task'}</h3>
+		<input bind:value={myTaskTitle} placeholder={$currentLocale === 'ar' ? 'عنوان المهمة' : 'Task title'} class="input" />
+		<textarea bind:value={myTaskDescription} placeholder={$currentLocale === 'ar' ? 'ملاحظات (اختياري)' : 'Notes (optional)'} rows="2" class="input"></textarea>
 		<select bind:value={myTaskTimeline} class="input">
-			<option value="no_timeline">No Timeline</option><option value="with_timeline_single">With Date</option><option value="with_timeline_recurring">Recurring</option>
+			<option value="no_timeline">{$currentLocale === 'ar' ? 'بدون جدول زمني' : 'No Timeline'}</option><option value="with_timeline_single">{$currentLocale === 'ar' ? 'بتاريخ محدد' : 'With Date'}</option><option value="with_timeline_recurring">{$currentLocale === 'ar' ? 'متكرر' : 'Recurring'}</option>
 		</select>
 		{#if myTaskTimeline === 'with_timeline_single'}
 			<input bind:value={myTaskDueDate} type="date" class="input" />
@@ -501,16 +513,16 @@
 		{/if}
 		{#if myTaskTimeline === 'with_timeline_recurring'}
 			<select bind:value={myTaskRecurrenceType} class="input">
-				<option value="">Recurrence</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+				<option value="">{$currentLocale === 'ar' ? 'التكرار' : 'Recurrence'}</option><option value="daily">{$currentLocale === 'ar' ? 'يومي' : 'Daily'}</option><option value="weekly">{$currentLocale === 'ar' ? 'أسبوعي' : 'Weekly'}</option><option value="monthly">{$currentLocale === 'ar' ? 'شهري' : 'Monthly'}</option>
 			</select>
-			{#if myTaskRecurrenceType === 'weekly'}<select bind:value={myTaskDayOfWeek} class="input"><option value="">Day</option>{#each dayNames as d, i}<option value={i.toString()}>{d}</option>{/each}</select>{/if}
-			{#if myTaskRecurrenceType === 'monthly'}<select bind:value={myTaskDayOfMonth} class="input"><option value="">Day</option>{#each Array.from({length:31},(_,i)=>i+1) as d}<option value={d.toString()}>{d}</option>{/each}</select>{/if}
+			{#if myTaskRecurrenceType === 'weekly'}<select bind:value={myTaskDayOfWeek} class="input"><option value="">{$currentLocale === 'ar' ? 'اليوم' : 'Day'}</option>{#each dayNames as d, i}<option value={i.toString()}>{d}</option>{/each}</select>{/if}
+			{#if myTaskRecurrenceType === 'monthly'}<select bind:value={myTaskDayOfMonth} class="input"><option value="">{$currentLocale === 'ar' ? 'اليوم' : 'Day'}</option>{#each Array.from({length:31},(_,i)=>i+1) as d}<option value={d.toString()}>{d}</option>{/each}</select>{/if}
 			<input bind:value={myTaskDueTime} type="time" class="input" />
 		{/if}
 		{#if myTaskError}<p class="error">{myTaskError}</p>{/if}
 		<div class="modal-actions">
-			<button class="btn-cancel" on:click={() => showMyTaskModal = false}>Cancel</button>
-			<button class="btn-save" on:click={handleMyTaskSave} disabled={myTaskSaving}>{myTaskSaving ? '...' : 'Save'}</button>
+			<button class="btn-cancel" on:click={() => showMyTaskModal = false}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+			<button class="btn-save" on:click={handleMyTaskSave} disabled={myTaskSaving}>{myTaskSaving ? '...' : ($currentLocale === 'ar' ? 'حفظ' : 'Save')}</button>
 		</div>
 	</div>
 </div>
@@ -566,6 +578,7 @@
 	.modal { background: white; width: 100%; max-height: 85vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
 	.modal h3 { margin: 0 0 4px; font-size: 17px; }
 	.input { padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; width: 100%; box-sizing: border-box; }
+	.input-label { font-size: 13px; font-weight: 500; color: #374151; margin-bottom: -8px; }
 	textarea.input { resize: vertical; }
 	.selected-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; font-size: 13px; color: #166534; }
 	.selected-item button { border: none; background: none; font-size: 18px; cursor: pointer; color: #166534; }

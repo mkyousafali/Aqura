@@ -743,18 +743,18 @@
 		if (path === '/mobile-interface/my-checklist' || path === '/mobile-interface/my-checklist/') return getTranslation('hr.dailyChecklist.myDailyChecklist');
 		if (path === '/mobile-interface/product-request' || path === '/mobile-interface/product-request/') return getTranslation('mobile.productRequest');
 		if (path === '/mobile-interface/near-expiry' || path === '/mobile-interface/near-expiry/') return getTranslation('mobile.nearExpiry');
-		if (path === '/mobile-interface/expiry-manager' || path === '/mobile-interface/expiry-manager/') return locale === 'ar' ? 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©' : 'Expiry Manager';
-		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'ÙØ­Øµ Ø§Ù„Ø£Ø³Ø¹Ø§Ø±' : 'Price Checker';
-		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'Ù…Ù†ØªØ¬Ø§ØªÙŠ' : 'My Products';
-		if (path === '/mobile-interface/start-receiving' || path === '/mobile-interface/start-receiving/') return locale === 'ar' ? 'Ø¨Ø¯Ø¡ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù…' : 'Start Receiving';
-		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'Ø§ØªØµØ§Ù„ ÙˆØ±Ø³Ø§Ø¦Ù„' : 'Call & Message';
-		if (path === '/mobile-interface/support' || path === '/mobile-interface/support/') return locale === 'ar' ? 'Ø§Ù„Ø¯Ø¹Ù…' : 'Support';
-		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'Ø³Ø¬Ù„ Ø§Ù„Ø§Ø³ØªØ±Ø§Ø­Ø©' : 'Break Register';
-		if (path === '/mobile-interface/break-register-log' || path === '/mobile-interface/break-register-log/') return locale === 'ar' ? 'Ø³Ø¬Ù„ Ø§Ù„Ø§Ø³ØªØ±Ø§Ø­Ø§Øª' : 'Break Log';
-		if (path === '/mobile-interface/request-generator' || path === '/mobile-interface/request-generator/') return locale === 'ar' ? 'Ù…ÙˆÙ„Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª' : 'Request Generator';
-		if (path === '/mobile-interface/scheduler' || path === '/mobile-interface/scheduler/') return locale === 'ar' ? 'Ø§Ù„Ø¬Ø¯ÙˆÙ„Ø©' : 'Scheduler';
-		if (path === '/mobile-interface/vendor-payments' || path === '/mobile-interface/vendor-payments/') return locale === 'ar' ? 'Ù…Ø¯ÙÙˆØ¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†' : 'Vendor Payments';
-		if (path === '/mobile-interface/planner' || path === '/mobile-interface/planner/') return locale === 'ar' ? 'Ù…Ø®Ø·Ø· Ø§Ù„Ø§Ø¹ØªÙ…Ø§Ø¯ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ÙŠ' : 'LC Planner';
+		if (path === '/mobile-interface/expiry-manager' || path === '/mobile-interface/expiry-manager/') return locale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager';
+		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'فحص الأسعار' : 'Price Checker';
+		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
+		if (path === '/mobile-interface/start-receiving' || path === '/mobile-interface/start-receiving/') return locale === 'ar' ? 'بدء الاستلام' : 'Start Receiving';
+		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
+		if (path === '/mobile-interface/support' || path === '/mobile-interface/support/') return locale === 'ar' ? 'الدعم' : 'Support';
+		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
+		if (path === '/mobile-interface/break-register-log' || path === '/mobile-interface/break-register-log/') return locale === 'ar' ? 'سجل الاستراحات' : 'Break Log';
+		if (path === '/mobile-interface/request-generator' || path === '/mobile-interface/request-generator/') return locale === 'ar' ? 'مولد الطلبات' : 'Request Generator';
+		if (path === '/mobile-interface/scheduler' || path === '/mobile-interface/scheduler/') return locale === 'ar' ? 'الجدولة' : 'Scheduler';
+		if (path === '/mobile-interface/vendor-payments' || path === '/mobile-interface/vendor-payments/') return locale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments';
+		if (path === '/mobile-interface/planner' || path === '/mobile-interface/planner/') return locale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner';
 		if (path === '/mobile-interface/follow-ups' || path === '/mobile-interface/follow-ups/') return locale === 'ar' ? 'المتابعات' : 'Follow-Ups';
 		
 		// Sub-pages
@@ -1096,14 +1096,14 @@
 				<span class="menu-item-text">{mobileVersion}</span>
 			</div>
 			{#if $updateAvailable}
-				<button class="menu-item menu-update" on:click={() => { handleUpdateClick(); showMenu = false; }} title={$currentLocale === 'ar' ? 'ØªØ­Ø¯ÙŠØ« Ù…ØªØ§Ø­' : 'Update Available'}>
+				<button class="menu-item menu-update" on:click={() => { handleUpdateClick(); showMenu = false; }} title={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}>
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
 						<path d="M3 3v5h5"/>
 						<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
 						<path d="M16 16h5v5"/>
 					</svg>
-					<span class="menu-item-text" style="color: #10B981; font-weight: 600;">{$currentLocale === 'ar' ? 'ØªØ­Ø¯ÙŠØ« Ù…ØªØ§Ø­' : 'Update Available'}</span>
+					<span class="menu-item-text" style="color: #10B981; font-weight: 600;">{$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}</span>
 					<span class="update-dot" style="width:8px;height:8px;background:#10B981;border-radius:50%;animation:pulse-update 2s ease-in-out infinite;"></span>
 				</button>
 			{:else}
@@ -1111,7 +1111,7 @@
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M20 6L9 17l-5-5"/>
 					</svg>
-					<span class="menu-item-text" style="opacity: 0.6;">{$currentLocale === 'ar' ? 'Ù…Ø­Ø¯Ù‘Ø«' : 'Up to Date'}</span>
+					<span class="menu-item-text" style="opacity: 0.6;">{$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}</span>
 				</div>
 			{/if}
 			<div class="menu-spacer"></div>
@@ -1147,7 +1147,7 @@
 							<circle cx="18.5" cy="18.5" r="2.5"/>
 						</svg>
 					</div>
-					<span class="nav-label">{$currentLocale === 'ar' ? 'Ø§Ù„Ø·Ù„Ø¨Ø§Øª' : 'Orders'}</span>
+					<span class="nav-label">{$currentLocale === 'ar' ? 'الطلبات' : 'Orders'}</span>
 				</button>
 				
 				<!-- Orders Submenu -->
@@ -1163,7 +1163,7 @@
 								<circle cx="5.5" cy="18.5" r="2.5"/>
 								<circle cx="18.5" cy="18.5" r="2.5"/>
 							</svg>
-							<span>{$currentLocale === 'ar' ? 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª' : 'Orders Manager'}</span>
+							<span>{$currentLocale === 'ar' ? 'إدارة الطلبات' : 'Orders Manager'}</span>
 							{#if newOrdersCount > 0}
 								<span class="submenu-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
 							{/if}
@@ -1217,7 +1217,7 @@
 								<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
 								<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
 							</svg>
-							<span>{$localeData.code === 'ar' ? 'Ù…Ù‡Ø§Ù… ÙØ±ÙŠÙ‚ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù…' : 'Team Receiving Tasks'}</span>
+							<span>{$localeData.code === 'ar' ? 'مهام فريق الاستلام' : 'Team Receiving Tasks'}</span>
 							{#if teamReceivingTaskCount > 0}
 								<span class="submenu-badge">{teamReceivingTaskCount > 99 ? '99+' : teamReceivingTaskCount}</span>
 							{/if}
@@ -1250,7 +1250,7 @@
 							<line x1="12" y1="17" x2="12.01" y2="17"/>
 						</svg>
 					</div>
-					<span class="nav-label">{$currentLocale === 'ar' ? 'Ø·ÙˆØ§Ø±Ø¦' : 'SOS'}</span>
+					<span class="nav-label">{$currentLocale === 'ar' ? 'طوارئ' : 'SOS'}</span>
 				</button>
 				
 				<!-- Emergencies Submenu -->
@@ -1283,7 +1283,7 @@
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'Ø§Ù„Ø¯Ø¹Ù…' : 'Support'}</span>
+								<span>{$currentLocale === 'ar' ? 'الدعم' : 'Support'}</span>
 								{#if $waUnreadCounts.total > 0}
 									<span class="wa-unread-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
 								{/if}
@@ -1299,7 +1299,7 @@
 									<line x1="10" y1="1" x2="10" y2="4"/>
 									<line x1="14" y1="1" x2="14" y2="4"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'Ø³Ø¬Ù„ Ø§Ù„Ø§Ø³ØªØ±Ø§Ø­Ø§Øª' : 'Break Log'}</span>
+								<span>{$currentLocale === 'ar' ? 'سجل الاستراحات' : 'Break Log'}</span>
 							</a>
 						{/if}
 					</div>
@@ -1317,7 +1317,7 @@
 							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
 						</svg>
 					</div>
-					<span class="nav-label">{$currentLocale === 'ar' ? 'Ù…ÙˆØ§Ø±Ø¯' : 'HR'}</span>
+					<span class="nav-label">{$currentLocale === 'ar' ? 'موارد' : 'HR'}</span>
 				</button>
 				
 				<!-- HR Submenu -->
@@ -1346,7 +1346,7 @@
 									<circle cx="12" cy="12" r="10"/>
 									<polyline points="12 6 12 12 16 14"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'Ø§Ù„ÙˆØ±Ø¯ÙŠØ§Øª' : 'Shifts'}</span>
+								<span>{$currentLocale === 'ar' ? 'الورديات' : 'Shifts'}</span>
 							</a>
 						{/if}
 					</div>
@@ -1392,21 +1392,21 @@
 								<line x1="3" y1="10" x2="21" y2="10"/>
 								<path d="M15 15l2 2 4-4"/>
 							</svg>
-							<span>{$currentLocale === 'ar' ? 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©' : 'Expiry Manager'}</span>
+							<span>{$currentLocale === 'ar' ? 'إدارة الصلاحية' : 'Expiry Manager'}</span>
 						</a>
 						<a href="/mobile-interface/price-checker" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/price-checker')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
 								<line x1="7" y1="7" x2="7.01" y2="7"/>
 							</svg>
-							<span>{$currentLocale === 'ar' ? 'ÙØ­Øµ Ø§Ù„Ø£Ø³Ø¹Ø§Ø±' : 'Price Checker'}</span>
+							<span>{$currentLocale === 'ar' ? 'فحص الأسعار' : 'Price Checker'}</span>
 						</a>
 						<a href="/mobile-interface/my-products" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/my-products')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
 								<circle cx="12" cy="7" r="4"/>
 							</svg>
-							<span>{$currentLocale === 'ar' ? 'Ù…Ù†ØªØ¬Ø§ØªÙŠ' : 'My Products'}</span>
+							<span>{$currentLocale === 'ar' ? 'منتجاتي' : 'My Products'}</span>
 						</a>
 						<a href="/mobile-interface/start-receiving" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/start-receiving')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1414,7 +1414,7 @@
 								<polyline points="14 2 14 8 20 8"/>
 								<path d="M12 18v-6M9 15l3-3 3 3"/>
 							</svg>
-							<span>{$currentLocale === 'ar' ? 'Ø¨Ø¯Ø¡ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù…' : 'Start Receiving'}</span>
+							<span>{$currentLocale === 'ar' ? 'بدء الاستلام' : 'Start Receiving'}</span>
 						</a>
 						{#if hasOfferSelectorPermission}
 							<a href="/mobile-interface/offer-selector" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/offer-selector')}>
@@ -1423,7 +1423,7 @@
 									<path d="M9 9h.01"/>
 									<path d="M9 15l6-6"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'Ù…Ø­Ø¯Ø¯ Ø§Ù„Ø¹Ø±ÙˆØ¶' : 'Offer Selector'}</span>
+								<span>{$currentLocale === 'ar' ? 'محدد العروض' : 'Offer Selector'}</span>
 							</a>
 						{/if}
 
@@ -1442,7 +1442,7 @@
 								<line x1="6" y1="15" x2="10" y2="15"/>
 							</svg>
 						</div>
-						<span class="nav-label">{$currentLocale === 'ar' ? 'Ø§Ù„Ù…Ø§Ù„ÙŠØ©' : 'Finance'}</span>
+						<span class="nav-label">{$currentLocale === 'ar' ? 'المالية' : 'Finance'}</span>
 					</button>
 
 					<!-- Finance Submenu -->
@@ -1457,7 +1457,7 @@
 									<line x1="12" y1="18" x2="12" y2="12"/>
 									<line x1="9" y1="15" x2="15" y2="15"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'Ù…ÙˆÙ„Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª' : 'Request Generator'}</span>
+								<span>{$currentLocale === 'ar' ? 'مولد الطلبات' : 'Request Generator'}</span>
 							</a>
 							<a href="/mobile-interface/scheduler" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/scheduler')}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1466,7 +1466,7 @@
 									<line x1="8" y1="2" x2="8" y2="6"/>
 									<line x1="3" y1="10" x2="21" y2="10"/>
 								</svg>
-								<span>{$currentLocale === 'ar' ? 'Ø§Ù„Ø¬Ø¯ÙˆÙ„Ø©' : 'Scheduler'}</span>
+								<span>{$currentLocale === 'ar' ? 'الجدولة' : 'Scheduler'}</span>
 							</a>
 							{/if}
 							{#if hasVendorPaymentsPermission}
@@ -1475,7 +1475,7 @@
 										<rect x="1" y="4" width="22" height="16" rx="2"/>
 										<line x1="1" y1="10" x2="23" y2="10"/>
 									</svg>
-									<span>{$currentLocale === 'ar' ? 'Ù…Ø¯ÙÙˆØ¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†' : 'Vendor Payments'}</span>
+									<span>{$currentLocale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments'}</span>
 								</a>
 							{/if}
 							{#if hasLCPlannerPermission}
@@ -1486,7 +1486,7 @@
 										<line x1="8" y1="13" x2="16" y2="13"/>
 										<line x1="8" y1="17" x2="13" y2="17"/>
 									</svg>
-									<span>{$currentLocale === 'ar' ? 'Ù…Ø®Ø·Ø· Ø§Ù„Ø§Ø¹ØªÙ…Ø§Ø¯ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ÙŠ' : 'LC Planner'}</span>
+									<span>{$currentLocale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner'}</span>
 								</a>
 							{/if}
 						</div>
@@ -1501,7 +1501,7 @@
 						<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
 					</svg>
 				</div>
-				<span class="nav-label">{$currentLocale === 'ar' ? 'Ø§ØªØµØ§Ù„' : 'Call'}</span>
+				<span class="nav-label">{$currentLocale === 'ar' ? 'اتصال' : 'Call'}</span>
 			</a>
 		</nav>
 

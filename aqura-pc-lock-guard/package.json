@@ -1,0 +1,71 @@
+{
+  "name": "aqura-pc-lock-guard",
+  "version": "0.1.0",
+  "description": "Aqura PC Lock Guard - Windows endpoint protection for Urban Market POS/counter PCs. Prevents unauthorized changes, printer manipulation, and application tampering.",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --windows",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "mssql": "^10.0.2",
+    "node-windows": "^1.0.0-beta.8",
+    "ws": "^8.21.3"
+  },
+  "build": {
+    "appId": "com.aqura.pclockguard",
+    "productName": "Aqura PC Lock Guard",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "ui/**/*",
+      "src/**/*",
+      "Logo.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules",
+        "to": "app/node_modules",
+        "filter": [
+          "**/*",
+          "!electron/**",
+          "!electron-builder/**",
+          "!app-builder-lib/**",
+          "!app-builder-bin/**",
+          "!7zip-bin/**",
+          "!typescript/**",
+          "!node-gyp/**",
+          "!@electron/**",
+          "!@types/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "Logo.png",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aqura PC Lock Guard",
+      "perMachine": true,
+      "include": "installer.nsh"
+    }
+  }
+}
