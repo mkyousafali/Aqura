@@ -355,7 +355,7 @@
 
     async function loadEmployeeBase() {
         const [empRes, branchRes, natRes] = await Promise.all([
-            supabase.from('hr_employee_master').select('id, name_en, name_ar, current_branch_id, nationality_id, employment_status, sponsorship_status'),
+            supabase.from('hr_employee_master_with_status').select('id, name_en, name_ar, current_branch_id, nationality_id, employment_status, sponsorship_status'),
             supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
             supabase.from('nationalities').select('id, name_en, name_ar')
         ]);

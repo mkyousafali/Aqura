@@ -27,6 +27,10 @@
 	let selectedPrExcelFilter = ''; // Filter by PR Excel verification ('' = all, 'verified', 'unverified')
 	let vendorSearchTerm = ''; // Search by vendor name
 	let selectedErpRefFilter = ''; // Filter by ERP invoice reference ('' = all, 'entered', 'not_entered')
+	let erpReferenceSearchTerm = ''; // Search by ERP invoice reference number
+	let billDateFilterMode = ''; // '' = any date, 'specific' = one date, 'period' = date range
+	let billDateFrom = '';
+	let billDateTo = '';
 	let selectedDueFilter = ''; // Filter by due date ('' = all, '7', '15', '30')
 
 	// Pagination state (disabled UI but optimized loading)
@@ -278,6 +282,10 @@
 			selectedPrExcelFilter = '';
 			vendorSearchTerm = '';
 			selectedErpRefFilter = '';
+			erpReferenceSearchTerm = '';
+			billDateFilterMode = '';
+			billDateFrom = '';
+			billDateTo = '';
 			currentPage = 1;
 
 			// Load first page via RPC (count is returned from RPC itself)
@@ -309,12 +317,48 @@
 				p_pr_excel_filter: selectedPrExcelFilter || null,
 				p_erp_ref_filter: selectedErpRefFilter || null
 			};
+			const erpReferenceSearch = erpReferenceSearchTerm?.trim();
+			if (erpReferenceSearch) {
+				rpcParams.p_erp_reference_search = erpReferenceSearch;
+			}
+			if (billDateFilterMode === 'specific' && billDateFrom) {
+				rpcParams.p_bill_date_from = billDateFrom;
+				rpcParams.p_bill_date_to = billDateFrom;
+			} else if (billDateFilterMode === 'period') {
+				if (billDateFrom) rpcParams.p_bill_date_from = billDateFrom;
+				if (billDateTo) rpcParams.p_bill_date_to = billDateTo;
+			}
+			const hasEnhancedFilters = Boolean(
+				erpReferenceSearch || rpcParams.p_bill_date_from || rpcParams.p_bill_date_to
+			);
 
 			console.log(`📄 Loading page ${pageNum} via RPC (offset: ${startIdx}, limit: ${pageSize}, filters: ${JSON.stringify(rpcParams)})...`);
 			
 			// Single RPC call - all JOINs + filters done server-side
-			const { data: records, error: rpcError } = await supabase
+			let { data: records, error: rpcError } = await supabase
 				.rpc('get_receiving_records_with_details', rpcParams);
+
+			// Keep the records window usable while the ERP-search migration is being deployed.
+			// The legacy RPC has six parameters and cannot accept p_erp_reference_search.
+			if (rpcError?.code === 'PGRST202' && hasEnhancedFilters) {
+				console.warn('Enhanced receiving-record filters are not deployed yet; using the legacy RPC fallback.');
+				const legacyParams = { ...rpcParams };
+				delete legacyParams.p_erp_reference_search;
+				delete legacyParams.p_bill_date_from;
+				delete legacyParams.p_bill_date_to;
+				const legacyResult = await supabase.rpc('get_receiving_records_with_details', legacyParams);
+				const fallbackMatches = legacyResult.data?.filter((record) =>
+					(!erpReferenceSearch || String(record.erp_purchase_invoice_reference || '')
+						.toLowerCase().includes(erpReferenceSearch.toLowerCase())) &&
+					(!rpcParams.p_bill_date_from || record.bill_date >= rpcParams.p_bill_date_from) &&
+					(!rpcParams.p_bill_date_to || record.bill_date <= rpcParams.p_bill_date_to)
+				) || [];
+				records = fallbackMatches.map((record) => ({
+					...record,
+					total_count: fallbackMatches.length
+				}));
+				rpcError = legacyResult.error;
+			}
 
 			if (rpcError) {
 				console.error(`❌ Error loading page ${pageNum}:`, rpcError);
@@ -519,6 +563,33 @@
 		vendorSearchTimer = setTimeout(() => {
 			reloadWithFilters();
 		}, 500);
+	}
+
+	function applyErpReferenceSearch() {
+		reloadWithFilters();
+	}
+
+	function onErpReferenceSearchKeydown(event) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			applyErpReferenceSearch();
+		}
+	}
+
+	function onBillDateModeChange() {
+		if (!billDateFilterMode) {
+			billDateFrom = '';
+			billDateTo = '';
+			reloadWithFilters();
+		} else if (billDateFilterMode === 'specific') {
+			billDateTo = '';
+		}
+	}
+
+	function applyBillDateFilter() {
+		if (billDateFilterMode === 'specific' && !billDateFrom) return;
+		if (billDateFilterMode === 'period' && !billDateFrom && !billDateTo) return;
+		reloadWithFilters();
 	}
 
 	// Filter values change - do NOT apply filters automatically
@@ -1298,8 +1369,8 @@
 
 	<!-- Filter Controls -->
 	<div class="px-8 pt-6">
-		<div class="mb-4 flex gap-3 flex-wrap">
-			<div class="flex-1 min-w-[160px]">
+		<div class="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-start">
+			<div class="min-w-0">
 				<label for="branch-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.dashboard.filterByBranch')}</label>
 				<select id="branch-filter" bind:value={selectedBranchFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
 					<option value="">{$t('receiving.dashboard.allBranches')}</option>
@@ -1312,7 +1383,7 @@
 					{/each}
 				</select>
 			</div>
-			<div class="flex-1 min-w-[140px]">
+			<div class="min-w-0">
 				<label for="pr-excel-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.prExcelStatus')}</label>
 				<select id="pr-excel-filter" bind:value={selectedPrExcelFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
 					<option value="">{$t('receiving.records.allRecords')}</option>
@@ -1320,7 +1391,7 @@
 					<option value="unverified">{$t('receiving.records.unverified')}</option>
 				</select>
 			</div>
-			<div class="flex-1 min-w-[160px]">
+			<div class="min-w-0">
 				<label for="vendor-search" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.searchVendor')}</label>
 				<input
 					id="vendor-search"
@@ -1331,7 +1402,7 @@
 					class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
 				/>
 			</div>
-			<div class="flex-1 min-w-[140px]">
+			<div class="min-w-0">
 				<label for="erp-ref-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.erpInvoiceRef')}</label>
 				<select id="erp-ref-filter" bind:value={selectedErpRefFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
 					<option value="">{$t('receiving.records.allRecords')}</option>
@@ -1339,7 +1410,45 @@
 					<option value="not_entered">{$t('receiving.records.notEntered')}</option>
 				</select>
 			</div>
-			<div class="flex-1 min-w-[140px]">
+			<div class="min-w-0">
+				<label for="erp-reference-search" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.searchErpReference')}</label>
+				<div class="flex gap-2">
+					<input
+						id="erp-reference-search"
+						type="search"
+						bind:value={erpReferenceSearchTerm}
+						on:keydown={onErpReferenceSearchKeydown}
+						placeholder={$t('receiving.records.typeErpReference')}
+						class="min-w-0 flex-1 px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+					/>
+					<button
+						type="button"
+						on:click={applyErpReferenceSearch}
+						disabled={loading}
+						class="px-4 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+					>
+						{$t('receiving.records.search')}
+					</button>
+				</div>
+			</div>
+			<div class="min-w-0">
+				<label for="bill-date-mode" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.billDateFilter')}</label>
+				<div class="flex gap-2">
+					<select id="bill-date-mode" bind:value={billDateFilterMode} on:change={onBillDateModeChange} class="w-full min-w-0 px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 focus:ring-2 focus:ring-emerald-500 outline-none">
+						<option value="">{$t('receiving.records.anyDate')}</option>
+						<option value="specific">{$t('receiving.records.specificDate')}</option>
+						<option value="period">{$t('receiving.records.datePeriod')}</option>
+					</select>
+					{#if billDateFilterMode}
+						<input aria-label={$t('receiving.records.dateFrom')} type="date" bind:value={billDateFrom} class="min-w-0 px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 focus:ring-2 focus:ring-emerald-500 outline-none" />
+						{#if billDateFilterMode === 'period'}
+							<input aria-label={$t('receiving.records.dateTo')} type="date" bind:value={billDateTo} min={billDateFrom || undefined} class="min-w-0 px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 focus:ring-2 focus:ring-emerald-500 outline-none" />
+						{/if}
+						<button type="button" on:click={applyBillDateFilter} disabled={loading} class="px-4 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors">{$t('receiving.records.apply')}</button>
+					{/if}
+				</div>
+			</div>
+			<div class="min-w-0">
 				<label for="due-in-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('vendorPaymentFilters.dueIn')}</label>
 				<select id="due-in-filter" bind:value={selectedDueFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
 					<option value="">{$t('vendorPaymentFilters.anyTime')}</option>

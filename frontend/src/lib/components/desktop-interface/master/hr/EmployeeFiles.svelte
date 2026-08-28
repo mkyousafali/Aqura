@@ -87,6 +87,7 @@
 	let showEffectiveDateModal = false;
 	let effectiveDate = '';
 	let effectiveDateReason = '';
+	let effectiveDateError = '';
 
 	let isCreatingNationality = false;
 	let newNationalityId = '';
@@ -339,7 +340,7 @@
 		
 		try {
 			const { data, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					name_en,
@@ -1454,13 +1455,39 @@
 		}
 	}
 
-	function checkStatusRequiresEffectiveDate(status: string) {
-		const statusesRequiringEffectiveDate = ['Resigned'];
-		if (statusesRequiringEffectiveDate.includes(status)) {
-			effectiveDate = '';
-			effectiveDateReason = '';
-			showEffectiveDateModal = true;
-		}
+	function todayYmd(): string {
+		const d = new Date();
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+
+	async function openStatusChangeModal(status: string) {
+		effectiveDate = todayYmd();
+		effectiveDateReason = '';
+		effectiveDateError = '';
+		showEffectiveDateModal = true;
+		// If the current status's real start date is known, default to that
+		// instead of today -- if the status ends up unchanged, this is what
+		// gets corrected.
+		if (!selectedEmployee) return;
+		const empId = selectedEmployee.id;
+		try {
+			const { data } = await supabase
+				.from('hr_employee_status_history')
+				.select('effective_from, reason')
+				.eq('employee_id', empId)
+				.is('effective_to', null)
+				.maybeSingle();
+			if (data?.effective_from && selectedEmployee?.id === empId) {
+				effectiveDate = data.effective_from;
+				effectiveDateReason = data.reason || '';
+			}
+		} catch { /* keep today's date default */ }
+	}
+
+	function cancelStatusChangeModal() {
+		showEffectiveDateModal = false;
+		// Revert the radio selection -- nothing was saved
+		employmentStatus = savedEmploymentStatus;
 	}
 
 	async function saveEmploymentStatus() {
@@ -1468,34 +1495,38 @@
 			alert($t('employeeFiles.alerts.selectEmployee'));
 			return;
 		}
+		effectiveDateError = '';
+		if (!effectiveDate) { effectiveDateError = $t('employeeFiles.dateRequired') || 'Start date is required.'; return; }
+		if (!effectiveDateReason.trim()) { effectiveDateError = $t('employeeFiles.reasonRequired') || 'Reason is required.'; return; }
 
 		try {
-			const updateData: any = { employment_status: employmentStatus };
-			
-			// Add effective date if the status requires it
-			const statusesRequiringEffectiveDate = ['Resigned'];
-			if (statusesRequiringEffectiveDate.includes(employmentStatus)) {
-				updateData.employment_status_effective_date = effectiveDate;
-				updateData.employment_status_reason = effectiveDateReason;
-			}
-
-			const { error } = await supabase
-				.from('hr_employee_master')
-				.update(updateData)
-				.eq('id', selectedEmployee.id);
+			// Same status re-selected, only the date changed: correct the current
+			// record's start date in place (cascades to the previous record's end
+			// date automatically) instead of creating a new transition.
+			const isDateCorrection = employmentStatus === savedEmploymentStatus;
+			const { error } = isDateCorrection
+				? await supabase.rpc('update_current_status_effective_date', {
+					p_employee_id: selectedEmployee.id,
+					p_new_effective_from: effectiveDate,
+					p_reason: effectiveDateReason.trim()
+				})
+				: await supabase.rpc('change_employee_status', {
+					p_employee_id: selectedEmployee.id,
+					p_new_status: employmentStatus,
+					p_start_date: effectiveDate,
+					p_reason: effectiveDateReason.trim()
+				});
 
 			if (error) {
-				console.error('Error saving employment status:', error);
-				alert($t('employeeFiles.alerts.saveError'));
+				effectiveDateError = error.message || $t('employeeFiles.alerts.saveError');
 				return;
 			}
 
 			selectedEmployee.employment_status = employmentStatus;
+			selectedEmployee.employment_status_effective_date = effectiveDate;
+			selectedEmployee.employment_status_reason = effectiveDateReason.trim();
 			savedEmploymentStatus = employmentStatus;
-			// Update the effective date in the employee object if applicable
-			if (statusesRequiringEffectiveDate.includes(employmentStatus)) {
-				selectedEmployee.employment_status_effective_date = effectiveDate;
-			}
+			showEffectiveDateModal = false;
 			// Recalculate worked duration
 			calculateWorkedDuration(selectedEmployee);
 			alert($t('employeeFiles.alerts.saveSuccess'));
@@ -1714,12 +1745,12 @@
 											{#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'] as status}
 												<div class="status-row">
 													<label class="status-radio-label">
-														<input 
-															type="radio" 
+														<input
+															type="radio"
 															name="employment-status"
 															value={status}
 															bind:group={employmentStatus}
-															on:change={() => checkStatusRequiresEffectiveDate(status)}
+															on:change={() => openStatusChangeModal(status)}
 															class="status-radio-input"
 														/>
 														<span class="status-radio-button"></span>
@@ -1728,11 +1759,6 @@
 												</div>
 											{/each}
 										</div>
-										{#if employmentStatus !== savedEmploymentStatus}
-											<button class="save-button-small" on:click={saveEmploymentStatus}>
-												💾 {$t('employeeFiles.saveStatus')}
-											</button>
-										{/if}
 									</div>
 								</div>
 							</div>
@@ -3014,46 +3040,45 @@
 
 <!-- Employment Status Effective Date Modal -->
 {#if showEffectiveDateModal}
-	<div class="modal-overlay" on:click={() => showEffectiveDateModal = false}>
+	<div class="modal-overlay" on:click={cancelStatusChangeModal}>
 		<div class="modal-content" on:click={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<h3>{$t('employeeFiles.effectiveDate') || 'Effective Date'}</h3>
-				<button class="close-button" on:click={() => showEffectiveDateModal = false}>✕</button>
+				<button class="close-button" on:click={cancelStatusChangeModal}>✕</button>
 			</div>
 			<div class="modal-body">
 				<div class="form-group-compact">
 					<label for="effective-date">{$t('employeeFiles.effectiveDate') || 'Effective Date'} *</label>
-					<input 
-						type="date" 
-						id="effective-date" 
+					<input
+						type="date"
+						id="effective-date"
 						bind:value={effectiveDate}
 					/>
+					{#if employmentStatus === savedEmploymentStatus}
+						<p style="font-size:0.75rem; color:#94a3b8; margin-top:0.25rem;">{$t('employeeFiles.sameStatusHint') || 'Status unchanged — this only corrects the current start date.'}</p>
+					{/if}
 				</div>
 				<div class="form-group-compact">
-					<label for="effective-reason">{$t('employeeFiles.reason') || 'Reason'}</label>
-					<textarea 
-						id="effective-reason" 
+					<label for="effective-reason">{$t('employeeFiles.reason') || 'Reason'} *</label>
+					<textarea
+						id="effective-reason"
 						bind:value={effectiveDateReason}
-						placeholder="Enter reason (optional)"
+						placeholder={$t('employeeFiles.reasonPlaceholder') || 'Enter reason'}
 						rows="3"
 					></textarea>
 				</div>
+				{#if effectiveDateError}
+					<p style="color:#dc2626; font-size:0.85rem; margin-top:0.25rem;">{effectiveDateError}</p>
+				{/if}
 			</div>
 			<div class="modal-footer">
-				<button class="cancel-button" on:click={() => showEffectiveDateModal = false}>
+				<button class="cancel-button" on:click={cancelStatusChangeModal}>
 					{$t('employeeFiles.cancel')}
 				</button>
-				<button 
-					class="save-button" 
-					on:click={() => {
-						if (!effectiveDate) {
-							alert('Effective date is required');
-							return;
-						}
-						showEffectiveDateModal = false;
-						saveEmploymentStatus();
-					}}
-					disabled={!effectiveDate}
+				<button
+					class="save-button"
+					on:click={saveEmploymentStatus}
+					disabled={!effectiveDate || !effectiveDateReason.trim()}
 				>
 					✅ {$t('employeeFiles.saveStatus')}
 				</button>

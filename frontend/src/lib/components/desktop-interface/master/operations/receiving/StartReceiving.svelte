@@ -511,7 +511,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Fetch user details from hr_employee_master
       const { data: employees, error: empError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select('user_id, name_en, id')
         .in('user_id', userIds);
 
@@ -573,7 +573,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Query hr_employee_master for locale-aware names
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,
@@ -660,7 +660,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Query hr_employee_master for locale-aware names (all branches for purchasing)
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,
@@ -757,7 +757,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Query hr_employee_master for locale-aware names
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,
@@ -837,7 +837,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Query hr_employee_master for locale-aware names
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,
@@ -917,7 +917,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Query hr_employee_master for locale-aware names
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,
@@ -997,7 +997,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Get all employees from the selected branch via hr_employee_master
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,
@@ -1076,7 +1076,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Query hr_employee_master for locale-aware names
       const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master')
+        .from('hr_employee_master_with_status')
         .select(`
           user_id,
           id,

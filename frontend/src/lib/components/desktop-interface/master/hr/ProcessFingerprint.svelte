@@ -384,7 +384,7 @@
 		error = null;
 		try {
 			const { data: employeeData, error: empError } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					name_en,
@@ -589,7 +589,7 @@
 	async function loadEmployeesForDateRangeModal() {
 		try {
 			const { data: employeeData, error: empError } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					name_en,
@@ -874,7 +874,7 @@
 
 			// Step 1: Get the complete employee record with employee_id_mapping
 			const { data: employeeRecord, error: empRecordError } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('id, employee_id_mapping')
 				.eq('id', employee.id)
 				.single();

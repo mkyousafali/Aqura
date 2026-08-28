@@ -29,7 +29,7 @@
 		loading = true;
 		try {
 			const { data, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('id, user_id, name_en, name_ar, employment_status')
 				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
 				.order('name_en', { ascending: true });

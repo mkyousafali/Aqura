@@ -121,7 +121,7 @@
 		
 		try {
 			const { data, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					name_en,

@@ -126,7 +126,7 @@
 
 			// Load employees with nationality
 			const { data: empData } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					name_en,
@@ -266,53 +266,71 @@
 				}
 			}
 
-			const empIdsInMap = Array.from(empMap.keys());
+			// Bring in anyone who was Vacation or Resigned at some point during the
+			// selected period, even if hr_analysed_attendance_data has no rows for
+			// them at all (the edge function only computes Job (With Finger)/Remote
+			// Job days). This is period-based, not current-status-based, so a
+			// Resigned or newly-hired employee shows up for the days that actually
+			// applied to them.
+			const { data: statusPeriods } = await supabase
+				.from('hr_employee_status_history')
+				.select('employee_id, status, effective_from, effective_to')
+				.in('status', ['Vacation', 'Resigned'])
+				.or(`effective_to.is.null,effective_to.gte.${startDate}`)
+				.or(`effective_from.is.null,effective_from.lte.${endDate}`);
 
-			// Resigned employees: hr_analysed_attendance_data can still hold stale rows
-			// computed before the resignation was recorded (or the edge function's own
-			// exclusion filter catching up), and the fill-with-'Absent' step below would
-			// otherwise paper over the rest of the range too. Drop everything past each
-			// employee's resignation effective date — same cutoff rule as the single
-			// employee Analysis window — before filling gaps or overlaying leave data.
-			const resignedCutoffs = new Map<string, string>();
-			if (empIdsInMap.length > 0) {
-				const { data: statusRows } = await supabase
+			const newEmpIds = [...new Set((statusPeriods || []).map((p: any) => String(p.employee_id)))]
+				.filter(id => !empMap.has(id));
+			if (newEmpIds.length > 0) {
+				const { data: newEmps } = await supabase
 					.from('hr_employee_master')
-					.select('id, employment_status, employment_status_effective_date')
-					.in('id', empIdsInMap);
-
-				for (const s of statusRows || []) {
-					if (s.employment_status === 'Resigned' && s.employment_status_effective_date) {
-						resignedCutoffs.set(String(s.id), s.employment_status_effective_date);
-					}
-				}
-			}
-			for (const [empId, cutoff] of resignedCutoffs) {
-				// Whole selected period is after the resignation — nothing to show at all
-				if (cutoff < startDate) { empMap.delete(empId); continue; }
-				const emp = empMap.get(empId);
-				if (!emp) continue;
-				// Any real/stale row past the cutoff gets replaced with a 'Resigned' marker
-				// rather than removed, so every date cell below stays populated (avoids
-				// undefined lookups in the render loop) while showing nothing worked/absent.
-				for (const date of Object.keys(emp.dayByDay)) {
-					if (date > cutoff) {
-						emp.dayByDay[date] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0, overtimeMins: 0 };
-					}
+					.select('id, name_en, name_ar, current_branch_id, nationality_id, nationalities(name_en)')
+					.in('id', newEmpIds);
+				for (const e of newEmps || []) {
+					empMap.set(String(e.id), {
+						employeeId: String(e.id),
+						employeeName: $locale === 'ar' ? (e.name_ar || e.name_en) : e.name_en,
+						currentBranchId: e.current_branch_id,
+						nationality: (e as any).nationalities?.name_en || '',
+						shiftInfo: '',
+						dayByDay: {} as Record<string, any>
+					});
 				}
 			}
 
-			// Fill missing dates with 'Absent' default, or 'Resigned' past a resignation cutoff
-			for (const [empId, empData] of empMap) {
-				const cutoff = resignedCutoffs.get(empId);
+			// Fill missing dates with 'Absent' default for everyone now in empMap
+			for (const [, empData] of empMap) {
 				for (const date of datesInRange) {
 					if (!empData.dayByDay[date]) {
-						empData.dayByDay[date] = (cutoff && date > cutoff)
-							? { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0, overtimeMins: 0 }
-							: { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0, overtimeMins: 0 };
+						empData.dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0, overtimeMins: 0 };
 					}
 				}
 			}
+
+			// Overlay Vacation/Resigned status onto every day each period actually
+			// covers (overwrites whatever was computed/defaulted for that day --
+			// there's no real attendance to report on a day the employee wasn't
+			// working).
+			for (const p of statusPeriods || []) {
+				const empId = String(p.employee_id);
+				const emp = empMap.get(empId);
+				if (!emp) continue;
+				for (const date of datesInRange) {
+					if ((p.effective_from == null || p.effective_from <= date) && (p.effective_to == null || p.effective_to >= date)) {
+						emp.dayByDay[date] = { workedMins: 0, status: p.status, lateMins: 0, underMins: 0, overtimeMins: 0 };
+					}
+				}
+			}
+
+			// An employee whose entire selected period was Resigned has nothing
+			// relevant to show at all -- drop the row. (Vacation-only employees stay
+			// visible; vacation isn't a departure.)
+			for (const [empId, emp] of Array.from(empMap.entries())) {
+				const allResigned = datesInRange.length > 0 && datesInRange.every(d => emp.dayByDay[d]?.status === 'Resigned');
+				if (allResigned) empMap.delete(empId);
+			}
+
+			const empIdsInMap = Array.from(empMap.keys());
 
 			// Defensive overlay: override 'Absent' with approved leave status for any date
 			// where the employee has an approved day_off record. This corrects cases where
@@ -348,7 +366,7 @@
 			}
 
 			// Load multi-shift data via RPCs (server-side join, no URL length issue)
-			const empIds = [...new Set((rows || []).map((r: any) => String(r.employee_id)))];
+			const empIds = empIdsInMap;
 			const [{ data: regRows }, { data: wdRows }, { data: dwRows }] = await Promise.all([
 				supabase.rpc('get_hr_regular_shifts', { p_employee_ids: empIds }),
 				supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: empIds }),
@@ -483,6 +501,7 @@
 			case 'Check-In Missing': return $t('hr.processFingerprint.checkin_missing');
 			case 'Check-Out Missing': return $t('hr.processFingerprint.checkout_missing');
 			case 'Resigned': return $t('employeeFiles.resigned') || 'Resigned';
+			case 'Vacation': return $t('employeeFiles.vacation') || 'Vacation';
 			default: return status;
 		}
 	}
@@ -518,7 +537,8 @@
 				'Check-In Missing': '\u062f\u062e\u0648\u0644 \u0645\u0641\u0642\u0648\u062f',
 				'Check-Out Missing': '\u062e\u0631\u0648\u062c \u0645\u0641\u0642\u0648\u062f',
 				'Incomplete': '\u063a\u064a\u0631 \u0645\u0643\u062a\u0645\u0644',
-				'Resigned': '\u0645\u0633\u062a\u0642\u064a\u0644'
+				'Resigned': '\u0645\u0633\u062a\u0642\u064a\u0644',
+				'Vacation': '\u0625\u062c\u0627\u0632\u0629'
 			};
 
 			function fmtMinsLang(mins: number, lang: 'en' | 'ar'): string {
@@ -569,6 +589,7 @@
 				if (s === 'Pending Approval') return { ...base, font: { ...base.font, color: { rgb: 'B8860B' }, bold: true } };
 				if (s.includes('Rejected')) return { ...base, font: { ...base.font, color: { rgb: 'CC0000' }, bold: true } };
 				if (s.includes('Missing')) return { ...base, font: { ...base.font, color: { rgb: 'E67E00' }, bold: true } };
+				if (s === 'Vacation') return { ...base, font: { ...base.font, color: { rgb: '2563EB' }, bold: true } };
 				return base;
 			}
 
@@ -794,6 +815,7 @@
 			case 'Check-In Missing': return 'text-orange-600 font-bold';
 			case 'Check-Out Missing': return 'text-orange-500 font-bold';
 			case 'Resigned': return 'text-slate-400 italic';
+			case 'Vacation': return 'text-blue-600 font-semibold';
 			default: return 'text-slate-400';
 		}
 	}

@@ -173,7 +173,7 @@
 		otherUsersLoading = true;
 		try {
 			const { data, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('user_id, id, name_en')
 				.eq('current_branch_id', parseInt(otherBranchId))
 				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
@@ -453,7 +453,7 @@
 		approverUsersLoading = true;
 		try {
 			const { data, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('user_id, id, name_en')
 				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
 				.order('name_en');
@@ -582,7 +582,7 @@
 
 	async function getMyEmployeeName(): Promise<string> {
 		try {
-			const { data } = await supabase.from('hr_employee_master').select('name_en').eq('user_id', $currentUser?.id).single();
+			const { data } = await supabase.from('hr_employee_master_with_status').select('name_en').eq('user_id', $currentUser?.id).single();
 			return data?.name_en || '';
 		} catch { return ''; }
 	}

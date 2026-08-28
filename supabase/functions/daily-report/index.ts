@@ -125,7 +125,7 @@ serve(async (req) => {
 
     // ── Build set of active employees (Job With Finger only) for attendance filter ──
     const { data: activeEmps } = await supabase
-      .from('hr_employee_master')
+      .from('hr_employee_master_with_status')
       .select('id')
       .eq('employment_status', 'Job (With Finger)')
     const activeEmpIds = new Set<string>((activeEmps || []).map((e: any) => String(e.id)))

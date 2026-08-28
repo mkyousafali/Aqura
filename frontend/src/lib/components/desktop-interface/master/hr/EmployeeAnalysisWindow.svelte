@@ -1628,16 +1628,28 @@
 
 			console.log('Extended date range for query:', extendedStartDateStr, 'to', extendedEndDateStr);
 
-			// Query with extended date range
-			const { data, error } = await supabase
-				.from('processed_fingerprint_transactions')
-				.select('*')
-				.eq('center_id', employee.id)
-				.gte('punch_date', extendedStartDateStr)
-				.lte('punch_date', extendedEndDateStr)
-				.order('punch_date', { ascending: false });
+			// Query with extended date range, alongside this employee's status
+			// history periods overlapping the selected range (used per-day below).
+			const [{ data, error }, { data: periodsData, error: periodsError }] = await Promise.all([
+				supabase
+					.from('processed_fingerprint_transactions')
+					.select('*')
+					.eq('center_id', employee.id)
+					.gte('punch_date', extendedStartDateStr)
+					.lte('punch_date', extendedEndDateStr)
+					.order('punch_date', { ascending: false }),
+				supabase
+					.from('hr_employee_status_history')
+					.select('status, effective_from, effective_to')
+					.eq('employee_id', employee.id)
+					.or(`effective_to.is.null,effective_to.gte.${startDate}`)
+					.or(`effective_from.is.null,effective_from.lte.${endDate}`)
+			]);
 
 			console.log('Transaction query result:', { data, error });
+
+			if (periodsError) console.error('Error loading status history:', periodsError);
+			statusPeriods = periodsData || [];
 
 			if (error) {
 				console.error('Error loading transactions:', error);
@@ -1660,31 +1672,41 @@
 		}
 	}
 
+	// Per-day status lookup from hr_employee_status_history, fetched alongside
+	// transactions in loadTransactions(). Replaces the old single-cutoff-date
+	// approach: now any number of past/future status periods are handled
+	// correctly, not just one resignation date.
+	let statusPeriods: any[] = [];
+
+	function statusOnDate(dateYmd: string): string | null {
+		for (const p of statusPeriods) {
+			if ((p.effective_from == null || p.effective_from <= dateYmd) && (p.effective_to == null || p.effective_to >= dateYmd)) {
+				return p.status;
+			}
+		}
+		return null;
+	}
+
 	function fillMissingDatesInRange(pairs: any[]): any[] {
 		const start = new Date(startDate);
-		let end = new Date(endDate);
-
-		// Resigned employees: nothing after their resignation effective date is
-		// relevant (they no longer work there) — trim the range so those trailing
-		// days aren't synthesized as Absent/Unapproved Leave, and any stray data
-		// past that date is ignored too. Days up to and including the effective
-		// date are left untouched.
-		if (employee?.employment_status === 'Resigned' && employee?.employment_status_effective_date) {
-			const resignedOn = new Date(employee.employment_status_effective_date);
-			if (resignedOn < end) end = resignedOn;
-		}
+		const end = new Date(endDate);
 
 		const allDatePairs: any[] = [];
 		const existingDates = new Set<string>();
 
-		// Filter pairs to only include those within the (possibly trimmed) date range
+		// Filter pairs to the selected range. Drop anything on a Resigned day --
+		// nothing should show for days the employee was no longer employed,
+		// real data or not.
 		const filteredPairs = pairs.filter(pair => {
 			const dateToCheck = pair.checkInDate || pair.checkOutDate;
 			if (!dateToCheck) return false;
-			
+
 			const dateParts = dateToCheck.split('-');
 			const pairDate = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`);
-			return pairDate >= start && pairDate <= end;
+			if (!(pairDate >= start && pairDate <= end)) return false;
+
+			const isoYmd = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+			return statusOnDate(isoYmd) !== 'Resigned';
 		});
 
 		// Track which shift dates have pairs
@@ -1699,9 +1721,14 @@
 
 		// Create empty pairs for all missing dates in the range
 		for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-			const dateStr = formatDateddmmyyyy(d.toISOString().split('T')[0]);
-			
+			const isoYmd = d.toISOString().split('T')[0];
+			const dateStr = formatDateddmmyyyy(isoYmd);
+
 			if (!existingDates.has(dateStr)) {
+				const status = statusOnDate(isoYmd);
+				// Resigned days: nothing shown at all, not even Absent
+				if (status === 'Resigned') continue;
+
 				// Create empty pair for this date
 				allDatePairs.push({
 					checkInTxn: null,
@@ -1714,7 +1741,8 @@
 					lateEarlyTime: { late: 0, early: 0 },
 					checkInMissing: true,
 					checkOutMissing: true,
-					isEmptyDate: true
+					isEmptyDate: true,
+					isVacationDate: status === 'Vacation'
 				});
 			}
 		}
@@ -2427,25 +2455,33 @@
 					{#if group.pairs.length === 1 && group.pairs[0].isEmptyDate}
 						<!-- ── Empty Date Card ── -->
 						{@const pair = group.pairs[0]}
+						{@const isVacation = !!pair.isVacationDate}
 						{@const isApproved = isOfficial || isHoliday || (isSpecific && dayOff?.approval_status === 'approved')}
 						{@const isPending = isSpecific && (!dayOff?.approval_status || dayOff?.approval_status === 'pending')}
 						{@const isRejected = isSpecific && dayOff?.approval_status === 'rejected'}
-						{@const isUnapprovedLeave = !isApproved && !isPending && !isRejected}
-						<div class="border border-slate-300 rounded-lg overflow-hidden 
-							{(isUnapprovedLeave && !isSpecific) ? 'bg-red-50' : 
+						{@const isUnapprovedLeave = !isApproved && !isPending && !isRejected && !isVacation}
+						<div class="border border-slate-300 rounded-lg overflow-hidden
+							{isVacation ? 'bg-blue-50' :
+							 (isUnapprovedLeave && !isSpecific) ? 'bg-red-50' :
 							 isHoliday ? 'bg-indigo-50' :
-							 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-50' : 
+							 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-50' :
 							 (isPending ? 'bg-amber-50' :
 							 (isRejected ? 'bg-rose-50' : 'bg-slate-50'))}}">
-							<div class="px-4 py-2 font-bold flex items-center justify-between 
-								{isHoliday ? 'bg-indigo-600' :
-								 isOfficial ? 'bg-red-600' : 
-								 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : 
+							<div class="px-4 py-2 font-bold flex items-center justify-between
+								{isVacation ? 'bg-blue-500' :
+								 isHoliday ? 'bg-indigo-600' :
+								 isOfficial ? 'bg-red-600' :
+								 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' :
 								 isPending ? 'bg-amber-500' :
 								 isRejected ? 'bg-rose-600' :
 								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
 								<span>{groupDate}</span>
 								<div class="flex gap-2">
+									{#if isVacation}
+										<span class="px-3 py-1 bg-blue-600 rounded-full text-sm font-semibold">
+											🏖️ {$t('employeeFiles.vacation') || 'Vacation'}
+										</span>
+									{/if}
 									{#if isHoliday}
 										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
 											🏛️ {$locale === 'ar' ? (holiday?.name_ar || holiday?.name_en || $t('hr.shift.tabs.official_holidays')) : (holiday?.name_en || holiday?.name_ar || $t('hr.shift.tabs.official_holidays'))}

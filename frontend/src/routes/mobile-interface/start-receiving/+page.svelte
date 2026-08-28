@@ -381,7 +381,7 @@
 			}
 
 			const { data: employees, error: empError } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('user_id, name_en, name_ar, id')
 				.in('user_id', userIds);
 			if (empError) throw empError;
@@ -423,7 +423,7 @@
 		try {
 			shelfStockersLoading = true;
 			const { data: employees, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('user_id, id, name_en, name_ar, hr_positions(position_title_en, position_title_ar)')
 				.eq('current_branch_id', parseInt(selectedBranch))
 				.in('employment_status', ['Job (With Finger)', 'Remote Job'])

@@ -253,7 +253,7 @@
 
 			// Load ALL active employees (no branch filter)
 			const { data: employeeData, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					user_id,

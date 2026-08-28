@@ -374,7 +374,7 @@
             await initSupabase();
             
             let query = supabase
-                .from('hr_employee_master')
+                .from('hr_employee_master_with_status')
                 .select(`
                     id,
                     name_en,
@@ -463,7 +463,7 @@
         try {
             await initSupabase();
             const { data, error } = await supabase
-                .from('hr_employee_master')
+                .from('hr_employee_master_with_status')
                 .select(`
                     id,
                     name_en,

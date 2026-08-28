@@ -612,7 +612,7 @@
             await initSupabase();
             
             const { data: employeeData, error: empError } = await supabase
-                .from('hr_employee_master')
+                .from('hr_employee_master_with_status')
                 .select(`
                     id,
                     name_en,
@@ -711,7 +711,7 @@
             await initSupabase();
             
             const { data: employeeData, error: empError } = await supabase
-                .from('hr_employee_master')
+                .from('hr_employee_master_with_status')
                 .select(`
                     id,
                     name_en,
@@ -841,7 +841,7 @@
     async function loadDateWiseEmployeesForModal() {
         try {
             const [empResult, branchResult, natResult] = await Promise.all([
-                supabase.from('hr_employee_master').select('id, name_en, name_ar, current_branch_id, nationality_id, employment_status, sponsorship_status'),
+                supabase.from('hr_employee_master_with_status').select('id, name_en, name_ar, current_branch_id, nationality_id, employment_status, sponsorship_status'),
                 supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
                 supabase.from('nationalities').select('id, name_en, name_ar')
             ]);
@@ -964,7 +964,7 @@
             
             // Load employees, branches, and day offs ALL in parallel
             const [empResult, branchResult, rpcResult] = await Promise.all([
-                supabase.from('hr_employee_master').select('id, name_en, name_ar, current_branch_id').order('name_en'),
+                supabase.from('hr_employee_master_with_status').select('id, name_en, name_ar, current_branch_id').order('name_en'),
                 supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').eq('is_active', true),
                 supabase.rpc('get_day_offs_with_details', {
                     p_date_from: dayOffFilterStart,
@@ -1049,7 +1049,7 @@
             await initSupabase();
             
             const { data: employeeData, error: empError } = await supabase
-                .from('hr_employee_master')
+                .from('hr_employee_master_with_status')
                 .select(`
                     id,
                     name_en,
@@ -2562,7 +2562,7 @@
             await initSupabase();
             // Load all employees
             const { data: employeeData, error: empError } = await supabase
-                .from('hr_employee_master')
+                .from('hr_employee_master_with_status')
                 .select('id, name_en, name_ar, current_branch_id, employment_status');
             if (empError) throw empError;
 
@@ -3050,7 +3050,7 @@
             // Load all employees for selection (reuse existing)
             if (allEmployeesForDateWise.length === 0) {
                 const { data: empData } = await supabase
-                    .from('hr_employee_master')
+                    .from('hr_employee_master_with_status')
                     .select('id, name_en, name_ar, current_branch_id');
                 const { data: branchData } = await supabase
                     .from('branches')

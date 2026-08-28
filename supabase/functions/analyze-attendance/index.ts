@@ -631,7 +631,7 @@ Deno.serve(async (req) => {
 
     // ---- Load employees ----
     let empQuery = supabase
-      .from('hr_employee_master')
+      .from('hr_employee_master_with_status')
       .select(`id, name_en, name_ar, current_branch_id, employment_status, nationality_id, nationalities (name_en)`)
       .in('employment_status', ['Job (With Finger)', 'Remote Job']);
 
@@ -667,7 +667,7 @@ Deno.serve(async (req) => {
 
         if (missingIds.length > 0) {
           const { data: extraData } = await supabase
-            .from('hr_employee_master')
+            .from('hr_employee_master_with_status')
             .select(`id, name_en, name_ar, current_branch_id, employment_status, nationality_id, nationalities (name_en)`)
             .in('id', missingIds);
 

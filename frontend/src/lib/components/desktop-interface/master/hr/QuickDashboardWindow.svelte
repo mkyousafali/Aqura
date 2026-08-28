@@ -105,13 +105,11 @@
 					.eq('is_active', true)
 					.order('name_en'),
 				supabase
-					.from('hr_employee_master')
+					.from('hr_employee_master_with_status')
 					.select('id, name_en, name_ar, current_branch_id, user_id')
 					.in('employment_status', [
 						'Job (With Finger)',
-						'Job (Without Finger)',
-						'Remote Job',
-						'Active'
+						'Remote Job'
 					])
 					.order('name_en'),
 				supabase

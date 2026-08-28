@@ -181,7 +181,7 @@
 		if (!otherBranchId) { otherUsers = []; otherFilteredUsers = []; return; }
 		otherUsersLoading = true;
 		try {
-			const { data, error } = await supabase.from('hr_employee_master').select('user_id, id, name_en').eq('current_branch_id', parseInt(otherBranchId)).in('employment_status', ['Job (With Finger)', 'Remote Job']).order('name_en');
+			const { data, error } = await supabase.from('hr_employee_master_with_status').select('user_id, id, name_en').eq('current_branch_id', parseInt(otherBranchId)).in('employment_status', ['Job (With Finger)', 'Remote Job']).order('name_en');
 			if (error) throw error;
 			otherUsers = data || []; otherFilteredUsers = otherUsers;
 		} catch (err: any) { console.error(err); } finally { otherUsersLoading = false; }

@@ -387,7 +387,6 @@
 				p_name_ar: modal.data.name_ar || null,
 				p_current_branch_id: modal.data.current_branch_id || null,
 				p_current_position_id: modal.data.current_position_id || null,
-				p_employment_status: modal.data.employment_status || null,
 				p_whatsapp_number: modal.data.whatsapp_number || null,
 				p_email: modal.data.email || null
 			};
@@ -559,8 +558,6 @@
 	];
 	const ACTIVE_EMP_STATUSES = ['Job (With Finger)', 'Remote Job', 'Vacation'];
 	const ALL_EMP_STATUSES_LIST = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'];
-	const STATUSES_NEEDING_DATE = ['Vacation', 'Resigned'];
-	const STATUS_ORDER_MAP: Record<string, number> = { 'Job (With Finger)': 1, 'Remote Job': 2, 'Vacation': 3, 'Resigned': 4 };
 
 	// Documents Expiry state
 	let documentsExpiryData: any[] = [];
@@ -584,11 +581,6 @@
 	let isSavingDate = false;
 
 	// Employee Status state
-	let employeeStatusData: any[] = [];
-	let empStatusLoading = false;
-	let statusSearchTerm = '';
-	let statusSelBranch = '';
-	let statusSelStatus = '';
 	let showStatusModal = false;
 	let statusModalEmpId = '';
 	let statusModalEmpName = '';
@@ -597,8 +589,7 @@
 	let statusModalEffDate = '';
 	let statusModalReason = '';
 	let statusModalSaving = false;
-
-	$: docNeedsEffDate = STATUSES_NEEDING_DATE.includes(statusModalNewStatus);
+	let statusModalError = '';
 
 	$: docUniqueBranches = [...new Map(
 		documentsExpiryData.map(emp => [emp.current_branch_id, { id: emp.current_branch_id, name_en: emp.branch_name_en, name_ar: emp.branch_name_ar }])
@@ -617,21 +608,6 @@
 	});
 
 	$: docSortedData = [...docFilteredData].sort((a, b) => getDocUrgencyScore(a).score - getDocUrgencyScore(b).score);
-
-	$: statusUniqueBranches = [...new Map(
-		employeeStatusData.filter(e => e.current_branch_id).map(emp => [emp.current_branch_id, { id: emp.current_branch_id, name_en: emp.branch_name_en, name_ar: emp.branch_name_ar }])
-	).values()].sort((a, b) => a.name_en.localeCompare(b.name_en));
-
-	$: filteredStatusData = employeeStatusData.filter(emp => {
-		const s = statusSearchTerm.toLowerCase();
-		const matchesSearch = !s || String(emp.id||'').toLowerCase().includes(s) || (emp.name_en||'').toLowerCase().includes(s) || (emp.name_ar||'').includes(statusSearchTerm);
-		const matchesBranch = !statusSelBranch || String(emp.current_branch_id) === statusSelBranch;
-		const matchesStatus = !statusSelStatus || emp.employment_status === statusSelStatus;
-		return matchesSearch && matchesBranch && matchesStatus;
-	}).sort((a, b) => {
-		const d = (STATUS_ORDER_MAP[a.employment_status] ?? 99) - (STATUS_ORDER_MAP[b.employment_status] ?? 99);
-		return d !== 0 ? d : (a.name_en||'').localeCompare(b.name_en||'');
-	});
 
 	function calcDaysRemaining(expiryDate: string | null): number {
 		if (!expiryDate) return -999;
@@ -677,7 +653,7 @@
 		docExpiryLoading = true;
 		try {
 			const { data: employees, error } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`id, name_en, name_ar, nationality_id, current_branch_id, employment_status,
 					id_expiry_date, health_card_expiry_date, driving_licence_expiry_date,
 					contract_expiry_date, work_permit_expiry_date, insurance_expiry_date,
@@ -706,21 +682,6 @@
 		finally { docExpiryLoading = false; }
 	}
 
-	async function loadEmployeeStatusData() {
-		empStatusLoading = true;
-		try {
-			const { data, error } = await supabase
-				.from('hr_employee_master')
-				.select(`id, name_en, name_ar, id_number, contract_expiry_date, sponsorship_status,
-					work_permit_expiry_date, employment_status, whatsapp_number, email,
-					current_branch_id, branches(name_en, name_ar)`)
-				.order('name_en', { ascending: true });
-			if (error) throw error;
-			employeeStatusData = (data || []).map((emp: any) => ({ ...emp, branch_name_en: emp.branches?.name_en || '-', branch_name_ar: emp.branches?.name_ar || '-' }));
-		} catch (err) { console.error('Error loading employee status:', err); }
-		finally { empStatusLoading = false; }
-	}
-
 	function getStatusLabel(status: string): string {
 		if (lang !== 'ar') return status || '—';
 		const map: Record<string, string> = {
@@ -740,28 +701,67 @@
 		return badges[status] || 'bg-slate-100 text-slate-600';
 	}
 
-	function openEmpStatusModal(emp: any) {
+	function todayYmd(): string {
+		const d = new Date();
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+
+	async function openEmpStatusModal(emp: any) {
 		statusModalEmpId = emp.id;
 		statusModalEmpName = lang === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar);
 		statusModalCurStatus = emp.employment_status || '';
 		statusModalNewStatus = emp.employment_status || '';
-		statusModalEffDate = ''; statusModalReason = '';
+		// Default to today for a real status change, but if the current status's
+		// actual start date is known, show that instead -- if the user leaves the
+		// status as-is, this is what they'd be correcting.
+		statusModalEffDate = todayYmd();
+		statusModalReason = '';
+		statusModalError = '';
 		showStatusModal = true;
+		try {
+			const { data } = await supabase
+				.from('hr_employee_status_history')
+				.select('effective_from, reason')
+				.eq('employee_id', emp.id)
+				.is('effective_to', null)
+				.maybeSingle();
+			if (data?.effective_from && statusModalEmpId === emp.id) {
+				statusModalEffDate = data.effective_from;
+				statusModalReason = data.reason || '';
+			}
+		} catch { /* keep today's date default */ }
 	}
-	function closeEmpStatusModal() { showStatusModal = false; statusModalSaving = false; }
+	function closeEmpStatusModal() { showStatusModal = false; statusModalSaving = false; statusModalError = ''; }
 
 	async function saveEmpStatusChange() {
 		if (!supabase || !statusModalEmpId || !statusModalNewStatus) return;
-		if (STATUSES_NEEDING_DATE.includes(statusModalNewStatus) && !statusModalEffDate) { alert('Please enter an effective date.'); return; }
+		statusModalError = '';
+		if (!statusModalEffDate) { statusModalError = $t('employeeMaster.empStatus.dateRequired') || 'Start date is required.'; return; }
+		if (!statusModalReason.trim()) { statusModalError = $t('employeeMaster.empStatus.reasonRequired') || 'Reason is required.'; return; }
 		statusModalSaving = true;
 		try {
-			const updateData: any = { employment_status: statusModalNewStatus };
-			if (STATUSES_NEEDING_DATE.includes(statusModalNewStatus)) { updateData.employment_status_effective_date = statusModalEffDate; updateData.employment_status_reason = statusModalReason || null; }
-			const { error } = await supabase.from('hr_employee_master').update(updateData).eq('id', statusModalEmpId);
+			// Same status re-selected, only the date changed: correct the current
+			// record's start date in place (cascades to the previous record's end
+			// date automatically) instead of creating a new transition.
+			const isDateCorrection = statusModalNewStatus === statusModalCurStatus;
+			const { error } = isDateCorrection
+				? await supabase.rpc('update_current_status_effective_date', {
+					p_employee_id: statusModalEmpId,
+					p_new_effective_from: statusModalEffDate,
+					p_reason: statusModalReason.trim()
+				})
+				: await supabase.rpc('change_employee_status', {
+					p_employee_id: statusModalEmpId,
+					p_new_status: statusModalNewStatus,
+					p_start_date: statusModalEffDate,
+					p_reason: statusModalReason.trim()
+				});
 			if (error) throw error;
-			employeeStatusData = employeeStatusData.map(e => e.id === statusModalEmpId ? { ...e, employment_status: statusModalNewStatus } : e);
 			closeEmpStatusModal();
-		} catch { alert('Failed to update status'); } finally { statusModalSaving = false; }
+			await loadEmployees();
+		} catch (e: any) {
+			statusModalError = e?.message || 'Failed to update status';
+		} finally { statusModalSaving = false; }
 	}
 </script>
 
@@ -909,8 +909,9 @@
 							{salaryTotals[emp.id] != null ? salaryTotals[emp.id].toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' SAR' : '—'}
 						</td>
 						{/if}
-						<td>
+						<td style="white-space:nowrap">
 							<button class="em-btn-edit" on:click={() => openEditEmp(emp)}>✏️ {$t('employeeMaster.edit')}</button>
+							<button class="em-btn-edit" on:click={() => openEmpStatusModal(emp)}>🔄 {$t('employeeMaster.empStatus.changeButton') || 'Status'}</button>
 						</td>
 					</tr>
 					{/each}
@@ -1427,22 +1428,10 @@
 				</div>
 				<div class="em-field">
 					<label>{$t('employeeMaster.fields.status')}</label>
-					<div class="em-ss" use:clickOutsideSS={'status'}>
-						<button type="button" class="em-ss-trigger" on:click={() => ssOpen('status')}>
-							<span class="em-ss-val" style="color:{modal.data.employment_status ? statusColor(modal.data.employment_status) : 'inherit'}">{modal.data.employment_status || '—'}</span>
-							<span class="em-ss-arrow" class:open={ss.status.open}>▾</span>
-						</button>
-						{#if ss.status.open}
-						<div class="em-ss-panel">
-							<input class="em-ss-search" type="text" bind:value={ss.status.q} placeholder="{$t('employeeMaster.searchPlaceholder')}" autofocus />
-							<div class="em-ss-list">
-								{#each ssFilter(dropdowns.all_statuses||[], ss.status.q, s=>s) as s}
-									<button type="button" class="em-ss-opt em-ss-opt-status" class:selected={modal.data.employment_status===s} style="--sbg:{statusBg(s)};--sfg:{statusColor(s)}" on:click={() => { modal.data.employment_status=s; ssSelect('status'); }}>{s}</button>
-								{/each}
-							</div>
-						</div>
-						{/if}
-					</div>
+					<input type="text" value={modal.data.employment_status || '—'} readonly
+						style="color:{modal.data.employment_status ? statusColor(modal.data.employment_status) : 'inherit'}"
+						class="bg-slate-50 text-slate-500 cursor-not-allowed" />
+					<p class="text-xs text-slate-400 mt-1">{$t('employeeMaster.fields.statusChangeHint') || 'Use the Status action to change this, with a start date and reason.'}</p>
 				</div>
 				<div class="em-field">
 					<label>{$t('employeeMaster.fields.whatsapp')}</label>
@@ -1541,15 +1530,19 @@
 					{/each}
 				</select>
 			</div>
-			{#if docNeedsEffDate}
 			<div class="em-field">
 				<label>{$t('employeeMaster.empStatus.effectiveDate')} *</label>
 				<input type="date" bind:value={statusModalEffDate} />
+				{#if statusModalNewStatus && statusModalNewStatus === statusModalCurStatus}
+					<p class="text-xs text-slate-400 mt-1">{$t('employeeMaster.empStatus.sameStatusHint') || 'Status unchanged — this only corrects the current start date.'}</p>
+				{/if}
 			</div>
 			<div class="em-field">
-				<label>{$t('employeeMaster.empStatus.reason')}</label>
+				<label>{$t('employeeMaster.empStatus.reason')} *</label>
 				<input type="text" bind:value={statusModalReason} placeholder={$t('employeeMaster.empStatus.reasonPlaceholder')} />
 			</div>
+			{#if statusModalError}
+				<p class="text-sm text-red-600 mt-1">{statusModalError}</p>
 			{/if}
 		</div>
 		<div class="em-modal-footer">

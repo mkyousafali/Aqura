@@ -370,7 +370,7 @@
 
 	async function loadEmployeesAndSalaries() {
 		const { data: employeeData, error: employeeError } = await supabase
-			.from('hr_employee_master')
+			.from('hr_employee_master_with_status')
 			.select('id, name_en, name_ar, id_number, join_date, employment_status, employment_status_effective_date, nationalities(name_en, name_ar), hr_positions!current_position_id(position_title_en, position_title_ar)')
 			.order('id', { ascending: true })
 			.limit(2000);

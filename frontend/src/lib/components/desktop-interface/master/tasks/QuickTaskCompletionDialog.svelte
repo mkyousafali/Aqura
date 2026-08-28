@@ -158,7 +158,7 @@
 		loadingBranchUsers = true;
 		try {
 			let query = supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select('id, user_id, name_en, name_ar, current_branch_id, hr_positions(position_title_en, position_title_ar)')
 				.in('employment_status', ['Job (With Finger)', 'Remote Job']);
 			

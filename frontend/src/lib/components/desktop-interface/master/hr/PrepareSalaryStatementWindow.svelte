@@ -1909,7 +1909,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 			// Load employees with nationality
 			const { data: empData } = await supabase
-				.from('hr_employee_master')
+				.from('hr_employee_master_with_status')
 				.select(`
 					id,
 					name_en,
@@ -1981,8 +1981,38 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		}
 
 		try {
+			// Resigned employees who actually worked during this period still get a
+			// prorated statement (payment for the days actually worked) -- pull
+			// anyone with a Job (With Finger)/Remote Job status_history period
+			// overlapping the selected range, on top of the currently-active
+			// roster, but only if their CURRENT status is Resigned. Vacation stays
+			// fully excluded, unchanged.
+			const { data: workedPeriods } = await supabase
+				.from('hr_employee_status_history')
+				.select('employee_id')
+				.in('status', ['Job (With Finger)', 'Remote Job'])
+				.or(`effective_to.is.null,effective_to.gte.${startDate}`)
+				.or(`effective_from.is.null,effective_from.lte.${endDate}`);
+
+			const activeIds = new Set(employees.map(e => String(e.id)));
+			const resignedCandidateIds = [...new Set((workedPeriods || []).map((p: any) => String(p.employee_id)))]
+				.filter(id => !activeIds.has(id));
+
+			let periodEmployees = employees;
+			if (resignedCandidateIds.length > 0) {
+				const { data: resignedEmps } = await supabase
+					.from('hr_employee_master_with_status')
+					.select(`id, name_en, name_ar, current_branch_id, employment_status, id_number, whatsapp_number, nationality_id, nationalities(name_en)`)
+					.in('id', resignedCandidateIds)
+					.eq('employment_status', 'Resigned');
+				periodEmployees = [
+					...employees,
+					...(resignedEmps || []).map(e => ({ ...e, nationality_name_en: (e as any).nationalities?.name_en }))
+				];
+			}
+
 			// Build filtered employee list (same branch/search filter as before)
-			const filteredEmps = employees.filter(e => {
+			const filteredEmps = periodEmployees.filter(e => {
 				const matchesBranch = !selectedBranch || String(e.current_branch_id) === String(selectedBranch);
 				const matchesSearch = !searchQuery ||
 					String(e.id).toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1999,9 +2029,11 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 			const empIds = filteredEmps.map(e => e.id);
 
-			// Fetch pre-computed attendance data + POS deductions in parallel
-			// (same approach as AnalyzeAllWindow — reads from hr_analysed_attendance_data)
-			const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }] = await Promise.all([
+			// Fetch pre-computed attendance data + POS deductions + this employee
+			// set's status history overlapping the period (used below to exclude
+			// Resigned days from the deduction math and the expected-days
+			// denominator -- their pay is prorated to days actually worked).
+			const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }, { data: statusPeriodRows }] = await Promise.all([
 				supabase
 					.from('hr_analysed_attendance_data')
 					.select('*')
@@ -2020,10 +2052,29 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					.select('fine_amount, incidents!inner(employee_id)')
 					.eq('has_fine', true)
 					.eq('is_paid', false)
-					.gt('fine_amount', 0)
+					.gt('fine_amount', 0),
+				supabase
+					.from('hr_employee_status_history')
+					.select('employee_id, status, effective_from, effective_to')
+					.in('employee_id', empIds)
+					.eq('status', 'Resigned')
+					.or(`effective_to.is.null,effective_to.gte.${startDate}`)
+					.or(`effective_from.is.null,effective_from.lte.${endDate}`)
 			]);
 
 			if (error) throw error;
+
+			const resignedPeriodsByEmp = new Map<string, any[]>();
+			for (const p of statusPeriodRows || []) {
+				const id = String(p.employee_id);
+				if (!resignedPeriodsByEmp.has(id)) resignedPeriodsByEmp.set(id, []);
+				resignedPeriodsByEmp.get(id)!.push(p);
+			}
+			function isResignedOn(empId: string, dateYmd: string): boolean {
+				const periods = resignedPeriodsByEmp.get(empId);
+				if (!periods) return false;
+				return periods.some(p => (p.effective_from == null || p.effective_from <= dateYmd) && (p.effective_to == null || p.effective_to >= dateYmd));
+			}
 
 			// Process unpaid incident fines per employee
 			autoFineDeductions = {};
@@ -2081,12 +2132,19 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				let totalOfficialLeaveDays = 0; // Specific approved leaves
 				let totalUnapprovedDaysOff = 0;
 				let totalWorkedDays = 0;
+				let totalResignedDays = 0; // days after resignation -- excluded from expected days, no deduction
 				const dayByDay: Record<string, any> = {};
 
 				for (const row of empRows) {
 					const dateStr = typeof row.shift_date === 'string'
 						? row.shift_date.split('T')[0]
 						: new Date(row.shift_date).toISOString().split('T')[0];
+
+					if (isResignedOn(empId, dateStr)) {
+						dayByDay[dateStr] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
+						totalResignedDays++;
+						continue;
+					}
 
 					const status = row.status || 'Absent';
 					const workedMins = row.worked_minutes || 0;
@@ -2111,15 +2169,21 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					if (workedMins > 0) totalWorkedDays++;
 				}
 
-				// Fill missing dates with Absent
+				// Fill missing dates: Resigned (no deduction, excluded from expected
+				// days) for days after resignation, Absent otherwise
 				for (const date of datesInRange) {
 					if (!dayByDay[date]) {
-						dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
-						totalUnapprovedDaysOff++;
+						if (isResignedOn(empId, date)) {
+							dayByDay[date] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
+							totalResignedDays++;
+						} else {
+							dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
+							totalUnapprovedDaysOff++;
+						}
 					}
 				}
 
-				const totalExpectedWorkDays = datesInRange.length - totalApprovedDaysOff;
+				const totalExpectedWorkDays = datesInRange.length - totalApprovedDaysOff - totalResignedDays;
 				const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
 				const shiftInfo = shiftRow
 					? `${shiftRow.shift_start_time} - ${shiftRow.shift_end_time}`
@@ -2895,6 +2959,7 @@ return n;
 			case 'Incomplete': return $t('hr.processFingerprint.status_incomplete');
 			case 'Check-In Missing': return $t('hr.processFingerprint.checkin_missing');
 			case 'Check-Out Missing': return $t('hr.processFingerprint.checkout_missing');
+			case 'Resigned': return $t('employeeFiles.resigned') || 'Resigned';
 			default: return status;
 		}
 	}
@@ -2917,6 +2982,7 @@ return n;
 			case 'Unapproved Day Off': return 'text-rose-700 font-bold';
 			case 'Official Day Off': return 'text-blue-600';
 			case 'Approved Leave': return 'text-indigo-600';
+			case 'Resigned': return 'text-slate-400 italic';
 			default: return 'text-slate-400';
 		}
 	}
