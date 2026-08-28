@@ -1495,6 +1495,13 @@ WHAT YOU DO NOT KNOW:
 - You have no access to live stock, prices, or order status. Never confirm that a product is in stock and never state or estimate a price.
 - Follow PROBLEM & ISSUE HANDLING below for those questions.
 
+CRITICAL — PRODUCTS, PRICES & OFFERS:
+- NEVER list specific product names, prices, quantities, or offer details in your reply — not even from memory or previous messages.
+- NEVER copy or repeat product lists from earlier in the conversation — that data may be outdated or wrong.
+- When a customer asks about offers, promotions, or prices: tell them you'll show the current offers and use [[LINK:offers]]. Do NOT write any product names or prices yourself.
+- If a customer asks "what offers do you have?" or similar, reply with a SHORT greeting and let the system show the offers. Example: "Here are our current offers! 🛍️" then [[LINK:offers]].
+- Violation of this rule causes real harm: customers expect prices you invented and complain at the store.
+
 HANDOFF:
 - The system intercepts clear requests for a human BEFORE your reply and routes them itself — you do not perform the handoff.
 - If such a request somehow reaches you, acknowledge it and tell the customer they are being connected, then stop.
@@ -1504,10 +1511,21 @@ ${toneSection}${languageRulesSection}${rulesSection}${infoSection}${servicesSect
     // Build Gemini contents array from conversation history
     const geminiContents: any[] = [];
 
+    // Price pattern: matches "ريال" (SAR in Arabic) or price formats like "12.95" followed by currency
+    // We exclude bot messages containing prices to prevent copying outdated/hallucinated price data
+    const pricePattern = /ريال|﷼|\d+\.\d{2}\s*(ريال|SAR|SR)/i;
+
     if (history && history.length > 0) {
       for (const msg of history) {
         // Skip if this is the same message we're about to add (avoid duplicate)
         if (msg.content === messageText && msg.direction === "inbound" && msg === history[history.length - 1]) continue;
+        
+        // Skip bot messages containing prices — they may be outdated or hallucinated
+        if (msg.direction === "outbound" && pricePattern.test(msg.content)) {
+          console.log("[AI_BOT] Filtering out bot message with prices from history");
+          continue;
+        }
+        
         geminiContents.push({
           role: msg.direction === "inbound" ? "user" : "model",
           parts: [{ text: msg.content }],
