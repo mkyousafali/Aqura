@@ -426,7 +426,7 @@
 				.from('hr_employee_master')
 				.select('user_id, id, name_en, name_ar, hr_positions(position_title_en, position_title_ar)')
 				.eq('current_branch_id', parseInt(selectedBranch))
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
 				.order('name_en');
 			if (error) throw error;
 

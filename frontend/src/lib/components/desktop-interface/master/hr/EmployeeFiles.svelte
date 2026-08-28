@@ -716,7 +716,7 @@
 		// Determine the end date based on employment status
 		let endDate = new Date(); // Default to today
 
-		const statusesWithEffectiveDate = ['Resigned', 'Terminated', 'Run Away'];
+		const statusesWithEffectiveDate = ['Resigned'];
 		if (statusesWithEffectiveDate.includes(employmentStatus) && employee.employment_status_effective_date) {
 			endDate = new Date(employee.employment_status_effective_date);
 		}
@@ -1449,15 +1449,13 @@
 			case 'Job (With Finger)': return $t('employeeFiles.inJob');
 			case 'Remote Job': return $t('employeeFiles.remoteJob');
 			case 'Vacation': return $t('employeeFiles.vacation');
-			case 'Terminated': return $t('employeeFiles.terminated');
-			case 'Run Away': return $t('employeeFiles.runAway');
 			case 'Resigned': return $t('employeeFiles.resigned');
 			default: return status;
 		}
 	}
 
 	function checkStatusRequiresEffectiveDate(status: string) {
-		const statusesRequiringEffectiveDate = ['Resigned', 'Terminated', 'Run Away'];
+		const statusesRequiringEffectiveDate = ['Resigned'];
 		if (statusesRequiringEffectiveDate.includes(status)) {
 			effectiveDate = '';
 			effectiveDateReason = '';
@@ -1475,7 +1473,7 @@
 			const updateData: any = { employment_status: employmentStatus };
 			
 			// Add effective date if the status requires it
-			const statusesRequiringEffectiveDate = ['Resigned', 'Terminated', 'Run Away'];
+			const statusesRequiringEffectiveDate = ['Resigned'];
 			if (statusesRequiringEffectiveDate.includes(employmentStatus)) {
 				updateData.employment_status_effective_date = effectiveDate;
 				updateData.employment_status_reason = effectiveDateReason;
@@ -1713,7 +1711,7 @@
 									<div class="employment-status-section">
 										<label class="status-section-label">{$t('employeeFiles.employmentStatus')}</label>
 										<div class="employment-status-rows">
-											{#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated'] as status}
+											{#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'] as status}
 												<div class="status-row">
 													<label class="status-radio-label">
 														<input 

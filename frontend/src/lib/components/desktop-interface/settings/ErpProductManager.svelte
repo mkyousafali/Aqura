@@ -423,26 +423,8 @@
 		savingExpiry = true;
 
 		try {
-			// 1. Update SQL Server (ERP) via bridge
-			const response = await fetch('/api/erp-products', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					action: 'update-expiry',
-					tunnelUrl: config.tunnel_url,
-					barcode: product.barcode,
-					newExpiryDate
-				})
-			});
-			const result = await response.json();
-
-			if (!result.success) {
-				alert(result.error || 'Failed to update ERP');
-				savingExpiry = false;
-				return;
-			}
-
-			// 2. Update Supabase (app) - merge into expiry_dates JSON for this barcode + all sibling barcodes (same parent_barcode)
+			// Expiry dates are managed only in Supabase. Never write them back to ERP.
+			// Merge into expiry_dates for this barcode and all sibling barcodes.
 			const newEntry = { branch_id: branchId, erp_branch_id: config.erp_branch_id, expiry_date: newExpiryDate };
 
 			// Find all barcodes that share the same parent_barcode
@@ -476,7 +458,7 @@
 			}
 
 			if (sbErrors.length > 0) {
-				alert(`ERP updated but Supabase failed for: ${sbErrors.join(', ')}`);
+				alert(`Supabase expiry update failed for: ${sbErrors.join(', ')}`);
 			}
 
 			// 3. Update local state for all matching products

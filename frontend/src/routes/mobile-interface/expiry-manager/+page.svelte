@@ -530,26 +530,7 @@
 		saveSuccess = false;
 
 		try {
-			// 1. Update SQL Server (ERP) via bridge
-			const response = await fetch('/api/erp-products', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					action: 'update-expiry',
-					tunnelUrl: selectedConfig.tunnel_url,
-					barcode: product.barcode,
-					newExpiryDate
-				})
-			});
-			const result = await response.json();
-
-			if (!result.success) {
-				saveError = result.error || (isRtl ? 'فشل تحديث ERP' : 'Failed to update ERP');
-				saving = false;
-				return;
-			}
-
-			// 2. Update Supabase - same logic as ERP Product Manager (update siblings too)
+			// Expiry dates are managed only in Supabase. Never write them back to ERP.
 			const newEntry = { branch_id: selectedBranchId, erp_branch_id: selectedConfig.erp_branch_id, expiry_date: newExpiryDate };
 			const parentBarcode = product.parent_barcode || product.barcode;
 			const { data: siblings } = await supabase
@@ -568,13 +549,15 @@
 					sibExpiry.push(newEntry);
 				}
 
-				await supabase
+				const { error: updateError } = await supabase
 					.from('erp_synced_products')
 					.update({ expiry_dates: sibExpiry, synced_at: new Date().toISOString() })
 					.eq('barcode', sibling.barcode);
+
+				if (updateError) throw updateError;
 			}
 
-			// 3. Update local product state
+			// Update local product state
 			const localExpiry: any[] = product.expiry_dates ? [...product.expiry_dates] : [];
 			const li = localExpiry.findIndex((e: any) => e.branch_id === selectedBranchId);
 			if (li >= 0) { localExpiry[li] = newEntry; } else { localExpiry.push(newEntry); }

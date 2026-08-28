@@ -22,6 +22,7 @@
 		nationality_name_en?: string;
 		nationality_name_ar?: string;
 		employment_status: string;
+		employment_status_effective_date?: string | null;
 		sponsorship_status?: string;
 	}
 
@@ -1661,11 +1662,22 @@
 
 	function fillMissingDatesInRange(pairs: any[]): any[] {
 		const start = new Date(startDate);
-		const end = new Date(endDate);
+		let end = new Date(endDate);
+
+		// Resigned employees: nothing after their resignation effective date is
+		// relevant (they no longer work there) — trim the range so those trailing
+		// days aren't synthesized as Absent/Unapproved Leave, and any stray data
+		// past that date is ignored too. Days up to and including the effective
+		// date are left untouched.
+		if (employee?.employment_status === 'Resigned' && employee?.employment_status_effective_date) {
+			const resignedOn = new Date(employee.employment_status_effective_date);
+			if (resignedOn < end) end = resignedOn;
+		}
+
 		const allDatePairs: any[] = [];
 		const existingDates = new Set<string>();
 
-		// Filter pairs to only include those within the original date range
+		// Filter pairs to only include those within the (possibly trimmed) date range
 		const filteredPairs = pairs.filter(pair => {
 			const dateToCheck = pair.checkInDate || pair.checkOutDate;
 			if (!dateToCheck) return false;

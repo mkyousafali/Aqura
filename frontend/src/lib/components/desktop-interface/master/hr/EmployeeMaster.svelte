@@ -515,7 +515,6 @@
 			case 'Remote Job': return '#6366f1';
 			case 'Vacation': return '#f59e0b';
 			case 'Resigned': return '#ef4444';
-			case 'Terminated': return '#dc2626';
 			default: return '#94a3b8';
 		}
 	}
@@ -526,7 +525,6 @@
 			case 'Remote Job': return '#eef2ff';
 			case 'Vacation': return '#fefce8';
 			case 'Resigned': return '#fef2f2';
-			case 'Terminated': return '#fef2f2';
 			default: return '#f1f5f9';
 		}
 	}
@@ -560,9 +558,9 @@
 		{ key: 'doc_health_educational', label: 'Health Educational Renewal' }
 	];
 	const ACTIVE_EMP_STATUSES = ['Job (With Finger)', 'Remote Job', 'Vacation'];
-	const ALL_EMP_STATUSES_LIST = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'];
-	const STATUSES_NEEDING_DATE = ['Vacation', 'Resigned', 'Terminated', 'Run Away'];
-	const STATUS_ORDER_MAP: Record<string, number> = { 'Job (With Finger)': 1, 'Remote Job': 2, 'Vacation': 3, 'Resigned': 4, 'Terminated': 5, 'Run Away': 6 };
+	const ALL_EMP_STATUSES_LIST = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'];
+	const STATUSES_NEEDING_DATE = ['Vacation', 'Resigned'];
+	const STATUS_ORDER_MAP: Record<string, number> = { 'Job (With Finger)': 1, 'Remote Job': 2, 'Vacation': 3, 'Resigned': 4 };
 
 	// Documents Expiry state
 	let documentsExpiryData: any[] = [];
@@ -730,8 +728,6 @@
 			'Remote Job':        $t('employeeMaster.empStatus.statuses.remoteJob'),
 			'Vacation':          $t('employeeMaster.empStatus.statuses.vacation'),
 			'Resigned':          $t('employeeMaster.empStatus.statuses.resigned'),
-			'Terminated':        $t('employeeMaster.empStatus.statuses.terminated'),
-			'Run Away':          $t('employeeMaster.empStatus.statuses.runAway'),
 		};
 		return map[status] || status || '—';
 	}
@@ -739,8 +735,7 @@
 	function getEmpStatusBadge(status: string): string {
 		const badges: Record<string, string> = {
 			'Job (With Finger)': 'bg-green-100 text-green-800', 'Remote Job': 'bg-blue-100 text-blue-800',
-			'Vacation': 'bg-yellow-100 text-yellow-800', 'Resigned': 'bg-slate-100 text-slate-600',
-			'Terminated': 'bg-red-100 text-red-800', 'Run Away': 'bg-orange-100 text-orange-800'
+			'Vacation': 'bg-yellow-100 text-yellow-800', 'Resigned': 'bg-slate-100 text-slate-600'
 		};
 		return badges[status] || 'bg-slate-100 text-slate-600';
 	}

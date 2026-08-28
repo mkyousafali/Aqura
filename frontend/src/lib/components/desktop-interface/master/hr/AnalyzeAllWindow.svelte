@@ -266,11 +266,50 @@
 				}
 			}
 
-			// Fill missing dates with 'Absent' default
-			for (const [, empData] of empMap) {
+			const empIdsInMap = Array.from(empMap.keys());
+
+			// Resigned employees: hr_analysed_attendance_data can still hold stale rows
+			// computed before the resignation was recorded (or the edge function's own
+			// exclusion filter catching up), and the fill-with-'Absent' step below would
+			// otherwise paper over the rest of the range too. Drop everything past each
+			// employee's resignation effective date — same cutoff rule as the single
+			// employee Analysis window — before filling gaps or overlaying leave data.
+			const resignedCutoffs = new Map<string, string>();
+			if (empIdsInMap.length > 0) {
+				const { data: statusRows } = await supabase
+					.from('hr_employee_master')
+					.select('id, employment_status, employment_status_effective_date')
+					.in('id', empIdsInMap);
+
+				for (const s of statusRows || []) {
+					if (s.employment_status === 'Resigned' && s.employment_status_effective_date) {
+						resignedCutoffs.set(String(s.id), s.employment_status_effective_date);
+					}
+				}
+			}
+			for (const [empId, cutoff] of resignedCutoffs) {
+				// Whole selected period is after the resignation — nothing to show at all
+				if (cutoff < startDate) { empMap.delete(empId); continue; }
+				const emp = empMap.get(empId);
+				if (!emp) continue;
+				// Any real/stale row past the cutoff gets replaced with a 'Resigned' marker
+				// rather than removed, so every date cell below stays populated (avoids
+				// undefined lookups in the render loop) while showing nothing worked/absent.
+				for (const date of Object.keys(emp.dayByDay)) {
+					if (date > cutoff) {
+						emp.dayByDay[date] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0, overtimeMins: 0 };
+					}
+				}
+			}
+
+			// Fill missing dates with 'Absent' default, or 'Resigned' past a resignation cutoff
+			for (const [empId, empData] of empMap) {
+				const cutoff = resignedCutoffs.get(empId);
 				for (const date of datesInRange) {
 					if (!empData.dayByDay[date]) {
-						empData.dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0, overtimeMins: 0 };
+						empData.dayByDay[date] = (cutoff && date > cutoff)
+							? { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0, overtimeMins: 0 }
+							: { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0, overtimeMins: 0 };
 					}
 				}
 			}
@@ -280,8 +319,7 @@
 			// an employee's employment status changed during an approved leave period, causing
 			// the Edge Function to exclude them and leave gaps in hr_analysed_attendance_data.
 			// Approved leave always has priority over Absent; no other statuses are affected.
-			const empIdsInMap = Array.from(empMap.keys());
-			if (empIdsInMap.length > 0) {
+			if (empMap.size > 0) {
 				const { data: approvedLeaves } = await supabase
 					.from('day_off')
 					.select('employee_id, day_off_date, is_deductible_on_salary')
@@ -444,6 +482,7 @@
 			case 'Incomplete': return $t('hr.processFingerprint.status_incomplete');
 			case 'Check-In Missing': return $t('hr.processFingerprint.checkin_missing');
 			case 'Check-Out Missing': return $t('hr.processFingerprint.checkout_missing');
+			case 'Resigned': return $t('employeeFiles.resigned') || 'Resigned';
 			default: return status;
 		}
 	}
@@ -478,7 +517,8 @@
 				'Rejected-Not Deducted': '\u0645\u0631\u0641\u0648\u0636-\u063a\u064a\u0631 \u0645\u062e\u0635\u0648\u0645',
 				'Check-In Missing': '\u062f\u062e\u0648\u0644 \u0645\u0641\u0642\u0648\u062f',
 				'Check-Out Missing': '\u062e\u0631\u0648\u062c \u0645\u0641\u0642\u0648\u062f',
-				'Incomplete': '\u063a\u064a\u0631 \u0645\u0643\u062a\u0645\u0644'
+				'Incomplete': '\u063a\u064a\u0631 \u0645\u0643\u062a\u0645\u0644',
+				'Resigned': '\u0645\u0633\u062a\u0642\u064a\u0644'
 			};
 
 			function fmtMinsLang(mins: number, lang: 'en' | 'ar'): string {
@@ -595,7 +635,10 @@
 							totalLate += day.lateMins || 0;
 							totalUnder += day.underMins || 0;
 							totalOvertime += day.overtimeMins || 0;
-							let cell = fmtMinsLang(day.workedMins, lang);
+							// Remote Job employees have no fingerprint punches \u2014 the edge function
+							// marks their no-punch days 'Worked' with workedMins left at 0, so fall
+							// back to the plain "Worked" label instead of a blank '-' cell.
+							let cell = day.workedMins > 0 ? fmtMinsLang(day.workedMins, lang) : getStatusLang(st, lang);
 							if (day.lateMins > 0) cell += `\n${isAr ? '\u062a\u0623\u062e\u064a\u0631' : 'Late'}: ${fmtMinsLang(day.lateMins, lang)}`;
 							if (day.underMins > 0) cell += `\n${isAr ? '\u0646\u0642\u0635' : 'Under'}: ${fmtMinsLang(day.underMins, lang)}`;
 							if (day.overtimeMins > 0) cell += `\n${isAr ? '\u0625\u0636\u0627\u0641\u064a' : 'OT'}: ${fmtMinsLang(day.overtimeMins, lang)}`;
@@ -750,6 +793,7 @@
 			case 'Rejected Leave': return 'text-red-600 font-bold';
 			case 'Check-In Missing': return 'text-orange-600 font-bold';
 			case 'Check-Out Missing': return 'text-orange-500 font-bold';
+			case 'Resigned': return 'text-slate-400 italic';
 			default: return 'text-slate-400';
 		}
 	}
@@ -845,10 +889,12 @@
 					<thead class="sticky top-0 z-40 bg-slate-50">
 						<tr>
 							<th class="px-2 py-4 font-bold text-slate-700 border-b border-r w-[40px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-0' : 'left-0'}">
+							</th>
+							<th class="px-2 py-4 font-bold text-slate-700 border-b border-r w-[50px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">
 								<div class="flex justify-center italic text-[10px]">#</div>
 							</th>
-							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[100px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">{$t('hr.employeeId')}</th>
-							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[200px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'}">{$t('hr.fullName')}</th>
+							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[100px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[90px]' : 'left-[90px]'}">{$t('hr.employeeId')}</th>
+							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[200px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[190px]' : 'left-[190px]'}">{$t('hr.fullName')}</th>
 							{#each datesInRange as date}
 								<th class="px-3 py-2 font-bold text-slate-700 border-b border-r text-center w-[100px] whitespace-nowrap bg-slate-50">
 									<div class="flex flex-col items-center">
@@ -860,10 +906,10 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-200">
-						{#each filteredAnalysisData as row}
+						{#each filteredAnalysisData as row, i}
 							<tr class="transition-colors group even:bg-slate-100/80">
 								<td class="px-2 py-3 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 flex justify-center items-center {$locale === 'ar' ? 'right-0' : 'left-0'}">
-									<button 
+									<button
 										class="p-1 hover:bg-slate-200 rounded-full transition-colors text-blue-600"
 										on:click={() => openEmployeeAnalysis(row.employeeId)}
 										title={$t('hr.processFingerprint.analyse')}
@@ -874,10 +920,13 @@
 										</svg>
 									</button>
 								</td>
-								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">
+								<td class="px-2 py-3 text-center font-mono text-slate-500 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">
+									{i + 1}
+								</td>
+								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[90px]' : 'left-[90px]'}">
 									{row.employeeId}
 								</td>
-								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'}">
+								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[190px]' : 'left-[190px]'}">
 									<div class="flex flex-col">
 										<span>{row.employeeName}</span>
 										{#if row.shiftInfo}

@@ -794,22 +794,7 @@ app.post('/sync', authenticate, async (req, res) => {
 });
 
 app.post('/update-expiry', authenticate, async (req, res) => {
-  try {
-    const { barcode, newExpiryDate } = req.body;
-    const p = await getPool();
-    const findResult = await p.request()
-      .input('barcode', sql.NVarChar, barcode)
-      .query("SELECT DISTINCT pb.ProductBatchID FROM ProductBatches pb WHERE pb.MannualBarcode = @barcode OR CAST(pb.AutoBarcode AS NVARCHAR(100)) = @barcode OR pb.Unit2Barcode = @barcode OR pb.Unit3Barcode = @barcode UNION SELECT DISTINCT pu.ProductBatchID FROM ProductUnits pu WHERE pu.BarCode = @barcode UNION SELECT DISTINCT pbc.ProductBatchID FROM ProductBarcodes pbc WHERE pbc.Barcode = @barcode");
-    const batchIds = findResult.recordset.map(r => r.ProductBatchID);
-    if (batchIds.length === 0) {
-      return res.json({ success: false, error: 'Barcode ' + barcode + ' not found in ERP' });
-    }
-    const idList = batchIds.map(id => "'" + id + "'").join(',');
-    const safeDateStr = newExpiryDate.replace(/-/g, '');
-    const updateResult = await p.request().input('newExpiry', sql.NVarChar, safeDateStr).query("UPDATE ProductBatches SET ExpiryDate = CONVERT(datetime, @newExpiry, 112) WHERE ProductBatchID IN (" + idList + ")");
-    const verifyResult = await p.request().query("SELECT ProductBatchID, ExpiryDate FROM ProductBatches WHERE ProductBatchID IN (" + idList + ")");
-    res.json({ success: true, updatedRows: updateResult.rowsAffected[0], batchIds, verifiedDates: verifyResult.recordset, message: 'Updated ' + updateResult.rowsAffected[0] + ' batch(es) in ERP' });
-  } catch (err) { pool = null; console.error('Update expiry error:', err); res.status(500).json({ success: false, error: err.message }); }
+	res.status(410).json({ success: false, error: 'ERP expiry updates are disabled; expiry dates are managed in Supabase only.' });
 });
 
 // Read-only SQL query endpoint (SELECT only)

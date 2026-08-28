@@ -176,7 +176,7 @@
 				.from('hr_employee_master')
 				.select('user_id, id, name_en')
 				.eq('current_branch_id', parseInt(otherBranchId))
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
 				.order('name_en');
 			if (error) throw error;
 			otherUsers = data || [];
@@ -455,7 +455,7 @@
 			const { data, error } = await supabase
 				.from('hr_employee_master')
 				.select('user_id, id, name_en')
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
 				.order('name_en');
 			if (error) throw error;
 			approverUsers = data || [];

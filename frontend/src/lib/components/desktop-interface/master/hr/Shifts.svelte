@@ -197,12 +197,9 @@
 
     $: availableEmploymentStatuses = [
         { id: 'Job (With Finger)', label: $t('employeeFiles.statuses.jobWithFinger') },
-        { id: 'Job (No Finger)', label: $t('employeeFiles.statuses.jobNoFinger') },
         { id: 'Remote Job', label: $t('employeeFiles.statuses.remoteJob') },
         { id: 'Vacation', label: $t('employeeFiles.statuses.vacation') },
-        { id: 'Resigned', label: $t('employeeFiles.statuses.resigned') },
-        { id: 'Terminated', label: $t('employeeFiles.statuses.terminated') },
-        { id: 'Run Away', label: $t('employeeFiles.statuses.escape') }
+        { id: 'Resigned', label: $t('employeeFiles.statuses.resigned') }
     ];
 
     $: filteredRegular = filterRows(regularRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
@@ -237,8 +234,7 @@
 
     function sortEmployees(list: any[]): any[] {
         const order: Record<string, number> = {
-            'Job (With Finger)': 1, 'Job (No Finger)': 2, 'Remote Job': 3,
-            'Vacation': 4, 'Resigned': 5, 'Terminated': 6, 'Run Away': 7
+            'Job (With Finger)': 1, 'Remote Job': 2, 'Vacation': 3, 'Resigned': 4
         };
         return list.sort((a, b) => {
             const sa = order[a.employment_status] || 99;
@@ -264,11 +260,8 @@
     function statusDisplay(status: string | undefined): { color: string; text: string } {
         switch (status) {
             case 'Job (With Finger)': return { color: 'bg-green-100 text-green-800', text: $t('employeeFiles.inJob') || 'Job (With Finger)' };
-            case 'Job (No Finger)': return { color: 'bg-emerald-100 text-emerald-800', text: $t('employeeFiles.jobNoFinger') || 'Job (No Finger)' };
             case 'Remote Job': return { color: 'bg-cyan-100 text-cyan-800', text: $t('employeeFiles.remoteJob') || 'Remote Job' };
             case 'Vacation': return { color: 'bg-blue-100 text-blue-800', text: $t('employeeFiles.vacation') || 'Vacation' };
-            case 'Terminated': return { color: 'bg-red-100 text-red-800', text: $t('employeeFiles.terminated') || 'Terminated' };
-            case 'Run Away': return { color: 'bg-purple-100 text-purple-800', text: $t('employeeFiles.runAway') || 'Run Away' };
             default: return { color: 'bg-gray-100 text-gray-800', text: $t('employeeFiles.resigned') || 'Resigned' };
         }
     }

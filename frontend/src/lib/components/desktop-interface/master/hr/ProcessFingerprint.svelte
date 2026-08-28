@@ -17,6 +17,7 @@
 		nationality_name_en?: string;
 		nationality_name_ar?: string;
 		employment_status: string;
+		employment_status_effective_date?: string | null;
 		sponsorship_status?: string;
 		employee_id_mapping?: any;
 	}
@@ -391,6 +392,7 @@
 					current_branch_id,
 					nationality_id,
 					employment_status,
+					employment_status_effective_date,
 					sponsorship_status,
 					employee_id_mapping
 				`)
@@ -454,12 +456,9 @@
 	function sortEmployees(employees: any[]): any[] {
 		const employmentStatusOrder: { [key: string]: number } = {
 			'Job (With Finger)': 1,
-			'Job (No Finger)': 2,
-			'Remote Job': 3,
-			'Vacation': 4,
-			'Resigned': 5,
-			'Terminated': 6,
-			'Run Away': 7
+			'Remote Job': 2,
+			'Vacation': 3,
+			'Resigned': 4
 		};
 
 		return employees.sort((a, b) => {

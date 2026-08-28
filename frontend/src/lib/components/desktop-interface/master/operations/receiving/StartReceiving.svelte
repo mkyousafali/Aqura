@@ -589,7 +589,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           )
         `)
         .eq('current_branch_id', branchId)
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .order('name_en');
 
       if (loadError) throw loadError;
@@ -681,7 +681,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             position_title_ar
           )
         `)
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .range(0, 999);
 
       if (loadError) {
@@ -773,7 +773,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           )
         `)
         .eq('current_branch_id', parseInt(selectedBranch))
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .order('name_en');
 
       if (loadError) throw loadError;
@@ -853,7 +853,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           )
         `)
         .eq('current_branch_id', parseInt(selectedBranch))
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .order('name_en');
 
       if (loadError) throw loadError;
@@ -933,7 +933,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           )
         `)
         .eq('current_branch_id', parseInt(selectedBranch))
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .order('name_en');
 
       if (loadError) throw loadError;
@@ -1013,7 +1013,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           )
         `)
         .eq('current_branch_id', parseInt(selectedBranch))
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .order('name_en');
 
       if (loadError) throw loadError;
@@ -1092,7 +1092,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           )
         `)
         .eq('current_branch_id', parseInt(selectedBranch))
-        .in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
         .order('name_en');
 
       if (loadError) throw loadError;

@@ -8,7 +8,7 @@ import type { RequestHandler } from './$types';
  * this proxies requests to the ERP Bridge API running on each branch's
  * server, exposed via Cloudflare Tunnel.
  * 
- * Bridge endpoints: /test, /sync, /update-expiry
+ * Bridge endpoints: /test, /sync, /price-check, /query
  * Auth: x-api-secret header
  */
 
@@ -17,7 +17,7 @@ const BRIDGE_API_SECRET = 'aqura-erp-bridge-2026';
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { action, tunnelUrl, erpBranchId, appBranchId, barcode, newExpiryDate, limit, offset } = body;
+		const { action, tunnelUrl, erpBranchId, appBranchId, barcode, limit, offset } = body;
 
 		if (!tunnelUrl) {
 			return json({ success: false, error: 'No tunnel URL configured for this branch' }, { status: 400 });
@@ -31,7 +31,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		} else if (action === 'sync') {
 			return await proxySync(baseUrl, erpBranchId, appBranchId, limit, offset);
 		} else if (action === 'update-expiry') {
-			return await proxyUpdateExpiry(baseUrl, barcode, newExpiryDate);
+			return json(
+				{ success: false, error: 'ERP expiry updates are disabled; expiry dates are managed in Supabase only.' },
+				{ status: 410 }
+			);
 		} else if (action === 'price-check') {
 			return await proxyPriceCheck(baseUrl, barcode, erpBranchId);
 		} else if (action === 'query') {

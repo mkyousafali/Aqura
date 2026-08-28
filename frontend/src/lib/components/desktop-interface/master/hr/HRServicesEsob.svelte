@@ -279,7 +279,6 @@
 	// Map employment_status to a default termination reason
 	const STATUS_TO_REASON: Record<string, TerminationReason> = {
 		'Resigned': 'resignation',
-		'Terminated': 'employer_unlawful',
 		'Retired': 'retirement_age',
 		'Deceased': 'death_employee',
 		'Contract Ended': 'expiry_contract_term',

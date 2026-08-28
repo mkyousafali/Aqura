@@ -160,7 +160,7 @@
 			let query = supabase
 				.from('hr_employee_master')
 				.select('id, user_id, name_en, name_ar, current_branch_id, hr_positions(position_title_en, position_title_ar)')
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job']);
+				.in('employment_status', ['Job (With Finger)', 'Remote Job']);
 			
 			// Filter by branch if selected
 			if (branchId) {

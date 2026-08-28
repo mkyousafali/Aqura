@@ -267,7 +267,7 @@
 						position_title_ar
 					)
 				`)
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job'])
+				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
 				.neq('user_id', 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b');
 
 			if (error) {

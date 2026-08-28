@@ -196,8 +196,6 @@
         'Remote Job': 2,
         'Vacation': 3,
         'Resigned': 4,
-        'Terminated': 5,
-        'Run Away': 6,
     };
 
     $: filteredStatusData = employeeStatusData.filter(emp => {
@@ -222,8 +220,6 @@
             case 'Remote Job': return 'bg-blue-100 text-blue-800';
             case 'Vacation': return 'bg-yellow-100 text-yellow-800';
             case 'Resigned': return 'bg-slate-100 text-slate-600';
-            case 'Terminated': return 'bg-red-100 text-red-800';
-            case 'Run Away': return 'bg-orange-100 text-orange-800';
             default: return 'bg-slate-100 text-slate-600';
         }
     }
@@ -238,8 +234,8 @@
     let statusModalReason = '';
     let statusModalSaving = false;
 
-    const ALL_STATUSES = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'];
-    const STATUSES_NEEDING_EFFECTIVE_DATE = ['Vacation', 'Resigned', 'Terminated', 'Run Away'];
+    const ALL_STATUSES = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'];
+    const STATUSES_NEEDING_EFFECTIVE_DATE = ['Vacation', 'Resigned'];
 
     $: statusNeedsEffectiveDate = STATUSES_NEEDING_EFFECTIVE_DATE.includes(statusModalNewStatus);
 
@@ -869,7 +865,7 @@
                             class="px-4 py-2.5 rounded-lg border border-green-200 bg-white/60 backdrop-blur-sm text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all cursor-pointer"
                         >
                             <option value="">All Statuses</option>
-                            {#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'] as s}
+                            {#each ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'] as s}
                                 <option value={s}>{s}</option>
                             {/each}
                         </select>

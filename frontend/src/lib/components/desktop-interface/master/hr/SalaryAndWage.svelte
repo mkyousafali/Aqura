@@ -17,7 +17,7 @@
 	
 	let availableBranches: any[] = [];
 	let availableNationalities: any[] = [];
-	let availableEmploymentStatuses: string[] = ['Job (With Finger)', 'Job (No Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'];
+	let availableEmploymentStatuses: string[] = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'];
 
 	let basicSalaryValues: { [key: string]: string } = {};
 	let paymentModeValues: { [key: string]: string } = {};
@@ -155,12 +155,9 @@
 			// Sort employees using the same logic as ShiftAndDayOff
 			const employmentStatusOrder: { [key: string]: number } = {
 				'Job (With Finger)': 1,
-				'Job (No Finger)': 2,
-				'Remote Job': 3,
-				'Vacation': 4,
-				'Resigned': 5,
-				'Terminated': 6,
-				'Run Away': 7
+				'Remote Job': 2,
+				'Vacation': 3,
+				'Resigned': 4
 			};
 
 			employees = (data || []).sort((a, b) => {
@@ -435,12 +432,9 @@
 		
 		switch (status) {
 			case 'Job (With Finger)': return $t('employeeFiles.statuses.jobWithFinger');
-			case 'Job (No Finger)': return $t('employeeFiles.statuses.jobNoFinger');
 			case 'Remote Job': return $t('employeeFiles.statuses.remoteJob');
 			case 'Vacation': return $t('employeeFiles.statuses.vacation');
 			case 'Resigned': return $t('employeeFiles.statuses.resigned');
-			case 'Terminated': return $t('employeeFiles.statuses.terminated');
-			case 'Run Away': return $t('employeeFiles.statuses.escape');
 			default: return status;
 		}
 	}
@@ -448,12 +442,9 @@
 	function getStatusColor(status: string) {
 		switch (status) {
 			case 'Job (With Finger)': return 'status-job-finger';
-			case 'Job (No Finger)': return 'status-job-no-finger';
 			case 'Remote Job': return 'status-remote';
 			case 'Vacation': return 'status-vacation';
 			case 'Resigned': return 'status-resigned';
-			case 'Terminated': return 'status-terminated';
-			case 'Run Away': return 'status-escape';
 			default: return 'status-unknown';
 		}
 	}

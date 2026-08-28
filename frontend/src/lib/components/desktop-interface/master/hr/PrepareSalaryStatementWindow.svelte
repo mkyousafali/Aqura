@@ -1923,7 +1923,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 						name_en
 					)
 				`)
-				.in('employment_status', ['Job (With Finger)', 'Job (No Finger)', 'Remote Job']);
+				.in('employment_status', ['Job (With Finger)', 'Remote Job']);
 			
 			employees = (empData || []).map(e => ({
 				...e,
@@ -4245,7 +4245,7 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<p class="text-[10px] font-semibold text-orange-500 uppercase tracking-wider">{$t('hr.salaryStatement.editEmployeeValues')}</p>
 					<p class="font-bold text-base text-green-800">{empEditRow.employeeName}</p>
 					<p class="text-[10px] text-green-600">{empEditRow.employeeId}</p>
-					<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold {empEditRow.employmentStatus === 'Resigned' || empEditRow.employmentStatus === 'Terminated' || empEditRow.employmentStatus === 'Run Away' ? 'bg-red-100 text-red-700' : empEditRow.employmentStatus === 'Remote Job' ? 'bg-orange-100 text-orange-700' : empEditRow.employmentStatus === 'Vacation' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}">{empEditRow.employmentStatus ?? '-'}</span>
+					<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold {empEditRow.employmentStatus === 'Resigned' ? 'bg-red-100 text-red-700' : empEditRow.employmentStatus === 'Remote Job' ? 'bg-orange-100 text-orange-700' : empEditRow.employmentStatus === 'Vacation' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}">{empEditRow.employmentStatus ?? '-'}</span>
 				</div>
 				<button class="p-2 hover:bg-orange-100 rounded-full transition-colors text-orange-500" aria-label="Close" on:click={() => showEmpEditModal = false}>
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
