@@ -272,6 +272,7 @@
 	// Map DB section_name_en → i18n key for section headers
 	const sectionTranslationMap: Record<string, string> = {
 		'CONTROLS': 'nav.controls',
+		'SYSTEM': 'nav.system',
 		'DELIVERY': 'nav.delivery',
 		'VENDOR': 'nav.vendor',
 		'MEDIA': 'nav.media',
@@ -283,6 +284,7 @@
 		'USERS': 'nav.users',
 		'USER': 'nav.users',
 		'Controls': 'nav.controls',
+		'System': 'nav.system',
 		'Delivery': 'nav.delivery',
 		'Vendor': 'nav.vendor',
 		'Media': 'nav.media',

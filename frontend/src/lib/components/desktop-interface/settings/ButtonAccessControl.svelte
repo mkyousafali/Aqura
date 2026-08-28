@@ -44,6 +44,7 @@
 		'Outreach': '📢',
 		'User': '👤',
 		'Controls': '🎛️',
+		'System': '🖥️',
 		'Stock': '📦',
 		'Whatsapp': '💬',
 		'Loyalty': '⭐'
@@ -66,6 +67,7 @@
 		'Outreach',
 		'User',
 		'Controls',
+		'System',
 		'Stock',
 		'Whatsapp',
 		'Loyalty'

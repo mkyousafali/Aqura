@@ -466,6 +466,7 @@ export const arabicLocale: LocaleData = {
       vendor: "المشتريات",
       loyaltyProgram: "الولاء",
       controls: "التحكم",
+      system: "النظام",
       hr: "الموارد البشرية",
       stock: "المخزون",
       productRequest: "طالب المنتجات",

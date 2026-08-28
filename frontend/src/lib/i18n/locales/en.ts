@@ -464,6 +464,7 @@ export const englishLocale: LocaleData = {
       vendor: "Sourcing",
       loyaltyProgram: "Loyalty",
       controls: "Controls",
+      system: "System",
       hr: "HR",
       stock: "Stock",
       productRequest: "Products Requestor",

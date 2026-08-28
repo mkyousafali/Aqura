@@ -223,6 +223,11 @@
 	let showControlsManageSubmenu = false;
 	let showControlsOperationsSubmenu = false;
 	let showControlsReportsSubmenu = false;
+	let showSystemSubmenu = false;
+	let showSystemDashboardSubmenu = false;
+	let showSystemManageSubmenu = false;
+	let showSystemOperationsSubmenu = false;
+	let showSystemReportsSubmenu = false;
 	let showMediaSubmenu = false;
 	let showMediaDashboardSubmenu = false;
 	let showMediaManageSubmenu = false;
@@ -568,9 +573,13 @@
 		LoyaltyOperations: [],
 		LoyaltyReports: [],
 		ControlsDashboard: [],
-		ControlsManage: ["BRANCHES","SETTINGS","E_R_P_CONNECTIONS","CLEAR_TABLES","BUTTON_ACCESS_CONTROL","THEME_MANAGER","AI_CHAT_GUIDE","ERP_PRODUCT_MANAGER","STORAGE_MANAGER","ICON_MANAGER","API_KEYS_MANAGER","BRANDING","SUPABASE_SECRETS"],
-		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE","HELPER_APPS","SIDEBAR_ANIMATION"],
-		ControlsReports: ["CENTRAL_PERFORMANCE","USER_ACTION_REPORTS","DRAWER_ACTION_MONITOR","PC_LOCK_GUARD"],
+		ControlsManage: ["E_R_P_CONNECTIONS","CLEAR_TABLES","AI_CHAT_GUIDE","STORAGE_MANAGER","ICON_MANAGER","API_KEYS_MANAGER","SUPABASE_SECRETS"],
+		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE"],
+		ControlsReports: ["PC_LOCK_GUARD"],
+		SystemDashboard: [],
+		SystemManage: ["BUTTON_ACCESS_CONTROL","BRANCHES","THEME_MANAGER","ERP_PRODUCT_MANAGER","SETTINGS","BRANDING"],
+		SystemOperations: ["HELPER_APPS","SIDEBAR_ANIMATION"],
+		SystemReports: ["CENTRAL_PERFORMANCE","USER_ACTION_REPORTS","DRAWER_ACTION_MONITOR"],
 		WhatsAppDashboard: ["WA_DASHBOARD"],
 		WhatsAppManage: ["WA_ACCOUNTS","WA_TEMPLATES","WA_CONTACTS","WA_CATALOG","WA_SETTINGS"],
 		WhatsAppOperations: ["WA_LIVE_CHAT","WA_BROADCASTS","WA_AUTO_REPLY","WA_AI_BOT"],
@@ -592,6 +601,7 @@
 		User: ["UserDashboard","UserManage","UserOperations","UserReports"],
 		Loyalty: ["LoyaltyDashboard","LoyaltyManage","LoyaltyOperations","LoyaltyReports"],
 		Controls: ["ControlsDashboard","ControlsManage","ControlsOperations","ControlsReports"],
+		System: ["SystemDashboard","SystemManage","SystemOperations","SystemReports"],
 		WhatsApp: ["WhatsAppDashboard","WhatsAppManage","WhatsAppOperations","WhatsAppReports"],
 		Email: ["EmailDashboard","EmailManage","EmailOperations","EmailReports"],
 	};
@@ -729,7 +739,8 @@
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showSystemSubmenu = false;
+		showSystemManageSubmenu = false;
 	}
 
 	function openTaskMaster() {
@@ -1722,7 +1733,7 @@ function openApprovalCenter() {
 	function openSettings() {
 		const windowId = generateWindowId('settings');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
+
 		openWindow({
 			id: windowId,
 			title: `Sound Settings #${instanceNumber}`,
@@ -1730,16 +1741,17 @@ function openApprovalCenter() {
 			componentName: "Settings",
 			icon: '🔊',
 			size: { width: 1000, height: 700 },
-			position: { 
-				x: 100 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
+			position: {
+				x: 100 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
 			closable: true
 		});
-		showSettingsSubmenu = false;
+		showSystemSubmenu = false;
+		showSystemManageSubmenu = false;
 	}
 
 	function openApprovalPermissions() {
@@ -2032,8 +2044,8 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showControlsSubmenu = false;
-		showControlsManageSubmenu = false;
+		showSystemSubmenu = false;
+		showSystemManageSubmenu = false;
 	}
 
 	function openThemeManager() {
@@ -2056,8 +2068,8 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showControlsSubmenu = false;
-		showControlsManageSubmenu = false;
+		showSystemSubmenu = false;
+		showSystemManageSubmenu = false;
 	}
 
 	function openAIChatGuide() {
@@ -2104,8 +2116,8 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showControlsSubmenu = false;
-		showControlsManageSubmenu = false;
+		showSystemSubmenu = false;
+		showSystemManageSubmenu = false;
 	}
 
 	function openCommunicationCenter() {
@@ -2384,6 +2396,10 @@ function openApprovalCenter() {
 		showControlsManageSubmenu = false;
 		showControlsOperationsSubmenu = false;
 		showControlsReportsSubmenu = false;
+		showSystemDashboardSubmenu = false;
+		showSystemManageSubmenu = false;
+		showSystemOperationsSubmenu = false;
+		showSystemReportsSubmenu = false;
 		showUserDashboardSubmenu = false;
 		showUserManageSubmenu = false;
 		showUserOperationsSubmenu = false;
@@ -2414,6 +2430,8 @@ function openApprovalCenter() {
 		showWhatsAppSubmenu = false;
 		showEmailSubmenu = false;
 		showLoyaltySubmenu = false;
+		showControlsSubmenu = false;
+		showSystemSubmenu = false;
 	}
 
 	// ===== WhatsApp Manager Open Functions =====
@@ -6193,22 +6211,6 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showControlsManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('BRANCHES')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBranches}>
-								<span class="menu-icon">🏢</span>
-								<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('SETTINGS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openSettings}>
-								<span class="menu-icon">🔊</span>
-								<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('E_R_P_CONNECTIONS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openERPConnections}>
@@ -6225,35 +6227,11 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('BUTTON_ACCESS_CONTROL')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openButtonAccessControl}>
-								<span class="menu-icon">🎛️</span>
-								<span class="menu-text">{t('nav.buttonAccessControl')}</span>
-							</button>
-						</div>
-					{/if}
-				{#if isButtonAllowed('THEME_MANAGER')}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openThemeManager}>
-							<span class="menu-icon">🎨</span>
-							<span class="menu-text">{t('nav.themeManager')}</span>
-						</button>
-					</div>
-				{/if}
 				{#if isButtonAllowed('AI_CHAT_GUIDE')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openAIChatGuide}>
 							<span class="menu-icon">🤖</span>
 							<span class="menu-text">{t('nav.aiChatGuide') || 'AI Chat Guide'}</span>
-						</button>
-					</div>
-				{/if}
-				{#if isButtonAllowed('ERP_PRODUCT_MANAGER')}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openErpProductManager}>
-							<span class="menu-icon">🏭</span>
-							<span class="menu-text">{t('nav.erpProductManager')}</span>
 						</button>
 					</div>
 				{/if}
@@ -6278,14 +6256,6 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openApiKeysManager}>
 							<span class="menu-icon">🔑</span>
 							<span class="menu-text">{t('nav.apiKeysManager') || 'API Keys Manager'}</span>
-						</button>
-					</div>
-				{/if}
-				{#if isButtonAllowed('BRANDING')}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openBrandingManager}>
-							<span class="menu-icon">🎨</span>
-							<span class="menu-text">Branding</span>
 						</button>
 					</div>
 				{/if}
@@ -6338,22 +6308,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('HELPER_APPS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openHelperApps}>
-								<span class="menu-icon">🧩</span>
-								<span class="menu-text">{t('nav.helperApps') || 'Helper Apps'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('SIDEBAR_ANIMATION')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openSidebarAnimationManager}>
-								<span class="menu-icon">🎭</span>
-								<span class="menu-text">{t('nav.sidebarAnimation') || 'Sidebar Animation'}</span>
-							</button>
-						</div>
-					{/if}
 				</div>
 			{/if}
 
@@ -6381,6 +6335,206 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showControlsReportsSubmenu}
 				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('PC_LOCK_GUARD')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPCLockGuard}>
+								<span class="menu-icon">🛡️</span>
+								<span class="menu-text">PC Lock Guard</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- System Section -->
+	{#if sectionVisible['System']}
+	<div class="menu-section">
+		<button
+			class="section-button"
+			on:click={() => showSystemSubmenu = !showSystemSubmenu}
+		>
+			<span class="section-icon">🖥️</span>
+			<span class="section-text">{t('nav.system') || 'System'}</span>
+			<span class="arrow" class:expanded={showSystemSubmenu}>▼</span>
+		</button>
+	</div>
+	{/if}
+
+	<!-- System Submenu - Inline below System button -->
+	{#if showSystemSubmenu}
+		<div class="submenu-inline system-submenu">
+			<!-- Dashboard Subsection -->
+			{#if subsectionVisible['SystemDashboard']}
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showSystemDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showSystemDashboardSubmenu = true;
+						}
+					}}
+					title={t('nav.dashboard')}
+				>
+
+					<span class="menu-text">{t('nav.dashboard')}</span>
+				</button>
+			</div>
+			{/if}
+
+			<!-- Dashboard Subsection Items -->
+			{#if showSystemDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			{#if subsectionVisible['SystemManage']}
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showSystemManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showSystemManageSubmenu = true;
+						}
+					}}
+					title={t('nav.manage')}
+				>
+
+					<span class="menu-text">{t('nav.manage')}</span>
+				</button>
+			</div>
+			{/if}
+
+			<!-- Manage Subsection Items -->
+			{#if showSystemManageSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('BUTTON_ACCESS_CONTROL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openButtonAccessControl}>
+								<span class="menu-icon">🎛️</span>
+								<span class="menu-text">{t('nav.buttonAccessControl')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('BRANCHES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBranches}>
+								<span class="menu-icon">🏢</span>
+								<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('THEME_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openThemeManager}>
+								<span class="menu-icon">🎨</span>
+								<span class="menu-text">{t('nav.themeManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ERP_PRODUCT_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openErpProductManager}>
+								<span class="menu-icon">🏭</span>
+								<span class="menu-text">{t('nav.erpProductManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSettings}>
+								<span class="menu-icon">🔊</span>
+								<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('BRANDING')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBrandingManager}>
+								<span class="menu-icon">🎨</span>
+								<span class="menu-text">Branding</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			{#if subsectionVisible['SystemOperations']}
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showSystemOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showSystemOperationsSubmenu = true;
+						}
+					}}
+					title={t('nav.operations')}
+				>
+
+					<span class="menu-text">{t('nav.operations')}</span>
+				</button>
+			</div>
+			{/if}
+
+			<!-- Operations Subsection Items -->
+			{#if showSystemOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('HELPER_APPS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openHelperApps}>
+								<span class="menu-icon">🧩</span>
+								<span class="menu-text">{t('nav.helperApps') || 'Helper Apps'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SIDEBAR_ANIMATION')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSidebarAnimationManager}>
+								<span class="menu-icon">🎭</span>
+								<span class="menu-text">{t('nav.sidebarAnimation') || 'Sidebar Animation'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			{#if subsectionVisible['SystemReports']}
+			<div class="submenu-item-container">
+				<button
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showSystemReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showSystemReportsSubmenu = true;
+						}
+					}}
+					title={t('nav.reports')}
+				>
+
+					<span class="menu-text">{t('nav.reports')}</span>
+				</button>
+			</div>
+			{/if}
+
+			<!-- Reports Subsection Items -->
+			{#if showSystemReportsSubmenu}
+				<div class="submenu-subitem-container">
 					{#if isButtonAllowed('CENTRAL_PERFORMANCE') || $currentUser?.isMasterAdmin}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCentralPerformance}>
@@ -6402,14 +6556,6 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openDrawerActionMonitor}>
 								<span class="menu-icon">🚨</span>
 								<span class="menu-text">{t('nav.drawerActionMonitor') || 'Drawer Action Monitor'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('PC_LOCK_GUARD')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openPCLockGuard}>
-								<span class="menu-icon">🛡️</span>
-								<span class="menu-text">PC Lock Guard</span>
 							</button>
 						</div>
 					{/if}
