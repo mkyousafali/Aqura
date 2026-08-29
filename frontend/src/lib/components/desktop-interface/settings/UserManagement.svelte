@@ -40,6 +40,69 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let changeBranchLoading = false;
 	let changeBranchError = '';
 
+	// Edit Contact (WhatsApp / Email) modal state — opened via double-click on the badge/cell
+	let showEditContactModal = false;
+	let editContactUser = null;
+	let editContactField = null; // 'whatsapp' | 'email'
+	let editContactValue = '';
+	let editContactLoading = false;
+	let editContactError = '';
+
+	function openEditContact(user, field) {
+		const emp = getEmployeeNameFull(user);
+		if (!emp.id) {
+			alert('No employee record linked to this user — cannot edit contact info.');
+			return;
+		}
+		editContactUser = user;
+		editContactField = field;
+		editContactValue = (field === 'whatsapp' ? emp.whatsapp_number : emp.email) || '';
+		editContactError = '';
+		showEditContactModal = true;
+	}
+
+	function closeEditContact() {
+		showEditContactModal = false;
+		editContactUser = null;
+		editContactField = null;
+		editContactError = '';
+	}
+
+	async function saveEditContact() {
+		if (!editContactUser || !editContactField) return;
+		const value = editContactValue.trim();
+
+		if (editContactField === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+			editContactError = 'Enter a valid email address';
+			return;
+		}
+
+		editContactLoading = true;
+		editContactError = '';
+		try {
+			const updatePayload = editContactField === 'whatsapp'
+				? { whatsapp_number: value || null }
+				: { email: value || null };
+
+			const { error: updErr } = await supabase
+				.from('hr_employee_master')
+				.update(updatePayload)
+				.eq('user_id', editContactUser.id);
+
+			if (updErr) throw updErr;
+
+			showEditContactModal = false;
+			editContactUser = null;
+			editContactField = null;
+			await loadData();
+		} catch (err) {
+			console.error('Error saving contact info:', err);
+			editContactError = err.message || 'Failed to save';
+		} finally {
+			editContactLoading = false;
+		}
+	}
+
 	// Load data from database on mount
 	onMount(async () => {
 		await loadData();
@@ -424,18 +487,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 													<span class="text-xs text-slate-400">-</span>
 												{/if}
 											</td>
-											<td class="px-4 py-3">
+											<td class="px-4 py-3 cursor-pointer" title="Double-click to edit" on:dblclick={() => openEditContact(user, 'whatsapp')}>
 												{#if getEmployeeNameFull(user).whatsapp_number}
 													<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700">📱 {getEmployeeNameFull(user).whatsapp_number}</span>
 												{:else}
-													<span class="text-xs text-slate-400">-</span>
+													<span class="text-xs text-slate-400 italic">Double-click to add</span>
 												{/if}
 											</td>
-											<td class="px-4 py-3">
+											<td class="px-4 py-3 cursor-pointer" title="Double-click to edit" on:dblclick={() => openEditContact(user, 'email')}>
 												{#if getEmployeeNameFull(user).email}
 													<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700">📧 {getEmployeeNameFull(user).email}</span>
 												{:else}
-													<span class="text-xs text-slate-400">-</span>
+													<span class="text-xs text-slate-400 italic">Double-click to add</span>
 												{/if}
 											</td>
 											<td class="px-4 py-3 text-sm text-slate-700">
@@ -586,6 +649,53 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<button class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition" on:click={() => showChangeBranchModal = false} disabled={changeBranchLoading}>Cancel</button>
 				<button class="px-6 py-2 rounded-lg font-black text-white bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed" on:click={saveBranchChange} disabled={changeBranchLoading || !selectedBranchId}>
 					{changeBranchLoading ? '⏳ Saving...' : '✅ Save'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Edit Contact (WhatsApp / Email) Modal -->
+{#if showEditContactModal}
+	<div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200"
+		on:click|self={closeEditContact}
+		on:keydown|self={(e) => { if (e.key === 'Escape') closeEditContact(); }}
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+	>
+		<div class="bg-white rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden scale-in">
+			<!-- Modal Header -->
+			<div class="bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-4">
+				<h3 class="text-xl font-black text-white">{editContactField === 'whatsapp' ? '📱 Edit WhatsApp Number' : '📧 Edit Email'}</h3>
+				<p class="text-blue-100 text-sm mt-1">{editContactUser?.username}</p>
+			</div>
+			<!-- Modal Body -->
+			<div class="p-6 space-y-4">
+				<div>
+					<label class="block text-sm font-bold text-slate-700 mb-2" for="edit-contact-value">
+						{editContactField === 'whatsapp' ? 'WhatsApp Number' : 'Email Address'}
+					</label>
+					<input
+						id="edit-contact-value"
+						type={editContactField === 'whatsapp' ? 'tel' : 'email'}
+						placeholder={editContactField === 'whatsapp' ? '+9665XXXXXXXX' : 'employee@company.com'}
+						bind:value={editContactValue}
+						on:input={() => editContactError = ''}
+						on:keydown={(e) => { if (e.key === 'Enter') saveEditContact(); }}
+						class="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					>
+				</div>
+				{#if editContactError}
+					<div class="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700 font-semibold">{editContactError}</div>
+				{/if}
+			</div>
+			<!-- Modal Footer -->
+			<div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3 justify-end">
+				<button class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition" on:click={closeEditContact} disabled={editContactLoading}>Cancel</button>
+				<button class="px-6 py-2 rounded-lg font-black text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed" on:click={saveEditContact} disabled={editContactLoading}>
+					{editContactLoading ? '⏳ Saving...' : '✅ Save'}
 				</button>
 			</div>
 		</div>

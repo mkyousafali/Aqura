@@ -824,6 +824,21 @@
 	let syncStatuses: SyncAppStatus[] = [];
 	let syncStatusLoading = false;
 	let syncStatusError = '';
+	let syncStatusSelectedBranchId: number | null = null; // null = all branches
+
+	// Distinct branches present in the loaded devices, for the filter dropdown — built from the
+	// devices themselves (branch_id/branch_name) rather than the global `branches` list, so it only
+	// ever offers branches that actually have a Sync App device reporting in.
+	$: syncStatusBranchOptions = Array.from(
+		syncStatuses
+			.filter((s) => s.branch_id != null)
+			.reduce((map, s) => map.set(s.branch_id as number, s.branch_name || `Branch ${s.branch_id}`), new Map<number, string>())
+			.entries()
+	).sort((a, b) => a[1].localeCompare(b[1]));
+
+	$: filteredSyncStatuses = syncStatuses.filter(
+		(s) => !syncStatusSelectedBranchId || s.branch_id === syncStatusSelectedBranchId
+	);
 
 	async function loadSyncStatuses() {
 		syncStatusLoading = true;
@@ -1436,6 +1451,15 @@
 	{#if activeTab === 'syncstatus'}
 	<div class="sticky-top">
 	<div class="filters-panel">
+		<div class="filter-field">
+			<label for="sync-status-branch-select">Branch</label>
+			<select id="sync-status-branch-select" bind:value={syncStatusSelectedBranchId}>
+				<option value={null}>All Branches</option>
+				{#each syncStatusBranchOptions as [id, name]}
+					<option value={id}>{name}</option>
+				{/each}
+			</select>
+		</div>
 		<button class="run-btn" on:click={loadSyncStatuses} disabled={syncStatusLoading}>
 			{syncStatusLoading ? '⏳ Loading...' : '🔄 Refresh'}
 		</button>
@@ -1445,30 +1469,30 @@
 		<div class="error-banner">⚠️ {syncStatusError}</div>
 	{/if}
 
-	{#if syncStatuses.length > 0}
+	{#if filteredSyncStatuses.length > 0}
 		<div class="summary-cards">
 			<div class="summary-card">
 				<div class="summary-label">Total Devices</div>
-				<div class="summary-value">{syncStatuses.length}</div>
+				<div class="summary-value">{filteredSyncStatuses.length}</div>
 			</div>
 			<div class="summary-card">
 				<div class="summary-label">🟢 Online</div>
-				<div class="summary-value">{syncStatuses.filter(s => s.is_online).length}</div>
+				<div class="summary-value">{filteredSyncStatuses.filter(s => s.is_online).length}</div>
 			</div>
 			<div class="summary-card flagged">
 				<div class="summary-label">🚨 Flagged (&gt;1h)</div>
-				<div class="summary-value">{syncStatuses.filter(s => s.is_flagged).length}</div>
+				<div class="summary-value">{filteredSyncStatuses.filter(s => s.is_flagged).length}</div>
 			</div>
 			<div class="summary-card">
 				<div class="summary-label">⚪ Offline</div>
-				<div class="summary-value">{syncStatuses.filter(s => !s.is_online && !s.is_flagged).length}</div>
+				<div class="summary-value">{filteredSyncStatuses.filter(s => !s.is_online && !s.is_flagged).length}</div>
 			</div>
 		</div>
 	{/if}
 	</div>
 
 	<div class="scroll-area">
-	{#if syncStatuses.length > 0}
+	{#if filteredSyncStatuses.length > 0}
 		<div class="section-block table-section">
 			<h3 class="section-title">Installed Sync Apps</h3>
 			<div class="table-wrapper">
@@ -1487,7 +1511,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each syncStatuses as s}
+						{#each filteredSyncStatuses as s}
 							<tr class:flagged-row={s.is_flagged}>
 								<td>
 									{#if s.is_online}
@@ -1513,7 +1537,11 @@
 			</div>
 		</div>
 	{:else if !syncStatusLoading}
-		<div class="empty-state">No Sync App devices found. Install the Sync App on branch machines to see their status here.</div>
+		<div class="empty-state">
+			{syncStatuses.length > 0
+				? 'No devices for this branch.'
+				: 'No Sync App devices found. Install the Sync App on branch machines to see their status here.'}
+		</div>
 	{/if}
 	</div>
 	{/if}
