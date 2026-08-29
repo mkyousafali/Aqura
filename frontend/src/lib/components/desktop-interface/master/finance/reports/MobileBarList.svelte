@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, currentLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
 	interface BarItem {
@@ -29,16 +29,23 @@
 	}
 
 	function formatCurrency(amount: number): string {
-		return new Intl.NumberFormat('en-US', {
+		return new Intl.NumberFormat($currentLocale === 'ar' ? 'ar-SA-u-nu-arab' : 'en-US', {
 			minimumFractionDigits: 2,
 			maximumFractionDigits: 2
 		}).format(amount || 0);
 	}
 
+	function formatInteger(amount: number): string {
+		return new Intl.NumberFormat($currentLocale === 'ar' ? 'ar-SA-u-nu-arab' : 'en-US').format(amount || 0);
+	}
+
 	function returnPct(item: BarItem): string {
 		const ret = item.totalReturn || 0;
 		const gross = (item.amount || 0) + ret;
-		return gross > 0 ? ((ret / gross) * 100).toFixed(1) : '0.0';
+		return new Intl.NumberFormat($currentLocale === 'ar' ? 'ar-SA-u-nu-arab' : 'en-US', {
+			minimumFractionDigits: 1,
+			maximumFractionDigits: 1
+		}).format(gross > 0 ? (ret / gross) * 100 : 0);
 	}
 
 	function basket(item: BarItem): number {
@@ -64,7 +71,7 @@
 			{#if showDetails}
 				<div class="row-meta">
 					{#if item.bills != null}
-						<span class="meta-item">{item.bills.toLocaleString()} {$t('reports.bills')}</span>
+						<span class="meta-item">{formatInteger(item.bills)} {$t('reports.bills')}</span>
 						<span class="meta-sep">·</span>
 						<span class="meta-item">
 							{$t('reports.basket')}

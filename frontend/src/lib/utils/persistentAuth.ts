@@ -2,6 +2,13 @@ import { writable } from "svelte/store";
 import { browser } from "$app/environment";
 import { supabase } from "./supabase";
 import { autoSubscribePush, autoUnsubscribePush } from "./pushNotifications";
+import {
+  claimInterfaceSession,
+  startInterfaceSessionGuard,
+  stopInterfaceSessionGuard,
+  releaseInterfaceSession,
+  type InterfaceType,
+} from "./interfaceSessionGuard";
 import type { User, UserPermissions } from "$lib/types/auth";
 
 // Database types matching our deployed schema
@@ -77,6 +84,10 @@ export interface UserSession {
   loginTime: string;
   deviceId: string;
   loginMethod: "password" | "quickAccess" | "customerAccess";
+  // Which interface this session belongs to for single-session-per-interface
+  // enforcement (Mobile / Desktop). Undefined for customer sessions, which
+  // aren't limited. Cashier is handled separately by cashierAuth.ts.
+  interfaceType?: InterfaceType;
   isActive: boolean;
   token?: string;
   permissions?: UserPermissions;
@@ -336,6 +347,7 @@ export class PersistentAuthService {
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "quickAccess",
+        interfaceType: interfaceType === "customer" ? undefined : interfaceType,
         isActive: true,
         token,
         permissions,
@@ -681,6 +693,7 @@ export class PersistentAuthService {
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "password",
+        interfaceType: "desktop",
         isActive: true,
         permissions,
       };
@@ -715,6 +728,12 @@ export class PersistentAuthService {
 
         // Unsubscribe from push notifications on this device (non-blocking)
         autoUnsubscribePush().catch(() => {});
+
+        // Release this interface's single-session binding (non-blocking)
+        if (current.interfaceType === "mobile" || current.interfaceType === "desktop") {
+          releaseInterfaceSession(current.id, current.interfaceType).catch(() => {});
+        }
+        stopInterfaceSessionGuard();
 
         // Remove user from device sessions
         await this.removeUserSession(current.id);
@@ -983,6 +1002,25 @@ export class PersistentAuthService {
     // Auto-subscribe to push notifications (non-blocking)
     // Sends to ALL devices belonging to this user
     autoSubscribePush().catch(() => {});
+
+    // Single-session-per-interface enforcement (Mobile / Desktop).
+    // Claims this device as the sole active session for the interface;
+    // whichever device previously held it is force-logged-out by its own
+    // guard (Realtime + heartbeat fallback). Applies to Master Admin too.
+    if (user.interfaceType === "mobile" || user.interfaceType === "desktop") {
+      const interfaceType = user.interfaceType;
+      claimInterfaceSession(user.id, interfaceType)
+        .then((token) => {
+          if (!token) return;
+          startInterfaceSessionGuard(user.id, interfaceType, token, () => {
+            console.warn(
+              "[PersistentAuth] Logged in on another device for this interface — forcing logout",
+            );
+            this.logout();
+          });
+        })
+        .catch(() => {});
+    }
   }
 
   private async updateLastActivity(): Promise<void> {

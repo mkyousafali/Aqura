@@ -73,6 +73,22 @@
 		'January', 'February', 'March', 'April', 'May', 'June',
 		'July', 'August', 'September', 'October', 'November', 'December'
 	];
+	const MONTH_NAMES_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+	$: isArabic = $currentLocale === 'ar';
+	const ui = (english: string, arabic: string) => isArabic ? arabic : english;
+	const localizedMonth = (index: number) => isArabic ? MONTH_NAMES_AR[index] : MONTH_NAMES[index];
+	const formatNumber = (amount: number, maximumFractionDigits = 0) => new Intl.NumberFormat(
+		isArabic ? 'ar-SA-u-nu-arab' : 'en-SA',
+		{ maximumFractionDigits }
+	).format(amount);
+	const formatReportDate = (date: string) => isArabic
+		? new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-arab', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(`${date}T00:00:00+03:00`))
+		: date;
+	const formatYearMonth = (yearMonth: string) => {
+		if (!isArabic) return yearMonth;
+		const [year, month] = yearMonth.split('-').map(Number);
+		return `${formatNumber(month)}/${formatNumber(year)}`;
+	};
 
 	interface DetailRow {
 		date: string;
@@ -892,10 +908,21 @@
 	}
 
 	function formatCurrency(amount: number) {
-		return new Intl.NumberFormat('en-SA', {
+		return new Intl.NumberFormat(isArabic ? 'ar-SA-u-nu-arab' : 'en-SA', {
 			minimumFractionDigits: 2,
 			maximumFractionDigits: 2
 		}).format(amount);
+	}
+
+	function formatCompactCurrency(amount: number) {
+		const absoluteAmount = Math.abs(amount);
+		if (absoluteAmount >= 1_000_000) {
+			return `${formatNumber(amount / 1_000_000, 3)}${isArabic ? ' مليون' : 'M'}`;
+		}
+		if (absoluteAmount >= 1_000) {
+			return `${formatNumber(amount / 1_000, 3)}${isArabic ? ' ألف' : 'K'}`;
+		}
+		return formatCurrency(amount);
 	}
 
 	// ── DETAILED REPORT ───────────────────────────────────────────────────────────
@@ -1245,23 +1272,23 @@
 	// ─────────────────────────────────────────────────────────────────────────────
 </script>
 
-<div class="report-wrapper">
+<div class="report-wrapper" dir={isArabic ? 'rtl' : 'ltr'}>
 	<div class="mode-toggle">
 		<button
 			class="mode-btn"
 			class:active={reportMode === 'quick'}
 			on:click={() => (reportMode = 'quick')}
-		>Quick Report</button>
+		>{ui('Quick Report', 'التقرير السريع')}</button>
 		<button
 			class="mode-btn"
 			class:active={reportMode === 'detailed'}
 			on:click={() => { reportMode = 'detailed'; if (detailRows.length === 0) loadDetailedReport(); }}
-		>Detailed Report</button>
+		>{ui('Detailed Report', 'التقرير التفصيلي')}</button>
 		<button
 			class="mode-btn"
 			class:active={reportMode === 'monthly'}
 			on:click={() => { reportMode = 'monthly'; if (monthlyMonths.length === 0) loadMonthlySummary(); }}
-		>Month Summary</button>
+		>{ui('Month Summary', 'ملخص الأشهر')}</button>
 	</div>
 
 {#if reportMode === 'quick'}
@@ -1287,7 +1314,7 @@
 							<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 							{formatCurrency(previousMonthAvg.average)}
 						</div>
-						<div class="month-days">{$t('reports.averagePerDay')} ({previousMonthAvg.totalDays} {$t('reports.days')})</div>
+						<div class="month-days">{$t('reports.averagePerDay')} ({formatNumber(previousMonthAvg.totalDays)} {$t('reports.days')})</div>
 					</div>
 				{/if}
 				{#if currentMonthAvg}
@@ -1297,7 +1324,7 @@
 							<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 							{formatCurrency(currentMonthAvg.average)}
 						</div>
-						<div class="month-days">{$t('reports.averagePerDay')} ({currentMonthAvg.totalDays} {$t('reports.days')})</div>
+						<div class="month-days">{$t('reports.averagePerDay')} ({formatNumber(currentMonthAvg.totalDays)} {$t('reports.days')})</div>
 					</div>
 				{/if}
 			</div>
@@ -1562,31 +1589,31 @@
 	<!-- Filters -->
 	<div class="filter-bar">
 		<div class="filter-group">
-			<label class="filter-label" for="detail-year">Year</label>
+			<label class="filter-label" for="detail-year">{ui('Year', 'السنة')}</label>
 			<select id="detail-year" class="filter-select" bind:value={detailYear}>
 				{#each YEARS as y}
-					<option value={y}>{y}</option>
+					<option value={y}>{formatNumber(y)}</option>
 				{/each}
 			</select>
 		</div>
 		<div class="filter-group">
-			<label class="filter-label" for="detail-month-from">From Month</label>
+			<label class="filter-label" for="detail-month-from">{ui('From Month', 'من شهر')}</label>
 			<select id="detail-month-from" class="filter-select" bind:value={detailMonthFrom}>
 				{#each MONTH_NAMES as m, i}
-					<option value={i}>{m}</option>
+					<option value={i}>{localizedMonth(i)}</option>
 				{/each}
 			</select>
 		</div>
 		<div class="filter-group">
-			<label class="filter-label" for="detail-month-to">To Month</label>
+			<label class="filter-label" for="detail-month-to">{ui('To Month', 'إلى شهر')}</label>
 			<select id="detail-month-to" class="filter-select" bind:value={detailMonthTo}>
 				{#each MONTH_NAMES as m, i}
-					<option value={i} disabled={i < detailMonthFrom}>{m}</option>
+					<option value={i} disabled={i < detailMonthFrom}>{localizedMonth(i)}</option>
 				{/each}
 			</select>
 		</div>
 		<button class="run-btn" on:click={loadDetailedReport} disabled={loadingDetail}>
-			{loadingDetail ? 'Loading…' : 'Load Report'}
+			{loadingDetail ? ui('Loading…', 'جارٍ التحميل…') : ui('Load Report', 'تحميل التقرير')}
 		</button>
 		{#if !mobile}
 			<div class="export-bar">
@@ -1604,32 +1631,32 @@
 	{#if detailRows.length > 0}
 		<div class="detail-summary">
 			<div class="summary-badge green">
-				<span class="s-label">Total Sales</span>
+				<span class="s-label">{ui('Total Sales', 'إجمالي المبيعات')}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
-					{formatCurrency(detailTotalSales)}
+					{mobile ? formatCompactCurrency(detailTotalSales) : formatCurrency(detailTotalSales)}
 				</span>
 			</div>
 			<div class="summary-badge blue">
-				<span class="s-label">Total Bills</span>
-				<span class="s-value">{detailTotalBills.toLocaleString()}</span>
+				<span class="s-label">{ui('Total Bills', 'إجمالي الفواتير')}</span>
+				<span class="s-value">{formatNumber(detailTotalBills)}</span>
 			</div>
 			<div class="summary-badge purple">
-				<span class="s-label">Avg Basket</span>
+				<span class="s-label">{ui('Avg Basket', 'متوسط السلة')}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 					{formatCurrency(detailAvgBasket)}
 				</span>
 			</div>
 			<div class="summary-badge red">
-				<span class="s-label">Total Returns</span>
+				<span class="s-label">{ui('Total Returns', 'إجمالي المرتجعات')}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 					{formatCurrency(detailTotalReturn)}
 				</span>
 			</div>
 			<div class="summary-badge orange">
-				<span class="s-label">Avg / Day ({detailDates.length} days)</span>
+				<span class="s-label">{ui(`Avg / Day (${detailDates.length} days)`, `المتوسط / اليوم (${formatNumber(detailDates.length)} يوم)`)}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 					{formatCurrency(detailAvgPerDay)}
@@ -1639,13 +1666,13 @@
 	{/if}
 
 	{#if loadingDetail}
-		<div class="loading">Loading detailed report…</div>
+		<div class="loading">{ui('Loading detailed report…', 'جارٍ تحميل التقرير التفصيلي…')}</div>
 	{:else if detailRows.length === 0}
 		<div class="detail-empty">
 			<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" stroke="#d1d5db" stroke-width="1.5" viewBox="0 0 24 24">
 				<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
 			</svg>
-			<p>Select a period above and click <strong>Load Report</strong>.</p>
+			<p>{ui('Select a period above and click Load Report.', 'اختر الفترة أعلاه ثم اضغط تحميل التقرير.')}</p>
 		</div>
 	{:else if mobile}
 		<!-- Mobile: one card per branch, stacked, instead of the wide pivot table -->
@@ -1664,24 +1691,24 @@
 					</div>
 					<div class="bc-stats">
 						<div class="bc-stat">
-							<span class="bc-stat-label">Bills</span>
-							<span class="bc-stat-value">{colBills.toLocaleString()}</span>
+							<span class="bc-stat-label">{ui('Bills', 'الفواتير')}</span>
+							<span class="bc-stat-value">{formatNumber(colBills)}</span>
 						</div>
 						<div class="bc-stat">
-							<span class="bc-stat-label">Avg Basket</span>
+							<span class="bc-stat-label">{ui('Avg Basket', 'متوسط السلة')}</span>
 							<span class="bc-stat-value">{formatCurrency(colBills > 0 ? colSales / colBills : 0)}</span>
 						</div>
 						<div class="bc-stat">
-							<span class="bc-stat-label">Avg / Day</span>
+							<span class="bc-stat-label">{ui('Avg / Day', 'المتوسط / اليوم')}</span>
 							<span class="bc-stat-value">{formatCurrency(colSales / days)}</span>
 						</div>
 					</div>
 					<div class="bc-rows">
 						<div class="bc-row bc-row-head">
-							<span class="bc-date">Date</span>
-							<span class="bc-num">Sales</span>
-							<span class="bc-num">Bills</span>
-							<span class="bc-num">Avg</span>
+							<span class="bc-date">{ui('Date', 'التاريخ')}</span>
+							<span class="bc-num">{ui('Sales', 'المبيعات')}</span>
+							<span class="bc-num">{ui('Bills', 'الفواتير')}</span>
+							<span class="bc-num">{ui('Avg', 'المتوسط')}</span>
 							<span class="bc-trend"></span>
 						</div>
 						{#each detailDates as date, idx}
@@ -1691,9 +1718,9 @@
 							{@const bDiff = (cell?.net_amount ?? null) != null && (prevCell?.net_amount ?? null) != null ? (cell?.net_amount ?? 0) - (prevCell?.net_amount ?? 0) : null}
 							{@const bTrend = bDiff == null ? 'neutral' : bDiff > 0 ? 'up' : bDiff < 0 ? 'down' : 'neutral'}
 							<div class="bc-row" class:alt-row={idx % 2 === 1}>
-								<span class="bc-date">{date}</span>
+								<span class="bc-date">{formatReportDate(date)}</span>
 								<span class="bc-num">{cell ? formatCurrency(cell.net_amount) : '—'}</span>
-								<span class="bc-num">{cell ? cell.net_bills.toLocaleString() : '—'}</span>
+								<span class="bc-num">{cell ? formatNumber(cell.net_bills) : '—'}</span>
 								<span class="bc-num">{cell ? formatCurrency(cell.avg_basket) : '—'}</span>
 								<span class="bc-trend">
 									{#if bTrend === 'up'}<span class="t-up">↑</span>{:else if bTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
@@ -1707,7 +1734,7 @@
 			<!-- All-branches totals -->
 			<div class="branch-card bc-grand">
 				<div class="bc-head">
-					<span class="bc-name">All Branches</span>
+					<span class="bc-name">{ui('All Branches', 'جميع الفروع')}</span>
 					<span class="bc-total">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 						{formatCurrency(detailTotalSales)}
@@ -1715,24 +1742,24 @@
 				</div>
 				<div class="bc-stats">
 					<div class="bc-stat">
-						<span class="bc-stat-label">Bills</span>
-						<span class="bc-stat-value">{detailTotalBills.toLocaleString()}</span>
+						<span class="bc-stat-label">{ui('Bills', 'الفواتير')}</span>
+						<span class="bc-stat-value">{formatNumber(detailTotalBills)}</span>
 					</div>
 					<div class="bc-stat">
-						<span class="bc-stat-label">Avg Basket</span>
+						<span class="bc-stat-label">{ui('Avg Basket', 'متوسط السلة')}</span>
 						<span class="bc-stat-value">{formatCurrency(detailAvgBasket)}</span>
 					</div>
 					<div class="bc-stat">
-						<span class="bc-stat-label">Avg / Day</span>
+						<span class="bc-stat-label">{ui('Avg / Day', 'المتوسط / اليوم')}</span>
 						<span class="bc-stat-value">{formatCurrency(detailAvgPerDay)}</span>
 					</div>
 				</div>
 				<div class="bc-rows">
 					<div class="bc-row bc-row-head">
-						<span class="bc-date">Date</span>
-						<span class="bc-num">Sales</span>
-						<span class="bc-num">Bills</span>
-						<span class="bc-num">Avg</span>
+						<span class="bc-date">{ui('Date', 'التاريخ')}</span>
+						<span class="bc-num">{ui('Sales', 'المبيعات')}</span>
+						<span class="bc-num">{ui('Bills', 'الفواتير')}</span>
+						<span class="bc-num">{ui('Avg', 'المتوسط')}</span>
 						<span class="bc-trend"></span>
 					</div>
 					{#each detailDates as date, idx}
@@ -1742,9 +1769,9 @@
 						{@const prevRowSales = prevDate ? detailBranches.reduce((s, b) => s + (detailPivotMap.get(`${prevDate}|${b.id}`)?.net_amount ?? 0), 0) : null}
 						{@const rowTrend = prevRowSales == null ? 'neutral' : rowSales > prevRowSales ? 'up' : rowSales < prevRowSales ? 'down' : 'neutral'}
 						<div class="bc-row" class:alt-row={idx % 2 === 1}>
-							<span class="bc-date">{date}</span>
+							<span class="bc-date">{formatReportDate(date)}</span>
 							<span class="bc-num">{formatCurrency(rowSales)}</span>
-							<span class="bc-num">{rowBills.toLocaleString()}</span>
+							<span class="bc-num">{formatNumber(rowBills)}</span>
 							<span class="bc-num">{formatCurrency(rowBills > 0 ? rowSales / rowBills : 0)}</span>
 							<span class="bc-trend">
 								{#if rowTrend === 'up'}<span class="t-up">↑</span>{:else if rowTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
@@ -1851,31 +1878,31 @@
 	<!-- Filters -->
 	<div class="filter-bar">
 		<div class="filter-group">
-			<label class="filter-label" for="msum-year-from">From Year</label>
+			<label class="filter-label" for="msum-year-from">{ui('From Year', 'من سنة')}</label>
 			<select id="msum-year-from" class="filter-select" bind:value={monthlyYearFrom}>
-				{#each YEARS as y}<option value={y}>{y}</option>{/each}
+				{#each YEARS as y}<option value={y}>{formatNumber(y)}</option>{/each}
 			</select>
 		</div>
 		<div class="filter-group">
-			<label class="filter-label" for="msum-month-from">From Month</label>
+			<label class="filter-label" for="msum-month-from">{ui('From Month', 'من شهر')}</label>
 			<select id="msum-month-from" class="filter-select" bind:value={monthlyMonthFrom}>
-				{#each MONTH_NAMES as m, i}<option value={i}>{m}</option>{/each}
+				{#each MONTH_NAMES as m, i}<option value={i}>{localizedMonth(i)}</option>{/each}
 			</select>
 		</div>
 		<div class="filter-group">
-			<label class="filter-label" for="msum-year-to">To Year</label>
+			<label class="filter-label" for="msum-year-to">{ui('To Year', 'إلى سنة')}</label>
 			<select id="msum-year-to" class="filter-select" bind:value={monthlyYearTo}>
-				{#each YEARS as y}<option value={y}>{y}</option>{/each}
+				{#each YEARS as y}<option value={y}>{formatNumber(y)}</option>{/each}
 			</select>
 		</div>
 		<div class="filter-group">
-			<label class="filter-label" for="msum-month-to">To Month</label>
+			<label class="filter-label" for="msum-month-to">{ui('To Month', 'إلى شهر')}</label>
 			<select id="msum-month-to" class="filter-select" bind:value={monthlyMonthTo}>
-				{#each MONTH_NAMES as m, i}<option value={i}>{m}</option>{/each}
+				{#each MONTH_NAMES as m, i}<option value={i}>{localizedMonth(i)}</option>{/each}
 			</select>
 		</div>
 		<button class="run-btn" on:click={loadMonthlySummary} disabled={loadingMonthly}>
-			{loadingMonthly ? 'Loading…' : 'Load Report'}
+			{loadingMonthly ? ui('Loading…', 'جارٍ التحميل…') : ui('Load Report', 'تحميل التقرير')}
 		</button>
 		{#if !mobile}
 			<div class="export-bar">
@@ -1893,25 +1920,25 @@
 	{#if monthlyMonths.length > 0}
 		<div class="detail-summary">
 			<div class="summary-badge green">
-				<span class="s-label">Total Sales</span>
+				<span class="s-label">{ui('Total Sales', 'إجمالي المبيعات')}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
-					{formatCurrency(monthlyTotalSales)}
+					{mobile ? formatCompactCurrency(monthlyTotalSales) : formatCurrency(monthlyTotalSales)}
 				</span>
 			</div>
 			<div class="summary-badge blue">
-				<span class="s-label">Total Bills</span>
-				<span class="s-value">{monthlyTotalBills.toLocaleString()}</span>
+				<span class="s-label">{ui('Total Bills', 'إجمالي الفواتير')}</span>
+				<span class="s-value">{formatNumber(monthlyTotalBills)}</span>
 			</div>
 			<div class="summary-badge purple">
-				<span class="s-label">Avg Basket</span>
+				<span class="s-label">{ui('Avg Basket', 'متوسط السلة')}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 					{formatCurrency(monthlyAvgBasket)}
 				</span>
 			</div>
 			<div class="summary-badge orange">
-				<span class="s-label">Avg / Month ({monthlyMonths.length} months)</span>
+				<span class="s-label">{ui(`Avg / Month (${monthlyMonths.length} months)`, `المتوسط / الشهر (${formatNumber(monthlyMonths.length)} شهر)`)}</span>
 				<span class="s-value">
 					<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 					{formatCurrency(monthlyAvgPerMonth)}
@@ -1921,13 +1948,13 @@
 	{/if}
 
 	{#if loadingMonthly}
-		<div class="loading">Loading monthly summary…</div>
+		<div class="loading">{ui('Loading monthly summary…', 'جارٍ تحميل الملخص الشهري…')}</div>
 	{:else if monthlyMonths.length === 0}
 		<div class="detail-empty">
 			<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" stroke="#d1d5db" stroke-width="1.5" viewBox="0 0 24 24">
 				<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
 			</svg>
-			<p>Select a period above and click <strong>Load Report</strong>.</p>
+			<p>{ui('Select a period above and click Load Report.', 'اختر الفترة أعلاه ثم اضغط تحميل التقرير.')}</p>
 		</div>
 	{:else if mobile}
 		<!-- Mobile: one card per branch, stacked, instead of the wide pivot table -->
@@ -1946,24 +1973,24 @@
 					</div>
 					<div class="bc-stats">
 						<div class="bc-stat">
-							<span class="bc-stat-label">Bills</span>
-							<span class="bc-stat-value">{cb.toLocaleString()}</span>
+							<span class="bc-stat-label">{ui('Bills', 'الفواتير')}</span>
+							<span class="bc-stat-value">{formatNumber(cb)}</span>
 						</div>
 						<div class="bc-stat">
-							<span class="bc-stat-label">Avg Basket</span>
+							<span class="bc-stat-label">{ui('Avg Basket', 'متوسط السلة')}</span>
 							<span class="bc-stat-value">{formatCurrency(cb > 0 ? cs / cb : 0)}</span>
 						</div>
 						<div class="bc-stat">
-							<span class="bc-stat-label">Avg / Month</span>
+							<span class="bc-stat-label">{ui('Avg / Month', 'المتوسط / الشهر')}</span>
 							<span class="bc-stat-value">{formatCurrency(cs / n)}</span>
 						</div>
 					</div>
 					<div class="bc-rows">
 						<div class="bc-row bc-row-head">
-							<span class="bc-date">Month</span>
-							<span class="bc-num">Sales</span>
-							<span class="bc-num">Bills</span>
-							<span class="bc-num">Avg</span>
+							<span class="bc-date">{ui('Month', 'الشهر')}</span>
+							<span class="bc-num">{ui('Sales', 'المبيعات')}</span>
+							<span class="bc-num">{ui('Bills', 'الفواتير')}</span>
+							<span class="bc-num">{ui('Avg', 'المتوسط')}</span>
 							<span class="bc-trend"></span>
 						</div>
 						{#each monthlyMonths as ym, idx}
@@ -1973,9 +2000,9 @@
 							{@const bDiff = cell && prevCell ? cell.net_amount - prevCell.net_amount : null}
 							{@const bTrend = bDiff == null ? 'neutral' : bDiff > 0 ? 'up' : bDiff < 0 ? 'down' : 'neutral'}
 							<div class="bc-row" class:alt-row={idx % 2 === 1}>
-								<span class="bc-date">{ym}</span>
+								<span class="bc-date">{formatYearMonth(ym)}</span>
 								<span class="bc-num">{cell ? formatCurrency(cell.net_amount) : '—'}</span>
-								<span class="bc-num">{cell ? cell.net_bills.toLocaleString() : '—'}</span>
+								<span class="bc-num">{cell ? formatNumber(cell.net_bills) : '—'}</span>
 								<span class="bc-num">{cell ? formatCurrency(cell.avg_basket) : '—'}</span>
 								<span class="bc-trend">
 									{#if bTrend === 'up'}<span class="t-up">↑</span>{:else if bTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}
@@ -1989,7 +2016,7 @@
 			<!-- All-branches totals -->
 			<div class="branch-card bc-grand">
 				<div class="bc-head">
-					<span class="bc-name">All Branches</span>
+					<span class="bc-name">{ui('All Branches', 'جميع الفروع')}</span>
 					<span class="bc-total">
 						<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="currency-icon" />
 						{formatCurrency(monthlyTotalSales)}
@@ -1997,24 +2024,24 @@
 				</div>
 				<div class="bc-stats">
 					<div class="bc-stat">
-						<span class="bc-stat-label">Bills</span>
-						<span class="bc-stat-value">{monthlyTotalBills.toLocaleString()}</span>
+						<span class="bc-stat-label">{ui('Bills', 'الفواتير')}</span>
+						<span class="bc-stat-value">{formatNumber(monthlyTotalBills)}</span>
 					</div>
 					<div class="bc-stat">
-						<span class="bc-stat-label">Avg Basket</span>
+						<span class="bc-stat-label">{ui('Avg Basket', 'متوسط السلة')}</span>
 						<span class="bc-stat-value">{formatCurrency(monthlyAvgBasket)}</span>
 					</div>
 					<div class="bc-stat">
-						<span class="bc-stat-label">Avg / Month</span>
+						<span class="bc-stat-label">{ui('Avg / Month', 'المتوسط / الشهر')}</span>
 						<span class="bc-stat-value">{formatCurrency(monthlyAvgPerMonth)}</span>
 					</div>
 				</div>
 				<div class="bc-rows">
 					<div class="bc-row bc-row-head">
-						<span class="bc-date">Month</span>
-						<span class="bc-num">Sales</span>
-						<span class="bc-num">Bills</span>
-						<span class="bc-num">Avg</span>
+						<span class="bc-date">{ui('Month', 'الشهر')}</span>
+						<span class="bc-num">{ui('Sales', 'المبيعات')}</span>
+						<span class="bc-num">{ui('Bills', 'الفواتير')}</span>
+						<span class="bc-num">{ui('Avg', 'المتوسط')}</span>
 						<span class="bc-trend"></span>
 					</div>
 					{#each monthlyMonths as ym, idx}
@@ -2024,9 +2051,9 @@
 						{@const prevRowSales = prevYm ? monthlyBranches.reduce((s, b) => s + (monthlyPivotMap.get(`${prevYm}|${b.id}`)?.net_amount ?? 0), 0) : null}
 						{@const rowTrend = prevRowSales == null ? 'neutral' : rowSales > prevRowSales ? 'up' : rowSales < prevRowSales ? 'down' : 'neutral'}
 						<div class="bc-row" class:alt-row={idx % 2 === 1}>
-							<span class="bc-date">{ym}</span>
+							<span class="bc-date">{formatYearMonth(ym)}</span>
 							<span class="bc-num">{formatCurrency(rowSales)}</span>
-							<span class="bc-num">{rowBills.toLocaleString()}</span>
+							<span class="bc-num">{formatNumber(rowBills)}</span>
 							<span class="bc-num">{formatCurrency(rowBills > 0 ? rowSales / rowBills : 0)}</span>
 							<span class="bc-trend">
 								{#if rowTrend === 'up'}<span class="t-up">↑</span>{:else if rowTrend === 'down'}<span class="t-down">↓</span>{:else}<span class="t-neu">—</span>{/if}

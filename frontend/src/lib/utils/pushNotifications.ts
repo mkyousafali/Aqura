@@ -7,6 +7,12 @@ import { supabase } from './supabase';
 import { get } from 'svelte/store';
 import { currentUser } from './persistentAuth';
 
+// Per-device manual opt-out. Set when the user explicitly disables push on
+// this device via the toggle; cleared when they explicitly re-enable it.
+// Prevents autoSubscribePush() from silently re-subscribing this device just
+// because it becomes the "latest" one for its interface.
+const PUSH_MANUALLY_DISABLED_KEY = 'aqura-push-manually-disabled';
+
 // Convert VAPID key from base64 to Uint8Array
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -78,6 +84,13 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
     }
     console.log('📬 [Push] Permission granted');
 
+    // Explicit user action: clear any prior manual opt-out for this device
+    try {
+      localStorage.removeItem(PUSH_MANUALLY_DISABLED_KEY);
+    } catch {
+      // ignore
+    }
+
     // In dev mode, skip SW registration to avoid intercepting Supabase requests
     if (!import.meta.env.PROD) {
       console.log('📬 [Push] Skipping SW registration in dev mode');
@@ -130,7 +143,7 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
     if (subscription) {
       console.log('📬 [Push] Existing subscription found');
       // Save to database if not already saved
-      await savePushSubscription(subscription);
+      await savePushSubscription(subscription, { reactivate: true });
       return subscription;
     }
 
@@ -151,7 +164,7 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
     console.log('📬 [Push] New subscription created');
 
     // Save subscription to database
-    await savePushSubscription(subscription);
+    await savePushSubscription(subscription, { reactivate: true });
 
     return subscription;
   } catch (error) {
@@ -178,8 +191,15 @@ export async function unsubscribeFromPushNotifications(): Promise<boolean> {
       
       if (success) {
         console.log('📬 [Push] Unsubscribed successfully');
-        // Remove from database
-        await removePushSubscription(subscription.endpoint);
+        // Mark this device as manually disabled (keeps the DB row, but
+        // prevents it from being silently re-activated later) rather than
+        // deleting it outright.
+        await disablePushSubscriptionForDevice(subscription.endpoint);
+        try {
+          localStorage.setItem(PUSH_MANUALLY_DISABLED_KEY, '1');
+        } catch {
+          // ignore
+        }
         return true;
       }
     }
@@ -192,35 +212,38 @@ export async function unsubscribeFromPushNotifications(): Promise<boolean> {
 }
 
 /**
- * Save push subscription to database
+ * Save push subscription to database. Makes this endpoint the sole active
+ * subscription for this user's interface (mobile/desktop) — any other
+ * device previously registered for the same interface is deactivated, so
+ * only the latest device per interface receives pushes. Applies to Master
+ * Admin too.
+ *
+ * Pass `reactivate: true` only for an explicit user action (re-enabling the
+ * toggle on this device) — it clears a prior manual opt-out. Silent/auto
+ * calls (e.g. on login) must leave a manual opt-out in place.
  */
-async function savePushSubscription(subscription: PushSubscription): Promise<void> {
+async function savePushSubscription(
+  subscription: PushSubscription,
+  options: { reactivate?: boolean } = {}
+): Promise<void> {
   try {
     const user = get(currentUser);
     if (!user?.id) {
       throw new Error('User not logged in');
     }
 
-    const subscriptionData = {
-      user_id: user.id,
-      subscription: subscription.toJSON(),
-      endpoint: subscription.endpoint,
-      user_agent: navigator.userAgent,
-      is_active: true
-    };
-
     console.log('📬 [Push] Saving subscription to database for user:', user.id);
 
-    // Upsert with timeout - update if exists, insert if new
-    const savePromise = supabase
-      .from('push_subscriptions')
-      .upsert(subscriptionData, {
-        onConflict: 'endpoint'
-      })
-      .select()
-      .single();
+    const savePromise = supabase.rpc('save_push_subscription_scoped', {
+      p_user_id: user.id,
+      p_endpoint: subscription.endpoint,
+      p_subscription: subscription.toJSON(),
+      p_user_agent: navigator.userAgent,
+      p_interface_type: user.interfaceType ?? null,
+      p_reactivate: options.reactivate ?? false
+    });
 
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Database save timeout after 15 seconds')), 15000)
     );
 
@@ -234,13 +257,38 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
       throw new Error(`Database error: ${error.message}`);
     }
 
-    console.log('📬 [Push] ✅ Subscription saved to database');
+    if (data && data.success === false) {
+      throw new Error(data.error || 'Failed to save subscription');
+    }
+
+    console.log('📬 [Push] ✅ Subscription saved to database (active:', data?.active, ')');
   } catch (error) {
     console.error('📬 [Push] Error saving subscription:', error);
     if (error instanceof Error) {
       throw error;
     }
     throw new Error('Failed to save subscription to database');
+  }
+}
+
+/**
+ * Mark this device's subscription as manually disabled — an explicit,
+ * per-device opt-out that persists even if this device later becomes the
+ * "latest" one for its interface.
+ */
+async function disablePushSubscriptionForDevice(endpoint: string): Promise<void> {
+  try {
+    const { error } = await supabase.rpc('disable_push_subscription_device', {
+      p_endpoint: endpoint
+    });
+    if (error) {
+      console.error('📬 [Push] Error disabling subscription:', error);
+      throw error;
+    }
+    console.log('📬 [Push] ✅ Subscription manually disabled for this device');
+  } catch (error) {
+    console.error('📬 [Push] Error disabling subscription:', error);
+    throw error;
   }
 }
 
@@ -356,6 +404,17 @@ export async function autoSubscribePush(): Promise<void> {
     if (!user?.id) {
       console.log('📬 [Push-Auto] No user logged in, skipping');
       return;
+    }
+
+    // Respect an explicit per-device opt-out — don't silently re-subscribe
+    // just because this device becomes the "latest" one for its interface.
+    try {
+      if (localStorage.getItem(PUSH_MANUALLY_DISABLED_KEY) === '1') {
+        console.log('📬 [Push-Auto] Notifications manually disabled on this device, skipping');
+        return;
+      }
+    } catch {
+      // ignore storage access errors, proceed as if not disabled
     }
 
     // Request permission silently (browser may remember previous grant)

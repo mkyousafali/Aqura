@@ -1,6 +1,6 @@
 ﻿<script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
@@ -34,6 +34,20 @@
 	let vendorExpensesOverdueMap: Map<string, number> = new Map();
 	let vendorTotalOverdueMap: Map<string, number> = new Map();
 	let vendorMaxDaysOverdueMap: Map<string, number> = new Map();
+
+	function formatCompactAmount(amount: number): string {
+		const locale = $currentLocale === 'ar' ? 'ar-SA-u-nu-arab' : 'en-SA';
+		const absoluteAmount = Math.abs(amount);
+		const format = (value: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value);
+
+		if (absoluteAmount >= 1_000_000) {
+			return `${format(amount / 1_000_000)}${$currentLocale === 'ar' ? ' مليون' : 'M'}`;
+		}
+		if (absoluteAmount >= 1_000) {
+			return `${format(amount / 1_000)}${$currentLocale === 'ar' ? ' ألف' : 'K'}`;
+		}
+		return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+	}
 
 	// Raw rows behind the maps above — kept so the branch filter can be applied
 	// client-side (recomputed reactively) without re-querying Supabase.
@@ -1060,7 +1074,7 @@
 							{#if tableTotalBillsUnpaid > 0}
 								<div class="text-sm font-black text-white flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-80" />
-									{tableTotalBillsUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									{formatCompactAmount(tableTotalBillsUnpaid)}
 								</div>
 							{:else}
 								<div class="text-sm text-blue-200">—</div>
@@ -1071,7 +1085,7 @@
 							{#if tableTotalExpensesUnpaid > 0}
 								<div class="text-sm font-black text-white flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.5em] opacity-80" />
-									{tableTotalExpensesUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									{formatCompactAmount(tableTotalExpensesUnpaid)}
 								</div>
 							{:else}
 								<div class="text-sm text-blue-200">—</div>
@@ -1082,7 +1096,7 @@
 							{#if tableTotalUnpaid > 0}
 								<div class="text-sm font-black text-white flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-90" />
-									{tableTotalUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									{formatCompactAmount(tableTotalUnpaid)}
 								</div>
 							{:else}
 								<div class="text-sm text-blue-200">—</div>
@@ -1093,7 +1107,7 @@
 							{#if tableTotalOverdue > 0}
 								<div class="text-sm font-black text-orange-300 flex items-center gap-1">
 									<img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="h-[0.55em] opacity-90" />
-									{tableTotalOverdue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									{formatCompactAmount(tableTotalOverdue)}
 								</div>
 							{:else}
 								<div class="text-sm text-blue-200">—</div>

@@ -92,31 +92,33 @@
 	let attendanceToday: any = null;
 	let attendanceYesterday: any = null;
 	let attendanceLoading = false;
-	// Shift info looked up directly from shift tables (priority: special_shift_date_wise → special_shift_weekday → regular_shift)
-	let todayShiftInfo: { shift_end_time: string; shift_start_time: string; is_shift_overlapping_next_day: boolean } | null = null;
+	type ShiftInfo = { shift_end_time: string; shift_start_time: string; is_shift_overlapping_next_day?: boolean };
+	let todayShiftInfo: ShiftInfo | null = null;
+	let yesterdayShiftInfo: ShiftInfo | null = null;
 
-	/** Check if shift end time has passed (Saudi timezone) for today's attendance.
-	 *  Uses todayShiftInfo from shift tables (not from analysed data).
-	 *  For overlapping shifts (e.g. 20:00-08:00), shift always ends next day → not passed yet today. */
-	function isTodayShiftEndPassed(att: any): boolean {
-		// Use shift info from shift tables if available
-		if (todayShiftInfo) {
-			// If shift overlaps to next day, it can't have ended today
-			if (todayShiftInfo.is_shift_overlapping_next_day) return false;
-			const nowSaudi = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' });
-			return nowSaudi >= todayShiftInfo.shift_end_time.slice(0, 8);
-		}
-		// Fallback to analysed data shift_end_time
-		if (!att?.shift_end_time) return false;
-		const nowSaudi = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' });
-		return nowSaudi >= att.shift_end_time.slice(0, 8);
+	/** Compare the current instant with the complete Saudi-time shift window.
+	 *  An overnight shift belongs to its starting shift_date and ends on the following date. */
+	function isShiftEndPassed(att: any, fallbackShiftInfo: ShiftInfo | null): boolean {
+		if (!att?.shift_date) return false;
+
+		const shiftStart = (att.shift_start_time || fallbackShiftInfo?.shift_start_time || '').slice(0, 8);
+		const shiftEnd = (att.shift_end_time || fallbackShiftInfo?.shift_end_time || '').slice(0, 8);
+		if (!shiftStart || !shiftEnd) return false;
+
+		// Infer overlap from the times as well as the stored flag. This handles stale/missing flags.
+		const overlapsNextDay = Boolean(fallbackShiftInfo?.is_shift_overlapping_next_day) || shiftEnd <= shiftStart;
+		const shiftEndAt = new Date(`${att.shift_date}T${shiftEnd}+03:00`);
+		if (Number.isNaN(shiftEndAt.getTime())) return false;
+		if (overlapsNextDay) shiftEndAt.setTime(shiftEndAt.getTime() + 24 * 60 * 60 * 1000);
+
+		return Date.now() >= shiftEndAt.getTime();
 	}
 
-	/** Get display status for today — if Absent/Missing but shift not over yet, show 'Not yet' */
-	function getTodayDisplayStatus(att: any): string {
+	/** Keep Absent/Missing provisional until that record's complete shift window ends. */
+	function getAttendanceDisplayStatus(att: any, shiftInfo: ShiftInfo | null): string {
 		if (!att) return '';
 		const isNotFinal = att.status === 'Absent' || att.status?.includes('Missing');
-		if (isNotFinal && !isTodayShiftEndPassed(att)) {
+		if (isNotFinal && !isShiftEndPassed(att, shiftInfo)) {
 			return $localeData.code === 'ar' ? 'لم يحن الوقت بعد' : 'Not yet';
 		}
 		return translateStatus(att.status);
@@ -339,6 +341,7 @@
 				todayShiftInfo = result.shift_info;
 				console.log('⏰ Shift info:', todayShiftInfo);
 			}
+			yesterdayShiftInfo = result.yesterday_shift_info || null;
 
 			// Step 6: Map box operation counts (flat keys)
 			stats.pendingToClose = result.box_pending_close || 0;
@@ -657,9 +660,9 @@
 					{:else if attendanceToday}
 						<p class="attendance-date">{formatAttDate(attendanceToday.shift_date)}</p>
 						{@const isNotFinal = attendanceToday.status === 'Absent' || attendanceToday.status?.includes('Missing')}
-						{@const shiftOver = isTodayShiftEndPassed(attendanceToday)}
+						{@const shiftOver = isShiftEndPassed(attendanceToday, todayShiftInfo)}
 						<p class="attendance-status" class:status-worked={attendanceToday.status === 'Worked'} class:status-absent={attendanceToday.status === 'Absent' && shiftOver} class:status-dayoff={attendanceToday.status === 'Official Day Off'} class:status-leave={attendanceToday.status?.includes('Leave')} class:status-missing={attendanceToday.status?.includes('Missing') && shiftOver} class:status-notyet={isNotFinal && !shiftOver}>
-							{getTodayDisplayStatus(attendanceToday)}
+							{getAttendanceDisplayStatus(attendanceToday, todayShiftInfo)}
 						</p>
 						{#if attendanceToday.check_in_time}
 							<p class="attendance-time">✅ {to12h(attendanceToday.check_in_time)}{attendanceToday.check_out_time ? ' → ' + to12h(attendanceToday.check_out_time) : ''}</p>
@@ -688,8 +691,10 @@
 						<div class="loading-text" style="font-size: 0.7rem;">...</div>
 					{:else if attendanceYesterday}
 						<p class="attendance-date">{formatAttDate(attendanceYesterday.shift_date)}</p>
-						<p class="attendance-status" class:status-worked={attendanceYesterday.status === 'Worked'} class:status-absent={attendanceYesterday.status === 'Absent'} class:status-dayoff={attendanceYesterday.status === 'Official Day Off'} class:status-leave={attendanceYesterday.status?.includes('Leave')} class:status-missing={attendanceYesterday.status?.includes('Missing')}>
-							{translateStatus(attendanceYesterday.status)}
+						{@const isNotFinal = attendanceYesterday.status === 'Absent' || attendanceYesterday.status?.includes('Missing')}
+						{@const shiftOver = isShiftEndPassed(attendanceYesterday, yesterdayShiftInfo)}
+						<p class="attendance-status" class:status-worked={attendanceYesterday.status === 'Worked'} class:status-absent={attendanceYesterday.status === 'Absent' && shiftOver} class:status-dayoff={attendanceYesterday.status === 'Official Day Off'} class:status-leave={attendanceYesterday.status?.includes('Leave')} class:status-missing={attendanceYesterday.status?.includes('Missing') && shiftOver} class:status-notyet={isNotFinal && !shiftOver}>
+							{getAttendanceDisplayStatus(attendanceYesterday, yesterdayShiftInfo)}
 						</p>
 						{#if attendanceYesterday.check_in_time}
 							<p class="attendance-time">✅ {to12h(attendanceYesterday.check_in_time)}{attendanceYesterday.check_out_time ? ' → ' + to12h(attendanceYesterday.check_out_time) : ''}</p>
