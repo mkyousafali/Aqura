@@ -106,6 +106,7 @@
 
 			if (!currentStatus) {
 				// State 1: Not Transferred -> Save as Forgiven
+				// Note: closed_by omitted - may reference deleted user; we have completed_by_name instead
 				const { error } = await supabase
 					.from('pos_deduction_transfers')
 					.insert({
@@ -114,7 +115,6 @@
 						box_number: box.box_number,
 						branch_id: box.branch_id,
 						cashier_user_id: employeeData.id,
-						closed_by: box.completed_by_user_id,
 						completed_by_name: completeDetails?.completed_by_name || box.completed_by_name || 'N/A',
 						short_amount: shortAmount,
 						status: 'Forgiven',
