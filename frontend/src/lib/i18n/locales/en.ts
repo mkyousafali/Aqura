@@ -563,6 +563,7 @@ export const englishLocale: LocaleData = {
       fingerprintTransactions: "Fingerprint Transactions",
       processFingerprint: "Process Fingerprint",
       salaryAndWage: "Salary and Wage",
+      salaryStatement: "Salary Statement",
       shifts: "Shifts",
       shiftAndLeave: "Day Off Manager",
       leavesAndVacations: "Leaves and Vacations",

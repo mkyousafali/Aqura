@@ -121,7 +121,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const newStatus = user.status === 'active' ? 'inactive' : 'active';
 			
 			await userManagement.updateUser(user.id, {
-				status: newStatus
+				status: newStatus,
+				requesting_user_id: $currentUser?.id || null
 			});
 			
 			// Reload data to reflect changes
@@ -139,7 +140,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const newStatus = user.status === 'locked' ? 'active' : 'locked';
 			
 			await userManagement.updateUser(user.id, {
-				status: newStatus
+				status: newStatus,
+				requesting_user_id: $currentUser?.id || null
 			});
 			
 			// Reload data to reflect changes

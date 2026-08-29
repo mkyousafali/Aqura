@@ -52,44 +52,6 @@
 	let forgotWhatsappValid = true;
 	let retryAfterSeconds = 0;
 
-	// Access code popup (shown after registration)
-	let showAccessCodePopup = false;
-	let popupAccessCode = '';
-	let popupWhatsappSent = false;
-	let popupCountdown = 20;
-	let popupCountdownMax = 20;
-	let popupCopied = false;
-	let popupTimer: ReturnType<typeof setInterval> | null = null;
-
-	function startPopupCountdown() {
-		popupCountdown = 20;
-		popupCountdownMax = 20;
-		if (popupTimer) clearInterval(popupTimer);
-		popupTimer = setInterval(() => {
-			popupCountdown -= 1;
-			if (popupCountdown <= 0) {
-				closePopup();
-			}
-		}, 1000);
-	}
-
-	function closePopup() {
-		showAccessCodePopup = false;
-		popupAccessCode = '';
-		popupCopied = false;
-		if (popupTimer) { clearInterval(popupTimer); popupTimer = null; }
-	}
-
-	async function copyCode() {
-		try {
-			await navigator.clipboard.writeText(popupAccessCode);
-			popupCopied = true;
-			setTimeout(() => { popupCopied = false; }, 2000);
-		} catch (e) {
-			// fallback: select text
-		}
-	}
-
 	// Temporary block access code - set to true to show white mask
 	let manualUnlock = false;
 	$: blockAccessCodeInput = showMask && !manualUnlock;
@@ -273,9 +235,6 @@
 				p_whatsapp_number: formattedWhatsApp
 			});
 
-			console.log('🔍 [CustomerRegistration] RPC response data:', data);
-			console.log('🔍 [CustomerRegistration] RPC response error:', error);
-
 			if (error) throw error;
 
 			if (data && data.success) {
@@ -309,14 +268,6 @@
 					console.warn('⚠️ [CustomerRegistration] WhatsApp send error:', waError);
 				}
 
-				// Show one-time access code popup
-				popupAccessCode = data.access_code;
-				popupWhatsappSent = waSent;
-				showAccessCodePopup = true;
-				startPopupCountdown();
-				// Save plaintext code for home page display
-				localStorage.setItem('customer_access_code', data.access_code);
-				
 				// Clear form
 				customerName = '';
 				whatsappNumber = '';
@@ -324,6 +275,15 @@
 				
 				// Switch to login view
 				currentView = 'login';
+				if (waSent) {
+					successMessage = $currentLocale === 'ar'
+						? 'تم إرسال رمز الوصول إلى رقم واتساب المسجل.'
+						: 'Your access code was sent to your registered WhatsApp number.';
+				} else {
+					errorMessage = $currentLocale === 'ar'
+						? 'تعذر إرسال رمز الوصول عبر واتساب. يرجى المحاولة مرة أخرى لاحقًا.'
+						: 'Unable to deliver the access code through WhatsApp. Please try again later.';
+				}
 			} else {
 				errorMessage = data?.message || data?.error || 'Registration failed. Please try again.';
 			}
@@ -391,21 +351,16 @@
 					console.warn('⚠️ [ForgotCode] WhatsApp send error:', waError);
 				}
 
-				// Show one-time access code popup (5 sec for recovery)
-				popupAccessCode = data.access_code;
-				popupWhatsappSent = waSent;
-				showAccessCodePopup = true;
-				// Save plaintext code for home page display
-				localStorage.setItem('customer_access_code', data.access_code);
-				popupCountdown = 5;
-				popupCountdownMax = 5;
-				if (popupTimer) clearInterval(popupTimer);
-				popupTimer = setInterval(() => {
-					popupCountdown -= 1;
-					if (popupCountdown <= 0) closePopup();
-				}, 1000);
-
-				currentView = 'login';
+				if (waSent) {
+					currentView = 'login';
+					successMessage = $currentLocale === 'ar'
+						? 'تم إرسال رمز الوصول إلى رقم واتساب المسجل.'
+						: 'Your access code was sent to your registered WhatsApp number.';
+				} else {
+					errorMessage = $currentLocale === 'ar'
+						? 'تعذر إرسال رمز الوصول عبر واتساب. يرجى المحاولة مرة أخرى لاحقًا.'
+						: 'Unable to deliver the access code through WhatsApp. Please try again later.';
+				}
 			} else {
 				errorMessage = data.message || data.error;
 			}
@@ -737,69 +692,6 @@
 	input.value = value;
 }
 </script>
-
-{#if showAccessCodePopup}
-<div class="code-popup-overlay" on:click|self={closePopup}>
-	<div class="code-popup-card" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
-		<!-- Countdown ring -->
-		<div class="popup-countdown-ring">
-			<svg viewBox="0 0 44 44" class="countdown-svg">
-				<circle cx="22" cy="22" r="18" class="countdown-track"/>
-				<circle cx="22" cy="22" r="18" class="countdown-progress" style="stroke-dashoffset: {113 - (113 * popupCountdown / popupCountdownMax)};"/>
-			</svg>
-			<span class="countdown-number">{popupCountdown}</span>
-		</div>
-
-		<!-- Congratulations header -->
-		<div class="popup-congrats">
-			<span class="popup-congrats-emoji">🎉</span>
-			<h2 class="popup-congrats-title">{$currentLocale === 'ar' ? 'مبروك! تم التسجيل بنجاح' : 'Congratulations! Registration Successful'}</h2>
-		</div>
-
-		<!-- Access code display -->
-		<div class="popup-code-block">
-			<p class="popup-code-label">{$currentLocale === 'ar' ? 'رمز الوصول الخاص بك' : 'Your Access Code'}</p>
-			<div class="popup-code-digits">
-				{#each popupAccessCode.split('') as digit}
-					<span class="popup-digit">{digit}</span>
-				{/each}
-			</div>
-			<button class="popup-copy-btn" on:click={copyCode}>
-				{#if popupCopied}
-					✅ {$currentLocale === 'ar' ? 'تم النسخ' : 'Copied!'}
-				{:else}
-					📋 {$currentLocale === 'ar' ? 'نسخ الرمز' : 'Copy Code'}
-				{/if}
-			</button>
-		</div>
-
-		<!-- Don't share warning -->
-		<div class="popup-warning">
-			🔒 <strong>{$currentLocale === 'ar' ? 'لا تشارك هذا الرمز مع أي شخص' : 'Do not share this code with anyone'}</strong>
-		</div>
-
-		<!-- WhatsApp status -->
-		{#if popupWhatsappSent}
-			<div class="popup-whatsapp-sent">
-				<span>✅</span>
-				<span>{$currentLocale === 'ar' ? 'تم إرسال الرمز إلى واتساب الخاص بك — أنت الآن عضو كامل وتستمتع بجميع المزايا الحصرية!' : 'Code sent to your WhatsApp — you are now a full member and enjoy all exclusive benefits!'}</span>
-			</div>
-		{:else}
-			<div class="popup-no-whatsapp">
-				<span>ℹ️</span>
-				<div>
-					<p>{$currentLocale === 'ar' ? 'لم يتم إرسال الرمز عبر واتساب.' : 'Code could not be sent via WhatsApp.'}</p>
-					<p>{$currentLocale === 'ar' ? 'لا تزال مسجلاً لدينا ويمكنك الوصول إلى المزايا الأساسية — لكن المزايا الحصرية والعروض الخاصة متاحة فقط للأعضاء المتصلين عبر واتساب. احتفظ بهذا الرمز لتسجيل الدخول الآن.' : 'You are still registered and can access basic benefits — but exclusive offers and special rewards are available only to WhatsApp-connected members. Save this code to sign in now.'}</p>
-				</div>
-			</div>
-		{/if}
-
-		<button class="popup-close-btn" on:click={closePopup}>
-			{$currentLocale === 'ar' ? 'إغلاق' : 'Close'} ({popupCountdown})
-		</button>
-	</div>
-</div>
-{/if}
 
 <div class="customer-login-container">	{#if currentView === 'login'}
 		<!-- Customer Login Form -->

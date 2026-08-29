@@ -98,10 +98,18 @@
 			});
 			if (err) throw err;
 			if (!data?.success) throw new Error(data?.error || 'Failed to save');
+			dispatch('noteSaved', {
+				noteType: selectedType,
+				noteText: noteText.trim(),
+				fromDate: selectedType === 'specific_period' ? fromDate : null,
+				toDate: selectedType === 'specific_period' ? toDate : null,
+				untilDate: selectedType === 'until_date' ? untilDate : null,
+			});
 			resetForm();
 			await loadNotes();
 		} catch (e: any) {
 			formError = e?.message || String(e);
+			dispatch('noteSaveFailed', { error: formError });
 		} finally {
 			saving = false;
 		}
@@ -110,13 +118,16 @@
 	async function deleteNote(id: string) {
 		if (deletingId) return;
 		deletingId = id;
+		const deletedNote = notes.find(n => n.id === id);
 		try {
 			const { data, error: err } = await supabase.rpc('delete_hr_salary_note', { p_id: id });
 			if (err) throw err;
 			if (!data?.success) throw new Error(data?.error || 'Failed to delete');
 			notes = notes.filter(n => n.id !== id);
+			dispatch('noteDeleted', { deletedNote });
 		} catch (e: any) {
 			error = e?.message || String(e);
+			dispatch('noteDeleteFailed', { deletedNote, error });
 		} finally {
 			deletingId = null;
 		}

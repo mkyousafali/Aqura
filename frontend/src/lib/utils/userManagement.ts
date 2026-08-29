@@ -11,6 +11,7 @@ interface CreateUserRequest {
   employeeId?: string;
   positionId?: string;
   quickAccessCode?: string; // Optional - will generate if not provided
+  requestingUserId?: string | null;
 }
 
 interface UpdateUserRequest {
@@ -23,6 +24,7 @@ interface UpdateUserRequest {
   position_id?: string | null;
   status?: "active" | "inactive" | "locked";
   avatar?: string;
+  requesting_user_id?: string | null;
 }
 
 interface UserListItem {
@@ -115,6 +117,7 @@ export class UserManagementService {
         p_employee_id: userData.employeeId || null,
         p_position_id: userData.positionId || null,
         p_quick_access_code: userData.quickAccessCode || null,
+        p_requesting_user_id: userData.requestingUserId || null,
       });
 
       if (error) {
@@ -159,7 +162,8 @@ export class UserManagementService {
         p_employee_id: updates.employee_id && updates.employee_id.trim() !== '' ? updates.employee_id : null,
         p_position_id: updates.position_id && updates.position_id.trim() !== '' ? updates.position_id : null,
         p_status: updates.status ?? null,
-        p_avatar: updates.avatar ?? null
+        p_avatar: updates.avatar ?? null,
+        p_requesting_user_id: updates.requesting_user_id ?? null
       });
 
       if (error) {

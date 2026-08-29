@@ -22,6 +22,15 @@
 	let step: 'accessCode' | 'branch' = 'accessCode';
 	let authenticatedUser: any = null;
 	let showAccessCode = false;
+	let assignedBranchId = '';
+	let allowBranchChange = false;
+	let showSessionConfirmation = false;
+
+	$: selectedBranch = branches.find(branch => String(branch.id) === String(selectedBranchId));
+	$: assignedBranch = branches.find(branch => String(branch.id) === String(assignedBranchId));
+	$: cashierDisplayName = $currentLocale === 'ar'
+		? authenticatedUser?.name_ar || authenticatedUser?.name_en || authenticatedUser?.username
+		: authenticatedUser?.name_en || authenticatedUser?.name_ar || authenticatedUser?.username;
 
 	onMount(() => {
 		setTimeout(() => {
@@ -42,12 +51,19 @@
 			
 			if (branchError) throw branchError;
 			branches = data || [];
+			selectAssignedBranch();
 		} catch (err: any) {
 			console.error('Error loading branches:', err);
 			error = 'Failed to load branches';
 		} finally {
 			loadingBranches = false;
 		}
+	}
+
+	function selectAssignedBranch() {
+		if (!assignedBranchId || selectedBranchId) return;
+		const branch = branches.find(item => String(item.id) === String(assignedBranchId));
+		if (branch) selectedBranchId = String(branch.id);
 	}
 
 	loadBranches();
@@ -92,28 +108,35 @@
 				return;
 			}
 
-			// Get employee details if employee_id exists
-			let fullName = userData.username;
-			if (userData.employee_id) {
-				const { data: employeeData } = await supabase
-					.from('hr_employees')
-					.select('name')
-					.eq('id', userData.employee_id)
-					.single();
-				
-				if (employeeData) {
-					fullName = employeeData.name || userData.username;
-				}
+			// Employee master is linked directly to users through user_id.
+			let employeeNameEn = userData.username;
+			let employeeNameAr = userData.username;
+			let employeeBranchId = userData.branch_id;
+			const { data: employeeData } = await supabase
+				.from('hr_employee_master')
+				.select('name_en, name_ar, current_branch_id')
+				.eq('user_id', userData.id)
+				.maybeSingle();
+
+			if (employeeData) {
+				employeeNameEn = employeeData.name_en || employeeData.name_ar || userData.username;
+				employeeNameAr = employeeData.name_ar || employeeData.name_en || userData.username;
+				employeeBranchId = employeeData.current_branch_id ?? employeeBranchId;
 			}
 
 			authenticatedUser = {
 				...userData,
-				full_name: fullName,
-				employeeName: fullName,
-				name: fullName,
+				name_en: employeeNameEn,
+				name_ar: employeeNameAr,
+				full_name: $currentLocale === 'ar' ? employeeNameAr : employeeNameEn,
+				employeeName: $currentLocale === 'ar' ? employeeNameAr : employeeNameEn,
+				name: $currentLocale === 'ar' ? employeeNameAr : employeeNameEn,
 				role: 'Cashier'
 			};
-			
+			assignedBranchId = employeeBranchId == null ? '' : String(employeeBranchId);
+			selectedBranchId = '';
+			allowBranchChange = !assignedBranchId;
+			selectAssignedBranch();
 			step = 'branch';
 		} catch (err: any) {
 			console.error('Login error:', err);
@@ -131,8 +154,20 @@
 			return;
 		}
 
-		const selectedBranch = branches.find(b => b.id === selectedBranchId);
+		const selectedBranch = branches.find(b => String(b.id) === String(selectedBranchId));
 		if (!selectedBranch) {
+			error = t('coupon.invalidBranchSelection');
+			return;
+		}
+
+		error = '';
+		showSessionConfirmation = true;
+	}
+
+	async function proceedWithCashierSession() {
+		const selectedBranch = branches.find(b => String(b.id) === String(selectedBranchId));
+		if (!selectedBranch) {
+			showSessionConfirmation = false;
 			error = t('coupon.invalidBranchSelection');
 			return;
 		}
@@ -165,12 +200,21 @@
 		});
 	}
 
+	function logoutFromConfirmation() {
+		showSessionConfirmation = false;
+		goBack();
+	}
+
 	function goBack() {
 		step = 'accessCode';
 		error = '';
 		accessDigits = ['', '', '', '', '', ''];
 		accessCode = '';
 		selectedBranchId = '';
+		assignedBranchId = '';
+		allowBranchChange = false;
+		showSessionConfirmation = false;
+		authenticatedUser = null;
 	}
 
 	function handleDigitInput(event: Event, index: number) {
@@ -268,7 +312,7 @@
 	}
 </script>
 
-<div class="cashier-login-page mounted">
+<div class="cashier-login-page mounted" inert={showSessionConfirmation} aria-hidden={showSessionConfirmation}>
 	<div class="login-content">
 		<div class="login-main-card">
 			<!-- Logo Section with Language Toggle -->
@@ -408,12 +452,26 @@
 								</svg>
 							</div>
 							<div class="user-details">
-								<div class="user-name">{authenticatedUser?.full_name || authenticatedUser?.username}</div>
+								<div class="user-name">{cashierDisplayName}</div>
 								<div class="user-role">{t('coupon.cashier') || 'Cashier'}</div>
 							</div>
 						</div>
 
 						<div class="form-fields">
+							{#if assignedBranch && !allowBranchChange}
+								<div class="assigned-branch-card">
+									<div>
+										<span class="assigned-branch-label">{$currentLocale === 'ar' ? 'الفرع المعيّن' : 'Assigned Branch'}</span>
+										<strong>{$currentLocale === 'ar' ? assignedBranch.name_ar : assignedBranch.name_en}</strong>
+										{#if $currentLocale === 'ar' ? assignedBranch.location_ar : assignedBranch.location_en}
+											<small>{$currentLocale === 'ar' ? assignedBranch.location_ar : assignedBranch.location_en}</small>
+										{/if}
+									</div>
+									<button type="button" class="change-branch-btn" on:click={() => allowBranchChange = true}>
+										{$currentLocale === 'ar' ? 'تغيير الفرع' : 'Change Branch'}
+									</button>
+								</div>
+							{:else}
 							<div class="field-group">
 								<label for="branch">
 									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -449,6 +507,7 @@
 									<span class="field-error">{error}</span>
 								{/if}
 							</div>
+							{/if}
 						</div>
 
 						<button 
@@ -480,11 +539,186 @@
 	</div>
 </div>
 
+{#if showSessionConfirmation && selectedBranch}
+	<div class="confirmation-backdrop" role="presentation">
+		<div
+			class="confirmation-modal"
+			role="dialog"
+			aria-modal="true"
+			dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}
+			aria-labelledby="session-confirmation-title"
+			aria-describedby="session-confirmation-description"
+		>
+			<div class="confirmation-icon" aria-hidden="true">✓</div>
+			<h2 id="session-confirmation-title">
+				{$currentLocale === 'ar' ? 'تأكيد جلسة الكاشير' : 'Confirm Cashier Session'}
+			</h2>
+			<p id="session-confirmation-description">
+				{$currentLocale === 'ar'
+					? 'يرجى تأكيد هذه التفاصيل قبل بدء جلسة الكاشير.'
+					: 'Please confirm these details before starting your session.'}
+			</p>
+
+			<dl class="confirmation-details">
+				<div>
+					<dt>{$currentLocale === 'ar' ? 'اسم الكاشير' : 'Cashier name'}</dt>
+					<dd>{cashierDisplayName}</dd>
+				</div>
+				<div>
+					<dt>{$currentLocale === 'ar' ? 'الفرع المحدد' : 'Selected branch'}</dt>
+					<dd>{$currentLocale === 'ar' ? selectedBranch.name_ar : selectedBranch.name_en}</dd>
+				</div>
+				<div>
+					<dt>{$currentLocale === 'ar' ? 'موقع الفرع' : 'Branch Location'}</dt>
+					<dd>{($currentLocale === 'ar' ? selectedBranch.location_ar : selectedBranch.location_en) || '—'}</dd>
+				</div>
+			</dl>
+
+			{#if error}
+				<div class="confirmation-error" role="alert">{error}</div>
+			{/if}
+
+			<div class="confirmation-actions">
+				<button type="button" class="modal-btn proceed-btn" on:click={proceedWithCashierSession} disabled={loading}>
+					{loading
+						? ($currentLocale === 'ar' ? 'جارٍ البدء…' : 'Starting…')
+						: ($currentLocale === 'ar' ? 'متابعة' : 'Proceed')}
+				</button>
+				<button type="button" class="modal-btn back-modal-btn" on:click={() => { showSessionConfirmation = false; error = ''; }} disabled={loading}>
+					{$currentLocale === 'ar' ? 'رجوع' : 'Go Back'}
+				</button>
+				<button type="button" class="modal-btn logout-btn" on:click={logoutFromConfirmation} disabled={loading}>
+					{$currentLocale === 'ar' ? 'تسجيل الخروج' : 'Logout'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 {#if showChangeAccessCode}
 	<ChangeAccessCode locale={$currentLocale} on:close={() => showChangeAccessCode = false} />
 {/if}
 
 <style>
+	.assigned-branch-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		border: 2px solid #d1fae5;
+		border-radius: 10px;
+		background: #f0fdf4;
+	}
+
+	.assigned-branch-card > div {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.assigned-branch-label,
+	.assigned-branch-card small {
+		color: #64748b;
+		font-size: 0.8rem;
+	}
+
+	.assigned-branch-card strong {
+		color: #14532d;
+		font-size: 1rem;
+	}
+
+	.change-branch-btn {
+		flex: 0 0 auto;
+		padding: 0.65rem 0.9rem;
+		border: 1px solid #6b7280;
+		border-radius: 8px;
+		background: white;
+		color: #374151;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.confirmation-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 10000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		background: rgba(15, 23, 42, 0.72);
+		backdrop-filter: blur(4px);
+	}
+
+	.confirmation-modal {
+		width: min(100%, 520px);
+		padding: 2rem;
+		border-radius: 16px;
+		background: white;
+		box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+		text-align: center;
+	}
+
+	.confirmation-icon {
+		display: grid;
+		place-items: center;
+		width: 52px;
+		height: 52px;
+		margin: 0 auto 1rem;
+		border-radius: 50%;
+		background: #dcfce7;
+		color: #15803d;
+		font-size: 1.6rem;
+		font-weight: 800;
+	}
+
+	.confirmation-modal h2 { margin: 0 0 0.5rem; color: #111827; }
+	.confirmation-modal > p { margin: 0 0 1.5rem; color: #6b7280; }
+
+	.confirmation-details {
+		margin: 0 0 1.5rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		overflow: hidden;
+		text-align: left;
+	}
+
+	.confirmation-modal[dir="rtl"] .confirmation-details {
+		text-align: right;
+	}
+
+	.confirmation-details div {
+		display: grid;
+		grid-template-columns: 42% 1fr;
+		gap: 1rem;
+		padding: 0.9rem 1rem;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.confirmation-details div:last-child { border-bottom: 0; }
+	.confirmation-details dt { color: #6b7280; font-size: 0.875rem; }
+	.confirmation-details dd { margin: 0; color: #111827; font-weight: 650; }
+	.confirmation-error { margin-bottom: 1rem; color: #b91c1c; font-size: 0.9rem; }
+
+	.confirmation-actions {
+		display: grid;
+		grid-template-columns: 1.2fr 1fr 1fr;
+		gap: 0.75rem;
+	}
+
+	.modal-btn {
+		padding: 0.8rem 1rem;
+		border-radius: 8px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.modal-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+	.proceed-btn { border: 1px solid #15803d; background: #15803d; color: white; }
+	.back-modal-btn { border: 1px solid #9ca3af; background: white; color: #374151; }
+	.logout-btn { border: 1px solid #dc2626; background: white; color: #dc2626; }
+
 	.change-code-link {
 		background: none;
 		border: none;
@@ -914,6 +1148,19 @@
 
 	/* Responsive */
 	@media (max-width: 768px) {
+		.confirmation-modal {
+			padding: 1.5rem;
+		}
+
+		.confirmation-actions {
+			grid-template-columns: 1fr;
+		}
+
+		.assigned-branch-card {
+			align-items: stretch;
+			flex-direction: column;
+		}
+
 		.cashier-login-page {
 			padding: 0.5rem;
 		}

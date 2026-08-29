@@ -678,6 +678,7 @@
 		if (path === '/mobile-interface' || path === '/mobile-interface/') return getTranslation('mobile.dashboard');
 		if (path === '/mobile-interface/tasks' || path === '/mobile-interface/tasks/') return getTranslation('mobile.tasks');
 		if (path === '/mobile-interface/notifications' || path === '/mobile-interface/notifications/') return getTranslation('mobile.notifications');
+		if (path === '/mobile-interface/my-profile' || path === '/mobile-interface/my-profile/') return locale === 'ar' ? 'ملفي الشخصي' : 'My Profile';
 		if (path === '/mobile-interface/assignments' || path === '/mobile-interface/assignments/') return getTranslation('mobile.assignments');
 		if (path === '/mobile-interface/approval-center' || path === '/mobile-interface/approval-center/') return getTranslation('mobile.approvals');
 		if (path === '/mobile-interface/quick-task' || path === '/mobile-interface/quick-task/') return getTranslation('mobile.quickTask');

@@ -567,6 +567,7 @@ export const arabicLocale: LocaleData = {
       fingerprintTransactions: "عمليات البصمة",
       processFingerprint: "معالجة البصمة",
       salaryAndWage: "الرواتب والأجور",
+      salaryStatement: "كشف الراتب",
       shifts: "الورديات",
       shiftAndLeave: "مدير الإجازات",
       leavesAndVacations: "المغادرات والإجازات",

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// ── State ──
 	let selectedBranch = '';
@@ -345,20 +347,25 @@
 
 	async function savePermissions() {
 		if (!selectedUserId || pendingChanges.size === 0) return;
+		const requestingUserId = get(currentUser)?.id;
+		if (!requestingUserId) return;
 		saving = true;
 		saveSuccess = false;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const upserts: any[] = [];
-			for (const [code, enabled] of pendingChanges) {
-				upserts.push({ user_id: selectedUserId, button_code: code, is_enabled: enabled, updated_at: new Date().toISOString() });
-			}
 
-			if (upserts.length > 0) {
-				const { error } = await supabase
-					.from('button_permissions')
-					.upsert(upserts, { onConflict: 'user_id,button_code' });
+			// Writes go through a SECURITY DEFINER RPC (re-checks Master Admin
+			// server-side) — anon/authenticated only have SELECT on this table
+			// at the Postgres grant level, so a direct .upsert() always 401s.
+			for (const [code, enabled] of pendingChanges) {
+				const { data, error } = await supabase.rpc('upsert_button_permission', {
+					p_requesting_user_id: requestingUserId,
+					p_target_user_id: selectedUserId,
+					p_button_code: code,
+					p_is_enabled: enabled,
+				});
 				if (error) throw error;
+				if (!data?.success) throw new Error(data?.error || `Failed to save ${code}`);
 			}
 
 			// Apply pending changes to permission map

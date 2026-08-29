@@ -8,6 +8,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
+	import SalaryStatementPermissionsModal from './SalaryStatementPermissionsModal.svelte';
 	import SalaryAndWage from './SalaryAndWage.svelte';
 
 	export let windowId: string;
@@ -44,7 +45,7 @@
 
 	async function fetchLogs() {
 		const user = get(currentUser);
-		if (!user?.isMasterAdmin) return;
+		if (!user?.isMasterAdmin && !canViewSalaryStatementLogs) return;
 		logsLoading = true;
 		logsError = '';
 		try {
@@ -68,6 +69,42 @@
 			logsLoading = false;
 		}
 	}
+
+	// ---- Human-readable before/after diff rendering for the logs modal ----
+	const LOG_FIELD_LABEL_OVERRIDES: { [key: string]: string } = {
+		gosiDeduction: 'GOSI Deduction',
+		posShortage: 'POS Shortage',
+		posShortageDeductionTotal: 'POS Shortage Deduction Total',
+	};
+	function formatLogFieldLabel(key: string): string {
+		if (LOG_FIELD_LABEL_OVERRIDES[key]) return LOG_FIELD_LABEL_OVERRIDES[key];
+		const spaced = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
+		return spaced.replace(/\bPos\b/g, 'POS').replace(/\bGosi\b/g, 'GOSI');
+	}
+	function formatLogFieldValue(v: any): string {
+		if (v === null || v === undefined || v === '') return '—';
+		if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+		if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+		return String(v);
+	}
+	function buildLogDiffRows(before: any, after: any): { key: string; label: string; before: string; after: string; changed: boolean }[] {
+		const beforeObj = before && typeof before === 'object' && !Array.isArray(before) ? before : null;
+		const afterObj = after && typeof after === 'object' && !Array.isArray(after) ? after : null;
+		if (!beforeObj && !afterObj) return [];
+		const keys = Array.from(new Set([...(beforeObj ? Object.keys(beforeObj) : []), ...(afterObj ? Object.keys(afterObj) : [])]));
+		return keys.map(key => {
+			const bVal = beforeObj ? beforeObj[key] : undefined;
+			const aVal = afterObj ? afterObj[key] : undefined;
+			return {
+				key,
+				label: formatLogFieldLabel(key),
+				before: formatLogFieldValue(bVal),
+				after: formatLogFieldValue(aVal),
+				changed: JSON.stringify(bVal) !== JSON.stringify(aVal),
+			};
+		});
+	}
+	let logsShowUnchanged: { [logId: string]: boolean } = {};
 
 	/**
 	 * Central log helper — fire-and-forget, never throws.
@@ -128,12 +165,51 @@
 		EMP_EDIT_OPEN:  'EMP_EDIT_MODAL_OPEN',
 		EMP_EDIT_APPLY: 'EMP_EDIT_APPLY',
 		NOTES_OPEN:     'NOTES_POPUP_OPEN',
+		NOTES_SAVE:     'NOTES_SAVE',
+		NOTES_DELETE:   'NOTES_DELETE',
 		SALARY_WAGE_OPEN:'SALARY_WAGE_OPEN',
 		WORKED_DAYS_EDIT:'WORKED_DAYS_EDIT',
+		POS_FORGIVENESS_TOGGLE:'POS_FORGIVENESS_TOGGLE',
+		PERMISSIONS_MODAL_OPEN:'EDIT_LOG_PERMISSIONS_MODAL_OPEN',
+		PERMISSION_GRANT:'EDIT_LOG_PERMISSION_GRANT',
+		PERMISSION_REVOKE:'EDIT_LOG_PERMISSION_REVOKE',
 	} as const;
 	let showNotesPopup = false;
 	let notesEmployeeId = '';
 	let notesEmployeeName = '';
+
+	// ============================================================
+	// EDIT / LOG PERMISSIONS (per-user, inside this window)
+	// ============================================================
+	// Master Admin always has both, regardless of what's in the table.
+	let canEditSalaryStatement = false;
+	let canViewSalaryStatementLogs = false;
+	let showPermissionsModal = false;
+
+	async function loadEditLogPermissions() {
+		const user = get(currentUser);
+		if (!user) { canEditSalaryStatement = false; canViewSalaryStatementLogs = false; return; }
+		if (user.isMasterAdmin) { canEditSalaryStatement = true; canViewSalaryStatementLogs = true; return; }
+		try {
+			const { data, error } = await supabase
+				.from('salary_statement_edit_log_permissions')
+				.select('can_edit, can_view_logs')
+				.eq('user_id', user.id)
+				.maybeSingle();
+			if (error) throw error;
+			canEditSalaryStatement = !!data?.can_edit;
+			canViewSalaryStatementLogs = !!data?.can_view_logs;
+		} catch (e) {
+			console.error('Error loading edit/log permissions:', e);
+			canEditSalaryStatement = false;
+			canViewSalaryStatementLogs = false;
+		}
+	}
+
+	function openPermissionsModal() {
+		showPermissionsModal = true;
+		recordLog({ action_type: LOG.PERMISSIONS_MODAL_OPEN, action_description: 'Opened Manage Edit and Log Permission popup', related_ui: 'SalaryStatementPermissionsModal' });
+	}
 
 	function openNotesPopup(row: any) {
 		notesEmployeeId = row.employeeId;
@@ -186,6 +262,7 @@
 	let analysisData: any[] = [];
 	let datesInRange: string[] = [];
 	let editableWorkedDays: { [key: string]: string } = {};
+	let workedDaysEditOriginal: { [key: string]: string } = {};
 	let basicSalaries: { [key: string]: number } = {};
 	let paymentModes: { [key: string]: string } = {};
 	let otherAllowances: { [key: string]: number } = {};
@@ -364,7 +441,7 @@
 			foodDeductionActive: foodDeductionActives[row.employeeId] ?? false,
 		};
 		showEmpEditModal = true;
-		recordLog({ action_type: LOG.EMP_EDIT_OPEN, action_description: `Opened edit modal for employee ${row.employeeName || row.employeeId}`, employee_id: row.employeeId, employee_name: row.employeeName, related_ui: 'EmpEditModal', before_value: { basicSalary: empEdit.basicSalary, otherAllowance: empEdit.otherAllowance, accommodation: empEdit.accommodation, travel: empEdit.travel, food: empEdit.food, gosiDeduction: empEdit.gosiDeduction, posShortage: empEdit.posShortage, salaryAdvance: empEdit.salaryAdvance, loanDeductions: empEdit.loanDeductions, penalties: empEdit.penalties, otherDeductions: empEdit.otherDeductions } });
+		recordLog({ action_type: LOG.EMP_EDIT_OPEN, action_description: `Opened edit modal for employee ${row.employeeName || row.employeeId}`, employee_id: row.employeeId, employee_name: row.employeeName, related_ui: 'EmpEditModal', before_value: { basicSalary: empEdit.basicSalary, basicPaymentMode: empEdit.basicPaymentMode, otherAllowance: empEdit.otherAllowance, otherAllowancePaymentMode: empEdit.otherAllowancePaymentMode, accommodation: empEdit.accommodation, accommodationPaymentMode: empEdit.accommodationPaymentMode, travel: empEdit.travel, travelPaymentMode: empEdit.travelPaymentMode, food: empEdit.food, foodPaymentMode: empEdit.foodPaymentMode, gosiDeduction: empEdit.gosiDeduction, posShortage: empEdit.posShortage, salaryAdvance: empEdit.salaryAdvance, loanDeductions: empEdit.loanDeductions, autoFine: empEdit.autoFine, penalties: empEdit.penalties, otherDeductions: empEdit.otherDeductions, lateMinutes: empEdit.lateMinutes, underWorkedMinutes: empEdit.underWorkedMinutes, lateDeduction: empEdit.lateDeduction, underWorkedDeduction: empEdit.underWorkedDeduction, unapprovedLeaveDeduction: empEdit.unapprovedLeaveDeduction, incompleteDayDeduction: empEdit.incompleteDayDeduction, foodDeductionActive: empEdit.foodDeductionActive } });
 	}
 
 	// Store for manual deductions not in DB
@@ -381,18 +458,29 @@
 		const id = empEditRow.employeeId;
 		const beforeSnap = {
 			basicSalary: basicSalaries[id] || 0,
+			basicPaymentMode: paymentModes[id] || 'Bank',
 			otherAllowance: otherAllowances[id] || 0,
+			otherAllowancePaymentMode: otherAllowancePaymentModes[id] || 'Bank',
 			accommodation: accommodationAllowances[id] || 0,
+			accommodationPaymentMode: accommodationPaymentModes[id] || 'Bank',
 			travel: travelAllowances[id] || 0,
+			travelPaymentMode: travelPaymentModes[id] || 'Bank',
 			food: foodAllowances[id] || 0,
+			foodPaymentMode: foodPaymentModes[id] || 'Bank',
 			gosiDeduction: gosiDeductions[id] || 0,
 			posShortage: posShortageDeductions[id] || 0,
 			salaryAdvance: empEditOverrides[id]?.salaryAdvance || 0,
 			loanDeductions: empEditOverrides[id]?.loanDeductions || 0,
+			autoFine: autoFineDeductions[id] || 0,
 			penalties: empEditOverrides[id]?.penalties || 0,
 			otherDeductions: empEditOverrides[id]?.otherDeductions || 0,
 			lateMinutes: lateMinutesOverrides[id],
 			underWorkedMinutes: underWorkedMinutesOverrides[id],
+			lateDeduction: lateDeductionOverrides[id],
+			underWorkedDeduction: underWorkedDeductionOverrides[id],
+			unapprovedLeaveDeduction: unapprovedLeaveDeductionOverrides[id],
+			incompleteDayDeduction: incompleteDayDeductionOverrides[id],
+			foodDeductionActive: foodDeductionActives[id] ?? false,
 		};
 		basicSalaries[id] = Number(empEdit.basicSalary) || 0;
 		paymentModes[id] = empEdit.basicPaymentMode;
@@ -444,18 +532,29 @@
 		showEmpEditModal = false;
 		const afterSnap = {
 			basicSalary: basicSalaries[id],
+			basicPaymentMode: paymentModes[id],
 			otherAllowance: otherAllowances[id],
+			otherAllowancePaymentMode: otherAllowancePaymentModes[id],
 			accommodation: accommodationAllowances[id],
+			accommodationPaymentMode: accommodationPaymentModes[id],
 			travel: travelAllowances[id],
+			travelPaymentMode: travelPaymentModes[id],
 			food: foodAllowances[id],
+			foodPaymentMode: foodPaymentModes[id],
 			gosiDeduction: gosiDeductions[id],
 			posShortage: posShortageDeductions[id],
 			salaryAdvance: empEditOverrides[id]?.salaryAdvance || 0,
 			loanDeductions: empEditOverrides[id]?.loanDeductions || 0,
+			autoFine: autoFineDeductions[id],
 			penalties: empEditOverrides[id]?.penalties || 0,
 			otherDeductions: empEditOverrides[id]?.otherDeductions || 0,
 			lateMinutes: lateMinutesOverrides[id],
 			underWorkedMinutes: underWorkedMinutesOverrides[id],
+			lateDeduction: lateDeductionOverrides[id],
+			underWorkedDeduction: underWorkedDeductionOverrides[id],
+			unapprovedLeaveDeduction: unapprovedLeaveDeductionOverrides[id],
+			incompleteDayDeduction: incompleteDayDeductionOverrides[id],
+			foodDeductionActive: foodDeductionActives[id],
 		};
 		recordLog({ action_type: LOG.EMP_EDIT_APPLY, action_description: `Applied salary edits for employee ${empEditRow.employeeName || id}`, employee_id: id, employee_name: empEditRow.employeeName, related_ui: 'EmpEditModal', before_value: beforeSnap, after_value: afterSnap });
 	}
@@ -535,16 +634,19 @@
 		let unapprovedLeaveDeduction = 0;
 		let incompleteDayDeduction = 0;
 
-		if (lateOvr !== undefined) lateDeduction = _isRemote ? 0 : lateOvr;
+		// Manual overrides (typed by an admin in the Edit modal) always apply, regardless of employment
+		// status — only the *auto-computed* fallback (effLate/effUnder/effIncompDays/effUnapDays) is
+		// zeroed for Remote Job, since that's derived from fingerprint data Remote employees don't have.
+		if (lateOvr !== undefined) lateDeduction = lateOvr;
 		else if (effLate > 0) lateDeduction = (effLate / 60) * hourlyRate;
 
-		if (underOvr !== undefined) underWorkedDeduction = _isRemote ? 0 : underOvr;
+		if (underOvr !== undefined) underWorkedDeduction = underOvr;
 		else if (effUnder > 0) underWorkedDeduction = (effUnder / 60) * hourlyRate;
 
-		if (incompOvr !== undefined) incompleteDayDeduction = _isRemote ? 0 : incompOvr;
+		if (incompOvr !== undefined) incompleteDayDeduction = incompOvr;
 		else if (effIncompDays > 0) incompleteDayDeduction = effIncompDays * shiftHoursPerDay * hourlyRate;
 
-		if (unapOvr !== undefined) unapprovedLeaveDeduction = _isRemote ? 0 : unapOvr;
+		if (unapOvr !== undefined) unapprovedLeaveDeduction = unapOvr;
 		else if (effUnapDays > 0) unapprovedLeaveDeduction = effUnapDays * shiftHoursPerDay * hourlyRate;
 
 		const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
@@ -638,8 +740,10 @@
 			const underOvr = underWorkedDeductionOverrides[r.employeeId];
 			const unapOvr = unapprovedLeaveDeductionOverrides[r.employeeId];
 			const incompOvr = incompleteDayDeductionOverrides[r.employeeId];
-			const effLate = lateMinutesOverrides[r.employeeId] ?? r.totalLateMinutes ?? 0;
-			const effUnder = underWorkedMinutesOverrides[r.employeeId] ?? r.totalUnderWorkedMinutes ?? 0;
+			// Auto-computed fallback is zeroed for Remote Job (no fingerprint/shift data to derive it from);
+			// a manual override always applies regardless of employment status.
+			const effLate = isRemote ? 0 : (lateMinutesOverrides[r.employeeId] ?? r.totalLateMinutes ?? 0);
+			const effUnder = isRemote ? 0 : (underWorkedMinutesOverrides[r.employeeId] ?? r.totalUnderWorkedMinutes ?? 0);
 			let lateDed = 0;
 			if (lateOvr !== undefined) lateDed = lateOvr;
 			else if (effLate > 0) lateDed = (effLate / 60) * hourlyRate;
@@ -650,11 +754,10 @@
 			const _hasShift = !!employeeShifts.get(String(r.employeeId));
 			let incompDed = 0;
 			if (incompOvr !== undefined) incompDed = incompOvr;
-			else if (_hasShift && (r.totalIncompleteDays || 0) > 0) incompDed = (r.totalIncompleteDays || 0) * shiftHoursPerDay * hourlyRate;
+			else if (!isRemote && _hasShift && (r.totalIncompleteDays || 0) > 0) incompDed = (r.totalIncompleteDays || 0) * shiftHoursPerDay * hourlyRate;
 			let unapDed = 0;
 			if (unapOvr !== undefined) unapDed = unapOvr;
-			else if ((r.totalUnapprovedDaysOff || 0) > 0) unapDed = (r.totalUnapprovedDaysOff || 0) * shiftHoursPerDay * hourlyRate;
-			if (r.employmentStatus === 'Remote Job') { lateDed = 0; underDed = 0; incompDed = 0; unapDed = 0; }
+			else if (!isRemote && (r.totalUnapprovedDaysOff || 0) > 0) unapDed = (r.totalUnapprovedDaysOff || 0) * shiftHoursPerDay * hourlyRate;
 			t.lateDeductions += lateDed;
 			t.underWorkedDeductions += underDed;
 			t.incompleteDeductions += incompDed;
@@ -766,23 +869,24 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 		const otherAllowancesAmount = otherAllowBank + foodAllowBank; // travelAllowBank handled conditionally in processMudadSheetXml
 
-		// Leave of Absence = incomplete + late + under worked deductions
+		// Leave of Absence = incomplete + late + under worked deductions.
+		// A manual override always applies; only the auto-computed fallback is zeroed for Remote Job.
 		let incompleteDed = 0;
 		const incompOvr = incompleteDayDeductionOverrides[empId];
-		if (incompOvr !== undefined) incompleteDed = isRemote ? 0 : incompOvr;
+		if (incompOvr !== undefined) incompleteDed = incompOvr;
 		else if (!isRemote && (row.totalIncompleteDays || 0) > 0)
 			incompleteDed = (row.totalIncompleteDays || 0) * shiftHPD * hourlyRate;
 
 		let lateDed = 0;
 		const lateOvr = lateDeductionOverrides[empId];
 		const effLate = isRemote ? 0 : (lateMinutesOverrides[empId] ?? row.totalLateMinutes ?? 0);
-		if (lateOvr !== undefined) lateDed = isRemote ? 0 : lateOvr;
+		if (lateOvr !== undefined) lateDed = lateOvr;
 		else if (effLate > 0) lateDed = (effLate / 60) * hourlyRate;
 
 		let underDed = 0;
 		const underOvr = underWorkedDeductionOverrides[empId];
 		const effUnder = isRemote ? 0 : (underWorkedMinutesOverrides[empId] ?? row.totalUnderWorkedMinutes ?? 0);
-		if (underOvr !== undefined) underDed = isRemote ? 0 : underOvr;
+		if (underOvr !== undefined) underDed = underOvr;
 		else if (effUnder > 0) underDed = (effUnder / 60) * hourlyRate;
 
 		const leaveOfAbsenceAmount = incompleteDed + lateDed + underDed;
@@ -1847,6 +1951,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	}
 
 	onMount(async () => {
+		await loadEditLogPermissions();
 		await loadInitialData();
 		// Realtime subscriptions disabled - causes too many reloads
 		// await setupRealtimeSubscriptions();
@@ -2413,40 +2518,53 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		}
 	}
 
-	async function togglePosDeductionForgiveness(deductionId: string, boxNumber: number, dateClosedBox: string, currentStatus: string) {
+	async function togglePosDeductionForgiveness(employeeId: string, employeeName: string, deductionId: string, boxNumber: number, dateClosedBox: string, currentStatus: string) {
 		try {
 			const newStatus = currentStatus === 'Proposed' ? 'Forgiven' : 'Proposed';
-			
+
 			const { error } = await supabase
 				.from('pos_deduction_transfers')
 				.update({ status: newStatus })
 				.eq('id', deductionId)
 				.eq('box_number', boxNumber)
 				.eq('date_closed_box', dateClosedBox);
-			
+
 			if (error) {
 				console.error('Error updating POS deduction status:', error);
 				alert('Failed to update status');
 				return;
 			}
 
-			// Update local state
-			const deductions = posDeductionsList[deductionId] || [];
+			// Update local state (keyed by employeeId, matching posDeductionsList/posShortageDeductions)
+			const deductions = posDeductionsList[employeeId] || [];
 			const deduction = deductions.find(d => d.box_number === boxNumber && d.date_closed_box === dateClosedBox);
 			if (deduction) {
+				const beforePosShortage = posShortageDeductions[employeeId] || 0;
 				deduction.status = newStatus;
 				// Recalculate totals if changing to Forgiven
 				if (newStatus === 'Forgiven') {
-					posShortageDeductions[deductionId] -= deduction.short_amount || 0;
+					posShortageDeductions[employeeId] -= deduction.short_amount || 0;
 				} else {
-					posShortageDeductions[deductionId] += deduction.short_amount || 0;
+					posShortageDeductions[employeeId] += deduction.short_amount || 0;
 				}
 				posDeductionsList = posDeductionsList; // Trigger reactivity
 				posShortageDeductions = posShortageDeductions; // Trigger reactivity
+
+				recordLog({
+					action_type: LOG.POS_FORGIVENESS_TOGGLE,
+					action_description: `${newStatus === 'Forgiven' ? 'Forgave' : 'Un-forgave'} POS shortage deduction (Box #${boxNumber}) for employee ${employeeName || employeeId}`,
+					employee_id: employeeId,
+					employee_name: employeeName,
+					related_ui: 'PosShortageDropdown',
+					before_value: { status: currentStatus, posShortageDeductionTotal: beforePosShortage },
+					after_value: { status: newStatus, posShortageDeductionTotal: posShortageDeductions[employeeId] },
+					metadata: { boxNumber, dateClosedBox, shortAmount: deduction.short_amount || 0 },
+				});
 			}
 		} catch (error) {
 			console.error('Error toggling POS deduction forgiveness:', error);
 			alert('An error occurred');
+			recordLog({ action_type: LOG.POS_FORGIVENESS_TOGGLE, action_description: `Failed to toggle POS forgiveness for employee ${employeeName || employeeId}`, employee_id: employeeId, employee_name: employeeName, related_ui: 'PosShortageDropdown', status: 'failed', metadata: { boxNumber, dateClosedBox, error: (error as any)?.message || String(error) } });
 		}
 	}
 
@@ -3151,7 +3269,7 @@ title="Export salary data to Mudad Excel template"
 				{$t('common.close')}
 			</button>
 
-			{#if $currentUser?.isMasterAdmin}
+			{#if $currentUser?.isMasterAdmin || canViewSalaryStatementLogs}
 				<button
 					on:click={openLogsModal}
 					class="px-4 py-2 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors h-[38px] flex items-center gap-2"
@@ -3161,6 +3279,18 @@ title="Export salary data to Mudad Excel template"
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
 					</svg>
 					Logs
+				</button>
+			{/if}
+			{#if $currentUser?.isMasterAdmin}
+				<button
+					on:click={openPermissionsModal}
+					class="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors h-[38px] flex items-center gap-2"
+					title="Manage Edit and Log Permission"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+					</svg>
+					Manage Edit and Log Permission
 				</button>
 			{/if}
 		</div>
@@ -3243,16 +3373,18 @@ title="Export salary data to Mudad Excel template"
 											</svg>
 										</button>
 									{/if}
-									<button
-										class="p-1 hover:bg-violet-100 rounded-full transition-colors text-violet-500"
-										on:click={() => openEmpEdit(row)}
-										title="{$t('hr.salaryStatement.editEmployeeValuesTooltip')}"
-									>
-										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-										</svg>
-									</button>
+									{#if canEditSalaryStatement}
+										<button
+											class="p-1 hover:bg-violet-100 rounded-full transition-colors text-violet-500"
+											on:click={() => openEmpEdit(row)}
+											title="{$t('hr.salaryStatement.editEmployeeValuesTooltip')}"
+										>
+											<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+											</svg>
+										</button>
+									{/if}
 								</td>
 								<!-- Notes button alongside employee ID -->
 								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
@@ -3375,7 +3507,7 @@ title="Export salary data to Mudad Excel template"
 									{(() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const incompOvr = incompleteDayDeductionOverrides[row.employeeId];
-											if (incompOvr !== undefined) return _isRemote ? '-' : (incompOvr > 0 ? incompOvr.toFixed(2) : '-');
+											if (incompOvr !== undefined) return incompOvr > 0 ? incompOvr.toFixed(2) : '-';
 											const incompleteDays = _isRemote ? 0 : row.totalIncompleteDays;
 											if (!incompleteDays || !employeeShifts.get(String(row.employeeId))) return '-';
 											const basicSal = basicSalaries[row.employeeId] || 0;
@@ -3396,10 +3528,12 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 text-center font-black text-slate-950 bg-slate-200 z-20 w-[120px] whitespace-nowrap shadow-[-2px_0_4px_rgba(0,0,0,0.1)] border-l group-hover:bg-emerald-200 transition-colors text-xs {colVis.workedDays ? '' : 'hidden'}">
 									{#if row.employmentStatus === 'Remote Job'}
-										<input 
-											type="number" 
+										<input
+											type="number"
 											value={editableWorkedDays[row.employeeId] !== undefined && editableWorkedDays[row.employeeId] !== '' ? editableWorkedDays[row.employeeId] : (row.totalWorkedDays || row.totalExpectedWorkDays || 0)}
+											on:focus={(e) => { if (workedDaysEditOriginal[row.employeeId] === undefined) workedDaysEditOriginal[row.employeeId] = (e.currentTarget as HTMLInputElement).value; }}
 											on:input={(e) => { editableWorkedDays[row.employeeId] = (e.currentTarget as HTMLInputElement).value; editableWorkedDays = { ...editableWorkedDays }; }}
+											on:blur={(e) => { const newVal = (e.currentTarget as HTMLInputElement).value; const oldVal = workedDaysEditOriginal[row.employeeId]; delete workedDaysEditOriginal[row.employeeId]; if (oldVal !== undefined && Number(oldVal) !== Number(newVal || 0)) { recordLog({ action_type: LOG.WORKED_DAYS_EDIT, action_description: `Changed worked days for employee ${row.employeeName || row.employeeId}`, employee_id: row.employeeId, employee_name: row.employeeName, related_ui: 'ResultsTable', before_value: { workedDays: Number(oldVal) || 0 }, after_value: { workedDays: Number(newVal) || 0 } }); } }}
 											class="w-full px-2 py-1 text-center border border-slate-300 rounded bg-white text-slate-950 font-bold"
 										/>
 									{:else}
@@ -3481,7 +3615,7 @@ title="Export salary data to Mudad Excel template"
 										{(() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const lateDedOvr = lateDeductionOverrides[row.employeeId];
-											if (lateDedOvr !== undefined) return (_isRemote ? 0 : lateDedOvr).toFixed(2);
+											if (lateDedOvr !== undefined) return lateDedOvr.toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
@@ -3496,7 +3630,7 @@ title="Export salary data to Mudad Excel template"
 										{(() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const underOvr = underWorkedDeductionOverrides[row.employeeId];
-											if (underOvr !== undefined) return (_isRemote ? 0 : underOvr).toFixed(2);
+											if (underOvr !== undefined) return underOvr.toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
@@ -3527,7 +3661,7 @@ title="Export salary data to Mudad Excel template"
 														<input 
 															type="checkbox" 
 															checked={deduction.status === 'Forgiven'}
-															on:change={() => togglePosDeductionForgiveness(deduction.id, deduction.box_number, deduction.date_closed_box, deduction.status)}
+															on:change={() => togglePosDeductionForgiveness(row.employeeId, row.employeeName, deduction.id, deduction.box_number, deduction.date_closed_box, deduction.status)}
 															class="w-4 h-4 cursor-pointer"
 														/>
 														<div class="flex-1 text-xs">
@@ -3555,7 +3689,7 @@ title="Export salary data to Mudad Excel template"
 										{(() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const unapOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
-											if (unapOvr !== undefined) return (_isRemote ? 0 : unapOvr).toFixed(2);
+											if (unapOvr !== undefined) return unapOvr.toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
 											const otherAllow = otherAllowances[row.employeeId] || 0;
 											const accommAllow = accommodationAllowances[row.employeeId] || 0;
@@ -3569,8 +3703,8 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-gray-700 bg-gray-50/20 w-[150px] whitespace-nowrap group-hover:bg-gray-100/50 transition-colors {colVis.otherDeductions ? '' : 'hidden'}">
 									{(empEditOverrides[row.employeeId]?.otherDeductions || 0) > 0 ? (empEditOverrides[row.employeeId].otherDeductions).toLocaleString() : '-'}
 								</td>
-								<td class="px-4 py-3 border-l text-center font-bold text-emerald-800 bg-emerald-50 w-[150px] whitespace-nowrap group-hover:bg-emerald-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[600px]' : 'right-[600px]'} {colVis.grossEarnings ? '' : 'hidden'}">{computeRowSalary(row).gross.toFixed(2)}</td>
-								<td class="px-4 py-3 border-l text-center font-bold text-rose-800 bg-rose-50 w-[150px] whitespace-nowrap group-hover:bg-rose-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[450px]' : 'right-[450px]'} {colVis.totalDeductions ? '' : 'hidden'}">{computeRowSalary(row).totalDeductions.toFixed(2)}</td>
+								<td class="px-4 py-3 border-l text-center font-bold text-emerald-800 bg-emerald-50 w-[150px] whitespace-nowrap group-hover:bg-emerald-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[600px]' : 'right-[600px]'} {colVis.grossEarnings ? '' : 'hidden'}">{(basicSalaries, otherAllowances, accommodationAllowances, travelAllowances, foodAllowances, editableWorkedDays, computeRowSalary(row).gross.toFixed(2))}</td>
+								<td class="px-4 py-3 border-l text-center font-bold text-rose-800 bg-rose-50 w-[150px] whitespace-nowrap group-hover:bg-rose-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[450px]' : 'right-[450px]'} {colVis.totalDeductions ? '' : 'hidden'}">{(basicSalaries, otherAllowances, accommodationAllowances, travelAllowances, foodAllowances, gosiDeductions, lateMinutesOverrides, underWorkedMinutesOverrides, lateDeductionOverrides, underWorkedDeductionOverrides, unapprovedLeaveDeductionOverrides, incompleteDayDeductionOverrides, posShortageDeductions, empEditOverrides, autoFineDeductions, foodDeductionActives, editableWorkedDays, computeRowSalary(row).totalDeductions.toFixed(2))}</td>
 								<td class="px-4 py-3 border-l text-center font-bold text-yellow-800 bg-yellow-50 w-[150px] whitespace-nowrap group-hover:bg-yellow-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[300px]' : 'right-[300px]'} {colVis.netSalary ? '' : 'hidden'}">
 									{(() => {
 										const basicSal = basicSalaries[row.employeeId] || 0;
@@ -3926,7 +4060,7 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 <!-- ============================================================ -->
 <!-- SALARY STATEMENT LOGS MODAL (Master Admin only)              -->
 <!-- ============================================================ -->
-{#if showLogsModal && $currentUser?.isMasterAdmin}
+{#if showLogsModal && ($currentUser?.isMasterAdmin || canViewSalaryStatementLogs)}
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm" on:click|self={() => (showLogsModal = false)}>
@@ -3970,8 +4104,14 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<option value="EMP_EDIT_MODAL_OPEN">Employee Edit Open</option>
 					<option value="EMP_EDIT_APPLY">Employee Edit Applied</option>
 					<option value="NOTES_POPUP_OPEN">Notes Popup Open</option>
+					<option value="NOTES_SAVE">Notes Save</option>
+					<option value="NOTES_DELETE">Notes Delete</option>
 					<option value="SALARY_WAGE_OPEN">Salary & Wage Open</option>
 					<option value="WORKED_DAYS_EDIT">Worked Days Edit</option>
+					<option value="POS_FORGIVENESS_TOGGLE">POS Forgiveness Toggle</option>
+					<option value="EDIT_LOG_PERMISSIONS_MODAL_OPEN">Permissions Modal Open</option>
+					<option value="EDIT_LOG_PERMISSION_GRANT">Permission Grant</option>
+					<option value="EDIT_LOG_PERMISSION_REVOKE">Permission Revoke</option>
 				</select>
 			</div>
 			<div class="flex flex-col gap-1">
@@ -4087,20 +4227,73 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 								</td>
 							</tr>
 							{#if logsExpandedRow === log.id}
+								{@const _diffRows = buildLogDiffRows(log.before_value, log.after_value)}
+								{@const _isObjDiff = (log.before_value && typeof log.before_value === 'object' && !Array.isArray(log.before_value)) || (log.after_value && typeof log.after_value === 'object' && !Array.isArray(log.after_value))}
 								<tr class="bg-blue-50/60 border-b border-blue-100">
 									<td colspan="10" class="px-4 py-3">
 										<div class="grid grid-cols-2 gap-4 text-[11px]">
-											{#if log.before_value}
-												<div>
-													<p class="font-bold text-slate-500 mb-1 uppercase tracking-wide text-[10px]">Before</p>
-													<pre class="bg-white border border-slate-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.before_value, null, 2)}</pre>
+											{#if _isObjDiff && _diffRows.length > 0}
+												{@const _changedRows = _diffRows.filter(r => r.changed)}
+												{@const _unchangedRows = _diffRows.filter(r => !r.changed)}
+												<div class="col-span-2">
+													<p class="font-bold text-slate-500 mb-1 uppercase tracking-wide text-[10px]">Changes</p>
+													{#if _changedRows.length === 0}
+														<p class="text-slate-400 italic text-[11px] px-1">No field values actually changed.</p>
+													{:else}
+														<div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+															<table class="w-full text-[11px]">
+																<thead>
+																	<tr class="bg-slate-100 text-slate-500 text-[10px] uppercase tracking-wide">
+																		<th class="px-2 py-1 text-left">Field</th>
+																		<th class="px-2 py-1 text-left">Before</th>
+																		<th class="px-2 py-1 text-left">After</th>
+																	</tr>
+																</thead>
+																<tbody>
+																	{#each _changedRows as row}
+																		<tr class="border-t border-slate-100 bg-amber-50">
+																			<td class="px-2 py-1 font-semibold text-slate-600 whitespace-nowrap">{row.label}</td>
+																			<td class="px-2 py-1 text-red-600">{row.before}</td>
+																			<td class="px-2 py-1 text-emerald-700 font-bold">{row.after}</td>
+																		</tr>
+																	{/each}
+																</tbody>
+															</table>
+														</div>
+													{/if}
+													{#if _unchangedRows.length > 0}
+														<button type="button" class="text-[10px] text-blue-500 hover:underline mt-1" on:click={() => { logsShowUnchanged[log.id] = !logsShowUnchanged[log.id]; logsShowUnchanged = logsShowUnchanged; }}>
+															{logsShowUnchanged[log.id] ? '▲ Hide' : '▼ Show'} {_unchangedRows.length} unchanged field{_unchangedRows.length !== 1 ? 's' : ''}
+														</button>
+														{#if logsShowUnchanged[log.id]}
+															<div class="bg-white border border-slate-200 rounded-lg overflow-hidden mt-1">
+																<table class="w-full text-[11px]">
+																	<tbody>
+																		{#each _unchangedRows as row}
+																			<tr class="border-t border-slate-100">
+																				<td class="px-2 py-1 font-semibold text-slate-500 whitespace-nowrap">{row.label}</td>
+																				<td class="px-2 py-1 text-slate-400" colspan="2">{row.before}</td>
+																			</tr>
+																		{/each}
+																	</tbody>
+																</table>
+															</div>
+														{/if}
+													{/if}
 												</div>
-											{/if}
-											{#if log.after_value}
-												<div>
-													<p class="font-bold text-emerald-600 mb-1 uppercase tracking-wide text-[10px]">After</p>
-													<pre class="bg-white border border-emerald-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.after_value, null, 2)}</pre>
-												</div>
+											{:else}
+												{#if log.before_value}
+													<div>
+														<p class="font-bold text-slate-500 mb-1 uppercase tracking-wide text-[10px]">Before</p>
+														<pre class="bg-white border border-slate-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.before_value, null, 2)}</pre>
+													</div>
+												{/if}
+												{#if log.after_value}
+													<div>
+														<p class="font-bold text-emerald-600 mb-1 uppercase tracking-wide text-[10px]">After</p>
+														<pre class="bg-white border border-emerald-200 rounded-lg p-2 overflow-auto max-h-36 text-slate-700 text-[10px] font-mono">{JSON.stringify(log.after_value, null, 2)}</pre>
+													</div>
+												{/if}
 											{/if}
 											{#if log.deleted_record}
 												<div class="col-span-2">
@@ -4258,6 +4451,21 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	employeeId={notesEmployeeId}
 	employeeName={notesEmployeeName}
 	on:close={() => { showNotesPopup = false; }}
+	on:noteSaved={(e) => recordLog({ action_type: LOG.NOTES_SAVE, action_description: `Added salary note (${e.detail.noteType}) for employee ${notesEmployeeName}`, employee_id: notesEmployeeId, employee_name: notesEmployeeName, related_ui: 'EmployeeSalaryNotesPopup', before_value: null, after_value: e.detail })}
+	on:noteSaveFailed={(e) => recordLog({ action_type: LOG.NOTES_SAVE, action_description: `Failed to save salary note for employee ${notesEmployeeName}`, employee_id: notesEmployeeId, employee_name: notesEmployeeName, related_ui: 'EmployeeSalaryNotesPopup', status: 'failed', metadata: { error: e.detail.error } })}
+	on:noteDeleted={(e) => recordLog({ action_type: LOG.NOTES_DELETE, action_description: `Deleted salary note for employee ${notesEmployeeName}`, employee_id: notesEmployeeId, employee_name: notesEmployeeName, related_ui: 'EmployeeSalaryNotesPopup', deleted_record: e.detail.deletedNote, before_value: e.detail.deletedNote, after_value: null })}
+	on:noteDeleteFailed={(e) => recordLog({ action_type: LOG.NOTES_DELETE, action_description: `Failed to delete salary note for employee ${notesEmployeeName}`, employee_id: notesEmployeeId, employee_name: notesEmployeeName, related_ui: 'EmployeeSalaryNotesPopup', status: 'failed', metadata: { error: e.detail.error?.message || String(e.detail.error) } })}
+/>
+
+<!-- Manage Edit and Log Permission (Master Admin only) -->
+<SalaryStatementPermissionsModal
+	bind:show={showPermissionsModal}
+	currentUserId={$currentUser?.id || null}
+	on:close={() => { showPermissionsModal = false; }}
+	on:permissionSaved={(e) => recordLog({ action_type: LOG.PERMISSION_GRANT, action_description: `Set Edit=${e.detail.canEdit ? 'Yes' : 'No'}, Log=${e.detail.canViewLogs ? 'Yes' : 'No'} for user ${e.detail.userName}`, employee_id: e.detail.userId, employee_name: e.detail.userName, related_ui: 'SalaryStatementPermissionsModal', after_value: { canEdit: e.detail.canEdit, canViewLogs: e.detail.canViewLogs } })}
+	on:permissionSaveFailed={(e) => recordLog({ action_type: LOG.PERMISSION_GRANT, action_description: 'Failed to save Edit/Log permission', related_ui: 'SalaryStatementPermissionsModal', status: 'failed', metadata: { error: e.detail.error } })}
+	on:permissionRemoved={(e) => recordLog({ action_type: LOG.PERMISSION_REVOKE, action_description: `Removed Edit/Log permissions for user ${e.detail.userName}`, employee_id: e.detail.userId, employee_name: e.detail.userName, related_ui: 'SalaryStatementPermissionsModal', before_value: e.detail.before, after_value: null })}
+	on:permissionRemoveFailed={(e) => recordLog({ action_type: LOG.PERMISSION_REVOKE, action_description: 'Failed to remove Edit/Log permission', related_ui: 'SalaryStatementPermissionsModal', status: 'failed', metadata: { userId: e.detail.userId, error: e.detail.error } })}
 />
 
 {#if showEmpEditModal && empEditRow}

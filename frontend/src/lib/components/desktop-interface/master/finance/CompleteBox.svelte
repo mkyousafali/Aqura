@@ -1,8 +1,11 @@
 ﻿<script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import IssuePurchaseVoucher from './IssuePurchaseVoucher.svelte';
 	import ClosePurchaseVoucher from './ClosePurchaseVoucher.svelte';
 
@@ -46,23 +49,38 @@
 			return;
 		}
 
-		// If completed_by_name exists, closing has been started
-		if (op?.completed_by_name) {
-			console.log('✅ Closing already started, loading state');
+		// A fully completed box is just a finished record — safe to display
+		// without re-verification, since nothing further can happen to it
+		// without going through the separate OTP edit-approval flow.
+		//
+		// A box still IN PROGRESS is different: if we auto-restored
+		// closingStarted here just because *someone* previously entered a
+		// code, reopening this window would show every detail to whoever
+		// opens it next with no re-verification at all — so there's no
+		// reliable record of who actually handled the box this time.
+		// Re-entering the access code is required again every time the
+		// window is (re)opened, for as long as the box isn't completed yet.
+		if (op?.completed_by_name && op?.status === 'completed') {
+			console.log('✅ Box already completed, loading for display');
 			operation = op;
 			completedByName = op.completed_by_name;
 			closingStarted = true;
-			
+
 			// Load branch name from the branch prop passed to component
 			console.log('🏢 Branch prop received:', branch);
 			branchName = branch?.name_en || branch?.name || 'N/A';
 			console.log('✅ Loaded branch name:', branchName);
-			
+
 			// Reset guards to allow re-initialization
 			hasInitializedCounts = false;
 			hasFetchedUrl = false;
 			initializeClosingCounts();
 			await fetchPosBeforeUrl();
+		} else if (op) {
+			// Keep other fields fresh, but deliberately do NOT restore
+			// closingStarted/completedByName — the access code must be
+			// entered again to identify whoever is opening this now.
+			operation = op;
 		}
 	} catch (e) {
 		console.error('❌ Exception checking operation:', e);
@@ -151,32 +169,26 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	
 	// Verification checkboxes for each denomination
 	let denomVerified: Record<string, boolean> = {};
-	
-	// Edit mode tracking for denominations
-	let denomEditMode: Record<string, boolean> = {};
+
+	// Single global Edit toggle — all editable fields are read-only until this
+	// is on. Replaces the old per-field double-click-to-edit behavior.
+	// Driven by the OTP-gated edit-approval flow below (editPhase), not a
+	// plain on/off switch.
+	$: editMode = editPhase === 'unlocked_unchanged' || editPhase === 'unlocked_changed';
 	let denomEditedValues: Record<string, number> = {};
-	
+
 	// Track if denominations have been added to main record
 	let denominationsAdded: boolean = false;
 	let skipDenomination: boolean = false;
-	
+
 	// Voucher verification and edit tracking
 	let voucherVerified: Record<number, boolean> = {};
-	let voucherEditMode: Record<number, {serial: boolean, amount: boolean}> = {};
 	let voucherEditedValues: Record<number, {serial?: string, amount?: number}> = {};
 	
-	// Unified auto-save function - saves everything to complete_details
-	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-	
-	async function autoSaveCompleteDetails() {
-		if (!operation?.id) {
-			console.warn('⚠️ Cannot auto-save: no operation ID');
-			return;
-		}
-		
-		console.log('💾 Starting auto-save of complete_details...');
-		
-		// Get current complete_details or start from closing_details
+	// Builds the full complete_details record from current in-memory state.
+	// Pure — no DB write. Used for the Before/After edit-history snapshots,
+	// the live "has anything changed" comparison, and the one-shot Save.
+	function buildCompleteDetailsSnapshot() {
 		let currentCompleteDetails;
 		if (operation?.complete_details) {
 			currentCompleteDetails = typeof operation.complete_details === 'string'
@@ -189,39 +201,32 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		} else {
 			currentCompleteDetails = {};
 		}
-		
-		// Base values are already updated by edit handlers, so just save them directly
-		const updatedCompleteDetails = {
+
+		return {
 			...currentCompleteDetails,
-			// Supervisor info (already updated)
 			supervisor_code: supervisorCode || '',
 			cashier_confirm_code: cashierConfirmCode || '',
 			completed_by_name: completedByName || '',
 			cashier_name: cashierName || '',
 			branch_name: branchName || '',
-			// Closing counts (already updated)
 			closing_counts: closingCounts,
 			closing_total: closingTotal,
 			cash_sales: cashSales,
 			total_cash_sales: totalCashSales,
 			total_sales: totalSales,
-			// Vouchers data (already updated)
 			vouchers: vouchers,
 			vouchers_total: vouchersTotal,
-			// Bank reconciliation (already updated)
 			bank_mada: Number(madaAmount) || 0,
 			bank_visa: Number(visaAmount) || 0,
 			bank_mastercard: Number(masterCardAmount) || 0,
 			bank_google_pay: Number(googlePayAmount) || 0,
 			bank_other: Number(otherAmount) || 0,
 			bank_total: bankTotal,
-			// System/ERP details (already updated)
 			system_cash_sales: Number(systemCashSales) || 0,
 			system_card_sales: Number(systemCardSales) || 0,
 			system_return: Number(systemReturn) || 0,
 			system_total_cash_sales: totalSystemCashSales,
 			system_total: totalSystemSales,
-			// Recharge cards (already updated)
 			recharge_opening_balance: Number(openingBalance) || 0,
 			recharge_close_balance: Number(closeBalance) || 0,
 			recharge_sales: sales,
@@ -229,11 +234,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			recharge_transaction_start_time: startTimeInput || '',
 			recharge_transaction_end_date: endDateInput || '',
 			recharge_transaction_end_time: endTimeInput || '',
-			// Differences (calculated)
 			difference_cash_sales: differenceInCashSales,
 			difference_card_sales: differenceInCardSales,
 			total_difference: totalDifference,
-			// All edit tracking
 			denom_edits: denomEditedValues,
 			voucher_edits: voucherEditedValues,
 			bank_edits: bankEditedValues,
@@ -245,55 +248,286 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				endDate: rechargeEditedValues['endDate'],
 				endTime: rechargeEditedValues['endTime']
 			},
-			// All verification tracking
 			denom_verified: denomVerified,
 			voucher_verified: voucherVerified,
 			bank_verified: bankVerified,
 			system_verified: systemVerified,
 			recharge_verified: rechargeVerified
 		};
-		
-		console.log('📝 Complete details to save:', updatedCompleteDetails);
-		
+	}
+
+	// ============================================================
+	// EDIT APPROVAL — OTP-gated editing with a Before/After audit trail.
+	// See [[complete-box-edit-approval]].
+	//
+	//   locked            -> click Edit -> otp_pending
+	//   otp_pending       -> Verify (correct code) -> unlocked_unchanged
+	//                     -> Cancel Edit Request -> locked (no history row yet)
+	//   unlocked_unchanged -> any field diverges from Before -> unlocked_changed
+	//                      -> Cancel Edit -> locked (reverted, approvers notified)
+	//   unlocked_changed  -> back to the Before values -> unlocked_unchanged
+	//                     -> Save -> locked (After captured, approvers notified)
+	// ============================================================
+	type EditPhase = 'locked' | 'otp_pending' | 'unlocked_unchanged' | 'unlocked_changed';
+	let editPhase: EditPhase = 'locked';
+
+	// 6 separate digit boxes rather than one text field.
+	let otpDigits: string[] = ['', '', '', '', '', ''];
+	let otpInputEls: HTMLInputElement[] = [];
+	$: otpValue = otpDigits.join('');
+
+	function resetOtpDigits() {
+		otpDigits = ['', '', '', '', '', ''];
+	}
+
+	function handleOtpDigitInput(index: number, e: Event) {
+		const el = e.currentTarget as HTMLInputElement;
+		const raw = el.value.replace(/\D/g, '');
+		if (raw.length > 1) {
+			// Pasted (or fast-typed) multiple digits — spread across the remaining boxes.
+			const chars = raw.split('');
+			for (let i = 0; i < chars.length && (index + i) < 6; i++) {
+				otpDigits[index + i] = chars[i];
+			}
+			otpDigits = [...otpDigits];
+			const nextIndex = Math.min(index + chars.length, 5);
+			otpInputEls[nextIndex]?.focus();
+			return;
+		}
+		otpDigits[index] = raw;
+		otpDigits = [...otpDigits];
+		if (raw && index < 5) {
+			otpInputEls[index + 1]?.focus();
+		}
+	}
+
+	function handleOtpDigitKeydown(index: number, e: KeyboardEvent) {
+		if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+			otpInputEls[index - 1]?.focus();
+		} else if (e.key === 'Enter' && otpValue.length === 6) {
+			verifyEditOtp();
+		}
+	}
+
+	let otpError = '';
+	let otpSending = false;
+	let otpVerifying = false;
+	let resolvingEdit = false;
+	let editHistoryId: string | null = null;
+	let beforeEditSnapshot: any = null;
+
+	// "View Approvers" — lets the person editing manually call an approver
+	// if the OTP email is slow or not arriving.
+	interface ApproverContact { name: string; phone: string; }
+	let showApproversPopup = false;
+	let approversContacts: ApproverContact[] = [];
+	let loadingApproversContacts = false;
+
+	async function loadApproversContacts() {
+		loadingApproversContacts = true;
 		try {
-			const { error } = await supabase
-				.from('box_operations')
-				.update({ 
-					complete_details: updatedCompleteDetails,
-					updated_at: new Date().toISOString()
-				})
-				.eq('id', operation.id);
-			
-			if (error) {
-				console.error('❌ Error auto-saving complete_details:', error);
-			} else {
-				console.log('✅ Auto-saved complete_details successfully');
+			const { data: approvers, error } = await supabase
+				.from('complete_box_approvers')
+				.select('user_id')
+				.eq('is_active', true);
+			if (error) throw error;
+			const userIds = (approvers || []).map((a: any) => a.user_id);
+			if (userIds.length === 0) { approversContacts = []; return; }
+			const { data: emps } = await supabase
+				.from('hr_employee_master')
+				.select('user_id, name_en, name_ar, whatsapp_number')
+				.in('user_id', userIds);
+			approversContacts = (emps || []).map((e: any) => ({
+				name: ($currentLocale === 'ar' ? (e.name_ar || e.name_en) : (e.name_en || e.name_ar)) || 'Unknown',
+				phone: e.whatsapp_number || ''
+			}));
+		} catch (e) {
+			console.error('Error loading approver contacts:', e);
+		} finally {
+			loadingApproversContacts = false;
+		}
+	}
+
+	function toggleApproversPopup() {
+		showApproversPopup = !showApproversPopup;
+		if (showApproversPopup && approversContacts.length === 0 && !loadingApproversContacts) {
+			loadApproversContacts();
+		}
+	}
+
+	// Resend cooldown (60s after the OTP is (re)sent)
+	let otpSentAt: number | null = null;
+	let nowTick = Date.now();
+	let resendTimerHandle: ReturnType<typeof setInterval> | null = null;
+	$: resendSecondsLeft = otpSentAt ? Math.max(0, 60 - Math.floor((nowTick - otpSentAt) / 1000)) : 0;
+	$: canResendOtp = editPhase === 'otp_pending' && resendSecondsLeft === 0 && !otpSending;
+
+	function startResendCooldown() {
+		otpSentAt = Date.now();
+		nowTick = otpSentAt;
+		if (resendTimerHandle) clearInterval(resendTimerHandle);
+		resendTimerHandle = setInterval(() => { nowTick = Date.now(); }, 1000);
+	}
+
+	function stopResendCooldown() {
+		if (resendTimerHandle) clearInterval(resendTimerHandle);
+		resendTimerHandle = null;
+		otpSentAt = null;
+	}
+
+	onDestroy(() => {
+		stopResendCooldown();
+		// Leaving mid-session (without Save or an explicit Cancel) is treated
+		// the same as Cancel: approvers get the "no changes were made" email.
+		if (editHistoryId) {
+			resolveEditSession('cancelled');
+		}
+	});
+
+	async function requestEditOtp() {
+		if (!operation?.id || otpSending) return;
+		otpError = '';
+		otpSending = true;
+		try {
+			const requestingUserId = get(currentUser)?.id || null;
+			const { data, error } = await supabase.rpc('send_complete_box_edit_otp', {
+				p_box_operation_id: operation.id,
+				p_requested_by: requestingUserId,
+				p_pos_number: String(selectedPosNumber)
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Failed to send approval code');
+			editPhase = 'otp_pending';
+			resetOtpDigits();
+			startResendCooldown();
+			for (const qid of (data.queue_ids || [])) {
+				supabase.functions.invoke('email-send', { body: { queue_id: qid } }).catch(() => {});
+			}
+		} catch (e: any) {
+			otpError = e?.message || String(e);
+		} finally {
+			otpSending = false;
+		}
+	}
+
+	async function verifyEditOtp() {
+		if (!operation?.id || otpValue.length !== 6 || otpVerifying) return;
+		otpError = '';
+		otpVerifying = true;
+		try {
+			const requestingUserId = get(currentUser)?.id || null;
+			const snapshot = buildCompleteDetailsSnapshot();
+			const { data, error } = await supabase.rpc('verify_complete_box_edit_otp', {
+				p_box_operation_id: operation.id,
+				p_requested_by: requestingUserId,
+				p_otp: otpValue,
+				p_before_data: snapshot
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Verification failed');
+			editHistoryId = data.history_id;
+			// Deep-clone: snapshot's nested fields (closing_counts, denom_edits,
+			// vouchers, etc.) are references to the same live mutable objects
+			// the on:blur handlers edit in place. Without cloning, editing any
+			// field would silently mutate beforeEditSnapshot too, so
+			// checkForChanges() would never see a difference.
+			beforeEditSnapshot = JSON.parse(JSON.stringify(snapshot));
+			editPhase = 'unlocked_unchanged';
+			stopResendCooldown();
+			resetOtpDigits();
+		} catch (e: any) {
+			otpError = e?.message || String(e);
+		} finally {
+			otpVerifying = false;
+		}
+	}
+
+	// Re-derives editPhase by comparing live values against the Before
+	// snapshot — reverting a field back to its original value correctly
+	// falls back to "unchanged" rather than staying stuck on "Save".
+	function checkForChanges() {
+		if (editPhase !== 'unlocked_unchanged' && editPhase !== 'unlocked_changed') return;
+		if (!beforeEditSnapshot) return;
+		const current = buildCompleteDetailsSnapshot();
+		editPhase = JSON.stringify(current) !== JSON.stringify(beforeEditSnapshot) ? 'unlocked_changed' : 'unlocked_unchanged';
+	}
+
+	async function resolveEditSession(status: 'saved' | 'cancelled', afterSnapshot: any = null) {
+		if (!editHistoryId) return;
+		const historyId = editHistoryId;
+		editHistoryId = null; // clear first so onDestroy / re-entrant calls can't double-fire
+		try {
+			const { data, error } = await supabase.rpc('resolve_complete_box_edit', {
+				p_history_id: historyId,
+				p_status: status,
+				p_after_data: afterSnapshot,
+				p_pos_number: String(selectedPosNumber)
+			});
+			if (!error && data?.success) {
+				for (const qid of (data.queue_ids || [])) {
+					supabase.functions.invoke('email-send', { body: { queue_id: qid } }).catch(() => {});
+				}
 			}
 		} catch (e) {
-			console.error('❌ Exception auto-saving complete_details:', e);
+			console.error('Error resolving edit session:', e);
 		}
 	}
-	
-	// Debounced auto-save trigger
-	function triggerAutoSave() {
-		if (saveTimeout) {
-			clearTimeout(saveTimeout);
+
+	async function saveEdit() {
+		if (editPhase !== 'unlocked_changed' || !operation?.id || resolvingEdit) return;
+		resolvingEdit = true;
+		try {
+			const snapshot = buildCompleteDetailsSnapshot();
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ complete_details: snapshot, updated_at: new Date().toISOString() })
+				.eq('id', operation.id);
+			if (error) throw error;
+			operation.complete_details = snapshot; // keep local baseline in sync for any later edit session
+			await resolveEditSession('saved', snapshot);
+			beforeEditSnapshot = null;
+			editPhase = 'locked';
+		} catch (e: any) {
+			alert(($currentLocale === 'ar' ? 'فشل حفظ التعديل: ' : 'Failed to save edit: ') + (e?.message || String(e)));
+		} finally {
+			resolvingEdit = false;
 		}
-		saveTimeout = setTimeout(() => {
-			autoSaveCompleteDetails();
-		}, 1000); // Save after 1 second of inactivity
 	}
-	
-	// Function to save edited denomination values to complete_details
+
+	async function cancelEdit() {
+		if (resolvingEdit) return;
+		if (editPhase === 'otp_pending') {
+			// No history row exists yet — nothing was approved, nothing to notify.
+			editPhase = 'locked';
+			resetOtpDigits();
+			otpError = '';
+			stopResendCooldown();
+			return;
+		}
+		if (editPhase === 'unlocked_unchanged' || editPhase === 'unlocked_changed') {
+			resolvingEdit = true;
+			try {
+				await resolveEditSession('cancelled');
+				initializeClosingCounts(); // revert every field back to what's still persisted (nothing auto-saved)
+			} finally {
+				resolvingEdit = false;
+				beforeEditSnapshot = null;
+				editPhase = 'locked';
+			}
+		}
+	}
+
+	// Function to save edited denomination values — now just re-checks
+	// whether the record actually differs from Before (no more auto-save).
 	async function saveDenomEdits() {
-		triggerAutoSave();
+		checkForChanges();
 	}
-	
-	// Function to save voucher edits and verification to complete_details
+
+	// Function to save voucher edits and verification — same as above.
 	async function saveVoucherData() {
-		triggerAutoSave();
+		checkForChanges();
 	}
-	
+
 	// Ensure closingCounts is always initialized properly
 	function initializeClosingCounts() {
 		console.log('🔄 Initializing closing counts from operation:', operation);
@@ -498,12 +732,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Bank edit state tracking
 	let bankVerified: Record<string, boolean> = {}; // Track verification status
-	let bankEditMode: Record<string, boolean> = {}; // Track edit mode for each field
 	let bankEditedValues: Record<string, number> = {}; // Store edited values
 
 	// Save bank edits to closing_details
 	async function saveBankData() {
-		triggerAutoSave();
+		checkForChanges();
 	}
 
 	// Calculate bank reconciliation total using edited values
@@ -525,12 +758,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// System sales edit state tracking
 	let systemVerified: Record<string, boolean> = {}; // Track verification status
-	let systemEditMode: Record<string, boolean> = {}; // Track edit mode for each field
 	let systemEditedValues: Record<string, number> = {}; // Store edited values
 
 	// Save system sales edits to complete_details
 	async function saveSystemData() {
-		triggerAutoSave();
+		checkForChanges();
 	}
 
 	// Calculate system sales totals using edited values
@@ -564,12 +796,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Recharge card edit state tracking
 	let rechargeVerified: Record<string, boolean> = {}; // Track verification status
-	let rechargeEditMode: Record<string, boolean> = {}; // Track edit mode for each field
 	let rechargeEditedValues: Record<string, number> = {}; // Store edited values
 
 	// Save recharge card edits to closing_details
 	async function saveRechargeData() {
-		triggerAutoSave();
+		checkForChanges();
 	}
 
 	// Auto-calculate sales using base values (already updated)
@@ -878,18 +1109,38 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			const currentBranchName = branch?.name_en || branch?.name || 'N/A';
 			console.log('🏢 Saving branch name:', currentBranchName);
 
-			// Get current user info
-			const { data: { user } } = await supabase.auth.getUser();
-			
+			// Identify whoever is actually starting/resuming this closing
+			// session right now (the code they just entered), not whatever
+			// Supabase Auth session happens to exist — this app doesn't use
+			// Supabase Auth, so that was always null.
+			const requestingUserId = get(currentUser)?.id || null;
+
+			// Re-opening an in-progress box must NOT wipe out whatever was
+			// already entered in a previous session — merge the branch name
+			// into the existing record instead of replacing it wholesale.
+			const { data: existingOp } = await supabase
+				.from('box_operations')
+				.select('complete_details, closing_details')
+				.eq('id', operation.id)
+				.single();
+			let existingDetails: any = {};
+			if (existingOp?.complete_details) {
+				existingDetails = typeof existingOp.complete_details === 'string'
+					? JSON.parse(existingOp.complete_details)
+					: existingOp.complete_details;
+			} else if (existingOp?.closing_details) {
+				existingDetails = typeof existingOp.closing_details === 'string'
+					? JSON.parse(existingOp.closing_details)
+					: existingOp.closing_details;
+			}
+
 			// Update box_operations with completed_by info and branch name
 			const { error: updateError } = await supabase
 				.from('box_operations')
 				.update({
-					completed_by_user_id: user?.id,
+					completed_by_user_id: requestingUserId,
 					completed_by_name: completedByName,
-					complete_details: JSON.stringify({
-						branch_name: currentBranchName
-					})
+					complete_details: { ...existingDetails, branch_name: currentBranchName }
 				})
 				.eq('id', operation.id);
 
@@ -1479,9 +1730,46 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let completedByCodeError: string = '';
 
 	// Verify quick access code
+	// Permitted Closures — whoever's code was just verified must also be
+	// explicitly granted permission to close THIS box's branch. No Master
+	// Admin/Admin bypass here, by design — see [[complete-box-closure-permissions]].
+	let completedByUserId: string | null = null;
+	let hasClosurePermission = false;
+	let checkingClosurePermission = false;
+	let closurePermissionError = '';
+
+	async function checkClosurePermission() {
+		hasClosurePermission = false;
+		closurePermissionError = '';
+		const branchId = operation?.branch_id ?? branch?.id;
+		if (!completedByUserId || branchId == null) return;
+		checkingClosurePermission = true;
+		try {
+			const { data, error } = await supabase.rpc('can_user_close_branch', {
+				p_user_id: completedByUserId,
+				p_branch_id: branchId
+			});
+			if (error) throw error;
+			hasClosurePermission = !!data;
+			if (!hasClosurePermission) {
+				closurePermissionError = $currentLocale === 'ar'
+					? 'ليس لديك صلاحية بدء إغلاق هذا الفرع'
+					: 'You do not have permission to start closing this branch';
+			}
+		} catch (e) {
+			console.error('Error checking closure permission:', e);
+			closurePermissionError = $currentLocale === 'ar' ? 'خطأ في التحقق من الصلاحية' : 'Error checking permission';
+		} finally {
+			checkingClosurePermission = false;
+		}
+	}
+
 	async function verifyCompletedByCode() {
 		completedByCodeError = '';
 		completedByName = '';
+		completedByUserId = null;
+		hasClosurePermission = false;
+		closurePermissionError = '';
 
 		if (!completedByCode) {
 			return;
@@ -1499,7 +1787,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				completedByCodeError = 'Error verifying code';
 			} else if (verifyResult && verifyResult.success && verifyResult.user) {
 				completedByName = verifyResult.user.username;
+				completedByUserId = verifyResult.user.id;
 				console.log('✅ Code verified for:', completedByName);
+				await checkClosurePermission();
 			} else {
 				// No match found, silently wait for more input
 				console.log('⏳ Code incomplete or not found');
@@ -1516,6 +1806,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	} else {
 		completedByName = '';
 		completedByCodeError = '';
+		completedByUserId = null;
+		hasClosurePermission = false;
+		closurePermissionError = '';
 	}
 
 	// Modal for viewing POS image
@@ -1571,38 +1864,121 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					{completedByCodeError}
 				</div>
 			{/if}
+			{#if closurePermissionError}
+				<div class="completed-by-error">
+					{closurePermissionError}
+				</div>
+			{/if}
 		</div>
 		<div style="display: flex; gap: 0.5rem;">
-			<button 
-				class="start-closing-btn" 
-				disabled={!completedByName || closingStarted}
+			<button
+				class="start-closing-btn"
+				disabled={!completedByName || closingStarted || !hasClosurePermission || checkingClosurePermission}
 				on:click={startClosingProcess}
-				title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : ''}
+				title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : !hasClosurePermission ? closurePermissionError : ''}
 			>
-				{closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
+				{checkingClosurePermission ? ($currentLocale === 'ar' ? 'جارٍ التحقق...' : 'Checking...') : closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
 			</button>
-			<button 
+			{#if editPhase === 'locked'}
+				<button
+					class="edit-toggle-btn"
+					disabled={!closingStarted || otpSending}
+					on:click={requestEditOtp}
+					title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : ''}
+				>
+					{otpSending ? ($currentLocale === 'ar' ? 'جارٍ الإرسال...' : 'Sending...') : ($currentLocale === 'ar' ? '✏️ تعديل' : '✏️ Edit')}
+				</button>
+			{:else if editPhase === 'otp_pending'}
+				<div class="otp-approval-wrapper">
+					<div class="otp-digit-row">
+						{#each otpDigits as digit, i}
+							<input
+								type="text"
+								inputmode="numeric"
+								maxlength="1"
+								class="otp-digit-input"
+								bind:this={otpInputEls[i]}
+								value={digit}
+								on:input={(e) => handleOtpDigitInput(i, e)}
+								on:keydown={(e) => handleOtpDigitKeydown(i, e)}
+							/>
+						{/each}
+					</div>
+					<button class="otp-verify-btn" disabled={otpValue.length !== 6 || otpVerifying} on:click={verifyEditOtp}>
+						{otpVerifying ? ($currentLocale === 'ar' ? 'جارٍ التحقق...' : 'Verifying...') : ($currentLocale === 'ar' ? 'تحقق' : 'Verify')}
+					</button>
+					<button class="otp-resend-btn" disabled={!canResendOtp} on:click={requestEditOtp}>
+						{resendSecondsLeft > 0 ? `${$currentLocale === 'ar' ? 'إعادة الإرسال خلال' : 'Resend in'} ${resendSecondsLeft}s` : ($currentLocale === 'ar' ? 'إعادة إرسال الرمز' : 'Resend OTP')}
+					</button>
+					<div class="otp-view-approvers-wrapper">
+						<button class="otp-approvers-btn" on:click={toggleApproversPopup}>
+							{$currentLocale === 'ar' ? '📞 عرض المعتمدين' : '📞 View Approvers'}
+						</button>
+						{#if showApproversPopup}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div class="otp-approvers-popup">
+								<div class="otp-approvers-popup-header">
+									{$currentLocale === 'ar' ? 'اتصل بأحد المعتمدين للحصول على الرمز' : 'Call an approver to get the code'}
+									<button class="otp-approvers-popup-close" on:click={() => (showApproversPopup = false)}>×</button>
+								</div>
+								{#if loadingApproversContacts}
+									<div class="otp-approvers-popup-empty">{$currentLocale === 'ar' ? 'جارٍ التحميل...' : 'Loading...'}</div>
+								{:else if approversContacts.length === 0}
+									<div class="otp-approvers-popup-empty">{$currentLocale === 'ar' ? 'لا يوجد معتمدون' : 'No approvers configured'}</div>
+								{:else}
+									{#each approversContacts as contact}
+										<div class="otp-approver-row">
+											<span class="otp-approver-name">{contact.name}</span>
+											{#if contact.phone}
+												<a href={`tel:${contact.phone}`} class="otp-approver-phone">{contact.phone}</a>
+											{:else}
+												<span class="otp-approver-phone otp-approver-phone-missing">{$currentLocale === 'ar' ? 'لا يوجد رقم' : 'No number'}</span>
+											{/if}
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{/if}
+					</div>
+					<button class="otp-cancel-btn" on:click={cancelEdit}>
+						{$currentLocale === 'ar' ? 'إلغاء طلب التعديل' : 'Cancel Edit Request'}
+					</button>
+					{#if otpError}
+						<span class="otp-error">{otpError}</span>
+					{/if}
+				</div>
+			{:else if editPhase === 'unlocked_unchanged'}
+				<button class="edit-toggle-btn edit-toggle-cancel" disabled={resolvingEdit} on:click={cancelEdit}>
+					{resolvingEdit ? ($currentLocale === 'ar' ? 'جارٍ الإلغاء...' : 'Cancelling...') : ($currentLocale === 'ar' ? '↩️ إلغاء التعديل' : '↩️ Cancel Edit')}
+				</button>
+			{:else if editPhase === 'unlocked_changed'}
+				<button class="edit-toggle-btn edit-toggle-save" disabled={resolvingEdit} on:click={saveEdit}>
+					{resolvingEdit ? ($currentLocale === 'ar' ? 'جارٍ الحفظ...' : 'Saving...') : ($currentLocale === 'ar' ? '💾 حفظ' : '💾 Save')}
+				</button>
+			{/if}
+			<button
 				class="add-to-denomination-btn"
-				disabled={!closingStarted || !allCheckboxesVerified || denominationsAdded || skipDenomination}
+				disabled={!closingStarted || editPhase !== 'locked' || !allCheckboxesVerified || denominationsAdded || skipDenomination}
 				on:click={addToDenomination}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : skipDenomination ? ($currentLocale === 'ar' ? 'تم التخطي' : 'Skipped') : ''}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : editPhase !== 'locked' ? ($currentLocale === 'ar' ? 'أنهِ التعديل أولاً' : 'Finish the edit first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : skipDenomination ? ($currentLocale === 'ar' ? 'تم التخطي' : 'Skipped') : ''}
 			>
 				{denominationsAdded ? ($currentLocale === 'ar' ? '✓ تمت الإضافة' : '✓ Added') : skipDenomination ? ($currentLocale === 'ar' ? '⏭ تم التخطي' : '⏭ Skipped') : ($currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination')}
 			</button>
 			<label class="skip-denomination-label" title={$currentLocale === 'ar' ? 'إكمال بدون إضافة الفئات النقدية' : 'Complete without adding denominations'}>
-				<input 
-					type="checkbox" 
+				<input
+					type="checkbox"
 					bind:checked={skipDenomination}
 					disabled={denominationsAdded || operation?.status === 'completed'}
 					class="skip-denomination-checkbox"
 				/>
 				<span class="skip-denomination-text">{$currentLocale === 'ar' ? 'تخطي الفئات' : 'Skip Denomination'}</span>
 			</label>
-			<button 
+			<button
 				class="complete-btn"
-				disabled={!closingStarted || !allCheckboxesVerified || (!denominationsAdded && !skipDenomination) || operation?.status === 'completed'}
+				disabled={!closingStarted || editPhase !== 'locked' || !allCheckboxesVerified || (!denominationsAdded && !skipDenomination) || operation?.status === 'completed'}
 				on:click={completeBox}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : (!denominationsAdded && !skipDenomination) ? ($currentLocale === 'ar' ? 'أضف الفئات أو تخطاها أولاً' : 'Add denomination or skip first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : editPhase !== 'locked' ? ($currentLocale === 'ar' ? 'أنهِ التعديل (حفظ أو إلغاء) أولاً' : 'Finish the edit (save or cancel) first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : (!denominationsAdded && !skipDenomination) ? ($currentLocale === 'ar' ? 'أضف الفئات أو تخطاها أولاً' : 'Add denomination or skip first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
 			>
 				{operation?.status === 'completed' ? ($currentLocale === 'ar' ? '✓ مكتمل' : '✓ Completed') : ($currentLocale === 'ar' ? 'إكمال' : 'Complete')}
 			</button>
@@ -1645,6 +2021,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				<div class="card-header-text">{$currentLocale === 'ar' ? '1. تفاصيل الإغلاق المدخلة' : '1. Closing Details Entered'}</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
+						{@const originalCount = beforeEditSnapshot ? (beforeEditSnapshot.closing_counts?.[key] ?? 0) : closingCounts[key]}
 						<div class="denom-input-group">
 							<div class="denom-label-with-checkbox">
 								<label>
@@ -1666,38 +2043,30 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								<input
 									type="number"
 									min="0"
-									readonly={!denomEditMode[key]}
+									readonly={!editMode}
 									class:denom-edited={denomEditedValues[key] !== undefined}
 									value={denomEditedValues[key] !== undefined ? denomEditedValues[key] : (closingCounts[key] || '')}
-									on:dblclick={() => {
-										if (closingStarted) {
-											denomEditMode[key] = true;
-											denomEditMode = denomEditMode;
-										}
-									}}
 									on:blur={(e) => {
-										if (denomEditMode[key]) {
+										if (editMode) {
 											const newValue = parseFloat(e.currentTarget.value) || 0;
 											denomEditedValues[key] = newValue;
 											denomEditedValues = denomEditedValues;
 											closingCounts[key] = newValue; // Update base value
 											closingCounts = closingCounts;
-											denomEditMode[key] = false;
-											denomEditMode = denomEditMode;
 											saveDenomEdits();
 										}
 									}}
 									on:keydown={(e) => {
-										if (e.key === 'Enter' && denomEditMode[key]) {
+										if (e.key === 'Enter' && editMode) {
 											e.currentTarget.blur();
 										}
 									}}
 								/>
 								<div class="denom-values-display">
-									{#if denomEditedValues[key] !== undefined && closingCounts[key]}
+									{#if denomEditedValues[key] !== undefined && originalCount}
 										<div class="denom-original-value">
 											<span class="original-label">Original:</span>
-											<span class="original-count">{closingCounts[key]}</span>
+											<span class="original-count">{originalCount}</span>
 										</div>
 									{/if}
 									{#if (denomEditedValues[key] !== undefined ? denomEditedValues[key] : closingCounts[key]) > 0}
@@ -1752,24 +2121,24 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				
 				<!-- Voucher Input Row -->
 				<div class="voucher-input-row">
-					<input 
-						type="text" 
+					<input
+						type="text"
 						class="voucher-serial-input"
 						bind:value={newVoucherSerial}
 						placeholder={$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial Number'}
-						disabled={!closingStarted}
+						disabled={!closingStarted || !editMode}
 					/>
-					<input 
-						type="number" 
+					<input
+						type="number"
 						class="voucher-amount-input"
 						bind:value={newVoucherAmount}
 						placeholder={$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}
-						disabled={!closingStarted}
+						disabled={!closingStarted || !editMode}
 					/>
-					<button 
-						class="add-voucher-btn" 
+					<button
+						class="add-voucher-btn"
 						on:click={addVoucher}
-						disabled={!closingStarted || !newVoucherSerial || !newVoucherAmount}
+						disabled={!closingStarted || !editMode || !newVoucherSerial || !newVoucherAmount}
 					>
 						+
 					</button>
@@ -1816,30 +2185,21 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 													type="text"
 													class="voucher-editable-input"
 													class:voucher-edited={voucherEditedValues[index]?.serial !== undefined}
-													readonly={!voucherEditMode[index]?.serial}
+													readonly={!editMode}
 													value={voucherEditedValues[index]?.serial !== undefined ? voucherEditedValues[index].serial : voucher.serial}
-													on:dblclick={() => {
-														if (closingStarted) {
-															if (!voucherEditMode[index]) voucherEditMode[index] = { serial: false, amount: false };
-															voucherEditMode[index].serial = true;
-															voucherEditMode = voucherEditMode;
-														}
-													}}
 													on:blur={(e) => {
-														if (voucherEditMode[index]?.serial) {
+														if (editMode) {
 															const newValue = e.currentTarget.value;
 															if (!voucherEditedValues[index]) voucherEditedValues[index] = {};
 															voucherEditedValues[index].serial = newValue;
 															voucherEditedValues = voucherEditedValues;
 																vouchers[index].serial = newValue; // Update base value
 																vouchers = vouchers;
-															voucherEditMode[index].serial = false;
-															voucherEditMode = voucherEditMode;
 															saveVoucherData();
 														}
 													}}
 													on:keydown={(e) => {
-														if (e.key === 'Enter' && voucherEditMode[index]?.serial) {
+														if (e.key === 'Enter' && editMode) {
 															e.currentTarget.blur();
 														}
 													}}
@@ -1847,7 +2207,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 												{#if voucherEditedValues[index]?.serial !== undefined}
 													<div class="voucher-original-value">
 														<span class="original-label">Original:</span>
-														<span class="original-value">{voucher.serial}</span>
+														<span class="original-value">{beforeEditSnapshot ? beforeEditSnapshot.vouchers?.[index]?.serial : voucher.serial}</span>
 													</div>
 												{/if}
 											</div>
@@ -1860,30 +2220,21 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 														type="number"
 														class="voucher-editable-input voucher-amount-input"
 														class:voucher-edited={voucherEditedValues[index]?.amount !== undefined}
-														readonly={!voucherEditMode[index]?.amount}
+														readonly={!editMode}
 														value={voucherEditedValues[index]?.amount !== undefined ? voucherEditedValues[index].amount : voucher.amount}
-														on:dblclick={() => {
-															if (closingStarted) {
-																if (!voucherEditMode[index]) voucherEditMode[index] = { serial: false, amount: false };
-																voucherEditMode[index].amount = true;
-																voucherEditMode = voucherEditMode;
-															}
-														}}
 														on:blur={(e) => {
-															if (voucherEditMode[index]?.amount) {
+															if (editMode) {
 																const newValue = parseFloat(e.currentTarget.value) || 0;
 																if (!voucherEditedValues[index]) voucherEditedValues[index] = {};
 																voucherEditedValues[index].amount = newValue;
 																voucherEditedValues = voucherEditedValues;
 																		vouchers[index].amount = newValue; // Update base value
 																		vouchers = vouchers;
-																voucherEditMode[index].amount = false;
-																voucherEditMode = voucherEditMode;
 																saveVoucherData();
 															}
 														}}
 														on:keydown={(e) => {
-															if (e.key === 'Enter' && voucherEditMode[index]?.amount) {
+															if (e.key === 'Enter' && editMode) {
 																e.currentTarget.blur();
 															}
 														}}
@@ -1892,7 +2243,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 												{#if voucherEditedValues[index]?.amount !== undefined}
 													<div class="voucher-original-value">
 														<span class="original-label">Original:</span>
-														<span class="original-value">{voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+														<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.vouchers?.[index]?.amount : voucher.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 													</div>
 												{/if}
 											</div>
@@ -1941,14 +2292,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={bankEditedValues['mada'] !== undefined ? bankEditedValues['mada'] : madaAmount}
-								readonly={!bankEditMode['mada']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="bank-editable-input {bankEditedValues['mada'] !== undefined ? 'bank-edited' : ''}"
-								on:dblclick={() => {
-									bankEditMode['mada'] = true;
-									bankEditMode = {...bankEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(madaAmount) || 0)) {
@@ -1956,11 +2303,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							madaAmount = newValue; // Update base value
 										saveBankData();
 									}
-									bankEditMode['mada'] = false;
-									bankEditMode = {...bankEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && bankEditMode['mada']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -1968,7 +2313,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if bankEditedValues['mada'] !== undefined}
 								<div class="bank-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(madaAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.bank_mada : madaAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -1989,14 +2334,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={bankEditedValues['visa'] !== undefined ? bankEditedValues['visa'] : visaAmount}
-								readonly={!bankEditMode['visa']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="bank-editable-input {bankEditedValues['visa'] !== undefined ? 'bank-edited' : ''}"
-								on:dblclick={() => {
-									bankEditMode['visa'] = true;
-									bankEditMode = {...bankEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(visaAmount) || 0)) {
@@ -2004,11 +2345,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							visaAmount = newValue; // Update base value
 										saveBankData();
 									}
-									bankEditMode['visa'] = false;
-									bankEditMode = {...bankEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && bankEditMode['visa']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2016,7 +2355,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if bankEditedValues['visa'] !== undefined}
 								<div class="bank-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(visaAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.bank_visa : visaAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2037,14 +2376,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={bankEditedValues['mastercard'] !== undefined ? bankEditedValues['mastercard'] : masterCardAmount}
-								readonly={!bankEditMode['mastercard']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="bank-editable-input {bankEditedValues['mastercard'] !== undefined ? 'bank-edited' : ''}"
-								on:dblclick={() => {
-									bankEditMode['mastercard'] = true;
-									bankEditMode = {...bankEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(masterCardAmount) || 0)) {
@@ -2052,11 +2387,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							masterCardAmount = newValue; // Update base value
 										saveBankData();
 									}
-									bankEditMode['mastercard'] = false;
-									bankEditMode = {...bankEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && bankEditMode['mastercard']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2064,7 +2397,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if bankEditedValues['mastercard'] !== undefined}
 								<div class="bank-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(masterCardAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.bank_mastercard : masterCardAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2085,14 +2418,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={bankEditedValues['googlepay'] !== undefined ? bankEditedValues['googlepay'] : googlePayAmount}
-								readonly={!bankEditMode['googlepay']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="bank-editable-input {bankEditedValues['googlepay'] !== undefined ? 'bank-edited' : ''}"
-								on:dblclick={() => {
-									bankEditMode['googlepay'] = true;
-									bankEditMode = {...bankEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(googlePayAmount) || 0)) {
@@ -2100,11 +2429,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							googlePayAmount = newValue; // Update base value
 										saveBankData();
 									}
-									bankEditMode['googlepay'] = false;
-									bankEditMode = {...bankEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && bankEditMode['googlepay']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2112,7 +2439,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if bankEditedValues['googlepay'] !== undefined}
 								<div class="bank-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(googlePayAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.bank_google_pay : googlePayAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2133,14 +2460,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={bankEditedValues['other'] !== undefined ? bankEditedValues['other'] : otherAmount}
-								readonly={!bankEditMode['other']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="bank-editable-input {bankEditedValues['other'] !== undefined ? 'bank-edited' : ''}"
-								on:dblclick={() => {
-									bankEditMode['other'] = true;
-									bankEditMode = {...bankEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(otherAmount) || 0)) {
@@ -2148,11 +2471,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							otherAmount = newValue; // Update base value
 										saveBankData();
 									}
-									bankEditMode['other'] = false;
-									bankEditMode = {...bankEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && bankEditMode['other']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2160,7 +2481,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if bankEditedValues['other'] !== undefined}
 								<div class="bank-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(otherAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.bank_other : otherAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2194,14 +2515,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={systemEditedValues['cashSales'] !== undefined ? systemEditedValues['cashSales'] : systemCashSales}
-								readonly={!systemEditMode['cashSales']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="system-editable-input {systemEditedValues['cashSales'] !== undefined ? 'system-edited' : ''}"
-								on:dblclick={() => {
-									systemEditMode['cashSales'] = true;
-									systemEditMode = {...systemEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(systemCashSales) || 0)) {
@@ -2209,11 +2526,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								systemCashSales = newValue; // Update base value
 										saveSystemData();
 									}
-									systemEditMode['cashSales'] = false;
-									systemEditMode = {...systemEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && systemEditMode['cashSales']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2221,7 +2536,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if systemEditedValues['cashSales'] !== undefined}
 								<div class="system-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(systemCashSales) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.system_cash_sales : systemCashSales) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2242,14 +2557,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={systemEditedValues['cardSales'] !== undefined ? systemEditedValues['cardSales'] : systemCardSales}
-								readonly={!systemEditMode['cardSales']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="system-editable-input {systemEditedValues['cardSales'] !== undefined ? 'system-edited' : ''}"
-								on:dblclick={() => {
-									systemEditMode['cardSales'] = true;
-									systemEditMode = {...systemEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(systemCardSales) || 0)) {
@@ -2257,11 +2568,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								systemCardSales = newValue; // Update base value
 										saveSystemData();
 									}
-									systemEditMode['cardSales'] = false;
-									systemEditMode = {...systemEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && systemEditMode['cardSales']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2269,7 +2578,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if systemEditedValues['cardSales'] !== undefined}
 								<div class="system-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(systemCardSales) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.system_card_sales : systemCardSales) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2290,14 +2599,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={systemEditedValues['return'] !== undefined ? systemEditedValues['return'] : systemReturn}
-								readonly={!systemEditMode['return']}
+								readonly={!editMode}
 								min="0"
 								step="0.01"
 								class="system-editable-input {systemEditedValues['return'] !== undefined ? 'system-edited' : ''}"
-								on:dblclick={() => {
-									systemEditMode['return'] = true;
-									systemEditMode = {...systemEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(systemReturn) || 0)) {
@@ -2305,11 +2610,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								systemReturn = newValue; // Update base value
 										saveSystemData();
 									}
-									systemEditMode['return'] = false;
-									systemEditMode = {...systemEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && systemEditMode['return']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2317,7 +2620,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if systemEditedValues['return'] !== undefined}
 								<div class="system-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(systemReturn) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.system_return : systemReturn) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2360,11 +2663,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								type="date" 
 								class="datetime-editable-input {rechargeEditedValues['startDate'] !== undefined ? 'datetime-edited' : ''}" 
 								value={rechargeEditedValues['startDate'] !== undefined ? rechargeEditedValues['startDate'] : startDateInput}
-								readonly={!rechargeEditMode['startDate']}
-								on:dblclick={() => {
-									rechargeEditMode['startDate'] = true;
-									rechargeEditMode = {...rechargeEditMode};
-								}}
+								readonly={!editMode}
 								on:blur={(e) => {
 									const newValue = e.currentTarget.value;
 									if (newValue !== startDateInput) {
@@ -2372,11 +2671,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								startDateInput = newValue; // Update base value
 										saveRechargeData();
 									}
-									rechargeEditMode['startDate'] = false;
-									rechargeEditMode = {...rechargeEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && rechargeEditMode['startDate']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2384,7 +2681,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if rechargeEditedValues['startDate'] !== undefined}
 								<div class="datetime-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{startDateInput || 'N/A'}</span>
+									<span class="original-value">{(beforeEditSnapshot ? beforeEditSnapshot.recharge_transaction_start_date : startDateInput) || 'N/A'}</span>
 								</div>
 							{/if}
 						</div>
@@ -2406,12 +2703,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								type="text" 
 								class="datetime-editable-input {rechargeEditedValues['startTime'] !== undefined ? 'datetime-edited' : ''}" 
 								value={rechargeEditedValues['startTime'] !== undefined ? rechargeEditedValues['startTime'] : `${startHour}:${startMinute} ${startAmPm}`}
-								readonly={!rechargeEditMode['startTime']}
+								readonly={!editMode}
 								placeholder="HH:MM AM/PM"
-								on:dblclick={() => {
-									rechargeEditMode['startTime'] = true;
-									rechargeEditMode = {...rechargeEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = e.currentTarget.value;
 									if (newValue !== `${startHour}:${startMinute} ${startAmPm}`) {
@@ -2419,11 +2712,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								startTimeInput = newValue; // Update base value
 										saveRechargeData();
 									}
-									rechargeEditMode['startTime'] = false;
-									rechargeEditMode = {...rechargeEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && rechargeEditMode['startTime']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2453,11 +2744,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								type="date" 
 								class="datetime-editable-input {rechargeEditedValues['endDate'] !== undefined ? 'datetime-edited' : ''}" 
 								value={rechargeEditedValues['endDate'] !== undefined ? rechargeEditedValues['endDate'] : endDateInput}
-								readonly={!rechargeEditMode['endDate']}
-								on:dblclick={() => {
-									rechargeEditMode['endDate'] = true;
-									rechargeEditMode = {...rechargeEditMode};
-								}}
+								readonly={!editMode}
 								on:blur={(e) => {
 									const newValue = e.currentTarget.value;
 									if (newValue !== endDateInput) {
@@ -2465,11 +2752,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								endDateInput = newValue; // Update base value
 										saveRechargeData();
 									}
-									rechargeEditMode['endDate'] = false;
-									rechargeEditMode = {...rechargeEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && rechargeEditMode['endDate']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2477,7 +2762,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if rechargeEditedValues['endDate'] !== undefined}
 								<div class="datetime-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{endDateInput || 'N/A'}</span>
+									<span class="original-value">{(beforeEditSnapshot ? beforeEditSnapshot.recharge_transaction_end_date : endDateInput) || 'N/A'}</span>
 								</div>
 							{/if}
 						</div>
@@ -2499,12 +2784,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								type="text" 
 								class="datetime-editable-input {rechargeEditedValues['endTime'] !== undefined ? 'datetime-edited' : ''}" 
 								value={rechargeEditedValues['endTime'] !== undefined ? rechargeEditedValues['endTime'] : `${endHour}:${endMinute} ${endAmPm}`}
-								readonly={!rechargeEditMode['endTime']}
+								readonly={!editMode}
 								placeholder="HH:MM AM/PM"
-								on:dblclick={() => {
-									rechargeEditMode['endTime'] = true;
-									rechargeEditMode = {...rechargeEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = e.currentTarget.value;
 									if (newValue !== `${endHour}:${endMinute} ${endAmPm}`) {
@@ -2512,11 +2793,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								endTimeInput = newValue; // Update base value
 										saveRechargeData();
 									}
-									rechargeEditMode['endTime'] = false;
-									rechargeEditMode = {...rechargeEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && rechargeEditMode['endTime']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2547,15 +2826,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={rechargeEditedValues['openingBalance'] !== undefined ? rechargeEditedValues['openingBalance'] : openingBalance}
-								readonly={!rechargeEditMode['openingBalance']}
+								readonly={!editMode}
 								placeholder="0.00"
 								min="0"
 								step="0.01"
 								class="recharge-editable-input {rechargeEditedValues['openingBalance'] !== undefined ? 'recharge-edited' : ''}"
-								on:dblclick={() => {
-									rechargeEditMode['openingBalance'] = true;
-									rechargeEditMode = {...rechargeEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(openingBalance) || 0)) {
@@ -2563,11 +2838,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								openingBalance = newValue; // Update base value
 										saveRechargeData();
 									}
-									rechargeEditMode['openingBalance'] = false;
-									rechargeEditMode = {...rechargeEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && rechargeEditMode['openingBalance']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2575,7 +2848,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if rechargeEditedValues['openingBalance'] !== undefined}
 								<div class="recharge-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(openingBalance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.recharge_opening_balance : openingBalance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -2596,15 +2869,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							<input
 								type="number"
 								value={rechargeEditedValues['closeBalance'] !== undefined ? rechargeEditedValues['closeBalance'] : closeBalance}
-								readonly={!rechargeEditMode['closeBalance']}
+								readonly={!editMode}
 								placeholder="0.00"
 								min="0"
 								step="0.01"
 								class="recharge-editable-input {rechargeEditedValues['closeBalance'] !== undefined ? 'recharge-edited' : ''}"
-								on:dblclick={() => {
-									rechargeEditMode['closeBalance'] = true;
-									rechargeEditMode = {...rechargeEditMode};
-								}}
 								on:blur={(e) => {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(closeBalance) || 0)) {
@@ -2612,11 +2881,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 								closeBalance = newValue; // Update base value
 										saveRechargeData();
 									}
-									rechargeEditMode['closeBalance'] = false;
-									rechargeEditMode = {...rechargeEditMode};
 								}}
 								on:keydown={(e) => {
-									if (e.key === 'Enter' && rechargeEditMode['closeBalance']) {
+									if (e.key === 'Enter' && editMode) {
 										e.currentTarget.blur();
 									}
 								}}
@@ -2624,7 +2891,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if rechargeEditedValues['closeBalance'] !== undefined}
 								<div class="recharge-original-value">
 									<span class="original-label">Original:</span>
-									<span class="original-value">{(Number(closeBalance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									<span class="original-value">{(Number(beforeEditSnapshot ? beforeEditSnapshot.recharge_close_balance : closeBalance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 								</div>
 							{/if}
 						</div>
@@ -5438,6 +5705,293 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	.start-closing-btn:disabled:hover {
 		transform: none;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.edit-toggle-btn {
+		padding: 0.3rem 0.75rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+		border: 2px solid #6d28d9;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(139, 92, 246, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+		box-sizing: border-box;
+	}
+
+	.edit-toggle-btn:hover {
+		background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(139, 92, 246, 0.4);
+	}
+
+	.edit-toggle-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
+	}
+
+	.edit-toggle-btn:disabled {
+		background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.edit-toggle-btn.edit-toggle-active {
+		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+		border-color: #b91c1c;
+		box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3);
+	}
+
+	.edit-toggle-btn.edit-toggle-active:hover {
+		background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+		box-shadow: 0 6px 12px -1px rgba(239, 68, 68, 0.4);
+	}
+
+	.edit-toggle-btn.edit-toggle-cancel {
+		background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+		border-color: #c2410c;
+		box-shadow: 0 4px 6px -1px rgba(249, 115, 22, 0.3);
+	}
+
+	.edit-toggle-btn.edit-toggle-cancel:hover {
+		background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+		box-shadow: 0 6px 12px -1px rgba(249, 115, 22, 0.4);
+	}
+
+	.edit-toggle-btn.edit-toggle-save {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		border-color: #047857;
+		box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+	}
+
+	.edit-toggle-btn.edit-toggle-save:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		box-shadow: 0 6px 12px -1px rgba(16, 185, 129, 0.4);
+	}
+
+	.otp-approval-wrapper {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		background: #f5f3ff;
+		border: 2px solid #8b5cf6;
+		border-radius: 0.5rem;
+		padding: 0.4rem;
+		position: relative;
+	}
+
+	.otp-digit-row {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.otp-digit-input {
+		width: 2.5rem;
+		height: 2.75rem;
+		padding: 0;
+		border: 2px solid #c4b5fd;
+		border-radius: 0.5rem;
+		font-size: 1.35rem;
+		font-weight: 800;
+		text-align: center;
+		box-sizing: border-box;
+		background: white;
+		color: #4c1d95;
+	}
+
+	.otp-digit-input:focus {
+		outline: none;
+		border-color: #8b5cf6;
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
+	}
+
+	.otp-view-approvers-wrapper {
+		position: relative;
+	}
+
+	.otp-approvers-btn {
+		padding: 0.3rem 0.6rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.375rem;
+		font-size: 0.65rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+		box-sizing: border-box;
+		border: 1px solid #93c5fd;
+		background: #eff6ff;
+		color: #1d4ed8;
+	}
+
+	.otp-approvers-btn:hover {
+		background: #dbeafe;
+	}
+
+	.otp-approvers-popup {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		margin-top: 0.4rem;
+		width: 15rem;
+		background: white;
+		border: 1px solid #c4b5fd;
+		border-radius: 0.5rem;
+		box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+		z-index: 30;
+		overflow: hidden;
+	}
+
+	.otp-approvers-popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.4rem 0.6rem;
+		background: #f5f3ff;
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #4c1d95;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.otp-approvers-popup-close {
+		border: none;
+		background: none;
+		cursor: pointer;
+		font-size: 1rem;
+		line-height: 1;
+		color: #6b7280;
+		padding: 0;
+	}
+
+	.otp-approvers-popup-empty {
+		padding: 0.6rem;
+		font-size: 0.7rem;
+		color: #9ca3af;
+		text-align: center;
+	}
+
+	.otp-approver-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.4rem 0.6rem;
+		border-bottom: 1px solid #f3f4f6;
+		font-size: 0.7rem;
+	}
+
+	.otp-approver-row:last-child {
+		border-bottom: none;
+	}
+
+	.otp-approver-name {
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.otp-approver-phone {
+		color: #059669;
+		font-weight: 700;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.otp-approver-phone:hover {
+		text-decoration: underline;
+	}
+
+	.otp-approver-phone-missing {
+		color: #9ca3af;
+		font-weight: 500;
+	}
+
+	.otp-verify-btn, .otp-resend-btn, .otp-cancel-btn {
+		padding: 0.3rem 0.6rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.375rem;
+		font-size: 0.65rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+		box-sizing: border-box;
+		border: none;
+	}
+
+	.otp-verify-btn {
+		background: #8b5cf6;
+		color: white;
+	}
+
+	.otp-verify-btn:hover:not(:disabled) {
+		background: #7c3aed;
+	}
+
+	.otp-verify-btn:disabled {
+		background: #d1d5db;
+		color: #9ca3af;
+		cursor: not-allowed;
+	}
+
+	.otp-resend-btn {
+		background: white;
+		color: #7c3aed;
+		border: 1px solid #c4b5fd;
+	}
+
+	.otp-resend-btn:hover:not(:disabled) {
+		background: #ede9fe;
+	}
+
+	.otp-resend-btn:disabled {
+		color: #9ca3af;
+		border-color: #e5e7eb;
+		cursor: not-allowed;
+	}
+
+	.otp-cancel-btn {
+		background: #fee2e2;
+		color: #dc2626;
+	}
+
+	.otp-cancel-btn:hover {
+		background: #fecaca;
+	}
+
+	.otp-error {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		margin-top: 0.25rem;
+		font-size: 0.65rem;
+		font-weight: 600;
+		color: #dc2626;
+		white-space: nowrap;
+		background: white;
+		padding: 0.15rem 0.4rem;
+		border-radius: 0.25rem;
+		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		z-index: 10;
 	}
 
 	.complete-btn {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { userManagement } from '$lib/utils/userManagement';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	const dispatch = createEventDispatcher();
 
@@ -146,16 +147,10 @@
 		hasSpecialChar: false
 	};
 
-	// Current user permissions (mock)
-	let currentUser = {
-		isMasterAdmin: true, // or just isAdmin: true
-		isAdmin: true
-	};
-
 	// Check if current user can edit this user
 	let canEdit = true;
-	let canChangeStatus = currentUser.isMasterAdmin || 
-		(currentUser.isAdmin && !user?.is_master_admin);
+	$: canChangeStatus = $currentUser?.isMasterAdmin ||
+		($currentUser?.isAdmin && !user?.is_master_admin);
 
 	// Filtered employees based on selected branch (enhanced like CreateUser)
 	$: filteredEmployees = formData.branchId 
@@ -316,16 +311,20 @@
 
 		try {
 			// Prepare update data in the format expected by the database
-			const updateData = {
+			const updateData: any = {
 				username: formData.username,
-				p_is_master_admin: formData.isMasterAdmin,
-				p_is_admin: formData.isAdmin,
 				user_type: formData.userType,
 				branch_id: formData.branchId ? parseInt(formData.branchId) : null,
 				employee_id: formData.employeeId || null,
 				position_id: formData.positionId || null,
-				status: formData.status
+				status: formData.status,
+				requesting_user_id: $currentUser?.id || null
 			};
+
+			if ($currentUser?.isMasterAdmin) {
+				updateData.p_is_master_admin = formData.isMasterAdmin;
+				updateData.p_is_admin = formData.isAdmin;
+			}
 
 			console.log('Updating user with data:', updateData);
 
@@ -735,7 +734,8 @@
 						{/if}
 				</div>
 
-				<!-- Admin Permissions -->
+				{#if $currentUser?.isMasterAdmin}
+				<!-- Admin Permissions (Master Admin only) -->
 				<div class="form-row">
 					<div class="form-group">
 						<label class="form-label">Admin Permissions</label>
@@ -761,7 +761,10 @@
 							</label>
 						</div>
 					</div>
+				</div>
+				{/if}
 
+				<div class="form-row">
 					<div class="form-group">
 						<label for="positionId" class="form-label">Position</label>
 						{#key formData.positionId}

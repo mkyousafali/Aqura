@@ -1,9 +1,7 @@
 ﻿<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
-	import { currentLocale, _ as t, t as translate } from '$lib/i18n';
-	import { openWindow } from '$lib/utils/windowManagerUtils';
-	import PrepareSalaryStatementWindow from './PrepareSalaryStatementWindow.svelte';
+	import { currentLocale, _ as t } from '$lib/i18n';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
 
 	let employees: any[] = [];
@@ -472,23 +470,6 @@
 		}
 	}
 
-	function openPrepareSalaryWindow() {
-		const windowId = `prepare-salary-statement-${Date.now()}`;
-		openWindow({
-			id: windowId,
-			title: `📄 ${translate('hr.salary.prepareSalaryStatement')}`,
-			component: PrepareSalaryStatementWindow,
-			props: {
-				windowId: windowId
-			},
-			icon: '📄',
-			size: { width: 900, height: 600 },
-			position: {
-				x: 150,
-				y: 150
-			}
-		});
-	}
 </script>
 
 <div class="salary-wage-container">
@@ -497,9 +478,6 @@
 		<div class="header-buttons">
 			<button class="refresh-btn" on:click={() => { loadEmployees(); loadBasicSalaries(); }} disabled={isLoading}>
 				{isLoading ? $t('common.loading') : `🔄 ${$t('hr.salary.refresh')}`}
-			</button>
-			<button class="prepare-statement-btn" on:click={openPrepareSalaryWindow}>
-				📄 {$t('hr.salary.prepareSalaryStatement')}
 			</button>
 		</div>
 	</div>
@@ -1147,30 +1125,6 @@
 	}
 
 	.refresh-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.prepare-statement-btn {
-		padding: 0.75rem 1.5rem;
-		border: none;
-		border-radius: 0.75rem;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: all 0.2s;
-		font-weight: 600;
-		background: linear-gradient(135deg, #6610f2 0%, #5a0fe3 100%);
-		color: white;
-		box-shadow: 0 4px 12px rgba(102, 16, 242, 0.3);
-	}
-
-	.prepare-statement-btn:hover {
-		background: linear-gradient(135deg, #5a0fe3 0%, #4a0bc9 100%);
-		box-shadow: 0 6px 16px rgba(102, 16, 242, 0.4);
-		transform: translateY(-2px);
-	}
-
-	.prepare-statement-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}

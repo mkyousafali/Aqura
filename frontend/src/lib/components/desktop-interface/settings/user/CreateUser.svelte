@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { userManagement } from '$lib/utils/userManagement';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	const dispatch = createEventDispatcher();
 	
@@ -286,6 +287,12 @@
 		errors = {};
 
 		try {
+			// Never submit privileged flags from a non-Master-Admin session.
+			if (!$currentUser?.isMasterAdmin) {
+				formData.isMasterAdmin = false;
+				formData.isAdmin = false;
+			}
+
 			// Check if username is available
 			const isUsernameAvailable = await userManagement.isUsernameAvailable(formData.username);
 			if (!isUsernameAvailable) {
@@ -312,7 +319,8 @@
 				branchId: formData.branchId ? parseInt(formData.branchId) : null,
 				employeeId: formData.employeeId || null,
 				positionId: formData.positionId || null,
-				quickAccessCode: formData.quickAccessCode || null
+				quickAccessCode: formData.quickAccessCode || null,
+				requestingUserId: $currentUser?.id || null
 			};
 
 			// Create the user
@@ -724,7 +732,8 @@
                             {/if}
                         {/if}
 
-                        <!-- Admin Privileges Section -->
+                        {#if $currentUser?.isMasterAdmin}
+                        <!-- Admin Privileges Section (Master Admin only) -->
                         <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200/50">
                             <div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3">
                                 <input
@@ -753,6 +762,7 @@
                                 </div>
                             </div>
                         </div>
+                        {/if}
 
                         <!-- Position Selection -->
                         <div class="mt-4">

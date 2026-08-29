@@ -125,6 +125,7 @@
 	import ProcessFingerprint from '$lib/components/desktop-interface/master/hr/ProcessFingerprint.svelte';
 	import EmployeeFiles from '$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte';
 	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
+	import PrepareSalaryStatementWindow from '$lib/components/desktop-interface/master/hr/PrepareSalaryStatementWindow.svelte';
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
 	import Shifts from '$lib/components/desktop-interface/master/hr/Shifts.svelte';
 	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
@@ -310,7 +311,7 @@
 		'EMPLOYEE_MASTER': 'nav.employeeMaster',
 		'ASSIGN_POSITIONS': 'nav.assignPositions', 'LINK_ID': 'nav.linkID',
 		'EMPLOYEE_FILES': 'nav.employeeFiles', 'PROCESS_FINGERPRINT': 'nav.processFingerprint',
-		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SHIFTS': 'nav.shifts', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
+		'SALARY_AND_WAGE': 'nav.salaryAndWage', 'SALARY_STATEMENT': 'nav.salaryStatement', 'SHIFTS': 'nav.shifts', 'SHIFT_AND_DAY_OFF': 'nav.shiftAndLeave',
 		'DISCIPLINE': 'nav.discipline', 'INCIDENT_MANAGER': 'nav.incidentManager',
 		'REPORT_INCIDENT': 'nav.reportIncident', 'DAILY_CHECKLIST_MANAGER': 'nav.dailyChecklistManager', 'BREAK_REGISTER': 'nav.breakRegister', 'SECURITY_CODE': 'nav.securityCode', 'FINGERPRINT_DASHBOARD': 'nav.fingerprintDashboard', 'FINGERPRINT_TRANSACTIONS': 'nav.fingerprintTransactions',
 		'EXPORT_BIOMETRIC_DATA': 'nav.exportBiometricData', 'TASK_MASTER': 'admin.taskMaster',
@@ -557,7 +558,7 @@
 		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH"],
 		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
 		HRDashboard: ["SECURITY_CODE","FINGERPRINT_DASHBOARD","QUICK_DASHBOARD"],
-		HRManage: ["EMPLOYEE_MASTER","LINK_ID","HR_SERVICES"],
+		HRManage: ["EMPLOYEE_MASTER","LINK_ID","HR_SERVICES","SALARY_STATEMENT"],
 		HROperations: ["EMPLOYEE_FILES","PROCESS_FINGERPRINT","SALARY_AND_WAGE","SHIFTS","SHIFT_AND_DAY_OFF","DISCIPLINE","INCIDENT_MANAGER","REPORT_INCIDENT","DAILY_CHECKLIST_MANAGER","BREAK_REGISTER"],
 		HRReports: ["FINGERPRINT_TRANSACTIONS","EXPORT_BIOMETRIC_DATA"],
 		TasksDashboard: ["TASK_MASTER"],
@@ -1137,6 +1138,33 @@
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openSalaryStatement() {
+		collapseAllMenus();
+		const windowId = generateWindowId('salary-statement');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `📄 ${t('nav.salaryStatement')} #${instanceNumber}`,
+			component: PrepareSalaryStatementWindow,
+			componentName: "PrepareSalaryStatementWindow",
+			props: {
+				windowId: windowId
+			},
+			icon: '📄',
+			size: { width: 900, height: 600 },
+			position: {
+				x: 150 + (Math.random() * 100),
+				y: 150 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -5461,6 +5489,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openHRServices}>
 								<span class="menu-icon">🛠️</span>
 								<span class="menu-text">{t('nav.services')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SALARY_STATEMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSalaryStatement}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">{t('nav.salaryStatement')}</span>
 							</button>
 						</div>
 					{/if}

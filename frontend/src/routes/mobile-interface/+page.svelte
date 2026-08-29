@@ -602,6 +602,19 @@
 		<!-- Stats Grid -->
 		<section class="stats-section">
 			<div class="stats-grid">
+			<!-- My Profile Card -->
+			<div class="stat-card blank clickable my-profile-card" on:click={() => goto('/mobile-interface/my-profile')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M20 21a8 8 0 0 0-16 0"/>
+						<circle cx="12" cy="7" r="4"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<p>{$localeData.code === 'ar' ? 'ملفي الشخصي' : 'My Profile'}</p>
+				</div>
+			</div>
+
 			<div class="stat-card date-time">
 				<div class="stat-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
