@@ -23,6 +23,7 @@ const HEARTBEAT_INTERVAL_MS = 20_000;
 const DEVICE_ID_KEY = 'aqura-device-id';
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let initialCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 let bindingChannel: any = null;
 let onForcedLogout: (() => void) | null = null;
 let activeUserId: string | null = null;
@@ -136,8 +137,15 @@ export function startInterfaceSessionGuard(
   };
 
   heartbeatTimer = setInterval(checkOnce, HEARTBEAT_INTERVAL_MS);
-  // Initial check shortly after mount (gives realtime a moment too)
-  setTimeout(checkOnce, 1000);
+  // Initial check shortly after mount (gives realtime a moment too). Tracked
+  // so a subsequent startInterfaceSessionGuard() call (e.g. initializeAuth()
+  // firing twice — once from the root layout, once from an interface layout
+  // — both claiming a session for the same login) can cancel it. Left
+  // untracked, this stale check fires ~1s later using the OLD token, finds
+  // it invalid (correctly — a newer claim from the same login already
+  // rotated it) and force-logs-out the device that just legitimately
+  // claimed the session, immediately after login.
+  initialCheckTimeout = setTimeout(checkOnce, 1000);
 
   // Realtime — instant kick when another device rotates the binding
   try {
@@ -172,6 +180,10 @@ export function stopInterfaceSessionGuard(): void {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
+  }
+  if (initialCheckTimeout) {
+    clearTimeout(initialCheckTimeout);
+    initialCheckTimeout = null;
   }
   if (bindingChannel) {
     try {
