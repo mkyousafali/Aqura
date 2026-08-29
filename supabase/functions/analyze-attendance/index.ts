@@ -863,10 +863,15 @@ Deno.serve(async (req) => {
           const prevDateStr = getPreviousDateStr(calendarDate);
           const prevShift = getApplicableShift(emp.id, prevDateStr, employeeShifts, employeeSpecialShiftsDateWise, employeeSpecialShiftsWeekday);
 
+          // DEBUG: Log overnight check details
+          console.log(`🔍 [DEBUG] ${emp.id} punch ${punchTime} on ${calendarDate}: punchMinutes=${punchMinutes}, calendarCheckInStart=${calendarCheckInStart}, prevDateStr=${prevDateStr}, prevShift=${prevShift ? 'found' : 'null'}`);
+
           if (prevShift) {
             const prevShiftEndMinutes = timeToMinutes(prevShift.shift_end_time);
             const prevShiftStartMinutes = timeToMinutes(prevShift.shift_start_time);
             const isOvernightPrevShift = prevShiftEndMinutes < prevShiftStartMinutes;
+
+            console.log(`🔍 [DEBUG] ${emp.id}: prevShift=${prevShift.shift_start_time}-${prevShift.shift_end_time}, isOvernightPrevShift=${isOvernightPrevShift}`);
 
             if (isOvernightPrevShift) {
               const prevStartBufferMinutes = (prevShift.shift_start_buffer || 0) * 60;
@@ -874,6 +879,8 @@ Deno.serve(async (req) => {
               const prevCheckOutStart = prevShiftEndMinutes - prevEndBufferMinutes;
               const prevCheckOutEnd = prevShiftEndMinutes + prevEndBufferMinutes;
               const adjustedCheckOutEnd = prevCheckOutEnd < 0 ? prevCheckOutEnd + (24 * 60) : prevCheckOutEnd;
+
+              console.log(`🔍 [DEBUG] ${emp.id}: prevEndBufferMinutes=${prevEndBufferMinutes}, prevCheckOutEnd=${prevCheckOutEnd}, adjustedCheckOutEnd=${adjustedCheckOutEnd}, condition=${punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd}`);
 
               // Check if the previous shift's CHECK-IN window wraps past midnight
               // E.g., shift starts at 23:59 with 3h buffer → check-in window extends to 02:59 next day
@@ -886,12 +893,14 @@ Deno.serve(async (req) => {
 
                 if (punchMinutes >= 0 && punchMinutes <= checkInCutoff) {
                   shiftDate = prevDateStr;
+                  console.log(`🔍 [DEBUG] ${emp.id}: REASSIGNING to ${prevDateStr} as Check In (wrapped)`);
                   return { ...txn, calendarDate, shiftDate, status: 'Check In' };
                 }
               }
 
               if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
                 shiftDate = prevDateStr;
+                console.log(`🔍 [DEBUG] ${emp.id}: REASSIGNING to ${prevDateStr} as Check Out`);
                 return { ...txn, calendarDate, shiftDate, status: 'Check Out' };
               }
             }

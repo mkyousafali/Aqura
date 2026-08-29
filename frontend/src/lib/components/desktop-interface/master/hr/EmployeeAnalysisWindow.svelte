@@ -1276,14 +1276,137 @@
 				return dateStr;
 			}
 
+			// Group pairs by date for multi-shift combining
+			const pairsByDate = new Map<string, typeof sorted>();
+			for (const pair of sorted) {
+				const rawDate = pair.checkInDate || pair.checkOutDate || '-';
+				if (!pairsByDate.has(rawDate)) pairsByDate.set(rawDate, []);
+				pairsByDate.get(rawDate)!.push(pair);
+			}
+
 			// Helper to build row data for a given language
 			function buildRows(lang: 'en' | 'ar') {
 				const isAr = lang === 'ar';
-				return sorted.map(pair => {
-					const rawDate = pair.checkInDate || pair.checkOutDate || '-';
-					const date = formatDateLang(rawDate, lang);
-					const dayNum = getDayNameFromDate(rawDate);
-					const dayName = getDayNameLang(dayNum, lang);
+				const hSuffix = isAr ? ' س' : 'h';
+				const mSuffix = isAr ? ' د' : 'm';
+				const rows: any[] = [];
+
+				for (const [rawDate, datePairs] of pairsByDate) {
+					// Check if all pairs for this date are complete
+					const allComplete = datePairs.every(p => p.checkInTxn && p.checkOutTxn && !p.checkInMissing && !p.checkOutMissing);
+					const isMultiShift = datePairs.length > 1;
+
+					if (allComplete && isMultiShift) {
+						// Combine multi-shift into single row
+						const date = formatDateLang(rawDate, lang);
+						const dayNum = getDayNameFromDate(rawDate);
+						const dayName = getDayNameLang(dayNum, lang);
+
+						// Get multi-shift slots for assigned hours
+						const multiShifts = getMultiShiftsForDate(rawDate);
+						const totalAssignedHours = multiShifts.reduce((sum, s) => sum + (s.working_hours || 0), 0);
+						const firstShift = multiShifts.sort((a, b) => timeToMinutes(a.shift_start_time) - timeToMinutes(b.shift_start_time))[0];
+						const lastShift = multiShifts.sort((a, b) => timeToMinutes(b.shift_end_time) - timeToMinutes(a.shift_end_time))[0];
+
+						const shiftStart = firstShift ? formatTimeLang(firstShift.shift_start_time, lang) : '-';
+						const shiftEnd = lastShift ? formatTimeLang(lastShift.shift_end_time, lang) : '-';
+						const workingHours = totalAssignedHours > 0 ? `${totalAssignedHours}${isAr ? ' س' : 'h'}` : '-';
+
+						// First check-in, last check-out
+						const sortedByCheckIn = [...datePairs].sort((a, b) => {
+							const timeA = a.checkInTxn ? timeToMinutes(a.checkInTxn.punch_time) : 9999;
+							const timeB = b.checkInTxn ? timeToMinutes(b.checkInTxn.punch_time) : 9999;
+							return timeA - timeB;
+						});
+						const sortedByCheckOut = [...datePairs].sort((a, b) => {
+							const timeA = a.checkOutTxn ? timeToMinutes(a.checkOutTxn.punch_time) : -1;
+							const timeB = b.checkOutTxn ? timeToMinutes(b.checkOutTxn.punch_time) : -1;
+							return timeB - timeA;
+						});
+						const firstCheckIn = sortedByCheckIn[0]?.checkInTxn;
+						const lastCheckOut = sortedByCheckOut[0]?.checkOutTxn;
+						const checkInTime = firstCheckIn ? formatTimeLang(firstCheckIn.punch_time, lang) : '-';
+						const checkOutTime = lastCheckOut ? formatTimeLang(lastCheckOut.punch_time, lang) : '-';
+
+						// Total worked time
+						let totalWorkedMins = 0;
+						for (const p of datePairs) {
+							if (p.workedTime) {
+								const [wH, wM] = p.workedTime.split(':').map(Number);
+								totalWorkedMins += wH * 60 + wM;
+							}
+						}
+						const workedH = Math.floor(totalWorkedMins / 60);
+						const workedM = totalWorkedMins % 60;
+						const worked = `${String(workedH).padStart(2, '0')}:${String(workedM).padStart(2, '0')}`;
+
+						// Sum late check-in times
+						let totalLateIn = 0;
+						let totalEarlyIn = 0;
+						let totalEarlyOut = 0;
+						for (const p of datePairs) {
+							if (p.checkInEarlyLateTime?.late > 0) totalLateIn += p.checkInEarlyLateTime.late;
+							if (p.checkInEarlyLateTime?.early > 0) totalEarlyIn += p.checkInEarlyLateTime.early;
+							if (p.lateEarlyTime?.early > 0) totalEarlyOut += p.lateEarlyTime.early;
+						}
+						const lateIn = totalLateIn > 0 ? `${Math.floor(totalLateIn / 60)}${hSuffix} ${totalLateIn % 60}${mSuffix}` : '-';
+						const earlyIn = totalEarlyIn > 0 ? `${Math.floor(totalEarlyIn / 60)}${hSuffix} ${totalEarlyIn % 60}${mSuffix}` : '-';
+						const earlyOut = totalEarlyOut > 0 ? `${Math.floor(totalEarlyOut / 60)}${hSuffix} ${totalEarlyOut % 60}${mSuffix}` : '-';
+
+						// Underworked
+						const assignedMins = Math.round(totalAssignedHours * 60);
+						const underworkedMins = assignedMins > totalWorkedMins ? assignedMins - totalWorkedMins : 0;
+						const underworked = underworkedMins > 0 ? `${Math.floor(underworkedMins / 60)}${hSuffix} ${underworkedMins % 60}${mSuffix}` : '-';
+
+						// Overtime
+						const overtimeReg = getOvertimeForDate(rawDate);
+						const overtime = overtimeReg
+							? `${Math.floor(overtimeReg.overtime_minutes / 60)}${hSuffix} ${overtimeReg.overtime_minutes % 60}${mSuffix}`
+							: '-';
+
+						const dayStatus = isAr ? 'مكتمل' : 'Complete';
+
+						if (isAr) {
+							rows.push({
+								'التاريخ': date,
+								'اليوم': dayName,
+								'الحالة': dayStatus,
+								'بداية الوردية': shiftStart,
+								'نهاية الوردية': shiftEnd,
+								'ساعات العمل': workingHours,
+								'وقت الدخول': checkInTime,
+								'وقت الخروج': checkOutTime,
+								'ساعات العمل الفعلية': worked,
+								'تأخير الدخول': lateIn,
+								'دخول مبكر': earlyIn,
+								'خروج مبكر': earlyOut,
+								'نقص ساعات': underworked,
+								'وقت إضافي': overtime
+							});
+						} else {
+							rows.push({
+								'Date': date,
+								'Day': dayName,
+								'Status': dayStatus,
+								'Shift Start': shiftStart,
+								'Shift End': shiftEnd,
+								'Working Hours': workingHours,
+								'Check In': checkInTime,
+								'Check Out': checkOutTime,
+								'Worked': worked,
+								'Late Check-in': lateIn,
+								'Early Check-in': earlyIn,
+								'Early Checkout': earlyOut,
+								'Underworked': underworked,
+								'Overtime': overtime
+							});
+						}
+					} else {
+						// Keep separate rows (original logic)
+						for (const pair of datePairs) {
+							const date = formatDateLang(rawDate, lang);
+							const dayNum = getDayNameFromDate(rawDate);
+							const dayName = getDayNameLang(dayNum, lang);
 
 					// Shift info
 					const shift = getApplicableShift(rawDate);
@@ -1362,7 +1485,7 @@
 						: '-';
 
 					if (isAr) {
-						return {
+						rows.push({
 							'التاريخ': date,
 							'اليوم': dayName,
 							'الحالة': dayStatus,
@@ -1377,9 +1500,9 @@
 							'خروج مبكر': earlyOut,
 							'نقص ساعات': underworked,
 							'وقت إضافي': overtime
-						};
+						});
 					} else {
-						return {
+						rows.push({
 							'Date': date,
 							'Day': dayName,
 							'Status': dayStatus,
@@ -1394,9 +1517,13 @@
 							'Early Checkout': earlyOut,
 							'Underworked': underworked,
 							'Overtime': overtime
-						};
+						});
 					}
-				});
+						} // end for pair of datePairs
+					} // end else (separate rows)
+				} // end for rawDate, datePairs
+
+				return rows;
 			}
 
 			const rowsEn = buildRows('en');
@@ -2106,9 +2233,16 @@
 			const shiftTransactions = groupedByShiftDate[groupKey].filter(t => !consumedTransactions.has(t.id));
 			
 			// Get applicable shift for this shift date
+			// For multi-shift, find the specific slot matching msKey (shift_start_time)
 			const applicableShiftForDate = getApplicableShift(shiftDate);
-			const isOvernightShift = applicableShiftForDate && 
-				timeToMinutes(applicableShiftForDate.shift_end_time) < timeToMinutes(applicableShiftForDate.shift_start_time);
+			let effectiveShift = applicableShiftForDate;
+			if (msKey) {
+				const multiShifts = getMultiShiftsForDate(shiftDate);
+				const matchingSlot = multiShifts.find(ms => ms.shift_start_time === msKey);
+				if (matchingSlot) effectiveShift = matchingSlot;
+			}
+			const isOvernightShift = effectiveShift && 
+				timeToMinutes(effectiveShift.shift_end_time) < timeToMinutes(effectiveShift.shift_start_time);
 			
 			// Sort transactions within each shift by: calendar date first, then by punch time
 			// This ensures check-in (earlier calendar date or earlier time) comes before check-out
@@ -2202,12 +2336,12 @@
 					}
 				}
 				
-				const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
+				const checkOutApplicableShift = checkOutTxn ? effectiveShift : null;
 				
 				const pair = {
 					checkInTxn: checkInTxn,
 					checkInDate: shiftDate,
-					checkInEarlyLateTime: calculateEarlyLateForCheckIn(checkInTxn.punch_time, getApplicableShift(shiftDate)),
+					checkInEarlyLateTime: calculateEarlyLateForCheckIn(checkInTxn.punch_time, effectiveShift),
 					checkOutTxn: checkOutTxn,
 					checkOutDate: shiftDate,
 					checkOutCalendarDate: checkOutCalendarDate,
@@ -2258,12 +2392,12 @@
 					const pair = {
 						checkInTxn: checkInTxn,
 						checkInDate: shiftDate,
-						checkInEarlyLateTime: calculateEarlyLateForCheckIn(checkInTxn.punch_time, getApplicableShift(shiftDate)),
+						checkInEarlyLateTime: calculateEarlyLateForCheckIn(checkInTxn.punch_time, effectiveShift),
 						checkOutTxn: checkOutTxn,
 						checkOutDate: shiftDate,
 						checkOutCalendarDate: checkOutTxn.calendarDate,
 						workedTime: calculateWorkedTime(checkInTxn.punch_time, checkOutTxn.punch_time),
-						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate)),
+						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, effectiveShift),
 						checkOutMissing: false,
 						multiShiftKey: msKey
 					};
@@ -2279,7 +2413,7 @@
 					const pair = {
 						checkInTxn: lastCheckIn,
 						checkInDate: shiftDate,
-						checkInEarlyLateTime: calculateEarlyLateForCheckIn(lastCheckIn.punch_time, getApplicableShift(shiftDate)),
+						checkInEarlyLateTime: calculateEarlyLateForCheckIn(lastCheckIn.punch_time, effectiveShift),
 						checkOutTxn: null,
 						checkOutDate: shiftDate,
 						checkOutCalendarDate: null,
@@ -2303,7 +2437,7 @@
 						checkOutDate: shiftDate,
 						checkOutCalendarDate: checkOutTxn.calendarDate,
 						workedTime: null,
-						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate)),
+						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, effectiveShift),
 						checkInMissing: true,
 						multiShiftKey: msKey
 					};
@@ -2538,6 +2672,8 @@
 						</div>
 					{:else}
 						<!-- ── Date Card: 1 or more shift pairs ── -->
+						{@const allPairsComplete = group.pairs.every(p => p.checkInTxn && p.checkOutTxn && !p.checkInMissing && !p.checkOutMissing)}
+						{@const hasMultiShiftWithMissing = group.pairs.length > 1 && !allPairsComplete}
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
 							<!-- Shared date header (once per date) -->
 							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
@@ -2572,8 +2708,8 @@
 
 							<!-- All pairs for this date (each = one shift slot) -->
 							{#each group.pairs as pair, pairIdx (pair.checkInTxn?.id || pair.checkOutTxn?.id || pairIdx)}
-								<!-- Shift label separator for multi-shift days -->
-								{#if group.pairs.length > 1}
+								<!-- Shift label separator for multi-shift days (only show when any shift has missing punch) -->
+								{#if hasMultiShiftWithMissing}
 									<div class="px-4 py-1.5 bg-indigo-50 border-y border-indigo-100 flex items-center gap-2">
 										<span class="text-xs font-black text-indigo-600 uppercase tracking-wider">Shift {pairIdx + 1}</span>
 										{#if pair.checkInTxn}
