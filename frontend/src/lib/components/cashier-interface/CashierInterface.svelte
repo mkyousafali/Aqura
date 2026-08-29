@@ -23,9 +23,18 @@
 	export let branch: any;
 
 	let currentTime = '';
-	
+
 	// Cashier interface version
 	let cashierVersion = 'AQ6';
+
+	// name_en/name_ar are the raw hr_employee_master values (locale-independent) — pick between
+	// them reactively so the name follows language switches, rather than trusting user.full_name/
+	// .name/.employeeName which were baked in once at login time from whichever locale was active
+	// then (see CashierLogin.svelte).
+	$: displayUserName = ($currentLocale === 'ar'
+		? (user?.name_ar || user?.name_en)
+		: (user?.name_en || user?.name_ar))
+		|| user?.full_name || user?.name || user?.employeeName || user?.username || '';
 
 	function updateTime() {
 		const locale = $currentLocale === 'ar' ? 'ar-SA' : 'en-US';
@@ -115,9 +124,15 @@
 					</div>
 					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
 					<span class="version-badge">{cashierVersion}</span>
-					<button class="panel-logout-btn" on:click={handleLogout} title={t('auth.logout') || 'Logout'}>
-						<span class="panel-logout-icon">🚪</span>
-						<span class="panel-logout-text">{t('auth.logout') || 'Logout'}</span>
+				</div>
+				<div class="logout-container">
+					<span class="current-user-name">{displayUserName}</span>
+					<span class="user-bar-divider"></span>
+					<button class="panel-logout-btn" on:click={handleLogout} title={t('auth.logout') || 'Logout'} aria-label={t('auth.logout') || 'Logout'}>
+						<svg class="panel-logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 3v9" />
+							<path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+						</svg>
 					</button>
 				</div>
 			</div>
@@ -249,40 +264,59 @@
 		background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%);
 	}
 
+	.logout-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		margin: 1.25rem 0 0;
+		padding: 0.5rem 0.75rem 0.5rem 1.1rem;
+		background: #ffffff;
+		border: 1px solid #e5e7eb;
+		border-radius: 9999px;
+		box-shadow: 0 2px 8px rgba(11, 18, 32, 0.06);
+		width: fit-content;
+		margin-left: auto;
+		margin-right: auto;
+	}
+
+	.current-user-name {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.user-bar-divider {
+		width: 1px;
+		height: 1.4rem;
+		background: #e5e7eb;
+	}
+
 	.panel-logout-btn {
-		position: absolute;
-		left: 1rem;
-		bottom: 1rem;
 		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.5rem 0.9rem;
-		background: rgba(255, 255, 255, 0.15);
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		padding: 0;
+		background: #dc2626;
 		color: #ffffff;
-		border: 1px solid rgba(255, 255, 255, 0.35);
-		border-radius: 9999px;
-		font-size: 0.85rem;
-		font-weight: 600;
+		border: none;
+		border-radius: 50%;
 		cursor: pointer;
-		backdrop-filter: blur(6px);
-		-webkit-backdrop-filter: blur(6px);
-		transition: background 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
-		z-index: 2;
+		box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+		transition: background 0.15s ease, transform 0.12s ease;
 	}
 	.panel-logout-btn:hover {
-		background: rgba(239, 68, 68, 0.85);
-		border-color: rgba(255, 255, 255, 0.6);
+		background: #b91c1c;
 		transform: translateY(-1px);
 	}
 	.panel-logout-btn:active {
 		transform: translateY(0);
 	}
 	.panel-logout-icon {
-		font-size: 1rem;
-		line-height: 1;
-	}
-	.panel-logout-text {
-		line-height: 1;
+		width: 1.15rem;
+		height: 1.15rem;
 	}
 
 	.app-logo {

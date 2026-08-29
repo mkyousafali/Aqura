@@ -22,6 +22,15 @@
 	let loyaltyProgramName = '';
 	$: loyaltyProgramNameDisplay = loyaltyProgramName || $_('coupon.loyaltyProgramName');
 
+	// user.full_name/.name/.employeeName were baked in once at login time from whichever locale
+	// was active then, so switching languages afterward never updated them. name_en/name_ar are
+	// the raw hr_employee_master values (locale-independent), so pick between them reactively here
+	// instead, the same fallback pattern used elsewhere (getEmployeeDisplayName).
+	$: displayUserName = ($currentLocale === 'ar'
+		? (user?.name_ar || user?.name_en)
+		: (user?.name_en || user?.name_ar))
+		|| user?.full_name || user?.name || user?.employeeName || user?.username || 'User';
+
 	// Use cashier user from store for authentication context
 	$: authenticatedUser = $cashierUser || user;
 
@@ -268,10 +277,10 @@
 					<div class="menu-header">
 						<div class="menu-user-info">
 							<div class="menu-user-avatar">
-								{user?.username?.charAt(0)?.toUpperCase() || '👤'}
+								{displayUserName?.charAt(0)?.toUpperCase() || '👤'}
 							</div>
 							<div class="menu-user-details">
-								<div class="menu-user-name">{user?.username || 'User'}</div>
+								<div class="menu-user-name">{displayUserName}</div>
 								<div class="menu-branch-name">{$currentLocale === 'ar' ? (branch?.name_ar || branch?.name_en) : (branch?.name_en || branch?.name_ar) || 'Branch'}</div>
 							</div>
 						</div>
@@ -594,8 +603,8 @@
 
 	.menu-user-name {
 		color: white;
-		font-weight: 600;
-		font-size: 0.875rem;
+		font-weight: 700;
+		font-size: 1.05rem;
 	}
 
 	.menu-branch-name {

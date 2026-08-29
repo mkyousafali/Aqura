@@ -5,6 +5,7 @@
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
 	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 
 	export let windowId: string;
@@ -12,6 +13,17 @@
 	export let branch: any;
 
 	let currencySymbolUrl = '/icons/saudi-currency.png';
+
+	// Portal action: moves a node to document.body so an overlay isn't clipped by this modal's own
+	// scroll container (used by the denomination dropdown panel/backdrop below).
+	function portal(node: HTMLElement) {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				if (node.parentNode) node.parentNode.removeChild(node);
+			}
+		};
+	}
 
 	// Parse notes JSON to get names and POS number
 	let operationData: any = {};
@@ -31,6 +43,19 @@
 	}
 	
 	console.log('📝 Parsed operation data:', operationData);
+
+	// operationData.cashier_name is a frozen string captured into operation.notes when the counter
+	// was opened — for operations started before hr_employee_master lookups were wired in (or if
+	// that snapshot ever falls out of sync), it can still be the raw login username. operation.user_id
+	// is a real FK though, so resolve the cashier's name from hr_employee_master at display time
+	// instead of trusting the stale notes string, and keep it in sync with locale switches.
+	let resolvedCashierName = '';
+	$: if (operation?.user_id) {
+		getEmployeeDisplayName(operation.user_id, $currentLocale, operationData.cashier_name || '').then((name) => {
+			resolvedCashierName = name;
+		});
+	}
+	$: displayCashierName = resolvedCashierName || operationData.cashier_name || '';
 
 	// Denomination values
 	const denomValues: Record<string, number> = {
@@ -68,6 +93,80 @@
 	Object.keys(denomValues).forEach(key => {
 		closingCounts[key] = 0;
 	});
+
+	// Denomination count input — dropdown + stepper buttons instead of free typing, so a stray
+	// keystroke can't silently produce a wrong count. Doesn't touch closingCounts' shape or any of
+	// the totals math above/below, only how a count gets written into it.
+	const DENOM_COUNT_DEFAULT_MAX = 100;
+	function denomCountOptions(currentValue: number | undefined): number[] {
+		const max = Math.max(DENOM_COUNT_DEFAULT_MAX, currentValue || 0);
+		return Array.from({ length: max + 1 }, (_, i) => i);
+	}
+
+	// Paged instead of scrolled — a 4x5 grid per page with Back/Next, so picking a count on a
+	// touch screen is a couple of taps instead of a fiddly scroll gesture inside a small popup.
+	const DENOM_PAGE_SIZE = 20;
+	function denomPageCount(key: string): number {
+		return Math.ceil(denomCountOptions(closingCounts[key]).length / DENOM_PAGE_SIZE);
+	}
+	function denomPageOptions(key: string, page: number): number[] {
+		return denomCountOptions(closingCounts[key]).slice(page * DENOM_PAGE_SIZE, page * DENOM_PAGE_SIZE + DENOM_PAGE_SIZE);
+	}
+	function incrementDenomCount(key: string) {
+		closingCounts[key] = (closingCounts[key] || 0) + 1;
+	}
+	function decrementDenomCount(key: string) {
+		const current = closingCounts[key] || 0;
+		closingCounts[key] = current > 0 ? current - 1 : 0;
+	}
+	function clearDenomCount(key: string) {
+		closingCounts[key] = 0;
+	}
+
+	// Custom dropdown panel (replaces the native <select>) — native mobile/touch pickers render as
+	// tiny OS-controlled popups that are fiddly to hit accurately, so this opens a big touch-friendly
+	// grid of number buttons instead. Only one open at a time. It's portaled to <body> and positioned
+	// from the trigger's live bounding rect so it can never get clipped by this modal's own scroll
+	// container, and closes itself on scroll/resize rather than drift out of alignment with the trigger.
+	let openDenomDropdown: string | null = null;
+	let denomTriggerEls: Record<string, HTMLButtonElement> = {};
+	let denomDropdownPos = { top: 0, left: 0 };
+	let denomDropdownPage = 0;
+
+	function closeDenomDropdown() {
+		openDenomDropdown = null;
+		window.removeEventListener('scroll', closeDenomDropdown, true);
+		window.removeEventListener('resize', closeDenomDropdown, true);
+	}
+
+	function toggleDenomDropdown(key: string) {
+		// Clear any listeners from a previously-open dropdown first — switching straight from one
+		// trigger to another (without a close in between) would otherwise stack duplicate listeners.
+		window.removeEventListener('scroll', closeDenomDropdown, true);
+		window.removeEventListener('resize', closeDenomDropdown, true);
+		if (openDenomDropdown === key) {
+			openDenomDropdown = null;
+			return;
+		}
+		const el = denomTriggerEls[key];
+		if (el) {
+			const rect = el.getBoundingClientRect();
+			const panelHalfWidth = 104; // half of the panel's 13rem width
+			const centerX = Math.min(Math.max(rect.left + rect.width / 2, panelHalfWidth + 8), window.innerWidth - panelHalfWidth - 8);
+			denomDropdownPos = { top: rect.bottom + 6, left: centerX };
+		}
+		// Open straight to the page that already contains the current count, so the highlighted
+		// selection is visible immediately instead of always starting back at page 1.
+		denomDropdownPage = Math.floor((closingCounts[key] || 0) / DENOM_PAGE_SIZE);
+		openDenomDropdown = key;
+		window.addEventListener('scroll', closeDenomDropdown, true);
+		window.addEventListener('resize', closeDenomDropdown, true);
+	}
+
+	function selectDenomValue(key: string, n: number) {
+		closingCounts[key] = n;
+		closeDenomDropdown();
+	}
 
 	// Calculate total
 	$: closingTotal = Object.keys(closingCounts).reduce((sum, key) => {
@@ -145,14 +244,20 @@
 		editingReconIndex = null;
 	}
 
+	// Plain floating-point math (0.1 + 0.2 style errors) was letting sums drift to values like
+	// 904.5999999999999 — round every money figure to 2 decimals wherever it's produced.
+	function round2(n: number): number {
+		return Math.round((n + Number.EPSILON) * 100) / 100;
+	}
+
 	function saveRecon() {
 		const entry = {
 			reconciliation_number: reconForm.reconciliation_number,
-			mada: Number(reconForm.mada) || 0,
-			visa: Number(reconForm.visa) || 0,
-			mastercard: Number(reconForm.mastercard) || 0,
-			google_pay: Number(reconForm.google_pay) || 0,
-			other: Number(reconForm.other) || 0
+			mada: round2(Number(reconForm.mada) || 0),
+			visa: round2(Number(reconForm.visa) || 0),
+			mastercard: round2(Number(reconForm.mastercard) || 0),
+			google_pay: round2(Number(reconForm.google_pay) || 0),
+			other: round2(Number(reconForm.other) || 0)
 		};
 		if (editingReconIndex !== null) {
 			reconciliations[editingReconIndex] = entry;
@@ -171,19 +276,19 @@
 	}
 
 	function syncLegacyAmounts() {
-		madaAmount = reconciliations.reduce((s, r) => s + (r.mada || 0), 0);
-		visaAmount = reconciliations.reduce((s, r) => s + (r.visa || 0), 0);
-		masterCardAmount = reconciliations.reduce((s, r) => s + (r.mastercard || 0), 0);
-		googlePayAmount = reconciliations.reduce((s, r) => s + (r.google_pay || 0), 0);
-		otherAmount = reconciliations.reduce((s, r) => s + (r.other || 0), 0);
+		madaAmount = round2(reconciliations.reduce((s, r) => s + (r.mada || 0), 0));
+		visaAmount = round2(reconciliations.reduce((s, r) => s + (r.visa || 0), 0));
+		masterCardAmount = round2(reconciliations.reduce((s, r) => s + (r.mastercard || 0), 0));
+		googlePayAmount = round2(reconciliations.reduce((s, r) => s + (r.google_pay || 0), 0));
+		otherAmount = round2(reconciliations.reduce((s, r) => s + (r.other || 0), 0));
 	}
 
 	function getReconTotal(r: any): number {
-		return (r.mada || 0) + (r.visa || 0) + (r.mastercard || 0) + (r.google_pay || 0) + (r.other || 0);
+		return round2((r.mada || 0) + (r.visa || 0) + (r.mastercard || 0) + (r.google_pay || 0) + (r.other || 0));
 	}
 
 	// Calculate bank reconciliation total
-	$: bankTotal = (Number(madaAmount) || 0) + (Number(visaAmount) || 0) + (Number(masterCardAmount) || 0) + (Number(googlePayAmount) || 0) + (Number(otherAmount) || 0);
+	$: bankTotal = round2((Number(madaAmount) || 0) + (Number(visaAmount) || 0) + (Number(masterCardAmount) || 0) + (Number(googlePayAmount) || 0) + (Number(otherAmount) || 0));
 
 	// Calculate total sales (total cash sales + total bank sales)
 	$: totalSales = totalCashSales + bankTotal;
@@ -197,22 +302,31 @@
 	$: totalSystemCashSales = (Number(systemCashSales) || 0) - (Number(systemReturn) || 0);
 	$: totalSystemSales = totalSystemCashSales + (Number(systemCardSales) || 0);
 
-	// Time format conversion for 12-hour format
+	// Time format conversion for 12-hour format — defaults to the current wall-clock time (instead
+	// of a fixed 12:00 AM) so the field starts pre-filled with "now" and only needs touching if the
+	// cashier actually wants a different time; loadClosingDetails() below still overwrites these
+	// with any previously-saved value, so this only affects the fresh/unsaved case.
+	function getCurrentTimeParts(): { hour: string; minute: string; ampm: 'AM' | 'PM' } {
+		const now = new Date();
+		const ampm: 'AM' | 'PM' = now.getHours() >= 12 ? 'PM' : 'AM';
+		const hour12 = now.getHours() % 12 || 12;
+		return { hour: String(hour12), minute: String(now.getMinutes()).padStart(2, '0'), ampm };
+	}
+	const defaultTimeParts = getCurrentTimeParts();
+	const HOUR_OPTIONS = Array.from({ length: 12 }, (_, i) => String(i + 1)); // 1–12
+	const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')); // 00–59
+
 	let startDateInput = '';
 	let startTimeInput = '';
-	let startHour = '12';
-	let startMinute = '00';
-	let startAmPm = 'AM';
-	let startHourOpen = false;
-	let startMinuteOpen = false;
+	let startHour = defaultTimeParts.hour;
+	let startMinute = defaultTimeParts.minute;
+	let startAmPm = defaultTimeParts.ampm;
 
 	let endDateInput = '';
 	let endTimeInput = '';
-	let endHour = '12';
-	let endMinute = '00';
-	let endAmPm = 'AM';
-	let endHourOpen = false;
-	let endMinuteOpen = false;
+	let endHour = defaultTimeParts.hour;
+	let endMinute = defaultTimeParts.minute;
+	let endAmPm = defaultTimeParts.ampm;
 
 	// Recharge card balance fields
 	let openingBalance: number | '' = '';
@@ -267,12 +381,71 @@
 	let supervisorName: string = '';
 	let supervisorCodeError: string = '';
 	let verifiedSupervisorUserId: string | null = null;
-	
+
 	// Cashier confirmation code
 	let cashierConfirmCode: string = '';
 	let cashierConfirmName: string = '';
 	let cashierConfirmError: string = '';
 	let verifiedCashierUserId: string | null = null;
+
+	// Access codes are always exactly 6 digits — individual boxes (OTP-style, same pattern as
+	// CounterCheck.svelte / ChangeAccessCode.svelte) instead of one free-text password field.
+	// These just assemble supervisorCode/cashierConfirmCode, which the existing $: auto-verify
+	// blocks below already react to on every change — no extra verify-triggering needed here.
+	let supervisorCodeDigits: string[] = ['', '', '', '', '', ''];
+	let cashierConfirmCodeDigits: string[] = ['', '', '', '', '', ''];
+
+	function handleSignatureDigitInput(e: Event, index: number, digits: string[], field: 'supervisor' | 'cashier-confirm') {
+		const input = e.target as HTMLInputElement;
+		const value = input.value.replace(/[^0-9]/g, '');
+		digits[index] = value.slice(-1);
+
+		if (value && index < 5) {
+			const next = document.getElementById(`${field}-sig-${index + 1}`) as HTMLInputElement;
+			if (next) next.focus();
+		}
+
+		if (field === 'supervisor') {
+			supervisorCodeDigits = [...digits];
+			supervisorCode = supervisorCodeDigits.join('');
+		} else {
+			cashierConfirmCodeDigits = [...digits];
+			cashierConfirmCode = cashierConfirmCodeDigits.join('');
+		}
+	}
+
+	function handleSignatureDigitKeydown(e: KeyboardEvent, index: number, digits: string[], field: 'supervisor' | 'cashier-confirm') {
+		if (e.key === 'Backspace' && !digits[index] && index > 0) {
+			const prev = document.getElementById(`${field}-sig-${index - 1}`) as HTMLInputElement;
+			if (prev) prev.focus();
+			digits[index - 1] = '';
+			if (field === 'supervisor') {
+				supervisorCodeDigits = [...digits];
+				supervisorCode = supervisorCodeDigits.join('');
+			} else {
+				cashierConfirmCodeDigits = [...digits];
+				cashierConfirmCode = cashierConfirmCodeDigits.join('');
+			}
+		}
+	}
+
+	function handleSignatureDigitPaste(e: ClipboardEvent, digits: string[], field: 'supervisor' | 'cashier-confirm') {
+		e.preventDefault();
+		const text = (e.clipboardData?.getData('text') || '').replace(/[^0-9]/g, '').slice(0, 6);
+		for (let i = 0; i < 6; i++) digits[i] = text[i] || '';
+
+		if (field === 'supervisor') {
+			supervisorCodeDigits = [...digits];
+			supervisorCode = supervisorCodeDigits.join('');
+		} else {
+			cashierConfirmCodeDigits = [...digits];
+			cashierConfirmCode = cashierConfirmCodeDigits.join('');
+		}
+
+		const focusIdx = Math.min(text.length, 5);
+		const el = document.getElementById(`${field}-sig-${focusIdx}`) as HTMLInputElement;
+		if (el) el.focus();
+	}
 	
 	let closingSaved: boolean = false;
 	let showSuccessModal: boolean = false;
@@ -297,19 +470,6 @@
 			return;
 		}
 
-		// Get cashier name from operation notes
-		let cashierName = '';
-		try {
-			if (operation?.notes) {
-				const notes = typeof operation.notes === 'string' 
-					? JSON.parse(operation.notes) 
-					: operation.notes;
-				cashierName = notes.cashier_name || '';
-			}
-		} catch (e) {
-			// Ignore parsing errors
-		}
-
 		try {
 			// Use RPC for bcrypt hash verification
 			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
@@ -319,17 +479,18 @@
 			if (error) throw error;
 
 			if (verifyResult && verifyResult.success && verifyResult.user) {
-				const verifiedName = verifyResult.user.username || '';
-				
-				// Don't allow supervisor to be same person as cashier
-				if (verifiedName === cashierName) {
+				// Don't allow supervisor to be same person as cashier — compared by user id (the
+				// operation's own user_id column) rather than the display name, since the name is
+				// now locale-dependent (hr_employee_master name_en/name_ar) and could legitimately
+				// differ from whatever string was saved to operation.notes at open time.
+				if (verifyResult.user.id === operation?.user_id) {
 					supervisorName = '';
 					verifiedSupervisorUserId = null;
 					supervisorCodeError = $currentLocale === 'ar' ? 'يجب أن يكون المشرف مختلفًا عن الكاشير' : 'Supervisor must be different from cashier';
 					return;
 				}
-				
-				supervisorName = verifiedName;
+
+				supervisorName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 				verifiedSupervisorUserId = verifyResult.user.id;
 				supervisorCodeError = '';
 			} else {
@@ -345,8 +506,9 @@
 		}
 	}
 
-	// Auto-verify supervisor code as user types
-	$: if (supervisorCode) {
+	// Auto-verify supervisor code — only once all 6 digits are in, so partial entry (e.g. just the
+	// first digit) doesn't flash an "invalid code" error before the cashier has finished typing.
+	$: if (supervisorCode.length === 6) {
 		verifySupervisorCode();
 	} else {
 		supervisorName = '';
@@ -362,21 +524,6 @@
 			return;
 		}
 
-		// Get cashier name and code from operation notes
-		let expectedCashierName = '';
-		let expectedCashierCode = '';
-		try {
-			if (operation?.notes) {
-				const notes = typeof operation.notes === 'string' 
-					? JSON.parse(operation.notes) 
-					: operation.notes;
-				expectedCashierName = notes.cashier_name || '';
-				expectedCashierCode = notes.cashier_access_code || '';
-			}
-		} catch (e) {
-			console.error('Error parsing operation notes:', e);
-		}
-
 		try {
 			// Use RPC for bcrypt hash verification
 			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
@@ -386,17 +533,18 @@
 			if (error) throw error;
 
 			if (verifyResult && verifyResult.success && verifyResult.user) {
-				const verifiedName = verifyResult.user.username || '';
-				
-				// Must match the exact cashier who started (compare by username)
-				if (verifiedName !== expectedCashierName) {
+				// Must match the exact cashier who started — compared by user id (the operation's
+				// own user_id column) rather than the display name, since the name is now
+				// locale-dependent (hr_employee_master name_en/name_ar) and could legitimately
+				// differ from whatever string was saved to operation.notes at open time.
+				if (verifyResult.user.id !== operation?.user_id) {
 					cashierConfirmName = '';
 					verifiedCashierUserId = null;
 					cashierConfirmError = $currentLocale === 'ar' ? 'يجب أن يكون الكاشير نفس من بدأ العملية' : 'Must be the same cashier who started the operation';
 					return;
 				}
-				
-				cashierConfirmName = verifiedName;
+
+				cashierConfirmName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 				verifiedCashierUserId = verifyResult.user.id;
 				cashierConfirmError = '';
 			} else {
@@ -412,8 +560,9 @@
 		}
 	}
 
-	// Auto-verify cashier code as user types
-	$: if (cashierConfirmCode) {
+	// Auto-verify cashier code — only once all 6 digits are in, same reasoning as the supervisor
+	// code above.
+	$: if (cashierConfirmCode.length === 6) {
 		verifyCashierConfirmCode();
 	} else {
 		cashierConfirmName = '';
@@ -522,8 +671,10 @@
 		// Reset codes since they cancelled
 		supervisorCode = '';
 		supervisorName = '';
+		supervisorCodeDigits = ['', '', '', '', '', ''];
 		cashierConfirmCode = '';
 		cashierConfirmName = '';
+		cashierConfirmCodeDigits = ['', '', '', '', '', ''];
 	}
 
 	async function saveCloseChecklistAndContinue() {
@@ -1030,7 +1181,7 @@
 	<div class="top-info-row">
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
-			<span class="info-value">{operationData.cashier_name || 'N/A'}</span>
+			<span class="info-value">{displayCashierName || 'N/A'}</span>
 		</div>
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'المبلغ الصادر:' : 'Amount Issued:'}</span>
@@ -1070,26 +1221,94 @@
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
 						<div class="denom-input-group">
-							<label>
-								{#if label !== 'Coins'}
-									<span>{label}</span>
-									<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
-								{:else}
-									{$currentLocale === 'ar' ? 'عملات معدنية' : label}
-								{/if}
-							</label>
-							<div class="denom-input-wrapper">
-								<input
-									type="number"
-									min="0"
-									value={closingCounts[key] || ''} on:input={(e) => { const val = e.currentTarget.value; closingCounts[key] = val === '' ? undefined : Number(val); }}
-								/>
+							<div class="denom-header-row">
+								<label>
+									{#if label !== 'Coins'}
+										<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
+										<span>{label}</span>
+									{:else}
+										{$currentLocale === 'ar' ? 'عملات معدنية' : label}
+									{/if}
+								</label>
 								{#if closingCounts[key] > 0}
 									<div class="denom-total">
 										<img src={currencySymbolUrl} alt="SAR" class="currency-icon-tiny" />
 										{((closingCounts[key] || 0) * denomValues[key]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 									</div>
 								{/if}
+							</div>
+							<div class="denom-input-wrapper">
+								<div class="denom-stepper">
+									<button type="button" class="stepper-btn minus" on:click={() => decrementDenomCount(key)} aria-label="Decrease">−</button>
+									{#if key === 'coins'}
+										<!-- Coins is an odd-value tally (not a fixed-denomination note count), so it
+										     stays a typed field instead of the dropdown, but keeps the same +/− stepper. -->
+										<input
+											type="number"
+											min="0"
+											class="denom-select coins-input"
+											value={closingCounts[key] || ''} on:input={(e) => { const val = e.currentTarget.value; closingCounts[key] = val === '' ? undefined : Number(val); }}
+										/>
+									{:else}
+										<div class="denom-dropdown-wrap">
+											<button
+												type="button"
+												class="denom-select denom-dropdown-trigger"
+												class:open={openDenomDropdown === key}
+												bind:this={denomTriggerEls[key]}
+												on:click={() => toggleDenomDropdown(key)}
+												aria-haspopup="listbox"
+												aria-expanded={openDenomDropdown === key}
+											>
+												<span>{closingCounts[key] || 0}</span>
+												<span class="dropdown-caret">▾</span>
+											</button>
+											{#if openDenomDropdown === key}
+												<div class="denom-dropdown-backdrop" use:portal on:click={closeDenomDropdown}></div>
+												<div
+													class="denom-dropdown-panel"
+													role="listbox"
+													use:portal
+													style="top:{denomDropdownPos.top}px; left:{denomDropdownPos.left}px;"
+												>
+													<div class="denom-dropdown-grid">
+														{#each denomPageOptions(key, denomDropdownPage) as n}
+															<button
+																type="button"
+																class="denom-dropdown-option"
+																class:selected={n === (closingCounts[key] || 0)}
+																role="option"
+																aria-selected={n === (closingCounts[key] || 0)}
+																on:click={() => selectDenomValue(key, n)}
+															>{n}</button>
+														{/each}
+													</div>
+													{#if denomPageCount(key) > 1}
+														<div class="denom-dropdown-nav">
+															<button
+																type="button"
+																class="denom-nav-btn"
+																disabled={denomDropdownPage === 0}
+																on:click={() => (denomDropdownPage = Math.max(0, denomDropdownPage - 1))}
+															>◀ {$currentLocale === 'ar' ? 'رجوع' : 'Back'}</button>
+															<span class="denom-nav-page">{denomDropdownPage + 1} / {denomPageCount(key)}</span>
+															<button
+																type="button"
+																class="denom-nav-btn"
+																disabled={denomDropdownPage >= denomPageCount(key) - 1}
+																on:click={() => (denomDropdownPage = Math.min(denomPageCount(key) - 1, denomDropdownPage + 1))}
+															>{$currentLocale === 'ar' ? 'التالي' : 'Next'} ▶</button>
+														</div>
+													{/if}
+												</div>
+											{/if}
+										</div>
+									{/if}
+									<button type="button" class="stepper-btn plus" on:click={() => incrementDenomCount(key)} aria-label="Increase">+</button>
+									{#if closingCounts[key] > 0}
+										<button type="button" class="stepper-btn clear" on:click={() => clearDenomCount(key)} aria-label="Clear">{$currentLocale === 'ar' ? 'مسح' : 'Clear'}</button>
+									{/if}
+								</div>
 							</div>
 						</div>
 					{/each}
@@ -1235,27 +1454,27 @@
 									<div class="bank-fields-row">
 										<div class="bank-input-group">
 											<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
-											<input type="number" value={recon.mada || 0} readonly class="bank-input" />
+											<input type="number" value={(recon.mada || 0).toFixed(2)} readonly class="bank-input" />
 										</div>
 										<div class="bank-input-group">
 											<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
-											<input type="number" value={recon.visa || 0} readonly class="bank-input" />
+											<input type="number" value={(recon.visa || 0).toFixed(2)} readonly class="bank-input" />
 										</div>
 										<div class="bank-input-group">
 											<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MC'}</label>
-											<input type="number" value={recon.mastercard || 0} readonly class="bank-input" />
+											<input type="number" value={(recon.mastercard || 0).toFixed(2)} readonly class="bank-input" />
 										</div>
 										<div class="bank-input-group">
 											<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'GPay'}</label>
-											<input type="number" value={recon.google_pay || 0} readonly class="bank-input" />
+											<input type="number" value={(recon.google_pay || 0).toFixed(2)} readonly class="bank-input" />
 										</div>
 										<div class="bank-input-group">
 											<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
-											<input type="number" value={recon.other || 0} readonly class="bank-input" />
+											<input type="number" value={(recon.other || 0).toFixed(2)} readonly class="bank-input" />
 										</div>
 										<div class="bank-input-group">
 											<label style="color: #1e40af; font-weight: 800;">{$currentLocale === 'ar' ? 'المجموع' : 'Total'}</label>
-											<input type="number" value={getReconTotal(recon)} readonly class="bank-input" style="color: #1e40af; font-weight: 800; border-color: #93c5fd; background: #eff6ff;" />
+											<input type="number" value={getReconTotal(recon).toFixed(2)} readonly class="bank-input" style="color: #1e40af; font-weight: 800; border-color: #93c5fd; background: #eff6ff;" />
 										</div>
 									</div>
 								</div>
@@ -1270,23 +1489,23 @@
 					<div class="bank-fields-row">
 						<div class="bank-input-group">
 							<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
-							<input type="number" value={Number(madaAmount) || 0} readonly class="bank-input" />
+							<input type="number" value={(Number(madaAmount) || 0).toFixed(2)} readonly class="bank-input" />
 						</div>
 						<div class="bank-input-group">
 							<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
-							<input type="number" value={Number(visaAmount) || 0} readonly class="bank-input" />
+							<input type="number" value={(Number(visaAmount) || 0).toFixed(2)} readonly class="bank-input" />
 						</div>
 						<div class="bank-input-group">
 							<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
-							<input type="number" value={Number(masterCardAmount) || 0} readonly class="bank-input" />
+							<input type="number" value={(Number(masterCardAmount) || 0).toFixed(2)} readonly class="bank-input" />
 						</div>
 						<div class="bank-input-group">
 							<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
-							<input type="number" value={Number(googlePayAmount) || 0} readonly class="bank-input" />
+							<input type="number" value={(Number(googlePayAmount) || 0).toFixed(2)} readonly class="bank-input" />
 						</div>
 						<div class="bank-input-group">
 							<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
-							<input type="number" value={Number(otherAmount) || 0} readonly class="bank-input" />
+							<input type="number" value={(Number(otherAmount) || 0).toFixed(2)} readonly class="bank-input" />
 						</div>
 					</div>
 					<div class="bank-total" style="margin-top: 4px;">
@@ -1378,14 +1597,25 @@
 					<div class="date-time-field-row">
 						<div class="date-field-group">
 							<label>{$currentLocale === 'ar' ? 'تاريخ البدء' : 'Start Date'}</label>
-							<input type="date" class="date-input-field" bind:value={startDateInput} />
+							<input
+								type="date"
+								class="date-input-field"
+								bind:value={startDateInput}
+								readonly
+								on:keydown|preventDefault
+								title={$currentLocale === 'ar' ? 'اختر من التقويم' : 'Pick from the calendar'}
+							/>
 						</div>
 						<div class="time-field-group">
 							<label>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</label>
 							<div class="time-input-controls">
-								<input type="number" min="1" max="12" placeholder="HH" class="time-input-hm" bind:value={startHour} />
+								<select class="time-input-hm" bind:value={startHour}>
+									{#each HOUR_OPTIONS as h}<option value={h}>{h}</option>{/each}
+								</select>
 								<span class="time-separator">:</span>
-								<input type="number" min="0" max="59" placeholder="MM" class="time-input-hm" bind:value={startMinute} />
+								<select class="time-input-hm" bind:value={startMinute}>
+									{#each MINUTE_OPTIONS as m}<option value={m}>{m}</option>{/each}
+								</select>
 								<select bind:value={startAmPm} class="time-input-ampm">
 									<option>AM</option>
 									<option>PM</option>
@@ -1393,18 +1623,29 @@
 							</div>
 						</div>
 					</div>
-					
+
 					<div class="date-time-field-row">
 						<div class="date-field-group">
 							<label>{$currentLocale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</label>
-							<input type="date" class="date-input-field" bind:value={endDateInput} />
+							<input
+								type="date"
+								class="date-input-field"
+								bind:value={endDateInput}
+								readonly
+								on:keydown|preventDefault
+								title={$currentLocale === 'ar' ? 'اختر من التقويم' : 'Pick from the calendar'}
+							/>
 						</div>
 						<div class="time-field-group">
 							<label>{$currentLocale === 'ar' ? 'وقت الانتهاء' : 'End Time'}</label>
 							<div class="time-input-controls">
-								<input type="number" min="1" max="12" placeholder="HH" class="time-input-hm" bind:value={endHour} />
+								<select class="time-input-hm" bind:value={endHour}>
+									{#each HOUR_OPTIONS as h}<option value={h}>{h}</option>{/each}
+								</select>
 								<span class="time-separator">:</span>
-								<input type="number" min="0" max="59" placeholder="MM" class="time-input-hm" bind:value={endMinute} />
+								<select class="time-input-hm" bind:value={endMinute}>
+									{#each MINUTE_OPTIONS as m}<option value={m}>{m}</option>{/each}
+								</select>
 								<select bind:value={endAmPm} class="time-input-ampm">
 									<option>AM</option>
 									<option>PM</option>
@@ -1501,14 +1742,24 @@
 						</div>
 						<div class="sub-card-content" style="gap: 0.1rem;">
 							<div style="display: flex; align-items: flex-start; gap: 0.3rem;">
-								<div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
-									<input
-										type="password"
-										placeholder={$currentLocale === 'ar' ? 'كود المشرف' : 'Supervisor Code'}
-										bind:value={supervisorCode}
-										class="supervisor-code-input"
-										style="margin: 0;"
-									/>
+								<div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.15rem;">
+									<span class="sig-code-label">{$currentLocale === 'ar' ? 'كود المشرف' : 'Supervisor Code'}</span>
+									<div class="sig-digit-row">
+										{#each supervisorCodeDigits as digit, i}
+											<input
+												id="supervisor-sig-{i}"
+												type="text"
+												inputmode="numeric"
+												pattern="[0-9]*"
+												maxlength="1"
+												class="sig-digit-box"
+												bind:value={supervisorCodeDigits[i]}
+												on:input={(e) => handleSignatureDigitInput(e, i, supervisorCodeDigits, 'supervisor')}
+												on:keydown={(e) => handleSignatureDigitKeydown(e, i, supervisorCodeDigits, 'supervisor')}
+												on:paste={(e) => handleSignatureDigitPaste(e, supervisorCodeDigits, 'supervisor')}
+											/>
+										{/each}
+									</div>
 									{#if supervisorCodeError}
 										<div style="font-size: 0.55rem; color: #dc2626; font-weight: 600; text-align: center;">
 											{supervisorCodeError}
@@ -1521,15 +1772,26 @@
 									</div>
 								{/if}
 							</div>
-							
+
 							<div style="display: flex; align-items: flex-start; gap: 0.3rem;">
-								<div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
-									<input
-										type="password"
-										placeholder={$currentLocale === 'ar' ? 'كود الكاشير' : 'Cashier Code'}
-										bind:value={cashierConfirmCode}
-										class="supervisor-code-input"
-									/>
+								<div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.15rem;">
+									<span class="sig-code-label">{$currentLocale === 'ar' ? 'كود الكاشير' : 'Cashier Code'}</span>
+									<div class="sig-digit-row">
+										{#each cashierConfirmCodeDigits as digit, i}
+											<input
+												id="cashier-confirm-sig-{i}"
+												type="text"
+												inputmode="numeric"
+												pattern="[0-9]*"
+												maxlength="1"
+												class="sig-digit-box"
+												bind:value={cashierConfirmCodeDigits[i]}
+												on:input={(e) => handleSignatureDigitInput(e, i, cashierConfirmCodeDigits, 'cashier-confirm')}
+												on:keydown={(e) => handleSignatureDigitKeydown(e, i, cashierConfirmCodeDigits, 'cashier-confirm')}
+												on:paste={(e) => handleSignatureDigitPaste(e, cashierConfirmCodeDigits, 'cashier-confirm')}
+											/>
+										{/each}
+									</div>
 									{#if cashierConfirmError}
 										<div style="font-size: 0.55rem; color: #dc2626; font-weight: 600; text-align: center;">
 											{cashierConfirmError}
@@ -1611,7 +1873,7 @@
 							</div>
 							<div class="receipt-row-stacked">
 								<div class="receipt-label-bilingual">Cashier - أمين الصندوق</div>
-								<div class="receipt-row-en">{operationData.cashier_name || 'N/A'}</div>
+								<div class="receipt-row-en">{displayCashierName || 'N/A'}</div>
 							</div>
 						</div>
 
@@ -2031,11 +2293,11 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="erp-popup-overlay" on:click={closeReconPopup} on:keydown={(e) => { if (e.key === 'Escape') closeReconPopup(); }}>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="erp-popup-modal" on:click|stopPropagation style="max-width: 420px;">
+		<div class="erp-popup-modal recon-popup-modal" on:click|stopPropagation style="max-width: 640px;">
 			<div class="erp-popup-header">
 				<h3>{editingReconIndex !== null ? ($currentLocale === 'ar' ? 'تعديل التسوية' : 'Edit Reconciliation') : ($currentLocale === 'ar' ? 'إضافة تسوية' : 'Add Reconciliation')}</h3>
 			</div>
-			<div class="erp-popup-content" style="display: flex; flex-direction: column; gap: 10px;">
+			<div class="erp-popup-content" style="display: flex; flex-direction: column; gap: 18px;">
 				<div class="bank-input-group">
 					<label>{$currentLocale === 'ar' ? 'رقم التسوية' : 'Reconciliation #'}</label>
 					<input type="text" bind:value={reconForm.reconciliation_number} class="bank-input" placeholder={$currentLocale === 'ar' ? 'أدخل رقم التسوية' : 'Enter reconciliation number'} />
@@ -2066,7 +2328,7 @@
 					<span class="label">{$currentLocale === 'ar' ? 'المجموع:' : 'Total:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{((Number(reconForm.mada) || 0) + (Number(reconForm.visa) || 0) + (Number(reconForm.mastercard) || 0) + (Number(reconForm.google_pay) || 0) + (Number(reconForm.other) || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+						<span>{round2((Number(reconForm.mada) || 0) + (Number(reconForm.visa) || 0) + (Number(reconForm.mastercard) || 0) + (Number(reconForm.google_pay) || 0) + (Number(reconForm.other) || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 					</div>
 				</div>
 			</div>
@@ -2499,7 +2761,7 @@
 	}
 
 	.balance-group label {
-		font-size: 0.6rem;
+		font-size: 0.8rem;
 		font-weight: 700;
 		color: #1f2937;
 		flex-shrink: 0;
@@ -2507,11 +2769,11 @@
 
 	.balance-input {
 		width: 100%;
-		padding: 0.3rem 0.4rem;
+		padding: 0.65rem 0.5rem;
 		border: 2px solid #fed7aa;
-		border-radius: 0.25rem;
-		font-size: 0.65rem;
-		font-weight: 600;
+		border-radius: 0.375rem;
+		font-size: 1.05rem;
+		font-weight: 700;
 		color: #92400e;
 		background: white;
 		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
@@ -2665,6 +2927,46 @@
 	}
 
 	.supervisor-code-input:focus {
+		outline: none;
+		border-color: #f97316;
+		box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
+	}
+
+	/* Supervisor/Cashier signature codes are always exactly 6 digits — a row of individual boxes
+	   (OTP-style, same pattern used in CounterCheck.svelte) instead of one free-text password
+	   field, sized to fit this card's otherwise very compact layout. */
+	.sig-code-label {
+		font-size: 0.6rem;
+		font-weight: 700;
+		color: #92400e;
+	}
+
+	.sig-digit-row {
+		display: flex;
+		gap: 0.2rem;
+		/* Digit order must stay fixed left-to-right regardless of the page's RTL direction in
+		   Arabic — otherwise a plain flex row visually reverses the boxes, so what you typed first
+		   ends up on the right and the code reads back to front. */
+		direction: ltr;
+	}
+
+	.sig-digit-box {
+		width: 1.5rem;
+		height: 1.7rem;
+		padding: 0;
+		text-align: center;
+		font-size: 0.85rem;
+		font-weight: 700;
+		border: 2px solid #ea580c;
+		border-radius: 0.25rem;
+		color: #000;
+		background: white;
+		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+		transition: all 0.2s;
+		box-sizing: border-box;
+	}
+
+	.sig-digit-box:focus {
 		outline: none;
 		border-color: #f97316;
 		box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
@@ -3646,17 +3948,47 @@
 		margin-bottom: 1rem;
 	}
 
+	/* On narrow/touch screens, give each denomination row its own full-width line instead of
+	   squeezing 2-3 into a row — keeps every +/− button and dropdown at a comfortably tappable
+	   size and spacing so a small screen doesn't make the wrong count easy to mis-tap. */
+	@media (max-width: 640px) {
+		.closing-cash-grid-2row {
+			grid-template-columns: 1fr;
+		}
+
+		.denom-select {
+			width: 6rem;
+		}
+
+		.stepper-btn {
+			width: 3.2rem;
+		}
+	}
+
 	.denom-input-group {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.3rem;
+		border: 2px solid #e5e7eb;
+		border-radius: 0.5rem;
+		padding: 0.4rem 0.5rem;
+		background: #fafafa;
+	}
+
+	.denom-header-row {
 		display: flex;
 		flex-direction: row;
 		align-items: center;
-		gap: 0.3rem;
+		justify-content: space-between;
+		gap: 0.4rem;
 	}
 
 	.denom-input-wrapper {
 		flex: 1;
 		display: flex;
 		flex-direction: row;
+		flex-wrap: nowrap;
 		align-items: center;
 		gap: 0.4rem;
 		min-width: 0;
@@ -3665,53 +3997,284 @@
 	.denom-total {
 		display: flex;
 		align-items: center;
-		gap: 0.2rem;
-		font-size: 0.55rem;
-		font-weight: 600;
+		gap: 0.25rem;
+		font-size: 0.85rem;
+		font-weight: 800;
 		color: #059669;
 		white-space: nowrap;
 		flex-shrink: 0;
 	}
 
 	.currency-icon-tiny {
-		width: 0.65rem;
-		height: 0.65rem;
+		width: 0.85rem;
+		height: 0.85rem;
 		object-fit: contain;
 	}
 
 	.denom-input-group label {
-		font-size: 0.6rem;
-		font-weight: 700;
+		font-size: 0.95rem;
+		font-weight: 800;
 		color: #ea580c;
 		display: flex;
 		align-items: center;
-		gap: 0.2rem;
+		gap: 0.25rem;
 		white-space: nowrap;
 		flex-shrink: 0;
 		min-width: 2.5rem;
 		justify-content: flex-start;
 	}
 
-	.denom-input-wrapper input {
+	.denom-input-group label .currency-icon-small {
+		width: 0.65rem;
+		height: 0.65rem;
+	}
+
+	/* The Coins field is a typed input instead of a select, but shares the .denom-select class so it
+	   sizes/styles identically to every other denomination's dropdown inside the stepper — including
+	   its existing :focus state below. */
+
+	.denom-stepper {
 		flex: 0 0 auto;
+		display: flex;
+		align-items: stretch;
+		gap: 0.15rem;
+	}
+
+	.stepper-btn {
+		flex-shrink: 0;
+		width: 2.9rem;
+		height: 2.75rem;
+		box-sizing: border-box;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px solid #d1fae5;
+		border-radius: 0.375rem;
+		background: white;
+		color: #166534;
+		font-size: 1.2rem;
+		font-weight: 800;
+		line-height: 1;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.stepper-btn:active {
+		transform: scale(0.92);
+	}
+
+	.stepper-btn.minus {
+		background: #dc2626;
+		border-color: #dc2626;
+		color: white;
+	}
+
+	.stepper-btn.minus:hover {
+		background: #b91c1c;
+		border-color: #b91c1c;
+	}
+
+	.stepper-btn.plus {
+		background: #16a34a;
+		border-color: #16a34a;
+		color: white;
+	}
+
+	.stepper-btn.plus:hover {
+		background: #15803d;
+		border-color: #15803d;
+	}
+
+	.stepper-btn.clear {
+		width: auto;
+		padding: 0 0.8rem;
+		font-size: 0.85rem;
+		font-weight: 800;
+		background: #eab308;
+		border-color: #eab308;
+		color: #422006;
+	}
+
+	.stepper-btn.clear:hover {
+		background: #ca8a04;
+		border-color: #ca8a04;
+	}
+
+	.denom-select {
+		flex: 0 0 auto;
+		width: 5.2rem;
+		height: 2.75rem;
+		box-sizing: border-box;
 		min-width: 0;
-		width: 5rem;
 		padding: 0.3rem 0.4rem;
 		border: 2px solid #d1fae5;
 		border-radius: 0.375rem;
-		font-size: 0.65rem;
+		font-size: 1rem;
 		background: white;
-		font-weight: 600;
+		font-weight: 700;
 		color: #166534;
 		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(34, 197, 94, 0.1);
 		transition: all 0.2s;
+		text-align: center;
+		/* Bigger tap target than the option text alone needs — a mis-tap here re-picks a whole
+		   count, not just a character, so this stays comfortably above the ~44px touch minimum
+		   even on small/phone-width screens. */
 	}
 
-	.denom-input-wrapper input:focus {
+	.denom-select:focus {
 		outline: none;
 		border-color: #22c55e;
 		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2), 0 4px 6px rgba(34, 197, 94, 0.15);
-		transform: translateY(-1px);
+	}
+
+	/* Custom dropdown — replaces the native <select> whose popup list renders as a tiny
+	   OS-controlled menu that's fiddly to tap accurately on a touch screen. This opens a big,
+	   evenly-spaced grid of number buttons instead. */
+	.denom-dropdown-wrap {
+		position: relative;
+	}
+
+	.denom-dropdown-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		cursor: pointer;
+	}
+
+	.denom-dropdown-trigger:focus,
+	.denom-dropdown-trigger.open {
+		outline: none;
+		border-color: #22c55e;
+		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2), 0 4px 6px rgba(34, 197, 94, 0.15);
+	}
+
+	.dropdown-caret {
+		font-size: 0.75rem;
+		margin-left: 0.2rem;
+		color: #4b9d6e;
+		transition: transform 0.15s;
+	}
+
+	.denom-dropdown-trigger.open .dropdown-caret {
+		transform: rotate(180deg);
+	}
+
+	.denom-dropdown-backdrop {
+		position: fixed;
+		inset: 0;
+		/* This modal is itself a floating window whose z-index climbs with the window manager's
+		   own counter (starts at 1001, +1 per window open/focus) — portaled elements sit outside
+		   that stacking context as plain <body> children, so this has to clear any realistic
+		   window z-index rather than just the values used elsewhere in this file. */
+		z-index: 999998;
+		background: transparent;
+	}
+
+	.denom-dropdown-panel {
+		/* top/left come from the trigger's live bounding rect via inline style (see
+		   toggleDenomDropdown) — position: fixed + portaled to <body> so it always renders on top,
+		   unclipped by this modal's scroll container, regardless of where in the form it's opened. */
+		position: fixed;
+		transform: translateX(-50%);
+		z-index: 999999;
+		width: 13rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.5rem;
+		background: white;
+		border: 2px solid #bbf7d0;
+		border-radius: 0.75rem;
+		box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+	}
+
+	.denom-dropdown-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.3rem;
+	}
+
+	.denom-dropdown-nav {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.3rem;
+		padding-top: 0.35rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.denom-nav-btn {
+		flex: 1;
+		min-height: 2.2rem;
+		border: 1px solid #bbf7d0;
+		border-radius: 0.5rem;
+		background: #f0fdf4;
+		color: #166534;
+		font-size: 0.8rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.12s;
+	}
+
+	.denom-nav-btn:hover:not(:disabled) {
+		background: #dcfce7;
+		border-color: #22c55e;
+	}
+
+	.denom-nav-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.denom-nav-page {
+		flex-shrink: 0;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #64748b;
+		white-space: nowrap;
+	}
+
+	.denom-dropdown-option {
+		min-height: 2.6rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		background: #f8fafc;
+		color: #166534;
+		font-size: 0.95rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.12s;
+	}
+
+	.denom-dropdown-option:hover {
+		background: #dcfce7;
+		border-color: #22c55e;
+	}
+
+	.denom-dropdown-option:active {
+		transform: scale(0.94);
+	}
+
+	.denom-dropdown-option.selected {
+		background: #16a34a;
+		border-color: #16a34a;
+		color: white;
+	}
+
+	/* Hide the browser's native up/down spinner on the Coins field — the stepper's own +/− buttons
+	   already do that job, so the built-in arrows are just visual clutter. */
+	input.coins-input::-webkit-outer-spin-button,
+	input.coins-input::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+
+	input.coins-input {
+		-moz-appearance: textfield;
+		appearance: textfield;
 	}
 
 	.currency-icon-small {
@@ -4205,18 +4768,18 @@
 	}
 
 	.system-input-group label {
-		font-size: 0.65rem;
+		font-size: 0.8rem;
 		font-weight: 700;
 		color: #1f2937;
 	}
 
 	.system-input {
 		width: 100%;
-		padding: 0.25rem 0.3rem;
+		padding: 0.65rem 0.5rem;
 		border: 2px solid #e9d5ff;
-		border-radius: 0.25rem;
-		font-size: 0.6rem;
-		font-weight: 600;
+		border-radius: 0.375rem;
+		font-size: 1.05rem;
+		font-weight: 700;
 		color: #7c3aed;
 		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
 		transition: all 0.2s;
@@ -4364,7 +4927,9 @@
 		font-weight: 600;
 		color: #92400e;
 		text-align: center;
+		text-align-last: center;
 		background: white;
+		cursor: pointer;
 		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
 		transition: all 0.2s;
 	}
@@ -4603,6 +5168,50 @@
 
 	.erp-popup-content {
 		margin-bottom: 1.5rem;
+	}
+
+	/* Add/Edit Reconciliation popup — the shared .bank-input/.bank-input-group styles are sized for
+	   the dense read-only summary rows elsewhere on this form, so this popup gets its own larger,
+	   easier-to-hit sizing scoped to just this modal instead of changing those shared classes. */
+	.recon-popup-modal.erp-popup-modal {
+		padding: 2rem;
+	}
+
+	.recon-popup-modal .erp-popup-header h3 {
+		font-size: 1.5rem;
+	}
+
+	.recon-popup-modal .bank-input-group label {
+		font-size: 0.9rem;
+		white-space: normal;
+	}
+
+	.recon-popup-modal .bank-input {
+		padding: 0.75rem 0.85rem;
+		font-size: 1.05rem;
+		border-radius: 0.5rem;
+		border-width: 2px;
+	}
+
+	.recon-popup-modal .bank-fields-row {
+		gap: 0.9rem;
+	}
+
+	.recon-popup-modal .bank-total {
+		padding: 0.75rem 1rem;
+	}
+
+	.recon-popup-modal .bank-total .label {
+		font-size: 1rem;
+	}
+
+	.recon-popup-modal .bank-total .amount {
+		font-size: 1.2rem;
+	}
+
+	.recon-popup-modal .btn-close-erp {
+		padding: 0.85rem 2.25rem;
+		font-size: 1rem;
 	}
 
 	.erp-checkbox-label {

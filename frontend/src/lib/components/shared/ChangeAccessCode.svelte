@@ -795,6 +795,10 @@
 		gap: 8px;
 		justify-content: center;
 		margin: 12px 0;
+		/* Keep digit order fixed left-to-right even in Arabic (RTL) — otherwise a plain flex row
+		   visually reverses the boxes, so the first digit typed ends up on the right and the code
+		   reads back to front. */
+		direction: ltr;
 	}
 
 	.digit-box {

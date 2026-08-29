@@ -3,6 +3,7 @@
 	import { currentLocale } from '$lib/i18n';
 	import { t } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
 
 	export let windowId: string;
 	export let box: any;
@@ -54,6 +55,79 @@
 	let cashierCodeValid = false;
 	let supervisorAccessCode = '';
 	let supervisorName = '';
+
+	// Access codes are always exactly 6 digits, entered as individual boxes (like an OTP field)
+	// instead of a free-text password box — same digit-box pattern as ChangeAccessCode.svelte,
+	// keeping cashierAccessCode/supervisorAccessCode as the source of truth everything else here
+	// (verify/lookup/validate/hasChangesAfterValidation) already reads.
+	let cashierCodeDigits: string[] = ['', '', '', '', '', ''];
+	let supervisorCodeDigits: string[] = ['', '', '', '', '', ''];
+
+	function handleAccessCodeDigitInput(e: Event, index: number, digits: string[], field: 'cashier' | 'supervisor') {
+		const input = e.target as HTMLInputElement;
+		const value = input.value.replace(/[^0-9]/g, '');
+		digits[index] = value.slice(-1);
+
+		if (value && index < 5) {
+			const next = document.getElementById(`${field}-code-${index + 1}`) as HTMLInputElement;
+			if (next) next.focus();
+		}
+
+		if (field === 'cashier') {
+			cashierCodeDigits = [...digits];
+			cashierAccessCode = cashierCodeDigits.join('');
+			if (cashierAccessCode.length === 6) verifyCashierAccessCode();
+			else { cashierCodeValid = false; cashierName = ''; }
+		} else {
+			supervisorCodeDigits = [...digits];
+			supervisorAccessCode = supervisorCodeDigits.join('');
+			if (supervisorAccessCode.length === 6) lookupSupervisorAccessCode();
+			else { supervisorName = ''; supervisorUserId = null; }
+		}
+		changeCounter++;
+	}
+
+	function handleAccessCodeDigitKeydown(e: KeyboardEvent, index: number, digits: string[], field: 'cashier' | 'supervisor') {
+		if (e.key === 'Backspace' && !digits[index] && index > 0) {
+			const prev = document.getElementById(`${field}-code-${index - 1}`) as HTMLInputElement;
+			if (prev) prev.focus();
+			digits[index - 1] = '';
+			if (field === 'cashier') {
+				cashierCodeDigits = [...digits];
+				cashierAccessCode = cashierCodeDigits.join('');
+				cashierCodeValid = false;
+				cashierName = '';
+			} else {
+				supervisorCodeDigits = [...digits];
+				supervisorAccessCode = supervisorCodeDigits.join('');
+				supervisorName = '';
+				supervisorUserId = null;
+			}
+			changeCounter++;
+		}
+	}
+
+	function handleAccessCodeDigitPaste(e: ClipboardEvent, digits: string[], field: 'cashier' | 'supervisor') {
+		e.preventDefault();
+		const text = (e.clipboardData?.getData('text') || '').replace(/[^0-9]/g, '').slice(0, 6);
+		for (let i = 0; i < 6; i++) digits[i] = text[i] || '';
+
+		if (field === 'cashier') {
+			cashierCodeDigits = [...digits];
+			cashierAccessCode = cashierCodeDigits.join('');
+			if (cashierAccessCode.length === 6) verifyCashierAccessCode();
+		} else {
+			supervisorCodeDigits = [...digits];
+			supervisorAccessCode = supervisorCodeDigits.join('');
+			if (supervisorAccessCode.length === 6) lookupSupervisorAccessCode();
+		}
+		changeCounter++;
+
+		const focusIdx = Math.min(text.length, 5);
+		const el = document.getElementById(`${field}-code-${focusIdx}`) as HTMLInputElement;
+		if (el) el.focus();
+	}
+	let supervisorUserId: string | null = null; // tracked so we can catch the cashier using their own code as the "supervisor" one too
 	let selectedPosNumber: number | null = null;
 	let isValidated = false;
 	let errorMessage = '';
@@ -160,7 +234,7 @@
 				// Ensure the verified code belongs to the logged-in user
 				if (verifyResult.user.id === user.id) {
 					cashierCodeValid = true;
-					cashierName = verifyResult.user.username || '';
+					cashierName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 				} else {
 					cashierCodeValid = false;
 					cashierName = '';
@@ -181,6 +255,7 @@
 	async function lookupSupervisorAccessCode() {
 		if (!supervisorAccessCode) {
 			supervisorName = '';
+			supervisorUserId = null;
 			return;
 		}
 
@@ -193,19 +268,34 @@
 			if (error) throw error;
 
 			if (verifyResult && verifyResult.success && verifyResult.user) {
-				supervisorName = verifyResult.user.username || '';
+				// Reject the cashier's own code as the supervisor code — the whole point of this
+				// second sign-off is an independent second person confirming the counted cash,
+				// so the same person can't approve their own count.
+				if (verifyResult.user.id === user.id) {
+					supervisorName = '';
+					supervisorUserId = null;
+					errorMessage = $currentLocale === 'ar'
+						? 'يجب أن يكون رمز المشرف مختلفًا عن رمز الموظف'
+						: 'Supervisor code must belong to a different person than the cashier';
+					return;
+				}
+				supervisorName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
+				supervisorUserId = verifyResult.user.id;
 			} else {
 				supervisorName = '';
+				supervisorUserId = null;
 				errorMessage = $currentLocale === 'ar' ? 'الرجاء إدخال رمز الدخول الصحيح' : 'Please enter correct access code';
 			}
 		} catch (error) {
 			console.error('Error looking up supervisor:', error);
 			supervisorName = '';
+			supervisorUserId = null;
 			errorMessage = $currentLocale === 'ar' ? 'الرجاء إدخال رمز الدخول الصحيح' : 'Please enter correct access code';
 		}
 	}
 
 	async function validateAccessCodes() {
+		errorMessage = '';
 		await verifyCashierAccessCode();
 		await lookupSupervisorAccessCode();
 
@@ -215,7 +305,21 @@
 		}
 
 		if (!supervisorName) {
-			errorMessage = $currentLocale === 'ar' ? 'رمز الوصول الخاص بالمشرف غير صحيح' : 'Supervisor access code is incorrect';
+			// lookupSupervisorAccessCode already set a more specific message when the code
+			// belongs to the cashier themselves — don't clobber it with the generic one.
+			if (!errorMessage) {
+				errorMessage = $currentLocale === 'ar' ? 'رمز الوصول الخاص بالمشرف غير صحيح' : 'Supervisor access code is incorrect';
+			}
+			return;
+		}
+
+		// Belt-and-suspenders: lookupSupervisorAccessCode already blocks this, but guard here too
+		// in case validateAccessCodes is ever invoked without going through it first.
+		if (supervisorUserId && supervisorUserId === user.id) {
+			supervisorName = '';
+			errorMessage = $currentLocale === 'ar'
+				? 'يجب أن يكون رمز المشرف مختلفًا عن رمز الموظف'
+				: 'Supervisor code must belong to a different person than the cashier';
 			return;
 		}
 
@@ -609,15 +713,27 @@
 				class="recharge-input"
 			/>
 		</div>
+		</div>
+
+		<div class="access-code-row">
 			<div class="access-code-group">
 				<label>{t('pos.cashierAccessCode') || 'Cashier Access Code'}</label>
-				<input
-					type="password"
-					placeholder={t('pos.enterCashierAccessCode') || 'Enter cashier access code'}
-					bind:value={cashierAccessCode}
-					on:input={() => changeCounter++}
-					on:blur={verifyCashierAccessCode}
-				/>
+				<div class="digit-row">
+					{#each cashierCodeDigits as digit, i}
+						<input
+							id="cashier-code-{i}"
+							type="text"
+							inputmode="numeric"
+							pattern="[0-9]*"
+							maxlength="1"
+							class="digit-box"
+							bind:value={cashierCodeDigits[i]}
+							on:input={(e) => handleAccessCodeDigitInput(e, i, cashierCodeDigits, 'cashier')}
+							on:keydown={(e) => handleAccessCodeDigitKeydown(e, i, cashierCodeDigits, 'cashier')}
+							on:paste={(e) => handleAccessCodeDigitPaste(e, cashierCodeDigits, 'cashier')}
+						/>
+					{/each}
+				</div>
 			</div>
 			{#if cashierCodeValid && cashierName}
 				<div class="verified-name-display-inline">✓ {cashierName}</div>
@@ -627,13 +743,22 @@
 		<div class="access-code-row">
 			<div class="access-code-group">
 				<label>{t('pos.supervisorAccessCode') || 'Supervisor Access Code'}</label>
-				<input
-					type="password"
-					placeholder={t('pos.enterSupervisorAccessCode') || 'Enter supervisor access code'}
-					bind:value={supervisorAccessCode}
-					on:input={() => changeCounter++}
-					on:blur={lookupSupervisorAccessCode}
-				/>
+				<div class="digit-row">
+					{#each supervisorCodeDigits as digit, i}
+						<input
+							id="supervisor-code-{i}"
+							type="text"
+							inputmode="numeric"
+							pattern="[0-9]*"
+							maxlength="1"
+							class="digit-box"
+							bind:value={supervisorCodeDigits[i]}
+							on:input={(e) => handleAccessCodeDigitInput(e, i, supervisorCodeDigits, 'supervisor')}
+							on:keydown={(e) => handleAccessCodeDigitKeydown(e, i, supervisorCodeDigits, 'supervisor')}
+							on:paste={(e) => handleAccessCodeDigitPaste(e, supervisorCodeDigits, 'supervisor')}
+						/>
+					{/each}
+				</div>
 			</div>
 			{#if supervisorName}
 				<div class="verified-name-display-inline">✓ {supervisorName}</div>
@@ -855,7 +980,13 @@
 	.access-code-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		/* Without this, the column's default stretch makes both the label and .digit-row (which is
+		   forced direction:ltr so its own digits stay in typed order) fill the full width — the
+		   label's text then sits at the RTL-natural right edge while the ltr-packed boxes sit at
+		   the left, so they land nowhere near each other. Centering both, rather than pinning to a
+		   side, keeps the box row directly under the label regardless of RTL/LTR. */
+		align-items: center;
+		gap: 0.15rem;
 	}
 
 	.access-code-group label {
@@ -863,6 +994,7 @@
 		font-weight: 700;
 		color: #ea580c;
 		letter-spacing: 0.5px;
+		margin: 0;
 	}
 
 	.access-code-group input {
@@ -871,6 +1003,39 @@
 		border: 2px solid #d1d5db;
 		border-radius: 0.375rem;
 		font-size: 0.875rem;
+	}
+
+	/* Cashier/Supervisor access codes are always exactly 6 digits — a row of individual boxes
+	   (OTP-style, matching ChangeAccessCode.svelte's pattern) instead of one free-text field. The
+	   extra specificity (input.digit-box) is needed to win over the generic .access-code-group
+	   input rule above for width/padding/font-size. */
+	.digit-row {
+		display: flex;
+		gap: 0.4rem;
+		/* Keep digit order fixed left-to-right even in Arabic (RTL) — otherwise a plain flex row
+		   visually reverses the boxes, so the first digit typed ends up on the right and the code
+		   reads back to front. */
+		direction: ltr;
+	}
+
+	.access-code-group input.digit-box {
+		width: 2.4rem;
+		height: 2.7rem;
+		padding: 0;
+		text-align: center;
+		font-size: 1.15rem;
+		font-weight: 700;
+		border: 2px solid #fed7aa;
+		border-radius: 0.5rem;
+		color: #92400e;
+		background: white;
+		transition: all 0.2s;
+	}
+
+	.access-code-group input.digit-box:focus {
+		outline: none;
+		border-color: #ea580c;
+		box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15);
 	}
 
 	.access-code-row {

@@ -114,6 +114,7 @@
 	// (quick-jump dropdown, visual overview with counts) driving the same underlying filter.
 	let selectedPosCounter: string | null = null;
 	let selectedMatchedUser: string | null = null; // dropdown filter against matched_user_name (the ERP-side matched user)
+	let selectedKickOnly = false; // when on, only show suspected blank-print drawer kicks (is_small_print + actually byte-sized, see isKickSized)
 
 	// Time window applies before the status/counter pill filters, so flagged/matched counts,
 	// the counter breakdown, and the table all recompute against the narrowed window too.
@@ -137,7 +138,8 @@
 		(e) =>
 			(!selectedStatus || (selectedStatus === 'flagged' ? e.is_flagged : !e.is_flagged)) &&
 			(!selectedPosCounter || posCounterLabel(e, reportCounterNames) === selectedPosCounter) &&
-			(!selectedMatchedUser || e.matched_user_name === selectedMatchedUser)
+			(!selectedMatchedUser || e.matched_user_name === selectedMatchedUser) &&
+			(!selectedKickOnly || (e.is_small_print && isKickSized(e.byte_size)))
 	);
 
 	// Grouped by the actual POS Counter (erp_counter_id, via the synced erp_counters name lookup) —
@@ -242,12 +244,15 @@
 	// Shared by both the POS Counter dropdown and the breakdown cards — same pattern as the Run
 	// Report tab above (selectedPosCounter/counterBreakdown).
 	let lcSelectedPosCounter: string | null = null;
+	let lcSelectedKickOnly = false; // same meaning as the Flagger tab's selectedKickOnly
 
 	// Distinct POS Counter labels present in the current results, for the dropdown filter.
 	$: lcPosCounterOptions = Array.from(new Set(lcResults.map((r) => posCounterLabel(r.event, lcCounterNames)))).sort();
 
 	$: lcFilteredResults = lcResults.filter(
-		(r) => !lcSelectedPosCounter || posCounterLabel(r.event, lcCounterNames) === lcSelectedPosCounter
+		(r) =>
+			(!lcSelectedPosCounter || posCounterLabel(r.event, lcCounterNames) === lcSelectedPosCounter) &&
+			(!lcSelectedKickOnly || (r.event.is_small_print && isKickSized(r.event.byte_size)))
 	);
 
 	// Grouped by the actual POS Counter — "flagged" here means still no live match, same red-flag
@@ -800,6 +805,14 @@
 		return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
+	// The "kick?" badge should only call out prints tiny enough to actually display in bytes
+	// (e.g. "79 B", "244 B") — is_small_print itself is flagged up to a much wider 50KB threshold
+	// server-side (see get_flagged_drawer_events' p_small_print_bytes), which would otherwise badge
+	// genuine multi-KB receipts too.
+	function isKickSized(n: number | null): boolean {
+		return n !== null && n !== undefined && n < 1024;
+	}
+
 	// --- App Sync Status tab ---
 	interface SyncAppStatus {
 		device_id: string;
@@ -1180,6 +1193,12 @@
 				{/each}
 			</select>
 		</div>
+		<div class="filter-field">
+			<label for="kick-only-filter">Kick Filter</label>
+			<button id="kick-only-filter" type="button" class="kick-toggle-btn" class:active={selectedKickOnly} on:click={() => (selectedKickOnly = !selectedKickOnly)}>
+				{selectedKickOnly ? '🦵 Kick Only' : 'All Sizes'}
+			</button>
+		</div>
 		<button class="run-btn" on:click={loadReport} disabled={loading}>
 			{loading ? '⏳ Loading...' : '🔍 Run Report'}
 		</button>
@@ -1275,7 +1294,7 @@
 									<td>{e.printer_name || e.counter_name || '-'}</td>
 									<td>
 										{formatBytes(e.byte_size)}
-										{#if e.is_small_print}<span class="small-print-badge" title="Tiny print — likely a blank F3 drawer-kick slip, not a real receipt">kick?</span>{/if}
+										{#if e.is_small_print && isKickSized(e.byte_size)}<span class="small-print-badge" title="Tiny print — likely a blank F3 drawer-kick slip, not a real receipt">kick?</span>{/if}
 									</td>
 									<td>{e.user_name || '-'}</td>
 									<td>{e.matched_action_name ? `${e.matched_action_name}${e.matched_voucher_number ? ' #' + e.matched_voucher_number : ''}` : '-'}</td>
@@ -1356,6 +1375,12 @@
 				{/each}
 			</select>
 		</div>
+		<div class="filter-field">
+			<label for="lc-kick-only-filter">Kick Filter</label>
+			<button id="lc-kick-only-filter" type="button" class="kick-toggle-btn" class:active={lcSelectedKickOnly} on:click={() => (lcSelectedKickOnly = !lcSelectedKickOnly)}>
+				{lcSelectedKickOnly ? '🦵 Kick Only' : 'All Sizes'}
+			</button>
+		</div>
 		<button class="run-btn" on:click={runLiveCheck} disabled={lcLoading || !lcSelectedBranchId}>
 			{lcLoading ? '⏳ Checking ERP live...' : '🔴 Run Live Check'}
 		</button>
@@ -1396,7 +1421,7 @@
 										<td>{r.event.printer_name || r.event.counter_name || '-'}</td>
 										<td>
 											{formatBytes(r.event.byte_size)}
-											{#if r.event.is_small_print}<span class="small-print-badge">kick?</span>{/if}
+											{#if r.event.is_small_print && isKickSized(r.event.byte_size)}<span class="small-print-badge">kick?</span>{/if}
 										</td>
 										<td>{r.event.user_name || '-'}</td>
 										<td>
@@ -1699,6 +1724,16 @@
 	}
 	.checkbox-field { flex-direction: row; align-items: center; gap: 0.5rem; min-width: auto; }
 	.checkbox-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #7f1d1d; cursor: pointer; }
+	.kick-toggle-btn {
+		padding: 0.5rem 0.7rem; border-radius: 10px; border: 1px solid rgba(252, 165, 165, 0.7);
+		background: rgba(255, 255, 255, 0.8); font-size: 0.85rem; color: #7f1d1d; font-weight: 600;
+		cursor: pointer; white-space: nowrap; transition: all 0.15s ease;
+	}
+	.kick-toggle-btn:hover { background: rgba(254, 226, 226, 0.9); border-color: #f87171; }
+	.kick-toggle-btn.active {
+		background: linear-gradient(135deg, #ef4444, #dc2626); border-color: #dc2626; color: #fff;
+		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.35);
+	}
 
 	.run-btn {
 		padding: 0.6rem 1.4rem; border: none; border-radius: 10px;

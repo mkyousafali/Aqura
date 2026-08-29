@@ -2,6 +2,7 @@
 	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
 
 	export let windowId: string;
 	export let operation: any;
@@ -27,6 +28,28 @@
 	}
 	
 	console.log('📝 Parsed operation data:', operationData);
+
+	// operationData.cashier_name / .supervisor_name are frozen strings captured into
+	// operation.notes/closing_details at open/close time — for operations from before
+	// hr_employee_master lookups were wired in (or if that snapshot ever falls out of sync), they
+	// can still be the raw login username. operation.user_id and operation.supervisor_id are real
+	// FK columns though, so resolve both names from hr_employee_master at display time instead of
+	// trusting the stale strings, and keep them in sync with locale switches.
+	let resolvedCashierName = '';
+	$: if (operation?.user_id) {
+		getEmployeeDisplayName(operation.user_id, $currentLocale, operationData.cashier_name || '').then((name) => {
+			resolvedCashierName = name;
+		});
+	}
+	$: displayCashierName = resolvedCashierName || operationData.cashier_name || '';
+
+	let resolvedSupervisorDisplayName = '';
+	$: if (operation?.supervisor_id) {
+		getEmployeeDisplayName(operation.supervisor_id, $currentLocale, operationData.supervisor_name || '').then((name) => {
+			resolvedSupervisorDisplayName = name;
+		});
+	}
+	$: displaySupervisorName = resolvedSupervisorDisplayName || operationData.supervisor_name || '';
 
 	// Denomination values
 	const denomValues: Record<string, number> = {
@@ -278,19 +301,6 @@
 			return;
 		}
 
-		// Get cashier name from operation notes
-		let cashierName = '';
-		try {
-			if (operation?.notes) {
-				const notes = typeof operation.notes === 'string' 
-					? JSON.parse(operation.notes) 
-					: operation.notes;
-				cashierName = notes.cashier_name || '';
-			}
-		} catch (e) {
-			// Ignore parsing errors
-		}
-
 		try {
 			// Use RPC for bcrypt hash verification
 			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
@@ -300,17 +310,18 @@
 			if (error) throw error;
 
 			if (verifyResult && verifyResult.success && verifyResult.user) {
-				const verifiedName = verifyResult.user.username || '';
-				
-				// Don't allow supervisor to be same person as cashier
-				if (verifiedName === cashierName) {
+				// Don't allow supervisor to be same person as cashier — compared by user id (the
+				// operation's own user_id column) rather than the display name, since the name is
+				// now locale-dependent (hr_employee_master name_en/name_ar) and could legitimately
+				// differ from whatever string was saved to operation.notes at open time.
+				if (verifyResult.user.id === operation?.user_id) {
 					supervisorName = '';
 					verifiedSupervisorUserId = null;
 					supervisorCodeError = 'Supervisor must be different from cashier';
 					return;
 				}
-				
-				supervisorName = verifiedName;
+
+				supervisorName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 				verifiedSupervisorUserId = verifyResult.user.id;
 				supervisorCodeError = '';
 			} else {
@@ -343,21 +354,6 @@
 			return;
 		}
 
-		// Get cashier name and code from operation notes
-		let expectedCashierName = '';
-		let expectedCashierCode = '';
-		try {
-			if (operation?.notes) {
-				const notes = typeof operation.notes === 'string' 
-					? JSON.parse(operation.notes) 
-					: operation.notes;
-				expectedCashierName = notes.cashier_name || '';
-				expectedCashierCode = notes.cashier_access_code || '';
-			}
-		} catch (e) {
-			console.error('Error parsing operation notes:', e);
-		}
-
 		try {
 			// Use RPC for bcrypt hash verification
 			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
@@ -367,17 +363,18 @@
 			if (error) throw error;
 
 			if (verifyResult && verifyResult.success && verifyResult.user) {
-				const verifiedName = verifyResult.user.username || '';
-				
-				// Must match the exact cashier who started (compare by username)
-				if (verifiedName !== expectedCashierName) {
+				// Must match the exact cashier who started — compared by user id (the operation's
+				// own user_id column) rather than the display name, since the name is now
+				// locale-dependent (hr_employee_master name_en/name_ar) and could legitimately
+				// differ from whatever string was saved to operation.notes at open time.
+				if (verifyResult.user.id !== operation?.user_id) {
 					cashierConfirmName = '';
 					verifiedCashierUserId = null;
 					cashierConfirmError = $currentLocale === 'ar' ? 'يجب أن يكون الكاشير نفس من بدأ العملية' : 'Must be the same cashier who started the operation';
 					return;
 				}
-				
-				cashierConfirmName = verifiedName;
+
+				cashierConfirmName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 				verifiedCashierUserId = verifyResult.user.id;
 				cashierConfirmError = '';
 			} else {
@@ -616,11 +613,11 @@
 	<div class="top-info-row">
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
-			<span class="info-value">{operationData.cashier_name || 'N/A'}</span>
+			<span class="info-value">{displayCashierName || 'N/A'}</span>
 		</div>
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'المشرف (فحص):' : 'Supervisor (Checked):'}</span>
-			<span class="info-value">{operationData.supervisor_name || 'N/A'}</span>
+			<span class="info-value">{displaySupervisorName || 'N/A'}</span>
 		</div>
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'المبلغ الصادر:' : 'Amount Issued:'}</span>
@@ -1029,7 +1026,7 @@
 									<input
 										type="text"
 										class="supervisor-code-input"
-										value={operationData.cashier_name || ''}
+										value={displayCashierName || ''}
 										readonly
 										placeholder={$currentLocale === 'ar' ? 'غير متوفر' : 'Not Available'}
 										style="margin: 0;"
@@ -1105,7 +1102,7 @@
 							</div>
 							<div class="receipt-row-stacked">
 								<div class="receipt-label-en">Cashier</div>
-								<div class="receipt-row-en">{operationData.cashier_name || 'N/A'}</div>
+								<div class="receipt-row-en">{displayCashierName || 'N/A'}</div>
 							</div>
 						</div>
 
@@ -1314,7 +1311,7 @@
 							<div class="section-title-en">STATUS</div>
 							<div class="receipt-row-stacked">
 								<div class="receipt-label-en">Checked By</div>
-								<div class="receipt-row-en">{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</div>
+								<div class="receipt-row-en">{displaySupervisorName ? '✓ ' + displaySupervisorName : 'N/A'}</div>
 							</div>
 							<div class="receipt-row-stacked">
 								<div class="receipt-label-en">Closed By</div>

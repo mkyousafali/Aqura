@@ -880,7 +880,7 @@
 				{#if contactNavVisible}
 					<a href="#contact" style={contactNavColor ? `color: ${contactNavColor}` : undefined} on:click={closeMobileMenu}>{contactNavText}</a>
 				{/if}
-				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'الإنجليزية' : 'العربية'}</button>
+				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'English' : 'العربية'}</button>
 			</nav>
 			<button
 				type="button"
@@ -890,7 +890,7 @@
 				title={isAr ? 'التبديل إلى الإنجليزية' : 'التبديل إلى العربية'}
 			>
 				<span aria-hidden="true">🌐</span>
-				<span>{isAr ? 'الإنجليزية' : 'العربية'}</span>
+				<span>{isAr ? 'English' : 'العربية'}</span>
 			</button>
 			<button
 				class="menu-toggle"

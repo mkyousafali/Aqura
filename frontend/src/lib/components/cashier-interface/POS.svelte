@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { t, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
 	import CloseBox from './CloseBox.svelte';
 	import ClosingDetails from './ClosingDetails.svelte';
 	import CounterCheck from './CounterCheck.svelte';
@@ -14,6 +15,80 @@
 	let availableBoxes: any[] = [];
 	let operationBoxes: any[] = [];
 	let loading = true;
+
+	// operation.notes.cashier_name is a frozen string captured when the counter was opened — for
+	// operations started before hr_employee_master lookups were wired in (or if that snapshot ever
+	// falls out of sync), it can still show the raw login username. Resolve the real name from
+	// hr_employee_master via the operation's own user_id (a real FK) instead, cached per
+	// user+locale so switching languages updates the display without re-querying every box.
+	let cashierNameCache = new Map<string, string>(); // key: `${userId}:${locale}`
+
+	$: {
+		const locale = $currentLocale;
+		for (const box of operationBoxes) {
+			if (!box.user_id) continue;
+			const key = `${box.user_id}:${locale}`;
+			if (!cashierNameCache.has(key)) {
+				let fallbackName = '';
+				try {
+					fallbackName = box.notes ? (JSON.parse(box.notes).cashier_name || '') : '';
+				} catch (e) { /* ignore malformed notes */ }
+				getEmployeeDisplayName(box.user_id, locale, fallbackName).then((name) => {
+					cashierNameCache.set(key, name);
+					cashierNameCache = cashierNameCache; // trigger reactivity
+				});
+			}
+		}
+	}
+
+	function getBoxCashierName(opBox: any): string {
+		const key = `${opBox.user_id}:${$currentLocale}`;
+		const cached = cashierNameCache.get(key);
+		if (cached) return cached;
+		try {
+			return opBox.notes ? (JSON.parse(opBox.notes).cashier_name || '') : '';
+		} catch (e) {
+			return '';
+		}
+	}
+
+	// Same as above, for the supervisor — resolved from operation.supervisor_id (a real FK column
+	// set when the box is submitted for closing) rather than the frozen closing_details.supervisor_name
+	// string. Boxes still in_use (never submitted) have no supervisor_id yet, so this only resolves
+	// once a box reaches pending_close.
+	let supervisorNameCache = new Map<string, string>(); // key: `${userId}:${locale}`
+
+	$: {
+		const locale = $currentLocale;
+		for (const box of operationBoxes) {
+			if (!box.supervisor_id) continue;
+			const key = `${box.supervisor_id}:${locale}`;
+			if (!supervisorNameCache.has(key)) {
+				let fallbackName = '';
+				try {
+					fallbackName = box.closing_details?.supervisor_name || (box.notes ? (JSON.parse(box.notes).supervisor_name || '') : '');
+				} catch (e) { /* ignore malformed notes */ }
+				getEmployeeDisplayName(box.supervisor_id, locale, fallbackName).then((name) => {
+					supervisorNameCache.set(key, name);
+					supervisorNameCache = supervisorNameCache; // trigger reactivity
+				});
+			}
+		}
+	}
+
+	function getBoxSupervisorName(opBox: any): string {
+		if (opBox.supervisor_id) {
+			const key = `${opBox.supervisor_id}:${$currentLocale}`;
+			const cached = supervisorNameCache.get(key);
+			if (cached) return cached;
+		}
+		try {
+			return opBox.closing_details?.supervisor_name || (opBox.notes ? (JSON.parse(opBox.notes).supervisor_name || '') : '');
+		} catch (e) {
+			return '';
+		}
+	}
+
 	let fullBranch: any = null;
 	let currencySymbolUrl = '/icons/saudi-currency.png';
 	let userHasActiveOperation = false;
@@ -315,7 +390,7 @@
 			
 			const { data, error } = await supabase
 				.from('box_operations')
-				.select('id, box_number, counts_before, counts_after, total_before, total_after, difference, is_matched, start_time, notes, user_id, status, closing_details')
+				.select('id, box_number, counts_before, counts_after, total_before, total_after, difference, is_matched, start_time, notes, user_id, supervisor_id, status, closing_details')
 				.eq('branch_id', branchId)
 				.eq('user_id', userId)
 				.in('status', ['in_use', 'pending_close'])
@@ -772,7 +847,7 @@
 				// Ensure the verified code belongs to the logged-in user
 				if (verifyResult.user.id === user.id) {
 					cashierCodeValid = true;
-					cashierName = verifyResult.user.username || '';
+					cashierName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 				} else {
 					cashierCodeValid = false;
 					cashierName = '';
@@ -805,7 +880,7 @@
 			if (error) throw error;
 
 			if (verifyResult && verifyResult.success && verifyResult.user) {
-				supervisorName = verifyResult.user.username || '';
+				supervisorName = await getEmployeeDisplayName(verifyResult.user.id, $currentLocale, verifyResult.user.username || '');
 			} else {
 				supervisorName = '';
 				errorMessage = $currentLocale === 'ar' ? 'الرجاء إدخال رمز الدخول الصحيح' : 'Please enter correct access code';
@@ -921,11 +996,11 @@
 								<div class="operation-details">
 									<div class="detail-row">
 										<span>{$currentLocale === 'ar' ? 'الكاشير:' : 'Cashier:'}</span>
-										<span>{opBox.notes ? JSON.parse(opBox.notes).cashier_name || '' : ''}</span>
+										<span>{getBoxCashierName(opBox)}</span>
 									</div>
 									<div class="detail-row">
 										<span>{$currentLocale === 'ar' ? 'المشرف:' : 'Supervisor:'}</span>
-										<span>{opBox.notes ? JSON.parse(opBox.notes).supervisor_name || '' : ''}</span>
+										<span>{getBoxSupervisorName(opBox)}</span>
 									</div>
 									<div class="detail-row">
 										<span>{$currentLocale === 'ar' ? 'وقت البداية:' : 'Start Time:'}</span>
