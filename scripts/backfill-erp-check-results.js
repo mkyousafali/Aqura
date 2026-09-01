@@ -159,11 +159,14 @@ async function main() {
 
     // Single batched lookup per branch (chunked) instead of one ERP round trip per record.
     const voucherNumbers = [...new Set(branchRecords.map((r) => r.erp_purchase_invoice_reference.toString().trim()))];
-    const voucherMap = new Map(); // VoucherNumber -> best row (latest TransactionDate)
+    // VoucherNumber is NOT guaranteed unique per branch (each counter/terminal keeps its own
+    // sequence, and VAT vs non-VAT-form entries can independently reuse the same number) — so every
+    // matching row is kept here, and each is tried per record instead of pre-picking just one.
+    const voucherMap = new Map(); // VoucherNumber -> array of candidate rows
 
     for (const batch of chunk(voucherNumbers, VOUCHER_CHUNK_SIZE)) {
       const inList = batch.map((v) => `'${v.replace(/'/g, "''")}'`).join(',');
-      const sql = `SELECT m.VoucherNumber, m.GrandTotal, m.PartyName, m.TransactionDate, l.LedgerCode AS VendorId FROM InvTransactionMaster m LEFT JOIN AccLedgers l ON l.LedgerID = m.LedgerID AND l.BranchID = m.BranchID WHERE m.VoucherType='PI' AND m.BranchID=${conn.erp_branch_id} AND m.IsActive=1 AND CAST(m.VoucherNumber AS VARCHAR(50)) IN (${inList})`;
+      const sql = `SELECT m.VoucherNumber, m.GrandTotal, m.PartyName, m.TransactionDate, m.VoucherForm, l.LedgerCode AS VendorId FROM InvTransactionMaster m LEFT JOIN AccLedgers l ON l.LedgerID = m.LedgerID AND l.BranchID = m.BranchID WHERE m.VoucherType='PI' AND m.BranchID=${conn.erp_branch_id} AND m.IsActive=1 AND CAST(m.VoucherNumber AS VARCHAR(50)) IN (${inList})`;
       let rows;
       try {
         rows = await erpQuery(conn.tunnel_url, sql);
@@ -173,54 +176,63 @@ async function main() {
       }
       for (const row of rows) {
         const key = String(row.VoucherNumber).trim();
-        const existing = voucherMap.get(key);
-        if (!existing || new Date(row.TransactionDate) > new Date(existing.TransactionDate)) {
-          voucherMap.set(key, row);
-        }
+        if (!voucherMap.has(key)) voucherMap.set(key, []);
+        voucherMap.get(key).push(row);
       }
     }
 
     for (const r of branchRecords) {
       const ref = r.erp_purchase_invoice_reference.toString().trim();
-      const row = voucherMap.get(ref);
-      if (!row) {
+      const candidateRows = voucherMap.get(ref);
+      if (!candidateRows || candidateRows.length === 0) {
         updates.push({ id: r.id, result: { status: 'not_found', checkedAt } });
         summary.not_found++;
         continue;
       }
 
-      const erpVendorId = String(row.VendorId ?? '').trim();
       const localVendorId = String(r.vendor_id ?? '').trim();
-      const erpAmount = parseFloat(row.GrandTotal) || 0;
       const billAmount = parseFloat(r.bill_amount ?? 0) || 0;
       const finalAmount = parseFloat(r.final_bill_amount ?? r.bill_amount ?? 0) || 0;
-      const diffFromBill = erpAmount - billAmount;
-      const diffFromFinal = erpAmount - finalAmount;
-      const matchesBill = Math.abs(diffFromBill) <= AMOUNT_TOLERANCE;
-      const matchesFinal = Math.abs(diffFromFinal) <= AMOUNT_TOLERANCE;
-      const amountMatches = matchesBill || matchesFinal;
-      const useBill = Math.abs(diffFromBill) <= Math.abs(diffFromFinal);
-      const amountDiff = useBill ? diffFromBill : diffFromFinal;
-      const amountSource = useBill ? 'Bill' : 'Final';
-      // Step 1: exact vendor ID match. Step 2 (fallback, only when IDs differ): vendor NAME match.
       const localVendorName = vendorNameByKey.get(`${r.vendor_id}_${r.branch_id}`) || null;
-      const vendorIdMatches = erpVendorId !== '' && erpVendorId === localVendorId;
-      const vendorNameMatches = !vendorIdMatches && vendorNamesMatch(localVendorName, row.PartyName);
-      const vendorMatches = vendorIdMatches || vendorNameMatches;
-      const vendorMatchedVia = vendorIdMatches ? 'id' : (vendorNameMatches ? 'name' : null);
-      const status = vendorMatches && amountMatches ? 'matched' : 'mismatch';
+
+      const candidates = candidateRows.map((row) => {
+        const erpVendorId = String(row.VendorId ?? '').trim();
+        const erpAmount = parseFloat(row.GrandTotal) || 0;
+        const diffFromBill = erpAmount - billAmount;
+        const diffFromFinal = erpAmount - finalAmount;
+        const matchesBill = Math.abs(diffFromBill) <= AMOUNT_TOLERANCE;
+        const matchesFinal = Math.abs(diffFromFinal) <= AMOUNT_TOLERANCE;
+        const amountMatches = matchesBill || matchesFinal;
+        const useBill = Math.abs(diffFromBill) <= Math.abs(diffFromFinal);
+        const amountDiff = useBill ? diffFromBill : diffFromFinal;
+        const amountSource = useBill ? 'Bill' : 'Final';
+        // Step 1: exact vendor ID match. Step 2 (fallback, only when IDs differ): vendor NAME match.
+        const vendorIdMatches = erpVendorId !== '' && erpVendorId === localVendorId;
+        const vendorNameMatches = !vendorIdMatches && vendorNamesMatch(localVendorName, row.PartyName);
+        const vendorMatches = vendorIdMatches || vendorNameMatches;
+        const vendorMatchedVia = vendorIdMatches ? 'id' : (vendorNameMatches ? 'name' : null);
+        // VoucherForm is blank for non-VAT entries and 'VAT' for VAT-form invoices.
+        const vatStatus = (row.VoucherForm || '').trim().toUpperCase() === 'VAT' ? 'VAT' : 'No VAT';
+        return {
+          status: vendorMatches && amountMatches ? 'matched' : 'mismatch',
+          grandTotal: erpAmount, amountDiff, amountSource, erpVendorId, localVendorId,
+          vendorMatches, vendorIdMatches, vendorNameMatches, vendorMatchedVia, amountMatches,
+          partyName: row.PartyName, localVendorName, vatStatus
+        };
+      });
+
+      // Prefer a fully-matched candidate; otherwise report whichever is closest on amount.
+      const best = candidates.find((c) => c.status === 'matched') ||
+        candidates.reduce((a, b) => (Math.abs(b.amountDiff) < Math.abs(a.amountDiff) ? b : a));
+      const status = best.status;
 
       updates.push({
         id: r.id,
-        result: {
-          status, grandTotal: erpAmount, amountDiff, amountSource, erpVendorId, localVendorId,
-          vendorMatches, vendorIdMatches, vendorNameMatches, vendorMatchedVia, amountMatches,
-          partyName: row.PartyName, localVendorName, checkedAt
-        }
+        result: { ...best, candidateCount: candidateRows.length, checkedAt }
       });
       summary[status]++;
       if (status === 'matched') {
-        if (vendorMatchedVia === 'name') summary.matchedByName++;
+        if (best.vendorMatchedVia === 'name') summary.matchedByName++;
         else summary.matchedById++;
       }
     }

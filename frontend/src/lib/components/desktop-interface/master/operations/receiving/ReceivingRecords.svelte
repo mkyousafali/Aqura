@@ -9,6 +9,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { realtimeService } from '$lib/utils/realtimeService';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import ReceivingRecordsPermissionsModal from './ReceivingRecordsPermissionsModal.svelte';
 
 	// State for receiving records
 	let receivingRecords = []; // Current page records
@@ -103,7 +104,40 @@
 	}
 	// Referencing the args directly (not just calling isButtonAllowed) so Svelte's reactive
 	// dependency tracking actually re-runs this once the async permission load resolves.
-	$: canEditErpReference = buttonPermissionsLoaded && ($currentUser?.isMasterAdmin || allowedButtonCodes.has('VENDOR_RECORDS'));
+	$: canEditErpReference = buttonPermissionsLoaded && ($currentUser?.isMasterAdmin || allowedButtonCodes.has('VENDOR_RECORDS') || !!receivingPermRow?.can_edit_erp_reference);
+
+	// Per-user grants for the Edit/Delete buttons in the Actions column, from the
+	// dedicated receiving_records_permissions table (managed via the "Edit
+	// Permission" popup, Master Admin only). Master Admin always bypasses this.
+	let receivingPermRow = null;
+	let showPermissionsModal = false;
+
+	async function loadReceivingRecordsPermission() {
+		if (!$currentUser?.id) {
+			receivingPermRow = null;
+			return;
+		}
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('receiving_records_permissions')
+				.select('can_edit_erp_reference, can_edit_record, can_delete')
+				.eq('user_id', $currentUser.id)
+				.maybeSingle();
+			if (error) throw error;
+			receivingPermRow = data || null;
+		} catch (err) {
+			console.error('Error loading receiving records permissions:', err);
+			receivingPermRow = null;
+		}
+	}
+
+	$: if ($currentUser) {
+		loadReceivingRecordsPermission();
+	}
+
+	$: canEditRecord = isMasterAdmin || !!receivingPermRow?.can_edit_record;
+	$: canDeleteRecord = isMasterAdmin || !!receivingPermRow?.can_delete;
 
 	// Record edit popup state (Master Admin only)
 	let showEditPopup = false;
@@ -418,7 +452,44 @@
 	// actually exists as a Purchase Invoice (PI) in that branch's own ERP SQL Server, live over the
 	// tunnel, AND that its vendor NAME (not the ERP ledger ID) and amount (±1 tolerance)
 	// both match this receiving record — a voucher number alone can exist but belong to a different vendor/amount.
+	// VoucherNumber is NOT guaranteed unique per branch (each counter/terminal keeps its own sequence,
+	// and VAT vs non-VAT-form entries can independently reuse the same number) — so every matching row
+	// is fetched and each is tried in turn, instead of trusting whichever one a bare TOP 1 happens to return.
 	// The verdict is persisted to receiving_records.erp_check_result (jsonb) so it survives reloads.
+	function evaluateErpCandidate(row, record) {
+		const erpVendorId = String(row.VendorId ?? '').trim();
+		const localVendorId = String(record.vendor_id ?? '').trim();
+		const erpAmount = parseFloat(row.GrandTotal) || 0;
+		// final_bill_amount can be a discounted/adjusted figure that legitimately differs from
+		// the ERP's GrandTotal, while bill_amount (the original entered total) is often the closer
+		// match — check against both and accept whichever is within tolerance.
+		const billAmount = parseFloat(record.bill_amount ?? 0) || 0;
+		const finalAmount = parseFloat(record.final_bill_amount ?? record.bill_amount ?? 0) || 0;
+		const diffFromBill = erpAmount - billAmount;
+		const diffFromFinal = erpAmount - finalAmount;
+		const AMOUNT_TOLERANCE = 1;
+		const matchesBill = Math.abs(diffFromBill) <= AMOUNT_TOLERANCE;
+		const matchesFinal = Math.abs(diffFromFinal) <= AMOUNT_TOLERANCE;
+		const amountMatches = matchesBill || matchesFinal;
+		const useBill = Math.abs(diffFromBill) <= Math.abs(diffFromFinal);
+		const amountDiff = useBill ? diffFromBill : diffFromFinal;
+		const amountSource = useBill ? 'Bill' : 'Final';
+		// Step 1: exact vendor ID match. Step 2 (fallback, only when IDs differ): vendor NAME
+		// match — catches duplicate/renamed ERP ledgers for the same real vendor.
+		const vendorIdMatches = erpVendorId !== '' && erpVendorId === localVendorId;
+		const vendorNameMatches = !vendorIdMatches && vendorNamesMatch(record.vendors?.vendor_name, row.PartyName);
+		const vendorMatches = vendorIdMatches || vendorNameMatches;
+		const vendorMatchedVia = vendorIdMatches ? 'id' : (vendorNameMatches ? 'name' : null);
+		// VoucherForm is blank for non-VAT entries and 'VAT' for VAT-form invoices.
+		const vatStatus = (row.VoucherForm || '').trim().toUpperCase() === 'VAT' ? 'VAT' : 'No VAT';
+		return {
+			status: vendorMatches && amountMatches ? 'matched' : 'mismatch',
+			grandTotal: erpAmount, amountDiff, amountSource, erpVendorId, localVendorId,
+			vendorMatches, vendorIdMatches, vendorNameMatches, vendorMatchedVia, amountMatches,
+			partyName: row.PartyName, localVendorName: record.vendors?.vendor_name || null, vatStatus
+		};
+	}
+
 	async function checkErpInvoice(record) {
 		const ref = (record.erp_purchase_invoice_reference || '').toString().trim();
 		if (!ref) return;
@@ -433,7 +504,7 @@
 		erpCheckStatus = { ...erpCheckStatus, [record.id]: 'checking' };
 		try {
 			const safeRef = ref.replace(/'/g, "''");
-			const sql = `SELECT TOP 1 m.InvTransactionMasterID, m.GrandTotal, m.PartyName, m.TransactionDate, l.LedgerCode AS VendorId FROM InvTransactionMaster m LEFT JOIN AccLedgers l ON l.LedgerID = m.LedgerID AND l.BranchID = m.BranchID WHERE m.VoucherType='PI' AND CAST(m.VoucherNumber AS VARCHAR(50))='${safeRef}' AND m.BranchID=${conn.erp_branch_id} AND m.IsActive=1`;
+			const sql = `SELECT m.InvTransactionMasterID, m.GrandTotal, m.PartyName, m.TransactionDate, m.VoucherForm, l.LedgerCode AS VendorId FROM InvTransactionMaster m LEFT JOIN AccLedgers l ON l.LedgerID = m.LedgerID AND l.BranchID = m.BranchID WHERE m.VoucherType='PI' AND CAST(m.VoucherNumber AS VARCHAR(50))='${safeRef}' AND m.BranchID=${conn.erp_branch_id} AND m.IsActive=1`;
 			const response = await fetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -442,8 +513,8 @@
 			const data = await response.json();
 			if (!data.success) throw new Error(data.error || 'Query failed');
 
-			const row = data.recordset?.[0];
-			if (!row) {
+			const rows = data.recordset || [];
+			if (rows.length === 0) {
 				const payload = { status: 'not_found', checkedAt: new Date().toISOString() };
 				erpCheckStatus = { ...erpCheckStatus, [record.id]: 'not_found' };
 				erpCheckResult = { ...erpCheckResult, [record.id]: payload };
@@ -451,35 +522,15 @@
 				return;
 			}
 
-			const erpVendorId = String(row.VendorId ?? '').trim();
-			const localVendorId = String(record.vendor_id ?? '').trim();
-			const erpAmount = parseFloat(row.GrandTotal) || 0;
-			// final_bill_amount can be a discounted/adjusted figure that legitimately differs from
-			// the ERP's GrandTotal, while bill_amount (the original entered total) is often the closer
-			// match — check against both and accept whichever is within tolerance.
-			const billAmount = parseFloat(record.bill_amount ?? 0) || 0;
-			const finalAmount = parseFloat(record.final_bill_amount ?? record.bill_amount ?? 0) || 0;
-			const diffFromBill = erpAmount - billAmount;
-			const diffFromFinal = erpAmount - finalAmount;
-			const AMOUNT_TOLERANCE = 1;
-			const matchesBill = Math.abs(diffFromBill) <= AMOUNT_TOLERANCE;
-			const matchesFinal = Math.abs(diffFromFinal) <= AMOUNT_TOLERANCE;
-			const amountMatches = matchesBill || matchesFinal;
-			const useBill = Math.abs(diffFromBill) <= Math.abs(diffFromFinal);
-			const amountDiff = useBill ? diffFromBill : diffFromFinal;
-			const amountSource = useBill ? 'Bill' : 'Final';
-			// Step 1: exact vendor ID match. Step 2 (fallback, only when IDs differ): vendor NAME
-			// match — catches duplicate/renamed ERP ledgers for the same real vendor.
-			const vendorIdMatches = erpVendorId !== '' && erpVendorId === localVendorId;
-			const vendorNameMatches = !vendorIdMatches && vendorNamesMatch(record.vendors?.vendor_name, row.PartyName);
-			const vendorMatches = vendorIdMatches || vendorNameMatches;
-			const vendorMatchedVia = vendorIdMatches ? 'id' : (vendorNameMatches ? 'name' : null);
+			const candidates = rows.map((row) => evaluateErpCandidate(row, record));
+			// Prefer a fully-matched candidate; otherwise report whichever is closest on amount,
+			// so the mismatch reason shown is the most plausible one, not an arbitrary row.
+			const best = candidates.find((c) => c.status === 'matched') ||
+				candidates.reduce((a, b) => (Math.abs(b.amountDiff) < Math.abs(a.amountDiff) ? b : a));
 
 			const payload = {
-				status: vendorMatches && amountMatches ? 'matched' : 'mismatch',
-				grandTotal: erpAmount, amountDiff, amountSource, erpVendorId, localVendorId,
-				vendorMatches, vendorIdMatches, vendorNameMatches, vendorMatchedVia, amountMatches,
-				partyName: row.PartyName, localVendorName: record.vendors?.vendor_name || null,
+				...best,
+				candidateCount: rows.length,
 				checkedAt: new Date().toISOString()
 			};
 			erpCheckStatus = { ...erpCheckStatus, [record.id]: payload.status };
@@ -1458,7 +1509,7 @@
 	}
 
 	async function openEditPopup(record) {
-		if (!isMasterAdmin) return;
+		if (!isMasterAdmin && !canEditRecord) return;
 
 		editingRecord = record;
 		editError = '';
@@ -1536,7 +1587,7 @@
 	}
 
 	async function saveRecordEdit() {
-		if (!isMasterAdmin || !editingRecord || !editForm) return;
+		if ((!isMasterAdmin && !canEditRecord) || !editingRecord || !editForm) return;
 
 		const billAmount = parseFloat(editForm.bill_amount);
 		const finalAmount = parseFloat(editForm.final_bill_amount);
@@ -1641,7 +1692,7 @@
 	}
 
 	async function deleteReceivingRecord(recordId) {
-		if (!isMasterAdmin) {
+		if (!isMasterAdmin && !canDeleteRecord) {
 			alert(tFn('receiving.records.onlyMasterAdmin'));
 			return;
 		}
@@ -1684,6 +1735,19 @@
 
 <!-- Receiving Records Window Content -->
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+
+	{#if isMasterAdmin}
+		<div class="px-8 pt-6 flex justify-end">
+			<button
+				type="button"
+				on:click={() => (showPermissionsModal = true)}
+				class="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors"
+				title="Manage which users can edit the ERP reference, edit records, or delete records"
+			>
+				🔐 {$t('receiving.records.editPermissionBtn')}
+			</button>
+		</div>
+	{/if}
 
 	<!-- Filter Controls -->
 	<div class="px-8 pt-6">
@@ -1836,7 +1900,7 @@
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colDaysToDue')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colAmounts')}</th>
 							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colErpCheck')}</th>
-							{#if isMasterAdmin}
+							{#if isMasterAdmin || canEditRecord || canDeleteRecord}
 								<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colActions')}</th>
 							{/if}
 						</tr>
@@ -2074,13 +2138,16 @@
 							{:else if erpCheckStatus[record.id] === 'checking'}
 								<div class="spinner-small mx-auto"></div>
 							{:else if erpCheckStatus[record.id] === 'matched'}
-								<div class="text-xs text-emerald-600 font-bold">✅ {$t('receiving.records.erpCheckMatched')}</div>
+								<div class="text-xs text-emerald-600 font-bold">✅ {$t('receiving.records.erpCheckMatched')} <span class="font-semibold text-slate-500">({erpCheckResult[record.id]?.vatStatus || 'No VAT'})</span></div>
 								<div class="text-xs text-slate-400" title={`Local: ${erpCheckResult[record.id]?.localVendorName || '-'} / ERP: ${erpCheckResult[record.id]?.partyName || '-'}`}>
 									{$t('receiving.records.idLabel')} {erpCheckResult[record.id]?.erpVendorId}{erpCheckResult[record.id]?.vendorMatchedVia === 'name' ? ` (≠ ${erpCheckResult[record.id]?.localVendorId}, matched by name)` : ''}
 								</div>
 								<div class="text-xs text-slate-500">
 									{parseFloat(erpCheckResult[record.id]?.grandTotal || 0).toFixed(2)}{Math.abs(erpCheckResult[record.id]?.amountDiff || 0) < 0.005 ? ' ✓' : ` (Δ ${erpCheckResult[record.id]?.amountDiff > 0 ? '+' : ''}${parseFloat(erpCheckResult[record.id]?.amountDiff || 0).toFixed(2)})`} vs {erpCheckResult[record.id]?.amountSource}
 								</div>
+								{#if erpCheckResult[record.id]?.candidateCount > 1}
+									<div class="text-xs text-slate-400" title="This voucher number has multiple ERP rows (e.g. different counters/VAT forms) — the matching one was picked automatically">{erpCheckResult[record.id]?.candidateCount} vouchers found, best pick used</div>
+								{/if}
 							{:else if erpCheckStatus[record.id] === 'mismatch'}
 								<div class="text-xs text-red-600 font-bold">❌ {$t('receiving.records.erpCheckMismatch')}</div>
 								{#if !erpCheckResult[record.id]?.vendorMatches}
@@ -2091,6 +2158,9 @@
 								<div class="text-xs text-slate-500">
 									{parseFloat(erpCheckResult[record.id]?.grandTotal || 0).toFixed(2)}{erpCheckResult[record.id]?.amountMatches ? ` ✓ vs ${erpCheckResult[record.id]?.amountSource}` : ` (Δ ${erpCheckResult[record.id]?.amountDiff > 0 ? '+' : ''}${parseFloat(erpCheckResult[record.id]?.amountDiff || 0).toFixed(2)} vs ${erpCheckResult[record.id]?.amountSource})`}
 								</div>
+								{#if erpCheckResult[record.id]?.candidateCount > 1}
+									<div class="text-xs text-slate-400" title="This voucher number has multiple ERP rows (e.g. different counters/VAT forms) — none of them matched">{erpCheckResult[record.id]?.candidateCount} vouchers found, none matched</div>
+								{/if}
 								<button class="text-xs text-slate-400 underline bg-transparent border-none cursor-pointer" on:click={() => checkErpInvoice(record)}>{$t('receiving.records.erpCheckRecheck')}</button>
 							{:else if erpCheckStatus[record.id] === 'not_found'}
 								<div class="text-xs text-red-600 font-bold mb-1">❌ {$t('receiving.records.erpCheckNotFound')}</div>
@@ -2109,7 +2179,7 @@
 							{/if}
 						</td>
 						
-						{#if isMasterAdmin}
+						{#if isMasterAdmin || canEditRecord || canDeleteRecord}
 							<td class="px-3 py-3 text-sm text-center">
 								{#if deletingRecordId === record.id}
 									<div class="deleting-indicator">
@@ -2118,20 +2188,24 @@
 									</div>
 								{:else}
 									<div class="inline-flex items-center gap-1.5">
-										<button
-											class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-											on:click={() => openEditPopup(record)}
-											title={$t('receiving.records.editRecordTooltip')}
-										>
-											✏️
-										</button>
-										<button
-											class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-											on:click={() => deleteReceivingRecord(record.id)}
-											title="Delete this receiving record (Master Admin only)"
-										>
-											🗑️
-										</button>
+										{#if isMasterAdmin || canEditRecord}
+											<button
+												class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+												on:click={() => openEditPopup(record)}
+												title={$t('receiving.records.editRecordTooltip')}
+											>
+												✏️
+											</button>
+										{/if}
+										{#if isMasterAdmin || canDeleteRecord}
+											<button
+												class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+												on:click={() => deleteReceivingRecord(record.id)}
+												title="Delete this receiving record"
+											>
+												🗑️
+											</button>
+										{/if}
 									</div>
 								{/if}
 							</td>
@@ -2224,6 +2298,9 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Edit Permission Popup (Master Admin only) -->
+<ReceivingRecordsPermissionsModal bind:show={showPermissionsModal} on:close={() => (showPermissionsModal = false)} />
 
 <!-- Edit Record Popup (Master Admin only) -->
 {#if showEditPopup && editForm}

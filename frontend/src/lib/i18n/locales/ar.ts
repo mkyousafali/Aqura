@@ -5283,6 +5283,7 @@ export const arabicLocale: LocaleData = {
         naText: "غ/م",
         invalidDate: "تاريخ غير صالح",
         daysText: "{n} يوم",
+        editPermissionBtn: "صلاحيات التعديل",
         // تعديل السجل - مدير رئيسي فقط
         editRecordTooltip: "تعديل سجل الاستلام (المدير الرئيسي فقط)",
         editRecordTitle: "تعديل سجل الاستلام",

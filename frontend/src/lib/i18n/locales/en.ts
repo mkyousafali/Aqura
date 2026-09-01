@@ -5246,6 +5246,7 @@ export const englishLocale: LocaleData = {
         naText: "N/A",
         invalidDate: "Invalid Date",
         daysText: "{n} days",
+        editPermissionBtn: "Edit Permission",
         // Master Admin record editing
         editRecordTooltip: "Edit this receiving record (Master Admin only)",
         editRecordTitle: "Edit Receiving Record",
