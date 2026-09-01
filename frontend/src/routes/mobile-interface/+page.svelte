@@ -10,25 +10,8 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { localeData } from '$lib/i18n';
-	import MobileErpModal from '$lib/components/MobileErpModal.svelte';
-	
+
 	let currentUserData = null;
-
-	// ERP credentials
-	let showErpModal = false;
-	let erpCredentialCount = 0;
-
-	async function loadErpCredentialCount(userUuid: string) {
-		try {
-			const { count, error } = await supabase
-				.from('user_erp_credentials')
-				.select('id', { count: 'exact', head: true })
-				.eq('user_id', userUuid);
-			if (!error) erpCredentialCount = count ?? 0;
-		} catch {
-			// silent — ERP card simply won't appear
-		}
-	}
 
 	let stats = {
 		pendingTasks: 0,
@@ -455,9 +438,6 @@
 					}
 				});
 
-			// Step ERP: Load ERP credential count (fire-and-forget)
-			loadErpCredentialCount(userUuid);
-
 			// Step 12: Check active break (fire-and-forget)
 			supabase.rpc('get_active_break', { p_user_id: userUuid })
 				.then(({ data: breakData, error: breakErr }) => {
@@ -586,12 +566,6 @@
 	}
 </script>
 
-{#if showErpModal && currentUserData?.id}
-	<MobileErpModal
-		userId={currentUserData.id}
-		onClose={() => (showErpModal = false)}
-	/>
-{/if}
 <svelte:head>
 	<title>Dashboard - Aqura Mobile</title>
 </svelte:head>
@@ -605,6 +579,18 @@
 		<!-- Stats Grid -->
 		<section class="stats-section">
 			<div class="stats-grid">
+			<!-- ERP Access Card -->
+			<div class="stat-card blank clickable erp-access-card" on:click={() => goto('/mobile-interface/erp-access')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<p>{$localeData.code === 'ar' ? 'دخول ERP' : 'ERP Access'}</p>
+				</div>
+			</div>
+
 			<!-- My Profile Card -->
 			<div class="stat-card blank clickable my-profile-card" on:click={() => goto('/mobile-interface/my-profile')}>
 				<div class="stat-icon">
@@ -918,22 +904,6 @@
 					<p>{$localeData.code === 'ar' ? 'منتجاتي' : 'My Products'}</p>
 				</div>
 			</div>
-
-			{#if erpCredentialCount > 0}
-			<div class="stat-card blank clickable" on:click={() => (showErpModal = true)}>
-				<div class="stat-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<rect x="3" y="3" width="7" height="7"/>
-						<rect x="14" y="3" width="7" height="7"/>
-						<rect x="3" y="14" width="7" height="7"/>
-						<path d="M14 14h.01M14 17h.01M17 14h.01M17 17h.01M20 14h.01M20 17h.01M17 20h.01M20 20h.01"/>
-					</svg>
-				</div>
-				<div class="stat-info">
-					<p>{getTranslation('mobile.erp.label')}</p>
-				</div>
-			</div>
-			{/if}
 
 			<div class="stat-card blank clickable product-request-card" on:click={() => goto('/mobile-interface/product-request')}>
 				<div class="stat-icon">

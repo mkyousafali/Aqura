@@ -52,7 +52,7 @@
 		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
 		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'THEME_MANAGER': '🎨',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
-		'ERP_PRODUCT_MANAGER': '🏭',
+		'ERP_PRODUCT_MANAGER': '🏭', 'ERP_CREDENTIALS': '🏭',
 		// Additional DB button codes
 		'UPLOAD_EMPLOYEES': '📤', 'WARNING_MASTER': '⚠️', 'SALARY_WAGE_MANAGEMENT': '💰',
 		'CONTACT_MANAGEMENT': '📇', 'DOCUMENT_MANAGEMENT': '📑', 'BIOMETRIC_DATA': '👆',
@@ -209,6 +209,7 @@
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
 		'LEAVE_REQUEST': 'nav.leaveRequest',
 		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
+		'ERP_CREDENTIALS': 'nav.erpCredentials',
 		// Additional DB button codes (aliases / alternate codes)
 		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees',
 		'WARNING_MASTER': 'nav.warningMaster',

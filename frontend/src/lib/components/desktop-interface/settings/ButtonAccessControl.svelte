@@ -35,21 +35,23 @@
 	let showOnlyDisabled = false;
 	let tableContainer: HTMLElement;
 
+	// Kept in sync with the section names/order returned by /api/parse-sidebar
+	// (see [[button-permission-system-rewrite]]), which itself mirrors the
+	// live sidebar's SECTIONS/SUBSECTION_CODES and nav.* display strings.
 	const sectionIcons: Record<string, string> = {
 		'Delivery': '🚚',
-		'Vendor': '🏪',
-		'Media': '📸',
-		'Promo': '🎁',
+		'Sourcing': '🏪',
+		'Designer': '📸',
+		'Campaigns': '🎁',
 		'Finance': '💰',
 		'HR': '👥',
 		'Tasks': '✅',
-		'Outreach': '📢',
-		'User': '👤',
+		'Users': '👤',
+		'Loyalty': '⭐',
 		'Controls': '🎛️',
 		'System': '🖥️',
-		'Stock': '📦',
-		'Whatsapp': '💬',
-		'Loyalty': '⭐'
+		'WhatsApp': '💬',
+		'Email': '📧'
 	};
 
 	function scrollToSection(section: string) {
@@ -66,19 +68,18 @@
 
 	const sectionOrder = [
 		'Delivery',
-		'Vendor',
-		'Media',
-		'Promo',
+		'Sourcing',
+		'Designer',
+		'Campaigns',
 		'Finance',
 		'HR',
 		'Tasks',
-		'Outreach',
-		'User',
+		'Users',
+		'Loyalty',
 		'Controls',
 		'System',
-		'Stock',
-		'Whatsapp',
-		'Loyalty'
+		'WhatsApp',
+		'Email'
 	];
 
 	const subsectionOrder = ['Dashboard', 'Manage', 'Operations', 'Reports'];

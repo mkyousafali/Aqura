@@ -110,6 +110,7 @@
 	import SidebarAnimationManager from '$lib/components/desktop-interface/settings/SidebarAnimationManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
+	import ErpCredentials from '$lib/components/desktop-interface/settings/ErpCredentials.svelte';
 	import UserActionReports from '$lib/components/desktop-interface/settings/UserActionReports.svelte';
 	import DrawerActionMonitor from '$lib/components/desktop-interface/settings/DrawerActionMonitor.svelte';
 	import PCLockGuard from '$lib/components/desktop-interface/settings/PCLockGuard.svelte';
@@ -327,7 +328,7 @@
 		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
-		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
+		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager', 'ERP_CREDENTIALS': 'nav.erpCredentials',
 		'USER_ACTION_REPORTS': 'nav.userActionReports',
 		'DRAWER_ACTION_MONITOR': 'nav.drawerActionMonitor',
 		// Additional DB button codes (aliases / alternate codes)
@@ -579,7 +580,7 @@
 		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE"],
 		ControlsReports: ["PC_LOCK_GUARD"],
 		SystemDashboard: [],
-		SystemManage: ["BUTTON_ACCESS_CONTROL","BRANCHES","THEME_MANAGER","ERP_PRODUCT_MANAGER","SETTINGS","BRANDING"],
+		SystemManage: ["BUTTON_ACCESS_CONTROL","BRANCHES","THEME_MANAGER","ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
 		SystemOperations: ["HELPER_APPS","SIDEBAR_ANIMATION"],
 		SystemReports: ["CENTRAL_PERFORMANCE","USER_ACTION_REPORTS","DRAWER_ACTION_MONITOR"],
 		WhatsAppDashboard: ["WA_DASHBOARD"],
@@ -2077,6 +2078,30 @@ function openApprovalCenter() {
 		showSystemManageSubmenu = false;
 	}
 
+	function openErpCredentials() {
+		const windowId = generateWindowId('erp-credentials');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${t('nav.erpCredentials')} #${instanceNumber}`,
+			component: ErpCredentials,
+			componentName: "ErpCredentials",
+			icon: '🏭',
+			size: { width: 1400, height: 800 },
+			position: {
+				x: 150 + (Math.random() * 100),
+				y: 80 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSystemSubmenu = false;
+		showSystemManageSubmenu = false;
+	}
+
 	function openThemeManager() {
 		const windowId = generateWindowId('theme-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2317,6 +2342,7 @@ function openApprovalCenter() {
 			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
+			'ERP_CREDENTIALS': openErpCredentials,
 			'USER_ACTION_REPORTS': openUserActionReports,
 			'DRAWER_ACTION_MONITOR': openDrawerActionMonitor,
 			'STORAGE_MANAGER': openStorageManager,
@@ -6516,6 +6542,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openErpProductManager}>
 								<span class="menu-icon">🏭</span>
 								<span class="menu-text">{t('nav.erpProductManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ERP_CREDENTIALS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openErpCredentials}>
+								<span class="menu-icon">🏭</span>
+								<span class="menu-text">{t('nav.erpCredentials')}</span>
 							</button>
 						</div>
 					{/if}

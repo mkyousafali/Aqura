@@ -21,6 +21,8 @@ interface SectionStructure {
 function prettyButtonName(code: string): string {
 	const specialNames: Record<string, string> = {
 		E_R_P_CONNECTIONS: 'ERP Connections',
+		ERP_PRODUCT_MANAGER: 'ERP Product Manager',
+		ERP_CREDENTIALS: 'ERP Credentials',
 		API_KEYS_MANAGER: 'API Keys Manager',
 		HR_SERVICES: 'HR Services',
 		EMPLOYEE_MASTER: 'Employee Master',
@@ -52,13 +54,23 @@ function prettyButtonName(code: string): string {
 // SOURCE OF TRUTH for the sidebar button catalog.
 //
 // This structure is the single place to register a new button. It must be
-// kept in sync by hand with the `isButtonAllowed('CODE')` guards in
-// Sidebar.svelte — add the button here (in the right SECTION/SUBSECTION),
-// then gate it in Sidebar.svelte with the same code.
+// kept in sync by hand with the `isButtonAllowed('CODE')` guards AND the
+// SECTIONS/SUBSECTION_CODES map in Sidebar.svelte — add the button here (in
+// the right SECTION/SUBSECTION, matching where it actually renders in the
+// live sidebar today), then gate it in Sidebar.svelte with the same code.
 //
 // Button Access Control reads this endpoint to build its permission-toggle
 // list, so a code added here appears there automatically, in the right
 // section, with no separate sync step.
+//
+// Section keys here (and their DASHBOARD/MANAGE/OPERATIONS/REPORTS
+// subsections) mirror Sidebar.svelte's SECTIONS/SUBSECTION_CODES 1:1 — e.g.
+// STOCK_* buttons live under VENDOR here because that's where they actually
+// render in the sidebar (there's no standalone "Stock" menu), and the old
+// NOTIFICATIONS group was folded into PROMO for the same reason. Display
+// names below must match the `nav.*` i18n strings Sidebar.svelte uses for
+// each section header (see SECTION_DISPLAY_NAMES) — several sections were
+// renamed there (e.g. Vendor → Sourcing) without this catalog being updated.
 // ─────────────────────────────────────────────────────────────────────────
 const structure: Record<string, Record<string, string[]>> = {
 	DELIVERY: {
@@ -69,12 +81,20 @@ const structure: Record<string, Record<string, string[]>> = {
 	},
 	VENDOR: {
 		DASHBOARD: ['RECEIVING'],
-		MANAGE: ['UPLOAD_VENDOR', 'CREATE_VENDOR', 'MANAGE_VENDOR', 'DEFAULT_POSITIONS'],
-		OPERATIONS: ['START_RECEIVING', 'RECEIVING_RECORDS', 'PENDING_RECEIVING_RECORDS', 'ACTION_FOLLOW_UPS'],
+		MANAGE: [
+			'UPLOAD_VENDOR', 'CREATE_VENDOR', 'MANAGE_VENDOR', 'DEFAULT_POSITIONS',
+			'STOCK_PO_REQUESTS', 'STOCK_STOCK_REQUESTS', 'STOCK_BT_REQUESTS',
+			'STOCK_NEAR_EXPIRY_REQUESTS', 'STOCK_CUSTOMER_PRODUCT_REQUESTS', 'STOCK_OFFER_COST_MANAGER'
+		],
+		OPERATIONS: [
+			'START_RECEIVING', 'RECEIVING_RECORDS', 'PENDING_RECEIVING_RECORDS',
+			'STOCK_PRODUCT_REQUEST', 'STOCK_ERP_PRODUCTS', 'STOCK_PRODUCT_CLAIM_MANAGER', 'STOCK_EXPIRY_CONTROL',
+			'ACTION_FOLLOW_UPS'
+		],
 		REPORTS: ['VENDOR_RECORDS']
 	},
 	MEDIA: {
-		DASHBOARD: [], // FLYER_MASTER and PRODUCTS_DASHBOARD removed
+		DASHBOARD: [], // FLYER_MASTER and PRODUCTS_DASHBOARD removed (handlers commented out in Sidebar.svelte)
 		MANAGE: [
 			'PRODUCT_MASTER',
 			'VARIATION_MANAGER',
@@ -98,9 +118,9 @@ const structure: Record<string, Record<string, string[]>> = {
 		REPORTS: []
 	},
 	PROMO: {
-		DASHBOARD: ['COUPON_DASHBOARD_PROMO'],
+		DASHBOARD: ['COUPON_DASHBOARD_PROMO', 'COMMUNICATION_CENTER'],
 		MANAGE: ['CAMPAIGN_MANAGER', 'GIFT_WHEEL_MANAGER', 'SURPRISE_BOX_MANAGER', 'VIP_CAMPAIGN'],
-		OPERATIONS: ['VIEW_OFFER_MANAGER', 'CUSTOMER_IMPORTER', 'PRODUCT_MANAGER_PROMO'],
+		OPERATIONS: ['VIEW_OFFER_MANAGER', 'CUSTOMER_IMPORTER', 'PRODUCT_MANAGER_PROMO', 'CREATE_NOTIFICATION'],
 		REPORTS: ['COUPON_REPORTS']
 	},
 	FINANCE: {
@@ -115,25 +135,13 @@ const structure: Record<string, Record<string, string[]>> = {
 		OPERATIONS: ['EMPLOYEE_FILES', 'PROCESS_FINGERPRINT', 'SALARY_AND_WAGE', 'SHIFTS', 'SHIFT_AND_DAY_OFF', 'DISCIPLINE', 'INCIDENT_MANAGER', 'REPORT_INCIDENT', 'DAILY_CHECKLIST_MANAGER', 'BREAK_REGISTER'],
 		REPORTS: ['FINGERPRINT_TRANSACTIONS', 'EXPORT_BIOMETRIC_DATA']
 	},
-	STOCK: {
-		DASHBOARD: [],
-		MANAGE: ['STOCK_PO_REQUESTS', 'STOCK_STOCK_REQUESTS', 'STOCK_BT_REQUESTS', 'STOCK_NEAR_EXPIRY_REQUESTS', 'STOCK_CUSTOMER_PRODUCT_REQUESTS', 'STOCK_OFFER_COST_MANAGER'],
-		OPERATIONS: ['STOCK_PRODUCT_REQUEST', 'STOCK_ERP_PRODUCTS', 'STOCK_PRODUCT_CLAIM_MANAGER', 'STOCK_EXPIRY_CONTROL'],
-		REPORTS: []
-	},
 	TASKS: {
 		DASHBOARD: ['TASK_MASTER'],
 		MANAGE: ['CREATE_TASK', 'VIEW_TASKS'],
 		OPERATIONS: ['ASSIGN_TASKS', 'MY_DAILY_CHECKLIST'],
 		REPORTS: ['VIEW_MY_TASKS', 'VIEW_MY_ASSIGNMENTS', 'TASK_STATUS', 'BRANCH_PERFORMANCE']
 	},
-	NOTIFICATIONS: {
-		DASHBOARD: ['COMMUNICATION_CENTER'],
-		MANAGE: [],
-		OPERATIONS: ['CREATE_NOTIFICATION'],
-		REPORTS: []
-	},
-	USERS: {
+	USER: {
 		DASHBOARD: ['USER_MANAGEMENT'],
 		MANAGE: ['CREATE_USER', 'MANAGE_ADMIN_USERS', 'MANAGE_MASTER_ADMIN', 'INTERFACE_ACCESS_MANAGER', 'APPROVAL_PERMISSIONS'],
 		OPERATIONS: [],
@@ -153,7 +161,7 @@ const structure: Record<string, Record<string, string[]>> = {
 	},
 	SYSTEM: {
 		DASHBOARD: [],
-		MANAGE: ['BUTTON_ACCESS_CONTROL', 'BRANCHES', 'THEME_MANAGER', 'ERP_PRODUCT_MANAGER', 'SETTINGS', 'BRANDING'],
+		MANAGE: ['BUTTON_ACCESS_CONTROL', 'BRANCHES', 'THEME_MANAGER', 'ERP_PRODUCT_MANAGER', 'ERP_CREDENTIALS', 'SETTINGS', 'BRANDING'],
 		OPERATIONS: ['HELPER_APPS', 'SIDEBAR_ANIMATION'],
 		REPORTS: ['CENTRAL_PERFORMANCE', 'USER_ACTION_REPORTS', 'DRAWER_ACTION_MONITOR']
 	},
@@ -169,6 +177,28 @@ const structure: Record<string, Record<string, string[]>> = {
 		OPERATIONS: ['EMAIL_CENTRE', 'EMAIL_COMPOSE', 'EMAIL_BROADCAST', 'EMAIL_QUEUE', 'EMAIL_SCHEDULED'],
 		REPORTS: ['EMAIL_LOGS', 'EMAIL_DELIVERY_REPORTS', 'EMAIL_CAMPAIGN_REPORTS', 'EMAIL_FAILED']
 	}
+};
+
+// Display name for each section header, kept in sync with the `nav.*` i18n
+// strings Sidebar.svelte actually renders for that section (see e.g.
+// `nav.vendor` = "Sourcing", `nav.media` = "Designer", `nav.promo` =
+// "Campaigns", `nav.users` = "Users" in locales/en.ts). Order here also
+// defines the order sections are returned in, which drives the sort order
+// shown in Button Access Control.
+const SECTION_DISPLAY_NAMES: Record<string, string> = {
+	DELIVERY: 'Delivery',
+	VENDOR: 'Sourcing',
+	MEDIA: 'Designer',
+	PROMO: 'Campaigns',
+	FINANCE: 'Finance',
+	HR: 'HR',
+	TASKS: 'Tasks',
+	USER: 'Users',
+	LOYALTY: 'Loyalty',
+	CONTROLS: 'Controls',
+	SYSTEM: 'System',
+	WHATSAPP: 'WhatsApp',
+	EMAIL: 'Email'
 };
 
 export const GET: RequestHandler = async () => {
@@ -193,11 +223,7 @@ export const GET: RequestHandler = async () => {
 		const catalogCodes = new Set<string>();
 
 		for (const [sectionCode, subsectionMap] of Object.entries(structure)) {
-			const sectionName = sectionCode === 'WHATSAPP'
-				? 'WhatsApp'
-				: sectionCode === 'NOTIFICATIONS'
-					? 'Outreach'
-					: sectionCode.charAt(0) + sectionCode.slice(1).toLowerCase();
+			const sectionName = SECTION_DISPLAY_NAMES[sectionCode] ?? (sectionCode.charAt(0) + sectionCode.slice(1).toLowerCase());
 			const subsectionNames = ['DASHBOARD', 'MANAGE', 'OPERATIONS', 'REPORTS'];
 			const subsections = subsectionNames.map((subCode) => {
 				const codes = subsectionMap[subCode] || [];
